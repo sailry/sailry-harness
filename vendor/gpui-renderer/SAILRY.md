@@ -93,3 +93,8 @@ repaints the rows before carrying their records. Relocation preserves
 layer-local scene indices without subtracting window scene origins.
 `gpui/src/fast/layers/lists.rs` tests partial-copy rebuilding, the text-cache
 substreams and later complete copies with different window scene origins.
+
+`ListState::with_uniform_item_height` refreshes unmeasured height estimates while
+retaining measured geometry, focus handles and scroll anchors. The selected Diff
+component uses this public operation after font and layout changes; keeping old
+estimates made its offscreen scroll extent stale at the same viewport width.

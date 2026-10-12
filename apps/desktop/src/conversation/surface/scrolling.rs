@@ -176,3 +176,53 @@ fn nested_scroll_limits(cx: &mut TestAppContext) {
 }
 
 mod groups;
+
+#[gpui_kit::test]
+fn keyboard_focus_reveals_tool_actions(cx: &mut TestAppContext) {
+    use gpui_kit::{component::button::Button, test::TestWindowExt as _};
+    use std::{cell::Cell, rc::Rc};
+    struct ActionsHarness(Rc<Cell<usize>>);
+    impl Render for ActionsHarness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let hits = self.0.clone();
+            v_flex()
+                .size_full()
+                .child(Button::new("before").label("Before"))
+                .child(
+                    div().pt_20().child(result(
+                        "keyboard",
+                        div().child("Tool output").into_any_element(),
+                        [Button::new("copy")
+                            .label("Copy")
+                            .on_click(move |_, _, _| hits.set(hits.get() + 1))
+                            .into_any_element()],
+                        cx,
+                    )),
+                )
+        }
+    }
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let hits = Rc::new(Cell::new(0));
+    let captured = hits.clone();
+    let window = cx.add_window(move |window, cx| {
+        let view = cx.new(|_| ActionsHarness(captured));
+        Root::new(view, window, cx)
+    });
+    let mut visual = VisualTestContext::from_window(*window, cx);
+    visual.simulate_mouse_move(point(px(0.), px(280.)), None, Modifiers::default());
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.focus_next(cx);
+        window.render_frame(cx);
+        assert_eq!(window.find("before").focused(), Some(true));
+        assert!(!window.find("tool-actions-keyboard").visible());
+        window.press("tab", cx);
+        assert_eq!(window.find("copy").focused(), Some(true));
+        assert!(window.find("tool-actions-keyboard").visible());
+        window.press("enter", cx);
+    });
+    assert_eq!(hits.get(), 1);
+}

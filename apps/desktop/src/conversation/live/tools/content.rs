@@ -42,12 +42,17 @@ impl View {
                     })
                     .into_any_element(),
                 Block::Diff(data) => {
-                    let lines = diff::unified(&data.text);
                     let selector = id.clone();
                     v_flex()
                         .min_w_0()
                         .debug_selector(move || selector.clone())
-                        .child(diff::file_rows(&id, &lines, &data.path, Vec::new(), cx))
+                        .child(diff::file_rows(
+                            &id,
+                            &data.text,
+                            &data.path,
+                            false,
+                            Vec::new(),
+                        ))
                         .when(data.truncated, |column| {
                             column.child(surface::notice(tr("tool_partial"), cx))
                         })

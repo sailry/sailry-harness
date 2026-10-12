@@ -10,7 +10,6 @@ mod controls;
 mod conversation;
 mod credentials;
 mod data_table;
-mod diff;
 pub(crate) mod documents;
 pub(crate) mod emblem;
 pub(crate) mod file_transfers;

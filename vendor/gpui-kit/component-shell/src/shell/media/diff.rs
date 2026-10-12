@@ -1,9 +1,9 @@
 use super::bool_method;
+mod state;
+use state::State;
 use std::sync::Arc;
 
-use gpui_component::diff::{
-    Diff, DiffChangeIndicator, DiffFile, DiffHunkSeparator, DiffMode, DiffState,
-};
+use gpui_component::diff::{Diff, DiffChangeIndicator, DiffHunkSeparator, DiffMode};
 use gpui_shell::{
     ArgumentDescriptor, ArgumentSchema, ComponentArgument, ComponentDescriptor,
     ComponentMaterializer, ComponentPayload, ComponentRegistry, ConstructorDescriptor,
@@ -20,6 +20,8 @@ enum Op {
     SoftWrap(bool),
     HunkSeparator(DiffHunkSeparator),
     ChangeIndicator(DiffChangeIndicator),
+    RenderAnnotation(ComponentArgument),
+    AddAnnotation(ComponentArgument),
 }
 
 fn require_leaf(children: usize) -> anyhow::Result<()> {
@@ -34,12 +36,47 @@ impl ComponentMaterializer for Materializer {
             .payload()
             .downcast_ref::<ComponentArgument>()
             .ok_or_else(|| anyhow::anyhow!("Diff received an incompatible payload"))?;
-        let state = request.with_state::<Entity<DiffState>, _>(argument, Clone::clone)?;
-        let mut diff = Diff::new(&state);
+        let state = request.with_state::<Entity<State>, _>(argument, Clone::clone)?;
+        let mut render_annotation = None;
+        let mut add_annotation = None;
+        let mut options = Vec::new();
         for op in request
             .methods()
             .filter_map(|method| method.payload().downcast_ref::<Op>())
         {
+            match op {
+                Op::RenderAnnotation(argument) => {
+                    render_annotation = Some(request.resolve_element_callback(argument)?)
+                }
+                Op::AddAnnotation(argument) => {
+                    add_annotation = Some(request.resolve_callback(argument)?)
+                }
+                _ => options.push(op.clone()),
+            }
+        }
+        require_leaf(request.children_len())?;
+        let style = request.take_style();
+        request.with_window_app(|_, cx| {
+            state.update(cx, |state, _| {
+                state.options = options;
+                state.style = style;
+                state.render_annotation = render_annotation;
+                state.add_annotation = add_annotation;
+            });
+            Ok(())
+        })?;
+        Ok(state.into_any_element())
+    }
+}
+
+impl gpui::Render for State {
+    fn render(
+        &mut self,
+        _: &mut gpui::Window,
+        _: &mut gpui::Context<Self>,
+    ) -> impl gpui::IntoElement {
+        let mut diff = Diff::new(&self.diff).annotations(self.annotations.clone());
+        for op in &self.options {
             diff = match op {
                 Op::LineNumber(value) => diff.line_number(*value),
                 Op::SyntaxHighlight(value) => diff.syntax_highlight(*value),
@@ -48,11 +85,55 @@ impl ComponentMaterializer for Materializer {
                 Op::SoftWrap(value) => diff.soft_wrap(*value),
                 Op::HunkSeparator(value) => diff.hunk_separator(*value),
                 Op::ChangeIndicator(value) => diff.change_indicator(*value),
+                Op::RenderAnnotation(_) | Op::AddAnnotation(_) => diff,
             };
         }
-        require_leaf(request.children_len())?;
-        diff.style().refine(&request.take_style());
-        Ok(diff.into_any_element())
+        if let Some(callback) = self.render_annotation.clone() {
+            diff = diff.render_annotation(move |annotation, window, cx| {
+                let mut data = vec![
+                    (
+                        "id".into(),
+                        gpui_shell::ComponentDataValue::String(annotation.id().to_string()),
+                    ),
+                    (
+                        "path".into(),
+                        gpui_shell::ComponentDataValue::String(annotation.path().to_string()),
+                    ),
+                ];
+                if let Some(position) = annotation.position() {
+                    data.push((
+                        "side".into(),
+                        gpui_shell::ComponentDataValue::String(
+                            if position.side() == gpui_component::diff::DiffSide::Original {
+                                "original"
+                            } else {
+                                "modified"
+                            }
+                            .into(),
+                        ),
+                    ));
+                    data.push((
+                        "line".into(),
+                        gpui_shell::ComponentDataValue::Number(position.line() as f64),
+                    ));
+                }
+                match callback.build_interactive_data_with(
+                    &[gpui_shell::ComponentDataValue::Object(data)],
+                    window,
+                    cx,
+                ) {
+                    Ok(Some(element)) => element,
+                    _ => gpui::div().into_any_element(),
+                }
+            });
+        }
+        if let Some(callback) = self.add_annotation.clone() {
+            diff = diff.on_add_annotation(move |range, window, cx| {
+                let _ = callback.invoke_data_with(&[state::range_data(range)], window, cx);
+            });
+        }
+        diff.style().refine(&self.style);
+        diff
     }
 }
 
@@ -99,12 +180,16 @@ pub(super) fn register(registry: &mut ComponentRegistry) -> Result<(), RegistryE
                         Some(ComponentArgument::Enum(_)) | None => DiffMode::Unified,
                         Some(_) => return Err("DiffState mode expects unified or split".into()),
                     };
-                    let files = DiffFile::parse(patch).map_err(|error| error.to_string())?;
-                    Ok(Box::new(cx.new(|cx| DiffState::new(files, cx).with_mode(mode))) as _)
+                    Ok(Box::new(cx.new(|cx| {
+                        let mut state = State::new(mode, cx);
+                        state.set_patches(vec![patch.clone()], cx);
+                        state
+                    })) as _)
                 }
                 _ => Err("DiffState expects a unified or Git patch and an optional mode".into()),
             },
         )
+        .with_methods(state::methods())
         .with_documentation(
             "Retained readonly patch state parsed from unified or Git diff text, in unified or split mode.",
         ),
@@ -125,6 +210,14 @@ pub(super) fn register(registry: &mut ComponentRegistry) -> Result<(), RegistryE
                 },
             )])
             .with_methods(vec![
+                MethodDescriptor::new("render_annotation", vec![ArgumentDescriptor::new("render", ArgumentSchema::Callback("(annotation: {id: string; path: string; side?: 'original' | 'modified'; line?: number}, cx: Context) => Element | null"))], |args| match args {
+                    [argument @ ComponentArgument::Callback(_)] => Ok(ComponentPayload::new(Op::RenderAnnotation(argument.clone()))),
+                    _ => Err("Diff.render_annotation expects a renderer".into()),
+                }).with_documentation("Renders plugin-owned content for each retained annotation."),
+                MethodDescriptor::new("on_add_annotation", vec![ArgumentDescriptor::new("listener", ArgumentSchema::Callback("(range: {path: string; side: 'original' | 'modified'; end_side: 'original' | 'modified'; start: number; end: number}, cx: Context) => void"))], |args| match args {
+                    [argument @ ComponentArgument::Callback(_)] => Ok(ComponentPayload::new(Op::AddAnnotation(argument.clone()))),
+                    _ => Err("Diff.on_add_annotation expects a listener".into()),
+                }).with_documentation("Reports an annotation action without writing review data."),
                 bool_method("Diff", "line_number", "Shows line numbers.", Op::LineNumber),
                 bool_method(
                     "Diff",

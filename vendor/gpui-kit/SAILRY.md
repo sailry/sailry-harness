@@ -45,3 +45,19 @@ Upstream tests are retained. Some integration tests reference Story or other
 checkout fixtures outside these copied packages and are not standalone product
 acceptance tests. Package refresh does not claim a build, native composition
 acceptance or performance result.
+
+
+## Retained Diff and Editor script operations
+
+Upstream's media catalog constructs DiffState but does not expose native review
+state operations, and EditorState has no text synchronization or focus method.
+The focused Component Shell patch exposes those existing Kit operations through
+StateMethodDescriptor. Diff's script holder retains background parsing with a
+generation guard and forwards native selection, navigation, annotations and
+focus. Repeated captured patches retain the same native DiffState. Editor text
+and focus stay in the existing Kit editor; no application-specific UI or service
+workflow is added. These reusable catalog bindings are upstream candidates.
+
+Dropping a holder cancels publication and queued work. A synchronous parse already
+running on an executor may finish; it cannot publish into a released holder or
+replace a newer generation.

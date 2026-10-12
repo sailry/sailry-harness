@@ -1,12 +1,19 @@
 use super::bool_method;
 use std::sync::Arc;
 
-use gpui_component::input::{Editor, EditorState};
+use gpui_component::{
+    WindowExt as _,
+    input::{Editor, EditorState},
+};
 use gpui_shell::{
-    ArgumentDescriptor, ArgumentSchema, ComponentArgument, ComponentDescriptor,
-    ComponentMaterializer, ComponentPayload, ComponentRegistry, ConstructorDescriptor,
-    MaterializeRequest, MethodDescriptor, RegistryError, StateDescriptor, anyhow,
-    gpui::{self, AppContext as _, Entity, IntoElement as _, Refineable as _, Styled as _},
+    ArgumentDescriptor, ArgumentSchema, ComponentArgument, ComponentDataValue as Data,
+    ComponentDescriptor, ComponentMaterializer, ComponentPayload, ComponentRegistry,
+    ConstructorDescriptor, MaterializeRequest, MethodDescriptor, RegistryError, StateDescriptor,
+    StateMethodDescriptor, anyhow,
+    gpui::{
+        self, AppContext as _, Entity, Focusable as _, IntoElement as _, Refineable as _,
+        Styled as _,
+    },
 };
 
 #[derive(Clone)]
@@ -87,6 +94,41 @@ pub(super) fn register(registry: &mut ComponentRegistry) -> Result<(), RegistryE
                 ),
             },
         )
+        .with_methods(vec![
+            StateMethodDescriptor::new::<Entity<EditorState>>(
+                "value",
+                "(): string",
+                |state, args, _, cx| {
+                    anyhow::ensure!(args.is_empty(), "EditorState.value expects no arguments");
+                    Ok(Data::String(state.read(cx).value().to_string()))
+                },
+            )
+            .with_readonly(true),
+            StateMethodDescriptor::new::<Entity<EditorState>>(
+                "set_value",
+                "(text: string): void",
+                |state, args, window, cx| {
+                    let [Data::String(value)] = args else {
+                        anyhow::bail!("EditorState.set_value expects text");
+                    };
+                    if state.read(cx).value().as_ref() != value {
+                        state.update(cx, |state, cx| state.set_value(value.clone(), window, cx));
+                    }
+                    Ok(Data::Null)
+                },
+            ),
+            StateMethodDescriptor::new::<Entity<EditorState>>(
+                "focus",
+                "(): void",
+                |state, args, window, cx| {
+                    anyhow::ensure!(args.is_empty(), "EditorState.focus expects no arguments");
+                    if !window.has_active_dialog(cx) {
+                        state.read(cx).focus_handle(cx).focus(window, cx);
+                    }
+                    Ok(Data::Null)
+                },
+            ),
+        ])
         .with_documentation(
             "Retained source-editor state initialized with local text and a syntax language.",
         ),

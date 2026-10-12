@@ -210,7 +210,6 @@ impl Mounted {
         let ui = super::native_context::module(ui, host.stop_token(), cx);
         let drops = super::tree::drops::Drops::new(host.stop_token());
         let ui = super::tree::module(ui, host.stop_token(), drops.clone(), cx);
-        let ui = super::diff::module(ui, host.clone());
         let ui = super::resource::module(ui, resource, host.clone());
         let ui = super::picker::module(ui, host.stop_token(), cx);
         let ui = super::data_table::module(ui, host.stop_token(), cx);

@@ -39,25 +39,49 @@ fn versioned(remote: bool, count: usize) -> Fixture {
     fixture
 }
 
-fn control_id(selector: &str) -> Option<SharedString> {
+fn control(window: &mut Window, selector: &str) -> Option<(ElementId, SharedString)> {
     let suffix = selector.strip_prefix("turn-hunks-")?;
-    Some(if suffix == "retry" {
-        "retry-hunks".into()
-    } else {
-        suffix.to_owned().into()
-    })
-}
-
-fn tap(cx: &mut VisualTestContext, selector: &str) {
-    let Some(id) = control_id(selector) else {
-        return fixture::tap(cx, selector);
-    };
-    if cx.update(|window, cx| window.has_active_dialog(cx)) {
-        std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
+    let (action, index) = suffix.rsplit_once('-')?;
+    let index: usize = index.parse().ok()?;
+    let matches = window
+        .find_all(SharedString::from(action.to_owned()))
+        .into_iter()
+        .filter(|target| {
+            target
+                .path()
+                .iter()
+                .any(|id| id.to_string().starts_with("turn-hunk-"))
+        })
+        .collect::<Vec<_>>();
+    let target = matches.get(index)?;
+    if !target.visible() {
+        return None;
     }
-    cx.run_until_parked();
-    cx.update(|window, cx| window.click(id, cx));
-    cx.run_until_parked();
+    let parent = target
+        .path()
+        .iter()
+        .find(|id| id.to_string().starts_with("turn-hunk-"))?
+        .clone();
+    Some((parent, action.to_owned().into()))
+}
+fn tap(cx: &mut VisualTestContext, selector: &str) {
+    if selector.starts_with("turn-hunks-") {
+        if cx.update(|window, cx| window.has_active_dialog(cx)) {
+            std::thread::sleep(*gpui_kit::component::dialog::ANIMATION_DURATION);
+        }
+        cx.run_until_parked();
+        cx.update(|window, cx| {
+            window.render_frame(cx);
+            if let Some((parent, action)) = control(window, selector) {
+                window.within(parent).click(action, cx);
+            } else {
+                window.click(SharedString::from(selector.to_owned()), cx);
+            }
+        });
+        wait(cx, |_| true);
+    } else {
+        fixture::tap(cx, selector);
+    }
 }
 
 fn element(cx: &mut VisualTestContext, selector: &str) {
@@ -65,10 +89,13 @@ fn element(cx: &mut VisualTestContext, selector: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         wait(cx, |_| true);
-        let present = if let Some(id) = control_id(selector) {
+        let present = if selector.starts_with("turn-hunks-") {
             cx.update(|window, cx| {
                 window.render_frame(cx);
-                window.try_find(id).is_some_and(|target| target.visible())
+                control(window, selector).is_some()
+                    || window
+                        .try_find(SharedString::from(selector.to_owned()))
+                        .is_some_and(|target| target.visible())
             })
         } else {
             cx.debug_bounds(selector).is_some()
@@ -76,7 +103,23 @@ fn element(cx: &mut VisualTestContext, selector: &str) {
         if present {
             return;
         }
-        assert!(Instant::now() < deadline, "hunk UI deadline");
+        assert!(
+            Instant::now() < deadline,
+            "hunk UI deadline: selector={selector:?}; observed={:?}",
+            cx.update(|window, _| {
+                use gpui_kit::test::TestQueryExt as _;
+                window
+                    .elements()
+                    .into_iter()
+                    .filter(|target| {
+                        target
+                            .path()
+                            .iter()
+                            .any(|id| id.to_string().starts_with("turn-hunk-"))
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
 }
@@ -86,15 +129,12 @@ fn missing(cx: &mut VisualTestContext, selector: &str) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         wait(cx, |_| true);
-        let absent = if let Some(id) = control_id(selector) {
-            cx.update(|window, cx| {
-                window.render_frame(cx);
-                window.try_find(id).is_none()
-            })
-        } else {
-            cx.debug_bounds(selector).is_none()
-        };
-        if absent {
+        if cx.update(|window, cx| {
+            window.render_frame(cx);
+            window
+                .try_find(SharedString::from(selector.to_owned()))
+                .is_none()
+        }) {
             return;
         }
         assert!(Instant::now() < deadline, "hunk retry deadline");

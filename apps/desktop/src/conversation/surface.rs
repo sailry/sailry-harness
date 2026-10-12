@@ -9,6 +9,7 @@ use gpui_kit::component::{
     *,
 };
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::test::TestSupportExt as _;
 use gpui_kit::*;
 
 pub(crate) mod diff;
@@ -89,18 +90,50 @@ pub(crate) fn result(
         .p_3()
         .text_color(cx.theme().muted_foreground)
         .child(div().w_full().min_w_0().child(body))
-        .child(
-            h_flex()
-                .id(format!("tool-actions-{key}"))
-                .absolute()
-                .top_0()
-                .right_0()
-                .gap_1()
-                .p_1()
-                .opacity(0.)
-                .group_hover(group, |style| style.opacity(1.))
-                .children(actions),
-        )
+        .child(Actions {
+            id: format!("tool-actions-{key}").into(),
+            group,
+            actions: actions.into_iter().collect(),
+            absolute: true,
+        })
+}
+
+#[derive(IntoElement)]
+pub(super) struct Actions {
+    pub id: SharedString,
+    pub group: SharedString,
+    pub actions: Vec<AnyElement>,
+    pub absolute: bool,
+}
+struct ActionFocus {
+    focus: FocusHandle,
+    _subscriptions: [Subscription; 2],
+}
+impl RenderOnce for Actions {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let state = window.use_keyed_state(self.id.clone(), cx, |window, cx| {
+            let focus = cx.focus_handle().tab_stop(false);
+            ActionFocus {
+                _subscriptions: [
+                    cx.on_focus_in(&focus, window, |_, _, cx| cx.notify()),
+                    cx.on_focus_out(&focus, window, |_, _, _, cx| cx.notify()),
+                ],
+                focus,
+            }
+        });
+        let focus = state.read(cx).focus.clone();
+        let visible = focus.contains_focused(window, cx);
+        h_flex()
+            .id(self.id)
+            .test_support()
+            .track_focus(&focus)
+            .gap_1()
+            .when(self.absolute, |row| row.absolute().top_0().right_0().p_1())
+            .when(!self.absolute, |row| row.flex_shrink_0())
+            .opacity(if visible { 1. } else { 0. })
+            .group_hover(self.group, |style| style.opacity(1.))
+            .children(self.actions)
+    }
 }
 
 /// Selectable literal text; the result supplies the frame, so the code block itself is bare.

@@ -388,9 +388,15 @@ impl ListState {
         let new_items = state
             .items
             .iter()
-            .map(|item| ListItem::Unmeasured {
-                size_hint: Some(item.size_hint().unwrap_or(size_hint)),
-                focus_handle: item.focus_handle(),
+            .map(|item| match item {
+                ListItem::Measured { .. } => item.clone(),
+                ListItem::Unmeasured { .. } => ListItem::Unmeasured {
+                    size_hint: Some(Size {
+                        height,
+                        ..item.size_hint().unwrap_or(size_hint)
+                    }),
+                    focus_handle: item.focus_handle(),
+                },
             })
             .collect::<Vec<_>>();
         let mut tree = SumTree::default();

@@ -47,6 +47,7 @@ animations remain owned by the original Kit components.
 | `ListItem::hover_background` | Retained; only hover fill changes. Selection and event handling remain in Kit. Reusable upstream candidate |
 | Tooltip trigger lifetime | Retained keyed owner using Base's request cancellation; current TooltipDefaults controls timing. Reusable upstream candidate |
 | MessageScroller list-state access | Retained shared viewport access for native drag selection. Reusable upstream candidate |
+| Diff vertical wheel capture and row-height hints | Composes the existing ListState ScrollableMask so an outer capture-phase scroller cannot consume wheel input before Diff's list. Restores hints after List invalidates them on width changes and uses painted, device-snapped heights for unwrapped rows, preserving virtualized scroll bounds, clipping and boundary chaining. Reusable upstream candidate |
 | Vendored test fixture paths and license copies | Retained packaging adaptations; tests cannot read omitted external checkout fixtures |
 
 These reusable changes can be prepared as separate upstream contributions.

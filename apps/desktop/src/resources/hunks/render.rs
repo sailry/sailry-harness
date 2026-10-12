@@ -11,21 +11,20 @@ impl Review {
         cx: &mut Context<Self>,
     ) -> Dialog {
         let blocked = self.pending || self.request.is_some() || !self.connected(cx);
-        let mut body = v_flex().gap_3().debug_selector(|| "turn-hunks".into());
+        let mut body = v_flex().id("turn-hunks").test_support().gap_3();
         if self.pending {
             body = body.child(gpui_kit::component::spinner::Spinner::new());
         }
         if self.failed || self.request.is_some() {
             body = body.child(
-                Button::new("retry-hunks")
+                Button::new("turn-hunks-retry")
                     .label(tr("chat_retry"))
                     .disabled(self.pending)
-                    .debug_selector(|| "turn-hunks-retry".into())
                     .on_click(cx.listener(|review, _, window, cx| review.retry(window, cx))),
             );
         }
         if let Some(data) = &self.data {
-            for (index, hunk) in data.hunks.iter().enumerate() {
+            for hunk in &data.hunks {
                 let state = self.decisions.get(&hunk.id).copied();
                 let accepted = hunk.id.clone();
                 let rejected = hunk.id.clone();
@@ -33,29 +32,27 @@ impl Review {
                 let actions = h_flex()
                     .gap_2()
                     .child(
-                        Button::new(format!("accept-{index}"))
+                        Button::new("accept")
                             .small()
                             .outline()
                             .label(tr("hunks_accept"))
                             .disabled(blocked || state.is_some())
-                            .debug_selector(move || format!("turn-hunks-accept-{index}"))
                             .on_click(cx.listener(move |review, _, window, cx| {
                                 review.accept(&accepted, window, cx)
                             })),
                     )
                     .child(
-                        Button::new(format!("reject-{index}"))
+                        Button::new("reject")
                             .small()
                             .outline()
                             .label(tr("hunks_reject"))
                             .disabled(blocked || state.is_some())
-                            .debug_selector(move || format!("turn-hunks-reject-{index}"))
                             .on_click(cx.listener(move |review, _, window, cx| {
                                 review.apply(&rejected, hunk::Operation::Reject, window, cx)
                             })),
                     )
                     .child(
-                        Button::new(format!("stage-{index}"))
+                        Button::new("stage")
                             .small()
                             .outline()
                             .label(tr("hunks_stage"))
@@ -64,21 +61,23 @@ impl Review {
                                     || self.index.is_none()
                                     || matches!(state, Some(Decision::Rejected | Decision::Staged)),
                             )
-                            .debug_selector(move || format!("turn-hunks-stage-{index}"))
                             .on_click(cx.listener(move |review, _, window, cx| {
                                 review.apply(&staged, hunk::Operation::Stage, window, cx)
                             })),
                     );
-                let id = format!("turn-hunk-{}-{index}", self.turn);
-                let lines = crate::content::diff::unified(&hunk.text);
-                body = body.child(v_flex().gap_2().child(actions).child(
-                    crate::content::diff::rows(
-                        &id,
-                        &lines,
-                        crate::content::diff::language(&self.path),
-                        cx,
-                    ),
-                ));
+                // Kit exposes file headers, not a hunk-action callback. Keep the
+                // revision-checked controls with this immutable hunk identity.
+                let id = format!("turn-hunk-{}-{}", self.turn, hunk.id);
+                body = body.child(
+                    v_flex()
+                        .id(id.clone())
+                        .test_support()
+                        .gap_2()
+                        .child(actions)
+                        .child(crate::content::diff::rows(
+                            &id, &hunk.text, &self.path, false,
+                        )),
+                );
             }
             if data.partial {
                 body = body.child(crate::conversation::surface::notice(tr("tool_partial"), cx));

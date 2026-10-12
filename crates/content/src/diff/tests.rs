@@ -1,241 +1,258 @@
-use super::super::{additions, is_binary, unified};
 use super::*;
 use core::prelude::v1::test;
+use gpui_kit::component::diff::{DiffLinePosition, DiffLineRange, DiffSide};
+use gpui_kit::test::{TestAppContextExt as _, TestWindowExt as _};
+use std::time::Duration;
 
 #[test]
-fn preserves_source_coordinates() {
-    let lines = unified(
-        "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -30,2 +40,2 @@\n same\n-old\n+new\n@@ -55 +65 @@\n--- content\n+++ content\n\\ No newline at end of file\n",
-    );
-    let code = lines
-        .iter()
-        .filter(|line| line.old.is_some() || line.new.is_some())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        code.iter()
-            .map(|line| (line.old, line.new))
-            .collect::<Vec<_>>(),
-        [
-            (Some(30), Some(40)),
-            (Some(31), None),
-            (None, Some(41)),
-            (Some(55), None),
-            (None, Some(65))
-        ]
-    );
-    assert_eq!(
-        code.iter().map(|line| line.text).collect::<Vec<_>>(),
-        ["same", "old", "new", "-- content", "++ content"]
-    );
-    assert_eq!(lines.last().unwrap().kind, Kind::Meta);
+fn parses_captured_hunks_and_new_files() {
+    let path = "nested/一 two.txt";
+    let files = crate::diff::files("@@ -30,2 +40,2 @@\n same\n-old\n+new\n", path, false).unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path().as_ref(), path);
+    assert_eq!((files[0].additions(), files[0].deletions()), (1, 1));
+    for source in ["", "一\ntwo 🙂\n", "one\ntwo", "--- content\n+++ content\n"] {
+        let files = crate::diff::files(source, path, true).unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path().as_ref(), path);
+        assert_eq!(files[0].deletions(), 0);
+        assert_eq!(files[0].additions(), source.lines().count());
+    }
 }
 
 #[test]
-fn empty_sides() {
-    let added = unified("@@ -0,0 +1,2 @@\n+{\n+}\n");
-    assert_eq!((added[1].old, added[1].new), (None, Some(1)));
-    assert_eq!((added[2].old, added[2].new), (None, Some(2)));
-    let removed = unified("@@ -1,2 +0,0 @@\n-{\n-}\n");
-    assert_eq!((removed[1].old, removed[1].new), (Some(1), None));
-    assert_eq!((removed[2].old, removed[2].new), (Some(2), None));
-    let created = additions("一\ntwo 🙂\n");
+fn preserves_binary_and_extended_headers() {
+    let files = crate::diff::files("diff --git a/image.png b/image.png\nnew file mode 100644\nindex 0000000..1234567\nBinary files /dev/null and b/image.png differ\n", "ignored", false).unwrap();
+    assert_eq!(files[0].path().as_ref(), "image.png");
+    assert!(files[0].is_binary());
     assert!(
-        created
+        files[0]
+            .extended_headers()
             .iter()
-            .all(|line| line.kind == Kind::Added && line.old.is_none())
+            .any(|line| line.as_ref() == "new file mode 100644")
     );
-    assert_eq!(created[1].new, Some(2));
+    let text = "@@ -0,0 +1,2 @@\n+Binary files a/file and b/file differ\n+GIT binary patch\n";
+    assert!(!crate::diff::files(text, "text.txt", false).unwrap()[0].is_binary());
 }
 
 #[test]
-fn rejects_inherited_coordinates() {
-    let lines = unified(
-        "@@ -1 +1 @@\n+one\ndiff --git a/b b/b\n+++ b/b\n@@ -7 +8 @@\n-before\n+after\n@@ invalid @@\n+metadata\n",
-    );
-    assert_eq!(lines[3].kind, Kind::Meta);
-    assert_eq!((lines[5].old, lines[5].new), (Some(7), None));
-    assert_eq!((lines[6].old, lines[6].new), (None, Some(8)));
-    assert_eq!(lines[8].kind, Kind::Meta);
-    assert_eq!((lines[8].old, lines[8].new), (None, None));
-}
-
-#[test]
-fn recognizes_binary_metadata_without_hiding_text() {
-    for text in [
-        "diff --git a/image.png b/image.png\nnew file mode 100644\nindex 0000000..1234567\nBinary files /dev/null and b/image.png differ\n",
-        "diff --git a/image.png b/image.png\nGIT binary patch\nliteral 3\nLcmaZq0001\n",
-    ] {
-        assert!(is_binary(&unified(text)));
-    }
-    for text in [
-        "diff --git a/large.txt b/large.txt\nindex 1234567..abcdef0\n",
-        "@@ -0,0 +1,2 @@\n+Binary files a/file and b/file differ\n+GIT binary patch\n",
-        "diff --git a/image.png b/image.png\nBinary files a/image.png and b/image.png differ\ndiff --git a/text b/text\n@@ -1 +1 @@\n-old\n+new\n",
-    ] {
-        assert!(!is_binary(&unified(text)));
-    }
-}
-
-#[test]
-fn copies_unmounted_rows() {
-    let source = (0..100_000)
-        .map(|index| format!("line {index}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let data = Data::new(&additions(&source));
-    let selection = Selection {
-        anchor: Cursor {
-            row: 99_999,
-            byte: 10,
-        },
-        cursor: Cursor { row: 0, byte: 0 },
-    };
-    assert_eq!(data.copied(selection), source);
-}
-
-#[test]
-fn selection_boundaries() {
-    let data = Data::new(&additions("a👩‍💻e\u{301}\n\nlast"));
-    assert_eq!(data.clamp(Cursor { row: 0, byte: 5 }).byte, 1);
-    let text = data.copied(Selection {
-        anchor: Cursor { row: 0, byte: 1 },
-        cursor: Cursor { row: 2, byte: 2 },
-    });
-    assert_eq!(text, "👩‍💻e\u{301}\n\nla");
-    assert_eq!(selection::word("let value = 1", 6), 4..9);
-}
-
-#[test]
-fn highlights_preserve_copy() {
-    let data = Data::new(&unified("@@ -1 +1 @@\n-old\n+new"));
-    assert_eq!(
-        data.copied(Selection {
-            anchor: Cursor { row: 1, byte: 0 },
-            cursor: Cursor { row: 2, byte: 3 }
-        }),
-        "old\nnew"
-    );
-}
-
-#[test]
-fn selection_overlays_syntax() {
-    let ink = rgb(0x112233).into();
-    let selection = rgb(0x778899).into();
-    let spans = selected_spans(
-        vec![(
-            0..3,
-            HighlightStyle {
-                color: Some(ink),
-                ..Default::default()
-            },
-        )],
-        Some(1..4),
-        5,
-        selection,
-    );
-    assert_eq!(
-        spans
-            .iter()
-            .map(|(range, _)| range.clone())
-            .collect::<Vec<_>>(),
-        [0..1, 1..3, 3..4, 4..5]
-    );
-    assert_eq!(spans[1].1.color, Some(ink));
-    assert_eq!(spans[1].1.background_color, Some(selection));
-    assert_eq!(spans[3].1.background_color, None);
-}
-
-fn draw(handle: WindowHandle<State>, cx: &mut TestAppContext) {
-    cx.update_window(handle.into(), |_, window, cx| {
-        window.refresh();
-        window.draw(cx).clear(cx);
-    })
+fn retains_available_truncated_rows() {
+    let files = crate::diff::files(
+        "@@ -7,20 +8,20 @@\n-old\n+new\n same\n",
+        "partial.txt",
+        false,
+    )
     .unwrap();
-    cx.run_until_parked();
+    assert_eq!((files[0].additions(), files[0].deletions()), (1, 1));
+    assert!(crate::diff::files("@@ invalid @@\n+one\n", "bad.txt", false).is_err());
+    assert!(crate::diff::files("@@ -1 +1 @@\n-one\n-two\n+new\n", "bad.txt", false).is_err());
 }
 
-#[gpui_kit::test]
-fn virtualizes_large_files(cx: &mut TestAppContext) {
+fn init(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::tests::init(cx);
     });
+}
+fn open(cx: &mut TestAppContext, text: &str, added: bool) -> WindowHandle<State> {
+    let source = text.to_owned();
+    cx.open_window(size(px(360.), px(180.)), move |_, cx| {
+        let mut state = State::new(cx);
+        state.set_patch(&source, "fixture.txt", added, cx);
+        state
+    })
+}
+async fn ready(cx: &mut TestAppContext, handle: WindowHandle<State>) {
+    cx.wait_for(handle.into(), Duration::from_secs(10), |window, cx| {
+        let ready = window
+            .root::<State>()
+            .flatten()
+            .unwrap()
+            .read(cx)
+            .parse
+            .is_none();
+        ready && window.find_all("source").iter().any(|line| line.visible())
+    })
+    .await;
+}
+
+#[gpui_kit::test]
+async fn virtualizes_and_copies_large_patches(cx: &mut TestAppContext) {
+    init(cx);
     let source = (0..100_000)
-        .map(|index| format!("line {index}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let handle = cx.open_window(size(px(360.), px(180.)), |_, cx| {
-        State::new(&additions(&source), "text", cx)
-    });
-    draw(handle, cx);
-    handle
-        .update(cx, |state, window, cx| {
-            assert!(state.layouts.0.borrow().len() < 40);
-            assert!(!state.layouts.0.borrow().is_empty());
-            state.focus.focus(window, cx);
-        })
-        .unwrap();
-    draw(handle, cx);
+        .map(|index| format!("line {index}\n"))
+        .collect::<String>();
+    let handle = open(cx, &source, true);
+    ready(cx, handle).await;
     cx.update_window(handle.into(), |_, window, cx| {
-        window.dispatch_action(Box::new(SelectAll), cx)
+        let rows = window.find_all("source");
+        assert!(!rows.is_empty() && rows.len() < 40);
+        window.within(("new", 0usize)).click(("line", 0usize), cx);
+        window.press("secondary-a", cx);
+        window.press("secondary-c", cx);
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().as_deref(),
+            Some(source.as_str())
+        );
+        let state = window.root::<State>().flatten().unwrap();
+        let diff = state.read(cx).diff.clone();
+        diff.update(cx, |state, cx| {
+            state.scroll_to_line(
+                DiffLinePosition::new("fixture.txt", DiffSide::Modified, 100_000),
+                cx,
+            )
+        });
     })
     .unwrap();
-    cx.run_until_parked();
-    cx.update_window(handle.into(), |_, window, cx| {
-        window.dispatch_action(Box::new(Copy), cx)
+    cx.wait_for(handle.into(), Duration::from_secs(10), |window, _| {
+        window
+            .find_all("source")
+            .iter()
+            .any(|line| line.label() == Some("line 99999"))
     })
-    .unwrap();
-    cx.run_until_parked();
-    assert_eq!(cx.read_from_clipboard().unwrap().text().unwrap(), source);
+    .await;
     handle
-        .update(cx, |state, _, cx| {
-            state.scroll.scroll_to_item(99_999, ScrollStrategy::Bottom);
-            cx.notify();
-        })
-        .unwrap();
-    draw(handle, cx);
-    handle
-        .update(cx, |state, _, cx| {
-            {
-                let layouts = state.layouts.0.borrow();
-                assert!(layouts.len() < 40);
-                assert!(layouts.keys().any(|row| *row >= 99_990));
-            }
-            state.selection = Some(Selection {
-                anchor: Cursor { row: 0, byte: 0 },
-                cursor: Cursor { row: 0, byte: 0 },
-            });
-            let scroll = state.scroll.0.borrow().base_handle.clone();
-            let offset = scroll.offset();
-            state.pointer = scroll.bounds().bottom_right() + point(px(30.), px(30.));
-            state.dragging = true;
-            state.autoscroll(cx);
-            state.dragging = false;
-            assert_eq!(scroll.offset(), offset);
-            assert_eq!(state.selection.unwrap().cursor.row, 99_999);
+        .update(cx, |_, window, _| {
+            assert!(window.find_all("source").len() < 40);
         })
         .unwrap();
 }
 
 #[gpui_kit::test]
-fn refresh_preserves_selection(cx: &mut TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        crate::tests::init(cx);
-    });
-    let handle = cx.open_window(size(px(360.), px(180.)), |_, cx| {
-        State::new(&additions("one\ntwo"), "text", cx)
-    });
+async fn identical_patch_keeps_selection_and_state(cx: &mut TestAppContext) {
+    init(cx);
+    let text = "@@ -1 +1 @@\n-old\n+new 🙂\n";
+    let handle = open(cx, text, false);
+    ready(cx, handle).await;
+    cx.update_window(handle.into(), |_, window, cx| {
+        let state = window.root::<State>().flatten().unwrap();
+        let diff = state.read(cx).diff.clone();
+        let entity = diff.entity_id();
+        window.within(("new", 0usize)).click(("line", 0usize), cx);
+        let selection = diff.read(cx).selected_lines();
+        assert_eq!(
+            selection,
+            Some(DiffLineRange::new("fixture.txt", DiffSide::Modified, 1, 1))
+        );
+        state.update(cx, |state, cx| {
+            let generation = state.generation;
+            state.set_patch(text, "fixture.txt", false, cx);
+            assert_eq!(state.generation, generation);
+            assert_eq!(state.diff.entity_id(), entity);
+            assert_eq!(state.diff.read(cx).selected_lines(), selection);
+        });
+        window.press("secondary-c", cx);
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().as_deref(),
+            Some("new 🙂\n")
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+async fn newer_patch_wins_background_completion(cx: &mut TestAppContext) {
+    init(cx);
+    let first = (0..100_000)
+        .map(|index| format!("old {index}\n"))
+        .collect::<String>();
+    let handle = open(cx, &first, true);
     handle
         .update(cx, |state, _, cx| {
-            state.selection = Some(Selection {
-                anchor: Cursor { row: 0, byte: 0 },
-                cursor: Cursor { row: 1, byte: 3 },
-            });
-            let scroll = state.scroll.0.clone();
-            state.set_lines(&additions("one\ntwo\nthree"), cx);
-            assert_eq!(state.data.copied(state.selection.unwrap()), "one\ntwo");
-            assert!(std::rc::Rc::ptr_eq(&scroll, &state.scroll.0));
+            state.set_patch("最新\n", "latest.txt", true, cx)
         })
         .unwrap();
+    ready(cx, handle).await;
+    cx.update_window(handle.into(), |_, window, cx| {
+        let state = window.root::<State>().flatten().unwrap();
+        assert_eq!(state.read(cx).generation, 2);
+        let diff = state.read(cx).diff.clone();
+        assert_eq!(diff.read(cx).files()[0].path().as_ref(), "latest.txt");
+        window.within(("new", 0usize)).click(("line", 0usize), cx);
+        window.press("secondary-a", cx);
+        window.press("secondary-c", cx);
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().as_deref(),
+            Some("最新\n")
+        );
+        assert_eq!(state.read(cx).summary(cx), (1, 0, false));
+    })
+    .unwrap();
+    cx.run_until_parked();
+    handle
+        .update(cx, |state, _, cx| {
+            assert_eq!(state.diff.read(cx).files()[0].path().as_ref(), "latest.txt");
+        })
+        .unwrap();
+}
+
+#[gpui_kit::test]
+async fn refreshes_hints_without_resetting_views(cx: &mut TestAppContext) {
+    struct Hints {
+        list: ListState,
+        focus: Vec<FocusHandle>,
+    }
+    impl Render for Hints {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            let focus = self.focus.clone();
+            list(self.list.clone(), move |index, _, _| {
+                div()
+                    .id(("hint-row", index))
+                    .test_support()
+                    .track_focus(&focus[index])
+                    .w_full()
+                    .h(px(if index == 0 { 40. } else { 20. }))
+                    .into_any_element()
+            })
+            .size_full()
+        }
+    }
+    init(cx);
+    let handle = cx.open_window(size(px(200.), px(120.)), |_, cx| {
+        let focus = (0..100).map(|_| cx.focus_handle()).collect::<Vec<_>>();
+        let list = ListState::new(100, ListAlignment::Top, px(0.));
+        list.splice_focusable(0..100, focus.iter().cloned().map(Some));
+        let list = list.with_uniform_item_height(px(20.));
+        Hints { list, focus }
+    });
+    cx.wait_for(handle.into(), Duration::from_secs(10), |window, _| {
+        window.try_find(("hint-row", 0usize)).is_some()
+    })
+    .await;
+    cx.update_window(handle.into(), |_, window, cx| {
+        let root = window.root::<Hints>().flatten().unwrap();
+        let list = root.read(cx).list.clone();
+        let focus = root.read(cx).focus[90].clone();
+        // The first layout clears estimates when it learns the width.
+        let _ = list.clone().with_uniform_item_height(px(20.));
+        window.render_frame(cx);
+        window.focus(&focus, cx);
+        window.render_frame(cx);
+        assert_eq!(window.find(("hint-row", 90usize)).focused(), Some(true));
+        let row = window.find(("hint-row", 0usize)).bounds();
+        assert_eq!(row.size.height, px(40.));
+        let viewport = list.viewport_bounds();
+        let offset = list.logical_scroll_top();
+        let maximum = list.max_offset_for_scrollbar();
+        let measured = list.bounds_for_item(0).unwrap();
+        let _ = list.clone().with_uniform_item_height(px(30.));
+        assert_eq!(list.bounds_for_item(0), Some(measured));
+        assert_eq!(list.item_count(), 100);
+        assert!(list.max_offset_for_scrollbar().y > maximum.y);
+        assert_eq!(list.logical_scroll_top().item_ix, offset.item_ix);
+        assert_eq!(
+            list.logical_scroll_top().offset_in_item,
+            offset.offset_in_item
+        );
+        window.render_frame(cx);
+        assert_eq!(list.viewport_bounds(), viewport);
+        assert_eq!(window.find(("hint-row", 0usize)).bounds(), row);
+        assert_eq!(window.find(("hint-row", 90usize)).focused(), Some(true));
+        assert_eq!(list.logical_scroll_top().item_ix, offset.item_ix);
+        assert_eq!(
+            list.logical_scroll_top().offset_in_item,
+            offset.offset_in_item
+        );
+    })
+    .unwrap();
 }

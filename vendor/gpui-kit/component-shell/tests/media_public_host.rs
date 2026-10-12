@@ -284,3 +284,142 @@ fn catalog_exposes_only_renderable_media_surfaces() {
         ["EditorState", "DiffState"]
     );
 }
+
+#[gpui::test]
+fn retained_review_methods_cross_the_public_host(cx: &mut TestAppContext) {
+    cx.update(gpui_component_shell::init);
+    let source = r#"
+import { div, View } from "gpui-kit";
+import { Diff, DiffState, Editor, EditorState, Button } from "gpui-component";
+const patch = (path, text) => `--- /dev/null\n+++ b/${path}\n@@ -0,0 +1,1 @@\n+${text}\n`;
+export default class Review extends View {
+  init() {
+    this.diff = DiffState("");
+    this.diff.set_patch(`--- /dev/null\n+++ b/obsolete.txt\n@@ -0,0 +1,10000 @@\n${Array.from({length:10000}, (_, i) => `+obsolete ${i}\n`).join("")}`);
+    this.diff.set_patch(patch("latest.txt", "latest"));
+    this.editor = EditorState("initial"); this.note = ""; this.added = ""; this.status = "";
+  }
+  render() {
+    return div().v_flex().w(640).h(480)
+      .child(new Diff(this.diff).header_visible(false).h(180)
+        .render_annotation(note => { this.note = `${note.id}/${note.path}/${note.side}/${note.line}`; return div().child("Review note"); })
+        .on_add_annotation((range, cx) => { this.added = JSON.stringify(range); cx.notify(); }))
+      .child(new Editor(this.editor).readonly(true).appearance(false).bordered(false).h(80))
+      .child(new Button("inspect").label("Inspect").on_click((_event, cx) => {
+        this.status = `${this.diff.pending()}/${this.diff.error()}/${this.editor.value()}/${JSON.stringify(this.diff.selected_lines())}/${this.note}/${this.added}`; cx.notify();
+      }))
+      .child(new Button("annotate").label("Annotate").on_click((_event, cx) => {
+        this.diff.set_annotations([{id:"note",path:"latest.txt",side:"modified",line:1}]); cx.notify();
+      }))
+      .child(new Button("replace").label("Replace").on_click((_event, cx) => {
+        this.diff.set_files([patch("next.txt", "next"),patch("other.txt", "other")]);
+        this.diff.set_mode("split"); this.editor.set_value("updated 🙂"); cx.notify();
+      }))
+      .child(new Button("diff-focus").label("Diff focus").on_click((_event, _cx) => {
+        this.diff.scroll_to_file("other.txt"); this.diff.scroll_to_line("other.txt", "modified", 1);
+        this.diff.previous_change(); this.diff.next_change(); this.diff.focus();
+      }))
+      .child(new Button("editor-focus").label("Editor focus").on_click((_event, _cx) => this.editor.focus()))
+      .child(this.status);
+  }
+}
+"#;
+    let app = TempApp::new(source);
+    let runtime = gpui_component_shell::new_isolated_runtime().unwrap();
+    let loaded = runtime.load_application(&app.0, "main.js").unwrap();
+    let mounted = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = mounted.clone();
+    let window = cx.add_window(move |window, cx| {
+        let view = runtime.mount_application(&loaded, window, cx).unwrap();
+        *capture.borrow_mut() = Some(view.clone());
+        gpui_component::Root::new(view, window, cx)
+    });
+    let mut context = VisualTestContext::from_window(*window.deref(), cx);
+    let view = mounted.borrow().clone().unwrap();
+    let frame = |context: &mut VisualTestContext| {
+        context.run_until_parked();
+        context.update(|window, cx| window.draw(cx).clear(cx));
+        context.update(|_, cx| {
+            assert_eq!(view.read(cx).build_error(), None);
+            view.read(cx).snapshot().unwrap().debug_tree()
+        })
+    };
+    let rows = |context: &mut VisualTestContext| {
+        context.update(|window, _| {
+            gpui_base::test_support::find_all(window, &[], &"source".into())
+                .into_iter()
+                .filter_map(|row| row.label().map(str::to_owned))
+                .collect::<Vec<_>>()
+        })
+    };
+    let wait = |context: &mut VisualTestContext, expected: &str| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            frame(context);
+            let values = rows(context);
+            if values.iter().any(|row| row == expected) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "review rows deadline: {values:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    let click =
+        |context: &mut VisualTestContext, scope: &[gpui::ElementId], id: gpui::ElementId| {
+            let bounds = context.update(|window, _| {
+                let scope = scope.iter().fold(Vec::new(), |path, id| {
+                    gpui_base::test_support::scope(window, &path, id)
+                });
+                gpui_base::test_support::find(window, &scope, &id)
+                    .unwrap()
+                    .bounds()
+            });
+            context.simulate_click(bounds.center(), gpui::Modifiers::default());
+            frame(context);
+        };
+    wait(&mut context, "latest");
+    assert!(
+        !rows(&mut context)
+            .iter()
+            .any(|row| row.starts_with("obsolete"))
+    );
+    click(
+        &mut context,
+        &[("new", 0usize).into()],
+        ("line", 0usize).into(),
+    );
+    click(
+        &mut context,
+        &[("new", 0usize).into()],
+        ("add-annotation", 0usize).into(),
+    );
+    click(&mut context, &[], "annotate".into());
+    click(&mut context, &[], "inspect".into());
+    let tree = frame(&mut context);
+    assert!(tree.contains("false/null/initial"), "{tree}");
+    assert!(tree.contains("latest.txt"), "{tree}");
+    assert!(tree.contains("note/latest.txt/modified/1"), "{tree}");
+    assert!(tree.contains("start\\\":1"), "{tree}");
+    assert!(tree.contains("end\\\":1"), "{tree}");
+    click(&mut context, &[], "replace".into());
+    wait(&mut context, "next");
+    assert!(rows(&mut context).iter().any(|row| row == "other"));
+    click(&mut context, &[], "inspect".into());
+    let tree = frame(&mut context);
+    assert!(tree.contains("false/null/updated 🙂/null"), "{tree}");
+    click(&mut context, &[], "diff-focus".into());
+    let diff_focus = context.update(|window, cx| window.focused(cx).unwrap());
+    click(&mut context, &[], "editor-focus".into());
+    let editor_focus = context.update(|window, cx| window.focused(cx).unwrap());
+    assert_ne!(diff_focus, editor_focus);
+    context.simulate_keystrokes("secondary-a secondary-c");
+    context.update(|_, cx| {
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().as_deref(),
+            Some("updated 🙂")
+        );
+    });
+}

@@ -43,24 +43,22 @@ impl PreviewGit {
         if self.tabs.open.is_empty() {
             return (0, 0);
         }
-        crate::content::diff::unified(&preview_patch(
+        let patch = preview_patch(
             self.tabs.editors[self.tabs.selected]
                 .read(cx)
                 .value()
                 .as_ref(),
-        ))
-        .iter()
-        .fold((0, 0), |(added, removed), line| {
-            (
-                added + usize::from(line.kind == crate::content::diff::Kind::Added),
-                removed + usize::from(line.kind == crate::content::diff::Kind::Removed),
-            )
-        })
+        );
+        crate::content::diff::files(&patch, FILES[self.tabs.selected], false)
+            .unwrap_or_default()
+            .iter()
+            .fold((0, 0), |(added, removed), file| {
+                (added + file.additions(), removed + file.deletions())
+            })
     }
 
     fn diff(&self, file: usize, cx: &mut Context<Shell>) -> Entity<crate::content::diff::State> {
         let patch = preview_patch(self.tabs.editors[file].read(cx).value().as_ref());
-        let lines = crate::content::diff::unified(&patch);
         // Keyed element state is scoped to its render stack. This tab owner
         // retains the exact native entity shared by rendering and focus actions.
         let state = self
@@ -68,18 +66,14 @@ impl PreviewGit {
             .borrow_mut()
             .entry(file)
             .or_insert_with(|| {
-                let state = cx.new(|cx| {
-                    crate::content::diff::State::new(
-                        &lines,
-                        crate::content::diff::language(FILES[file]),
-                        cx,
-                    )
-                });
+                let state = cx.new(crate::content::diff::State::new);
                 cx.observe(&state, |_, _, cx| cx.notify()).detach();
                 state
             })
             .clone();
-        state.update(cx, |state, cx| state.set_lines(&lines, cx));
+        state.update(cx, |state, cx| {
+            state.set_patch(&patch, FILES[file], false, cx)
+        });
         state
     }
 }
@@ -350,37 +344,17 @@ mod tests {
 
     #[test]
     fn preview_diff_coordinates() {
-        use crate::content::diff::{Kind, unified};
         for key in crate::preview::FILE_DIFF_KEYS {
             let text = tr(key)
                 .lines()
                 .filter(|line| !line.starts_with("```"))
                 .collect::<Vec<_>>()
                 .join("\n");
-            let patch = preview_patch(&text);
-            let lines = unified(&patch);
-            assert_eq!(
-                lines
-                    .iter()
-                    .filter(|line| line.kind == Kind::Removed)
-                    .count(),
-                2
-            );
-            assert_eq!(
-                lines.iter().filter(|line| line.kind == Kind::Added).count(),
-                2
-            );
-            assert_eq!(
-                lines
-                    .iter()
-                    .filter(|line| line.kind == Kind::Context)
-                    .count(),
-                1
-            );
-            assert!(!lines.iter().any(|line| line.kind == Kind::Meta));
-            assert_eq!((lines[3].old, lines[3].new), (Some(2), Some(2)));
-            assert_eq!((lines[5].old, lines[5].new), (None, Some(3)));
-            assert!(unified(&text).iter().all(|line| line.kind == Kind::Meta));
+            let files =
+                crate::content::diff::files(&preview_patch(&text), "fixture.txt", false).unwrap();
+            assert_eq!(files.len(), 1);
+            assert_eq!((files[0].additions(), files[0].deletions()), (2, 2));
+            assert_eq!(files[0].path().as_ref(), "fixture.txt");
         }
     }
 }

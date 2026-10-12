@@ -139,16 +139,12 @@ pub(super) fn render(
                 .as_ref()
                 .is_none_or(|test| test.matches(arguments, result))
         {
-            let lines = match style.format {
-                Format::Added => diff::additions(text),
-                Format::Unified => diff::unified(text),
-            };
             return Some(diff::file_rows(
                 key,
-                &lines,
+                text,
                 path.unwrap_or_default(),
+                style.format == Format::Added,
                 actions,
-                cx,
             ));
         }
         let content =

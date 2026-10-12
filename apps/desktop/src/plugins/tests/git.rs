@@ -1,6 +1,7 @@
 //! The packaged controller is exercised against the same local and Link Git service.
 use super::*;
 use crate::{preview::Page, resources::SideResource, shell::Shell};
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{Output, Request, plugin::Info};
 use std::path::Path;
 
@@ -54,6 +55,8 @@ fn prepare(fixture: &Fixture) -> String {
             "div().id(`${id}-binary`)",
             "div().id(`${id}-binary`).relative().child(Bounds.new(`${id}-binary`))",
         )
+        .replace("div().id(id).w_full()", "div().id(id).relative().child(Bounds.new(id)).w_full()")
+        .replace("div().id(`git-output-${document.id}`).size_full()", "div().id(`git-output-${document.id}`).relative().child(Bounds.new(`git-output-${document.id}`)).size_full()")
         .replace(
             "new Button('git-open-changes')",
             "new Button('git-open-changes').relative().child(Bounds.new('git-open-changes'))",
@@ -151,12 +154,38 @@ fn ready(panel: &Entity<Panel>, visual: &mut VisualTestContext, text: &str) {
         }
         assert!(
             Instant::now() < deadline,
-            "Git renderer deadline for {text}: connected={connected}, loading={loading}, viewport={:?}, row={:?}",
-            visual.debug_bounds("diff-viewport"),
-            visual.debug_bounds("diff-line-0")
+            "Git renderer deadline for {text}: connected={connected}, loading={loading}"
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+fn ready_diff(panel: &Entity<Panel>, visual: &mut VisualTestContext, id: &'static str) {
+    ready(panel, visual, id);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        visual.run_until_parked();
+        let ready = visual.update(|window, cx| {
+            window.render_frame(cx);
+            window
+                .within(id)
+                .find_all("source")
+                .iter()
+                .any(|line| line.visible())
+        });
+        if ready {
+            return;
+        }
+        assert!(Instant::now() < deadline, "Git diff rows deadline for {id}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+fn focus_diff(visual: &mut VisualTestContext, id: &'static str) {
+    visual.update(|window, cx| {
+        window
+            .within(id)
+            .within(("new", 0usize))
+            .click(("line", 0usize), cx);
+    });
 }
 fn writes(fixture: &Fixture) -> Vec<Request> {
     fixture
@@ -189,14 +218,22 @@ fn closing_tabs_focuses_the_next_surface(cx: &mut TestAppContext) {
             snapshot(&panel, cx).contains("document-path")
         }));
         // Diff's actual selectable rows own focus, not the tab strip.
-        ready(&panel, visual, "diff-line-0");
-        assert!(visual.debug_bounds("diff-viewport").unwrap().size.height > px(100.));
-        click(visual, "diff-line-0");
+        ready_diff(&panel, visual, "git-diff-notes.txt");
+        assert!(visual.update(|window, _| {
+            window
+                .within("git-diff-notes.txt")
+                .find("diff-body")
+                .bounds()
+                .size
+                .height
+                > px(100.)
+        }));
+        focus_diff(visual, "git-diff-notes.txt");
         let first = visual.update(|window, cx| window.focused(cx).unwrap());
         click(visual, "git-untracked-untracked.txt");
         ready(&panel, visual, "git-diff-untracked.txt");
-        ready(&panel, visual, "diff-line-0");
-        click(visual, "diff-line-0");
+        ready_diff(&panel, visual, "git-diff-untracked.txt");
+        focus_diff(visual, "git-diff-untracked.txt");
         let second = visual.update(|window, cx| window.focused(cx).unwrap());
         assert_ne!(first, second);
         // Kit's Up from an unselected menu selects its last enabled item: Output.
@@ -261,7 +298,7 @@ fn preserves_binary_entries_and_native_disclosure(cx: &mut TestAppContext) {
         click(visual, "git-tracked-payload.bin");
         ready(&panel, visual, "git-diff-payload.bin-binary");
         assert!(visual.update(|_, cx| snapshot(&panel, cx).contains("Cannot display binary diff")));
-        assert!(visual.debug_bounds("diff-viewport").is_none());
+        assert!(visual.update(|window, _| window.find_all("source").is_empty()));
 
         click(visual, "git-open-changes");
         ready(&panel, visual, "git-diff-changes:/payload.bin-binary");

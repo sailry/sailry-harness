@@ -61,6 +61,15 @@ impl SelectionGeometry {
             })
             .2
     }
+
+    pub fn painted_row_height(&self) -> Option<Pixels> {
+        self.runs
+            .iter()
+            .map(|run| run.bounds.size.height)
+            .filter(|height| *height > px(0.))
+            .min()
+    }
+
     pub fn key_at(&self, point: Point<Pixels>, side: Option<DiffSide>) -> Option<u64> {
         if let Some((count, position, cursor)) = self.multi_click.get() {
             let run = self.run_at(position, None)?;

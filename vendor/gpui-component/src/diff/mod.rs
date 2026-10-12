@@ -578,7 +578,8 @@ fn render_diff(
             )
         })
         .when(has_rows, |this| {
-            this.child(Scrollbar::vertical(&scrollbar))
+            this.child(ScrollableMask::new(Axis::Vertical, &scrollbar).id("diff-vertical-wheel"))
+                .child(Scrollbar::vertical(&scrollbar))
                 .when(!soft_wrap, |this| {
                     this.child(Scrollbar::horizontal(&horizontal))
                 })

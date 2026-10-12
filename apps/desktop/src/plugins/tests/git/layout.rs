@@ -1,5 +1,4 @@
 use super::*;
-use gpui_kit::test::TestWindowExt as _;
 
 fn staging_ready(visual: &mut VisualTestContext, id: SharedString, checked: bool) {
     let deadline = Instant::now() + Duration::from_secs(10);

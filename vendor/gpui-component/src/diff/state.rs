@@ -227,6 +227,7 @@ pub struct DiffState {
     presentation_options: PresentationOptions,
     presentations: Vec<Option<Arc<FilePresentation>>>,
     viewport: Size<Pixels>,
+    list_width: Pixels,
     layout: Option<LayoutKey>,
     content_width: Pixels,
     row_height: Option<Pixels>,
@@ -358,6 +359,7 @@ impl DiffState {
                 syntax_max_line_length: 1000,
             },
             viewport: Size::default(),
+            list_width: px(0.),
             layout: None,
             content_width: px(0.),
             row_height: None,
@@ -548,7 +550,26 @@ impl DiffState {
         }
         let resized = self.viewport != viewport;
         self.viewport = viewport;
-        wider || resized
+        let list_width = self.list.viewport_bounds().size.width;
+        let remeasured = self.list_width != list_width;
+        let measured_height = self
+            .layout
+            .as_ref()
+            .filter(|layout| !layout.soft_wrap)
+            .and_then(|_| self.geometry.borrow().painted_row_height())
+            .filter(|height| self.row_height != Some(*height));
+        if let Some(height) = measured_height {
+            // Layout snaps code rows to device pixels. Use that painted height
+            // so measuring the final rows does not extend the scroll edge.
+            self.row_height = Some(height);
+        }
+        if remeasured || measured_height.is_some() {
+            // List clears height hints on width changes. Restore them after
+            // layout so unpainted rows remain part of the scroll bounds.
+            self.list_width = list_width;
+            self.apply_row_height_hint();
+        }
+        wider || resized || remeasured || measured_height.is_some()
     }
 
     /// Replaces the files and resets expansion, selection and viewport.

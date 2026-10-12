@@ -1,10 +1,17 @@
 use super::*;
 use crate::conversation::live::tests::{fixture, wait};
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use serde_json::json;
 
 fn bounds(visual: &mut VisualTestContext, selector: &str) -> Option<Bounds<Pixels>> {
-    visual.debug_bounds(Box::leak(selector.to_owned().into_boxed_str()))
+    visual
+        .update(|window, _| {
+            window
+                .try_find(SharedString::from(selector.to_owned()))
+                .map(|node| node.bounds())
+        })
+        .or_else(|| visual.debug_bounds(Box::leak(selector.to_owned().into_boxed_str())))
 }
 
 fn install(fixture: &fixture::Fixture) -> sailry_protocol::plugin::Info {
