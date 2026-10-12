@@ -99,6 +99,15 @@ fn accepts_manual_callback_while_listener_waits(cx: &mut TestAppContext) {
             settle_dialog(visual);
             assert!(visual.debug_bounds("provider-login-callback").is_some());
             assert!(visual.debug_bounds("provider-login-continue").is_some());
+            visual.update(|window, _| {
+                use gpui_kit::test::TestWindowExt as _;
+                let browser = window.find("provider-login-open");
+                assert_eq!(browser.label(), Some(tr("provider_login_browser").as_ref()));
+            });
+            let field = visual.debug_bounds("provider-login-callback").unwrap();
+            let submit = visual.debug_bounds("provider-login-continue").unwrap();
+            assert!((field.center().y - submit.center().y).abs() <= px(1.));
+            assert!(field.right() <= submit.left());
             assert!(visual.debug_bounds("provider-login-loading").is_none());
             assert!(login.read_with(visual, |login, _| login.receiver.is_some()));
             let callback = support::callback(&url);

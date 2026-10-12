@@ -2,6 +2,7 @@
 mod details;
 mod managed;
 mod requests;
+mod rows;
 #[cfg(test)]
 mod tests;
 mod view;
@@ -9,6 +10,7 @@ pub(super) use managed::rows as model_rows;
 
 use super::{dictation, knowledge, providers::Binding, runtime};
 use crate::{theme::DialogStyle as _, tr};
+use gpui_kit::component::list::ListState;
 use gpui_kit::{
     component::{
         input::{InputEvent, InputState},
@@ -23,6 +25,7 @@ use sailry_protocol::{
     knowledge::Model,
     models::{Definition, Hub, Item, Kind, Source, Version},
 };
+use std::collections::BTreeSet;
 
 #[derive(Clone)]
 pub(super) enum Target {
@@ -244,6 +247,7 @@ pub(super) struct Library {
     hub: Entity<SelectState<Vec<HubChoice>>>,
     version: Entity<SelectState<Vec<VersionChoice>>>,
     items: Vec<Item>,
+    list: Entity<ListState<rows::Rows>>,
     repository: Option<String>,
     definition: Option<Definition>,
     installing: Option<Source>,
@@ -251,7 +255,7 @@ pub(super) struct Library {
     document_prefix: Entity<InputState>,
     cursor: Option<String>,
     searched: Option<(Hub, String)>,
-    partial: bool,
+    pages: BTreeSet<String>,
     loading: bool,
     generation: u64,
     closed: bool,
@@ -281,6 +285,19 @@ pub(super) fn open(
         let version = cx.new(|cx| SelectState::new(Vec::<VersionChoice>::new(), None, window, cx));
         let query_prefix = cx.new(|cx| InputState::new(window, cx));
         let document_prefix = cx.new(|cx| InputState::new(window, cx));
+        let owner = cx.entity();
+        let list = cx.new(|cx| {
+            cx.observe(&owner, |_, _, cx| cx.notify()).detach();
+            ListState::new(
+                rows::Rows {
+                    owner: owner.downgrade(),
+                },
+                window,
+                cx,
+            )
+            .searchable(false)
+            .selectable(false)
+        });
         cx.observe(&query_prefix, |_: &mut Library, _, cx| cx.notify())
             .detach();
         cx.observe(&document_prefix, |_: &mut Library, _, cx| cx.notify())
@@ -306,7 +323,7 @@ pub(super) fn open(
                     library.definition = None;
                     library.cursor = None;
                     library.searched = None;
-                    library.partial = false;
+                    library.pages.clear();
                     library
                         .version
                         .update(cx, |state, cx| state.set_items(Vec::new(), window, cx));
@@ -346,6 +363,7 @@ pub(super) fn open(
             hub,
             version,
             items: Vec::new(),
+            list,
             repository: None,
             definition: None,
             installing: None,
@@ -353,7 +371,7 @@ pub(super) fn open(
             document_prefix,
             cursor: None,
             searched: None,
-            partial: false,
+            pages: BTreeSet::new(),
             loading: true,
             generation: 0,
             closed: false,

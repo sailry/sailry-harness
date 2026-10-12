@@ -155,12 +155,15 @@ fn populate(
                             Button::new(SharedString::from(format!("pin-{key}")))
                                 .debug_selector(move || pin_selector.clone())
                                 .ghost()
-                                .when(!cx.theme().is_dark(), |button| {
-                                    button.custom(crate::theme::subtle_button(cx))
-                                })
                                 .xsmall()
-                                .icon(Icon::default().path("reicon:map/pin-tack"))
-                                .selected(pinned)
+                                .icon(Icon::default().path("reicon:map/pin-tack").text_color(
+                                    if pinned {
+                                        cx.theme().primary
+                                    } else {
+                                        cx.theme().muted_foreground
+                                    },
+                                ))
+                                .toggled(pinned)
                                 .opacity(if pinned { 1. } else { 0. })
                                 .group_hover("feature-menu-row", |style| style.opacity(1.))
                                 .focus(|style| style.opacity(1.))

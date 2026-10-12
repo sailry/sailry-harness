@@ -28,6 +28,7 @@ impl Login {
                 .into_any_element();
         }
         let retry = owner.clone();
+        let manual = self.provider.authentication == sailry_protocol::Authentication::ClaudeOAuth;
         let footer = dialog::DialogFooter::new()
             .w_full()
             .justify_end()
@@ -48,9 +49,13 @@ impl Login {
                         let url = url.clone();
                         row.child(
                             Button::new("provider-login-open")
-                                .primary()
+                                .when(!manual, |button| button.primary())
                                 .debug_selector(|| "provider-login-open".into())
-                                .label(tr("provider_login_authorize"))
+                                .label(tr(if manual {
+                                    "provider_login_browser"
+                                } else {
+                                    "provider_login_authorize"
+                                }))
                                 .on_click(move |_, _, cx| cx.open_url(&url)),
                         )
                     } else {
@@ -140,9 +145,10 @@ impl Render for Login {
                     body.child(
                         h_flex()
                             .debug_selector(|| "provider-login-waiting".into())
-                            .justify_center()
+                            .items_center()
                             .gap_2()
                             .py_2()
+                            .child(spinner::Spinner::new().small())
                             .child(tr("provider_login_waiting")),
                     )
                 },
@@ -154,12 +160,14 @@ impl Render for Login {
                     && matches!(self.state(), Some(State::Browser { .. })),
                 |body| {
                     body.child(
-                        v_flex()
+                        h_flex()
                             .w_full()
-                            .gap_3()
+                            .items_center()
+                            .gap_2()
                             .child(
                                 div()
-                                    .w_full()
+                                    .flex_1()
+                                    .min_w_0()
                                     .debug_selector(|| "provider-login-callback".into())
                                     .child(
                                         input::Input::new(&self.manual)
@@ -169,6 +177,7 @@ impl Render for Login {
                             .child(
                                 Button::new("provider-login-continue")
                                     .primary()
+                                    .flex_shrink_0()
                                     .debug_selector(|| "provider-login-continue".into())
                                     .label(tr("provider_login_continue"))
                                     .on_click(

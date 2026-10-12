@@ -23,6 +23,33 @@ fn retry_delay(startup: bool, code: ErrorCode, retries: u8) -> Option<Duration> 
         .then(|| Duration::from_millis(250 * (1 << retries)))
 }
 
+fn completion(result: &Result<Output, Fault>, uncertain: bool) -> Result<(), Fault> {
+    match result {
+        Ok(Output::Plugin(_)) => Ok(()),
+        Err(error) => {
+            let mut error = error.clone();
+            if uncertain {
+                error.code = ErrorCode::OutcomeUnknown;
+            }
+            Err(error)
+        }
+        _ => Err(Fault::new(
+            ErrorCode::OutcomeUnknown,
+            "plugin update result is unconfirmed",
+        )),
+    }
+}
+
+fn error_key(error: &Fault, uncertain: bool) -> &'static str {
+    if uncertain {
+        "plugins_unknown"
+    } else if error.code == ErrorCode::Unavailable {
+        "plugins_failed"
+    } else {
+        live::error_key(error)
+    }
+}
+
 async fn query(
     client: &sailry_client::Client,
     request: Request,
@@ -399,7 +426,7 @@ impl State {
     }
 
     fn apply(&mut self, name: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy() {
+        if self.busy() || (self.dialog.is_some() && !self.popup.focused(window, cx)) {
             return;
         }
         let state = &mut *self;
@@ -427,14 +454,6 @@ impl State {
         if entries.is_empty() {
             return;
         }
-        if let Some(dialog) = &mut state.dialog {
-            dialog.locked = true;
-            for entry in &entries {
-                if let Some(row) = dialog.rows.get_mut(&entry.current.name) {
-                    row.status = view::Status::Queued;
-                }
-            }
-        }
         let mut plans = BTreeMap::new();
         for entry in &entries {
             if let Some(command) = entry
@@ -443,34 +462,7 @@ impl State {
                 .and_then(|candidate| candidate.command(&entry.current))
             {
                 let request = state.binding.client.prepare(command);
-                let id = request.id;
-                let retry = cx.entity();
-                let name = entry.current.name.clone();
-                let ticket = crate::installations::track(
-                    state.binding.client.clone(),
-                    state.binding.runtime.clone(),
-                    &request,
-                    true,
-                    move |_, window, cx| {
-                        retry.update(cx, |state, cx| {
-                            if state.retryable() {
-                                if state
-                                    .batch
-                                    .as_ref()
-                                    .and_then(|batch| batch.request.as_ref())
-                                    .is_some_and(|request| request.id == id)
-                                {
-                                    state.send(window, cx);
-                                }
-                            } else {
-                                state.apply(Some(&name), window, cx);
-                            }
-                        })
-                    },
-                    window,
-                    cx,
-                );
-                plans.insert(entry.current.name.clone(), (request, ticket));
+                plans.insert(entry.current.name.clone(), (request, None));
             }
         }
         state.batch = Some(Batch {
@@ -482,6 +474,39 @@ impl State {
             completed: 0,
             failed: 0,
         });
+        if state.dialog.take().is_some() {
+            state.popup.close(window, cx);
+        }
+        let batch = state.batch.as_mut().expect("update batch is prepared");
+        for (name, (request, ticket)) in &mut batch.plans {
+            let id = request.id;
+            let name = name.clone();
+            let retry = cx.entity();
+            *ticket = crate::installations::track(
+                batch.binding.client.clone(),
+                batch.binding.runtime.clone(),
+                request,
+                true,
+                move |_, window, cx| {
+                    retry.update(cx, |state, cx| {
+                        if state.retryable() {
+                            if state
+                                .batch
+                                .as_ref()
+                                .and_then(|batch| batch.request.as_ref())
+                                .is_some_and(|request| request.id == id)
+                            {
+                                state.send(window, cx);
+                            }
+                        } else {
+                            state.apply(Some(&name), window, cx);
+                        }
+                    })
+                },
+                window,
+                cx,
+            );
+        }
         self.send(window, cx);
     }
 
@@ -557,19 +582,7 @@ impl State {
                 )
             });
             if let Some(ticket) = &ticket {
-                cx.update(|cx| {
-                    ticket.record(
-                        match &result {
-                            Ok(Output::Plugin(_)) => Ok(()),
-                            Err(error) => Err(error.clone()),
-                            _ => Err(Fault::new(
-                                ErrorCode::OutcomeUnknown,
-                                "plugin update result is unconfirmed",
-                            )),
-                        },
-                        cx,
-                    )
-                });
+                cx.update(|cx| ticket.record_outcome(completion(&result, uncertain), cx));
             }
             let target = cx.update(|cx| {
                 let windows = cx.windows();
@@ -644,7 +657,7 @@ impl State {
                             let message = rust_i18n::t!(
                                 "plugins_update_error",
                                 name = name,
-                                error = tr(live::error_key(&error))
+                                error = tr(error_key(&error, uncertain))
                             );
                             if let Some(dialog) = &mut state.dialog
                                 && let Some(row) = dialog.rows.get_mut(name)

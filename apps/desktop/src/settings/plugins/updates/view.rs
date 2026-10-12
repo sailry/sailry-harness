@@ -50,7 +50,6 @@ impl Row {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Status {
     Ready,
-    Queued,
     Updating,
     Succeeded,
     Failed,
@@ -290,10 +289,9 @@ impl Render for State {
                                                     .child(row.version()),
                                             ),
                                     )
-                                    .when(
-                                        matches!(row.status, Status::Queued | Status::Updating),
-                                        |view| view.child(Spinner::new().small()),
-                                    )
+                                    .when(row.status == Status::Updating, |view| {
+                                        view.child(Spinner::new().small())
+                                    })
                                     .when(row.status == Status::Succeeded, |view| {
                                         view.child(
                                             Icon::new(IconName::CircleCheck)

@@ -1,12 +1,10 @@
 use super::*;
-use crate::settings::{entry::Entry, group::Group};
-use gpui_kit::{
-    component::{
-        button::{Button, ButtonVariants},
-        input::Input,
-        select::Select,
-    },
-    prelude::FluentBuilder as _,
+use crate::settings::group::Group;
+use gpui_kit::component::{
+    button::{Button, ButtonVariants},
+    input::Input,
+    list::List,
+    select::Select,
 };
 
 impl Library {
@@ -22,9 +20,8 @@ impl Library {
 }
 
 impl Render for Library {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let locked = self.loading || !self.available(cx);
-        let downloading = locked || self.target.busy(cx);
         let controls = h_flex()
             .w_full()
             .items_center()
@@ -68,12 +65,7 @@ impl Render for Library {
             .empty(IconName::Search, "model_library_empty");
         if self.searched.is_none() {
             results = results.child(if self.loading {
-                div()
-                    .relative()
-                    .w_full()
-                    .h_24()
-                    .child(crate::ui::pending::overlay("model-library-loading", cx))
-                    .into_any_element()
+                div().w_full().h_24().into_any_element()
             } else {
                 div()
                     .h_24()
@@ -90,69 +82,18 @@ impl Render for Library {
                     )
                     .into_any_element()
             });
+            if self.loading {
+                results = results.overlay(crate::ui::pending::overlay("model-library-loading", cx));
+            }
         }
-        for (index, item) in self.items.iter().enumerate() {
-            let repository = item.source.repository.clone();
-            let owner = cx.entity();
-            let status = self.target.source_status(&item.source, cx);
-            let installed = matches!(status, ModelStatus::Installed);
-            let installing = matches!(status, ModelStatus::Downloading(_) | ModelStatus::Checking)
-                || (self.installing.as_ref() == Some(&item.source)
-                    && (self.loading || self.target.busy(cx)));
+        if !self.items.is_empty() {
+            let height = (window.rem_size() * (self.items.len() as f32 * rows::ROW_HEIGHT))
+                .min((window.viewport_size().height * 0.55).min(px(420.)));
             results = results.child(
-                Entry::new(
-                    format!("model-library-result-{index}"),
-                    v_flex()
-                        .gap_1()
-                        .child(div().font_medium().child(item.name.clone()))
-                        .child(
-                            div()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(repository.clone()),
-                        ),
-                )
-                .action(
-                    Button::new(format!("model-library-details-{index}"))
-                        .icon(IconName::Info)
-                        .accessibility_label(tr("knowledge_model_details"))
-                        .tooltip(tr("knowledge_model_details"))
-                        .disabled(locked)
-                        .debug_selector(move || format!("model-library-details-{index}"))
-                        .on_click(move |_, window, cx| {
-                            super::details::open(owner.clone(), index, window, cx)
-                        }),
-                )
-                .action(
-                    Button::new(format!("model-library-install-{index}"))
-                        .icon(
-                            Icon::new(if installed {
-                                gpui_kit::assets::IconName::Check
-                            } else {
-                                gpui_kit::assets::IconName::Download
-                            })
-                            .text_color(if installed {
-                                cx.theme().muted_foreground
-                            } else {
-                                cx.theme().primary
-                            }),
-                        )
-                        .accessibility_label(tr(if installed {
-                            "knowledge_installed"
-                        } else {
-                            "knowledge_install"
-                        }))
-                        .tooltip(tr(if installed {
-                            "knowledge_installed"
-                        } else {
-                            "knowledge_install"
-                        }))
-                        .loading(installing)
-                        .disabled(downloading || installed || installing)
-                        .debug_selector(move || format!("model-library-install-{index}"))
-                        .on_click(cx.listener(move |library, _, window, cx| {
-                            library.install(index, window, cx)
-                        })),
-                ),
+                div()
+                    .h(height)
+                    .debug_selector(|| "model-library-list".into())
+                    .child(List::new(&self.list).h_full()),
             );
         }
         v_flex()
@@ -161,24 +102,5 @@ impl Render for Library {
             .gap_4()
             .child(controls)
             .child(results)
-            .when(self.cursor.is_some(), |view| {
-                view.child(
-                    Button::new("model-library-more")
-                        .label(tr("model_library_more"))
-                        .disabled(locked)
-                        .debug_selector(|| "model-library-more".into())
-                        .on_click(
-                            cx.listener(|library, _, window, cx| library.search(true, window, cx)),
-                        ),
-                )
-            })
-            .when(self.partial, |view| {
-                view.child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(tr("model_library_partial")),
-                )
-            })
     }
 }

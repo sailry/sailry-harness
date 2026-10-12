@@ -119,7 +119,6 @@ impl RenderOnce for View {
         let text_id = self.id.clone();
         let viewport_id = self.id.clone();
         let button_id = self.id.clone();
-        let background_id = self.id.clone();
         let selected = self.on_selection;
         let releasing = self.state.clone();
         let pressing = self.state.clone();
@@ -205,48 +204,32 @@ impl RenderOnce for View {
             )
             .when(overflow, |body| {
                 body.child(
-                    h_flex()
-                        .w_full()
-                        .justify_center()
-                        .pt_1()
-                        .when(!expanded, |row| {
-                            let background = crate::theme::messages::background("user", cx)
-                                .unwrap_or(cx.theme().muted);
-                            row.bg(linear_gradient(
-                                180.,
-                                linear_color_stop(background.opacity(0.), 0.),
-                                linear_color_stop(background, 1.),
-                            ))
-                            .debug_selector(move || {
-                                format!("message-expand-background-{background_id}")
+                    h_flex().w_full().justify_center().pt_1().child(
+                        Button::new(("prompt-expand", self.state.entity_id()))
+                            .ghost()
+                            .xsmall()
+                            .icon(if expanded {
+                                IconName::ChevronUp
+                            } else {
+                                IconName::ChevronDown
                             })
-                        })
-                        .child(
-                            Button::new(("prompt-expand", self.state.entity_id()))
-                                .ghost()
-                                .xsmall()
-                                .icon(if expanded {
-                                    IconName::ChevronUp
-                                } else {
-                                    IconName::ChevronDown
-                                })
-                                .accessibility_label(tr(if expanded {
-                                    "message_collapse"
-                                } else {
-                                    "message_expand"
-                                }))
-                                .tooltip(tr(if expanded {
-                                    "message_collapse"
-                                } else {
-                                    "message_expand"
-                                }))
-                                .debug_selector(move || format!("message-expand-{button_id}"))
-                                .on_click(move |_, window, cx| {
-                                    self.state
-                                        .update(cx, |state, _| state.expanded = !state.expanded);
-                                    (self.on_resize)(window, cx);
-                                }),
-                        ),
+                            .accessibility_label(tr(if expanded {
+                                "message_collapse"
+                            } else {
+                                "message_expand"
+                            }))
+                            .tooltip(tr(if expanded {
+                                "message_collapse"
+                            } else {
+                                "message_expand"
+                            }))
+                            .debug_selector(move || format!("message-expand-{button_id}"))
+                            .on_click(move |_, window, cx| {
+                                self.state
+                                    .update(cx, |state, _| state.expanded = !state.expanded);
+                                (self.on_resize)(window, cx);
+                            }),
+                    ),
                 )
             })
     }

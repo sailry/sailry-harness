@@ -14,6 +14,18 @@ impl Drop for Read {
 }
 
 impl Library {
+    pub(super) fn has_more(&self, cx: &App) -> bool {
+        !self.loading
+            && self.repository.is_none()
+            && self.available(cx)
+            && self
+                .cursor
+                .as_ref()
+                .is_some_and(|cursor| !self.pages.contains(cursor))
+            && self.searched.as_ref()
+                == Some(&(self.hub(cx), self.query.read(cx).value().trim().to_owned()))
+    }
+
     pub(super) fn cancel(&mut self) {
         self.read = None;
         self.generation += 1;
@@ -77,8 +89,15 @@ impl Library {
         let query = self.query.read(cx).value().trim().to_owned();
         let hub = self.hub(cx);
         let cursor = if more { self.cursor.clone() } else { None };
-        if more && (cursor.is_none() || self.searched.as_ref() != Some(&(hub, query.clone()))) {
-            return;
+        if more {
+            if !self.has_more(cx) {
+                return;
+            }
+            self.pages
+                .insert(cursor.clone().expect("pagination cursor is present"));
+        } else {
+            self.pages.clear();
+            self.cursor = None;
         }
         self.installing = None;
         let searched = (hub, query.clone());
@@ -109,8 +128,17 @@ impl Library {
                         }
                     }
                     library.cursor = page.next_cursor;
-                    library.partial = page.partial;
                     library.searched = Some(searched);
+                    if page.partial {
+                        crate::feedback::info("", tr("model_library_partial").as_ref(), window, cx);
+                    }
+                    // Kit only checks the visible range when a list has rows.
+                    // Empty catalog pages can still carry a valid continuation.
+                    if library.items.is_empty() && library.has_more(cx) {
+                        cx.defer_in(window, |library, window, cx| {
+                            library.search(true, window, cx)
+                        });
+                    }
                 }
                 _ => library.failure(window, cx),
             },
@@ -142,26 +170,29 @@ impl Library {
             },
             window,
             cx,
-            move |library, result, window, cx| match result {
-                Ok(Output::ModelDefinition(definition))
-                    if definition.format.kind() == kind
-                        && definition.source.hub == expected.hub
-                        && definition.source.repository == expected.repository
-                        && definition.source.revision == expected.revision
-                        && definition.validate().is_ok() =>
-                {
-                    if !matches!(
-                        library.target.model_status(&definition, cx),
-                        ModelStatus::Installed
-                            | ModelStatus::Downloading(_)
-                            | ModelStatus::Checking
-                    ) {
-                        library.target.download(definition, window, cx);
+            move |library, result, window, cx| {
+                library.repository = None;
+                match result {
+                    Ok(Output::ModelDefinition(definition))
+                        if definition.format.kind() == kind
+                            && definition.source.hub == expected.hub
+                            && definition.source.repository == expected.repository
+                            && definition.source.revision == expected.revision
+                            && definition.validate().is_ok() =>
+                    {
+                        if !matches!(
+                            library.target.model_status(&definition, cx),
+                            ModelStatus::Installed
+                                | ModelStatus::Downloading(_)
+                                | ModelStatus::Checking
+                        ) {
+                            library.target.download(definition, window, cx);
+                        }
                     }
-                }
-                _ => {
-                    library.installing = None;
-                    library.failure(window, cx);
+                    _ => {
+                        library.installing = None;
+                        library.failure(window, cx);
+                    }
                 }
             },
         );

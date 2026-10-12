@@ -909,8 +909,9 @@ provider_glm_coding: "GLM Coding Plan"
 provider_ark_coding: "Ark Coding Plan"
 provider_minimax_coding: "MiniMax Coding Plan"
 preset_claude_oauth: "Claude OAuth"
-provider_login_callback_required: "输入代码或回调地址"
-provider_login_callback: "代码或回调地址"
+provider_login_callback_required: "输入浏览器返回的授权码或回调地址"
+provider_login_callback: "浏览器返回的授权码或回调地址"
+provider_login_browser: "打开浏览器"
 provider_login_continue: "继续"
 provider_api: 接口协议
 provider_api_responses: Responses

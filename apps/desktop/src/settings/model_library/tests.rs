@@ -72,17 +72,16 @@ fn fits_content_and_scrolls_long_results(cx: &mut TestAppContext) {
     let expanded = visual.debug_bounds("dialog-0").unwrap();
     assert!(expanded.size.height > compact.size.height);
     assert!(expanded.bottom() <= px(1100.));
-    let before = visual.debug_bounds("model-library-install-39").unwrap();
-    assert!(before.bottom() > expanded.bottom());
+    assert!(visual.debug_bounds("model-library-install-39").is_none());
+    let list = visual.debug_bounds("model-library-list").unwrap();
     visual.simulate_event(ScrollWheelEvent {
-        position: expanded.center(),
+        position: list.center(),
         delta: ScrollDelta::Pixels(point(px(0.), px(-10000.))),
         touch_phase: TouchPhase::Moved,
         modifiers: Modifiers::default(),
     });
     draw(visual);
     let after = visual.debug_bounds("model-library-install-39").unwrap();
-    assert!(after.top() < before.top());
     assert!(after.top() >= expanded.top() && after.bottom() <= expanded.bottom());
     visual.update(|_, cx| {
         library.update(cx, |library, cx| {
@@ -258,7 +257,7 @@ fn loads_defaults_and_pages_online_results(cx: &mut TestAppContext) {
         let library =
             visual.update(|_, cx| panel.read(cx).library.as_ref().unwrap().upgrade().unwrap());
         wait(visual, |cx| {
-            library.read(cx).items.len() == 1 && !library.read(cx).loading
+            library.read(cx).items.len() == 2 && !library.read(cx).loading
         });
         let source = visual.debug_bounds("model-library-source").unwrap();
         visual.update(|window, cx| {
@@ -279,10 +278,7 @@ fn loads_defaults_and_pages_online_results(cx: &mut TestAppContext) {
             assert!((source.center().y - search.center().y).abs() <= px(1.));
             assert!(search.size.width <= search.size.height + px(1.));
         });
-        tap(visual, "model-library-more");
-        wait(visual, |cx| {
-            library.read(cx).items.len() == 2 && !library.read(cx).loading
-        });
+        assert!(visual.debug_bounds("model-library-more").is_none());
         visual.update(|_, cx| {
             assert!(library.read(cx).cursor.is_none());
             assert_ne!(

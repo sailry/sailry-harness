@@ -26,6 +26,8 @@ fn pins_keep_the_active_page_and_menu(cx: &mut TestAppContext) {
     let bounds = cx.debug_bounds(row).unwrap();
     assert!(bounds.left() >= cx.debug_bounds("shell-feature-rail").unwrap().right());
     cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+    let pin = cx.debug_bounds("feature-pin-page:files").unwrap();
+    assert_eq!(pin.size, size(px(20.), px(20.)));
     click(&mut cx, "feature-pin-page:files");
     assert!(
         cx.debug_bounds(row).is_some(),

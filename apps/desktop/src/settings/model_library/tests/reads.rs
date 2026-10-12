@@ -96,6 +96,73 @@ fn delay(
 }
 
 #[gpui::test]
+fn consumes_each_cursor_once(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        for failed in [false, true] {
+            let fixture = Fixture::new(remote);
+            *fixture.transport.catalog.lock().unwrap() = Some(definition());
+            let (owner, visual) = fixture.mount(cx);
+            let panel = visual.update(|_, cx| selected(&owner, cx).unwrap());
+            tap(visual, "knowledge-model-library");
+            let library =
+                visual.update(|_, cx| panel.read(cx).library.as_ref().unwrap().upgrade().unwrap());
+            wait(visual, |cx| {
+                !library.read(cx).loading && library.read(cx).items.len() == 1
+            });
+            let delayed = delay(&fixture, &library, visual);
+            visual.update(|window, cx| {
+                library.update(cx, |library, cx| {
+                    library.cursor = Some("next".into());
+                    library.repository = Some("fixture/encoder".into());
+                    assert!(!library.has_more(cx));
+                    library.repository = None;
+                    library
+                        .query
+                        .update(cx, |query, cx| query.set_value("different", window, cx));
+                    assert!(!library.has_more(cx));
+                    library
+                        .query
+                        .update(cx, |query, cx| query.set_value("", window, cx));
+                    assert!(library.has_more(cx));
+                    library.search(true, window, cx);
+                    library.search(true, window, cx);
+                    assert!(!library.has_more(cx));
+                });
+            });
+            wait(visual, |_| delayed.held.lock().unwrap().len() == 1);
+            delayed.held.lock().unwrap()[0].result = Some(if failed {
+                Err(Fault::invalid("injected page failure"))
+            } else {
+                Ok(Output::ModelSearch(sailry_protocol::models::Page {
+                    items: Vec::new(),
+                    next_cursor: Some("next".into()),
+                    partial: true,
+                }))
+            });
+            assert!(delayed.complete(0));
+            wait(visual, |cx| !library.read(cx).loading);
+            visual.update(|window, cx| {
+                library.update(cx, |library, cx| {
+                    assert_eq!(library.items.len(), 1);
+                    assert_eq!(library.items[0].name, definition().name);
+                    assert!(library.pages.contains("next"));
+                    assert!(!library.has_more(cx));
+                    library.search(true, window, cx);
+                });
+            });
+            assert_eq!(delayed.held.lock().unwrap().len(), 1);
+            tap(visual, "model-library-search");
+            wait(visual, |_| delayed.held.lock().unwrap().len() == 2);
+            assert!(library.read_with(visual, |library, _| library.pages.is_empty()));
+            assert!(delayed.complete(1));
+            wait(visual, |cx| !library.read(cx).loading);
+            fixture.close(visual);
+        }
+    }
+}
+
+#[gpui::test]
 fn first_search_waits_before_empty(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
@@ -121,6 +188,14 @@ fn first_search_waits_before_empty(cx: &mut TestAppContext) {
             });
             wait(visual, |_| delayed.held.lock().unwrap().len() == 1);
             assert!(visual.debug_bounds("model-library-loading").is_some());
+            let mask = visual.debug_bounds("model-library-loading").unwrap();
+            let surface = visual
+                .debug_bounds("settings-surface-model_library_results")
+                .unwrap();
+            assert!((mask.left() - surface.left()).abs() <= px(1.));
+            assert!((mask.right() - surface.right()).abs() <= px(1.));
+            assert!((mask.top() - surface.top()).abs() <= px(1.));
+            assert!((mask.bottom() - surface.bottom()).abs() <= px(1.));
             assert!(library.read_with(visual, |library, _| {
                 library.first_read() && !library.header_loading()
             }));

@@ -43,19 +43,21 @@ impl Owned {
         self.closing = false;
     }
 
+    pub(crate) fn focused(&self, window: &Window, cx: &App) -> bool {
+        self.window == Some(window.window_handle().window_id())
+            && self
+                .focus
+                .as_ref()
+                .is_some_and(|focus| focus.contains_focused(window, cx))
+    }
+
     pub(crate) fn close(&mut self, window: &mut Window, cx: &mut App) {
         self.closing = true;
         self.flush(window, cx);
     }
 
     fn flush(&mut self, window: &mut Window, cx: &mut App) {
-        if self.closing
-            && self.window == Some(window.window_handle().window_id())
-            && self
-                .focus
-                .as_ref()
-                .is_some_and(|focus| focus.contains_focused(window, cx))
-        {
+        if self.closing && self.focused(window, cx) {
             self.dismissed();
             window.close_dialog(cx);
         }

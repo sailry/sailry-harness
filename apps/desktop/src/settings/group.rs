@@ -18,6 +18,7 @@ pub struct Group {
     card: bool,
     heading: bool,
     loading: bool,
+    overlay: Option<AnyElement>,
     empty: (IconName, &'static str),
 }
 
@@ -30,6 +31,7 @@ impl Group {
             card: true,
             heading: true,
             loading: false,
+            overlay: None,
             empty: (IconName::Inbox, "settings_empty"),
         }
     }
@@ -47,6 +49,11 @@ impl Group {
 
     pub fn heading(mut self, visible: bool) -> Self {
         self.heading = visible;
+        self
+    }
+
+    pub fn overlay(mut self, overlay: impl IntoElement) -> Self {
+        self.overlay = Some(overlay.into_any_element());
         self
     }
 
@@ -116,7 +123,8 @@ impl RenderOnce for Group {
             .when(card, |surface| {
                 surface.rounded(cx.theme().radius_lg).overflow_hidden()
             })
-            .child(div().when(card, |content| content.px_4()).child(rows));
+            .child(div().when(card, |content| content.px_4()).child(rows))
+            .children(self.overlay);
         if self.loading {
             surface = surface.child(
                 div()

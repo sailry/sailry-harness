@@ -3,6 +3,7 @@ use crate::settings::plugins::test_support::{Fixture, draw, init, shown, tap, wa
 use core::prelude::v1::test;
 use std::sync::atomic::Ordering;
 
+mod handoff;
 mod retry;
 
 fn start(fixture: &Fixture, owner: &Entity<Workspace>, visual: &mut VisualTestContext) {
@@ -86,14 +87,10 @@ fn selects_updates_and_prompts_once(cx: &mut TestAppContext) {
         fixture.transport.mode.store(2, Ordering::SeqCst);
         tap(visual, "plugins-updates-apply");
         wait(visual, |_| fixture.transport.entered.is_cancelled());
-        assert!(state.read_with(visual, |state, _| state.dialog.as_ref().unwrap().locked));
-        assert!(state.read_with(visual, |state, _| {
-            state.dialog.as_ref().unwrap().rows["example"].status == view::Status::Updating
-        }));
-        tap(visual, "plugin-update-select-example");
-        assert!(state.read_with(visual, |state, _| {
-            state.dialog.as_ref().unwrap().rows["example"].selected
-        }));
+        shown(visual, "plugins-update-dialog", false);
+        shown(visual, "installation-list", true);
+        assert!(state.read_with(visual, |state, _| state.dialog.is_none()));
+        assert!(visual.debug_bounds("dialog-1").is_none());
         fixture.transport.release.cancel();
         shown(visual, "plugins-update-dialog", false);
         assert_eq!(fixture.plugins()[0].version.as_deref(), Some("2.0.0"));
@@ -285,21 +282,27 @@ fn retains_failed_rows_and_retries(cx: &mut TestAppContext) {
             owner.plugin_catalog.updates.clone().unwrap()
         });
         wait(visual, |cx| state.read(cx).retryable());
-        assert!(state.read_with(visual, |state, _| {
-            state.dialog.as_ref().unwrap().rows["example"].status == view::Status::Failed
-        }));
-        assert!(state.read_with(visual, |state, _| {
-            state.dialog.as_ref().unwrap().rows["second"].status == view::Status::Failed
-        }));
+        shown(visual, "plugins-update-dialog", false);
+        shown(visual, "installation-list", true);
+        assert!(state.read_with(visual, |state, _| state.dialog.is_none()));
         let requests = fixture.transport.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 2);
-        tap(visual, "plugin-update-retry-example");
+        let captured = state.read_with(visual, |state, _| {
+            state.batch.as_ref().unwrap().request.clone().unwrap()
+        });
+        fixture.bind(&owner, visual, true);
+        tap(
+            visual,
+            Box::leak(format!("installation-retry-{}", requests[0]).into_boxed_str()),
+        );
         assert_eq!(*fixture.transport.requests.lock().unwrap(), requests);
-        tap(visual, "plugin-update-retry-second");
+        tap(
+            visual,
+            Box::leak(format!("installation-retry-{}", requests[1]).into_boxed_str()),
+        );
         wait(visual, |cx| !state.read(cx).busy());
-        assert!(state.read_with(visual, |state, _| {
-            state.dialog.as_ref().unwrap().rows["second"].status == view::Status::Succeeded
-        }));
+        assert_eq!(captured.target, fixture.node.id());
+        assert!(state.read_with(visual, |state, _| state.dialog.is_none()));
         assert_eq!(
             *fixture.transport.requests.lock().unwrap(),
             [requests[0], requests[1], requests[1]]
@@ -324,7 +327,11 @@ fn retains_failed_rows_and_retries(cx: &mut TestAppContext) {
             Some("2.0.0")
         );
         fixture.package("2.0.0");
-        tap(visual, "plugin-update-retry-example");
+        tap(
+            visual,
+            Box::leak(format!("installation-retry-{}", requests[0]).into_boxed_str()),
+        );
+        wait(visual, |cx| !state.read(cx).busy());
         shown(visual, "plugins-update-dialog", false);
         assert_eq!(
             fixture
@@ -345,7 +352,7 @@ fn retains_failed_rows_and_retries(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn applies_only_ready_rows(cx: &mut TestAppContext) {
+fn keeps_unselected_candidates(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
@@ -364,20 +371,22 @@ fn applies_only_ready_rows(cx: &mut TestAppContext) {
         tap(visual, "plugins-updates-apply");
         wait(visual, |cx| !state.read(cx).busy());
         assert!(state.read_with(visual, |state, _| {
-            let rows = &state.dialog.as_ref().unwrap().rows;
-            rows["example"].status == view::Status::Failed
-                && rows["second"].status == view::Status::Succeeded
-                && rows["third"].status == view::Status::Ready
+            state.dialog.is_none()
+                && state.entries.contains_key("example")
+                && !state.entries.contains_key("second")
+                && state.entries.contains_key("third")
         }));
         assert_eq!(fixture.transport.requests.lock().unwrap().len(), 2);
+        let failed = fixture.transport.requests.lock().unwrap()[0];
         package(&fixture, "example", "2.0.0");
-        tap(visual, "plugin-update-select-third");
-        tap(visual, "plugins-updates-apply");
+        visual.update(|window, cx| {
+            state.update(cx, |state, cx| state.apply(Some("third"), window, cx));
+        });
         wait(visual, |cx| !state.read(cx).busy());
         assert!(state.read_with(visual, |state, _| {
-            let rows = &state.dialog.as_ref().unwrap().rows;
-            rows["example"].status == view::Status::Failed
-                && rows["third"].status == view::Status::Succeeded
+            state.dialog.is_none()
+                && state.entries.contains_key("example")
+                && !state.entries.contains_key("third")
         }));
         assert_eq!(fixture.transport.requests.lock().unwrap().len(), 3);
         let installed = fixture.plugins();
@@ -390,7 +399,11 @@ fn applies_only_ready_rows(cx: &mut TestAppContext) {
                 .as_deref(),
             Some("1.0.0")
         );
-        tap(visual, "plugin-update-retry-example");
+        tap(
+            visual,
+            Box::leak(format!("installation-retry-{failed}").into_boxed_str()),
+        );
+        wait(visual, |cx| !state.read(cx).busy());
         shown(visual, "plugins-update-dialog", false);
         assert_eq!(fixture.transport.requests.lock().unwrap().len(), 4);
         fixture.close(visual);
