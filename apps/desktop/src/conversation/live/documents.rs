@@ -2,6 +2,22 @@
 use super::*;
 
 impl View {
+    pub(crate) fn document_listed(
+        &self,
+        document: &sailry_protocol::artifact::Summary,
+        cx: &App,
+    ) -> bool {
+        let (Some(session), Some(snapshot)) = (self.session(), &self.history.snapshot) else {
+            return false;
+        };
+        self.assets.read(cx).contains_document(
+            self.binding.client.target(),
+            session,
+            snapshot.page.revision,
+            document,
+        )
+    }
+
     pub(crate) fn document_visible(&self, artifact: &sailry_protocol::artifact::Summary) -> bool {
         let Some(snapshot) = &self.history.snapshot else {
             return false;

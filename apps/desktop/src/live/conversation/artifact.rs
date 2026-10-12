@@ -8,7 +8,9 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !source.read(cx).document_visible(&artifact) {
+        if !source.read(cx).document_visible(&artifact)
+            && !source.read(cx).document_listed(&artifact, cx)
+        {
             return;
         }
         let original = source.clone();

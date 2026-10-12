@@ -3,6 +3,7 @@ artifact_form_reply: "Réponse à %{title} (version %{revision}, formulaire %{fo
 artifact_form_invalid: "Formulaire invalide"
 artifact_form_required: "Remplissez les champs obligatoires"
 artifact_export_failed: "Échec de l’export"
+artifact_export_unsupported: "Les aperçus interactifs s’exportent en HTML"
 artifact_close: "Fermer"
 artifact_form_stale: "Une version plus récente est disponible ; ouvrez-la avant d’envoyer"
 artifact_render_failed: "Impossible d’afficher le visuel"

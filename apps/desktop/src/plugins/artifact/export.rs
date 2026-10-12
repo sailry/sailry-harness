@@ -209,6 +209,9 @@ async fn run(
         _ = cancel.cancelled() => return Err("files_download_cancelled"),
         result = read => result.map_err(|_| "artifact_export_failed")?,
     };
+    if content.artifact.kind == sailry_protocol::artifact::Kind::Preview && image {
+        return Err("artifact_export_unsupported");
+    }
     let task = cx
         .update(|window, cx| match live.and_then(|view| view.upgrade()) {
             Some(view) => view.update(cx, |view, cx| view.capture(options.revision, window, cx)),

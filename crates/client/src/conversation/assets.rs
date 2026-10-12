@@ -16,6 +16,7 @@ pub fn unique(
         File(&'a str),
         Attachment(AttachmentId),
         Image(&'a str, usize, usize),
+        Document(ArtifactId),
     }
     let mut seen = std::collections::HashSet::new();
     groups
@@ -34,10 +35,11 @@ pub fn unique(
                 assets::Target::Image(image) => {
                     Identity::Image(&image.entry, image.part, image.index)
                 }
+                assets::Target::Document(document) => Identity::Document(document.id),
             };
             seen.insert((
                 group.kind == assets::Kind::Artifact,
-                group.worktree,
+                (!matches!(target, assets::Target::Document(_))).then_some(group.worktree),
                 identity,
             ))
         })

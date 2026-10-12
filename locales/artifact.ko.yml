@@ -3,6 +3,7 @@ artifact_form_reply: "%{title}에 답변 (버전 %{revision}, 양식 %{form}) [%
 artifact_form_invalid: "유효하지 않은 양식"
 artifact_form_required: "필수 항목을 입력하세요"
 artifact_export_failed: "내보내기 실패"
+artifact_export_unsupported: "대화형 미리보기는 HTML로 내보낼 수 있습니다"
 artifact_close: "닫기"
 artifact_form_stale: "새 버전을 연 후 제출하세요"
 artifact_render_failed: "시각 자료를 렌더링할 수 없습니다"

@@ -1,8 +1,17 @@
-//! Model-authored HTML is a bounded, declarative fragment, never executable code.
+//! Bounded authored source; declarative documents use the package sanitizer.
 use ammonia::{Builder, UrlRelative};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sailry_protocol::{Fault, artifact::MAX_HTML_BYTES, chart::Chart};
 use std::collections::{HashMap, HashSet};
+
+pub(crate) fn preview(source: &str) -> Result<(String, Vec<String>), Fault> {
+    if source.trim().is_empty() || source.len() > MAX_HTML_BYTES || source.contains('\0') {
+        return Err(Fault::invalid(
+            "artifact HTML is empty or exceeds its limit",
+        ));
+    }
+    Ok((source.to_owned(), Vec::new()))
+}
 
 pub(crate) fn sanitize(
     source: &str,

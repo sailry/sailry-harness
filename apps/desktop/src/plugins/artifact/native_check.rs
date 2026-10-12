@@ -51,6 +51,7 @@ fn fixture() -> Content {
     }
     Content {
         artifact: Summary {
+            kind: artifact::Kind::Document,
             id: ArtifactId::new(),
             session: SessionId::new(),
             turn: TurnId::new(),

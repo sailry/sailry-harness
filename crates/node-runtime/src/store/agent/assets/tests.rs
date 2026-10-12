@@ -326,3 +326,106 @@ fn indexes_valid_plugin_files() {
     }
     assert!(extract::items(&entry, Some("/project")).is_empty());
 }
+
+#[test]
+fn pages_document_receipts_with_fork_scope() {
+    let mut fixture = Fixture::new();
+    let turn = fixture.queued();
+    let document = sailry_protocol::artifact::Summary {
+        kind: sailry_protocol::artifact::Kind::Document,
+        id: ArtifactId::new(),
+        session: fixture.session,
+        turn,
+        package: sailry_protocol::plugin::Reference {
+            name: "document-fixture".into(),
+            digest: "a".repeat(64),
+            settings_revision: 0,
+        },
+        title: "HTML report".into(),
+        summary: "Captured metadata".into(),
+        revision: 1,
+        size: 16,
+        created_at: 0,
+        updated_at: 1,
+    };
+    runs::start(&fixture.database.connection, turn).unwrap();
+    runs::claim(&mut fixture.database, &fixture.events)
+        .unwrap()
+        .unwrap();
+    let receipt = sailry_protocol::tool::Content {
+        version: 1,
+        blocks: vec![
+            sailry_protocol::tool::Block::Artifact(document.clone()),
+            sailry_protocol::tool::Block::Artifact(document.clone()),
+        ],
+    };
+    let mut event = AdkEvent::new("document-receipt");
+    event.author = "assistant".into();
+    let mut content = adk_core::Content::new("tool");
+    content.parts.push(adk_core::Part::FunctionResponse {
+        id: Some("document-write".into()),
+        annotations: None,
+        function_response: adk_core::FunctionResponseData::new(
+            "document_write",
+            serde_json::json!({"sailry_content":receipt}),
+        ),
+    });
+    event.set_content(content);
+    history::append(
+        &mut fixture.database,
+        fixture.session,
+        turn,
+        event,
+        &fixture.events,
+    )
+    .unwrap();
+    runs::finish(
+        &mut fixture.database,
+        turn,
+        Status::Completed,
+        None,
+        &fixture.events,
+    )
+    .unwrap();
+    let Output::Session(branch) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::ForkConversation {
+            session: fixture.session,
+            through: turn,
+            expected_revision: 1,
+        },
+    ) else {
+        panic!("fork expected")
+    };
+    fixture.completed(&vec!["Later conversation without outputs"; 300]);
+    fixture.completed(&["[New file](new.txt)"]);
+    assert!(
+        !fixture
+            .read(None, 1)
+            .page
+            .runs
+            .iter()
+            .any(|run| run.turn == turn)
+    );
+    let mut scan = Query {
+        limit: 1,
+        ..query()
+    };
+    let mut found = Vec::new();
+    loop {
+        let result = page(&fixture, scan.clone());
+        found.extend(result.groups);
+        let Some(before) = result.next_before else {
+            break;
+        };
+        scan.before = Some(before);
+    }
+    let receipt = found.iter().find(|group| group.turn == turn).unwrap();
+    assert_eq!(receipt.kind, Kind::Artifact);
+    assert_eq!(receipt.items, [Target::Document(document.clone())]);
+    let inherited = read(&fixture.database.connection, branch.id, &query()).unwrap();
+    assert_eq!(inherited.groups.len(), 1);
+    assert_eq!(inherited.groups[0].items, [Target::Document(document)]);
+    assert!(read(&fixture.database.connection, SessionId::new(), &query()).is_err());
+}

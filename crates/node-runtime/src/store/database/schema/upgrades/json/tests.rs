@@ -323,6 +323,50 @@ mod publication {
     }
 }
 
+mod artifacts {
+    use super::*;
+
+    #[test]
+    fn fills_only_missing_metadata_kind() {
+        for table in ["artifacts", "artifact_revisions"] {
+            let fixture = Fixture::new();
+            let old = json!({"id":"fixture", "title":"Retained metadata"});
+            let before = bytes(&old);
+            fixture.insert(table, &before);
+            assert!(reconcile(&fixture.db).unwrap());
+            let mut after: Value = serde_json::from_slice(&fixture.body(table)).unwrap();
+            assert_eq!(
+                after.as_object_mut().unwrap().remove("kind"),
+                Some(json!("document"))
+            );
+            assert_eq!(after, old);
+            assert_eq!(fixture.storage(table, "body"), "blob");
+            assert!(!reconcile(&fixture.db).unwrap());
+        }
+        for kind in [json!("preview"), json!("unknown"), Value::Null] {
+            let fixture = Fixture::new();
+            let value = bytes(&json!({"id":"fixture","kind":kind}));
+            fixture.insert("artifacts", &value);
+            assert!(!reconcile(&fixture.db).unwrap());
+            assert_eq!(fixture.body("artifacts"), value);
+        }
+    }
+
+    #[test]
+    fn rolls_back_both_metadata_tables() {
+        let mut fixture = Fixture::new();
+        let before = bytes(&json!({"id":"fixture"}));
+        fixture.insert("artifacts", &before);
+        fixture.insert("artifact_revisions", &before);
+        fixture.db.execute_batch("CREATE TRIGGER reject_defaults BEFORE UPDATE ON artifact_revisions BEGIN SELECT RAISE(ABORT,'fixture publication failure'); END").unwrap();
+        let transaction = fixture.db.transaction().unwrap();
+        assert!(reconcile(&transaction).is_err());
+        transaction.rollback().unwrap();
+        assert_eq!(fixture.body("artifacts"), before);
+        assert_eq!(fixture.body("artifact_revisions"), before);
+    }
+}
+
 mod catalog {
     use super::*;
     use sailry_client::Client;
@@ -651,6 +695,8 @@ impl Fixture {
             "CREATE TABLE agent_approvals(id TEXT PRIMARY KEY,body BLOB NOT NULL);
              CREATE TABLE plugins(body BLOB NOT NULL);
              CREATE TABLE plugin_packages(body BLOB NOT NULL);
+             CREATE TABLE artifacts(body BLOB NOT NULL);
+             CREATE TABLE artifact_revisions(body BLOB NOT NULL);
              CREATE TABLE requests(body BLOB NOT NULL,result TEXT);",
         )
         .unwrap();

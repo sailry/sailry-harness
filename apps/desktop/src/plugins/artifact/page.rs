@@ -58,6 +58,11 @@ pub(super) fn document(
     drafts: Vec<crate::preferences::artifacts::Draft>,
 ) -> Result<String, HostError> {
     use sailry_protocol::artifact::Library;
+    if content.artifact.kind != sailry_protocol::artifact::Kind::Document {
+        return Err(HostError::new(
+            "interactive previews require an isolated surface",
+        ));
+    }
     let view = content
         .view
         .as_ref()
@@ -154,6 +159,19 @@ pub(super) fn capture(
     window: &mut Window,
     cx: &mut App,
 ) -> Task<Result<String, HostError>> {
+    if content.artifact.kind == sailry_protocol::artifact::Kind::Preview {
+        if !content.artifact.valid()
+            || content.html.trim().is_empty()
+            || content.html.len() > sailry_protocol::artifact::MAX_HTML_BYTES
+            || content.html.contains('\0')
+        {
+            return Task::ready(Err(HostError::new("invalid artifact content")));
+        }
+        return Task::ready(Ok(crate::content::files::html::surface::document(
+            &content.html,
+            cx,
+        )));
+    }
     use raw_window_handle::HasWindowHandle;
     let html = match document(&content, theme(cx), labels(), false, Vec::new()) {
         Ok(html) => html,
@@ -216,6 +234,8 @@ pub(super) fn serialize_script() -> String {
 }
 
 pub(super) fn serialize_capture(capture: Option<u64>) -> String {
+    // readonlyExport supplies a fragment, so the clone must not retain template columns.
+    // Inline priority also fixes documents whose frozen styles declare an important grid.
     use base64::Engine as _;
     let logo = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
         "../../../../../assets/branding/sailry-mark.svg"
@@ -231,7 +251,7 @@ pub(super) fn serialize_capture(capture: Option<u64>) -> String {
         .replace('<', "\\u003c");
     let capture = serde_json::to_string(&capture).unwrap();
     format!(
-        r#"window.sailryDocumentReady.then(async()=>{{await document.fonts.ready;const body=await window.sailryDocument.readonlyExport();const clone=document.documentElement.cloneNode(true);clone.querySelectorAll('script,dialog,nav,meta[http-equiv]').forEach(node=>node.remove());clone.querySelector('body').innerHTML=body+{footer};window.ipc.postMessage(JSON.stringify({{kind:'export',capture:{capture},html:'<!doctype html>'+clone.outerHTML}}));}}).catch(()=>window.ipc.postMessage(JSON.stringify({{kind:'export_error',capture:{capture}}})));"#
+        r#"window.sailryDocumentReady.then(async()=>{{await document.fonts.ready;const body=await window.sailryDocument.readonlyExport();const clone=document.documentElement.cloneNode(true);clone.querySelectorAll('script,dialog,nav,meta[http-equiv]').forEach(node=>node.remove());const output=clone.querySelector('body');output.innerHTML=body+{footer};output.style.setProperty('display','block','important');window.ipc.postMessage(JSON.stringify({{kind:'export',capture:{capture},html:'<!doctype html>'+clone.outerHTML}}));}}).catch(()=>window.ipc.postMessage(JSON.stringify({{kind:'export_error',capture:{capture}}})));"#
     )
 }
 

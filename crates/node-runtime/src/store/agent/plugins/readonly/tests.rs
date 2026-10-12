@@ -142,6 +142,7 @@ fn permits_reads_and_rejects_resource_writes() {
 fn permits_only_the_captured_artifact_effect() {
     let (fixture, turn, _) = fixture();
     let command = Command::WriteArtifact(sailry_protocol::artifact::Write {
+        kind: sailry_protocol::artifact::Kind::Document,
         id: None,
         expected_revision: None,
         title: "Options".into(),

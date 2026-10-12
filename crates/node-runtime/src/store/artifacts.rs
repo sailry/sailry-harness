@@ -158,7 +158,10 @@ fn write(
         .and_then(|extension| extension.artifact_view.as_ref())
         .map(|view| view.allowed_classes.as_slice())
         .unwrap_or_default();
-    let (html, warnings) = crate::artifacts::sanitize(&draft.html, allowed_classes)?;
+    let (html, warnings) = match draft.kind {
+        artifact::Kind::Document => crate::artifacts::sanitize(&draft.html, allowed_classes)?,
+        artifact::Kind::Preview => crate::artifacts::preview(&draft.html)?,
+    };
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(storage_error)?
@@ -167,6 +170,7 @@ fn write(
         .map_err(storage_error)?;
     let mut artifact = Summary {
         id: draft.id.unwrap_or_default(),
+        kind: draft.kind,
         session,
         turn,
         package: context.package.clone(),
@@ -386,6 +390,7 @@ fn revisions(
         }
         items.push(Revision {
             id: value.id,
+            kind: value.kind,
             revision: value.revision,
             turn: value.turn,
             title: value.title,
@@ -420,6 +425,15 @@ fn denied(message: &str) -> Fault {
 }
 
 pub(in crate::store) fn validate_stored(db: &Connection) -> Result<(), Fault> {
+    let missing: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL) OR EXISTS(SELECT 1 FROM artifact_revisions WHERE json_type(body,'$.kind') IS NULL)",
+        [], |row| row.get(0),
+    ).map_err(storage_error)?;
+    if missing {
+        return Err(storage_error(
+            "stored artifact metadata is missing its kind",
+        ));
+    }
     let mut query=db.prepare("SELECT a.id,a.session,a.body,r.revision,r.body,r.digest,r.warnings FROM artifacts a JOIN artifact_revisions r ON r.artifact=a.id").map_err(storage_error)?;
     let mut rows = query.query([]).map_err(storage_error)?;
     while let Some(row) = rows.next().map_err(storage_error)? {

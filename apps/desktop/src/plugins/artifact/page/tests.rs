@@ -7,6 +7,7 @@ use sailry_protocol::{SessionId, TurnId, artifact::ViewContent, plugin};
 fn content() -> Content {
     Content {
         artifact: Summary {
+            kind: sailry_protocol::artifact::Kind::Document,
             id: ArtifactId::new(),
             session: SessionId::new(),
             turn: TurnId::new(),
@@ -61,6 +62,36 @@ fn confines_content_and_preserves_capture() {
 }
 
 #[test]
+fn rejects_preview_in_privileged_document() {
+    let mut content = content();
+    content.artifact.kind = sailry_protocol::artifact::Kind::Preview;
+    content.html = "<script>window.ipc.postMessage('submit')</script>".into();
+    assert!(document(&content, json!({}), json!({}), false, vec![]).is_err());
+}
+
+#[gpui_kit::test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn wraps_preview_without_business_bridge(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let mut content = content();
+    content.artifact.kind = sailry_protocol::artifact::Kind::Preview;
+    content.html = "<!doctype html><html><head><style>body{display:grid}</style></head><body><button onclick='count++'>Count</button><script>let count=0;</script></body></html>".into();
+    let html = cx.update(|cx| crate::content::files::html::surface::document(&content.html, cx));
+    assert!(html.contains("sandbox=\"allow-scripts\""));
+    assert!(html.contains("frame-src about:"));
+    assert!(html.contains("frame-src 'none'"));
+    assert!(html.contains("&lt;style&gt;body{display:grid}&lt;/style&gt;"));
+    assert!(html.contains("&lt;script&gt;let count=0;&lt;/script&gt;"));
+    assert!(!html.contains("window.ipc"));
+    assert!(!html.contains("sailryDocument"));
+    assert!(!html.contains(&content.artifact.session.to_string()));
+    assert!(!html.contains("display','block','important'"));
+}
+
+#[test]
 fn rejects_missing_or_oversized_views() {
     let mut content = content();
     content.view = None;
@@ -104,6 +135,29 @@ fn quotes_custom_font_names() {
         font_family("Example, \"Quoted\" \\ Family\n", "system-ui, sans-serif"),
         "\"Example, \\\"Quoted\\\" \\\\ Family\\a \", system-ui, sans-serif"
     );
+}
+
+#[test]
+fn exports_fragments_without_template_columns() {
+    let mut content = content();
+    let view = content.view.as_mut().unwrap();
+    view.template = "<!doctype html><html><head></head><body><aside id=\"contents\"></aside><main id=\"brief\"></main></body></html>".into();
+    view.styles = vec!["body{display:grid;grid-template-columns:220px minmax(0,1fr)}main{width:100%;max-width:1008px;margin:auto}".into()];
+    let original = content.clone();
+    let embedded = document(&content, json!({}), json!({}), false, vec![]).unwrap();
+    assert!(embedded.contains("grid-template-columns:220px minmax(0,1fr)"));
+    assert!(embedded.contains("<aside id=\"contents\"></aside>"));
+    assert!(!embedded.contains("setProperty('display','block'"));
+    assert_eq!(content, original);
+
+    let script = serialize_capture(Some(7));
+    assert!(script.contains("document.documentElement.cloneNode(true)"));
+    assert!(script.contains("const output=clone.querySelector('body')"));
+    assert!(script.contains("output.innerHTML=body+"));
+    assert!(script.contains("output.style.setProperty('display','block','important')"));
+    assert!(script.contains("\\u003cfooter style="));
+    assert!(!script.contains("document.body.style"));
+    assert!(!script.contains("document.body.innerHTML"));
 }
 
 #[gpui_kit::test]

@@ -256,6 +256,11 @@ impl View {
     }
 
     fn writable(&self, _: &mut Window, cx: &mut App) {
+        if self.content.as_ref().is_some_and(|content| {
+            content.artifact.kind == sailry_protocol::artifact::Kind::Preview
+        }) {
+            return;
+        }
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         if let Some(native) = &self.native {
             let available = self
@@ -285,6 +290,13 @@ impl View {
             return;
         }
         let Some(content) = &self.content else { return };
+        if content.artifact.kind == sailry_protocol::artifact::Kind::Preview {
+            match crate::content::files::html::surface::Native::new(&content.html, window, cx) {
+                Ok(native) => self.native = Some(Rc::new(native)),
+                Err(_) => self.error = Some("artifact_preview_failed"),
+            }
+            return;
+        }
         let theme = page::theme(cx);
         let writable =
             content.artifact.revision == content.latest_revision
@@ -380,6 +392,9 @@ impl View {
             return;
         }
         let Some(content) = &self.content else { return };
+        if content.artifact.kind != sailry_protocol::artifact::Kind::Document {
+            return;
+        }
         let Ok(event) = serde_json::from_str::<Value>(&event) else {
             return;
         };
@@ -540,6 +555,14 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Task<Result<String, HostError>> {
+        if let Some(content) = &self.content
+            && content.artifact.kind == sailry_protocol::artifact::Kind::Preview
+        {
+            if self.stop.is_cancelled() || content.artifact.revision != revision {
+                return Task::ready(Err(HostError::new("artifact revision is unavailable")));
+            }
+            return page::capture(content.clone(), window, cx);
+        }
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             if self
@@ -595,9 +618,18 @@ impl Render for View {
             if let Some(native) = &self.native {
                 let theme = page::theme(cx);
                 if self.theme.as_ref() != Some(&theme) {
-                    let _ = native
-                        .page
-                        .evaluate_script(&format!("window.sailryDocument?.retheme({theme});"));
+                    let script = if self.content.as_ref().is_some_and(|content| {
+                        content.artifact.kind == sailry_protocol::artifact::Kind::Preview
+                    }) {
+                        // Only fixed wrapper colors change; authored code stays in srcdoc.
+                        format!(
+                            "for(const element of [document.documentElement,document.body])Object.assign(element.style,{{background:{},color:{}}});",
+                            theme["background"], theme["foreground"]
+                        )
+                    } else {
+                        format!("window.sailryDocument?.retheme({theme});")
+                    };
+                    let _ = native.page.evaluate_script(&script);
                     self.theme = Some(theme);
                 }
                 self.writable(window, cx);

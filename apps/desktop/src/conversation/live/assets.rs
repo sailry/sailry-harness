@@ -55,6 +55,26 @@ impl Drop for Assets {
 }
 
 impl Assets {
+    pub(super) fn contains_document(
+        &self,
+        target: NodeId,
+        session: SessionId,
+        revision: u64,
+        document: &sailry_protocol::artifact::Summary,
+    ) -> bool {
+        document.valid()
+            && self.binding.client.target() == target
+            && self.session == Some(session)
+            && self.loaded_revision == Some(revision)
+            && self.groups.iter().any(|group| {
+                group.kind == Kind::Artifact
+                    && group.turn == document.turn
+                    && group.items.iter().any(
+                        |target| matches!(target, Target::Document(value) if value == document),
+                    )
+            })
+    }
+
     pub(super) fn new(
         owner: WeakEntity<View>,
         binding: Binding,
@@ -208,6 +228,13 @@ impl Assets {
         let source = match target {
             Target::Attachment(attachment) => ImageSource::Attachment(attachment),
             Target::Image(image) => ImageSource::Image { session, image },
+            Target::Document(document) => {
+                self.set_open(false, window, cx);
+                let _ = self
+                    .owner
+                    .update(cx, |_, cx| cx.emit(Event::Document(document)));
+                return;
+            }
             Target::File { path } => {
                 if !crate::content::images::supports(&path) {
                     self.set_open(false, window, cx);

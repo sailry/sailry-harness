@@ -1,5 +1,37 @@
 use super::*;
 
+mod preview {
+    use super::*;
+
+    #[test]
+    fn preserves_inline_code_exactly() {
+        let source = "<!doctype html><html><head><style>button{color:green}</style></head><body><button onclick='count++'>Count</button><script>let count=0;</script></body></html>";
+        let (html, warnings) = super::super::preview(source).unwrap();
+        assert_eq!(html, source);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn bounds_utf8_bytes_and_rejects_nul() {
+        for source in [
+            String::new(),
+            " \n".into(),
+            "<p>\0</p>".into(),
+            "x".repeat(MAX_HTML_BYTES + 1),
+            "🙂".repeat(MAX_HTML_BYTES / 4 + 1),
+        ] {
+            assert!(super::super::preview(&source).is_err());
+        }
+        assert_eq!(
+            super::super::preview(&"x".repeat(MAX_HTML_BYTES))
+                .unwrap()
+                .0
+                .len(),
+            MAX_HTML_BYTES
+        );
+    }
+}
+
 fn sanitize(source: &str) -> Result<(String, Vec<String>), Fault> {
     super::sanitize(
         source,

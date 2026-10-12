@@ -3,6 +3,7 @@ artifact_form_reply: "回复「%{title}」（版本 %{revision}，表单 %{form}
 artifact_form_invalid: "表单无效"
 artifact_form_required: "请填写必填项"
 artifact_export_failed: "导出失败"
+artifact_export_unsupported: "交互预览支持导出为 HTML"
 artifact_close: "关闭"
 artifact_form_stale: "方案已有新版本，请打开新版后提交"
 artifact_render_failed: "图表渲染失败"

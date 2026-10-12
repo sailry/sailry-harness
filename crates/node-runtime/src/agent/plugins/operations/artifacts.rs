@@ -16,6 +16,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         Operation::WriteArtifact => (
             json!({
                 "id":{"type":["string","null"]},
+                "kind":{"type":"string","enum":["document","preview"],"default":"document"},
                 "expected_revision":{"type":["integer","null"],"minimum":1},
                 "title":{"type":"string","minLength":1,"maxLength":120},
                 "summary":{"type":"string","maxLength":280},

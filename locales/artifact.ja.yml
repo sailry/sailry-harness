@@ -3,6 +3,7 @@ artifact_form_reply: "%{title}への回答（バージョン %{revision}、フ�
 artifact_form_invalid: "無効なフォーム"
 artifact_form_required: "必須項目を入力してください"
 artifact_export_failed: "エクスポートできませんでした"
+artifact_export_unsupported: "対話型プレビューは HTML でエクスポートできます"
 artifact_close: "閉じる"
 artifact_form_stale: "新しいバージョンを開いてから送信してください"
 artifact_render_failed: "図表を描画できませんでした"

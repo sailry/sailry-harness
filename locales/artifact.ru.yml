@@ -3,6 +3,7 @@ artifact_form_reply: "Ответ на %{title} (версия %{revision}, фор
 artifact_form_invalid: "Недопустимая форма"
 artifact_form_required: "Заполните обязательные поля"
 artifact_export_failed: "Не удалось экспортировать"
+artifact_export_unsupported: "Интерактивные макеты экспортируются в HTML"
 artifact_close: "Закрыть"
 artifact_form_stale: "Доступна новая версия; откройте её перед отправкой"
 artifact_render_failed: "Не удалось отобразить визуализацию"

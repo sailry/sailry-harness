@@ -3,6 +3,7 @@ use sailry_protocol::artifact;
 
 fn artifact(snapshot: &Snapshot, run: &Run) -> artifact::Summary {
     artifact::Summary {
+        kind: artifact::Kind::Document,
         id: sailry_protocol::ArtifactId::new(),
         session: snapshot.page.session,
         turn: run.turn,

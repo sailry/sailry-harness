@@ -271,6 +271,7 @@ impl Assets {
         let name = match target {
             Target::Attachment(value) => value.spec.name.clone(),
             Target::Image(value) => value.attachment.spec.name.clone(),
+            Target::Document(value) => value.title.clone(),
             Target::File { path } => path.clone(),
         };
         let source = match target {

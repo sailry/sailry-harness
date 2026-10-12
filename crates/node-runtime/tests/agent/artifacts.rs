@@ -12,6 +12,8 @@ mod backup_server;
 mod declarations;
 #[path = "artifact/lifecycle.rs"]
 mod lifecycle;
+#[path = "artifact/preview.rs"]
+mod preview;
 
 const PACKAGE: &str = "document-fixture";
 
@@ -512,6 +514,23 @@ async fn reads_inherited_publications() {
             .unwrap();
         assert_eq!(inherited.artifact, original);
         assert_eq!(inherited.latest_revision, 1);
+        let inventory = fixture
+            .client
+            .conversation_assets(
+                branch.id,
+                conversation::assets::Query {
+                    kind: Some(conversation::assets::Kind::Artifact),
+                    before: None,
+                    limit: 20,
+                },
+            )
+            .await
+            .unwrap();
+        assert!(inventory.groups.iter().any(|group| {
+            group
+                .items
+                .contains(&conversation::assets::Target::Document(original.clone()))
+        }));
         assert_eq!(
             fixture
                 .client

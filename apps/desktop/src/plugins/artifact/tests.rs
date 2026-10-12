@@ -747,6 +747,7 @@ fn includes_raw_choices_and_document_identity() {
     rust_i18n::set_locale("en");
     let content = Content {
         artifact: Summary {
+            kind: sailry_protocol::artifact::Kind::Document,
             id: ArtifactId::new(),
             session: sailry_protocol::SessionId::new(),
             turn: sailry_protocol::TurnId::new(),

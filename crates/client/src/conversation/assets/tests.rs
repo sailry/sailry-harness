@@ -61,6 +61,45 @@ struct Scans {
     queries: Mutex<Vec<Query>>,
 }
 
+#[test]
+fn document_ids_keep_the_newest_receipt() {
+    let mut newest = hit(30);
+    let document = sailry_protocol::artifact::Summary {
+        kind: sailry_protocol::artifact::Kind::Document,
+        id: ArtifactId::new(),
+        session: SessionId::new(),
+        turn: newest.turn,
+        package: sailry_protocol::plugin::Reference {
+            name: "document-fixture".into(),
+            digest: "a".repeat(64),
+            settings_revision: 0,
+        },
+        title: "Report".into(),
+        summary: String::new(),
+        revision: 2,
+        size: 16,
+        created_at: 0,
+        updated_at: 1,
+    };
+    newest.items = vec![assets::Target::Document(document.clone())];
+    let mut older = newest.clone();
+    older.sequence = 20;
+    older.worktree = WorktreeId::new();
+    let mut previous = document.clone();
+    previous.revision = 1;
+    older.items = vec![assets::Target::Document(previous)];
+    let mut same_title = document.clone();
+    same_title.id = ArtifactId::new();
+    older.items.push(assets::Target::Document(same_title));
+    let groups = [newest, older];
+    let visible = unique(&groups).collect::<Vec<_>>();
+    assert_eq!(visible.len(), 2);
+    assert_eq!(visible[0].2, &assets::Target::Document(document));
+    assert_eq!((visible[1].0.sequence, visible[1].1), (20, 1));
+    assert_eq!(unique(&groups[..1]).count(), 1);
+    assert_eq!(groups[1].items.len(), 2);
+}
+
 impl Transport for Scans {
     fn target(&self) -> NodeId {
         NodeId([2; 32])

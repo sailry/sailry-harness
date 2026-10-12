@@ -25,13 +25,13 @@ pub(crate) struct Native {
     snapshot: Rc<Snapshot>,
 }
 impl Native {
-    pub(super) fn new(html: &str, window: &mut Window, cx: &mut App) -> Result<Self, ()> {
+    pub(crate) fn new(html: &str, window: &mut Window, cx: &mut App) -> Result<Self, ()> {
         #[cfg(target_os = "windows")]
         let snapshot = Snapshot::new();
         #[cfg(target_os = "windows")]
         let signals = snapshot.signals();
         let builder = wry::WebViewBuilder::new()
-            .with_html(document(html))
+            .with_html(document(html, cx))
             .with_ipc_handler(move |_request| {
                 #[cfg(target_os = "windows")]
                 signals.receive(_request.body());
@@ -156,9 +156,32 @@ fn layout(bounds: Bounds<Pixels>, clip: Bounds<Pixels>) -> (gpui_kit::Size<Pixel
     (bounds.size, bounds.origin - clip.origin)
 }
 
-fn document(html: &str) -> String {
+pub(crate) fn document(html: &str, cx: &App) -> String {
+    use gpui_kit::component::ActiveTheme;
+    let color = |value: Hsla| {
+        let value = Rgba::from(value);
+        format!(
+            "rgba({},{},{},{})",
+            value.r * 255.,
+            value.g * 255.,
+            value.b * 255.,
+            value.a
+        )
+    };
+    wrapper(
+        html,
+        &color(cx.theme().background),
+        &color(cx.theme().foreground),
+    )
+}
+
+fn wrapper(html: &str, background: &str, foreground: &str) -> String {
+    // srcdoc inherits the parent's policy. Its own policy only tightens it;
+    // frame-src on the parent also blocks navigation of the authored frame.
+    // WebRTC blocking is policy intent; native engine support is platform-dependent.
+    const POLICY: &str = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; webrtc 'block'";
     let content = format!(
-        "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'\">{html}"
+        "<meta http-equiv=\"Content-Security-Policy\" content=\"{POLICY}; frame-src 'none'\">{html}"
     );
     let escaped = content
         .replace('&', "&amp;")
@@ -166,7 +189,7 @@ fn document(html: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;");
     format!(
-        "<!doctype html><html><head><meta charset=utf-8><style>html,body{{margin:0;overflow:hidden}}iframe{{position:absolute;border:0;width:100vw;height:100vh}}</style></head><body><script>window.layoutPreview=()=>{{const f=document.getElementById('preview');if(f&&window.previewFrame)Object.assign(f.style,window.previewFrame)}};document.addEventListener('DOMContentLoaded',window.layoutPreview)</script><iframe id=preview sandbox=\"allow-scripts\" srcdoc=\"{escaped}\"></iframe></body></html>"
+        "<!doctype html><html><head><meta charset=utf-8><meta http-equiv=\"Content-Security-Policy\" content=\"{POLICY}; frame-src about:\"><style>html,body{{margin:0;overflow:hidden;background:{background};color:{foreground}}}iframe{{position:absolute;border:0;width:100vw;height:100vh}}</style></head><body><script>window.layoutPreview=()=>{{const f=document.getElementById('preview');if(f&&window.previewFrame)Object.assign(f.style,window.previewFrame)}};document.addEventListener('DOMContentLoaded',window.layoutPreview)</script><iframe id=preview sandbox=\"allow-scripts\" allow=\"camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'\" referrerpolicy=\"no-referrer\" srcdoc=\"{escaped}\"></iframe></body></html>"
     )
 }
 
@@ -191,13 +214,25 @@ mod tests {
 
     #[test]
     fn confines_interactive_content() {
-        let html = document("</iframe><script>parent.postMessage('test','*')</script>");
+        let html = wrapper(
+            "</iframe><script>parent.postMessage('test','*')</script>",
+            "inherit",
+            "inherit",
+        );
         assert_eq!(html.matches("<iframe ").count(), 1);
         assert_eq!(html.matches("</iframe>").count(), 1);
         assert!(html.contains("sandbox=\"allow-scripts\""));
         assert!(!html.contains("allow-same-origin"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("connect-src 'none'"));
+        assert!(html.contains("frame-src about:"));
+        assert!(html.contains("frame-src 'none'"));
+        assert!(html.contains("worker-src 'none'"));
+        assert_eq!(html.matches("webrtc 'block'").count(), 2);
+        assert!(html.contains("clipboard-read 'none'"));
+        assert!(!html.contains("window.ipc"));
+        assert!(!html.contains("allow-popups"));
+        assert!(!html.contains("allow-downloads"));
     }
 
     struct Overlap {

@@ -232,12 +232,21 @@ owned requests in their original captured plugin scope, never the controller fee
 
 ### Session HTML documents
 
-The Node stores validated HTML fragments as immutable revisions under its profile,
-with their owning session, turn and captured plugin reference. Each revision freezes
-the package's declared template, styles and scripts; later package updates do not
-change saved documents. Revision-checked writes are available only to captured
+The Node stores bounded HTML as immutable revisions under its profile, with the
+owning session, turn, source kind and captured plugin reference. The default
+document kind sanitizes fragments and freezes the package's declared template,
+styles and scripts; later package updates do not change saved documents.
+Revision-checked writes are available only to captured
 native tools in running main sessions. Plans permit this contained document write
 without granting project writes or arbitrary plugin callbacks.
+
+The preview kind preserves self-contained authored HTML, CSS and JavaScript.
+Desktop renders it in the existing native preview adapter's opaque-origin
+sandbox, not the privileged document surface. It receives no Node, tool,
+credential, filesystem or conversation-form bridge. Parent and child CSP restrict
+resource loading and navigation; this is not an OS-level zero-egress guarantee.
+Preview HTML exports preserve that wrapper and original source, not transient
+browser state. Preview PNG export is unavailable; document exports are unchanged.
 
 Forks and rewind backups preserve canonical document receipts with their original
 write owner. Reads captured to another live conversation expose only revisions
@@ -247,14 +256,16 @@ conversation history without rolling back its document inventory. Removing an
 owner retains referenced documents until the last live conversation reference is
 removed; backups preserve those retained files and their immutable package assets.
 
-Client projects document receipts into persistent conversation cards. Controllers
+Client projects document receipts into persistent conversation cards and the
+conversation artifact inventory, including receipts from earlier unloaded turns.
+Controllers
 read content through the same authenticated local or remote commands and reuse
 the conversation subscription for coalesced document invalidation. The package
 owns its preview layout and controls; Desktop and Mobile provide native offline
 surfaces with semantic theme tokens and pinned chart, diagram and math libraries.
 Historical revisions are read-only. Editing a form pins its revision so publication
 cannot replace a draft. Form answers enter the normal durable message queue with
-a stable request ID and never approve a plan. Exports capture rendered content and
+a stable request ID and never approve a plan. Document exports capture rendered content and
 answers, remove scripts and interactive forms, and include Sailry branding.
 
 ### Agent turns and tools

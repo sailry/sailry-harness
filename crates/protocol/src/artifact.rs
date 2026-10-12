@@ -1,14 +1,25 @@
-//! Session-owned, versioned HTML fragments; presentation belongs to plugins.
+//! Session-owned HTML revisions; presentation belongs to plugins.
 use crate::{ArtifactId, SessionId, TurnId, plugin};
 use serde::{Deserialize, Serialize};
 
 pub const MAX_HTML_BYTES: usize = 512 * 1024;
 pub const MAX_PAGE_LIMIT: u16 = 64;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+    #[default]
+    Document,
+    /// Self-contained code rendered without a business or same-origin bridge.
+    Preview,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Summary {
     pub id: ArtifactId,
+    #[serde(default)]
+    pub kind: Kind,
     pub session: SessionId,
     pub turn: TurnId,
     pub package: plugin::Reference,
@@ -136,6 +147,8 @@ impl ViewContent {
 #[serde(deny_unknown_fields)]
 pub struct Revision {
     pub id: ArtifactId,
+    #[serde(default)]
+    pub kind: Kind,
     pub revision: u32,
     pub turn: TurnId,
     pub title: String,
@@ -162,6 +175,8 @@ pub struct RevisionPage {
 #[serde(deny_unknown_fields)]
 pub struct Write {
     pub id: Option<ArtifactId>,
+    #[serde(default)]
+    pub kind: Kind,
     /// Required for an existing artifact; absent for creation.
     pub expected_revision: Option<u32>,
     pub title: String,
@@ -174,4 +189,25 @@ pub fn label(value: &str, limit: usize, empty: bool) -> bool {
     (empty || !value.trim().is_empty())
         && value.chars().count() <= limit
         && !value.chars().any(char::is_control)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_omitted_kind_to_document() {
+        let mut value = serde_json::json!({"title":"Report","html":"<p>Body</p>"});
+        let write: Write = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(write.kind, Kind::Document);
+        value["kind"] = "preview".into();
+        assert_eq!(
+            serde_json::from_value::<Write>(value.clone()).unwrap().kind,
+            Kind::Preview
+        );
+        for kind in [serde_json::json!("unknown"), serde_json::Value::Null] {
+            value["kind"] = kind;
+            assert!(serde_json::from_value::<Write>(value.clone()).is_err());
+        }
+    }
 }

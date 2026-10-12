@@ -23,6 +23,8 @@ pub struct Query {
 pub enum Target {
     Attachment(crate::attachment::Attachment),
     Image(super::Image),
+    /// Exact canonical publication receipt; reads recheck the captured session.
+    Document(crate::artifact::Summary),
     /// Relative to the originating turn's worktree; opening rechecks file access.
     File {
         path: String,

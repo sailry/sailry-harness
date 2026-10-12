@@ -11,8 +11,14 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
                 if let Some(content) = sailry_protocol::tool::Presentation::Content.content(result)
                 {
                     for block in content.blocks {
-                        if let sailry_protocol::tool::Block::File(file) = block {
-                            push(&mut items, Target::File { path: file.path });
+                        match block {
+                            sailry_protocol::tool::Block::File(file) => {
+                                push(&mut items, Target::File { path: file.path });
+                            }
+                            sailry_protocol::tool::Block::Artifact(document) => {
+                                push(&mut items, Target::Document(document));
+                            }
+                            _ => {}
                         }
                     }
                 }

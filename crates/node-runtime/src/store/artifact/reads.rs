@@ -59,10 +59,12 @@ impl Ingress {
         let Output::Plugin(info) = package.completion.await.map_err(|_| unavailable())?? else {
             return Err(Fault::new(ErrorCode::Internal, "artifact package expected"));
         };
-        content.view = self
-            .plugins
-            .read_artifact_view(info, self.closed.clone())
-            .await?;
+        if content.artifact.kind == artifact::Kind::Document {
+            content.view = self
+                .plugins
+                .read_artifact_view(info, self.closed.clone())
+                .await?;
+        }
         // Explicit removal while package resources load invalidates the read.
         let owner = self
             .dispatch_request(

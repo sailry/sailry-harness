@@ -54,6 +54,91 @@ fn open(
     (entity.unwrap(), visual)
 }
 
+#[gpui_kit::test]
+fn listed_documents_do_not_require_loaded_turns(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| view.read(cx).history.snapshot.is_some());
+        let panel = view.read_with(visual, |view, _| view.assets.clone());
+        let document = sailry_protocol::artifact::Summary {
+            kind: sailry_protocol::artifact::Kind::Document,
+            id: sailry_protocol::ArtifactId::new(),
+            session: fixture.session.id,
+            turn: TurnId::new(),
+            package: sailry_protocol::plugin::Reference {
+                name: "document-fixture".into(),
+                digest: "a".repeat(64),
+                settings_revision: 0,
+            },
+            title: "Earlier HTML report".into(),
+            summary: String::new(),
+            revision: 1,
+            size: 16,
+            created_at: 0,
+            updated_at: 1,
+        };
+        let revision = view.read_with(visual, |view, _| {
+            assert!(!view.document_visible(&document));
+            view.history.snapshot.as_ref().unwrap().page.revision
+        });
+        panel.update(visual, |panel, _| {
+            panel.loaded_revision = Some(revision);
+            panel.groups = vec![Group {
+                sequence: 1,
+                turn: document.turn,
+                worktree: fixture.session.worktree,
+                timestamp_ms: 1,
+                kind: Kind::Artifact,
+                items: vec![Target::Document(document.clone())],
+            }];
+        });
+        assert!(view.read_with(visual, |view, cx| view.document_listed(&document, cx)));
+        let mut altered = document.clone();
+        altered.revision += 1;
+        assert!(!view.read_with(visual, |view, cx| view.document_listed(&altered, cx)));
+        panel.read_with(visual, |panel, _| {
+            let target = fixture.binding.client.target();
+            assert!(!panel.contains_document(
+                NodeId([0; 32]),
+                fixture.session.id,
+                revision,
+                &document
+            ));
+            assert!(!panel.contains_document(target, SessionId::new(), revision, &document));
+            assert!(!panel.contains_document(target, fixture.session.id, revision + 1, &document));
+        });
+        let observed = Rc::new(std::cell::RefCell::new(Vec::new()));
+        visual.update(|_, cx| {
+            let observed = observed.clone();
+            cx.subscribe(&view, move |_, event, _| {
+                if let Event::Document(value) = event {
+                    observed.borrow_mut().push(value.clone());
+                }
+            })
+            .detach();
+        });
+        panel.update_in(visual, |panel, window, cx| {
+            panel.select(
+                Target::Document(document.clone()),
+                Kind::Artifact,
+                fixture.session.worktree,
+                window,
+                cx,
+            );
+        });
+        wait(visual, |_| observed.borrow().len() == 1);
+        assert_eq!(*observed.borrow(), [document.clone()]);
+        view.update(visual, |view, _| {
+            let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+            Arc::make_mut(&mut snapshot.page).revision += 1;
+        });
+        assert!(!view.read_with(visual, |view, cx| view.document_listed(&document, cx)));
+        fixture.close();
+    }
+}
+
 fn submit(fixture: &Fixture, text: String) -> TurnId {
     submit_to(fixture, fixture.session.id, text)
 }
