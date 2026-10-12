@@ -1,12 +1,14 @@
 //! Resolve captured data recipes once for UI-independent controller presentation.
 use super::Call;
 use sailry_protocol::{
-    conversation::Page,
+    SessionId,
+    conversation::{Child, Page, Part},
     plugin::desktop::Navigation,
     tool::{Diagnostic, Field, LocalText, ResultDisplay, Table, projection::Format},
 };
 use serde::Serialize;
 use serde_json::Value;
+use std::borrow::Cow;
 mod command;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -63,6 +65,41 @@ fn field(value: Option<&Field>, arguments: &Value) -> Option<Text> {
         text: value.read(arguments)?.to_owned(),
         code: value.code,
     })
+}
+
+/// The name from a child's canonical spawn call or frozen role metadata.
+pub fn child_title<'a>(page: Option<&'a Page>, child: &'a Child) -> Option<Cow<'a, str>> {
+    let name = child.name.as_deref().filter(|name| !name.trim().is_empty());
+    let title = page
+        .and_then(|page| {
+            page.entries
+                .iter()
+                .find(|entry| entry.id == child.origin.entry && entry.turn == child.origin.turn)
+        })
+        .and_then(|entry| entry.parts.get(child.origin.index))
+        .and_then(|part| match part {
+            Part::ToolCall { arguments, .. } => arguments.get("title")?.as_str(),
+            _ => None,
+        })
+        .filter(|title| !title.trim().is_empty());
+    match (title, name) {
+        (Some(title), Some(name)) if child.origin.role.is_some() => {
+            Some(Cow::Owned(format!("{name} {title}")))
+        }
+        (Some(title), _) => Some(Cow::Borrowed(title)),
+        (None, Some(name)) => Some(Cow::Borrowed(name)),
+        _ => None,
+    }
+}
+
+fn session_title<'a>(value: &str, page: &'a Page) -> Option<Cow<'a, str>> {
+    let session = value.parse::<SessionId>().ok()?;
+    let child = page
+        .children
+        .iter()
+        .filter(|child| child.run.session == session)
+        .max_by_key(|child| child.run.sequence)?;
+    child_title(Some(page), child)
 }
 
 pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
@@ -151,17 +188,18 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
             locales: display.locales.clone(),
         }),
         input: Input {
-            summary: field(input.and_then(|input| input.summary.as_ref()), arguments).map(
+            summary: field(input.and_then(|input| input.summary.as_ref()), arguments).and_then(
                 |mut text| {
-                    if input
-                        .and_then(|input| input.summary.as_ref())
-                        .is_some_and(|field| {
-                            field.format == Some(sailry_protocol::tool::InputFormat::Command)
-                        })
-                    {
-                        text.text = command::format(&text.text, &display.unwrap().aliases);
+                    match input.and_then(|input| input.summary.as_ref())?.format {
+                        Some(sailry_protocol::tool::InputFormat::Command) => {
+                            text.text = command::format(&text.text, &display.unwrap().aliases);
+                        }
+                        Some(sailry_protocol::tool::InputFormat::Session) => {
+                            text.text = session_title(&text.text, page)?.into_owned();
+                        }
+                        None => {}
                     }
-                    text
+                    Some(text)
                 },
             ),
             context: field(input.and_then(|input| input.context.as_ref()), arguments),

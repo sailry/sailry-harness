@@ -1,29 +1,18 @@
 use super::*;
 use crate::conversation::subagent::{Choice, Row, live_picker};
 use gpui_kit::component::{button::Button, collapsible::Collapsible};
-use sailry_protocol::conversation::Part;
 
 impl View {
     pub(super) fn child_name(&self, child: &Child) -> SharedString {
-        self.history
-            .snapshot
-            .as_ref()
-            .and_then(|snapshot| {
-                snapshot
-                    .page
-                    .entries
-                    .iter()
-                    .find(|entry| entry.id == child.origin.entry)
-            })
-            .and_then(|entry| entry.parts.get(child.origin.index))
-            .and_then(|part| match part {
-                Part::ToolCall { arguments, .. } => arguments.get("title")?.as_str(),
-                _ => None,
-            })
-            .filter(|title| !title.trim().is_empty())
-            .map(SharedString::from)
-            .or_else(|| child.name.clone().map(SharedString::from))
-            .unwrap_or_else(|| tr("chat_child"))
+        sailry_client::conversation::tools::display::child_title(
+            self.history
+                .snapshot
+                .as_ref()
+                .map(|snapshot| snapshot.page.as_ref()),
+            child,
+        )
+        .map(|title| SharedString::from(title.into_owned()))
+        .unwrap_or_else(|| tr("chat_child"))
     }
 
     pub(in crate::conversation) fn child_rows(&self, turn: TurnId) -> Vec<Row> {

@@ -100,6 +100,7 @@ pub struct Field {
 #[serde(rename_all = "snake_case")]
 pub enum InputFormat {
     Command,
+    Session,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -197,6 +198,23 @@ mod tests {
         assert_eq!(input.summary.unwrap().read(&args), Some("first\nsecond"));
         assert_eq!(input.context.unwrap().read(&args), None);
         assert_eq!(input.content.unwrap().read(&args), Some("完整内容 🙂"));
+    }
+
+    #[test]
+    fn reserves_session_format_for_summaries() {
+        let input: Input = serde_json::from_value(json!({
+            "summary": {"path": "/session", "format": "session"}
+        }))
+        .unwrap();
+        assert!(input.valid());
+        assert_eq!(input.summary.unwrap().format, Some(InputFormat::Session));
+        for field in ["content", "context", "target"] {
+            let input: Input = serde_json::from_value(json!({
+                field: {"path": "/session", "format": "session"}
+            }))
+            .unwrap();
+            assert!(!input.valid());
+        }
     }
 
     #[test]

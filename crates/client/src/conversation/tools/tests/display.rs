@@ -1,5 +1,163 @@
 use super::*;
 
+mod session_summary {
+    use super::*;
+    use sailry_protocol::{Delegation, conversation::Child};
+
+    fn fixture(title: Option<&str>, name: Option<&str>) -> Page {
+        let mut page = page();
+        let session = SessionId::new();
+        let origin = Delegation {
+            session: page.session,
+            turn: page.entries[0].turn,
+            entry: page.entries[0].id.clone(),
+            index: 0,
+            role: None,
+        };
+        let Part::ToolCall { arguments, .. } = &mut page.entries[0].parts[0] else {
+            unreachable!();
+        };
+        *arguments = title
+            .map(|title| json!({"title": title}))
+            .unwrap_or(json!({}));
+        let mut run = page.runs[0].clone();
+        run.session = session;
+        run.turn = TurnId::new();
+        page.children.push(Child {
+            run,
+            origin,
+            name: name.map(str::to_owned),
+        });
+        let mut wait = entry(2, page.runs[0].turn, "", false);
+        wait.parts[0] = Part::ToolCall {
+            id: Some("wait".into()),
+            name: "package_wait".into(),
+            presentation: Default::default(),
+            grouping: Default::default(),
+            arguments: json!({"session": session.to_string()}),
+            display: Some(
+                serde_json::from_value(json!({
+                    "label": "Wait for subagent",
+                    "input": {"summary": {"path": "/session", "format": "session"}}
+                }))
+                .unwrap(),
+            ),
+        };
+        page.entries.push(wait);
+        page
+    }
+
+    fn summary(page: &Page) -> Option<String> {
+        collect(page)
+            .last()?
+            .resolved
+            .as_ref()?
+            .input
+            .summary
+            .as_ref()
+            .map(|text| text.text.clone())
+    }
+
+    #[test]
+    fn prefers_the_canonical_spawn_title() {
+        let page = fixture(Some("检查布局 🙂"), Some("Reviewer"));
+        let restored: Page = serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
+        assert_eq!(summary(&restored).as_deref(), Some("检查布局 🙂"));
+        let call = collect(&restored).pop().unwrap();
+        assert_eq!(
+            call.arguments(&restored).unwrap()["session"],
+            page.children[0].run.session.to_string()
+        );
+    }
+
+    #[test]
+    fn prefixes_only_configured_role_names() {
+        let mut page = fixture(Some("检查布局 🙂"), Some("Reviewer"));
+        page.children[0].origin.role = Some(sailry_protocol::RoleId::new());
+        assert_eq!(summary(&page).as_deref(), Some("Reviewer 检查布局 🙂"));
+        page.children[0].origin.role = None;
+        assert_eq!(summary(&page).as_deref(), Some("检查布局 🙂"));
+        page.children[0].origin.role = Some(sailry_protocol::RoleId::new());
+        page.children[0].name = Some(" ".into());
+        assert_eq!(summary(&page).as_deref(), Some("检查布局 🙂"));
+        let Part::ToolCall { arguments, .. } = &mut page.entries[0].parts[0] else {
+            unreachable!();
+        };
+        *arguments = json!({});
+        assert_eq!(summary(&page), None);
+    }
+
+    #[test]
+    fn falls_back_to_frozen_child_metadata() {
+        for title in [None, Some(" ")] {
+            let mut page = fixture(title, Some("Reviewer"));
+            assert_eq!(summary(&page).as_deref(), Some("Reviewer"));
+            page.children[0].origin.entry = "unloaded-origin".into();
+            assert_eq!(summary(&page).as_deref(), Some("Reviewer"));
+        }
+    }
+
+    #[test]
+    fn omits_missing_titles_and_foreign_sessions() {
+        for name in [None, Some(" ")] {
+            let page = fixture(None, name);
+            assert_eq!(summary(&page), None);
+            assert_eq!(
+                collect(&page)
+                    .last()
+                    .unwrap()
+                    .resolved
+                    .as_ref()
+                    .unwrap()
+                    .label
+                    .as_ref()
+                    .unwrap()
+                    .label,
+                "Wait for subagent"
+            );
+        }
+        let mut page = fixture(Some("Known task"), None);
+        page.children[0].run.session = SessionId::new();
+        assert_eq!(summary(&page), None);
+        page.children.clear();
+        assert_eq!(summary(&page), None);
+    }
+
+    #[test]
+    fn requires_the_exact_canonical_origin() {
+        let mut page = fixture(Some("Known task"), None);
+        page.children[0].origin.turn = TurnId::new();
+        assert_eq!(summary(&page), None);
+        page.children[0].origin.turn = page.entries[0].turn;
+        page.children[0].origin.index = 1;
+        assert_eq!(summary(&page), None);
+    }
+
+    #[test]
+    fn preserves_captured_unformatted_recipes() {
+        let mut page = fixture(Some("Known task"), None);
+        let Part::ToolCall { display, .. } = &mut page.entries[1].parts[0] else {
+            unreachable!();
+        };
+        display
+            .as_mut()
+            .unwrap()
+            .input
+            .as_mut()
+            .unwrap()
+            .summary
+            .as_mut()
+            .unwrap()
+            .format = None;
+        let restored: Page = serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
+        assert_eq!(
+            summary(&restored),
+            Some(page.children[0].run.session.to_string())
+        );
+        assert_eq!(restored, page);
+    }
+}
+
 #[test]
 fn formats_summary_without_changing_raw_arguments() {
     let mut page = page();

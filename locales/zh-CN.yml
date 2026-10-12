@@ -1170,7 +1170,7 @@ turn_failed: 处理失败
 turn_thinking: 正在思考
 turn_awaiting_response: 正在思考
 chat_reconnecting: 正在重连
-chat_model_reconnecting: 正在重试模型请求 %{attempt}/%{limit}
+chat_model_reconnecting: 重试请求 %{attempt}/%{limit}
 chat_model_retried: 模型请求已重试 %{attempt}/%{limit}
 chat_status_unsynced: 状态未同步
 chat_history_loading: 正在加载会话…
