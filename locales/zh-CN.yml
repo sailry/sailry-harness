@@ -898,8 +898,8 @@ provider_edit_title: 编辑渠道
 provider_add_title: 添加渠道
 provider_type: 渠道类型
 provider_region: "区域"
-provider_region_china: "(china)"
-provider_region_global: "(global)"
+provider_region_china: "中国"
+provider_region_global: "全球"
 provider_product: "服务"
 provider_metered: "按量"
 provider_coding: "编码套餐"
