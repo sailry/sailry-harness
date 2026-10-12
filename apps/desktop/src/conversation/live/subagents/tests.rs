@@ -38,6 +38,8 @@ fn assert_icons(cx: &mut VisualTestContext, children: &[Child], rotating: bool) 
 
 #[gpui::test]
 fn keeps_active_children_after_handoff(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
     init(cx);
     for remote in [false, true] {
         let fixture = fixture::Fixture::with_children(remote, 1);
@@ -102,8 +104,26 @@ fn keeps_active_children_after_handoff(cx: &mut TestAppContext) {
         });
         wait(visual, |_| true);
         assert!(visual.debug_bounds("live-composer-subagents").is_some());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let label = rust_i18n::t!("composer_subagent_count", count = 1).to_string();
+            assert_eq!(
+                window.find("live-composer-subagents").label(),
+                Some(label.as_str())
+            );
+        });
         tap(visual, "live-composer-subagents");
         assert!(visual.debug_bounds("subagent-picker").is_some());
+        let status = Box::leak(format!("subagent-status-{}", child.run.session).into_boxed_str());
+        assert!(visual.debug_bounds(status).is_none());
+        view.update(visual, |view, cx| {
+            let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+            let page = Arc::make_mut(&mut snapshot.page);
+            page.children[0].run.status = Status::Completed;
+            cx.notify();
+        });
+        wait(visual, |_| true);
+        assert!(visual.debug_bounds(status).is_some());
         view.update(visual, |view, cx| {
             view.history = original;
             cx.notify();

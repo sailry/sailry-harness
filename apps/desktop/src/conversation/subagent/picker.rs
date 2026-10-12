@@ -232,7 +232,16 @@ impl Render for Picker {
                                         })
                                         .child(row.name.clone()),
                                 )
-                                .child(super::status_icon(&row)),
+                                .when(!row.running, |this| {
+                                    this.child(
+                                        div()
+                                            .debug_selector(move || {
+                                                format!("subagent-status-{}", key.debug_id())
+                                            })
+                                            .flex_shrink_0()
+                                            .child(super::status_icon(&row)),
+                                    )
+                                }),
                         )
                         .on_click(move |event, window, cx| {
                             if !folder || event.click_count() == 2 {

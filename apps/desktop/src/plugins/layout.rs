@@ -14,6 +14,15 @@ mod scroll;
 #[cfg(test)]
 mod tests;
 
+const TEXT_LIMIT: usize = 32768;
+
+fn plain_body(value: Option<&HostValue>) -> Option<SharedString> {
+    value
+        .and_then(HostValue::as_str)
+        .filter(|text| text.len() <= TEXT_LIMIT)
+        .map(|text| text.to_owned().into())
+}
+
 pub(super) fn extend(module: HostModule) -> HostModule {
     let module = scroll::extend(collapse::extend(cards::extend(module)));
     let declarations = format!(
@@ -23,8 +32,8 @@ pub(super) fn extend(module: HostModule) -> HostModule {
             export const PanelHeader: { new(id: string, props?: { padding?: number; gap?: number; surface?: "content"; size?: "row"; draggable?: boolean; bordered?: boolean }): import("gpui-kit").Element };
             /** List and card share content; fill_height controls either variant independently. */
             export const EmptyState: { new(id: string, props: { icon: string; label: string; variant?: "panel" | "list" | "card"; fill_height?: boolean; vertical_align?: "start" | "center" }): import("gpui-kit").Element };
-            /** Children form a fixed, right-aligned footer; row details preserve selectable full text. */
-            export const StatusList: { new(id: string, props: { items: {id:string;text:string;state:"pending"|"in_progress"|"completed"|"skipped"|"paused"|"blocked"|"failed";details?:boolean}[]; empty: string }): import("gpui-kit").Element };
+            /** Optional plain body precedes rows in the same scroll region. Body and row text are bounded to 32768 UTF-8 bytes. Children form a fixed, right-aligned footer. */
+            export const StatusList: { new(id: string, props: { items: {id:string;text:string;state:"pending"|"in_progress"|"completed"|"skipped"|"paused"|"blocked"|"failed";details?:boolean}[]; body?: string; empty: string }): import("gpui-kit").Element };
             export const Loading: { new(id: string): import("gpui-kit").Element };
             export const InputSurface: { new(id: string): import("gpui-kit").Element };
             /** With header_action, the first child is the trailing header control. */
@@ -46,7 +55,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                     items.len() <= 4096
                         && items
                             .iter()
-                            .all(|row| row.id.len() <= 128 && row.text.len() <= 32768)
+                            .all(|row| row.id.len() <= 128 && row.text.len() <= TEXT_LIMIT)
                 })
                 .unwrap_or_default();
             let empty = args
@@ -58,6 +67,7 @@ pub(super) fn extend(module: HostModule) -> HostModule {
             crate::ui::status_list::Content {
                 id: args.id().to_owned(),
                 items,
+                body: plain_body(args.props().get("body")),
                 empty: empty.into(),
                 footer: args.take_children(),
             }

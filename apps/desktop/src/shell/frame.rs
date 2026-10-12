@@ -627,7 +627,6 @@ impl RenderOnce for Workspace {
 
         h_resizable("workspace-panels")
             .with_state(&state)
-            .with_handle_appearance(divider(true))
             .on_resize(on_resize)
             .child(
                 resizable_panel()

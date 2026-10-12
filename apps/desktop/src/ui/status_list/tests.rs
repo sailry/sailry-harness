@@ -8,6 +8,7 @@ impl Render for Panel {
         Content {
             id: "status-panel".into(),
             empty: "No items".into(),
+            body: None,
             items: (0..48)
                 .map(|index| Row {
                     id: format!("status-row-{index}"),
@@ -154,6 +155,7 @@ impl Render for Tasks {
         div().w(px(320.)).child(Content {
             id: "task-panel".into(),
             empty: "No tasks".into(),
+            body: None,
             items: (0..4)
                 .map(|index| Row {
                     id: format!("task-row-{index}"),
@@ -194,6 +196,85 @@ fn constrains_plain_and_highlighted_labels(cx: &mut TestAppContext) {
         assert!(label.right() <= row.right() - px(8.));
         assert!(row.right() <= panel.right());
         assert!(label.left() >= icon.right() + px(8.));
+    }
+    visual.update(|window, _| window.remove_window());
+}
+
+struct Prose {
+    text: SharedString,
+    rows: bool,
+}
+
+impl Render for Prose {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Content {
+            id: "prose-panel".into(),
+            empty: "No items".into(),
+            body: Some(self.text.clone()),
+            items: if self.rows {
+                vec![Row {
+                    id: "prose-row".into(),
+                    text: "A separate item".into(),
+                    state: State::Pending,
+                    details: false,
+                    highlight: false,
+                }]
+            } else {
+                Vec::new()
+            },
+            footer: vec![
+                button::Button::new("prose-action")
+                    .label("Clear")
+                    .into_any_element(),
+            ],
+        }
+    }
+}
+
+#[gpui::test]
+fn plain_body_shares_scroll_not_footer(cx: &mut TestAppContext) {
+    use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+
+    crate::conversation::live::tests::fixture::init(cx);
+    let text: SharedString = "## Literal **Markdown** 中文 🙂\n\nPreserve full prose e\u{301}\n"
+        .repeat(24)
+        .into();
+    let mut entity = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| Prose {
+            text: text.clone(),
+            rows: false,
+        });
+        entity = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let view = entity.unwrap();
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        for rows in [false, true] {
+            visual.update(|window, cx| {
+                Theme::change(mode, Some(window), cx);
+                view.update(cx, |view, cx| {
+                    view.rows = rows;
+                    cx.notify();
+                });
+                window.draw(cx).clear(cx);
+            });
+            visual.run_until_parked();
+            visual.update(|window, cx| {
+                window.render_frame(cx);
+                let label = window.find_by_label(text.as_str());
+                assert_eq!(label.role(), Some(Role::Label));
+            });
+            let scroll = visual.debug_bounds("prose-panel-scroll").unwrap();
+            let body = visual.debug_bounds("prose-panel-body").unwrap();
+            let footer = visual.debug_bounds("prose-panel-footer").unwrap();
+            assert!(body.size.height > scroll.size.height);
+            assert!(scroll.size.height <= px(320.));
+            assert!(body.right() <= scroll.right());
+            assert!(footer.top() >= scroll.bottom());
+            assert_eq!(visual.debug_bounds("prose-row").is_some(), rows);
+            assert!(visual.debug_bounds("prose-row-details").is_none());
+        }
     }
     visual.update(|window, _| window.remove_window());
 }

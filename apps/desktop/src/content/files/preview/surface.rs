@@ -5,6 +5,18 @@ use crate::ui::webview_snapshot::Snapshot;
 #[path = "overlay_tests.rs"]
 mod overlays;
 
+// Native child views bypass Kit's hitbox and paint order. Leave its divider's
+// right-hand grab band clear: pinned Kit uses 4px padding plus a 1px hairline.
+const RESIZE_CLEARANCE: Pixels = px(5.);
+
+fn viewport(bounds: Bounds<Pixels>) -> Bounds<Pixels> {
+    let inset = RESIZE_CLEARANCE.min(bounds.size.width.max(px(0.)));
+    Bounds::new(
+        point(bounds.left() + inset, bounds.top()),
+        size(bounds.size.width - inset, bounds.size.height),
+    )
+}
+
 pub(crate) struct Native {
     pub(crate) page: gpui_webview::WebView,
     pub(super) frame: Cell<Option<(Bounds<Pixels>, Bounds<Pixels>)>>,
@@ -95,7 +107,8 @@ pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> A
     // supplies clipped bounds and frame lifetime through the managed API.
     let key: SharedString = format!("file-preview-mount-{:p}", Rc::as_ptr(&native)).into();
     window.use_keyed_state(key, cx, move |_, _| Mount(mounted));
-    canvas(|bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal), move |bounds, _hitbox, window, _cx| {
+    canvas(|bounds, window, _| window.insert_hitbox(viewport(bounds), HitboxBehavior::Normal), move |bounds, _hitbox, window, _cx| {
+        let bounds = viewport(bounds);
         let clip = bounds.intersect(&window.content_mask().bounds);
         if clip.size.width <= px(0.) || clip.size.height <= px(0.) {
             #[cfg(target_os = "windows")]
@@ -161,6 +174,21 @@ fn document(html: &str) -> String {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[test]
+    fn leaves_resize_band_outside_native_view() {
+        let bounds = Bounds::new(point(px(300.), px(48.)), size(px(640.), px(720.)));
+        let native = viewport(bounds);
+        assert_eq!(native.left(), bounds.left() + px(5.));
+        assert_eq!(native.right(), bounds.right());
+        assert_eq!(native.size.height, bounds.size.height);
+        assert_eq!(layout(native, native), (native.size, point(px(0.), px(0.))));
+        for width in [0., 3., 5.] {
+            let narrow = viewport(Bounds::new(bounds.origin, size(px(width), px(720.))));
+            assert_eq!(narrow.size.width, px(0.));
+            assert!(narrow.left() <= bounds.left() + px(width));
+        }
+    }
+
     #[test]
     fn confines_interactive_content() {
         let html = document("</iframe><script>parent.postMessage('test','*')</script>");

@@ -55,6 +55,11 @@ fn publishes_selected_context_on_each_path(cx: &mut TestAppContext) {
                 view.input.read(cx).value().as_ref(),
                 format!("Keep draft\n\n> {reference}\n\n")
             );
+            let content = view.input.read(cx).content();
+            assert_eq!(content.tokens().len(), 1);
+            assert_eq!(content.tokens()[0].token().text(), ">");
+            assert_eq!(content.tokens()[0].token().label(), " ");
+            assert!(view.active_references(cx).is_empty());
             assert_eq!(view.attachments.items.len(), 1);
         });
         assert_eq!(fixture.task_requests(), 0);

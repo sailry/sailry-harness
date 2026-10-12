@@ -33,18 +33,41 @@ impl View {
         {
             return false;
         }
-        let quote = text
-            .lines()
-            .map(|line| format!("> {line}"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let mut quote = String::new();
+        let mut markers = Vec::new();
+        for line in text.lines() {
+            if !quote.is_empty() {
+                quote.push('\n');
+            }
+            let start = quote.len();
+            // Only our generated prefix is annotated. The following space stays
+            // plain text so even a leading combining mark keeps its grapheme.
+            markers.push(start..start + 1);
+            quote.push_str("> ");
+            quote.push_str(line);
+        }
         self.input.update(cx, |input, cx| {
             let end = input.value().len();
             input.set_selected_range(end..end, cx);
+            input.begin_undo_transaction();
             if end > 0 {
                 input.replace("\n\n", window, cx);
             }
+            let start = input.value().len();
             input.replace(format!("{quote}\n\n"), window, cx);
+            for range in markers {
+                input
+                    .replace_range_with_token(
+                        start + range.start..start + range.end,
+                        references::inline::quote_marker(),
+                        window,
+                        cx,
+                    )
+                    .expect("generated quote marker is valid");
+            }
+            let end = input.value().len();
+            input.set_selected_range(end..end, cx);
+            input.commit_undo_transaction();
             input.focus(window, cx);
         });
         self.references.dismiss();

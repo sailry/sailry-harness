@@ -351,19 +351,28 @@ fn local_and_remote_commands_share_status(cx: &mut TestAppContext) {
         let input = visual.debug_bounds("composer-surface").unwrap();
         assert!(badge.top() >= strip.top() && badge.bottom() <= strip.bottom());
         assert!(strip.bottom() <= input.top());
-        let first = visual.debug_bounds("goal-item-0").unwrap();
-        let second = visual.debug_bounds("goal-item-1").unwrap();
-        assert_eq!(first.size.height, gpui_kit::px(32.));
-        assert_eq!(second.size.height, gpui_kit::px(32.));
-        assert_eq!(first.bottom(), second.top());
+        let body = visual.debug_bounds("goal-description-body").unwrap();
+        let scroll = visual.debug_bounds("goal-description-scroll").unwrap();
+        assert!(body.size.height > gpui_kit::px(0.));
+        assert!(body.right() <= scroll.right());
+        assert!(visual.debug_bounds("goal-item-0").is_none());
+        assert!(visual.debug_bounds("goal-item-1").is_none());
+        visual.read(|cx| {
+            let panel = contributions(view.read(cx))
+                .read(cx)
+                .test_panel("goals")
+                .unwrap();
+            let declaration = super::super::snapshot(&panel, cx);
+            assert!(declaration.contains("Verify this task 中文 🙂"));
+            assert!(declaration.contains("Preserve the draft"));
+            assert!(!declaration.contains("goal-item-0"));
+        });
         ready(&view, visual, "goal-stop");
         let footer = visual.debug_bounds("goal-description-footer").unwrap();
         let stop = visual.debug_bounds("goal-stop").unwrap();
         let clear = visual.debug_bounds("goal-clear").unwrap();
         assert!(stop.left() > footer.left());
         assert!((clear.right() - footer.right()).abs() < gpui_kit::px(1.));
-        click(visual, "goal-item-0");
-        ready(&view, visual, "goal-item-0-details");
         control(&view, visual, "goal-stop");
         wait(visual, |_| read(&fixture, &package)["state"] == "paused");
         wait(visual, |cx| {

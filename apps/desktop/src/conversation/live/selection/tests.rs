@@ -272,3 +272,117 @@ fn excerpt_actions(cx: &mut TestAppContext) {
         fixture.close();
     }
 }
+
+#[gpui::test]
+fn quotes_preserve_editing_and_recovery(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && view.read(cx).configured()
+        });
+        let draft = "> Manually typed **Markdown** 中文 🙂";
+        let excerpt = "Selected **Markdown** 中文 🙂\n\n\u{301}Leading mark";
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.input
+                    .update(cx, |input, cx| input.set_value(draft, window, cx));
+                assert!(view.insert_quote(excerpt, window, cx));
+            });
+        });
+        let original = view.read_with(visual, |view, cx| view.input.read(cx).content());
+        let expected =
+            format!("{draft}\n\n> Selected **Markdown** 中文 🙂\n> \n> \u{301}Leading mark\n\n");
+        assert_eq!(original.text().as_str(), expected);
+        assert_eq!(original.tokens().len(), 3);
+        assert!(original.tokens().iter().all(|span| {
+            span.token().text() == ">"
+                && span.token().label() == " "
+                && span.range().start > draft.len()
+        }));
+        assert!(view.read_with(visual, |view, cx| view.active_references(cx).is_empty()));
+        visual.simulate_keystrokes("cmd-z");
+        view.read_with(visual, |view, cx| {
+            assert_eq!(view.input.read(cx).value().as_str(), draft);
+            assert!(view.input.read(cx).tokens().is_empty());
+        });
+        visual.simulate_keystrokes("cmd-shift-z");
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).content()),
+            original
+        );
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                let start = expected.find("Selected").unwrap();
+                view.input.update(cx, |input, cx| {
+                    input.set_selected_range(start..start + "Selected".len(), cx);
+                    input.replace("Edited", window, cx);
+                });
+            });
+        });
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).tokens().len()),
+            3
+        );
+        visual.simulate_keystrokes("cmd-z");
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).content()),
+            original
+        );
+        visual.update(|window, cx| {
+            let snapshot = view.read(cx).snapshot_draft(cx).unwrap().unwrap();
+            assert_eq!(snapshot.draft.tokens.len(), 3);
+            let restored =
+                serde_json::from_value(serde_json::to_value(&snapshot.draft).unwrap()).unwrap();
+            view.update(cx, |view, cx| {
+                view.input
+                    .update(cx, |input, cx| input.set_value("", window, cx));
+                assert!(view.recover_draft(
+                    super::super::recovery::Snapshot {
+                        draft: restored,
+                        sources: snapshot.sources,
+                    },
+                    window,
+                    cx
+                ));
+                assert_eq!(view.input.read(cx).content(), original);
+            });
+        });
+        assert_eq!(fixture.task_requests(), 0);
+        tap(visual, "live-chat-send");
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .runs
+                        .iter()
+                        .any(|run| run.status == Status::Completed)
+                })
+        });
+        view.read_with(visual, |view, _| {
+            assert!(
+                view.history
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .page
+                    .entries
+                    .iter()
+                    .any(|entry| {
+                        entry
+                            .parts
+                            .contains(&Part::Text(expected.trim().to_owned()))
+                    })
+            );
+        });
+        assert_eq!(fixture.task_requests(), 1);
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}

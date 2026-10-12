@@ -8,6 +8,12 @@ use gpui_kit::base::input::{
 use gpui_kit::component::input::{InputToken, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
 
+const QUOTE_MARKER: &str = "quote-marker";
+
+pub(in crate::conversation::live) fn quote_marker() -> InlineToken {
+    InlineToken::new(QUOTE_MARKER, ">").with_label(" ")
+}
+
 pub(in crate::conversation::live) fn marker(reference: &Reference) -> String {
     format!("@{}", reference.label.trim_start_matches('@'))
 }
@@ -64,12 +70,23 @@ pub(in crate::conversation::live) fn textarea(
         .filter_map(|reference| draft_icon(reference).map(|icon| (id(reference), icon)))
         .collect();
     Textarea::new(input).token(move |context, _, cx| {
+        let quote = context.token().id().as_ref() == QUOTE_MARKER;
         InputToken::new(context)
             .border_0()
-            .when(!context.is_selected(), |token| {
+            .when(!quote && !context.is_selected(), |token| {
                 token
                     .bg(cx.theme().primary.opacity(0.12))
                     .text_color(cx.theme().primary)
+            })
+            .when(quote, |token| {
+                token.rounded_none().px_0().w_2().border_l_2().when(
+                    !context.is_selected(),
+                    |token| {
+                        token
+                            .bg(cx.theme().transparent)
+                            .border_color(cx.theme().border)
+                    },
+                )
             })
             .when_some(icons.get(context.token().id()), |token, icon| {
                 token.icon(Icon::default().path(icon.clone()))

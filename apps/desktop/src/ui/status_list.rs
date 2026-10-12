@@ -248,12 +248,47 @@ pub(crate) struct Content {
     pub id: String,
     pub items: Vec<Row>,
     pub empty: SharedString,
+    pub body: Option<SharedString>,
     pub footer: Vec<AnyElement>,
 }
 
 impl RenderOnce for Content {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let id = self.id.clone();
+        let body = if self.body.is_none() && self.items.is_empty() {
+            div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(self.empty)
+                .into_any_element()
+        } else {
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .when_some(self.body, |body, text| {
+                    let key = format!("{}-body", self.id);
+                    let selector = key.clone();
+                    body.child(
+                        div()
+                            .id(key.clone())
+                            .debug_selector(move || selector.clone())
+                            .role(Role::Label)
+                            .aria_label(text.clone())
+                            .w_full()
+                            .min_w_0()
+                            .text_sm()
+                            .text_color(cx.theme().foreground)
+                            .child(gpui_kit::base::SelectableText::new(key, text)),
+                    )
+                })
+                .when(!self.items.is_empty(), |body| {
+                    body.child(div().pl_2().child(Rows {
+                        id: self.id.clone(),
+                        items: self.items,
+                    }))
+                })
+                .into_any_element()
+        };
         v_flex()
             .debug_selector(move || id.clone())
             .tab_group()
@@ -261,21 +296,7 @@ impl RenderOnce for Content {
             .min_w_0()
             .child(crate::conversation::surface::list_scroll(
                 format!("{}-scroll", self.id),
-                if self.items.is_empty() {
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(self.empty)
-                        .into_any_element()
-                } else {
-                    div()
-                        .pl_2()
-                        .child(Rows {
-                            id: self.id.clone(),
-                            items: self.items,
-                        })
-                        .into_any_element()
-                },
+                body,
             ))
             .when(!self.footer.is_empty(), |panel| {
                 panel.child(
