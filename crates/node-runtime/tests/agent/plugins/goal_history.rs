@@ -227,7 +227,7 @@ async fn copies_visible_prefixes_independently() {
 }
 
 #[tokio::test]
-async fn restores_values_and_preserves_terminal_backups() {
+async fn restores_values_and_preserves_terminal_branches() {
     for remote in [false, true] {
         let server = Server::goal_reasoning(2, "completed").await;
         let fixture = fixture(remote, &server).await;
@@ -240,7 +240,14 @@ async fn restores_values_and_preserves_terminal_backups() {
         let (original, page) = settled(&fixture.client, &fixture.session, "completed").await;
         let previous = entry(&fixture.client, &fixture.session).await;
         let requests = server.requests.lock().unwrap().len();
+        let terminal = fork(
+            &fixture.client,
+            &fixture.session,
+            page.runs.last().unwrap().turn,
+        )
+        .await;
         let retained = rewind(&fixture.client, &fixture.session, &page, Some(first)).await;
+        assert!(retained.backup.is_none());
         let restored = entry(&fixture.client, &fixture.session).await;
         assert!(restored["revision"].as_u64().unwrap() > previous["revision"].as_u64().unwrap());
         assert_eq!(restored["present"], true);
@@ -250,22 +257,21 @@ async fn restores_values_and_preserves_terminal_backups() {
             read(&fixture.client, &fixture.session).await["state"],
             "paused"
         );
-        let backup = read(&fixture.client, &retained.backup).await;
+        let backup = read(&fixture.client, &terminal).await;
         assert_eq!(backup["id"], original["id"]);
         assert_eq!(backup["description"], original["description"]);
         assert_eq!(backup["state"], "completed");
+        assert_eq!(entry(&fixture.client, &terminal).await["restored"], true);
         assert_eq!(
-            entry(&fixture.client, &retained.backup).await["restored"],
-            true
-        );
-        assert_eq!(
-            history(&fixture.client, retained.backup.id).await.entries,
+            history(&fixture.client, terminal.id).await.entries,
             page.entries
         );
 
         let prefix = history(&fixture.client, fixture.session.id).await;
         assert_eq!(prefix.runs.len(), 1);
+        let branch = fork(&fixture.client, &fixture.session, first).await;
         let removed = rewind(&fixture.client, &fixture.session, &prefix, None).await;
+        assert!(removed.backup.is_none());
         let empty = entry(&fixture.client, &fixture.session).await;
         assert!(empty["revision"].as_u64().unwrap() > restored["revision"].as_u64().unwrap());
         assert_eq!(empty["present"], false);
@@ -278,14 +284,8 @@ async fn restores_values_and_preserves_terminal_backups() {
                 .runs
                 .is_empty()
         );
-        assert_eq!(
-            read(&fixture.client, &removed.backup).await["state"],
-            "paused"
-        );
-        assert_eq!(
-            read(&fixture.client, &retained.backup).await["state"],
-            "completed"
-        );
+        assert_eq!(read(&fixture.client, &branch).await["state"], "paused");
+        assert_eq!(read(&fixture.client, &terminal).await["state"], "completed");
         assert_eq!(server.requests.lock().unwrap().len(), requests);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

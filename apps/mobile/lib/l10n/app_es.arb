@@ -202,7 +202,7 @@
   "messageEdit": "Editar y regenerar",
   "messageEditConfirm": "¿Reemplazar este mensaje y el siguiente chat? Los archivos no se revertirán",
   "messageRewind": "Rebobina aquí",
-  "messageRewindConfirm": "Los registros de chat posteriores se guardarán en una copia de seguridad; los archivos no se revertirán",
+  "messageRewindConfirm": "¿Conservar este turno y quitar los mensajes posteriores? Los archivos no cambian",
   "messageBackup": "Ver copia de seguridad de chat",
   "messageRegenerate": "Regenerar",
   "messageSearch": "Buscar en chat",

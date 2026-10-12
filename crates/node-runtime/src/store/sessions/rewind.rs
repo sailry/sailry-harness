@@ -20,6 +20,7 @@ pub(in crate::store) fn rewind(
     through: Option<TurnId>,
     expected_head: TurnId,
     expected_revision: u64,
+    backup: bool,
 ) -> Result<(Output, Option<Event>), Fault> {
     let current = commands::session(db, session)?;
     writable(&current)?;
@@ -63,10 +64,15 @@ pub(in crate::store) fn rewind(
     let boundary = through
         .map(|turn| agent::visible_run(db, session, turn))
         .transpose()?;
-    let (Output::Session(backup), _) =
-        super::forks::backup(db, session, expected_head, current.revision)?
-    else {
-        unreachable!("history backup returns a session")
+    let backup = if backup {
+        let (Output::Session(backup), _) =
+            super::forks::backup(db, session, expected_head, current.revision)?
+        else {
+            unreachable!("history backup returns a session")
+        };
+        Some(backup)
+    } else {
+        None
     };
     db.execute(
         "DELETE FROM conversation_turns WHERE session=?1 AND turn IN
@@ -94,7 +100,7 @@ pub(in crate::store) fn rewind(
         })),
         Some(Event::SessionRewound {
             session: Box::new(commands::session(db, session)?),
-            backup: Box::new(backup),
+            backup: backup.map(Box::new),
         }),
     ))
 }

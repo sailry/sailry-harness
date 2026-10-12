@@ -104,6 +104,7 @@ fn follows_fork_and_rewind_membership() {
     assert_context(&fixture, fork.id, 120, &[&inherited, &fork_input]);
     assert_context(&fixture, source, 230, &[&source_result]);
 
+    let retained = fixture.fork(source, head);
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -117,11 +118,12 @@ fn follows_fork_and_rewind_membership() {
         panic!("rewind expected");
     };
     assert_context(&fixture, source, 120, &[&inherited]);
-    assert_context(&fixture, rewind.backup.id, 230, &[&source_result]);
+    assert!(rewind.backup.is_none());
+    assert_context(&fixture, retained.id, 230, &[&source_result]);
     assert_context(&fixture, fork.id, 120, &[&inherited, &fork_input]);
 
     super::super::super::history::rebuild(&mut fixture.database.connection).unwrap();
     assert_context(&fixture, source, 120, &[&inherited]);
-    assert_context(&fixture, rewind.backup.id, 230, &[&source_result]);
+    assert_context(&fixture, retained.id, 230, &[&source_result]);
     assert_context(&fixture, fork.id, 120, &[&inherited, &fork_input]);
 }

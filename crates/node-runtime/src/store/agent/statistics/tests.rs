@@ -106,6 +106,7 @@ fn follows_visible_history() {
     assert_eq!(fork_totals.usage.as_ref().unwrap().input, 30);
     assert_eq!(fork_totals.context_tokens, Some(28));
     assert_eq!(read(&fixture.database.connection, source).unwrap(), totals);
+    let retained = fixture.fork(source, last);
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -124,8 +125,9 @@ fn follows_visible_history() {
             .responses,
         1
     );
+    assert!(rewind.backup.is_none());
     assert_eq!(
-        read(&fixture.database.connection, rewind.backup.id).unwrap(),
+        read(&fixture.database.connection, retained.id).unwrap(),
         totals
     );
     assert_eq!(
@@ -139,7 +141,7 @@ fn follows_visible_history() {
         .unwrap();
     super::super::history::rebuild(&mut fixture.database.connection).unwrap();
     assert_eq!(
-        read(&fixture.database.connection, rewind.backup.id).unwrap(),
+        read(&fixture.database.connection, retained.id).unwrap(),
         totals
     );
 }

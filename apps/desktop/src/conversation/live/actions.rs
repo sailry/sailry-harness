@@ -233,6 +233,17 @@ impl View {
         }
         self.error = None;
         let request_id = attempt.request.id;
+        let rewind = match &attempt.request.command {
+            Command::RewindConversation {
+                session,
+                through,
+                expected_revision,
+                ..
+            } => expected_revision
+                .checked_add(1)
+                .map(|revision| (*session, *through, revision)),
+            _ => None,
+        };
         let job = self
             .binding
             .runtime
@@ -271,7 +282,9 @@ impl View {
                     {
                         view.retry = None;
                         view.editing = None;
-                        view.rewound(history.backup, window, cx);
+                        if let Some(backup) = history.backup {
+                            view.rewound(backup, window, cx);
+                        }
                     }
                     Ok(Ok(Output::Rewound(result)))
                         if matches!(attempt.action, Action::Rewind(_)) =>
@@ -281,17 +294,10 @@ impl View {
                         };
                         if Some(result.session) == view.session()
                             && result.through == Some(through)
-                            && result.backup.id != result.session
-                            && result.backup.project == view.binding.project
-                            && Some(result.backup.worktree) == view.binding.worktree
-                            && result
-                                .backup
-                                .fork
-                                .as_ref()
-                                .is_some_and(|fork| fork.session == result.session)
+                            && rewind == Some((result.session, result.through, result.revision))
                         {
                             view.retry = None;
-                            view.rewound(result.backup, window, cx);
+                            view.backup = None;
                         } else {
                             view.error = Some("chat_action_unknown");
                         }

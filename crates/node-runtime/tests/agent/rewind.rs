@@ -85,6 +85,17 @@ async fn recovers_subscribers_after_rewind() {
         assert_eq!(before.runs.len(), 24);
         assert_eq!(before.entries.len(), 51);
         assert_eq!(before.approvals.len(), 1);
+        let Output::Session(branch) = client
+            .execute(client.prepare(Command::ForkConversation {
+                session: session.id,
+                through: head,
+                expected_revision: session.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("fork expected")
+        };
         let delayed = Arc::new(super::paging::transport::Observed::new(transport.clone()));
         let watching = Arc::new(Client::new(delayed.clone()));
         let (updates, mut view) = watch::channel(View::default());
@@ -125,9 +136,10 @@ async fn recovers_subscribers_after_rewind() {
             panic!("rewind expected")
         };
         assert_eq!(result.revision, 2);
-        assert_eq!(result.backup.config, session.config);
+        assert!(result.backup.is_none());
+        assert_eq!(branch.config, session.config);
         assert_eq!(
-            result.backup.fork,
+            branch.fork,
             Some(Fork {
                 session: session.id,
                 through: head
@@ -156,7 +168,7 @@ async fn recovers_subscribers_after_rewind() {
             .page;
         assert_eq!(*restored.page, retained);
         let backup = client
-            .read_conversation(result.backup.id, None, 100)
+            .read_conversation(branch.id, None, 100)
             .await
             .unwrap()
             .page;
@@ -171,7 +183,7 @@ async fn recovers_subscribers_after_rewind() {
         assert!(found.matches.is_empty());
         assert_eq!(
             client
-                .search_conversation(result.backup.id, query("Removed message"))
+                .search_conversation(branch.id, query("Removed message"))
                 .await
                 .unwrap()
                 .matches
@@ -223,7 +235,7 @@ async fn recovers_subscribers_after_rewind() {
             ErrorCode::Conflict
         );
 
-        // A retained request result must not issue a second reset or create another backup.
+        // A retained request result must not issue a second reset or create another session.
         let mut stable = client.subscribe_conversation(session.id).await.unwrap();
         let Update::ConversationSnapshot(initial) = stable.next().await.unwrap() else {
             panic!("snapshot expected")
@@ -291,7 +303,7 @@ async fn recovers_subscribers_after_rewind() {
         );
         assert_eq!(
             client
-                .read_conversation(result.backup.id, None, 100)
+                .read_conversation(branch.id, None, 100)
                 .await
                 .unwrap()
                 .page,
@@ -338,7 +350,7 @@ async fn recovers_subscribers_after_rewind() {
         assert_eq!(history(&reopened, session.id).await, resumed);
         assert_eq!(
             reopened
-                .read_conversation(result.backup.id, None, 100)
+                .read_conversation(branch.id, None, 100)
                 .await
                 .unwrap()
                 .page,

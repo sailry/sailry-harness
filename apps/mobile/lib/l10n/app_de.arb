@@ -202,7 +202,7 @@
   "messageEdit": "Bearbeiten und regenerieren",
   "messageEditConfirm": "Diese Nachricht und den folgenden Chat ersetzen? Dateien werden nicht zurückgesetzt",
   "messageRewind": "Hier zurückspulen",
-  "messageRewindConfirm": "Spätere Chat-Aufzeichnungen werden gesichert; Dateien werden nicht zurückgeschaltet, wenn sie nicht mehr benötigt werden",
+  "messageRewindConfirm": "Diesen Schritt behalten und spätere Nachrichten entfernen? Dateien bleiben unverändert",
   "messageBackup": "Chat-Backup anzeigen",
   "messageRegenerate": "Neu generieren",
   "messageSearch": "Chat suchen",

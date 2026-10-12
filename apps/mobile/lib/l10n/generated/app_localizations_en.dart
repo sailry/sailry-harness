@@ -478,7 +478,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get messageRewindConfirm =>
-      'Rewind to this turn? Later chat records will be backed up; files will not be rolled back';
+      'Keep this turn and remove later messages? Files stay unchanged';
 
   @override
   String get messageBackup => 'View chat backup';

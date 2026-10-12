@@ -132,7 +132,7 @@ fn compound_updates_preserve_order() {
         cursor: 1,
         event: Event::SessionRewound {
             session: Box::new(first.clone()),
-            backup: Box::new(backup.clone()),
+            backup: Some(Box::new(backup.clone())),
         },
     });
     projection.apply(1, changed.clone()).unwrap();
@@ -182,6 +182,29 @@ fn compound_updates_preserve_order() {
         .apply(2, Update::Snapshot(recovered.clone()))
         .unwrap();
     assert_eq!(projection.snapshot().unwrap().sessions, recovered.sessions);
+}
+
+#[test]
+fn rewind_updates_without_creating_session() {
+    let first = session();
+    let second = session();
+    let mut state = snapshot(0);
+    state.sessions = vec![second.clone(), first.clone()];
+    let mut projection = Projection::new(state.node, 1);
+    projection.apply(1, Update::Snapshot(state)).unwrap();
+    let mut updated = first;
+    updated.activity.title = "Retained history".into();
+    let changed = Update::Event(EventEnvelope {
+        node: NodeId([1; 32]),
+        cursor: 1,
+        event: Event::SessionRewound {
+            session: Box::new(updated.clone()),
+            backup: None,
+        },
+    });
+    projection.apply(1, changed.clone()).unwrap();
+    assert_eq!(projection.apply(1, changed).unwrap(), Apply::Ignored);
+    assert_eq!(projection.snapshot().unwrap().sessions, [second, updated]);
 }
 
 #[test]

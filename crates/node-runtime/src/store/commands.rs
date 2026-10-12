@@ -548,7 +548,14 @@ pub(super) fn execute(
             through,
             expected_head,
             expected_revision,
-        } => super::sessions::rewind(db, *session, *through, *expected_head, *expected_revision),
+        } => super::sessions::rewind(
+            db,
+            *session,
+            *through,
+            *expected_head,
+            *expected_revision,
+            false,
+        ),
         Command::ReplaceTurn { .. } => super::sessions::replace(db, caller, request),
         Command::StartQueuedTurn { turn } => {
             let queued = super::agent::runs::get(db, *turn)?;

@@ -481,7 +481,7 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get messageRewindConfirm =>
-      'Перемотка на этот ход? Позднее записи чата будут сохранены; файлы не будут отброшены';
+      'Оставить этот ход и убрать последующие сообщения? Файлы не изменятся';
 
   @override
   String get messageBackup => 'Просмотр резервного копирования чата';

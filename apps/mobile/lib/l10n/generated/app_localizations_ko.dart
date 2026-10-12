@@ -469,7 +469,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get messageRewindConfirm =>
-      '이번 턴으로 돌아가기? 나중에 채팅 기록은 백업됩니다. 파일은 되돌리지 않습니다';
+      '이 턴을 남기고 이후 메시지를 제거할까요? 파일은 바뀌지 않습니다';
 
   @override
   String get messageBackup => '채팅 백업 보기';

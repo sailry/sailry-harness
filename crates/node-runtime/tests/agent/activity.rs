@@ -149,6 +149,7 @@ async fn projects_activity_lifecycle() {
         assert_eq!(inbox.notices().len(), 4);
         assert_eq!(inbox.unread(), 0);
         let before_count = current.notifications.len();
+        let session_count = current.snapshot.as_ref().unwrap().sessions.len();
         let Output::Rewound(rewound) = client
             .execute(client.prepare(Command::RewindConversation {
                 session: session.id,
@@ -162,15 +163,23 @@ async fn projects_activity_lifecycle() {
             panic!("rewind expected")
         };
         let current = observed(&mut receiver, |view| {
-            view.snapshot
-                .as_ref()
-                .is_some_and(|s| s.sessions.iter().any(|s| s.id == rewound.backup.id))
+            view.snapshot.as_ref().is_some_and(|s| {
+                s.sessions.iter().any(|s| {
+                    s.id == session.id
+                        && s.activity.run.as_ref().is_some_and(|run| run.turn == turn)
+                })
+            })
         })
         .await;
+        assert!(rewound.backup.is_none());
+        assert_eq!(
+            current.snapshot.as_ref().unwrap().sessions.len(),
+            session_count
+        );
         assert_eq!(
             current.notifications.len(),
             before_count,
-            "rewind and backup are not new completions"
+            "rewind is not a new completion"
         );
         let projected = current
             .snapshot

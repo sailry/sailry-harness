@@ -999,7 +999,7 @@ abstract class AppLocalizations {
   /// No description provided for @messageRewindConfirm.
   ///
   /// In en, this message translates to:
-  /// **'Rewind to this turn? Later chat records will be backed up; files will not be rolled back'**
+  /// **'Keep this turn and remove later messages? Files stay unchanged'**
   String get messageRewindConfirm;
 
   /// No description provided for @messageBackup.

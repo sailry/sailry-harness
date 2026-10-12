@@ -482,7 +482,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get messageRewindConfirm =>
-      'Los registros de chat posteriores se guardarán en una copia de seguridad; los archivos no se revertirán';
+      '¿Conservar este turno y quitar los mensajes posteriores? Los archivos no cambian';
 
   @override
   String get messageBackup => 'Ver copia de seguridad de chat';

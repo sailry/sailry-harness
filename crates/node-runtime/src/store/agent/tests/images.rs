@@ -257,9 +257,9 @@ fn resolves_visible_history() {
             .code,
         ErrorCode::NotFound
     );
+    assert!(rewound.backup.is_none());
     assert_eq!(
-        super::super::images::resolve(&fixture.database.connection, rewound.backup.id, &image)
-            .unwrap(),
+        super::super::images::resolve(&fixture.database.connection, fork.id, &image).unwrap(),
         [1, 2, 3]
     );
 }

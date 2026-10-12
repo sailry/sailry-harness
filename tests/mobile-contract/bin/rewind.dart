@@ -134,13 +134,18 @@ Future<void> main() async {
       invalid[3] as String,
     );
   }
+  final backup = (await execute(connection, 'fork_conversation', {
+    'session': source,
+    'through': active['id'],
+    'expected_revision': current['revision'],
+  }))['data'];
   final request = await prepare(source, first['turn'], active['id'], 1);
   // Leave next pending across the reset; command execution must not wait for it.
   final waiting = updates.next();
   await connection.execute(request: request);
   final recovered = await connection.execute(request: request);
   final result = jsonDecode(recovered)['Ok']['data'];
-  final backup = result['backup'];
+  check(result['backup'] == null, 'explicit rewind creates no backup');
   check(
     result['revision'] == 2 && result['through'] == first['turn'],
     'structural revision is separate from configuration',
@@ -317,6 +322,6 @@ Future<void> main() async {
   controller.dispose();
   RustLib.dispose();
   stdout.writeln(
-    'Dart FFI rewind, backup, revision and independent resume passed',
+    'Dart FFI rewind, explicit fork, revision and independent resume passed',
   );
 }

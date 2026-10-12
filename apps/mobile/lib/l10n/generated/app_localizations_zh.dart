@@ -464,7 +464,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get messageRewind => '回退至此';
 
   @override
-  String get messageRewindConfirm => '回退至此轮？后续会话会保留为备份，文件不会回退';
+  String get messageRewindConfirm => '保留此回合并移除后续消息？文件不变';
 
   @override
   String get messageBackup => '查看会话备份';
@@ -2548,7 +2548,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get messageRewind => '回退至此';
 
   @override
-  String get messageRewindConfirm => '回退至此輪？後續會話會保留為備份，檔案不會回退';
+  String get messageRewindConfirm => '保留此回合並移除後續訊息？檔案不變';
 
   @override
   String get messageBackup => '檢視會話備份';

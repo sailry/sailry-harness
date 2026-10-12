@@ -169,16 +169,19 @@ fn rewind_advances_revisions() {
             expected_revision: 1,
         },
     );
+    let source = fixture.session;
+    let branch = fork(&mut fixture, source, head);
     let output = execute(&mut fixture, request.clone()).unwrap();
     let Output::Rewound(rewind) = &output else {
         panic!("rewind expected")
     };
     let restored = read(&fixture, fixture.session);
+    assert!(rewind.backup.is_none());
     assert_eq!(restored.value, initial.value);
     assert!(restored.restored);
     assert_eq!(restored.revision, latest.revision + 1);
-    assert_eq!(read(&fixture, rewind.backup.id).value, latest.value);
-    assert!(read(&fixture, rewind.backup.id).restored);
+    assert_eq!(read(&fixture, branch).value, latest.value);
+    assert!(read(&fixture, branch).restored);
     assert_eq!(execute(&mut fixture, request).unwrap(), output);
     assert_eq!(read(&fixture, fixture.session), restored);
     let stale = Request::new(
@@ -194,6 +197,7 @@ fn rewind_advances_revisions() {
         execute(&mut fixture, stale).unwrap_err().code,
         ErrorCode::RevisionConflict
     );
+    let prefix = fork(&mut fixture, source, first);
     let Output::Rewound(empty) = command(
         &mut fixture.database,
         &fixture.events,
@@ -207,10 +211,11 @@ fn rewind_advances_revisions() {
         panic!("rewind expected")
     };
     let absent = read(&fixture, fixture.session);
+    assert!(empty.backup.is_none());
     assert!(!absent.present);
     assert!(absent.restored);
     assert_eq!(absent.revision, restored.revision + 1);
-    assert_eq!(read(&fixture, empty.backup.id).value, initial.value);
+    assert_eq!(read(&fixture, prefix).value, initial.value);
 }
 
 #[test]
@@ -221,6 +226,8 @@ fn backup_keeps_clear() {
     let initial = write(&mut fixture, &context, Some(json!(true)), 0);
     let head = fixture.completed(&["Second result"]);
     write(&mut fixture, &context, None, initial.revision);
+    let source = fixture.session;
+    let branch = fork(&mut fixture, source, head);
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -234,7 +241,8 @@ fn backup_keeps_clear() {
         panic!("rewind expected")
     };
     assert_eq!(read(&fixture, fixture.session).value, initial.value);
-    let backup = read(&fixture, rewind.backup.id);
+    assert!(rewind.backup.is_none());
+    let backup = read(&fixture, branch);
     assert!(!backup.present);
     assert!(backup.restored);
     assert_eq!(backup.value, Value::Null);
@@ -246,6 +254,8 @@ fn empty_rewind_clears_unanchored_values() {
     let context = prepare(&fixture);
     let initial = write(&mut fixture, &context, Some(json!("before input")), 0);
     let head = fixture.completed(&["First result"]);
+    let source = fixture.session;
+    let branch = fork(&mut fixture, source, head);
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -259,10 +269,11 @@ fn empty_rewind_clears_unanchored_values() {
         panic!("rewind expected")
     };
     let absent = read(&fixture, fixture.session);
+    assert!(rewind.backup.is_none());
     assert!(!absent.present);
     assert!(absent.restored);
     assert_eq!(absent.revision, initial.revision + 1);
-    assert_eq!(read(&fixture, rewind.backup.id).value, initial.value);
+    assert_eq!(read(&fixture, branch).value, initial.value);
     let references: i64 = fixture
         .database
         .connection

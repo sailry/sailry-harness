@@ -483,7 +483,7 @@ class AppLocalizationsPt extends AppLocalizations {
 
   @override
   String get messageRewindConfirm =>
-      'Os registros de bate-papo posteriores serão armazenados; os arquivos não serão revertidos';
+      'Manter este turno e remover as mensagens seguintes? Os arquivos não mudam';
 
   @override
   String get messageBackup => 'Ver chat backup';

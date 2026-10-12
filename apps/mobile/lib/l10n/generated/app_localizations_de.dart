@@ -485,7 +485,7 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get messageRewindConfirm =>
-      'Spätere Chat-Aufzeichnungen werden gesichert; Dateien werden nicht zurückgeschaltet, wenn sie nicht mehr benötigt werden';
+      'Diesen Schritt behalten und spätere Nachrichten entfernen? Dateien bleiben unverändert';
 
   @override
   String get messageBackup => 'Chat-Backup anzeigen';

@@ -249,6 +249,7 @@ fn rechecks_queued_membership() {
         ErrorCode::Busy
     );
     let session = fixture.session;
+    let retained = fixture.fork(session, turn);
     let Output::Rewound(rewind) = command(
         &mut fixture.database,
         &fixture.events,
@@ -272,7 +273,8 @@ fn rechecks_queued_membership() {
         std::fs::read_to_string(root.join("file.txt")).unwrap(),
         "after"
     );
-    prepare(&fixture.database, rewind.backup.id, id, worktree, &root).unwrap();
+    assert!(rewind.backup.is_none());
+    prepare(&fixture.database, retained.id, id, worktree, &root).unwrap();
 }
 
 #[test]
@@ -328,6 +330,17 @@ fn rechecks_after_rewind() {
         .await
         .unwrap();
         let client = Client::new(Arc::new(Local::new(node, node, store.ingress.clone())));
+        let Output::Session(retained) = client
+            .execute(client.prepare(Command::ForkConversation {
+                session: fixture.session,
+                through: turn,
+                expected_revision: 1,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("fork expected")
+        };
         let gate = client
             .dispatch(client.prepare(Command::WriteFile {
                 worktree,
@@ -362,6 +375,7 @@ fn rechecks_after_rewind() {
             panic!("rewind expected")
         };
         release.send(()).unwrap();
+        assert!(rewind.backup.is_none());
         gate.completion.await.unwrap().unwrap();
         assert_eq!(
             pending.completion.await.unwrap().unwrap_err().code,
@@ -377,7 +391,7 @@ fn rechecks_after_rewind() {
         );
         client
             .execute(client.prepare(Command::RestoreFileCheckpoint {
-                session: rewind.backup.id,
+                session: retained.id,
                 checkpoint: id,
                 worktree,
             }))

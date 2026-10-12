@@ -638,6 +638,18 @@ async fn reads_inherited_publications() {
                 .revision,
             2
         );
+        let Output::Session(retained) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ForkConversation {
+                session: owner.id,
+                through: second,
+                expected_revision: owner.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("fork expected")
+        };
         let Output::Rewound(rewind) = fixture
             .client
             .execute(fixture.client.prepare(Command::RewindConversation {
@@ -651,10 +663,11 @@ async fn reads_inherited_publications() {
         else {
             panic!("rewind expected")
         };
+        assert!(rewind.backup.is_none());
         assert_eq!(
             fixture
                 .client
-                .read_artifact_in(rewind.backup.id, original.id, Some(2))
+                .read_artifact_in(retained.id, original.id, Some(2))
                 .await
                 .unwrap()
                 .artifact
@@ -701,8 +714,8 @@ async fn reads_inherited_publications() {
         fixture
             .client
             .execute(fixture.client.prepare(Command::RemoveSession {
-                session: rewind.backup.id,
-                expected_revision: rewind.backup.revision,
+                session: retained.id,
+                expected_revision: retained.revision,
             }))
             .await
             .unwrap();

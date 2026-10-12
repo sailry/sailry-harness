@@ -174,6 +174,17 @@ fn follows_visible_delegations_without_duplication() {
     assert_eq!(report.totals.tokens.as_ref().unwrap().input, 165);
     assert_eq!(report.totals.cost.as_ref().unwrap().usd_micros, 189);
     assert_eq!(report.requests.items.len(), 6);
+    let Output::Session(retained) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::ForkConversation {
+            session: parent,
+            through: second,
+            expected_revision: 1,
+        },
+    ) else {
+        panic!("fork expected")
+    };
     let Output::Rewound(rewound) = command(
         &mut fixture.database,
         &fixture.events,
@@ -187,7 +198,8 @@ fn follows_visible_delegations_without_duplication() {
         panic!("rewound conversation expected")
     };
     assert_eq!(metrics(&fixture, parent), inherited);
-    assert_eq!(metrics(&fixture, rewound.backup.id), totals);
+    assert!(rewound.backup.is_none());
+    assert_eq!(metrics(&fixture, retained.id), totals);
     let after =
         statistics::report::read(&fixture.database.connection, fixture.database.node, &query)
             .unwrap();

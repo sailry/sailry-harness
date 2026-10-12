@@ -366,6 +366,19 @@ fn idempotent_replacement(cx: &mut TestAppContext) {
             panic!("replacement expected")
         };
         assert_eq!(history.through, Some(first));
+        let backup = history
+            .backup
+            .as_ref()
+            .expect("replacement backup expected");
+        assert_eq!(
+            fixture
+                .runtime
+                .block_on(client.read_conversation(backup.id, None, 100))
+                .unwrap()
+                .page
+                .entries,
+            before.entries
+        );
         let page = fixture
             .runtime
             .block_on(client.read_conversation(fixture.session.id, None, 100))

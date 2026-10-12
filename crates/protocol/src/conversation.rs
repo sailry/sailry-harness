@@ -207,7 +207,8 @@ pub struct Rewind {
     pub session: SessionId,
     pub revision: u64,
     pub through: Option<TurnId>,
-    pub backup: crate::Session,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backup: Option<crate::Session>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -495,6 +496,10 @@ pub struct Frame {
     pub change: Change,
 }
 pub mod checkpoint;
+
+#[cfg(test)]
+#[path = "conversation/rewind_tests.rs"]
+mod rewind_tests;
 
 #[cfg(test)]
 #[path = "conversation/part_tests.rs"]

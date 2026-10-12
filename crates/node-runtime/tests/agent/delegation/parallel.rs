@@ -218,6 +218,17 @@ async fn freezes_config_and_history() {
             .page;
         assert_eq!(inherited.children, page.children);
         assert_eq!(inherited.runs[0].origin, Some(session.id));
+        let Output::Session(retained) = client
+            .execute(client.prepare(Command::ForkConversation {
+                session: branch.id,
+                through: turn.id,
+                expected_revision: branch.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("fork expected")
+        };
         let Output::Rewound(rewind) = client
             .execute(client.prepare(Command::RewindConversation {
                 session: branch.id,
@@ -230,8 +241,9 @@ async fn freezes_config_and_history() {
         else {
             panic!("rewind expected")
         };
+        assert!(rewind.backup.is_none());
         let backup = client
-            .read_conversation(rewind.backup.id, None, 20)
+            .read_conversation(retained.id, None, 20)
             .await
             .unwrap()
             .page;
@@ -243,7 +255,7 @@ async fn freezes_config_and_history() {
             .page;
         assert!(empty.children.is_empty());
         histories.push((branch.id, empty));
-        histories.push((rewind.backup.id, backup));
+        histories.push((retained.id, backup));
         assert_eq!(
             client.execute(request).await.unwrap(),
             Output::QueuedTurn(turn)

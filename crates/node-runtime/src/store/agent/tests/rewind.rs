@@ -18,6 +18,61 @@ fn rewind(fixture: &mut Fixture, through: Option<TurnId>, head: TurnId, revision
 }
 
 #[test]
+fn keeps_canonical_records_without_backup() {
+    let mut fixture = Fixture::new();
+    let first = fixture.completed(&["Retained"]);
+    let head = fixture.completed(&["Removed from view"]);
+    let original =
+        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    let records = |fixture: &Fixture| {
+        fixture
+            .database
+            .connection
+            .prepare(
+                "SELECT r.body,t.plugins,s.config,e.body FROM turns t \
+             JOIN requests r ON r.id=t.request AND r.caller=t.caller \
+             JOIN session_revisions s ON s.session=t.session AND s.revision=t.revision \
+             JOIN agent_events e ON e.turn=t.id WHERE t.session=?1 ORDER BY t.rowid,e.sequence",
+            )
+            .unwrap()
+            .query_map([fixture.session.to_string()], |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let captured = records(&fixture);
+    assert_eq!(captured.len(), 2);
+    let retained = rewind(&mut fixture, Some(first), head, 1);
+    assert!(retained.backup.is_none());
+    assert_eq!(records(&fixture), captured);
+    assert_eq!(fixture.read(None, 100).page.runs.len(), 1);
+    let cleared = rewind(&mut fixture, None, first, 2);
+    assert!(cleared.backup.is_none());
+    assert_eq!(records(&fixture), captured);
+    assert!(fixture.read(None, 100).page.runs.is_empty());
+    let current =
+        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    assert_eq!(current.config, original.config);
+    assert_eq!(current.revision, original.revision);
+    assert_eq!(
+        fixture
+            .database
+            .connection
+            .query_row("SELECT count(*) FROM sessions", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn preserves_shared_history() {
     let mut fixture = Fixture::new();
     let source = fixture.session;
@@ -37,12 +92,14 @@ fn preserves_shared_history() {
     }
     let before = fixture.read(None, 100).page;
     let original = crate::store::commands::session(&fixture.database.connection, source).unwrap();
+    let branch = fixture.fork(source, turns[2]);
     let result = rewind(&mut fixture, Some(turns[0]), turns[2], 1);
+    assert!(result.backup.is_none());
     assert_eq!(result.revision, 2);
     assert_eq!(result.through, Some(turns[0]));
-    assert_eq!(result.backup.config, original.config);
+    assert_eq!(branch.config, original.config);
     assert_eq!(
-        result.backup.fork,
+        branch.fork,
         Some(Fork {
             session: source,
             through: turns[2]
@@ -64,7 +121,7 @@ fn preserves_shared_history() {
     assert_eq!(page.entries, before.entries[..1]);
     assert_eq!(page.runs, before.runs[..1]);
     assert_eq!(page.next_before, None);
-    let backup = history::pages::read(&fixture.database.connection, result.backup.id, None, 100)
+    let backup = history::pages::read(&fixture.database.connection, branch.id, None, 100)
         .unwrap()
         .page;
     assert_eq!(backup.entries, before.entries);
@@ -81,7 +138,7 @@ fn preserves_shared_history() {
         state
     );
     assert_eq!(
-        history::state(&fixture.database.connection, result.backup.id).unwrap()["value"],
+        history::state(&fixture.database.connection, branch.id).unwrap()["value"],
         3
     );
     assert_eq!(
@@ -107,6 +164,7 @@ fn preserves_shared_history() {
         ErrorCode::WrongTarget
     );
     let cleared = rewind(&mut fixture, None, turns[0], 2);
+    assert!(cleared.backup.is_none());
     assert_eq!(cleared.revision, 3);
     assert!(fixture.read(None, 100).page.runs.is_empty());
     assert!(fixture.read(None, 100).page.entries.is_empty());
@@ -120,7 +178,7 @@ fn preserves_shared_history() {
     assert_eq!(resumed.runs[0].turn, next);
     assert!(resumed.runs[0].sequence > before.runs[2].sequence);
     assert_eq!(
-        history::pages::read(&fixture.database.connection, result.backup.id, None, 100)
+        history::pages::read(&fixture.database.connection, branch.id, None, 100)
             .unwrap()
             .page,
         backup
@@ -139,6 +197,7 @@ fn rejects_conflicting_work() {
             through,
             expected_head,
             revision,
+            false,
         )
         .unwrap_err()
         .code
@@ -188,9 +247,11 @@ fn rejects_conflicting_work() {
     );
     let before = fixture.read(None, 100).page;
     assert!(before.runs.iter().any(|run| run.turn == queued));
+    let branch = fixture.fork(fixture.session, queued);
     let result = rewind(&mut fixture, Some(first), queued, 1);
+    assert!(result.backup.is_none());
     assert_eq!(fixture.read(None, 100).page.runs.len(), 1);
-    let backup = history::pages::read(&fixture.database.connection, result.backup.id, None, 100)
+    let backup = history::pages::read(&fixture.database.connection, branch.id, None, 100)
         .unwrap()
         .page;
     assert_eq!(backup.entries, before.entries);
@@ -223,17 +284,20 @@ fn preserves_source_branch() {
             branch.id,
             Some(TurnId::new()),
             last,
-            1
+            1,
+            false,
         )
         .unwrap_err()
         .code,
         ErrorCode::NotFound
     );
+    let retained = fixture.fork(branch.id, last);
     let result = rewind(&mut fixture, Some(first), last, 1);
+    assert!(result.backup.is_none());
     let page = fixture.read(None, 100).page;
     assert_eq!(page.runs[0].origin, Some(source));
     assert_eq!(page.entries, before.entries[..1]);
-    let backup = history::pages::read(&fixture.database.connection, result.backup.id, None, 100)
+    let backup = history::pages::read(&fixture.database.connection, retained.id, None, 100)
         .unwrap()
         .page;
     assert_eq!(backup.entries, before.entries);
@@ -288,9 +352,11 @@ fn preserves_revoked_credentials() {
             expected_revision: 1,
         },
     );
+    let branch = fixture.fork(fixture.session, head);
     let result = rewind(&mut fixture, Some(first), head, 1);
-    assert_eq!(result.backup.config, config);
-    assert_eq!(result.backup.revision, 1);
+    assert!(result.backup.is_none());
+    assert_eq!(branch.config, config);
+    assert_eq!(branch.revision, 1);
     assert_eq!(
         crate::store::commands::session(&fixture.database.connection, fixture.session)
             .unwrap()
@@ -301,14 +367,14 @@ fn preserves_revoked_credentials() {
         crate::store::commands::validate_config(
             &fixture.database.connection,
             fixture.database.node,
-            &result.backup.config
+            &branch.config
         )
         .unwrap_err()
         .code,
         ErrorCode::PermissionDenied
     );
     assert_eq!(
-        history::pages::read(&fixture.database.connection, result.backup.id, None, 100)
+        history::pages::read(&fixture.database.connection, branch.id, None, 100)
             .unwrap()
             .page
             .runs

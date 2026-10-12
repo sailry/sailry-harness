@@ -42,6 +42,7 @@ pub(in crate::store) fn replace(
         through,
         *expected_head,
         *expected_history_revision,
+        true,
     )?
     else {
         unreachable!("rewind result expected")
@@ -49,7 +50,7 @@ pub(in crate::store) fn replace(
     let turn = super::super::agent::queue::create(db, caller, request, current, message, true)?;
     let event = Event::SessionRewound {
         session: Box::new(commands::session(db, *session)?),
-        backup: Box::new(history.backup.clone()),
+        backup: history.backup.clone().map(Box::new),
     };
     Ok((Output::TurnReplaced { turn, history }, Some(event)))
 }

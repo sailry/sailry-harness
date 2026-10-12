@@ -379,8 +379,9 @@ fn preserves_fork_references() {
             .code,
         ErrorCode::WrongTarget
     );
+    assert!(rewound.backup.is_none());
     assert_eq!(
-        read(&fixture.database.connection, rewound.backup.id, id)
+        read(&fixture.database.connection, branch.id, id)
             .unwrap()
             .file,
         page.files[0]

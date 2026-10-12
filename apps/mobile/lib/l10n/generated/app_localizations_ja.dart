@@ -467,7 +467,7 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get messageRewindConfirm =>
-      'このターンに戻しますか？後のチャットレコードはバックアップされます。ファイルは戻されません';
+      'このターンを残して後のメッセージを削除しますか？ファイルは変更されません';
 
   @override
   String get messageBackup => 'チャットのバックアップを表示';

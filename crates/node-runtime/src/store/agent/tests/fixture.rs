@@ -79,6 +79,24 @@ impl Fixture {
         }))
     }
 
+    pub fn fork(&mut self, source: SessionId, through: TurnId) -> Session {
+        let revision = crate::store::commands::session(&self.database.connection, source)
+            .unwrap()
+            .revision;
+        let Output::Session(session) = command(
+            &mut self.database,
+            &self.events,
+            Command::ForkConversation {
+                session: source,
+                through,
+                expected_revision: revision,
+            },
+        ) else {
+            panic!("fork expected")
+        };
+        session
+    }
+
     pub fn append(&mut self, events: impl IntoIterator<Item = AdkEvent>) -> TurnId {
         let turn = self.queued();
         runs::start(&self.database.connection, turn).unwrap();

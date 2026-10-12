@@ -486,7 +486,7 @@ class AppLocalizationsFr extends AppLocalizations {
 
   @override
   String get messageRewindConfirm =>
-      'Les enregistrements de discussions ultérieurs seront sauvegardés; les fichiers ne seront pas restaurés';
+      'Garder ce tour et supprimer les messages suivants ? Les fichiers restent inchangés';
 
   @override
   String get messageBackup => 'Voir la sauvegarde du chat';

@@ -257,8 +257,9 @@ async fn preserves_child_history_and_configuration() {
             panic!("rewind expected")
         };
         let trimmed = history(&fixture.client, fixture.session.id).await;
+        assert!(rewound.backup.is_none());
         assert_eq!(trimmed.children, original.children);
-        let backup = history(&fixture.client, rewound.backup.id).await;
+        let backup = history(&fixture.client, branch.id).await;
         assert_eq!(backup.children, parent_page.children);
         let fixture = fixture.restart().await;
         assert_eq!(
@@ -271,10 +272,6 @@ async fn preserves_child_history_and_configuration() {
         );
         assert_eq!(
             history(&fixture.client, branch.id).await.children,
-            parent_page.children
-        );
-        assert_eq!(
-            history(&fixture.client, rewound.backup.id).await.children,
             parent_page.children
         );
         assert_eq!(

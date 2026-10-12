@@ -1976,7 +1976,8 @@ pub enum Event {
     SessionsReordered(Vec<SessionId>),
     SessionRewound {
         session: Box<Session>,
-        backup: Box<Session>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        backup: Option<Box<Session>>,
     },
     TurnQueued {
         turn: QueuedTurn,

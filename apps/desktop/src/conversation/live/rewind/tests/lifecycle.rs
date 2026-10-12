@@ -79,7 +79,10 @@ fn retries_confirmed_request(cx: &mut TestAppContext) {
         tap(visual, "live-chat-input");
         visual.simulate_input("New typing after lost result 🙂");
         visual.update(|window, cx| view.update(cx, |view, cx| view.retry(window, cx)));
-        wait(visual, |cx| view.read(cx).backup.is_some());
+        wait(visual, |cx| {
+            !view.read(cx).pending && view.read(cx).retry.is_none()
+        });
+        assert!(view.read_with(visual, |view, _| view.backup.is_none()));
         let requests = observed.requests.lock().unwrap();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[0], requests[1]);
@@ -87,7 +90,7 @@ fn retries_confirmed_request(cx: &mut TestAppContext) {
         let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
             panic!("snapshot expected")
         };
-        assert_eq!(snapshot.sessions.len(), 2);
+        assert_eq!(snapshot.sessions.len(), 1);
         assert_eq!(
             view.read_with(visual, |view, cx| view.input.read(cx).value().to_string()),
             "New typing after lost result 🙂"

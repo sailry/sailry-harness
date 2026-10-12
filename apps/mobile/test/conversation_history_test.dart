@@ -275,13 +275,13 @@ void main() {
     await harness.close(tester);
   });
 
-  testWidgets('rewind is confirmed and preserves the history backup', (
+  testWidgets('rewind requires confirmation without creating a backup', (
     tester,
   ) async {
     final harness = Harness(
       command: (_, _) async => {
         'kind': 'rewound',
-        'data': {'backup': fixture.session(id: 'backup')},
+        'data': {'session': 'session', 'through': 'first', 'revision': 13},
       },
     );
     await harness.mount(tester, history());
@@ -297,9 +297,8 @@ void main() {
       'expected_head': 'last',
       'expected_revision': 12,
     });
-    await tester.tap(find.text(tr('messageBackup')));
-    await tester.pumpAndSettle();
-    expect(harness.connection.watched, ['session', 'backup']);
+    expect(find.text(tr('messageBackup')), findsNothing);
+    expect(harness.connection.watched, ['session']);
     await harness.close(tester);
   });
 

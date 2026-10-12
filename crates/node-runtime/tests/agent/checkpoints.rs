@@ -172,10 +172,9 @@ async fn captures_and_recovers() {
         let Output::Rewound(rewind) = &result else {
             panic!("rewind expected")
         };
+        assert!(rewind.backup.is_none());
         assert_eq!(
-            list(&client, rewind.backup.id, turn.id, None, 100)
-                .await
-                .files,
+            list(&client, branch.id, turn.id, None, 100).await.files,
             files
         );
         assert_eq!(

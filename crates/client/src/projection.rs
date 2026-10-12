@@ -268,7 +268,9 @@ impl Projection {
                     }
                     Event::SessionRewound { session, backup } => {
                         update_session(&mut snapshot.sessions, *session);
-                        update_session(&mut snapshot.sessions, *backup);
+                        if let Some(backup) = backup {
+                            update_session(&mut snapshot.sessions, *backup);
+                        }
                     }
                     Event::TurnQueued { turn, activity } => {
                         if let Some(session) = snapshot

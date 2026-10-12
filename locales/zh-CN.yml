@@ -1398,7 +1398,7 @@ chat_search: 搜索对话
 chat_fork: 派生会话
 chat_rewind: 回退到此回合
 chat_rewind_action: 回退
-chat_rewind_confirm: 保留此回合，后续对话存入备份分支，文件不变
+chat_rewind_confirm: 保留此回合并移除后续消息？文件不变
 chat_rewound: 历史已回退
 chat_rewind_backup: 打开备份
 chat_history_changed: 历史已变化，请重新选择

@@ -30,7 +30,7 @@ extension _HistoryActions on _LiveConversationPageState {
       if (!mounted) return true;
       _historyPending = null;
       if (kind == 'rewind_conversation') {
-        _backup = object(object(output['data'])['backup']);
+        _backup = null;
       }
       if (kind == 'replace_turn') {
         _backup = object(object(object(output['data'])['history'])['backup']);

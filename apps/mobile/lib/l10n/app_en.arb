@@ -202,7 +202,7 @@
   "messageEdit": "Edit and regenerate",
   "messageEditConfirm": "Replace this message and the following chat? Files will not be rolled back",
   "messageRewind": "Rewind here",
-  "messageRewindConfirm": "Rewind to this turn? Later chat records will be backed up; files will not be rolled back",
+  "messageRewindConfirm": "Keep this turn and remove later messages? Files stay unchanged",
   "messageBackup": "View chat backup",
   "messageRegenerate": "Regenerate",
   "messageSearch": "Search chat",

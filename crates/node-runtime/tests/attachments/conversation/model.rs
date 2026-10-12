@@ -269,6 +269,17 @@ async fn restores_rewound_inputs() {
         .await;
         let turn = queue(&client, &session, input("", &[&file])).await;
         let original = run(&client, &turn).await;
+        let Output::Session(retained) = client
+            .execute(client.prepare(Command::ForkConversation {
+                session: session.id,
+                through: turn.id,
+                expected_revision: session.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("fork expected")
+        };
         let Output::Rewound(rewind) = client
             .execute(client.prepare(Command::RewindConversation {
                 session: session.id,
@@ -282,11 +293,9 @@ async fn restores_rewound_inputs() {
             panic!("rewind expected")
         };
         assert!(page(&client, session.id).await.entries.is_empty());
-        assert_eq!(
-            page(&client, rewind.backup.id).await.entries,
-            original.entries
-        );
-        let next = queue(&client, &rewind.backup, "Continue the backup".into()).await;
+        assert!(rewind.backup.is_none());
+        assert_eq!(page(&client, retained.id).await.entries, original.entries);
+        let next = queue(&client, &retained, "Continue the fork".into()).await;
         let history = run(&client, &next).await;
         assert_eq!(
             history.runs.last().unwrap().status,

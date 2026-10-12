@@ -328,6 +328,18 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
             checkpoints(&fixture.client, fixture.session.id, turn.id).await,
             files
         );
+        let Output::Session(retained) = execute(
+            &fixture.client,
+            Command::ForkConversation {
+                session: fixture.session.id,
+                through: turn.id,
+                expected_revision: fixture.session.revision,
+            },
+        )
+        .await
+        else {
+            panic!("fork expected")
+        };
         let Output::Rewound(rewind) = execute(
             &fixture.client,
             Command::RewindConversation {
@@ -341,8 +353,9 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
         else {
             panic!("rewind expected")
         };
+        assert!(rewind.backup.is_none());
         assert_eq!(
-            checkpoints(&fixture.client, rewind.backup.id, turn.id).await,
+            checkpoints(&fixture.client, retained.id, turn.id).await,
             files
         );
         assert_eq!(

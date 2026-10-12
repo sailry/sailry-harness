@@ -169,7 +169,7 @@
   "messageEdit": "编辑并重新生成",
   "messageEditConfirm": "替换此消息及后续会话？文件不会随会话回退",
   "messageRewind": "回退至此",
-  "messageRewindConfirm": "回退至此轮？后续会话会保留为备份，文件不会回退",
+  "messageRewindConfirm": "保留此回合并移除后续消息？文件不变",
   "messageBackup": "查看会话备份",
   "messageRegenerate": "重新生成",
   "messageSearch": "搜索会话",

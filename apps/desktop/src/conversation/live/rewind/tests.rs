@@ -1,6 +1,6 @@
 use super::*;
 use crate::conversation::live::tests::{
-    fixture::{Fixture, hover, init, open, tap},
+    fixture::{Fixture, init, open, tap},
     wait,
 };
 use core::prelude::v1::test;
@@ -55,7 +55,7 @@ fn choose(view: &Entity<View>, turn: TurnId, cx: &mut VisualTestContext) {
 }
 
 #[gpui::test]
-fn confirmation_and_backup(cx: &mut TestAppContext) {
+fn confirmation_preserves_drafts(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::with_tools(remote, Vec::new());
@@ -91,10 +91,25 @@ fn confirmation_and_backup(cx: &mut TestAppContext) {
             let _ = window.draw(cx);
         });
         assert!(!visual.has_pending_prompt());
+        let opened = Arc::new(Mutex::new(None));
+        view.update(visual, |view, cx| {
+            view.backup = Some(Session {
+                id: SessionId::new(),
+                ..fixture.session.clone()
+            });
+            let opened = opened.clone();
+            cx.subscribe(&cx.entity(), move |_, _, event, _| {
+                if let Event::Forked(session) = event {
+                    *opened.lock().unwrap() = Some(session.id);
+                }
+            })
+            .detach();
+        });
         choose(&view, first, visual);
         crate::prompts::tests::answer(visual, "chat_rewind_action");
         wait(visual, |cx| {
-            view.read(cx).backup.is_some()
+            !view.read(cx).pending
+                && view.read(cx).backup.is_none()
                 && view
                     .read(cx)
                     .history
@@ -106,50 +121,28 @@ fn confirmation_and_backup(cx: &mut TestAppContext) {
                     == 2
                 && view.read(cx).connected()
         });
-        let backup = view.read_with(visual, |view, cx| {
+        view.read_with(visual, |view, cx| {
             assert_eq!(view.session(), Some(fixture.session.id));
             assert_eq!(view.input.read(cx).value(), "Draft survives rewind 中文 🙂");
             assert_eq!(view.rows, [first]);
             assert!(view.expanded.is_empty());
             assert!(view.retry.is_none());
             assert!(view.rewind_request(first).is_none());
-            view.backup.clone().unwrap()
+            assert!(view.backup.is_none());
         });
         assert!(visual.debug_bounds("live-rewind-notice").is_none());
         assert_eq!(
             visual.update(|window, cx| {
                 crate::feedback::tests::count(window, &tr("chat_rewound"), cx)
             }),
-            1
+            0
         );
-        let inherited = fixture
-            .runtime
-            .block_on(
-                fixture
-                    .binding
-                    .client
-                    .read_conversation(backup.id, None, 20),
-            )
-            .unwrap()
-            .page;
-        assert_eq!(inherited.entries, before.entries);
-        let opened = Arc::new(Mutex::new(None));
-        view.update(visual, |_, cx| {
-            let opened = opened.clone();
-            cx.subscribe(&view, move |_, _, event, _| {
-                if let Event::Forked(session) = event {
-                    *opened.lock().unwrap() = Some(session.id);
-                }
-            })
-            .detach();
-        });
-        // Hover expands Kit's toast stack before locating the backup action.
-        hover(visual, "live-rewind-backup");
-        crate::feedback::tests::settle(visual);
-        tap(visual, "live-rewind-backup");
-        assert_eq!(*opened.lock().unwrap(), Some(backup.id));
-        wait(visual, |cx| view.read(cx).backup.is_none());
-        assert!(view.read_with(visual, |view, _| view.backup.is_none()));
+        assert!(visual.debug_bounds("live-rewind-backup").is_none());
+        assert_eq!(*opened.lock().unwrap(), None);
+        let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
+            panic!("snapshot expected")
+        };
+        assert_eq!(snapshot.sessions.len(), 1);
         let (reopened, reopened_cx) = open(cx, fixture.binding.clone(), fixture.session.clone());
         wait(reopened_cx, |cx| reopened.read(cx).connected());
         assert_eq!(

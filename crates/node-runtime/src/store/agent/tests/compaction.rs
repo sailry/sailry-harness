@@ -167,6 +167,7 @@ fn restores_branched_context() {
     let branch_turn = fixture.queued();
     assert_eq!(load(&fixture, branch_turn)[0].id, compacted.id);
     fixture.session = source;
+    let retained = fixture.fork(source, head);
     let Output::Rewound(rewound) = command(
         &mut fixture.database,
         &fixture.events,
@@ -180,9 +181,10 @@ fn restores_branched_context() {
         panic!("rewind expected")
     };
     let context = load(&fixture, first);
+    assert!(rewound.backup.is_none());
     assert_eq!(context.len(), 1);
     assert_eq!(context[0].id, original.id);
-    fixture.session = rewound.backup.id;
+    fixture.session = retained.id;
     let backup_turn = fixture.queued();
     assert_eq!(load(&fixture, backup_turn)[0].id, compacted.id);
     assert_eq!(fixture.read(None, 100).page.entries.len(), 3);

@@ -202,7 +202,7 @@
   "messageEdit": "編集と再生",
   "messageEditConfirm": "このメッセージと次のチャットを置き換えますか？ファイルは戻されません",
   "messageRewind": "ここでリワード",
-  "messageRewindConfirm": "このターンに戻しますか？後のチャットレコードはバックアップされます。ファイルは戻されません",
+  "messageRewindConfirm": "このターンを残して後のメッセージを削除しますか？ファイルは変更されません",
   "messageBackup": "チャットのバックアップを表示",
   "messageRegenerate": "再生成",
   "messageSearch": "検索チャット",
