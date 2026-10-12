@@ -1,18 +1,17 @@
-use super::*;
 use gpui_kit as gpui;
 use gpui_kit::component::{
-    Theme,
+    ActiveTheme as _, Theme,
     button::Button,
-    menu::{DropdownMenu, PopupMenuItem},
+    menu::{DropdownMenu, PopupMenu, PopupMenuItem},
     popover::Popover,
     select::{SearchableVec, Select, SelectState},
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::test::{TestSupportExt as _, TestWindowExt as _};
 use gpui_kit::{
-    AbsoluteLength, AppContext, Bounds, Context, Corners, Entity, InteractiveElement, IntoElement,
-    KeyDownEvent, KeyUpEvent, Keystroke, ParentElement, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div, point, rems,
+    AbsoluteLength, App, AppContext, Bounds, Context, Corners, Entity, InteractiveElement,
+    IntoElement, KeyDownEvent, KeyUpEvent, Keystroke, ParentElement, Render, Styled,
+    TestAppContext, VisualTestContext, Window, div, point, px, rems,
 };
 use std::{cell::Cell, rc::Rc};
 
@@ -21,7 +20,6 @@ mod dialog;
 fn setup(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
-        init(cx);
     });
 }
 
@@ -118,9 +116,9 @@ fn popover_corners_and_focus(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn popover_surface_radius(cx: &mut TestAppContext) {
-    for (radius, expected) in [(8., 16.), (12., 24.), (0., 0.)] {
+    for radius in [8., 12., 0.] {
         setup(cx);
-        cx.update(move |cx| Theme::global_mut(cx).radius_lg = px(radius));
+        cx.update(move |cx| Theme::global_mut(cx).radius = px(radius));
         let (_, visual) = cx.add_window_view(|_, _| PopoverFixture {
             activations: Rc::new(Cell::new(0)),
             radius: None,
@@ -134,7 +132,7 @@ fn popover_surface_radius(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("overlay-content").is_some());
         let quad = panel(visual, "popover-surface");
         let scale = visual.update(|window, _| window.scale_factor());
-        assert_eq!(quad.corner_radii, Corners::all(px(expected)).scale(scale));
+        assert_eq!(quad.corner_radii, Corners::all(px(radius)).scale(scale));
         visual.simulate_keystrokes("escape");
         draw(visual);
         assert!(visual.debug_bounds("overlay-content").is_none());
@@ -221,7 +219,8 @@ fn menu_choice(cx: &mut TestAppContext, nested: bool) {
     }
     let quad = panel(visual, "popup-menu");
     let scale = visual.update(|window, _| window.scale_factor());
-    assert_eq!(quad.corner_radii, Corners::all(px(16.)).scale(scale));
+    let radius = visual.update(|_, cx| cx.theme().radius);
+    assert_eq!(quad.corner_radii, Corners::all(radius).scale(scale));
     assert_eq!(
         visual
             .debug_bounds("overlay-menu-label")
@@ -232,8 +231,8 @@ fn menu_choice(cx: &mut TestAppContext, nested: bool) {
     );
     let choice = visual.debug_bounds("overlay-menu-label").unwrap();
     let adjacent = visual.debug_bounds("overlay-menu-adjacent").unwrap();
-    // Each row has 6px vertical padding, with a real 1px gap between rows.
-    assert_eq!(adjacent.top() - choice.bottom(), px(13.));
+    // Native 26px rows center the 14px labels with a 2px inter-row gap.
+    assert_eq!(adjacent.top() - choice.bottom(), px(14.));
     activate(visual);
     assert_eq!(activations.get(), 1);
     assert!(visual.update(|window, _| trigger.is_focused(window)));
@@ -302,11 +301,6 @@ impl Render for SelectFixture {
 #[gpui::test]
 fn select_bounds_and_motion(cx: &mut TestAppContext) {
     setup(cx);
-    cx.update(|cx| {
-        let layout = cx.global::<PopupMenuLayout>();
-        assert_eq!(layout.padding, px(8.));
-        assert_eq!(layout.item_radius(cx.theme()), px(8.));
-    });
     let (fixture, visual) = cx.add_window_view(|window, cx| SelectFixture {
         state: cx.new(|cx| {
             SelectState::new(
@@ -331,16 +325,17 @@ fn select_bounds_and_motion(cx: &mut TestAppContext) {
     assert_eq!(opening.size, settled.size);
     let quad = panel(visual, "select-popup");
     let scale = visual.update(|window, _| window.scale_factor());
-    assert_eq!(quad.corner_radii, Corners::all(px(16.)).scale(scale));
+    let radius = visual.update(|_, cx| cx.theme().radius);
+    assert_eq!(quad.corner_radii, Corners::all(radius).scale(scale));
     let first = visual.update(|window, _| window.find("overlay-option-First").bounds());
     let second = visual.update(|window, _| window.find("overlay-option-Second").bounds());
-    // Select retains its 4px row padding inside the shared 8px popup inset.
-    assert_eq!(first.top() - settled.top(), px(12.));
-    assert_eq!(settled.bottom() - second.bottom(), px(12.));
-    // Kit Medium rows use 7px horizontal padding inside the shared 8px inset.
-    assert_eq!(first.left() - settled.left(), px(15.));
+    // Native List and row padding each contribute 4px vertically.
+    assert_eq!(first.top() - settled.top(), px(8.));
+    assert_eq!(settled.bottom() - second.bottom(), px(8.));
+    // Kit Medium rows use 7px horizontal padding inside the 4px List inset.
+    assert_eq!(first.left() - settled.left(), px(11.));
     assert!(first.right() < settled.right() && second.right() < settled.right());
-    assert_eq!(second.top() - first.bottom(), px(9.));
+    assert_eq!(second.top() - first.bottom(), px(8.));
     assert!(
         opening.top() < settled.top(),
         "the popup should move with the entering menu: {opening:?} -> {settled:?}",
@@ -401,19 +396,19 @@ fn select_surface_insets(cx: &mut TestAppContext) {
         draw(visual);
         let popup = visual.debug_bounds("select-popup").unwrap();
         let empty = visual.debug_bounds("overlay-select-empty").unwrap();
-        assert_eq!(empty.left() - popup.left(), px(8.));
-        assert_eq!(popup.right() - empty.right(), px(8.));
-        assert_eq!(popup.bottom() - empty.bottom(), px(8.));
+        assert_eq!(empty.left(), popup.left());
+        assert_eq!(empty.right(), popup.right());
+        assert_eq!(empty.bottom(), popup.bottom());
         let content_top = empty.top() - popup.top();
         if searchable {
             let search = visual.debug_bounds("list-search").unwrap();
-            // The selected Kit list adds 0.375rem above and below its 2rem input.
+            // The native header contains a 2rem input and its 1px divider.
             let rem = visual.update(|window, _| window.rem_size());
-            assert_eq!(search.size.height, rem * 2.75);
+            assert_eq!(search.size.height, rem * 2. + px(1.));
             assert_eq!(search.top(), popup.top());
             assert_eq!(empty.top(), search.bottom());
         } else {
-            assert_eq!(empty.top() - popup.top(), px(8.));
+            assert_eq!(empty.top(), popup.top());
         }
         if searchable {
             visual.simulate_keystrokes(
@@ -428,9 +423,9 @@ fn select_surface_insets(cx: &mut TestAppContext) {
             let popup = visual.debug_bounds("select-popup").unwrap();
             let first = visual.debug_bounds("overlay-option-First").unwrap();
             let second = visual.debug_bounds("overlay-option-Second").unwrap();
-            assert_eq!(first.top() - popup.top(), content_top + px(4.));
-            assert_eq!(popup.bottom() - second.bottom(), px(12.));
-            assert_eq!(second.top() - first.bottom(), px(9.));
+            assert_eq!(first.top() - popup.top(), content_top + px(8.));
+            assert_eq!(popup.bottom() - second.bottom(), px(8.));
+            assert_eq!(second.top() - first.bottom(), px(8.));
             visual.simulate_keystrokes("down enter");
             visual.run_until_parked();
             draw(visual);

@@ -540,11 +540,6 @@ impl Theme {
         }
     }
 
-    /// Shared outer radius for menus, popovers, selects and dialogs.
-    pub fn surface_radius(&self) -> Pixels {
-        self.radius_lg * 2.
-    }
-
     /// The radius of a shape that reads as a circle or a pill — an avatar, a
     /// slider thumb, a badge dot, a pill tab.
     ///

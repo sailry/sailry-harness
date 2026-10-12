@@ -18,26 +18,19 @@ animations remain owned by the original Kit components.
 | --- | --- |
 | Single-line Input padding and font-relative line height | Retained; `#3343` preserves the Base root height, but a fixed rem line height still exceeds the smallest control's bordered interior. The existing font-relative line height and centered line retain all semantic control heights; multiline padding stays upstream |
 | Optional `switch.checked.background` color with primary fallback and explicit control override | Retained; independent checked-track treatment is absent upstream. Reusable upstream candidate |
-| Selected Tab colors from `tab_active` and `tab_active_foreground` | Retained as Sailry's approved theme treatment |
-| TabBar equal-width sizing and Segmented outer insets | Retained; upstream has no equal-width API. Native wrappers, selected indicator and current clicked-tab reveal remain in use. Reusable upstream candidate |
-| Primary-button semantic colors for Checkbox, Radio and Button | Retained as Sailry's approved theme treatment; selected controls follow the existing independent button tokens |
+| TabBar equal-width sizing | Retained; upstream has no equal-width API. Native wrappers, selected indicator and current clicked-tab reveal remain in use. Reusable upstream candidate |
 | `Button::without_tooltip` | Retained; clears composed default tooltip without replacing the Button. Reusable upstream candidate |
-| Notification intrinsic content width and compact native card composition | Retained; upstream always fills the stack's width. Placement, dismissal and animation stay in Kit. Width API is a reusable upstream candidate; card spacing is a local presentation choice |
+| Notification intrinsic content width | Retained; upstream always fills the stack's width. Native card styling, placement, dismissal and animation stay in Kit. Reusable upstream candidate |
 | Notification viewport confinement | Retained; maximum card width is bounded by the active viewport |
 | `WindowExt::set_notification_insets` and deferred toast priority | Retained; Windows native children still require a region beside a WebView. Zero insets preserve the full viewport; deferred Root painting also participates in Fast composition. Reusable upstream candidate |
 | DataTable empty stripes | Retained opt-in inert filler rows and viewport redraw on measurement; row count and selection do not change. Reusable upstream candidate |
-| List search-divider override and Select search-header separation | Retained; upstream does not expose Select's divider setting. List owns search state and navigation. Reusable upstream candidate |
-| List and Command search-header vertical insets | Retained as approved presentation geometry |
-| PopupMenuLayout, Select row insets/gaps and shared menu geometry | Retained; one application-wide geometry setting composes native controls. Upstream styling and state remain in Kit. Geometry API is a reusable upstream candidate |
 | PopupMenu selection skips inert rows | Retained; keyboard traversal and submenu entry never select labels, separators or disabled rows. Reusable upstream candidate |
 | Popover and DropdownMenu anchor offsets | Retained pass-through of Base's optional anchor adjustment. Reusable upstream candidate |
 | AreaChart optional fill baseline | Retained; defaults preserve upstream fill-to-bottom behavior. Native scale, path cache and hover stay authoritative. Reusable upstream candidate |
 | Bar/Candlestick perpendicular grid columns and Candlestick value labels | Retained opt-in builders using native Grid and PointAxes. Current upstream chart entrance and reveal are preserved. Reusable upstream candidate |
-| Candlestick semantic grid color and label gutter | Retained; uses existing chart theme roles and the same value scale |
+| Candlestick label gutter and shared value scale | Retained; value labels, candles and hover use the same native plot bounds and scale |
 | GroupBox surface without an empty footer wrapper | Retained; the upstream wrapper still prevents relative full-height surfaces. Existing footer composition is unchanged. Reusable upstream candidate |
-| Intrinsic DialogClose and DialogAction wrappers | Retained; upstream still imposes full size on footer controls. Reusable upstream candidate |
 | Dialog full-screen content and outer text-selection scope | Retained inside the native dialog lifecycle for immersive approved surfaces. Reusable upstream candidate |
-| Shared surface radius and theme border treatment | Retained as approved application theme geometry and colors |
 | Attachment native preview Button, accessibility label and transparent highlight option | Retained; preserves keyboard activation and accessible image-card names. Reusable upstream candidate |
 | Attachment retry-slot identities | Retained; media and description retries keep independent pointer and focus state. Reusable upstream candidate |
 | Direct Scrollable helper viewport anchoring | Retained; child scrollbar overlays use the handle's viewport, while stationary sibling helpers use layout bounds. Reusable upstream candidate |
@@ -50,7 +43,7 @@ animations remain owned by the original Kit components.
 | Vendored test fixture paths and license copies | Retained packaging adaptations; tests cannot read omitted external checkout fixtures |
 
 These reusable changes can be prepared as separate upstream contributions.
-Application-specific colors, spacing and card composition remain local. No
+Kit default colors, radii, spacing and card composition remain upstream. No
 upstream publication is part of the vendored refresh.
 
 ## Retired patches
@@ -61,6 +54,17 @@ upstream publication is part of the vendored refresh.
 | Old icon-generation build-script explanation | Current Assets supplies the shared icon enum and retains the Cargo icon-directory metadata; the current Component build script is copied unchanged |
 | GPUI snapshot-only dependency override | Current upstream already pins the pre family and defines coherent Fast feature propagation |
 | Floating Surface renderer extension | Removed by product decision together with the application glass renderer. Native Kit fills, borders, shadows, animation and focus behavior remain authoritative. Interaction and geometry tests observe native surfaces directly |
+| Selected Tab color substitutions | Restored the pinned upstream Tab and indicator colors. Existing upstream `tab_active_foreground` uses remain unchanged |
+| Checkbox and Radio primary-button color substitutions | Restored upstream `primary` and `primary_foreground`. Button already uses upstream's independent button tokens and was not changed |
+| Checked Switch primary-button fallback | Restored upstream `primary` as the fallback. The optional `switch.checked.background` key and explicit control override remain for installed theme compatibility |
+| Shared `surface_radius` and opaque popover outlines | Restored upstream surface-specific radii and the `foreground.alpha(0.1)` popover ring |
+| Compact notification card composition | Restored upstream card spacing, title weight, absolute icons and hover close affordance. Content width, viewport confinement, insets and deferred priority remain |
+| List and Command search-header vertical insets | Restored upstream input height and divider geometry |
+| `List::search_divider` and Select search-header separation | Restored upstream search dividers and List padding |
+| `PopupMenuLayout` and Select row insets/gaps | Removed application-wide presentation geometry; restored upstream menu rows, item radii and Select spacing. Clickable-row traversal remains |
+| Segmented outer-inset override | Restored upstream TabBar padding; opt-in equal-width sizing remains |
+| Intrinsic DialogClose and DialogAction wrappers | Restored upstream full-size footer wrappers. Child controls retain their native sizing and activation |
+| Candlestick `chart_grid` color substitution | Restored upstream `border` grid color locally. Grid columns, value labels, plot gutter and hover opt-ins remain; shared PointAxes styling is unchanged |
 
 The previous standalone lockfile described the old snapshot. Product builds use
 the root Cargo.lock; standalone test resolution must be refreshed for this source.

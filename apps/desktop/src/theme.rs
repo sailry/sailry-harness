@@ -135,7 +135,6 @@ pub fn send_button(button: Button, disabled: bool, active: bool, cx: &App) -> Bu
 
 pub fn init(cx: &mut App) {
     crate::content::init(cx);
-    crate::ui::overlays::init(cx);
     let selection = crate::preferences::data(cx).appearance;
     cx.set_global(SystemAppearance(selection.mode == Mode::System));
     let mode = {
@@ -271,6 +270,23 @@ mod tests {
     use super::*;
     use gpui_kit::{TestAppContext, component::ThemeMode, gpui};
 
+    fn contrast(first: Hsla, second: Hsla) -> f32 {
+        let luminance = |color: Hsla| {
+            let color = color.to_rgb();
+            let linear = |channel: f32| {
+                if channel <= 0.04045 {
+                    channel / 12.92
+                } else {
+                    ((channel + 0.055) / 1.055).powf(2.4)
+                }
+            };
+            0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b)
+        };
+        let first = luminance(first);
+        let second = luminance(second);
+        (first.max(second) + 0.05) / (first.min(second) + 0.05)
+    }
+
     #[gpui::test]
     fn reviews_keep_default_contrast(cx: &mut TestAppContext) {
         cx.update(|cx| {
@@ -357,22 +373,6 @@ mod tests {
 
     #[gpui::test]
     fn switch_thumb_contrast(cx: &mut TestAppContext) {
-        let contrast = |first: Hsla, second: Hsla| {
-            let luminance = |color: Hsla| {
-                let color = color.to_rgb();
-                let linear = |channel: f32| {
-                    if channel <= 0.04045 {
-                        channel / 12.92
-                    } else {
-                        ((channel + 0.055) / 1.055).powf(2.4)
-                    }
-                };
-                0.2126 * linear(color.r) + 0.7152 * linear(color.g) + 0.0722 * linear(color.b)
-            };
-            let first = luminance(first);
-            let second = luminance(second);
-            (first.max(second) + 0.05) / (first.min(second) + 0.05)
-        };
         cx.update(|cx| {
             gpui_kit::init(cx);
             init(cx);
@@ -416,10 +416,56 @@ mod tests {
                 let thumb = theme.switch_thumb;
                 assert_eq!(theme.switch_thumb.a, 1.);
                 for (opacity, minimum) in [(1., 3.), (0.5, 1.5)] {
-                    let rendered = surface.blend(theme.button_primary.opacity(opacity));
+                    let rendered = surface.blend(theme.switch_checked.opacity(opacity));
                     assert!(contrast(thumb, rendered) >= minimum);
                     let inactive = surface.blend(theme.switch.opacity(opacity)).to_rgb().r;
                     assert!((thumb.to_rgb().r - inactive).abs() > 0.1 * opacity);
+                }
+            }
+        });
+    }
+
+    #[gpui::test]
+    fn primary_contrast(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init(cx);
+            let builtin = cx.global::<Catalog>().packages[0].clone();
+            let mut packages = vec![builtin.clone()];
+            for source in [
+                include_str!("../../../themes/great-sage/theme.json"),
+                include_str!("../../../themes/ink-dragon/theme.json"),
+                include_str!("../../../themes/holographic-rhythm/theme.json"),
+            ] {
+                let manifest: package::Manifest = serde_json::from_str(source).unwrap();
+                let mut package = builtin.clone();
+                package.id = manifest.id;
+                package.light = Rc::new(manifest.light.theme);
+                package.dark = Rc::new(manifest.dark.theme);
+                packages.push(package);
+            }
+            for package in packages {
+                apply_colors(package.clone(), None, cx);
+                for mode in [ThemeMode::Light, ThemeMode::Dark] {
+                    Theme::change(mode, None, cx);
+                    let theme = cx.theme();
+                    let surface = theme.background.blend(theme.group_box);
+                    let selected = surface.blend(theme.primary);
+                    let text = contrast(selected, selected.blend(theme.primary_foreground));
+                    let selected_surface = contrast(selected, surface);
+                    let checked = surface.blend(theme.switch_checked);
+                    let thumb = contrast(checked, checked.blend(theme.switch_thumb));
+                    assert!(text >= 4.5, "{} {mode:?}: primary text {text}", package.id);
+                    if package.id == "builtin" {
+                        assert!(
+                            selected_surface >= 3.,
+                            "{mode:?}: selected surface {selected_surface}"
+                        );
+                    }
+                    eprintln!(
+                        "theme control contrast: {} {mode:?}: primary text={text:.4}, selected surface={selected_surface:.4}, checked thumb={thumb:.4}",
+                        package.id
+                    );
                 }
             }
         });

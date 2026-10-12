@@ -554,7 +554,7 @@ pub struct ThemeConfigColors {
     /// Switch background color.
     #[serde(rename = "switch.background")]
     pub switch: Option<SharedString>,
-    /// Checked switch background, falling back to the primary button treatment.
+    /// Checked switch background, falling back to the primary color.
     #[serde(rename = "switch.checked.background")]
     pub switch_checked: Option<SharedString>,
     /// Switch thumb background color.
@@ -999,7 +999,7 @@ impl ThemeColor {
         apply_background_color!(slider_bar, fallback = tokens.primary);
         apply_background_color!(slider_thumb, fallback = self.primary_foreground);
         apply_background_color!(switch, fallback = tokens.secondary_active);
-        apply_background_color!(switch_checked, fallback = tokens.button_primary);
+        apply_background_color!(switch_checked, fallback = tokens.primary);
         apply_background_color!(switch_thumb, fallback = tokens.background);
         apply_background_color!(tab, fallback = tokens.background);
         apply_background_color!(tab_active, fallback = tokens.background);
@@ -1333,7 +1333,7 @@ mod tests {
 
         config.colors.switch_checked = None;
         theme.apply_config(&std::rc::Rc::new(config));
-        assert_eq!(theme.tokens.switch_checked, theme.tokens.button_primary);
+        assert_eq!(theme.tokens.switch_checked, theme.tokens.primary);
     }
 
     #[test]

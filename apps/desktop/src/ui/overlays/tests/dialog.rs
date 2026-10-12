@@ -120,7 +120,7 @@ fn finish_close(cx: &mut VisualTestContext, trigger: &FocusHandle) {
 }
 
 #[gpui::test]
-fn footer_actions_keep_intrinsic_widths(cx: &mut TestAppContext) {
+fn footer_actions_share_available_space(cx: &mut TestAppContext) {
     setup(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     for alert in [false, true] {
@@ -143,11 +143,16 @@ fn footer_actions_keep_intrinsic_widths(cx: &mut TestAppContext) {
         let cancel = visual.debug_bounds("overlay-dialog-cancel").unwrap();
         let confirm = visual.debug_bounds("overlay-dialog-confirm").unwrap();
         assert_eq!(cancel.center().y, confirm.center().y);
-        assert_eq!(confirm.right(), footer.right());
-        assert!(cancel.left() > footer.left());
+        assert_eq!(cancel.left(), footer.left());
+        // Upstream full-size wrappers share the footer; Button children keep their sizing.
+        assert_eq!(
+            confirm.left(),
+            footer.left() + (footer.size.width + px(8.)) / 2.
+        );
         assert!(cancel.right() < confirm.left());
-        assert!(cancel.size.width < footer.size.width / 2.);
-        assert!(confirm.size.width < footer.size.width / 2.);
+        let slot = (footer.size.width - px(8.)) / 2.;
+        assert!(cancel.size.width <= slot);
+        assert!(confirm.size.width <= slot);
         visual.simulate_click(cancel.center(), Modifiers::default());
         finish_close(visual, &trigger);
         assert_eq!(accepted.get(), 0);
@@ -164,7 +169,7 @@ fn footer_actions_keep_intrinsic_widths(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn default_surface_radius(cx: &mut TestAppContext) {
-    for (radius, expected) in [(8., 16.), (12., 24.), (0., 0.)] {
+    for radius in [8., 12., 0.] {
         setup(cx);
         cx.update(|cx| Theme::global_mut(cx).radius_lg = px(radius));
         let (_, visual) = cx.add_window_view(|window, cx| {
@@ -179,7 +184,7 @@ fn default_surface_radius(cx: &mut TestAppContext) {
         let trigger = open(visual);
         let quad = panel(visual, "dialog-0");
         let scale = visual.update(|window, _| window.scale_factor());
-        assert_eq!(quad.corner_radii, Corners::all(px(expected)).scale(scale));
+        assert_eq!(quad.corner_radii, Corners::all(px(radius)).scale(scale));
         visual.simulate_keystrokes("escape");
         finish_close(visual, &trigger);
         visual.update(|window, _| window.remove_window());

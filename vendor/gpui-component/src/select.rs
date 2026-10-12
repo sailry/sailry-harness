@@ -15,10 +15,10 @@ use crate::{
     h_flex,
     input::{clear_button, input_style},
     list::List,
-    menu::PopupMenuLayout,
     searchable_list::{
         SearchableListChange, SearchableListDelegate, SearchableListItem, SearchableListState,
     },
+    sizing::DROPDOWN_LIST_PADDING,
     v_flex,
 };
 use gpui_base::{GlobalState, Select as BaseSelect};
@@ -518,31 +518,10 @@ where
         let outline_visible = self.state.open || (is_focused && !self.state.disabled);
 
         let (bg, fg) = input_style(self.state.disabled, cx);
-        let menu_layout = cx.try_global::<PopupMenuLayout>().copied();
-        let has_rows = {
-            let delegate = &self.state.list.read(cx).delegate().delegate;
-            (0..delegate.sections_count(cx).max(1)).any(|section| delegate.items_count(section) > 0)
-        };
-        let mut menu_paddings = menu_layout.map_or(Edges::all(px(4.)), |layout| {
-            let mut paddings = Edges::all(layout.padding);
-            // Every virtual row includes its trailing gap; keep the last row
-            // the same distance from the surface as the first row. Empty states
-            // have no row gap to contribute to the bottom inset.
-            if has_rows {
-                paddings.bottom = (layout.padding - layout.item_gap).max(px(0.));
-            }
-            paddings
-        });
-        if searchable {
-            // The List search header supplies its own top inset; do not stack
-            // the popup's outer padding above the native search input.
-            menu_paddings.top = px(0.);
-        }
 
         self.state.list.update(cx, |list, cx| {
             list.set_searchable(searchable, cx);
             list.delegate_mut().size = self.state.size;
-            list.delegate_mut().menu_layout = menu_layout;
         });
 
         div().size_full().relative().child(
@@ -641,10 +620,8 @@ where
                                     Length::Definite(w) => this.w(w),
                                 })
                                 .popover_style(cx)
-                                .paddings(menu_paddings)
                                 .child(
                                     List::new(&self.state.list)
-                                        .search_divider(false)
                                         .when_some(
                                             self.state.search_placeholder.clone(),
                                             |this, placeholder| {
@@ -653,7 +630,7 @@ where
                                         )
                                         .with_size(self.state.size)
                                         .max_h(self.state.menu_max_h)
-                                        .p_0(),
+                                        .paddings(Edges::all(DROPDOWN_LIST_PADDING)),
                                 )
                                 .on_mouse_down_out(cx.listener(|this, _, window, cx| {
                                     this.escape(&Cancel, window, cx);

@@ -100,21 +100,16 @@ fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx
             .footer(
                 DialogFooter::new()
                     .w_full()
-                    .child(
-                        h_flex()
-                            .flex_none()
-                            // DialogClose fills its parent; constrain it to its trigger's width.
-                            .child(DialogClose::new().trigger(|button| {
-                                button
-                                    .label(tr(if importing {
-                                        "settings_cancel"
-                                    } else {
-                                        "close"
-                                    }))
-                                    .disabled(busy)
-                                    .debug_selector(|| "theme-import-cancel".into())
-                            })),
-                    )
+                    .child(DialogClose::new().trigger(|button| {
+                        button
+                            .label(tr(if importing {
+                                "settings_cancel"
+                            } else {
+                                "close"
+                            }))
+                            .disabled(busy)
+                            .debug_selector(|| "theme-import-cancel".into())
+                    }))
                     .when(importing, |footer| {
                         footer.child(
                             Button::new("theme-import-confirm")

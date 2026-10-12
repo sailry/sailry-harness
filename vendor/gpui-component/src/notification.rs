@@ -408,7 +408,7 @@ impl Render for Notification {
         let action = self
             .action_builder
             .clone()
-            .map(|builder| builder(self, window, cx).small());
+            .map(|builder| builder(self, window, cx).small().mr_3p5());
 
         let transition_status = self.transition_status;
         let closing = transition_status == ToastTransitionStatus::Ending;
@@ -416,7 +416,7 @@ impl Render for Notification {
             None => self.icon.clone(),
             Some(type_) => Some(type_.icon(cx)),
         };
-        let has_title = self.title.is_some();
+        let has_icon = icon.is_some();
         let placement = self.placement.unwrap_or(cx.theme().notification.placement);
 
         let content_width = cx.theme().notification.content_width;
@@ -429,23 +429,19 @@ impl Render for Notification {
             .border_1()
             .border_color(cx.theme().border)
             .bg(cx.theme().tokens.popover)
-            .text_color(cx.theme().popover_foreground)
-            .text_sm()
-            .rounded(cx.theme().surface_radius())
-            .p_3()
-            .gap_2()
-            .items_start()
+            .rounded(cx.theme().radius_lg)
+            .py_3p5()
+            .px_4()
+            .gap_3()
             .refine_style(&self.style)
             .when_some(icon, |this, icon| {
                 this.child(
                     div()
                         .debug_selector(|| "notification-icon".into())
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .size_5()
-                        .flex_shrink_0()
-                        .child(icon.small()),
+                        .absolute()
+                        .top(px(18.))
+                        .left_4()
+                        .child(icon),
                 )
             })
             .child(
@@ -453,13 +449,13 @@ impl Render for Notification {
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
-                    .gap_0p5()
+                    .when(has_icon, |this| this.pl_6())
                     .when_some(self.title.clone(), |this, title| {
                         this.child(
                             div()
                                 .debug_selector(|| "notification-title".into())
                                 .text_sm()
-                                .font_medium()
+                                .font_semibold()
                                 .child(title),
                         )
                     })
@@ -468,29 +464,25 @@ impl Render for Notification {
                             div()
                                 .debug_selector(|| "notification-message".into())
                                 .text_sm()
-                                .when(has_title, |this| {
-                                    this.text_color(cx.theme().muted_foreground)
-                                })
                                 .child(message),
                         )
                     })
                     .when_some(content, |this, content| this.child(content)),
             )
+            .when_some(action, |this, action| this.child(action))
             .child(
                 div()
-                    .h_flex()
-                    .flex_shrink_0()
-                    .items_center()
-                    .self_center()
-                    .gap_1()
-                    .when_some(action, |this, action| this.child(action))
+                    .absolute()
+                    .top_1()
+                    .right_1()
+                    .invisible()
+                    .group_hover("", |this| this.visible())
                     .child(
                         Button::new("close")
                             .debug_selector(|| "notification-close".into())
                             .icon(IconName::Close)
                             .ghost()
                             .xsmall()
-                            .text_color(cx.theme().muted_foreground)
                             .on_click(cx.listener(|this, _, window, cx| {
                                 cx.stop_propagation();
                                 this.dismiss(window, cx);
@@ -500,11 +492,12 @@ impl Render for Notification {
         let toast = BaseToast::new("notification")
             .transition_status(transition_status)
             .h_flex()
+            .group("")
             .occlude()
             .relative()
             .w_full()
             .when(content_width, |toast| toast.w_auto().max_w_full())
-            .rounded(cx.theme().surface_radius())
+            .rounded(cx.theme().radius_lg)
             .shadow(toast_shadow(1.))
             .child(card)
             .when_some(self.on_click.clone(), |this, on_click| {

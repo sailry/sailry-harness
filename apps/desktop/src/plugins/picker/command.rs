@@ -71,7 +71,7 @@ pub(super) fn popup(
                         .text_color(cx.theme().foreground)
                         .border_1()
                         .border_color(cx.theme().border)
-                        .rounded(cx.theme().surface_radius())
+                        .rounded(cx.theme().radius_lg)
                         .shadow_xl()
                         .child(command),
                 ),

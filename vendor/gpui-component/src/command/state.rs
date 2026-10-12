@@ -946,7 +946,6 @@ impl Render for CommandState {
                         .debug_selector(|| "command-search".into())
                         .flex_none()
                         .px_3()
-                        .py_1p5()
                         .border_b_1()
                         .border_color(cx.theme().border)
                         .child(

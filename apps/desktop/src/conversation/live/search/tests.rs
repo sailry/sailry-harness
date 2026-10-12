@@ -96,7 +96,7 @@ fn searched(view: &Entity<View>, cx: &mut VisualTestContext, count: usize) {
     });
 }
 
-fn divider(visual: &mut VisualTestContext, visible: bool) {
+fn divider(visual: &mut VisualTestContext) {
     visual.update(|window, cx| window.draw(cx).clear(cx));
     let bounds = visual.debug_bounds("list-search").unwrap();
     visual.update(|window, _| {
@@ -107,11 +107,7 @@ fn divider(visual: &mut VisualTestContext, visible: bool) {
             .filter(|quad| quad.bounds == bounds)
             .map(|quad| quad.border_widths.bottom)
             .collect();
-        if visible {
-            assert!(borders.iter().any(|width| *width > Default::default()));
-        } else {
-            assert!(borders.iter().all(|width| *width == Default::default()));
-        }
+        assert!(borders.iter().any(|width| *width > Default::default()));
     });
 }
 
@@ -154,13 +150,13 @@ fn finds_old_turns(cx: &mut TestAppContext) {
         wait(visual, |cx| view.read(cx).search.read(cx).open);
         let collapsed = visual.debug_bounds("live-search-panel").unwrap();
         assert!(collapsed.size.height < px(50.));
-        divider(visual, false);
+        divider(visual);
         assert!(visual.debug_bounds("live-search-case").is_none());
         assert!(visual.debug_bounds("live-search-refresh").is_none());
         assert!(visual.debug_bounds("live-search-close").is_none());
         visual.simulate_input("äbc 中文 🙂 literal .*");
         searched(&view, visual, 1);
-        divider(visual, true);
+        divider(visual);
         assert_eq!(
             visual.debug_bounds("live-history-viewport").unwrap(),
             viewport
@@ -187,18 +183,18 @@ fn finds_old_turns(cx: &mut TestAppContext) {
         );
         lifecycle::query(&view, visual, "No matching text");
         searched(&view, visual, 0);
-        divider(visual, true);
+        divider(visual);
         assert_eq!(
             visual
                 .debug_bounds("live-search-panel")
                 .unwrap()
                 .size
                 .height,
-            collapsed.size.height + px(1.)
+            collapsed.size.height
         );
         lifecycle::query(&view, visual, "");
         searched(&view, visual, 0);
-        divider(visual, false);
+        divider(visual);
         assert_eq!(
             visual
                 .debug_bounds("live-search-panel")

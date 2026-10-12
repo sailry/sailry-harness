@@ -1,12 +1,8 @@
-use gpui::{
-    AnyElement, App, Context, IntoElement, ParentElement as _, Styled as _, Window, div,
-    prelude::FluentBuilder as _,
-};
+use gpui::{AnyElement, App, Context, IntoElement, ParentElement as _, Styled as _, Window, div};
 
 use crate::{
     ActiveTheme, Disableable as _, Icon, IconName, IndexPath, Sizable as _, Size, StyleSized as _,
     list::{ListDelegate, ListState},
-    menu::PopupMenuLayout,
 };
 
 use super::{
@@ -35,7 +31,6 @@ pub(crate) struct SearchableListAdapter<D: SearchableListDelegate + 'static> {
     /// Renders the empty-state placeholder.
     on_render_empty: Box<dyn Fn(&mut Window, &mut App) -> AnyElement + 'static>,
     pub(crate) size: Size,
-    pub(crate) menu_layout: Option<PopupMenuLayout>,
     /// Override the trailing check icon; defaults to `IconName::Check`.
     pub(crate) check_icon: Option<Icon>,
 }
@@ -56,7 +51,6 @@ impl<D: SearchableListDelegate + 'static> SearchableListAdapter<D> {
             on_cancel: Box::new(on_cancel),
             on_render_empty: Box::new(on_render_empty),
             size: Size::default(),
-            menu_layout: None,
             check_icon: None,
         }
     }
@@ -119,16 +113,15 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
             .delegate
             .is_item_checked(ix, item, &self.selection_snapshot, cx);
         let disabled = !self.delegate.is_item_enabled(ix, item, cx);
-        let row = SearchableListItemElement::new(ix.row)
-            .disabled(disabled)
-            .with_size(self.size)
-            .when_some(self.menu_layout, |row, layout| {
-                row.rounded(layout.item_radius(cx.theme()))
-                    .mb(layout.item_gap)
-            });
+        let size = self.size;
 
         if let Some(el) = self.delegate.render_item(ix, item, is_checked, window, cx) {
-            return Some(row.child(el));
+            return Some(
+                SearchableListItemElement::new(ix.row)
+                    .disabled(disabled)
+                    .with_size(size)
+                    .child(el),
+            );
         }
 
         let check_icon = self
@@ -142,8 +135,11 @@ impl<D: SearchableListDelegate + 'static> ListDelegate for SearchableListAdapter
             .child(item.render(window, cx).into_any_element());
 
         Some(
-            row.checked(is_checked)
+            SearchableListItemElement::new(ix.row)
+                .checked(is_checked)
                 .check_icon(check_icon)
+                .disabled(disabled)
+                .with_size(size)
                 .child(content.into_any_element()),
         )
     }

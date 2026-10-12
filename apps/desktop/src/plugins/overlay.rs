@@ -71,7 +71,7 @@ fn form_popup(
         .bg(cx.theme().tokens.background)
         .border_1()
         .border_color(cx.theme().border)
-        .rounded(cx.theme().surface_radius())
+        .rounded(cx.theme().radius_lg)
         .shadow_xl()
         .child(
             div()

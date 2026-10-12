@@ -43,10 +43,11 @@ fn actions(visual: &mut VisualTestContext) -> [Bounds<Pixels>; 2] {
         .map(|selector| visual.debug_bounds(selector).unwrap());
     let [cancel, confirm] = buttons;
     let dialog = visual.debug_bounds("dialog-0").unwrap();
+    let content = visual.debug_bounds("theme-preview-details").unwrap();
     assert!(cancel.size.width > px(0.));
     assert!(confirm.size.width > px(0.));
-    assert!(cancel.size.width <= confirm.size.width);
-    assert!(cancel.left() - dialog.left() > dialog.right() - confirm.right());
+    assert_eq!(cancel.left(), content.left());
+    assert_eq!(confirm.right(), content.right());
     assert!(cancel.right() < confirm.left());
     assert_eq!(cancel.top(), confirm.top());
     assert_eq!(cancel.size.height, confirm.size.height);
@@ -63,7 +64,7 @@ fn arranges_details_responsively(cx: &mut TestAppContext) {
     let source = theme::fixture::write(directory.path(), "tide");
     let visual = mount(cx, directory.path());
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
-        let mut action_widths = None;
+        let mut action_widths: Option<([Pixels; 2], Pixels)> = None;
         for width in [420., 960.] {
             let handle = visual.update(|window, cx| {
                 Theme::change(mode, Some(window), cx);
@@ -121,10 +122,16 @@ fn arranges_details_responsively(cx: &mut TestAppContext) {
                 );
             }
             let widths = actions(visual).map(|button| button.size.width);
-            if let Some(previous) = action_widths {
-                assert_eq!(widths, previous);
+            let content_width = visual
+                .debug_bounds("theme-preview-details")
+                .unwrap()
+                .size
+                .width;
+            if let Some((previous, previous_content)) = action_widths {
+                assert_eq!(widths[1], previous[1]);
+                assert_eq!(widths[0] - previous[0], content_width - previous_content);
             }
-            action_widths = Some(widths);
+            action_widths = Some((widths, content_width));
             click(visual, "theme-import-cancel");
             assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
             assert_eq!(

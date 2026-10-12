@@ -51,7 +51,7 @@ fn dispatches_selected_resource(cx: &mut TestAppContext) {
     let full = visual.debug_bounds("connection-picker").unwrap();
     assert_eq!(
         visual.debug_bounds("command-search").unwrap().size.height,
-        px(45.)
+        visual.update(|window, _| window.rem_size() * 2. + px(1.))
     );
     let connection = visual.debug_bounds("connection-choice-0").unwrap();
     let add = visual.debug_bounds("connection-add").unwrap();

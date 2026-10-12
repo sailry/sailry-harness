@@ -9,11 +9,10 @@ struct Sample {
 
 impl Render for Sample {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().w(px(160.)).child(crate::TextSelectionLayer).child(
-            crate::TextView::new(&self.text)
-                .style(TextViewStyle::default().with_inline_code_inset(px(4.), px(3.)))
-                .selectable(true),
-        )
+        div()
+            .w(px(160.))
+            .child(crate::TextSelectionLayer)
+            .child(crate::TextView::new(&self.text).selectable(true))
     }
 }
 
@@ -33,15 +32,7 @@ fn code_backgrounds_leave_leading_between_wrapped_lines(cx: &mut TestAppContext)
                 text: text.into(),
                 links: vec![],
             }];
-            let layout = layout_styled_flow(
-                &items,
-                &[None],
-                &text_style,
-                Some(px(80.)),
-                &TextViewStyle::default().with_inline_code_inset(px(6.), px(4.)),
-                window,
-                app,
-            );
+            let layout = layout_flow(&items, &[None], &text_style, Some(px(80.)), window, app);
             let fragments: Vec<_> = layout
                 .fragments
                 .iter()
@@ -70,8 +61,9 @@ fn multi_click_spans_visual_fragments(cx: &mut TestAppContext) {
     cx.update(crate::init);
     let word = "abcdefghijklmnopqrstuvwxyz".repeat(3);
     let source = format!("{word} second word");
+    let markdown = format!("`{word}` second word");
     let (view, cx) = cx.add_window_view(|_, cx| Sample {
-        text: cx.new(|cx| crate::TextViewState::markdown(&source, cx)),
+        text: cx.new(|cx| crate::TextViewState::markdown(&markdown, cx)),
     });
     let cx: &mut VisualTestContext = cx;
     cx.run_until_parked();
@@ -105,8 +97,9 @@ fn multi_click_spans_visual_fragments(cx: &mut TestAppContext) {
 fn drag_copies_contiguous_source(cx: &mut TestAppContext) {
     cx.update(crate::init);
     let source = "abcdefghijklmnopqrstuvwxyz".repeat(3);
+    let markdown = format!("`{source}`");
     let (view, cx) = cx.add_window_view(|_, cx| Sample {
-        text: cx.new(|cx| crate::TextViewState::markdown(&source, cx)),
+        text: cx.new(|cx| crate::TextViewState::markdown(&markdown, cx)),
     });
     let cx: &mut VisualTestContext = cx;
     cx.run_until_parked();
@@ -114,7 +107,7 @@ fn drag_copies_contiguous_source(cx: &mut TestAppContext) {
         window.draw(cx).clear(cx);
     });
     cx.simulate_mouse_down(
-        point(px(2.), px(8.)),
+        point(px(6.), px(8.)),
         gpui::MouseButton::Left,
         Default::default(),
     );
@@ -155,15 +148,7 @@ fn preserves_alignment(cx: &mut TestAppContext) {
         }];
         let mut text_style = window.text_style();
         text_style.text_align = gpui::TextAlign::Right;
-        let layout = layout_styled_flow(
-            &items,
-            &[None],
-            &text_style,
-            Some(px(160.)),
-            &TextViewStyle::default(),
-            window,
-            app,
-        );
+        let layout = layout_flow(&items, &[None], &text_style, Some(px(160.)), window, app);
         let PositionedFragment::Text { origin, size, .. } = &layout.fragments[0] else {
             panic!("text fragment")
         };
@@ -172,7 +157,7 @@ fn preserves_alignment(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn code_insets_preserve_source_and_fit_wrapped_lines(cx: &mut TestAppContext) {
+fn code_padding_preserves_source_and_wraps(cx: &mut TestAppContext) {
     cx.update(crate::init);
     let (_, cx) = cx.add_window_view(|_, cx| Sample {
         text: cx.new(|cx| crate::TextViewState::markdown("sample", cx)),
@@ -185,13 +170,11 @@ fn code_insets_preserve_source_and_fit_wrapped_lines(cx: &mut TestAppContext) {
             links: vec![],
             highlights: code_highlights(7..end),
         }];
-        let style = TextViewStyle::default().with_inline_code_inset(px(4.), px(3.));
-        let layout = layout_styled_flow(
+        let layout = layout_flow(
             &items,
             &[None],
             &window.text_style(),
             Some(px(100.)),
-            &style,
             window,
             app,
         );

@@ -1,10 +1,7 @@
 use crate::tr;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    component::{
-        menu::{PopupMenuItem, PopupMenuLayout},
-        *,
-    },
+    component::{menu::PopupMenuItem, *},
     *,
 };
 
@@ -15,7 +12,6 @@ pub(super) fn item(
     selected: bool,
 ) -> PopupMenuItem {
     PopupMenuItem::element(move |_, cx| {
-        let layout = cx.global::<PopupMenuLayout>();
         h_flex()
             .id(label)
             .aria_label(format!("{}: {}", tr(label), tr(description)))
@@ -24,11 +20,7 @@ pub(super) fn item(
             .max_w_96()
             .min_w_0()
             .whitespace_normal()
-            .mx(-layout.row_padding.width)
-            .my(-layout.row_padding.height)
-            .px(layout.row_padding.width)
-            .py(layout.row_padding.height)
-            .rounded(layout.item_radius(cx.theme()))
+            .rounded(cx.theme().radius.min(px(8.)))
             .aria_selected(selected)
             .when(selected, |row| row.bg(cx.theme().secondary_active))
             .gap_2()

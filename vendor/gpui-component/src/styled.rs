@@ -17,9 +17,24 @@ const FOCUS_LINE_GAP: f32 = 0.125;
 /// shadcn/ui spends at each elevation.
 const SURFACE_SHADOW_INK: f32 = 0.1;
 
-/// Popup outlines share the active theme's border token with other surfaces.
+/// Ink of the hairline ring standing in for a popover's border.
+///
+/// shadcn/ui draws no border on a popup surface at all: its edge is a 1px
+/// `rgb(0 0 0 / 0.1)` ring spent as a shadow layer. Because the ring is
+/// translucent the shadow shows *through* it, which is what makes the edge read
+/// as part of one grounded surface rather than as an outline with a separate
+/// shadow below it. An opaque border cannot reproduce that — a border composites
+/// over the element's own background, not over the shadow.
+const POPOVER_RING_INK: f32 = 0.1;
+
+/// The colour of a popup surface's hairline ring in this theme.
+///
+/// shadcn spends black on it in light mode and white in dark
+/// (`oklch(1 0 0 / 10%)`), so it follows the foreground rather than the border
+/// token: a fixed black ring would all but vanish on a dark surface.
+///
 pub(crate) fn popover_ring(cx: &App) -> Hsla {
-    cx.theme().border
+    cx.theme().foreground.alpha(POPOVER_RING_INK)
 }
 
 /// shadcn/ui's popup surface shadow — a hairline `ring` plus `shadow-md` — at
@@ -175,7 +190,7 @@ impl<T: Styled + Sized> ThemeStyled for T {
         self.bg(theme.popover)
             .text_color(theme.popover_foreground)
             .shadow(popover_shadow(popover_ring(cx), 1.))
-            .rounded(theme.surface_radius())
+            .rounded(theme.radius)
     }
 }
 

@@ -48,7 +48,6 @@ struct ListOptions {
     size: Size,
     scrollbar_visible: bool,
     search_placeholder: Option<SharedString>,
-    search_divider: bool,
     max_height: Option<Length>,
     paddings: EdgesRefinement<DefiniteLength>,
 }
@@ -60,7 +59,6 @@ impl Default for ListOptions {
             scrollbar_visible: true,
             max_height: None,
             search_placeholder: None,
-            search_divider: true,
             paddings: EdgesRefinement::default(),
         }
     }
@@ -678,12 +676,11 @@ where
                     div()
                         .debug_selector(|| "list-search".into())
                         .flex_shrink_0()
-                        .py_1p5()
                         .map(|this| match self.options.size {
                             Size::Small => this.px_1p5(),
                             _ => this.px_2(),
                         })
-                        .when(self.options.search_divider, |this| this.border_b_1())
+                        .border_b_1()
                         .border_color(cx.theme().border)
                         .child(
                             Input::new(&input)
@@ -752,12 +749,6 @@ where
     /// Sets the placeholder text for the search input.
     pub fn search_placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
         self.options.search_placeholder = Some(placeholder.into());
-        self
-    }
-
-    /// Show the separator below the native search input. Defaults to true.
-    pub fn search_divider(mut self, visible: bool) -> Self {
-        self.options.search_divider = visible;
         self
     }
 }

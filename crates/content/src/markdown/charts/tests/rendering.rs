@@ -33,12 +33,17 @@ fn painted(cx: &mut VisualTestContext, color: Hsla) -> bool {
     })
 }
 
-fn grid_bounds(cx: &mut VisualTestContext) -> Vec<Bounds<Pixels>> {
+fn grid_bounds(cx: &mut VisualTestContext, candlestick: bool) -> Vec<Bounds<Pixels>> {
     cx.update(|window, cx| {
+        let color = if candlestick {
+            cx.theme().border
+        } else {
+            cx.theme().chart_grid
+        };
         window
             .painted_quads()
             .into_iter()
-            .filter(|quad| quad.background == cx.theme().chart_grid.into())
+            .filter(|quad| quad.background == color.into())
             .map(|quad| {
                 quad.bounds
                     .map(|pixel| px(pixel.as_f32() / window.scale_factor()))
@@ -92,7 +97,7 @@ fn cartesian_axes_follow_theme_and_width(cx: &mut TestAppContext) {
                 let frame = visual.debug_bounds("markdown-chart-frame-0").unwrap();
                 assert_eq!(frame.size.width, px(width - 16.));
                 assert_eq!(frame.size.height, px(300.));
-                let grid = grid_bounds(visual);
+                let grid = grid_bounds(visual, kind == "candlestick");
                 let horizontal = grid
                     .iter()
                     .filter(|bounds| bounds.size.width > bounds.size.height)
@@ -163,11 +168,17 @@ fn cartesian_axes_follow_theme_and_width(cx: &mut TestAppContext) {
                 }
                 for color in [0x75429c, 0x8765a3] {
                     visual.update(|_, cx| {
-                        Theme::update(cx, |theme| theme.chart_grid = rgb(color).into())
+                        Theme::update(cx, |theme| {
+                            if kind == "candlestick" {
+                                theme.border = rgb(color).into();
+                            } else {
+                                theme.chart_grid = rgb(color).into();
+                            }
+                        })
                     });
                     draw(visual);
                     assert!(
-                        !grid_bounds(visual).is_empty(),
+                        !grid_bounds(visual, kind == "candlestick").is_empty(),
                         "{kind}: grid color did not follow the theme"
                     );
                 }
@@ -233,7 +244,7 @@ fn perpendicular_grids_support_each_bar_orientation(cx: &mut TestAppContext) {
             });
             draw(visual);
             draw(visual);
-            let grid = grid_bounds(visual);
+            let grid = grid_bounds(visual, false);
             let perpendicular = grid
                 .iter()
                 .filter(|bounds| {

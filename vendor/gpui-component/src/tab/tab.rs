@@ -241,14 +241,10 @@ impl TabVariant {
                 ..Default::default()
             },
             TabVariant::Segmented => TabStyle {
-                fg: if selected {
-                    cx.theme().tab_active_foreground
-                } else {
-                    cx.theme().foreground
-                },
+                fg: cx.theme().tab_active_foreground,
                 bg: cx.theme().transparent.into(),
                 inner_bg: if selected {
-                    cx.theme().tokens.tab_active.into()
+                    cx.theme().tokens.background.into()
                 } else {
                     cx.theme().transparent.into()
                 },
@@ -288,21 +284,21 @@ impl TabVariant {
                 ..Default::default()
             },
             TabVariant::Outline => TabStyle {
-                fg: cx.theme().tab_active_foreground,
+                fg: cx.theme().primary,
                 bg: cx.theme().transparent.into(),
                 borders: Edges::all(px(1.)),
-                border_color: cx.theme().tab_active_foreground,
+                border_color: cx.theme().primary,
                 ..Default::default()
             },
             TabVariant::Pill => TabStyle {
-                fg: cx.theme().tab_active_foreground,
-                bg: cx.theme().tokens.tab_active.into(),
+                fg: cx.theme().primary_foreground,
+                bg: cx.theme().tokens.primary.into(),
                 ..Default::default()
             },
             TabVariant::Segmented => TabStyle {
                 fg: cx.theme().tab_active_foreground,
                 bg: cx.theme().transparent.into(),
-                inner_bg: cx.theme().tokens.tab_active.into(),
+                inner_bg: cx.theme().tokens.background.into(),
                 shadow: true,
                 ..Default::default()
             },
@@ -313,7 +309,7 @@ impl TabVariant {
                     bottom: px(2.),
                     ..Default::default()
                 },
-                border_color: cx.theme().tab_active_foreground,
+                border_color: cx.theme().primary,
                 ..Default::default()
             },
             // The shape is painted by `folder_tab_shape`.
@@ -347,7 +343,7 @@ impl TabVariant {
                 bg: cx.theme().transparent.into(),
                 borders: Edges::all(px(1.)),
                 border_color: if selected {
-                    cx.theme().tab_active_foreground
+                    cx.theme().primary
                 } else {
                     cx.theme().border
                 },
@@ -355,12 +351,12 @@ impl TabVariant {
             },
             TabVariant::Pill => TabStyle {
                 fg: if selected {
-                    cx.theme().tab_active_foreground.opacity(0.5)
+                    cx.theme().primary_foreground.opacity(0.5)
                 } else {
                     cx.theme().muted_foreground
                 },
                 bg: if selected {
-                    cx.theme().tab_active.opacity(0.5).into()
+                    cx.theme().primary.opacity(0.5).into()
                 } else {
                     cx.theme().transparent.into()
                 },
@@ -370,7 +366,7 @@ impl TabVariant {
                 fg: cx.theme().muted_foreground,
                 bg: cx.theme().tokens.tab_bar.into(),
                 inner_bg: if selected {
-                    cx.theme().tokens.tab_active.into()
+                    cx.theme().tokens.background.into()
                 } else {
                     cx.theme().transparent.into()
                 },
@@ -844,8 +840,8 @@ impl RenderOnce for Tab {
                 selected_style.border_color
             };
 
-        // For Pill, the newly selected tab's text color (`tab_active_foreground`)
-        // would otherwise change instantly while the indicator is still
+        // For Pill, the newly selected tab's text color (`primary_foreground`)
+        // would otherwise snap to white instantly while the indicator is still
         // sliding into place. Fade it from the normal color in sync with the
         // indicator slide (keyed on the indicator epoch so it restarts on each
         // switch). `epoch == 0` is the initial layout (no slide), so we skip it.

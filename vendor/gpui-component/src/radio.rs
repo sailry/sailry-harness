@@ -193,7 +193,7 @@ impl RenderOnce for Radio {
             .or_else(|| self.label.as_ref().map(|label| label.get_text(cx)));
 
         let (border_color, bg) = if checked {
-            (cx.theme().button_primary, cx.theme().button_primary)
+            (cx.theme().primary, cx.theme().primary)
         } else {
             (cx.theme().input, cx.theme().input.opacity(0.5))
         };
@@ -245,7 +245,7 @@ impl RenderOnce for Radio {
                     .map(|this| match self.checked {
                         false => this.bg(cx.theme().input_background()),
                         true if disabled => this.bg(bg),
-                        true => this.bg(cx.theme().tokens.button_primary),
+                        true => this.bg(cx.theme().tokens.primary),
                     })
                     .child(checkbox_check_icon(
                         self.id, self.size, checked, disabled, window, cx,

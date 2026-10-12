@@ -28,8 +28,7 @@ impl Search {
         crate::command_picker::frame(
             dialog.min_h_0(),
             "live-search-panel",
-            crate::command_picker::list(&self.list, tr("chat_search_query"), window)
-                .search_divider(!self.list.read(cx).delegate().query.is_empty()),
+            crate::command_picker::list(&self.list, tr("chat_search_query"), window),
             window,
         )
         .on_close(cx.listener(|search, _, _, cx| search.dismiss(cx)))

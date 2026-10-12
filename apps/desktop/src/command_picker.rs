@@ -10,13 +10,12 @@ use gpui_kit::{
 
 pub(crate) const ROW_HEIGHT: f32 = 36.;
 pub(crate) const GROUP_HEIGHT: f32 = 28.;
-const SEARCH_HEIGHT: f32 = 45.;
 const EMPTY_HEIGHT: f32 = 48.;
 
 pub(crate) fn height(rows: usize, groups: usize, window: &Window) -> Pixels {
     px((rows as f32 * ROW_HEIGHT + groups as f32 * GROUP_HEIGHT + 16.).max(EMPTY_HEIGHT))
         .min(body_height(window))
-        + px(SEARCH_HEIGHT)
+        + search_height(window)
 }
 
 pub(crate) fn list<D: ListDelegate>(
@@ -64,7 +63,11 @@ pub(crate) fn dialog<D: ListDelegate>(
 }
 
 pub(crate) fn body_height(window: &Window) -> Pixels {
-    px(344.).min((window.viewport_size().height * 0.6 - px(45.)).max(px(32.)))
+    px(344.).min((window.viewport_size().height * 0.6 - search_height(window)).max(px(32.)))
+}
+
+fn search_height(window: &Window) -> Pixels {
+    window.rem_size() * 2. + px(1.)
 }
 
 pub(crate) fn width(window: &Window) -> Pixels {

@@ -20,10 +20,9 @@ API or preserve an approved Sailry presentation choice.
 | Change | Disposition and reason |
 | --- | --- |
 | Indexed shaped-glyph positions and wrap boundaries | Retained; preserves first-match lookup for repeated and non-monotonic glyph indices while avoiding paragraph rescans. Reusable upstream candidate |
-| InlineFlow source-edge code insets, radii and text alignment | Retained; upstream does not expose these settings. Original source text remains shared across visual fragments for selection and copying. Reusable upstream candidate |
+| InlineFlow text alignment and shared source/link geometry | Retained; the pinned upstream ignores text alignment. Source and hover-link handling preserve original text across visual fragments for selection, copying and pointer behavior. Reusable upstream candidates |
 | TextViewStyle hover-underline setting | Retained; optional public refinement preserves theme ownership. Reusable upstream candidate |
-| Table configurable code-inset measurement; nowrap header floors; ordinary body wrapping | Retained and rebased into upstream's measured column layout and cache. Code inset settings participate in cache identity. Reusable upstream candidate |
-| List, continuation-paragraph and adjacent bullet/task group spacing | Retained as Sailry presentation defaults. These defaults do not distinguish tight and loose lists through the upstream `spread` flag |
+| Table nowrap header floors and ordinary body wrapping | Retained and rebased into upstream's measured column layout and cache. Native code padding, header typography and custom-cell measurement remain authoritative. Reusable upstream candidate |
 | Document root identity | Retained; scopes the existing selectable text geometry and survives current upstream flow-position calculation |
 | Editor gutter-background override; hidden read-only caret and active row | Retained inside the native editor. Reusable upstream candidate |
 | Public clipboard and undo transaction operations | Retained for linked editing surfaces that share the existing input engine and history; no second history owner. Reusable upstream candidate |
@@ -39,9 +38,8 @@ API or preserve an approved Sailry presentation choice.
 | Public DropTarget constructor | Retained visibility-only change for native Dock interaction fixtures. Reusable upstream candidate |
 
 InlineFlow keeps upstream's new shaped-width correction for proportional fonts.
-Its measurements also include the retained source-edge decorations, so wrapping
-and painted widths use the same inputs. Upstream table header typography and
-custom-cell measurement remain authoritative.
+Native code padding participates in wrapping and painted width measurement.
+Upstream table header typography and custom-cell measurement remain authoritative.
 
 ## Retired patches
 
@@ -53,6 +51,8 @@ custom-cell measurement remain authoritative.
 | GPUI 0.3.7-to-0.3.8 dependency update | Current upstream already pins that pre family and supplies the selected Fast feature |
 | TextViewStyle break-all and link-icon options, measured link decorations and wrapping helpers | No product callers remain; wrapping follows the pinned upstream policy, and conversation link icons belong to the content crate |
 | TextViewDefaults style getter | No product caller uses it; the existing style setter and semantic theme configuration remain authoritative |
+| Configurable source-edge inline-code insets and radii | Product accepts upstream presentation: every native code fragment uses the upstream four-pixel padding and semantic small radius. Decoration-only wrapping helpers and cache fields were removed |
+| List, continuation-paragraph and adjacent bullet/task group spacing | Product accepts upstream spacing and the native tight/loose list distinction through `spread` |
 
 The old standalone lockfile described the previous source snapshot and is not
 carried into the refreshed package. Product dependency resolution is owned by the
@@ -60,6 +60,6 @@ root Cargo.lock. Standalone vendored test runs must use the selected development
 volume for their target and temporary files.
 
 The retained focused tests cover lookup parity, Unicode wrapping,
-selection and copied source, code insets, text alignment, Popover keyboard input,
+selection and copied source, native code padding, text alignment, Popover keyboard input,
 nested drag scrolling, link annotations and handled editor overlay keys. Keeping
 tests beside these patches does not establish application or platform acceptance.

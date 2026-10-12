@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gpui::{HighlightStyle, Hsla, Pixels, Rems, StyleRefinement, px, rems};
+use gpui::{HighlightStyle, Hsla, Rems, StyleRefinement, rems};
 
 use crate::ColorTokens;
 
@@ -25,8 +25,6 @@ pub struct TextViewStyle {
     table_head: StyleRefinement,
     table_cell: StyleRefinement,
     inline_code: HighlightStyle,
-    inline_code_inset: Pixels,
-    inline_code_radius: Pixels,
     /// The table body background, or the theme surface when `None`. Only
     /// [`Self::on_text_color`] sets it, to let a table on an inverted surface
     /// show that surface.
@@ -50,8 +48,6 @@ impl PartialEq for TextViewStyle {
             && self.table == other.table
             && self.table_head == other.table_head
             && self.table_cell == other.table_cell
-            && self.inline_code_inset == other.inline_code_inset
-            && self.inline_code_radius == other.inline_code_radius
             && self.inline_code == other.inline_code
             && self.table_background == other.table_background
             && self.is_dark == other.is_dark
@@ -102,8 +98,6 @@ impl TextViewStyle {
             table: StyleRefinement::default(),
             table_head: StyleRefinement::default(),
             table_cell: StyleRefinement::default(),
-            inline_code_inset: px(0.),
-            inline_code_radius: px(0.),
             inline_code: HighlightStyle {
                 background_color: Some(colors.accent),
                 ..Default::default()
@@ -177,20 +171,6 @@ impl TextViewStyle {
     pub fn with_code_block(mut self, style: StyleRefinement) -> Self {
         self.code_block = style;
         self
-    }
-
-    /// Adds measured inline-code insets without changing the source text.
-    pub fn with_inline_code_inset(mut self, inset: Pixels, radius: Pixels) -> Self {
-        self.inline_code_inset = inset.max(px(0.));
-        self.inline_code_radius = radius.max(px(0.));
-        self
-    }
-
-    pub fn inline_code_inset(&self) -> Pixels {
-        self.inline_code_inset
-    }
-    pub fn inline_code_radius(&self) -> Pixels {
-        self.inline_code_radius
     }
 
     /// Sets the highlight style for inline code spans.

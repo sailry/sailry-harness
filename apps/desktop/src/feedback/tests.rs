@@ -210,12 +210,13 @@ fn surface_interactions(cx: &mut TestAppContext) {
         }
     });
     settle(visual);
+    visual.update(|window, cx| window.hover("notice-action", cx));
     let card = visual.debug_bounds("notification-card").unwrap();
     let quad = crate::ui::overlays::tests::panel(visual, "notification-card");
     visual.update(|window, cx| {
         assert_eq!(
             quad.corner_radii,
-            Corners::all(cx.theme().surface_radius()).scale(window.scale_factor())
+            Corners::all(cx.theme().radius_lg).scale(window.scale_factor())
         );
         assert_eq!(quad.background.as_solid(), Some(cx.theme().popover));
     });
@@ -224,12 +225,14 @@ fn surface_interactions(cx: &mut TestAppContext) {
     let message = visual.debug_bounds("notification-message").unwrap();
     let close = visual.debug_bounds("notification-close").unwrap();
     let action = visual.debug_bounds("notice-action").unwrap();
-    assert_eq!(icon.left() - card.left(), px(13.));
-    assert_eq!(card.right() - close.right(), px(13.));
-    assert_eq!(title.top() - card.top(), px(13.));
+    assert_eq!(icon.left() - card.left(), px(17.));
+    assert_eq!(icon.top() - card.top(), px(19.));
+    assert_eq!(card.right() - close.right(), px(5.));
+    assert_eq!(close.top() - card.top(), px(5.));
+    assert_eq!(title.top() - card.top(), px(15.));
     assert_eq!(title.left() - icon.right(), px(8.));
-    assert_eq!(message.top() - title.bottom(), px(2.));
-    assert!(action.left() >= title.right() + px(8.));
+    assert_eq!(message.top(), title.bottom());
+    assert!(action.left() >= title.right() + px(12.));
     assert!(close.left() >= action.right() + px(4.));
 
     visual.update(|window, cx| {

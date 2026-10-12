@@ -4,6 +4,7 @@ use crate::conversation::live::tests::{
     wait,
 };
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{Permission, WorkMode, conversation::ApprovalSource};
 use serde_json::json;
 
@@ -102,26 +103,44 @@ fn session(view: &Entity<View>, cx: &mut VisualTestContext) -> Session {
     view.read_with(cx, |view, _| view.session.clone().unwrap())
 }
 
-fn menu_insets(cx: &mut VisualTestContext, first: &'static str, last: &'static str) {
+fn menu_insets(
+    cx: &mut VisualTestContext,
+    first: &'static str,
+    last: &'static str,
+    last_index: usize,
+) {
     let panel = cx.debug_bounds("popup-menu").unwrap();
     let quad = crate::ui::overlays::tests::panel(cx, "popup-menu");
-    let scale = cx.update(|window, _| window.scale_factor());
-    assert_eq!(quad.corner_radii, Corners::all(px(24.)).scale(scale));
+    let (scale, radius, inset, first_row, last_row) = cx.update(|window, cx| {
+        (
+            window.scale_factor(),
+            cx.theme().radius,
+            window.rem_size() * 0.25,
+            window.within("popup-menu").find(0usize).bounds(),
+            window.within("popup-menu").find(last_index).bounds(),
+        )
+    });
+    assert_eq!(quad.corner_radii, Corners::all(radius).scale(scale));
     let first = cx.debug_bounds(first).unwrap();
     let last = cx.debug_bounds(last).unwrap();
-    let inset = first.left() - panel.left();
-    assert_eq!(inset, px(8.));
+    assert_eq!(first.left() - first_row.left(), px(8.));
+    assert_eq!(last.left() - last_row.left(), px(8.));
     for edge in [
-        first.top() - panel.top(),
-        panel.right() - first.right(),
-        last.left() - panel.left(),
-        panel.right() - last.right(),
-        panel.bottom() - last.bottom(),
+        first_row.left() - panel.left(),
+        first_row.top() - panel.top(),
+        panel.right() - first_row.right(),
+        last_row.left() - panel.left(),
+        panel.right() - last_row.right(),
+        panel.bottom() - last_row.bottom(),
     ] {
         assert!(
             (f32::from(edge) - f32::from(inset)).abs() < 0.01,
             "menu inset {edge:?}, expected {inset:?}; panel {panel:?}, first {first:?}, last {last:?}"
         );
+    }
+    for (content, row) in [(first, first_row), (last, last_row)] {
+        assert_eq!(row.right() - content.right(), px(8.));
+        assert!((row.center().y - content.center().y).abs() < px(0.01));
     }
 }
 
@@ -147,6 +166,7 @@ fn preserves_queue_and_focus(cx: &mut TestAppContext) {
             visual,
             "composer_mode_code-option",
             "composer_mode_plan-option",
+            1,
         );
         visual.simulate_keystrokes("escape");
         visual.simulate_input(" retained");
@@ -165,6 +185,7 @@ fn preserves_queue_and_focus(cx: &mut TestAppContext) {
             visual,
             "composer_permission_ask-option",
             "composer_permission_full-option",
+            2,
         );
         tap(visual, "composer_permission_full-option");
         wait(visual, |cx| {

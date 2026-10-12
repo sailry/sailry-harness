@@ -275,14 +275,14 @@ impl TabBar {
                     div()
                         .w_full()
                         .h(inner_height)
-                        .bg(cx.theme().tokens.tab_active)
+                        .bg(cx.theme().tokens.background)
                         .rounded(inner_radius)
                         .shadow(raised_shadow()),
                 ),
                 TabVariant::Pill => el.flex().items_center().child(
                     div()
                         .size_full()
-                        .bg(cx.theme().tokens.tab_active)
+                        .bg(cx.theme().tokens.primary)
                         .rounded(cx.theme().radius_full()),
                 ),
                 TabVariant::Underline => el.child(
@@ -292,7 +292,7 @@ impl TabBar {
                         .right_0()
                         .bottom_0()
                         .h(px(2.))
-                        .bg(cx.theme().tab_active_foreground),
+                        .bg(cx.theme().tokens.primary),
                 ),
                 _ => el,
             });
@@ -479,11 +479,7 @@ impl RenderOnce for TabBar {
         };
         reveal.advance(window, cx);
 
-        let padding_x = if self.variant == TabVariant::Segmented {
-            px(0.)
-        } else {
-            paddings.left
-        };
+        let padding_x = paddings.left;
         let indicator = self.render_indicator(&bounds_rc, window, cx);
         let indicator_epoch = indicator.as_ref().map(|(_, epoch)| *epoch).unwrap_or(0);
         let mut indicator_element = indicator.map(|(el, _)| el);

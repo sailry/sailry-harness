@@ -10,7 +10,7 @@ use rust_i18n::t;
 use crate::{
     ActiveTheme,
     plot::{
-        Plot, PlotAppear, PlotAxis, origin_point,
+        Grid, Plot, PlotAppear, PlotAxis, origin_point,
         scale::{PlotValue, Scale, ScaleBand, ScaleLinear},
         tooltip::{CrossLine, Tooltip, TooltipState},
     },
@@ -389,7 +389,16 @@ where
 
         // Draw grid
         if self.grid {
-            self.axes.paint_grid(bounds, height, window, cx);
+            let plot = self.axes.plot_bounds(bounds, height);
+            let width = plot.size.width.as_f32();
+            let columns = (0..self.axes.grid_columns)
+                .map(|index| width * index as f32 / self.axes.grid_columns as f32);
+            Grid::new()
+                .y((0..=3).map(|index| height * index as f32 / 4.))
+                .x(columns)
+                .stroke(cx.theme().border)
+                .dash_array(&[px(4.), px(2.)])
+                .paint(&plot, window);
         }
 
         // Draw candlesticks

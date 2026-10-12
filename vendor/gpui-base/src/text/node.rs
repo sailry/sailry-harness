@@ -32,7 +32,6 @@ use crate::{
         text_view::handle_link_click,
     },
     theme::ActiveTheme as _,
-    v_flex,
 };
 
 use super::{
@@ -1767,7 +1766,6 @@ struct TableColumnWidths {
     rem_size: Pixels,
     mono_family: SharedString,
     inline_code: HighlightStyle,
-    inline_code_inset: Pixels,
     /// Maxima from ordinary text only. Custom cells may shrink after an update.
     widths: Vec<f32>,
     custom_cells: Vec<(usize, usize)>,
@@ -2468,7 +2466,7 @@ impl Paragraph {
         let fades = node_cx.stream_fades(fade_key);
         let backgrounds = node_cx.range_backgrounds(fade_key);
 
-        if self.should_render_inline_flow() || node_cx.style.inline_code_inset() > px(0.) {
+        if self.should_render_inline_flow() {
             return InlineFlow::new(
                 leaf_element_id(fade_key),
                 self.inline_flow_items(fade_key, fades, backgrounds, node_cx, cx),
@@ -2986,7 +2984,6 @@ fn measure_table_columns(
                     && cached.rem_size == rem_size
                     && cached.mono_family == mono_family
                     && cached.inline_code == inline_code
-                    && cached.inline_code_inset == node_cx.style.inline_code_inset()
                     && cached
                         .text_system
                         .upgrade()
@@ -3003,7 +3000,6 @@ fn measure_table_columns(
             rem_size,
             mono_family,
             inline_code,
-            inline_code_inset: node_cx.style.inline_code_inset(),
             widths,
             custom_cells,
         });
@@ -3022,7 +3018,7 @@ fn measure_table_columns(
         let items = cell.children.inline_flow_items(None, &[], &[], node_cx, cx);
         let style = text_styles.row_refinement(row_ix).clone();
         let width = window.with_text_style(Some(style), |window| {
-            super::inline_flow::intrinsic_width(&items, &node_cx.style, window, cx)
+            super::inline_flow::intrinsic_width(&items, window, cx)
         });
         let border = if ix + 1 < col_count {
             CELL_BORDER_PX
@@ -3096,7 +3092,7 @@ fn measure_table_text_columns(
                         |range, highlight| (range, highlight.clone()),
                     );
                     if highlights.iter().any(|(_, h)| h.font_size_scale.is_some()) {
-                        line_w += node_cx.style.inline_code_inset() * 2.;
+                        line_w += px(crate::text::inline_flow::INLINE_CODE_PADDING * 2.);
                     }
                     let runs = text_runs(range.len(), text_style, &highlights);
                     line_w += window
@@ -3384,18 +3380,19 @@ impl BlockNode {
     ) -> AnyElement {
         match item {
             BlockNode::ListItem {
-                children, checked, ..
+                children,
+                spread,
+                checked,
+                ..
             } => {
                 let body = body_font_size(node_cx, window);
                 let indent = body * 1.4;
-                v_flex()
-                    .id(("li", options.ix))
+                div()
                     .w_full()
                     .min_w_0()
-                    .gap(node_cx.style.paragraph_gap() * 0.5)
-                    .when(!options.is_last, |this| {
-                        this.pb(node_cx.style.paragraph_gap() * 0.5)
-                    })
+                    // Items breathe a little apart, less than paragraphs do.
+                    .when(ix > 0, |this| this.pt(body * 0.25))
+                    .when(*spread, |this| this.child(div()))
                     .children({
                         let mut items: Vec<Div> = Vec::with_capacity(children.len());
 
@@ -3426,18 +3423,13 @@ impl BlockNode {
                                     if last_not_list {
                                         if let Some(preceding_row) = items.pop() {
                                             items.push(
-                                                v_flex()
-                                                    .w_full()
-                                                    .min_w_0()
-                                                    .gap(node_cx.style.paragraph_gap() * 0.5)
-                                                    .child(preceding_row)
-                                                    .child(
-                                                        div()
-                                                            .w_full()
-                                                            .pl(indent)
-                                                            .overflow_hidden()
-                                                            .child(text),
-                                                    ),
+                                                div().child(preceding_row).child(
+                                                    div()
+                                                        .w_full()
+                                                        .pl(indent)
+                                                        .overflow_hidden()
+                                                        .child(text),
+                                                ),
                                             );
                                             continue;
                                         }
@@ -3978,17 +3970,7 @@ impl BlockNode {
                 .children({
                     let mut items = Vec::with_capacity(children.len());
                     let mut item_index = 0;
-                    let mut previous_task = None;
                     for (ix, item) in children.into_iter().enumerate() {
-                        if let BlockNode::ListItem { checked, .. } = item {
-                            let task = checked.is_some();
-                            if previous_task.is_some_and(|previous| previous != task) {
-                                items.push(
-                                    div().h(node_cx.style.paragraph_gap()).into_any_element(),
-                                );
-                            }
-                            previous_task = Some(task);
-                        }
                         let is_item = item.is_list_item();
 
                         items.push(Self::render_list_item(
@@ -3997,7 +3979,6 @@ impl BlockNode {
                             NodeRenderOptions {
                                 ix,
                                 ordered: *ordered,
-                                is_last: ix + 1 == children.len(),
                                 list_start: *start,
                                 ..options
                             },
@@ -4507,11 +4488,7 @@ mod tests {
                 cx.set_global(theme);
                 window.set_rem_size(px(rem_size));
                 let node_cx = NodeContext {
-                    style: Arc::new(
-                        TextViewStyle::default()
-                            .with_inline_code_inset(px(4.), px(0.))
-                            .with_inline_code(inline_code),
-                    ),
+                    style: Arc::new(TextViewStyle::default().with_inline_code(inline_code)),
                     ..Default::default()
                 };
                 window.with_text_style(Some(style.subtract(&Default::default())), |window| {
@@ -4595,33 +4572,32 @@ mod tests {
             table_data_cache: TableDataCache::default(),
             column_widths_cache: TableColumnWidthsCache::default(),
         };
+        let node_cx = NodeContext::default();
+
         let mut app = TestApp::with_text_system(Arc::new(WideMonoTextSystem));
         let mut window = app.open_window(|_, _| Empty);
-        window.update(|_, window, cx| {
+        let (col_w, font_size) = window.update(|_, window, cx| {
             let mut theme = crate::Theme::default();
             theme.tokens.typography.mono = MONO.into();
             cx.set_global(theme);
             let font_size = window.text_style().font_size.to_pixels(window.rem_size());
-            let mono_w = f32::from(WideMonoTextSystem::width_of(code, MONO, font_size * 0.875));
-            for inset in [0., 2., 5.] {
-                let node_cx = NodeContext {
-                    style: Arc::new(
-                        super::super::TextViewStyle::default()
-                            .with_inline_code_inset(px(inset), px(2.)),
-                    ),
-                    ..Default::default()
-                };
-                let col_w = measure_table_columns(&table, 1, &node_cx, window, cx);
-                assert!(
-                    (col_w[0] - (mono_w + CELL_PAD_PX + inset * 2.)).abs() < 0.01,
-                    "col_w {} must fit the mono width {} plus cell padding {} and inset {}",
-                    col_w[0],
-                    mono_w,
-                    CELL_PAD_PX,
-                    inset
-                );
-            }
+            (
+                measure_table_columns(&table, 1, &node_cx, window, cx),
+                font_size,
+            )
         });
+
+        let mono_w = f32::from(WideMonoTextSystem::width_of(code, MONO, font_size * 0.875));
+        assert!(
+            (col_w[0]
+                - (mono_w + CELL_PAD_PX + crate::text::inline_flow::INLINE_CODE_PADDING * 2.))
+                .abs()
+                < 0.01,
+            "col_w {} must fit the mono width {} plus padding {}",
+            col_w[0],
+            mono_w,
+            CELL_PAD_PX
+        );
     }
 
     #[test]

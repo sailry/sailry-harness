@@ -183,7 +183,7 @@ mod hierarchy {
             visual.update(|window, cx| {
                 assert_eq!(
                     native.corner_radii,
-                    Corners::all(cx.theme().surface_radius()).scale(window.scale_factor())
+                    Corners::all(cx.theme().radius_lg).scale(window.scale_factor())
                 );
             });
             assert!(native.background.as_solid().is_some());

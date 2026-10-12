@@ -7,7 +7,7 @@ use crate::{ActiveTheme, ElementExt, Icon, IconName, Sizable as _, h_flex, v_fle
 use crate::{Side, Size, kbd::Kbd};
 use gpui::{
     Action, Anchor, AnyElement, App, AppContext, Bounds, Context, DismissEvent, Edges, Entity,
-    EventEmitter, FocusHandle, Focusable, Global, InteractiveElement, IntoElement, KeyBinding,
+    EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement, KeyBinding,
     ParentElement, Pixels, Render, Role, ScrollHandle, SharedString, StatefulInteractiveElement,
     Styled, WeakEntity, Window, anchored, deferred, div, prelude::FluentBuilder, px, rems,
 };
@@ -17,28 +17,6 @@ use gpui_base::TestSupportExt as _;
 use std::rc::Rc;
 
 const CONTEXT: &str = "PopupMenu";
-
-/// Application geometry for popup menus. Typography, colors, rounding and all
-/// interactions continue to come from the active Kit theme and menu control.
-#[derive(Clone, Copy)]
-pub struct PopupMenuLayout {
-    pub min_width: Pixels,
-    pub padding: Pixels,
-    pub item_gap: Pixels,
-    pub row_padding: gpui::Size<Pixels>,
-    pub icon_gap: Pixels,
-    pub separator_spacing: Pixels,
-    pub separator_thickness: Pixels,
-}
-
-impl Global for PopupMenuLayout {}
-
-impl PopupMenuLayout {
-    /// Keep item corners concentric with the themed surface and its padding.
-    pub fn item_radius(&self, theme: &crate::Theme) -> Pixels {
-        (theme.surface_radius() - self.padding).max(px(0.))
-    }
-}
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
@@ -353,11 +331,6 @@ pub struct PopupMenu {
 }
 
 impl PopupMenu {
-    /// Set the application-wide popup geometry, including nested menus.
-    pub fn set_layout(layout: PopupMenuLayout, cx: &mut App) {
-        cx.set_global(layout);
-    }
-
     pub(crate) fn new(cx: &mut App) -> Self {
         Self {
             focus_handle: cx.focus_handle(),
@@ -1256,11 +1229,6 @@ impl PopupMenu {
             Size::Small => (px(20.), options.radius.half()),
             _ => (px(26.), options.radius),
         };
-        let item_height = if options.layout.is_some() {
-            px(0.)
-        } else {
-            item_height
-        };
 
         let this = MenuItemElement::new(ix)
             .relative()
@@ -1268,18 +1236,6 @@ impl PopupMenu {
             .py_0()
             .px(INNER_PADDING)
             .rounded(radius)
-            .when_some(options.layout, |this, layout| {
-                this.text_base()
-                    .when(matches!(self.size, Size::Small | Size::Medium), |this| {
-                        this.text_sm()
-                    })
-                    .px(layout.row_padding.width)
-                    .py(if self.size == Size::Small {
-                        layout.row_padding.height.half()
-                    } else {
-                        layout.row_padding.height
-                    })
-            })
             .items_center()
             .selected(selected)
             .on_hover(cx.listener(move |this, hovered, window, cx| {
@@ -1316,18 +1272,12 @@ impl PopupMenu {
                 .mx_neg_1()
                 .border_b(px(2.))
                 .border_color(cx.theme().border)
-                .when_some(options.layout, |this, layout| {
-                    this.my(layout.separator_spacing)
-                        .mx(-layout.padding)
-                        .border_b(layout.separator_thickness)
-                })
                 .disabled(true),
             PopupMenuItem::Label(label) => this.disabled(true).cursor_default().child(
                 h_flex()
                     .cursor_default()
                     .items_center()
                     .gap_x_1()
-                    .when_some(options.layout, |this, layout| this.gap_x(layout.icon_gap))
                     .children(Self::render_icon(has_left_icon, false, None, window, cx))
                     .child(div().flex_1().child(label.clone())),
             ),
@@ -1349,7 +1299,6 @@ impl PopupMenu {
                         .min_h(item_height)
                         .items_center()
                         .gap_x_1()
-                        .when_some(options.layout, |this, layout| this.gap_x(layout.icon_gap))
                         .children(Self::render_icon(
                             has_left_icon,
                             is_left_check,
@@ -1378,9 +1327,8 @@ impl PopupMenu {
                     )
                 })
                 .disabled(*disabled)
-                .when(options.layout.is_none(), |this| this.h(item_height))
+                .h(item_height)
                 .gap_x_1()
-                .when_some(options.layout, |this, layout| this.gap_x(layout.icon_gap))
                 .children(Self::render_icon(
                     has_left_icon,
                     is_left_check,
@@ -1428,7 +1376,6 @@ impl PopupMenu {
                         .size_full()
                         .items_center()
                         .gap_x_1()
-                        .when_some(options.layout, |this, layout| this.gap_x(layout.icon_gap))
                         .children(Self::render_icon(
                             has_left_icon,
                             false,
@@ -1490,7 +1437,6 @@ struct RenderOptions {
     has_left_icon: bool,
     check_side: Side,
     radius: Pixels,
-    layout: Option<PopupMenuLayout>,
 }
 
 impl Render for PopupMenu {
@@ -1529,15 +1475,10 @@ impl Render for PopupMenu {
             .any(|item| item.has_left_icon(self.check_side));
 
         let max_width = self.max_width();
-        let layout = cx.try_global::<PopupMenuLayout>().copied();
         let options = RenderOptions {
             has_left_icon,
             check_side: self.check_side,
-            radius: layout.map_or_else(
-                || cx.theme().radius.min(px(8.)),
-                |layout| layout.item_radius(cx.theme()),
-            ),
-            layout,
+            radius: cx.theme().radius.min(px(8.)),
         };
 
         v_flex()
@@ -1564,11 +1505,6 @@ impl Render for PopupMenu {
                     .p_1()
                     .gap_y_0p5()
                     .min_w(rems(8.))
-                    .when_some(layout, |this, layout| {
-                        this.p(layout.padding)
-                            .gap_y(layout.item_gap)
-                            .min_w(layout.min_width)
-                    })
                     .when_some(self.min_width, |this, min_width| this.min_w(min_width))
                     .max_w(max_width)
                     .when(self.scrollable, |this| {
