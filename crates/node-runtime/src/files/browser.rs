@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 mod actions;
 pub(crate) use actions::{execute, targets};
+#[cfg(test)]
+mod tests;
 
 pub(super) fn list(
     selected: Option<&str>,
@@ -50,17 +52,18 @@ fn locations() -> Vec<Location> {
             });
         }
     }
-    for disk in sysinfo::Disks::new_with_refreshed_list().list() {
-        if let Ok(path) = text(disk.mount_point())
-            && !locations.iter().any(|location| location.path == path)
-        {
-            locations.push(Location {
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    add_volumes(
+        &mut locations,
+        disks.list().iter().filter_map(|disk| {
+            text(disk.mount_point()).ok().map(|path| Location {
                 kind: LocationKind::Volume,
                 name: disk.name().to_string_lossy().into_owned(),
                 path,
-            });
-        }
-    }
+            })
+        }),
+        cfg!(target_os = "macos"),
+    );
     if let Some(home) = dirs::home_dir()
         && let Some(root) = home.ancestors().last()
         && let Ok(path) = text(root)
@@ -73,6 +76,37 @@ fn locations() -> Vec<Location> {
         });
     }
     locations
+}
+
+fn add_volumes(
+    locations: &mut Vec<Location>,
+    volumes: impl IntoIterator<Item = Location>,
+    macos: bool,
+) {
+    for volume in volumes {
+        let path = Path::new(&volume.path);
+        if macos && (path.starts_with("/System/Volumes") || path.starts_with("/private/var/vm")) {
+            continue;
+        }
+        if locations
+            .iter()
+            .any(|location| location.path == volume.path)
+        {
+            continue;
+        }
+        let duplicate = locations.iter().position(|location| {
+            matches!(location.kind, LocationKind::Volume | LocationKind::Root)
+                && !volume.name.is_empty()
+                && location.name == volume.name
+        });
+        if let Some(index) = duplicate {
+            if volume.path.len() < locations[index].path.len() {
+                locations[index] = volume;
+            }
+        } else {
+            locations.push(volume);
+        }
+    }
 }
 
 fn resolve(path: &Path) -> Result<PathBuf, Fault> {
