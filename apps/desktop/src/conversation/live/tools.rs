@@ -307,32 +307,6 @@ impl View {
         v_flex()
             .min_w_0()
             .gap_1()
-            .when_some(
-                call.resolved
-                    .as_ref()
-                    .and_then(|resolved| resolved.input.content.as_ref())
-                    .filter(|input| !denied && !input.text.is_empty()),
-                |column, input| {
-                    let selector = format!("live-tool-input-copy-{key}");
-                    column.child(surface::result(
-                        &format!("{key}-input"),
-                        surface::code(
-                            &format!("{key}-input"),
-                            &input.text,
-                            px(f32::from(self.message_text_size)),
-                            cx,
-                        ),
-                        [h_flex()
-                            .debug_selector(move || selector.clone())
-                            .child(surface::copy(
-                                format!("{key}-input-copy"),
-                                input.text.clone(),
-                            ))
-                            .into_any_element()],
-                        cx,
-                    ))
-                },
-            )
             .map(|column| match card {
                 Some(card) => column.child(card),
                 None => column,

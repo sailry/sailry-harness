@@ -111,6 +111,18 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
             assert!(summary(&calls[1], page).detail.failed);
             assert!(has_content(&calls[1], page));
             assert!(!has_content(&calls[2], page));
+            assert_eq!(
+                calls[0]
+                    .resolved
+                    .as_ref()
+                    .unwrap()
+                    .input
+                    .content
+                    .as_ref()
+                    .unwrap()
+                    .text,
+                command
+            );
             let content = calls[0].content.as_ref().unwrap();
             let sailry_protocol::tool::Block::Text(stderr) = &content.blocks[1] else {
                 panic!();
@@ -130,12 +142,14 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
         assert!(
             visual
                 .debug_bounds(Box::leak(format!("{key}-input-content").into_boxed_str()))
-                .is_some()
+                .is_none()
         );
-        fixture::tap(visual, &format!("live-tool-input-copy-{key}"));
-        assert_eq!(
-            visual.update(|_, cx| cx.read_from_clipboard().unwrap().text().unwrap()),
-            command
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("live-tool-input-copy-{key}").into_boxed_str()
+                ))
+                .is_none()
         );
         for index in 0..2 {
             assert!(

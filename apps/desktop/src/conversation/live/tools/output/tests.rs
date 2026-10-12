@@ -268,7 +268,7 @@ fn shows_content_and_limits() {
     }
     assert_eq!(body.copy_text(), body.text);
     assert!(body.notices.is_empty());
-    assert!(literal(&text).starts_with("````text\n"));
+    assert!(literal(&text).starts_with("````\n"));
     assert!(literal(&text).ends_with("\n````"));
     let mut final_page = result.clone();
     final_page["data"]["next_offset"] = json!(null);

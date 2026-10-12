@@ -6,7 +6,7 @@ use crate::conversation::live::tests::{
 use core::prelude::v1::test;
 
 #[gpui_kit::test]
-fn presents_automatic_input_as_marker(cx: &mut TestAppContext) {
+fn hides_automatic_input_and_marker(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = Fixture::with_tools(remote, vec![]);
@@ -25,11 +25,12 @@ fn presents_automatic_input_as_marker(cx: &mut TestAppContext) {
             }),
         });
         let original = page.entries.clone();
+        let continuation = page.runs[0].continuation.clone();
         view.update(visual, |view, cx| view.update_history(history.clone(), cx));
         let marker: &'static str = Box::leak(format!("live-continuation-{turn}").into_boxed_str());
         let prompt: &'static str = Box::leak(format!("live-user-text-{turn}").into_boxed_str());
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        assert!(visual.debug_bounds(marker).is_some());
+        assert!(visual.debug_bounds(marker).is_none());
         assert!(visual.debug_bounds(prompt).is_none());
         assert_eq!(
             view.read_with(visual, |view, _| view
@@ -41,6 +42,18 @@ fn presents_automatic_input_as_marker(cx: &mut TestAppContext) {
                 .entries
                 .clone()),
             original
+        );
+        assert_eq!(
+            view.read_with(visual, |view, _| view
+                .history
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .page
+                .runs[0]
+                .continuation
+                .clone()),
+            continuation
         );
         let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
         page.runs[0].status = Status::Continued;

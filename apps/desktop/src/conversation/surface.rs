@@ -277,7 +277,7 @@ pub(crate) fn literal(text: &str) -> String {
         .unwrap_or(0);
     let fence = "`".repeat((longest + 1).max(3));
     let separator = if text.ends_with('\n') { "" } else { "\n" };
-    format!("{fence}text\n{text}{separator}{fence}")
+    format!("{fence}\n{text}{separator}{fence}")
 }
 
 #[cfg(test)]
@@ -296,10 +296,10 @@ mod tests {
 
     #[test]
     fn literal_line_endings() {
-        assert_eq!(literal("line\n"), "```text\nline\n```");
-        assert_eq!(literal("line"), "```text\nline\n```");
-        assert_eq!(literal("line\n\n"), "```text\nline\n\n```");
-        assert_eq!(literal("```\n"), "````text\n```\n````");
+        assert_eq!(literal("line\n"), "```\nline\n```");
+        assert_eq!(literal("line"), "```\nline\n```");
+        assert_eq!(literal("line\n\n"), "```\nline\n\n```");
+        assert_eq!(literal("```\n"), "````\n```\n````");
     }
 
     #[gpui::test]

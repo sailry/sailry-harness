@@ -13,8 +13,8 @@
       throw new Error('Invalid visual request');
     }
   };
-  // Native diagrams use the current text color and a transparent surface.
-  const monochrome = (svg, foreground, fontSize) => {
+  // Diagram outlines use their semantic accent separately from label text.
+  const monochrome = (svg, foreground, outline, fontSize) => {
     const paint = (selector, fill, stroke) => {
       for (const element of svg.querySelectorAll(selector)) {
         element.setAttribute('fill', fill);
@@ -29,9 +29,9 @@
       element.style.setProperty('box-shadow', 'none', 'important');
       element.style.setProperty('text-shadow', 'none', 'important');
     }
-    paint('.node rect,.node circle,.node ellipse,.node polygon,.node path,.node line,.node polyline,.cluster rect', 'none', foreground);
-    paint('.flowchart-link,.edgePath path', 'none', foreground);
-    paint('marker path,marker circle,marker polygon', foreground, foreground);
+    paint('.node rect,.node circle,.node ellipse,.node polygon,.node path,.node line,.node polyline,.cluster rect', 'none', outline);
+    paint('.flowchart-link,.edgePath path', 'none', outline);
+    paint('marker path,marker circle,marker polygon', outline, outline);
     paint('text,tspan', foreground, 'none');
     paint('.label rect,.edgeLabel rect,.labelBkg', 'none', 'none');
     for (const rect of svg.querySelectorAll('.node rect')) {
@@ -79,13 +79,13 @@
           throw new Error('Diagram configuration directives are unsupported');
         }
         mermaid.initialize({startOnLoad:false,securityLevel:'strict',htmlLabels:false,maxTextSize:65536,maxEdges:500,
-          theme:'base',themeVariables:{darkMode:request.dark,primaryColor:request.background,primaryTextColor:request.foreground,lineColor:request.foreground,primaryBorderColor:request.foreground,fontSize:`${request.font_size}px`},
+          theme:'base',themeVariables:{darkMode:request.dark,primaryColor:request.background,primaryTextColor:request.foreground,lineColor:request.accent,primaryBorderColor:request.accent,fontSize:`${request.font_size}px`},
           flowchart:{htmlLabels:false},secure:['securityLevel','startOnLoad','maxTextSize','maxEdges','htmlLabels']});
         const result = await mermaid.render(`diagram-${++serial}`, request.source);
         host.innerHTML = result.svg;
         const svg = host.querySelector('svg');
         if (!svg) throw new Error('Diagram did not produce SVG');
-        monochrome(svg, request.foreground, request.font_size);
+        monochrome(svg, request.foreground, request.accent, request.font_size);
         return finish(svg, request, null);
       }
       await MathJax.startup.promise;

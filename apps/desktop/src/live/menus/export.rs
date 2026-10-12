@@ -109,6 +109,7 @@ impl Render for Progress {
         h_flex()
             .debug_selector(|| "conversation-export-progress".into())
             .gap_2()
+            .text_sm()
             .child(Spinner::new().small())
             .child(tr("conversation_export"))
     }

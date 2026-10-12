@@ -93,9 +93,17 @@ fn requests(doc: &Doc, theme: &Theme, dark: bool, font_size: f32) -> Vec<Request
             kind,
             source: source.into(),
             dark,
-            foreground: color(theme.text),
+            foreground: color(if kind == Kind::Mermaid {
+                theme.text_muted
+            } else {
+                theme.text
+            }),
             background: color(theme.surface),
-            accent: color(theme.accent),
+            accent: color(if kind == Kind::Mermaid {
+                theme.border
+            } else {
+                theme.accent
+            }),
             font_size,
         };
         if request.validate().is_ok() {
@@ -124,3 +132,6 @@ fn requests(doc: &Doc, theme: &Theme, dark: bool, font_size: f32) -> Vec<Request
     }
     result
 }
+
+#[cfg(test)]
+mod tests;

@@ -124,13 +124,15 @@ for (const [name, path] of scripts) {
       const input = request(dark), result = await view.render(input);
       const {svg, rect, rounded, diamond, circle, ellipse, edge, arrow, text, label} = view.current();
       const config = view.initialized.at(-1);
-      assert.equal(config.themeVariables.primaryBorderColor, input.foreground);
-      assert.equal(config.themeVariables.lineColor, input.foreground);
+      const outline = name === 'desktop' ? input.accent : input.foreground;
+      assert.equal(config.themeVariables.primaryTextColor, input.foreground);
+      assert.equal(config.themeVariables.primaryBorderColor, outline);
+      assert.equal(config.themeVariables.lineColor, outline);
       assert.equal(config.themeVariables.darkMode, dark);
       for (const shape of [rect, rounded, diamond, circle, ellipse, edge]) {
         assert.equal(shape.getAttribute('fill'), 'none');
-        assert.equal(shape.getAttribute('stroke'), input.foreground);
-        assert.equal(shape.style.getPropertyValue('stroke'), input.foreground);
+        assert.equal(shape.getAttribute('stroke'), outline);
+        assert.equal(shape.style.getPropertyValue('stroke'), outline);
         assert.equal(shape.style.getPropertyPriority('stroke'), 'important');
       }
       for (const node of [svg, ...svg.querySelectorAll('*')]) {
@@ -140,7 +142,7 @@ for (const [name, path] of scripts) {
         }
       }
       assert.equal(svg.style.getPropertyValue('background'), 'transparent');
-      assert.equal(arrow.getAttribute('fill'), input.foreground);
+      assert.equal(arrow.getAttribute('fill'), outline);
       for (const node of [text, ...text.children]) {
         assert.equal(node.getAttribute('fill'), input.foreground);
         assert.equal(node.getAttribute('stroke'), 'none');
@@ -158,7 +160,7 @@ for (const [name, path] of scripts) {
       assert.equal(ellipse.getAttribute('rx'), '10');
       assert.equal(ellipse.getAttribute('ry'), '20');
       assert.equal(edge.getAttribute('marker-end'), 'url(#arrow)');
-      assert(result.source.includes(`stroke="${input.foreground}"`));
+      assert(result.source.includes(`stroke="${outline}"`));
       assert(!result.source.includes('stroke="url('));
       assert(!result.source.includes('fill="url('));
       assert(!result.source.includes('filter="url('));
