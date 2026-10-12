@@ -17,7 +17,7 @@ mod panel;
 mod reference;
 pub(crate) use card::Card;
 pub(crate) use panel::Panel;
-pub(crate) use reference::from_link;
+pub(crate) use reference::{from_image, from_link};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 #[path = "preview.rs"]
 pub(crate) mod html;

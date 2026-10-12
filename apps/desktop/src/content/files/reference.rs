@@ -2,6 +2,15 @@ use super::*;
 use crate::conversation::file_reference::{self, Target};
 
 pub(crate) fn from_link(url: &str, label: &str, root: &str) -> Option<File> {
+    link(url, label, root, false)
+}
+
+/// A file card for an image reference that cannot be displayed inline.
+pub(crate) fn from_image(url: &str, label: &str, root: &str) -> Option<File> {
+    link(url, label, root, true)
+}
+
+fn link(url: &str, label: &str, root: &str, image: bool) -> Option<File> {
     // Section and line references retain ordinary document/source navigation.
     if url.contains(['#', '?']) {
         return None;
@@ -9,7 +18,7 @@ pub(crate) fn from_link(url: &str, label: &str, root: &str) -> Option<File> {
     let Target::Workspace { path, line: None } = file_reference::resolve(url, root)? else {
         return None;
     };
-    if crate::content::images::supports(&path) {
+    if !image && crate::content::images::supports(&path) {
         return None;
     }
     let mime = mime(&path);

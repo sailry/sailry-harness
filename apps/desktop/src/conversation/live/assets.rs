@@ -235,7 +235,7 @@ impl Assets {
                 }
             }
         };
-        if source.format().is_some() {
+        if source.kind().is_some() {
             let panel = cx.entity().downgrade();
             let target = self.binding.client.target();
             let stamp = self.stamp;

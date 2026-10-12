@@ -17,6 +17,7 @@ mod configuration;
 mod context;
 mod files;
 pub(crate) mod fixture;
+mod images;
 mod manual_compaction;
 mod message_display;
 mod outgoing;

@@ -8,7 +8,7 @@ pub(super) async fn load(
     slots: Arc<tokio::sync::Semaphore>,
 ) -> Result<Arc<RenderImage>, &'static str> {
     let source = source.into();
-    let format = source.format().ok_or("chat_image_unavailable")?;
+    let kind = source.kind().ok_or("chat_image_unavailable")?;
     if source
         .attachment()
         .is_some_and(|attachment| attachment.spec.size > sailry_protocol::attachment::MAX_BYTES)
@@ -24,7 +24,7 @@ pub(super) async fn load(
         return tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let bytes = source.image_bytes(&cancel)?;
-            decode::decode(&bytes, format, side)
+            decode_kind(&bytes, kind, side)
         })
         .await
         .map_err(|_| "chat_image_unavailable")?;
@@ -87,8 +87,19 @@ pub(super) async fn load(
         if cancel.is_cancelled() {
             return Err("chat_image_unavailable");
         }
-        decode::decode(&bytes, format, side)
+        decode_kind(&bytes, kind, side)
     })
     .await
     .map_err(|_| "chat_image_unavailable")?
+}
+
+fn decode_kind(
+    bytes: &[u8],
+    kind: source::Kind,
+    side: u32,
+) -> Result<Arc<RenderImage>, &'static str> {
+    match kind {
+        source::Kind::Raster(format) => decode::decode(bytes, format, side),
+        source::Kind::Svg => decode::svg(bytes, side),
+    }
 }

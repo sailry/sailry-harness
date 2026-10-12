@@ -122,6 +122,12 @@ impl View {
         let file_owner = owner.clone();
         let file_root = root.clone();
         let file_id = id.clone();
+        let image_id = id.clone();
+        let image_binding = {
+            let mut binding = self.binding.clone();
+            binding.worktree = worktree;
+            binding
+        };
         let mut file_binding = self.binding.clone();
         file_binding.worktree = worktree;
         // Keep parsed content and selection when virtual rows leave the viewport.
@@ -161,66 +167,84 @@ impl View {
             .on_image(move |url, urls, position, cx| {
                 use crate::content::images::{self, ImageSource};
                 use crate::conversation::file_reference::{self, Target};
-                if let (Some(worktree), Some(root)) = (worktree, root.as_deref())
-                    && let Some(Target::Workspace { path, .. }) = file_reference::resolve(url, root)
-                    && images::supports(&path)
+                let workspace = |url: &str| match file_reference::resolve(url, root.as_deref()?)? {
+                    Target::Workspace { path, .. } => Some(path),
+                    _ => None,
+                };
+                if let (Some(worktree), Some(path)) = (worktree, workspace(url))
+                    && images::displayable(&path)
                 {
                     let source = ImageSource::File {
                         worktree,
                         path,
                         context: None,
                     };
-                    let mut index = 0;
-                    let gallery: Vec<_> = urls
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(image_index, url)| {
-                            let Target::Workspace { path, .. } =
-                                file_reference::resolve(url, root)?
-                            else {
-                                return None;
-                            };
-                            if !images::supports(&path) {
-                                return None;
-                            }
-                            if image_index < position {
-                                index += 1;
-                            }
-                            Some(ImageSource::File {
-                                worktree,
-                                path,
-                                context: None,
+                    if !images::Images::failed(&images, &source, cx) {
+                        let mut index = 0;
+                        let gallery: Vec<_> = urls
+                            .iter()
+                            .enumerate()
+                            .filter_map(|(image_index, url)| {
+                                let path =
+                                    workspace(url).filter(|path| images::displayable(path))?;
+                                if image_index < position {
+                                    index += 1;
+                                }
+                                Some(ImageSource::File {
+                                    worktree,
+                                    path,
+                                    context: None,
+                                })
                             })
-                        })
-                        .collect();
-                    let selector = format!("image-card-{}", source.id());
-                    return div()
-                        .max_w_full()
-                        .debug_selector(move || selector.clone())
-                        .child(images::card(
-                            &source,
-                            &images,
-                            gallery,
-                            index,
-                            urls.len() > 1,
-                            cx,
-                        ))
-                        .into_any_element();
+                            .collect();
+                        let selector = format!("image-card-{}", source.id());
+                        return div()
+                            .max_w_full()
+                            .debug_selector(move || selector.clone())
+                            .child(images::card(
+                                &source,
+                                &images,
+                                gallery,
+                                index,
+                                urls.len() > 1,
+                                cx,
+                            ))
+                            .into_any_element();
+                    }
                 }
                 if url.starts_with("https://") || url.starts_with("http://") {
                     return gpui_kit::img(SharedString::from(url.to_owned()))
                         .max_w_full()
                         .into_any_element();
                 }
+                if let Some(file) = root
+                    .as_deref()
+                    .and_then(|root| crate::content::files::from_image(url, "", root))
+                    && let Some(source) = image_owner.upgrade()
+                {
+                    return crate::content::files::Card {
+                        id: format!("{image_id}-image-{url}").into(),
+                        file,
+                        binding: image_binding.clone(),
+                        source,
+                    }
+                    .into_any_element();
+                }
                 let link = SharedString::from(url.to_owned());
                 let owner = image_owner.clone();
-                Button::new(format!("image-link-{url}"))
-                    .ghost()
-                    .icon(IconName::File)
-                    .label(url.to_owned())
-                    .on_click(move |_, _, cx| {
-                        let _ = owner.update(cx, |_, cx| cx.emit(Event::Link(link.clone())));
-                    })
+                div()
+                    .flex()
+                    .self_start()
+                    .max_w_full()
+                    .child(
+                        Button::new(format!("image-source-{url}"))
+                            .link()
+                            .label(url.to_owned())
+                            .on_click(move |_, _, cx| {
+                                let _ =
+                                    owner.update(cx, |_, cx| cx.emit(Event::Link(link.clone())));
+                            }),
+                    )
                     .into_any_element()
             })
             .on_link_click(move |link, _, cx| {

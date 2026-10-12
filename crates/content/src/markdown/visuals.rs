@@ -83,48 +83,56 @@ impl Svg {
         {
             return Err("Rendered visual exceeds the supported size".into());
         }
-        let document = roxmltree::Document::parse(&self.source)
-            .map_err(|_| "Rendered visual is not valid SVG".to_owned())?;
-        if document.root_element().tag_name().name() != "svg"
-            || document.root_element().tag_name().namespace() != Some("http://www.w3.org/2000/svg")
-        {
-            return Err("Rendered visual is not SVG".into());
-        }
-        for node in document.descendants().filter(|node| node.is_element()) {
-            if matches!(
-                node.tag_name().name(),
-                "script"
-                    | "foreignObject"
-                    | "iframe"
-                    | "image"
-                    | "a"
-                    | "animate"
-                    | "animateTransform"
-                    | "set"
-            ) {
-                return Err("Rendered visual contains unsupported elements".into());
-            }
-            for attribute in node.attributes() {
-                let name = attribute.name().to_ascii_lowercase();
-                let value = attribute.value().trim();
-                if name.starts_with("on")
-                    || (matches!(name.as_str(), "href" | "src") && !value.starts_with('#'))
-                    || value.to_ascii_lowercase().contains("@import")
-                    || external_url(value)
-                {
-                    return Err("Rendered visual contains external resources".into());
-                }
-            }
-            if node.tag_name().name() == "style"
-                && node.text().is_some_and(|text| {
-                    text.to_ascii_lowercase().contains("@import") || external_url(text)
-                })
-            {
-                return Err("Rendered visual contains external styles".into());
-            }
-        }
-        Ok(())
+        validate_source(&self.source)
     }
+}
+
+/// Checks that SVG text is well formed and references no external resources or scripts.
+pub fn validate_source(source: &str) -> Result<(), String> {
+    if source.len() > MAX_SVG_BYTES {
+        return Err("Rendered visual exceeds the supported size".into());
+    }
+    let document = roxmltree::Document::parse(source)
+        .map_err(|_| "Rendered visual is not valid SVG".to_owned())?;
+    if document.root_element().tag_name().name() != "svg"
+        || document.root_element().tag_name().namespace() != Some("http://www.w3.org/2000/svg")
+    {
+        return Err("Rendered visual is not SVG".into());
+    }
+    for node in document.descendants().filter(|node| node.is_element()) {
+        if matches!(
+            node.tag_name().name(),
+            "script"
+                | "foreignObject"
+                | "iframe"
+                | "image"
+                | "a"
+                | "animate"
+                | "animateTransform"
+                | "set"
+        ) {
+            return Err("Rendered visual contains unsupported elements".into());
+        }
+        for attribute in node.attributes() {
+            let name = attribute.name().to_ascii_lowercase();
+            let value = attribute.value().trim();
+            if name.starts_with("on")
+                || (matches!(name.as_str(), "href" | "src") && !value.starts_with('#'))
+                || value.to_ascii_lowercase().contains("@import")
+                || external_url(value)
+            {
+                return Err("Rendered visual contains external resources".into());
+            }
+        }
+        if node.tag_name().name() == "style"
+            && node.text().is_some_and(|text| {
+                text.to_ascii_lowercase().contains("@import") || external_url(text)
+            })
+        {
+            return Err("Rendered visual contains external styles".into());
+        }
+    }
+    Ok(())
 }
 
 fn external_url(value: &str) -> bool {

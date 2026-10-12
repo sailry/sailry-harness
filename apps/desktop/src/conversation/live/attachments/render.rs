@@ -22,7 +22,7 @@ impl View {
         let sources: Vec<_> = self.attachments.items.iter().map(draft_source).collect();
         let gallery: Vec<_> = sources
             .iter()
-            .filter(|source| source.format().is_some())
+            .filter(|source| source.kind().is_some())
             .cloned()
             .collect();
         Some(
@@ -46,7 +46,7 @@ impl View {
                                         | Status::Rejected(_)
                                 );
                             let retry = status.is_failed() && !item.pending && !blocked;
-                            let card = if source.format().is_some() {
+                            let card = if source.kind().is_some() {
                                 let index = gallery
                                     .iter()
                                     .position(|value| value.id() == source.id())
@@ -229,7 +229,7 @@ pub(in crate::conversation::live) fn source_links(
 ) -> AnyElement {
     let (gallery, files): (Vec<_>, Vec<_>) = sources
         .into_iter()
-        .partition(|source| source.format().is_some());
+        .partition(|source| source.kind().is_some());
     v_flex()
         .w_full()
         .min_w_0()

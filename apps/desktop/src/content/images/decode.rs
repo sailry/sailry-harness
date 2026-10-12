@@ -32,6 +32,64 @@ pub(crate) fn decode(
     Ok(Arc::new(RenderImage::new([Frame::new(pixels)])))
 }
 
+/// Rasterizes a static, self-contained SVG so its longest side equals `side`.
+pub(crate) fn svg(bytes: &[u8], side: u32) -> Result<Arc<RenderImage>, &'static str> {
+    use gpui_kit::{DevicePixels, SvgRenderer, SvgSize, size};
+    static RENDERER: std::sync::LazyLock<SvgRenderer> =
+        std::sync::LazyLock::new(|| SvgRenderer::new(Arc::new(())));
+    sailry_content::media::validate_svg(bytes).map_err(|reason| match reason {
+        "too large" => "chat_image_too_large",
+        _ => "chat_image_unavailable",
+    })?;
+    let (width, height) = svg_extent(bytes).ok_or("chat_image_unavailable")?;
+    let scale = side as f32 / width.max(height);
+    let pixels = |value: f32| DevicePixels(((value * scale).round() as i32).max(1));
+    let renderer = RENDERER.clone();
+    let tree = renderer
+        .parse_svg(bytes)
+        .map_err(|_| "chat_image_unavailable")?;
+    renderer
+        .render_parsed(
+            &tree,
+            SvgSize::ExactSize(size(pixels(width), pixels(height))),
+        )
+        .map_err(|_| "chat_image_unavailable")
+}
+
+/// Reads the intrinsic size from `width`/`height`, falling back to `viewBox`.
+fn svg_extent(bytes: &[u8]) -> Option<(f32, f32)> {
+    let document = roxmltree::Document::parse(std::str::from_utf8(bytes).ok()?).ok()?;
+    let root = document.root_element();
+    let length = |name| {
+        let value = root.attribute(name)?.trim();
+        value
+            .strip_suffix("px")
+            .unwrap_or(value)
+            .trim()
+            .parse::<f32>()
+            .ok()
+    };
+    let (width, height) = match (length("width"), length("height")) {
+        (Some(width), Some(height)) => (width, height),
+        _ => {
+            let mut view = root
+                .attribute("viewBox")?
+                .split([' ', ','])
+                .filter(|part| !part.is_empty())
+                .map(str::parse::<f32>);
+            let (_, _, width, height) = (
+                view.next()?.ok()?,
+                view.next()?.ok()?,
+                view.next()?.ok()?,
+                view.next()?.ok()?,
+            );
+            (width, height)
+        }
+    };
+    (width.is_finite() && height.is_finite() && width > 0. && height > 0.)
+        .then_some((width, height))
+}
+
 pub(crate) fn png(bytes: &[u8], format: ImageFormat) -> Result<Vec<u8>, &'static str> {
     let decoded = read(bytes, format)?;
     let mut output = Cursor::new(Vec::new());

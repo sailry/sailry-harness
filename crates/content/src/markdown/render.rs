@@ -1635,7 +1635,9 @@ fn image(
         ..overlay.at(Part::Caption)
     };
     let picture = if let Some(render) = overlay.on_image {
-        div().child(render(url, overlay.image_urls, overlay.image_index, cx))
+        div()
+            .debug_selector(|| "markdown-image-picture".into())
+            .child(render(url, overlay.image_urls, overlay.image_index, cx))
     } else if url.is_empty() {
         div()
             .h(px(IMAGE_EMPTY_HEIGHT))
@@ -1686,15 +1688,19 @@ fn image(
         // An empty caption still paints while the caret is in it, or there
         // would be nothing to type into and no hint saying so.
         .when(!alt.is_empty() || overlay.caret().is_some(), |el| {
-            el.child(text_element(
-                alt,
-                typography.caption.size(),
-                typography.caption.line_height(),
-                FontWeight::NORMAL,
-                overlay,
-                theme,
-                cx,
-            ))
+            el.child(
+                div()
+                    .debug_selector(|| "markdown-image-caption".into())
+                    .child(text_element(
+                        alt,
+                        typography.caption.size(),
+                        typography.caption.line_height(),
+                        FontWeight::NORMAL,
+                        overlay,
+                        theme,
+                        cx,
+                    )),
+            )
         })
         .into_any_element()
 }

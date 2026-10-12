@@ -96,7 +96,7 @@ impl Images {
         cx: &App,
     ) -> AttachmentMedia {
         let source = source.into();
-        if source.format().is_none()
+        if source.kind().is_none()
             || images
                 .read(cx)
                 .entries
@@ -179,6 +179,15 @@ impl Images {
         None
     }
 
+    /// Whether loading this source already failed, so a fallback should replace the card.
+    pub(crate) fn failed(images: &Entity<Self>, source: &ImageSource, cx: &App) -> bool {
+        images
+            .read(cx)
+            .entries
+            .get(&source.key())
+            .is_some_and(|entry| matches!(entry.result, Some(Err(_))))
+    }
+
     pub(crate) fn aspect_ratio(images: &Entity<Self>, source: &ImageSource, cx: &App) -> f32 {
         images
             .read(cx)
@@ -213,6 +222,11 @@ impl Images {
 
 pub(crate) fn supports(path: &str) -> bool {
     source::file_format(path).is_some()
+}
+
+/// Raster images and static SVG render in message image cards and previews.
+pub(crate) fn displayable(path: &str) -> bool {
+    supports(path) || sailry_content::media::is_svg(path)
 }
 
 /// A package receives only the file source captured by its panel.

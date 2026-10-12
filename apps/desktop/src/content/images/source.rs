@@ -2,6 +2,13 @@ use super::*;
 pub(super) use sailry_content::media::file_format;
 use sailry_protocol::{SessionId, WorktreeId, conversation::Image};
 
+/// How an image source is decoded.
+#[derive(Clone, Copy)]
+pub(crate) enum Kind {
+    Raster(image::ImageFormat),
+    Svg,
+}
+
 /// Image metadata selects an existing authenticated download source.
 #[derive(Clone)]
 pub(crate) enum ImageSource {
@@ -84,11 +91,12 @@ impl ImageSource {
         }
     }
 
-    pub(crate) fn format(&self) -> Option<image::ImageFormat> {
+    pub(crate) fn kind(&self) -> Option<Kind> {
         match self {
-            Self::Local { source, .. } => source.image_format(),
-            Self::File { path, .. } => file_format(path),
-            _ => decode::format(self.attachment().unwrap()),
+            Self::Local { source, .. } => source.image_format().map(Kind::Raster),
+            Self::File { path, .. } if sailry_content::media::is_svg(path) => Some(Kind::Svg),
+            Self::File { path, .. } => file_format(path).map(Kind::Raster),
+            _ => decode::format(self.attachment().unwrap()).map(Kind::Raster),
         }
     }
 

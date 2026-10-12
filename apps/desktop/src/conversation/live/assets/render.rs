@@ -294,7 +294,7 @@ impl Assets {
         let key = format!("asset-{}-{index}", group.sequence);
         let selector = key.clone();
         let mut row = h_flex().w_full().min_w_0().gap_2();
-        if let Some(source) = source.filter(|source| source.format().is_some()) {
+        if let Some(source) = source.filter(|source| source.kind().is_some()) {
             row = row.child(Images::media(&self.images, source, cx).size_8());
         } else {
             row = row.child(

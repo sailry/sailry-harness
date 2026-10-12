@@ -39,6 +39,53 @@ mod decoding {
         assert!(decode::decode(&png(4097, 4097), image::ImageFormat::Png, 128).is_err());
     }
 
+    const SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="#c33"/></svg>"##;
+
+    #[test]
+    fn rasterizes_svg_to_fit() {
+        let image = decode::svg(SVG.as_bytes(), 80).unwrap();
+        assert_eq!(image.size(0), size(DevicePixels(80), DevicePixels(40)));
+        let view = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 30"><rect width="10" height="30"/></svg>"#;
+        let image = decode::svg(view.as_bytes(), 60).unwrap();
+        assert_eq!(image.size(0), size(DevicePixels(20), DevicePixels(60)));
+    }
+
+    #[test]
+    fn rejects_unsafe_or_oversized_svg() {
+        assert_eq!(
+            decode::svg(&vec![b' '; sailry_content::media::MAX_SVG_BYTES + 1], 80).err(),
+            Some("chat_image_too_large")
+        );
+        for source in [
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><image href="photo.png"/></svg>"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><animate/></svg>"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>"#,
+            "not svg",
+        ] {
+            assert!(decode::svg(source.as_bytes(), 80).is_err(), "{source}");
+        }
+    }
+
+    #[test]
+    fn classifies_workspace_sources() {
+        let file = |path: &str| ImageSource::File {
+            worktree: sailry_protocol::WorktreeId::default(),
+            path: path.into(),
+            context: None,
+        };
+        assert!(matches!(file("a.SVG").kind(), Some(source::Kind::Svg)));
+        assert!(matches!(
+            file("a.png").kind(),
+            Some(source::Kind::Raster(_))
+        ));
+        assert!(file("a.pdf").kind().is_none());
+        assert!(displayable("a.svg") && displayable("a.png") && !displayable("a.pdf"));
+        assert!(
+            !supports("a.svg"),
+            "standalone SVG links keep their file card"
+        );
+    }
+
     #[test]
     fn applies_jpeg_orientation() {
         let pixels = image::RgbImage::from_pixel(6, 4, image::Rgb([220, 30, 60]));
