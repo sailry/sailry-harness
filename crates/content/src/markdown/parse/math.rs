@@ -31,6 +31,7 @@ struct Formula {
     range: Range<usize>,
     display: bool,
     containers: bool,
+    delimiter_bytes: usize,
 }
 
 pub(crate) fn events(source: &str) -> Events<'_> {
@@ -114,7 +115,11 @@ fn prices(source: &str, range: &Range<usize>) -> bool {
 
 fn formulas(source: &str) -> Events<'_> {
     let original = || Parser::new_ext(source, super::OPTIONS).into_offset_iter();
-    if !source.contains(r"\(") && !source.contains(r"\[") {
+    if !source.contains(r"\(")
+        && !source.contains(r"\[")
+        && !source.contains(" $")
+        && !source.contains("\t$")
+    {
         return Events::original(original());
     }
     let parser = Parser::new_ext(source, super::OPTIONS);
@@ -159,22 +164,33 @@ fn formulas(source: &str) -> Events<'_> {
         .iter()
         .filter_map(|&(at, token)| (token == b']' && !is_protected(at)).then_some(at))
         .collect();
+    let dollar_closes: Vec<_> = tokens
+        .iter()
+        .filter_map(|&(at, token)| (token == b'$' && !is_protected(at)).then_some(at))
+        .collect();
     let mut formulas = Vec::new();
     let mut after = 0;
     for &(start, delimiter) in &tokens {
-        if start < after || !matches!(delimiter, b'(' | b'[') || is_protected(start) {
+        if start < after || !matches!(delimiter, b'(' | b'[' | b'$') || is_protected(start) {
             continue;
         }
-        let closes = if delimiter == b'(' {
-            &inline_closes
-        } else {
-            &display_closes
+        let closes = match delimiter {
+            b'(' => &inline_closes,
+            b'[' => &display_closes,
+            _ => &dollar_closes,
         };
         let Some(&end) = closes.get(closes.partition_point(|&at| at <= start)) else {
             continue;
         };
-        let range = start..end + 2;
-        if source[start + 2..end].trim().is_empty()
+        let delimiter_bytes = if delimiter == b'$' { 1 } else { 2 };
+        let range = start..end + delimiter_bytes;
+        let body = &source[start + delimiter_bytes..end];
+        if body.trim().is_empty()
+            || (delimiter == b'$'
+                && (!numeric_body(body)
+                    || protected
+                        .iter()
+                        .any(|protected| start < protected.end && protected.start < range.end)))
             || barriers
                 .iter()
                 .any(|barrier| start < barrier.end && barrier.start < range.end)
@@ -189,21 +205,23 @@ fn formulas(source: &str) -> Events<'_> {
             range,
             display: delimiter == b'[',
             containers: contained,
+            delimiter_bytes,
         });
     }
     if formulas.is_empty() {
         return Events::original(original());
     }
-    // Both delimiter pairs occupy two bytes. Mask the payload, rather than
+    // Preserve each delimiter's width. Mask the payload, rather than
     // substituting its TeX into dollar math: embedded dollars and Markdown
     // punctuation must never change its interpretation or its source offsets.
     let mut masked = source.as_bytes().to_vec();
     for formula in &formulas {
         let range = &formula.range;
-        masked[range.start..range.start + 2].copy_from_slice(b"$$");
-        masked[range.end - 2..range.end].copy_from_slice(b"$$");
+        let width = formula.delimiter_bytes;
+        masked[range.start..range.start + width].fill(b'$');
+        masked[range.end - width..range.end].fill(b'$');
         let mut prefix = false;
-        for byte in &mut masked[range.start + 2..range.end - 2] {
+        for byte in &mut masked[range.start + width..range.end - width] {
             if matches!(*byte, b'\r' | b'\n') {
                 prefix = formula.containers;
             } else if !(prefix && matches!(*byte, b' ' | b'\t' | b'>')) {
@@ -216,7 +234,7 @@ fn formulas(source: &str) -> Events<'_> {
     let mut result = Vec::new();
     let mut recognized = 0;
     for (event, range) in Parser::new_ext(&masked, super::OPTIONS).into_offset_iter() {
-        if let Event::DisplayMath(value) = &event
+        if let Event::DisplayMath(value) | Event::InlineMath(value) = &event
             && let Some(formula) = formulas.iter().find(|formula| formula.range == range)
         {
             let body = restore(source, formula, value);
@@ -243,6 +261,27 @@ fn formulas(source: &str) -> Events<'_> {
     }
 }
 
+fn numeric_body(body: &str) -> bool {
+    // Preserve spaced numeric algebra without treating currency prose as math.
+    if !body.ends_with([' ', '\t']) || body.contains(['\n', '\r']) {
+        return false;
+    }
+    let mut words = body.split_ascii_whitespace();
+    let (Some(coefficient), Some(variable)) = (words.next(), words.next()) else {
+        return false;
+    };
+    coefficient
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_digit)
+        && coefficient
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        && variable.len() == 1
+        && variable.as_bytes()[0].is_ascii_alphabetic()
+        && words.next().is_none()
+}
+
 fn merge(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
     let mut result: Vec<Range<usize>> = Vec::new();
     for range in ranges {
@@ -261,6 +300,16 @@ fn delimiters(source: &str) -> Vec<(usize, u8)> {
     let mut result = Vec::new();
     let mut slashes = 0;
     for (index, byte) in source.bytes().enumerate() {
+        if byte == b'$'
+            && slashes % 2 == 0
+            && index
+                .checked_sub(1)
+                .and_then(|at| source.as_bytes().get(at))
+                != Some(&b'$')
+            && source.as_bytes().get(index + 1) != Some(&b'$')
+        {
+            result.push((index, b'$'));
+        }
         if byte == b'\\' {
             if slashes % 2 == 0
                 && let Some(&delimiter) = source.as_bytes().get(index + 1)
@@ -277,7 +326,8 @@ fn delimiters(source: &str) -> Vec<(usize, u8)> {
 }
 
 fn restore<'a>(source: &'a str, formula: &Formula, value: &str) -> CowStr<'a> {
-    let body = &source[formula.range.start + 2..formula.range.end - 2];
+    let width = formula.delimiter_bytes;
+    let body = &source[formula.range.start + width..formula.range.end - width];
     if body.len() == value.len() {
         return body.into();
     }

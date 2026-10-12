@@ -103,6 +103,32 @@ fn preserves_numeric_formulas_and_protected_prices() {
 }
 
 #[test]
+fn preserves_spaced_numeric_payload() {
+    for (source, payload) in [("中文 $2 x $3", "2 x "), ("$2.5\ty\t$4", "2.5\ty\t")] {
+        let parsed = with_ranges(source);
+        let text = parsed.doc.blocks[0].text_at(Part::Body).unwrap();
+        let formulas: Vec<_> = text
+            .marks
+            .iter()
+            .filter(|mark| mark.mark == Mark::Math)
+            .map(|mark| &text.text[mark.range.clone()])
+            .collect();
+        assert_eq!(formulas, [payload]);
+        assert_eq!(&source[parsed.block_ranges[0].clone()], source);
+    }
+    for source in [
+        "`$2 x $3`",
+        r"\$2 x $3",
+        "[Price $2 x $3](https://example.com)",
+    ] {
+        let parsed = with_ranges(source);
+        let text = parsed.doc.blocks[0].text_at(Part::Body).unwrap();
+        assert!(text.marks.iter().all(|mark| mark.mark != Mark::Math));
+        assert_eq!(&source[parsed.block_ranges[0].clone()], source);
+    }
+}
+
+#[test]
 fn recognizes_normal_and_bayes_formulas() {
     let density =
         r"f_X(x)=\frac{1}{\sigma\sqrt{2\pi}}\exp\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)";
