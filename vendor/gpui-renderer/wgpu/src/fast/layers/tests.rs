@@ -907,7 +907,6 @@ impl FrameHost for Harness {
     fn target(&self) -> Result<FrameTarget<'_>> {
         let path_targets = self.path_targets.as_ref();
         Ok(FrameTarget {
-            backdrop: None,
             device: &self.device,
             queue: &self.queue,
             pipelines: &self.pipelines,

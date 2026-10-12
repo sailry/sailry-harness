@@ -168,7 +168,3 @@ features = ["HtmlCanvasElement"]
 version = "29.0"
 features = ["webgl"]
 default-features = false
-
-[[test]]
-name = "material"
-path = "tests/material.rs"

@@ -470,7 +470,7 @@ vertex ShadowVertexOutput shadow_vertex(
   Shadow shadow = shadows[shadow_id];
 
   Bounds_ScaledPixels bounds;
-  if (shadow.inset == 1u) {
+  if (shadow.inset != 0u) {
     bounds = shadow.element_bounds;
   } else {
     // Leave room for the gaussian tail outside the shadow rect.
@@ -543,18 +543,13 @@ fragment float4 shadow_fragment(ShadowFragmentInput input [[stage_in]],
     }
   }
 
-  if (shadow.inset == 1u) {
+  if (shadow.inset != 0u) {
     // The inset shadow is the complement of the (blurred) hole rect, clipped to the element.
     // `saturate(0.5 - d)` gives a 1-pixel antialiased edge: d <= -0.5 -> 1, d >= 0.5 -> 0.
     alpha = 1. - alpha;
     float element_distance = quad_sdf(input.position.xy, shadow.element_bounds,
                                       shadow.element_corner_radii);
     alpha *= saturate(0.5 - element_distance);
-  } else if (shadow.inset == 2u) {
-    // The same edge the other way: nothing inside the element, all of it out.
-    float element_distance = quad_sdf(input.position.xy, shadow.element_bounds,
-                                      shadow.element_corner_radii);
-    alpha *= saturate(0.5 + element_distance);
   }
 
   return input.color * float4(1., 1., 1., alpha);
@@ -1282,152 +1277,4 @@ float4 fill_color(Background background,
   }
 
   return color;
-}
-
-struct BackdropBlurVertexOutput {
-  float4 position [[position]];
-  uint blur_id [[flat]];
-  float clip_distance [[clip_distance]][4];
-};
-
-struct BackdropBlurFragmentInput {
-  float4 position [[position]];
-  uint blur_id [[flat]];
-};
-
-// The backdrop's chroma about its own grey. A gain alone moves level and
-// colour together; this is what lets a surface go dark and stay coloured.
-float3 saturated(float3 color, float amount) {
-  float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
-  return luma + (color - luma) * amount;
-}
-
-// The drawable is premultiplied — a quad lands as `alpha * colour` — and a
-// window that composites translucent carries alpha < 1 wherever the desktop
-// still shows. The transfer is a statement about colour, so it runs on the
-// straight value and the result is scaled back by the alpha it keeps.
-float3 unpremultiply(float4 color) { return color.rgb / max(color.a, 1e-4); }
-
-vertex BackdropBlurVertexOutput backdrop_blur_vertex(
-    uint unit_vertex_id [[vertex_id]], uint blur_id [[instance_id]],
-    constant float2 *unit_vertices [[buffer(BackdropBlurInputIndex_Vertices)]],
-    constant BackdropBlur *blurs [[buffer(BackdropBlurInputIndex_Blurs)]],
-    constant Size_DevicePixels *viewport_size
-    [[buffer(BackdropBlurInputIndex_ViewportSize)]]) {
-  float2 unit_vertex = unit_vertices[unit_vertex_id];
-  BackdropBlur blur = blurs[blur_id];
-  float4 device_position =
-      to_device_position(unit_vertex, blur.bounds, viewport_size);
-  float4 clip_distance = distance_from_clip_rect(unit_vertex, blur.bounds,
-                                                 blur.content_mask.bounds);
-  return BackdropBlurVertexOutput{
-      device_position,
-      blur_id,
-      {clip_distance.x, clip_distance.y, clip_distance.z, clip_distance.w}};
-}
-
-fragment float4 backdrop_blur_fragment(
-    BackdropBlurFragmentInput input [[stage_in]],
-    constant BackdropBlur *blurs [[buffer(BackdropBlurInputIndex_Blurs)]],
-    constant Size_DevicePixels *viewport_size
-    [[buffer(BackdropBlurInputIndex_ViewportSize)]],
-    texture2d<float> source_texture
-    [[texture(BackdropBlurInputIndex_SourceTexture)]],
-    texture2d<float> sharp_texture
-    [[texture(BackdropBlurInputIndex_SharpTexture)]]) {
-  constexpr sampler source_sampler(coord::normalized, address::clamp_to_edge,
-                                   filter::linear);
-  BackdropBlur blur = blurs[input.blur_id];
-
-  // Rounded-rect clip: blending is disabled on this pipeline (the blur
-  // REPLACES the region), so fragments outside must discard, not return 0.
-  float distance = quad_sdf(input.position.xy, blur.bounds, blur.corner_radii);
-  // How much of this pixel the shape covers, over a ramp the theme states.
-  // The pass does not blend — it replaces the region — so the boundary is
-  // mixed against the untouched backdrop below rather than by the blender.
-  float coverage =
-      saturate(0.5 - distance / max(blur.edge_aa, 1e-3)) * blur.opacity;
-  if (coverage <= 0.) {
-    discard_fragment();
-  }
-
-  // The snapshot was gaussian-blurred on the GPU (MPSImageGaussianBlur)
-  // before this pass — one clean sample.
-  float2 viewport =
-      float2((float)viewport_size->width, (float)viewport_size->height);
-  float2 point = input.position.xy;
-
-  // `distance` is negative inside, so this is 1 at the rim falling to 0 at
-  // `refraction` px inward — and exactly 0 everywhere when refraction is off.
-  float4 tint = hsla_to_rgba(blur.tint);
-  // The transfer is `out = gain * saturated(backdrop) + tint`; every term
-  // arrives with the primitive. A plain material, whose tint is transparent,
-  // is left alone.
-  float gain = tint.a > 0. ? blur.gain : 1.;
-  float saturation = tint.a > 0. ? blur.saturation : 1.;
-  float bevel = blur.lens;
-  // How deep into the glass this fragment is, across the bevel: 0 at the rim,
-  // 1 once the surface has flattened out.
-  float depth = bevel > 0. ? saturate(-distance / bevel) : 1.;
-  if (depth >= 1.) {
-    float2 uv = point / viewport;
-    float4 source = source_texture.sample(source_sampler, uv);
-    float4 sharp = sharp_texture.sample(source_sampler, uv);
-    float3 flat_color =
-        saturated(unpremultiply(source), saturation) * gain + tint.rgb * tint.a;
-    flat_color = mix(unpremultiply(sharp), flat_color, coverage);
-    float alpha = mix(sharp.a, source.a, coverage);
-    return float4(flat_color * alpha, alpha);
-  }
-
-  // Outward normal of the rounded rect: the SDF's gradient, by central
-  // difference so the corners bend along their true radius rather than the
-  // box's axes.
-  float2 gradient =
-      float2(quad_sdf(point + float2(1., 0.), blur.bounds, blur.corner_radii) -
-                 quad_sdf(point - float2(1., 0.), blur.bounds,
-                          blur.corner_radii),
-             quad_sdf(point + float2(0., 1.), blur.bounds, blur.corner_radii) -
-                 quad_sdf(point - float2(0., 1.), blur.bounds,
-                          blur.corner_radii));
-  float gradient_length = length(gradient);
-  float2 outward =
-      gradient_length > 0. ? gradient / gradient_length : float2(0.);
-
-  // The surface is a dome: flat along the centre-line, tilting to vertical at
-  // the rim. The epsilon keeps that divergence finite.
-  float rise = 1. - depth;
-  float slope = rise / sqrt(max(1. - rise * rise, 1e-4));
-
-  float2 step = -outward * slope * bevel * blur.magnify;
-  float limit = blur.reach;
-  float reach = length(step);
-  if (reach > limit) {
-    step *= limit / reach;
-  }
-  float2 offsets[3];
-  for (int channel = 0; channel < 3; channel++) {
-    offsets[channel] = step * (1. + float(channel - 1) * blur.dispersion);
-  }
-
-  // One blur across the whole surface, sampled through the lens. Each channel
-  // is straightened against the alpha it arrived with, since the three come
-  // from three positions.
-  float3 lensed;
-  for (int channel = 0; channel < 3; channel++) {
-    float2 uv = (point + offsets[channel]) / viewport;
-    lensed[channel] = unpremultiply(source_texture.sample(source_sampler, uv))[channel];
-  }
-  float3 color = saturated(lensed, saturation) * gain + tint.rgb * tint.a;
-
-  // The lit rim, even the whole way round.
-  color += (1. - smoothstep(0., blur.edge_width, -distance)) * blur.edge;
-
-  // The coverage the lens carries is the one it bent into place, so the band
-  // hands the window the same transparency the flat interior does.
-  float4 source = source_texture.sample(source_sampler, (point + step) / viewport);
-  float4 sharp = sharp_texture.sample(source_sampler, point / viewport);
-  color = mix(unpremultiply(sharp), color, coverage);
-  float alpha = mix(sharp.a, source.a, coverage);
-  return float4(color * alpha, alpha);
 }

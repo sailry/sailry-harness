@@ -57,7 +57,7 @@ pub(super) fn popup(
                 .left((window.viewport_size().width - width) / 2.)
                 .top(window.viewport_size().height / 10.)
                 .w(width)
-                .child(component::surface::render(
+                .child(
                     div()
                         .id(SharedString::from(id.clone()))
                         .debug_selector(move || id.clone())
@@ -74,8 +74,7 @@ pub(super) fn popup(
                         .rounded(cx.theme().surface_radius())
                         .shadow_xl()
                         .child(command),
-                    cx,
-                )),
+                ),
         )
         .into_any_element()
 }

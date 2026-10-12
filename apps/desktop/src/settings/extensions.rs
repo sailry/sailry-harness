@@ -6,7 +6,8 @@ use super::{
 };
 use crate::{plugins::Panel, tr};
 use gpui_kit::{component::*, *};
-use sailry_protocol::plugin::{Info, desktop};
+use sailry_protocol::plugin::{Info, Reference, desktop};
+use std::collections::BTreeMap;
 
 pub(crate) struct NavigationEntry {
     pub name: String,
@@ -29,6 +30,7 @@ impl NavigationEntry {
 #[derive(Default)]
 pub(super) struct State {
     pub selected: Option<String>,
+    panels: BTreeMap<String, (Reference, Entity<Panel>)>,
     panel: Option<Entity<Panel>>,
     form: Option<Entity<super::plugins::configuration::Editor>>,
     resources: Option<crate::plugins::preload::Resources>,
@@ -43,16 +45,39 @@ impl State {
         }
     }
 
-    pub(super) fn release(&mut self, cx: &mut App) {
+    pub(super) fn park(&mut self, cx: &App) {
         if let Some(panel) = self.panel.take() {
-            panel.update(cx, |panel, cx| panel.close(cx));
+            panel.read(cx).activity_sources.set_visible(false);
         }
         self.form = None;
     }
 
-    pub(super) fn retain_resources(&mut self, summaries: &[sailry_protocol::plugin::Summary]) {
+    pub(super) fn release(&mut self, cx: &mut App) {
+        self.park(cx);
+        for (_, (_, panel)) in std::mem::take(&mut self.panels) {
+            panel.update(cx, |panel, cx| panel.close(cx));
+        }
+    }
+
+    pub(super) fn retain(&mut self, summaries: &[sailry_protocol::plugin::Summary], cx: &mut App) {
         if let Some(resources) = &mut self.resources {
             resources.retain(summaries);
+        }
+        let active = self.panel.clone();
+        let mut released = false;
+        self.panels.retain(|name, (package, panel)| {
+            if summaries
+                .iter()
+                .any(|summary| summary.name == *name && summary.digest == package.digest)
+            {
+                return true;
+            }
+            released |= active.as_ref() == Some(panel);
+            panel.update(cx, |panel, cx| panel.close(cx));
+            false
+        });
+        if released {
+            self.panel = None;
         }
     }
 
@@ -234,7 +259,9 @@ impl Workspace {
     }
 
     pub(crate) fn open_plugin_settings(&mut self, name: &str, cx: &mut Context<Self>) {
-        self.preload_settings(name, cx);
+        if !self.extensions.panels.contains_key(name) {
+            self.preload_settings(name, cx);
+        }
         self.deactivate(cx);
         self.section = Section::Plugin;
         self.extensions.selected = Some(name.into());
@@ -337,6 +364,14 @@ impl Workspace {
             }
             return self.schema_settings(info, window, cx);
         }
+        if self.extensions.panel.is_none()
+            && let Some((_, panel)) = self.extensions.panels.get(&name)
+        {
+            panel.update(cx, |panel, cx| {
+                panel.enter(info.summary.reference(), window, cx)
+            });
+            self.extensions.panel = Some(panel.clone());
+        }
         if self.extensions.panel.is_none() {
             let prepared = self.prepare_settings(&name, cx);
             let Some(live) = &self.provider_link else {
@@ -363,7 +398,9 @@ impl Workspace {
                 });
             }
             let panel = cx.new(|cx| {
-                let panel = Panel::settings(binding, !page.full_width, cx).with_prepared(prepared);
+                let panel = Panel::settings(binding, !page.full_width, cx)
+                    .with_target(info.summary.name.clone())
+                    .with_prepared(prepared);
                 panel.usage_sources.set(sources);
                 panel
             });
@@ -385,6 +422,10 @@ impl Workspace {
                 cx.notify();
             })
             .detach();
+            self.extensions.panels.insert(
+                info.summary.name.clone(),
+                (info.summary.reference(), panel.clone()),
+            );
             self.extensions.panel = Some(panel);
         }
         if let (Some(panel), Some(live)) = (&self.extensions.panel, &self.provider_link) {

@@ -122,7 +122,7 @@ impl Render for Preview {
                             .into_any_element(),
                     }),
             )
-            .child(gpui_kit::component::surface::render(
+            .child(
                 h_flex()
                     .id("image-lightbox-toolbar")
                     .debug_selector(|| "image-lightbox-toolbar".into())
@@ -293,8 +293,7 @@ impl Render for Preview {
                                 }
                             })),
                     ),
-                cx,
-            ));
+            );
         DialogClose::new().size_full().child(content)
     }
 }

@@ -173,7 +173,6 @@ fn write_instances(scene: &Scene, writer: &mut InstanceBufferWriter) -> Result<I
     Ok(InstanceBindings {
         quads: writer.write(&scene.quads)?,
         shadows: writer.write(&scene.shadows)?,
-        backdrop_blurs: writer.write(&scene.backdrop_blurs)?,
         underlines: writer.write(&scene.underlines)?,
         monochrome_sprites: writer.write(&scene.monochrome_sprites)?,
         polychrome_sprites: writer.write(&scene.polychrome_sprites)?,

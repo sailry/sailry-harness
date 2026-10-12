@@ -354,7 +354,7 @@ impl Workspace {
         self.clear_hooks(cx);
         self.permissions
             .update(cx, |panel, cx| panel.activate(false, cx));
-        self.extensions.release(cx);
+        self.extensions.park(cx);
         self.shortcuts.update(cx, |panel, cx| panel.cancel(cx));
         self.connections
             .update(cx, |connections, cx| connections.close(cx));

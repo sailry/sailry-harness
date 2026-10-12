@@ -849,9 +849,6 @@
             "details": false,
             "order": 10000,
             "pinned": false,
-            "retention": {
-              "mode": "none"
-            },
             "surface": "workspace",
             "target": "node"
           },
@@ -1007,12 +1004,6 @@
         "pinned": {
           "default": false,
           "type": "boolean"
-        },
-        "retention": {
-          "$ref": "#/$defs/Retention",
-          "default": {
-            "mode": "none"
-          }
         },
         "surface": {
           "$ref": "#/$defs/Surface",
@@ -1386,56 +1377,6 @@
         "git"
       ],
       "type": "string"
-    },
-    "Retention": {
-      "description": "Workspace view lifetime; settings always release their view on navigation.",
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "mode": {
-              "const": "none",
-              "type": "string"
-            }
-          },
-          "required": [
-            "mode"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "mode": {
-              "const": "always",
-              "type": "string"
-            }
-          },
-          "required": [
-            "mode"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "mode": {
-              "const": "idle",
-              "type": "string"
-            },
-            "seconds": {
-              "format": "uint32",
-              "minimum": 1,
-              "type": "integer"
-            }
-          },
-          "required": [
-            "mode",
-            "seconds"
-          ],
-          "type": "object"
-        }
-      ]
     },
     "Rows": {
       "additionalProperties": false,

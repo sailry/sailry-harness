@@ -7,8 +7,8 @@ use crate::Inspector;
 use crate::profiler;
 use crate::{
     Action, AnyDrag, AnyElement, AnyImageCache, AnyTooltip, AnyView, App, AppContext, Arena, Asset,
-    AsyncWindowContext, AtlasTile, AvailableSpace, BackdropBlur, Background, BorderStyle, Bounds,
-    BoxShadow, Capslock, Context, Corners, CursorHideMode, CursorStyle, Decorations, DevicePixels,
+    AsyncWindowContext, AtlasTile, AvailableSpace, Background, BorderStyle, Bounds, BoxShadow,
+    Capslock, Context, Corners, CursorHideMode, CursorStyle, Decorations, DevicePixels,
     DispatchActionListener, DispatchNodeId, DispatchTree, DisplayId, Edges, Effect, Entity,
     EntityId, EventEmitter, FileDropEvent, FontId, Global, GlobalElementId, GlyphId, GpuSpecs,
     Hsla, InputHandler, InputPreference, IsZero, KeyBinding, KeyContext, KeyDownEvent, KeyEvent,
@@ -1582,36 +1582,6 @@ fn default_bounds(display_id: Option<DisplayId>, cx: &mut App) -> WindowBounds {
         (false, false) => display_bounds.origin,
     };
     window_bounds_ctor(Bounds::new(final_origin, base_size))
-}
-
-/// What a backdrop blur paints: the frost, the lens over it, and its tint.
-/// A struct rather than arguments so a new knob does not change every caller.
-#[derive(Debug, Clone, Copy)]
-pub struct GlassEffect {
-    /// Gaussian sigma applied to the snapshot. Zero skips the blur entirely.
-    pub blur_radius: Pixels,
-    /// How deep the lens profile reaches in from the rim. Zero paints flat.
-    pub lens: Pixels,
-    /// The furthest the rim may drag the backdrop. The dome's tilt runs to
-    /// vertical at the rim, so the displacement needs a bound of its own.
-    pub reach: Pixels,
-    /// Displacement amplitude; signed, so its sign picks the direction.
-    pub magnify: f32,
-    /// Per-channel spread of the displacement — the chromatic fringe.
-    pub dispersion: f32,
-    /// Slope of `out = gain * saturated(backdrop) + tint`.
-    pub gain: f32,
-    /// How far the backdrop's chroma is pushed from its own grey, before the
-    /// gain drops the level. 1 passes it through.
-    pub saturation: f32,
-    /// Its offset, added.
-    pub tint: Hsla,
-    /// How much white the lit rim adds, 0..1.
-    pub edge: f32,
-    /// How far in that light falls off to nothing.
-    pub edge_width: Pixels,
-    /// Width of the coverage ramp at the shape's boundary. Zero is a hard edge.
-    pub edge_aa: Pixels,
 }
 
 impl Window {
@@ -4549,27 +4519,6 @@ impl Window {
         corner_radii: Corners<Pixels>,
         shadows: &[BoxShadow],
     ) {
-        self.drop_shadows(bounds, corner_radii, shadows, false);
-    }
-
-    /// Paint drop shadows with the element's rounded shape cut out of them.
-    /// Use after a backdrop material so its interior does not darken the glass.
-    pub fn paint_drop_shadows_outside(
-        &mut self,
-        bounds: Bounds<Pixels>,
-        corner_radii: Corners<Pixels>,
-        shadows: &[BoxShadow],
-    ) {
-        self.drop_shadows(bounds, corner_radii, shadows, true);
-    }
-
-    fn drop_shadows(
-        &mut self,
-        bounds: Bounds<Pixels>,
-        corner_radii: Corners<Pixels>,
-        shadows: &[BoxShadow],
-        outside: bool,
-    ) {
         self.invalidator.debug_assert_paint();
 
         let scale_factor = self.scale_factor();
@@ -4591,7 +4540,7 @@ impl Window {
                 color: shadow.color.opacity(opacity),
                 element_bounds,
                 element_corner_radii,
-                inset: if outside { 2 } else { 0 },
+                inset: 0,
                 pad: 0,
             });
         }
@@ -4640,52 +4589,6 @@ impl Window {
                 pad: 0,
             });
         }
-    }
-
-    /// Paint a within-window backdrop blur: everything already painted
-    /// beneath `bounds` is snapshotted and painted back through [`GlassEffect`]
-    /// inside the rounded rect. Metal and wgpu implement it; a renderer without
-    /// it ignores the call, so callers keep a fill of their own.
-    /// Content painted AFTER this call composites on top.
-    pub fn paint_backdrop_blur(
-        &mut self,
-        bounds: Bounds<Pixels>,
-        corner_radii: Corners<Pixels>,
-        glass: GlassEffect,
-    ) {
-        self.invalidator.debug_assert_paint();
-        let scale_factor = self.scale_factor();
-        let content_mask = self.content_mask().scale(scale_factor);
-        // A radius past half the box makes `quad_sdf` read every fragment as
-        // outside, and the whole region discards — a `rounded_full` pill would
-        // paint no glass at all.
-        let limit = bounds.size.width.min(bounds.size.height) / 2.;
-        let corner_radii = Corners {
-            top_left: corner_radii.top_left.min(limit),
-            top_right: corner_radii.top_right.min(limit),
-            bottom_right: corner_radii.bottom_right.min(limit),
-            bottom_left: corner_radii.bottom_left.min(limit),
-        };
-        self.next_frame.scene.insert_backdrop_blur(BackdropBlur {
-            order: 0,
-            blur_radius: glass.blur_radius.scale(scale_factor),
-            bounds: bounds.scale(scale_factor),
-            content_mask,
-            corner_radii: corner_radii.scale(scale_factor),
-            lens: glass.lens.scale(scale_factor),
-            reach: glass.reach.scale(scale_factor),
-            magnify: glass.magnify,
-            dispersion: glass.dispersion,
-            gain: glass.gain,
-            saturation: glass.saturation,
-            tint: glass.tint,
-            edge: glass.edge,
-            edge_width: glass.edge_width.scale(scale_factor),
-            edge_aa: glass.edge_aa.scale(scale_factor),
-            // Read here rather than taken from the caller: a material inside a
-            // fading tree is faded by the tree, like every other primitive.
-            opacity: self.element_opacity(),
-        });
     }
 
     fn largest_border_interior(quad: &Quad) -> Bounds<ScaledPixels> {

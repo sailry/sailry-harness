@@ -9,7 +9,6 @@ use sailry_protocol::{
 };
 use std::sync::Arc;
 mod desktop;
-mod retention;
 
 /// Navigation is a UI action; the existing conversation route owns all loading.
 pub(super) fn ui(
@@ -150,13 +149,22 @@ pub(crate) struct Navigation {
     pub metadata: Entity<Metadata>,
     desktop: Entity<desktop::Desktop>,
     pub(super) panels: Vec<(Entry, Entity<Panel>)>,
-    expiry: std::collections::HashMap<EntityId, Task<()>>,
     pub panel: Option<Entity<Panel>>,
     pub selected: Option<Entry>,
     pub label: SharedString,
 }
 
 impl Shell {
+    pub(crate) fn park_extension(&mut self, cx: &mut Context<Self>) {
+        if let Some(panel) = self
+            .extensions
+            .as_ref()
+            .and_then(|state| state.panel.as_ref())
+        {
+            panel.read(cx).activity_sources.set_visible(false);
+        }
+    }
+
     pub(crate) fn usage_sources(&self) -> Vec<super::usage::Source> {
         self.live
             .iter()
@@ -420,7 +428,6 @@ impl Shell {
                     metadata,
                     desktop,
                     panels: Vec::new(),
-                    expiry: Default::default(),
                     panel: None,
                     selected: None,
                     label: crate::tr("settings_plugins"),
@@ -468,12 +475,6 @@ impl Shell {
                             .any(|worktree| worktree.id == tree)
                 })
             })
-        });
-        state.expiry.retain(|id, _| {
-            state
-                .panels
-                .iter()
-                .any(|(_, panel)| panel.entity_id() == *id)
         });
         if self.page != Page::Plugin
             && state
@@ -794,7 +795,6 @@ impl Shell {
                 && cached.package == entry.package
                 && cached.worktree == entry.worktree
         }) {
-            state.expiry.remove(&panel.entity_id());
             state.panel = Some(panel.clone());
             state.selected = Some(entry.clone());
             if loadable {
@@ -821,6 +821,7 @@ impl Shell {
             let sources = panel_sources(&sources, &binding);
             let panel = cx.new(|cx| {
                 let panel = Panel::workspace(binding, entry.navigation.details, cx)
+                    .with_target(entry.package.name.clone())
                     .with_documents(documents);
                 panel.usage_sources.set(sources);
                 panel

@@ -33,6 +33,7 @@ mod documents;
 mod draft;
 mod export;
 mod forks;
+mod loading;
 mod location;
 mod messages;
 mod mode;
@@ -266,7 +267,7 @@ impl View {
             .then(|| watch::node(&binding, true, &defaults_stop, cx));
         let (history, older) = session
             .as_ref()
-            .map(|session| watch::history(&binding, session.id, &stop, cx))
+            .map(|session| watch::history(&binding, session.id, History::default(), &stop, cx))
             .unzip();
         let scroller = cx.new(|cx| MessageScrollerState::new(0, cx));
         let model_picker = cx.new(|_| super::models::Picker::new());
@@ -606,18 +607,18 @@ impl Render for View {
             )
         });
         self.navigation.rows.borrow_mut().clear();
-        if let Some(panel) = self.unavailable(cx) {
-            return panel;
-        }
+        let welcome = self.session.is_none() && self.rows.is_empty();
         let owner = cx.entity().downgrade();
-        let body = if self.rows.is_empty() && self.readonly() {
+        let body = if self.loading_history() {
+            self.history_placeholder().into_any_element()
+        } else if self.rows.is_empty() && self.readonly() {
             div().into_any_element()
         } else if self.rows.is_empty() && (self.resource.is_some() || self.assistant.is_some()) {
             crate::empty_state::panel(IconName::Bot, "chat_sidebar_empty", cx).into_any_element()
         } else if self.rows.is_empty() {
             v_flex()
                 .size_full()
-                .child(div().flex_1().min_h_0().child(self.welcome(cx)))
+                .child(div().flex_1().min_h_0().child(self.welcome(welcome, cx)))
                 .into_any_element()
         } else {
             MessageScroller::new(
@@ -694,7 +695,7 @@ impl Render for View {
                 |body| body.child(self.session_controls(cx)),
             )
             .children(crate::theme::banner(
-                if self.rows.is_empty() {
+                if welcome {
                     "banner.new_session"
                 } else {
                     "banner.conversation.top"
@@ -740,7 +741,7 @@ impl Render for View {
                     }),
             )
             .children(
-                (!self.rows.is_empty())
+                (!welcome)
                     .then(|| crate::theme::banner("banner.conversation.bottom", cx))
                     .flatten(),
             )
@@ -748,6 +749,7 @@ impl Render for View {
                 !self.readonly()
                     && (self.resource.is_some()
                         || self.assistant.is_some()
+                        || self.session.is_some()
                         || !self.rows.is_empty()),
                 |body| body.child(self.composer(cx)),
             )

@@ -5,6 +5,9 @@ use serde_json::{Value, json};
 #[path = "scheduled/calendar.rs"]
 mod calendar;
 
+#[path = "scheduled/loading.rs"]
+pub(super) mod loading;
+
 fn install(fixture: &Fixture) -> plugin::Info {
     let Output::Providers(mut providers) = fixture.execute(Command::ListProviders) else {
         panic!("providers expected")
@@ -542,17 +545,15 @@ fn centers_the_page_and_switches_native_tabs(cx: &mut TestAppContext) {
         let fixture = Fixture::new(remote);
         let package = install(&fixture);
         let (panel, visual) = mount(&fixture, &package, cx);
-        wait(visual, |cx| snapshot(&panel, cx).contains("tasks-empty"));
+        wait(visual, |cx| list_ready(&panel, "tasks-items", cx));
         layout(visual, 1440.);
-        assert!(visual.debug_bounds("empty-tasks-empty").is_some());
-        empty_card(visual, "tasks-empty");
+        assert!(visual.debug_bounds("empty-tasks-items-empty").is_some());
+        empty_card(visual, "tasks-items-empty");
         click(visual, "tasks-tab-runs");
-        wait(visual, |cx| {
-            snapshot(&panel, cx).contains("tasks-runs-empty")
-        });
+        wait(visual, |cx| list_ready(&panel, "tasks-runs", cx));
         assert!(visual.debug_bounds("empty-tasks-runs-empty").is_some());
         empty_card(visual, "tasks-runs-empty");
-        assert!(visual.debug_bounds("empty-tasks-empty").is_none());
+        assert!(visual.debug_bounds("empty-tasks-items-empty").is_none());
         click(visual, "tasks-tab-tasks");
         wait(visual, |cx| snapshot(&panel, cx).contains("tasks-items"));
         let saved = call(
@@ -563,15 +564,14 @@ fn centers_the_page_and_switches_native_tabs(cx: &mut TestAppContext) {
         );
         let selector = select(format!("task-card-{}", saved["id"].as_str().unwrap()));
         wait(visual, |cx| snapshot(&panel, cx).contains(selector));
-        assert!(visual.debug_bounds("empty-tasks-empty").is_none());
+        assert!(visual.debug_bounds("empty-tasks-items-empty").is_none());
         let card = visual.debug_bounds(selector).unwrap();
         let body = visual.debug_bounds("tasks-content").unwrap();
         assert!(card.left() >= body.left() && card.right() <= body.right());
         card_row(visual, saved["id"].as_str().unwrap());
         click(visual, "tasks-tab-runs");
         wait(visual, |cx| {
-            snapshot(&panel, cx).contains("tasks-runs-empty")
-                && !snapshot(&panel, cx).contains(selector)
+            list_ready(&panel, "tasks-runs", cx) && !snapshot(&panel, cx).contains(selector)
         });
         click(visual, "tasks-tab-tasks");
         wait(visual, |cx| snapshot(&panel, cx).contains(selector));
@@ -644,6 +644,14 @@ fn card_row(visual: &mut VisualTestContext, id: &str) {
         assert!(button.size.width <= px(32.));
         right = button.right();
     }
+}
+
+pub(super) fn list_ready(panel: &Entity<Panel>, id: &str, cx: &App) -> bool {
+    snapshot(panel, cx).lines().any(|line| {
+        line.contains("CardList")
+            && line.contains(&format!("\"{id}\""))
+            && line.contains("(\"loaded\", Bool(true))")
+    })
 }
 
 fn empty_card(visual: &mut VisualTestContext, id: &str) {

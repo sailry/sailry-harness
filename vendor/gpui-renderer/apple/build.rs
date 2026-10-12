@@ -2,8 +2,6 @@
 #![allow(clippy::disallowed_methods, reason = "build scripts are exempt")]
 
 fn main() {
-    // Legacy objc macros check this feature in their destination crate.
-    println!("cargo::rustc-check-cfg=cfg(feature, values(\"cargo-clippy\"))");
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     apple_build::run();
 }
@@ -64,9 +62,6 @@ mod apple_build {
             "PathSprite".into(),
             "SurfaceInputIndex".into(),
             "SurfaceBounds".into(),
-            "BackdropBlur".into(),
-            "GlassEffect".into(),
-            "BackdropBlurInputIndex".into(),
             "TransformationMatrix".into(),
         ]);
         config.no_includes = true;
@@ -106,7 +101,7 @@ mod apple_build {
     /// build-script runtime against this crate's manifest dir, so no checkout
     /// path is baked into a compiled artifact (which corgi rejects).
     fn find_gpui_crate_dir() -> PathBuf {
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../gpui")
+        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("src/fast/release_gpui")
     }
 
     /// To enable runtime compilation, we need to "stitch" the shaders file with the generated header

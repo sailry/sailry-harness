@@ -71,6 +71,7 @@ impl View {
         h_flex()
             .debug_selector(|| "composer-context-bar".into())
             .relative()
+            .min_h_8()
             .min_w_0()
             .mx_3()
             .px_2()

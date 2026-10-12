@@ -22,6 +22,7 @@ mod message_display;
 mod outgoing;
 mod progress;
 mod recovery;
+mod retention;
 mod retry;
 mod spacing;
 mod statistics;

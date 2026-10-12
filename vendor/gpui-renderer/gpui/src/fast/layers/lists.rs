@@ -207,8 +207,8 @@ struct Row {
     part: LayerPart,
     /// The hash of what the row draws over each tile it reaches.
     tile_hashes: Vec<(TileCoord, u64)>,
-    /// Whether the row painted a path or backdrop, which tiles cannot hold.
-    requires_direct: bool,
+    /// Whether the row painted a path, which tiles cannot hold.
+    has_paths: bool,
     /// The layer's translation when the row was painted: its hitboxes, and
     /// the positions its closures and element states hold, are window
     /// positions at it.
@@ -2063,18 +2063,14 @@ pub(crate) fn end_paint_rows(window: &mut Window, cx: &mut App, id: Option<&Glob
         for operation in &mut row_operations {
             match operation {
                 PaintOperation::Primitive(primitive) => move_primitive(primitive, to_content),
-                PaintOperation::BackdropBlur(blur) => *blur = blur.translated(to_content),
                 PaintOperation::StartLayer(bounds) => bounds.origin = bounds.origin + to_content,
                 PaintOperation::EndLayer => {}
             }
         }
         let (tile_hashes, reach) = part_tile_hashes(&row_operations, paint::TILE_SIZE);
-        let requires_direct = row_operations.iter().any(|operation| {
-            matches!(
-                operation,
-                PaintOperation::Primitive(Primitive::Path(_)) | PaintOperation::BackdropBlur(_)
-            )
-        });
+        let has_paths = row_operations
+            .iter()
+            .any(|operation| matches!(operation, PaintOperation::Primitive(Primitive::Path(_))));
         let mut scene = Scene::default();
         scene.paint_operations = row_operations;
         let (prepaint, hitboxes, layout_keys) =
@@ -2119,7 +2115,7 @@ pub(crate) fn end_paint_rows(window: &mut Window, cx: &mut App, id: Option<&Glob
                     scene: Rc::new(scene),
                 },
                 tile_hashes,
-                requires_direct,
+                has_paths,
                 translation,
                 hitboxes,
                 hovers: span.hovers,
@@ -2154,7 +2150,7 @@ pub(crate) fn end_paint_rows(window: &mut Window, cx: &mut App, id: Option<&Glob
         paint::TILE_SIZE,
         region,
     );
-    let requires_direct = rows.rows.values().any(|row| row.requires_direct);
+    let has_paths = rows.rows.values().any(|row| row.has_paths);
 
     let old = layer.record.take();
     let generation = layer.next_generation();
@@ -2202,12 +2198,12 @@ pub(crate) fn end_paint_rows(window: &mut Window, cx: &mut App, id: Option<&Glob
         hovers: Rc::from([]),
         dependencies,
         views,
-        requires_direct,
+        has_paths,
         paths: Rc::from([]),
         view_layouts: Rc::default(),
     });
     finish_records(window, id, &frame, records);
-    if frame.mode == Mode::Repaint && !requires_direct {
+    if frame.mode == Mode::Repaint && !has_paths {
         window
             .layout_engine
             .as_mut()
@@ -2327,7 +2323,7 @@ mod tests {
                                     scene: Rc::new(Scene::default()),
                                 },
                                 tile_hashes: Vec::new(),
-                                requires_direct: false,
+                                has_paths: false,
                                 translation: Point::default(),
                                 hitboxes: Vec::new(),
                                 hovers: Vec::new(),
@@ -2400,7 +2396,7 @@ mod tests {
                                     scene: scene.clone(),
                                 },
                                 tile_hashes: Vec::new(),
-                                requires_direct: false,
+                                has_paths: false,
                                 translation: Point::default(),
                                 hitboxes: Vec::new(),
                                 hovers: Vec::new(),

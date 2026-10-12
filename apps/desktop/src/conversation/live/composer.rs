@@ -28,6 +28,7 @@ impl View {
                     || !self.attachments.sendable()));
         let toolbar = h_flex()
             .debug_selector(|| "composer-toolbar".into())
+            .min_h_8()
             .gap_1()
             .flex_wrap()
             .when(!self.sidebar, |bar| {
@@ -225,7 +226,7 @@ impl View {
     pub(super) fn notices(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         self.composer_activity(cx).into_iter().collect()
     }
-    pub(super) fn welcome(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn welcome(&self, with_composer: bool, cx: &mut Context<Self>) -> AnyElement {
         let owner = cx.entity().downgrade();
         super::super::welcome::content(
             std::rc::Rc::new(move |prompt, window, cx| {
@@ -236,7 +237,11 @@ impl View {
                     })
                 });
             }),
-            self.composer(cx),
+            if with_composer {
+                self.composer(cx)
+            } else {
+                div().into_any_element()
+            },
             cx,
         )
     }

@@ -164,30 +164,7 @@ mod hierarchy {
 
     #[gpui::test]
     fn native_list_surface_has_only_row_insets(cx: &mut TestAppContext) {
-        use std::{cell::Cell, rc::Rc};
-
         let (shell, mut visual) = crate::shell::tests::setup(cx);
-        let surfaces = Rc::new(Cell::new(0));
-        visual.update({
-            let surfaces = surfaces.clone();
-            move |_, cx| {
-                gpui_kit::component::surface::set_renderer(
-                    move |child, corners, cx| {
-                        surfaces.set(surfaces.get() + 1);
-                        assert_eq!(
-                            corners,
-                            Corners::all(cx.theme().surface_radius())
-                                .map(|radius| (*radius).into()),
-                        );
-                        div()
-                            .debug_selector(|| "global-command-surface".into())
-                            .child(child)
-                            .into_any_element()
-                    },
-                    cx,
-                );
-            }
-        });
         visual.simulate_keystrokes("secondary-k");
         visual.run_until_parked();
         visual
@@ -197,17 +174,19 @@ mod hierarchy {
         for viewport in [size(px(1280.), px(820.)), size(px(760.), px(600.))] {
             visual.simulate_resize(viewport);
             visual.run_until_parked();
-            surfaces.set(0);
             visual.update(|window, cx| {
                 window.refresh();
                 window.draw(cx).clear(cx);
             });
-            assert_eq!(
-                surfaces.get(),
-                1,
-                "only the registered dialog owns material"
-            );
-            let surface = visual.debug_bounds("global-command-surface").unwrap();
+            let surface = visual.debug_bounds("dialog-0").unwrap();
+            let native = crate::ui::overlays::tests::panel(&mut visual, "dialog-0");
+            visual.update(|window, cx| {
+                assert_eq!(
+                    native.corner_radii,
+                    Corners::all(cx.theme().surface_radius()).scale(window.scale_factor())
+                );
+            });
+            assert!(native.background.as_solid().is_some());
             let content = visual.debug_bounds("global-command").unwrap();
             let search = visual.debug_bounds("list-search").unwrap();
             let row = visual.debug_bounds("global-command-item-0-0").unwrap();

@@ -37,7 +37,6 @@ animations remain owned by the original Kit components.
 | GroupBox surface without an empty footer wrapper | Retained; the upstream wrapper still prevents relative full-height surfaces. Existing footer composition is unchanged. Reusable upstream candidate |
 | Intrinsic DialogClose and DialogAction wrappers | Retained; upstream still imposes full size on footer controls. Reusable upstream candidate |
 | Dialog full-screen content and outer text-selection scope | Retained inside the native dialog lifecycle for immersive approved surfaces. Reusable upstream candidate |
-| Floating Surface renderer extension for menus, popovers, selects, dialogs and notifications | Retained verified renderer boundary; changes background painting only. Current upstream dialog entrance, reduced motion and selection behavior remain in use. Reusable upstream candidate |
 | Shared surface radius and theme border treatment | Retained as approved application theme geometry and colors |
 | Attachment native preview Button, accessibility label and transparent highlight option | Retained; preserves keyboard activation and accessible image-card names. Reusable upstream candidate |
 | Attachment retry-slot identities | Retained; media and description retries keep independent pointer and focus state. Reusable upstream candidate |
@@ -61,6 +60,7 @@ upstream publication is part of the vendored refresh.
 | Medium input/control text-size overrides | Current `Size::input_text_size` supplies the same small text default through Kit's sizing API. Switch, Checkbox, Radio, OTP and Toggle use that API |
 | Old icon-generation build-script explanation | Current Assets supplies the shared icon enum and retains the Cargo icon-directory metadata; the current Component build script is copied unchanged |
 | GPUI snapshot-only dependency override | Current upstream already pins the pre family and defines coherent Fast feature propagation |
+| Floating Surface renderer extension | Removed by product decision together with the application glass renderer. Native Kit fills, borders, shadows, animation and focus behavior remain authoritative. Interaction and geometry tests observe native surfaces directly |
 
 The previous standalone lockfile described the old snapshot. Product builds use
 the root Cargo.lock; standalone test resolution must be refreshed for this source.

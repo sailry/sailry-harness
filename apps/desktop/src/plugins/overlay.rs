@@ -110,7 +110,7 @@ fn form_popup(
         .absolute()
         .left((window.viewport_size().width - width) / 2.)
         .w(width)
-        .child(component::surface::render(card, cx))
+        .child(card)
         .with_animation(
             "plugin-form-slide",
             Animation::new(*ANIMATION_DURATION).with_easing(cubic_bezier(
@@ -195,10 +195,10 @@ pub(super) fn module(cx: &mut App) -> HostModule {
                 form_popup(id.clone(), title, width, args.take_children(), dismissable, window, cx)
             } else {
                 div().absolute().inset_0().flex().items_center().justify_center()
-                    .child(component::surface::render(div().occlude().relative().flex().flex_col().p_5().pt_10()
+                    .child(div().debug_selector(|| "plugin-modal-surface".into()).occlude().relative().flex().flex_col().p_5().pt_10()
                         .bg(colors.surface.alpha(1.)).text_color(colors.surface_foreground)
                         .border_1().border_color(colors.border).rounded(cx.theme().radius_lg)
-                        .children(args.take_children()).child(close_button(id.clone(), dismissable)), cx)).into_any_element()
+                        .children(args.take_children()).child(close_button(id.clone(), dismissable))).into_any_element()
             };
             base::Dialog::new(cx)
                 .focus_handle(focus)

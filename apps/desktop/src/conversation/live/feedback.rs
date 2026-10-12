@@ -149,19 +149,6 @@ impl View {
             .flatten()
     }
 
-    /// Missing history is a loading state, never a new conversation.
-    pub(super) fn unavailable(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let loading = self.session.is_some() && self.history.snapshot.is_none();
-        if !loading || self.outgoing.is_some() {
-            return None;
-        }
-        Some(
-            crate::empty_state::panel(IconName::LoaderCircle, "chat_history_loading", cx)
-                .debug_selector(|| "chat-unavailable".into())
-                .key_context("LiveConversation"),
-        )
-    }
-
     fn reconnect(&mut self, cx: &mut Context<Self>) {
         if self.node.error.is_some() {
             self._node = watch::node(&self.binding, false, &self.stop, cx);
@@ -173,7 +160,8 @@ impl View {
             self.defaults.error = None;
         }
         if let Some(session) = self.session() {
-            let (subscription, older) = watch::history(&self.binding, session, &self.stop, cx);
+            let (subscription, older) =
+                watch::history(&self.binding, session, self.history.clone(), &self.stop, cx);
             self.subscription = Some(subscription);
             self.older = Some(older);
             self.history.error = None;

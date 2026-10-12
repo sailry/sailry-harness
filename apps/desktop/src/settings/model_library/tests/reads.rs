@@ -96,6 +96,56 @@ fn delay(
 }
 
 #[gpui::test]
+fn first_search_waits_before_empty(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        for failed in [false, true] {
+            let fixture = Fixture::new(remote);
+            *fixture.transport.catalog.lock().unwrap() = Some(definition());
+            let (owner, visual) = fixture.mount(cx);
+            let panel = visual.update(|_, cx| selected(&owner, cx).unwrap());
+            let delayed = Arc::new(Delayed {
+                inner: fixture.transport.clone(),
+                held: Mutex::default(),
+            });
+            let library = visual.update(|window, cx| {
+                let mut binding = owner
+                    .read(cx)
+                    .provider_link
+                    .as_ref()
+                    .unwrap()
+                    .binding
+                    .clone();
+                binding.client = Arc::new(Client::new(delayed.clone()));
+                open(Target::Knowledge(panel), binding, window, cx)
+            });
+            wait(visual, |_| delayed.held.lock().unwrap().len() == 1);
+            assert!(visual.debug_bounds("model-library-loading").is_some());
+            assert!(visual.debug_bounds("empty-model_library_empty").is_none());
+            assert!(visual.debug_bounds("model-library-retry").is_none());
+            delayed.held.lock().unwrap()[0].result = Some(if failed {
+                Err(Fault::invalid("injected catalog failure"))
+            } else {
+                Ok(Output::ModelSearch(sailry_protocol::models::Page {
+                    items: Vec::new(),
+                    next_cursor: None,
+                    partial: false,
+                }))
+            });
+            assert!(delayed.complete(0));
+            wait(visual, |cx| !library.read(cx).loading);
+            assert!(visual.debug_bounds("model-library-loading").is_none());
+            assert_eq!(
+                visual.debug_bounds("empty-model_library_empty").is_some(),
+                !failed
+            );
+            assert_eq!(visual.debug_bounds("model-library-retry").is_some(), failed);
+            fixture.close(visual);
+        }
+    }
+}
+
+#[gpui::test]
 fn cancels_search_when_catalog_closes(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
@@ -119,6 +169,7 @@ fn cancels_search_when_catalog_closes(cx: &mut TestAppContext) {
             window.input("encoder", cx);
         });
         draw(visual);
+        let before = visual.debug_bounds("model-library-result-0").unwrap();
         tap(visual, "model-library-search");
         wait(visual, |cx| {
             library.read(cx).loading && delayed.held.lock().unwrap().len() == 1
@@ -127,6 +178,8 @@ fn cancels_search_when_catalog_closes(cx: &mut TestAppContext) {
             &delayed.held.lock().unwrap()[0].request.command,
             Command::SearchModels(_)
         ));
+        assert_eq!(visual.debug_bounds("model-library-result-0"), Some(before));
+        assert!(visual.debug_bounds("model-library-loading").is_none());
         visual.update(|window, cx| window.press("escape", cx));
         draw(visual);
         wait(visual, |_| delayed.closed(0));
@@ -289,6 +342,9 @@ fn replaces_reads_when_source_changes(cx: &mut TestAppContext) {
         wait(visual, |_| {
             delayed.closed(0) && delayed.held.lock().unwrap().len() == 2
         });
+        assert!(visual.debug_bounds("model-library-loading").is_some());
+        assert!(visual.debug_bounds("model-library-result-0").is_none());
+        assert!(visual.debug_bounds("empty-model_library_empty").is_none());
         assert!(!delayed.complete(0));
         assert!(matches!(&delayed.held.lock().unwrap()[1].request.command,
             Command::SearchModels(search) if search.hub == Hub::ModelScope));

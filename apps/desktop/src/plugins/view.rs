@@ -60,6 +60,103 @@ impl Render for Panel {
                         },
                     )
                     .into_any_element()
+            } else if self.target.is_some() || self.selected.is_some() || self.loading {
+                let catalog = self.metadata.read(cx);
+                let package = self
+                    .target
+                    .as_ref()
+                    .and_then(|name| catalog.entries.get(name))
+                    .map(|info| info.summary.reference())
+                    .or_else(|| self.selected.clone());
+                let metadata_failed = !catalog.errors.is_empty();
+                let unavailable = self.connected
+                    && catalog.settled()
+                    && package
+                        .as_ref()
+                        .is_none_or(|package| !self.available(package));
+                let failed = !self.loading
+                    && (self.error.is_some()
+                        || self.source_error.is_some()
+                        || metadata_failed
+                        || unavailable);
+                let retryable = self.connected
+                    && (metadata_failed
+                        || package
+                            .as_ref()
+                            .is_some_and(|package| self.available(package)));
+                let body = v_flex().w_full().min_h_64().child(if failed {
+                    div()
+                        .h_64()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            crate::feedback::retry("plugin-view-retry")
+                                .debug_selector(|| "plugin-view-retry".into())
+                                .disabled(!retryable)
+                                .on_click(cx.listener(move |panel, _, window, cx| {
+                                    panel
+                                        .metadata
+                                        .update(cx, |metadata, cx| metadata.refresh(cx));
+                                    if let Some(package) = &package {
+                                        panel.open(package.clone(), window, cx);
+                                    }
+                                })),
+                        )
+                        .into_any_element()
+                } else {
+                    crate::ui::skeleton::list("plugin-loading-list", 3, cx)
+                });
+                v_flex()
+                    .id("plugin-panel-loading")
+                    .debug_selector(move || {
+                        if failed {
+                            "plugin-panel-unavailable"
+                        } else {
+                            "plugin-panel-loading"
+                        }
+                        .into()
+                    })
+                    .w_full()
+                    .min_w_0()
+                    .when(!self.content_sized, |view| {
+                        view.flex_1().min_h_0().overflow_y_scroll()
+                    })
+                    .child(if self.content_sized {
+                        body.into_any_element()
+                    } else {
+                        v_flex()
+                            .w_full()
+                            .max_w(px(crate::preview::CONTENT_WIDTH))
+                            .mx_auto()
+                            .p_6()
+                            .gap_6()
+                            .child(
+                                v_flex()
+                                    .gap_2()
+                                    .child(div().h_6().w_40().when(!failed, |view| {
+                                        view.child(skeleton::Skeleton::new().size_full())
+                                    }))
+                                    .child(div().h_5().w_64().when(!failed, |view| {
+                                        view.child(
+                                            skeleton::Skeleton::new().secondary().size_full(),
+                                        )
+                                    })),
+                            )
+                            .child(
+                                h_flex()
+                                    .justify_between()
+                                    .child(div().h_8().w_32().when(!failed, |view| {
+                                        view.child(skeleton::Skeleton::new().size_full())
+                                    }))
+                                    .child(div().h_8().w_20().when(!failed, |view| {
+                                        view.child(skeleton::Skeleton::new().size_full())
+                                    })),
+                            )
+                            .child(body)
+                            .into_any_element()
+                    })
+                    .into_any_element()
             } else {
                 v_flex()
                     .id("plugin-panel-content")

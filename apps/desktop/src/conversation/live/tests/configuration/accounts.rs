@@ -5,7 +5,7 @@ use sailry_protocol::{ErrorCode, Fault, RequestId, Topic};
 use std::sync::Mutex;
 
 mod fixture;
-use fixture::Fixture;
+use self::fixture::Fixture;
 
 fn init(cx: &mut TestAppContext) {
     init_view(cx);

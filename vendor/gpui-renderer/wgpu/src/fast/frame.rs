@@ -44,8 +44,8 @@ use crate::fast::globals::UploadedGlobals;
 use crate::fast::layers::{TileCache, composite, raster};
 use crate::fast::pass_state::PassState;
 use crate::wgpu_renderer::{
-    InstanceBinding, InstanceData, PathRasterizationVertex, PathSprite, WgpuBindGroupLayouts,
-    WgpuPipelines, WgpuRendererCore,
+    InstanceData, PathRasterizationVertex, PathSprite, WgpuBindGroupLayouts, WgpuPipelines,
+    WgpuRendererCore,
 };
 
 /// How far apart, in device pixels, path batches must be to share the
@@ -72,7 +72,6 @@ pub(crate) struct FrameState {
 /// The GPU objects a frame is recorded with, borrowed from whoever owns them:
 /// the on-screen renderer, or the pixel tests' surfaceless harness.
 pub(crate) struct FrameTarget<'a> {
-    pub(crate) backdrop: Option<&'a WgpuRendererCore>,
     pub(crate) device: &'a wgpu::Device,
     pub(crate) queue: &'a wgpu::Queue,
     pub(crate) pipelines: &'a WgpuPipelines,
@@ -127,7 +126,6 @@ impl FrameHost for WgpuRendererCore {
             anyhow::bail!("the storage buffer transport has no instance buffer");
         };
         Ok(FrameTarget {
-            backdrop: Some(self),
             device: &resources.device,
             queue: &resources.queue,
             pipelines: &resources.pipelines,
@@ -162,7 +160,6 @@ pub(crate) struct PathBatch {
 
 /// Where one scene's primitives landed in the instance buffer.
 pub(crate) struct SceneUpload {
-    backdrop_blurs: InstanceBinding,
     quads: wgpu::BindGroup,
     shadows: wgpu::BindGroup,
     underlines: wgpu::BindGroup,
@@ -193,12 +190,11 @@ pub(crate) fn record_frame(
     scene: &Scene,
     frame_view: &wgpu::TextureView,
     clear_color: wgpu::Color,
-    blit_to: Option<&wgpu::TextureView>,
 ) -> Result<Option<wgpu::SubmissionIndex>> {
     if renderer.uses_webgl_instance_data {
         return Ok(None);
     }
-    record_into_target(renderer, scene, frame_view, clear_color, blit_to).map(Some)
+    record_into(renderer, scene, frame_view, clear_color).map(Some)
 }
 
 /// Records `scene` into `frame_view`, cleared to `clear` first, and submits it.
@@ -208,22 +204,12 @@ pub(crate) fn record_into(
     frame_view: &wgpu::TextureView,
     clear: wgpu::Color,
 ) -> Result<wgpu::SubmissionIndex> {
-    record_into_target(host, scene, frame_view, clear, None)
-}
-
-fn record_into_target(
-    host: &mut impl FrameHost,
-    scene: &Scene,
-    frame_view: &wgpu::TextureView,
-    clear: wgpu::Color,
-    blit_to: Option<&wgpu::TextureView>,
-) -> Result<wgpu::SubmissionIndex> {
     // The state is taken for the frame so that it can change while the host
     // lends out the GPU objects. The uploaded globals stay with the host,
     // which tells the frame's alpha mode by them.
     let mut state = std::mem::take(host.frame_state());
     std::mem::swap(&mut state.globals, &mut host.frame_state().globals);
-    let result = record_with(host, &mut state, scene, frame_view, clear, blit_to);
+    let result = record_with(host, &mut state, scene, frame_view, clear);
     std::mem::swap(&mut state.globals, &mut host.frame_state().globals);
     *host.frame_state() = state;
     result
@@ -235,7 +221,6 @@ fn record_with(
     scene: &Scene,
     frame_view: &wgpu::TextureView,
     clear: wgpu::Color,
-    blit_to: Option<&wgpu::TextureView>,
 ) -> Result<wgpu::SubmissionIndex> {
     state.bind_groups.begin_frame();
 
@@ -286,7 +271,7 @@ fn record_with(
             let target = host.target()?;
             state.layers.prepare(&target, &scene.layers, &planned);
             Ok(record(
-                &target, state, scene, frame_view, clear, blit_to, &rasters, &scenes, &uploads, &paths,
+                &target, state, scene, frame_view, clear, &rasters, &scenes, &uploads, &paths,
             ))
         });
     if result.is_err() {
@@ -389,7 +374,7 @@ fn upload(
     vertices: &[PathRasterizationVertex],
     sprites: &[PathSprite],
 ) -> Result<(Vec<SceneUpload>, PathUpload)> {
-    const SCENE_ARRAYS: usize = 7;
+    const SCENE_ARRAYS: usize = 6;
     let mut arrays: Vec<&[u8]> = Vec::with_capacity(scenes.len() * SCENE_ARRAYS + 2);
     // SAFETY: the primitives and path records are `#[repr(C)]` plain data, as
     // upstream's `write_instance_binding` relies on too.
@@ -403,7 +388,6 @@ fn upload(
                 bytes_of(&scene.monochrome_sprites),
                 bytes_of(&scene.subpixel_sprites),
                 bytes_of(&scene.polychrome_sprites),
-                bytes_of(&scene.backdrop_blurs),
             ]);
         }
         arrays.extend([bytes_of(vertices), bytes_of(sprites)]);
@@ -459,10 +443,6 @@ fn upload(
                 monochrome_sprites: bind(first + 3, "monochrome_sprites_bind_group"),
                 subpixel_sprites: bind(first + 4, "subpixel_sprites_bind_group"),
                 polychrome_sprites: bind(first + 5, "polychrome_sprites_bind_group"),
-                backdrop_blurs: InstanceBinding {
-                    bind_group: bind(first + 6, "backdrop_blurs_bind_group"),
-                    first_instance: 0,
-                },
             }
         })
         .collect();
@@ -494,7 +474,6 @@ fn record(
     scene: &Scene,
     frame_view: &wgpu::TextureView,
     clear: wgpu::Color,
-    blit_to: Option<&wgpu::TextureView>,
     rasters: &[raster::TileRaster],
     scenes: &[PlannedScene],
     uploads: &[SceneUpload],
@@ -539,12 +518,6 @@ fn record(
             },
         },
     );
-    if let Some(view) = blit_to {
-        target
-            .backdrop
-            .expect("material target has a renderer")
-            .blit_backdrop(&mut encoder, &uploads[main].backdrop_blurs.bind_group, view);
-    }
     target.queue.submit(std::iter::once(encoder.finish()))
 }
 
@@ -610,28 +583,7 @@ pub(crate) fn draw_scene(
     let mut bound = PassState::default();
     let mut path_batches = draw.path_batches.iter().enumerate();
 
-    let mut pending_blurs = draw.scene.backdrop_blurs.iter().enumerate().peekable();
     for batch in draw.scene.batches() {
-        while pending_blurs
-            .peek()
-            .is_some_and(|(_, blur)| blur.order <= draw.scene.batch_first_order(&batch))
-        {
-            let (index, blur) = pending_blurs.next().expect("pending backdrop");
-            let renderer = target.backdrop.expect("material target has a renderer");
-            drop(pass);
-            renderer.snapshot_backdrop(encoder);
-            if blur.blur_radius.0 > 0. {
-                renderer.blur_backdrop(encoder, &upload.backdrop_blurs, index, blur.blur_radius.0);
-            }
-            pass = begin_main_pass(encoder, draw.view, "main_pass_backdrop", None);
-            renderer.draw_backdrop_blur(
-                &upload.backdrop_blurs,
-                index,
-                blur.blur_radius.0,
-                &mut pass,
-            );
-            bound.forget();
-        }
         match batch {
             PrimitiveBatch::Quads(range) => draw_batch(
                 &mut pass,

@@ -348,7 +348,7 @@ pub(crate) fn note_work(window: &mut Window, id: &GlobalElementId, work: f32) {
 }
 
 /// Whether the content `record` holds can ever be composited from a layer:
-/// it needs no direct painting, and its viewport tiles fit the budget.
+/// it painted no path, and the tiles covering its viewport fit the budget.
 /// A layer whose content does not is demoted.
 fn fits(window: &Window, record: &LayerRecord) -> bool {
     let scale_factor = window.scale_factor();
@@ -356,7 +356,7 @@ fn fits(window: &Window, record: &LayerRecord) -> bool {
     let tiles = |extent: Pixels| (extent.0 * scale_factor / TILE_SIZE as f32).ceil() as u64 + 1;
     let viewport = record.viewport.size;
     let tile_bytes = TILE_SIZE * TILE_SIZE * 4;
-    !record.requires_direct
+    !record.has_paths
         && tiles(viewport.width) * tiles(viewport.height) * tile_bytes <= TILE_BUDGET_BYTES
 }
 

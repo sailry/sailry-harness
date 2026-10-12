@@ -20,48 +20,19 @@ This family is selected by GPUI Kit at revision
 scroll layers, native composition, headless rendering, device recovery,
 input and accessibility. No second GPUI backend is selected.
 
-Sailry's approved backdrop/material extension was reviewed against the exact
-published `gpui-pre`, Apple, WGPU and Windows 0.3.8 archives before being ported
-onto the Fast packages. Its provenance remains `dux-web/gpui` revision
+The within-window backdrop/material extension is retired by product decision.
+Its scene records, tile exceptions, framebuffer copies, Gaussian and lens
+passes, shader additions, extra Objective-C dependency and extension-specific
+tests were removed against the checksum-verified 0.1.3 release sources above.
+The WGPU and Windows source now matches those releases. Standard Kit surfaces
+own their theme fills, borders, shadows and animations. Fast's native WebView
+composition and the application's OS window backdrop remain in use.
+
+The retired extension's provenance is `dux-web/gpui` revision
 `b9b7df79854ba971dfea77650825014cdfdb12c0`, relative to upstream ancestor
-`fcce238b5f5b15cb7f25b152988fcc29aa40118e`; the reviewed Sailry source is
-`ea1359b3`. The old renderer source is not used as the Fast baseline.
-
-The extension adds backdrop records and interleaved scene batches, bounded
-snapshot/blur/lens passes and matching Metal, WGSL and DirectX shadow shaders.
-Backdrop resources track the current render target size, including headless
-targets. Ordinary controls remain Kit components and the application retains
-its approved material parameters through `GlassEffect`.
-
-Fast's scene replay and native composition preserve backdrop operations.
-A backdrop samples the already painted window scene, so content containing
-one uses Fast's existing direct paint path instead of caching the material in
-an independent scroll tile. Other scroll layers remain cached. Translation and
-tile hashes include the material's geometry and optical parameters. WGPU's
-Fast recorder includes backdrop instances in its shared upload and inserts the
-snapshot/blur passes without discarding its bind-group, path and layer caches.
-
-The Apple shader build reads the selected sibling core's shader types so the
-new record layout stays consistent. Its additional Objective-C dependency
-owns the cached Metal Performance Shaders Gaussian kernel. Scenes containing
-backdrops use the existing material-aware Metal encoder: Fast's grouped path
-encoder does not interleave framebuffer snapshots or backdrop passes. Ordinary
-path scenes retain that grouped encoder. Fast's layer configuration and native
-view composition remain intact.
-
-A GPUI backdrop samples its GPUI render target. Native WebView pixels are
-composed by the OS into a separate surface and are not part of that texture.
-The material's tint and optical parameters are preserved, but this extension
-does not claim to blur the webpage across the native composition boundary.
-Windows keeps the application's fill fallback because DirectX does not
-implement the backdrop pass.
-
-`gpui/src/scene/material.rs` covers batch boundaries, replay, balanced native
-composition ranges, empty masks, direct scroll painting, translation and
-material invalidation. `wgpu/tests/material.rs` validates the actual storage,
-WebGL and subpixel shaders plus the backdrop record stride. These are
-scene and shader/layout checks, not GPU pixels, driver, native composition or
-Windows runtime acceptance.
+`fcce238b5f5b15cb7f25b152988fcc29aa40118e`; the reviewed Sailry source was
+`ea1359b3`. It had been ported from the published `gpui-pre` 0.3.8 family.
+The old renderer source is not a baseline for the remaining Fast patches.
 
 `Window::is_hitbox_occluded` retains the current paint frame's clipped,
 mouse-blocking area overlap query. Fast's point hover testing is not an area
@@ -99,10 +70,11 @@ retaining measured geometry, focus handles and scroll anchors. The selected Diff
 component uses this public operation after font and layout changes; keeping old
 estimates made its offscreen scroll extent stale at the same viewport width.
 
-The core build registers its existing `rust_analyzer` condition, and the Apple
-and macOS packages register the legacy `objc` macro's `cargo-clippy` feature
-condition without enabling it. Other unexpected conditions still warn. Cocoa
-deprecation allowances are confined to the existing compatibility adapter
+The core build registers its existing `rust_analyzer` condition, and the macOS
+package registers the legacy `objc` macro's `cargo-clippy` feature condition
+without enabling it. Apple no longer needs that registration after removing
+the material extension's legacy Objective-C dependency. Other unexpected
+conditions still warn. Cocoa deprecation allowances are confined to the existing compatibility adapter
 modules and helper items; the pinned Objective-C ABI and runtime behavior are
 unchanged. The retained-subtree reuse accessor is compiled only for its core
 unit tests, rather than every consumer enabling `test-support`.

@@ -138,6 +138,131 @@ fn select(value: String) -> &'static str {
     Box::leak(value.into_boxed_str())
 }
 
+fn geometry(visual: &mut VisualTestContext) -> Vec<(Point<Pixels>, Pixels)> {
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    [
+        "reminders-content",
+        "reminders-heading",
+        "reminders-toolbar",
+    ]
+    .map(|selector| {
+        let bounds = visual.debug_bounds(selector).unwrap();
+        (bounds.origin, bounds.size.width)
+    })
+    .to_vec()
+}
+
+#[gpui::test]
+fn keeps_geometry_until_records_arrive(cx: &mut TestAppContext) {
+    init(cx);
+    for (remote, populated) in [false, true]
+        .into_iter()
+        .flat_map(|remote| [false, true].map(move |populated| (remote, populated)))
+    {
+        let mut fixture = Fixture::new(remote);
+        let package = install(&fixture);
+        let saved = populated.then(|| {
+            save(&fixture, &package, json!({"revision":"0","project":null,"title":"Retained reminder","message":"Keep the draft","due_ms":null,"completed":false}))
+        });
+        let reads = super::scheduled::loading::Reads::bind(&mut fixture, "reminders");
+        let (entered, release) = reads.hold();
+        let (panel, visual) = mount(&fixture, &package, cx);
+        wait(visual, |_| entered.is_cancelled());
+        let pending = geometry(visual);
+        let row = visual.debug_bounds("reminders-items-loading").unwrap();
+        assert!(
+            visual
+                .debug_bounds("empty-card-reminders-items-empty")
+                .is_none()
+        );
+        assert!(
+            visual
+                .update(|_, cx| snapshot(&panel, cx))
+                .contains("(\"loaded\", Bool(false))")
+        );
+        release.cancel();
+        let selector = saved
+            .as_ref()
+            .map_or("empty-reminders-items-empty", |saved| {
+                select(format!("reminder-card-{}", saved["id"].as_str().unwrap()))
+            });
+        wait(visual, |cx| {
+            super::scheduled::list_ready(&panel, "reminders-items", cx)
+                && (!populated || snapshot(&panel, cx).contains(selector))
+        });
+        assert_eq!(pending, geometry(visual));
+        assert!(visual.debug_bounds("reminders-items-loading").is_none());
+        if populated {
+            assert_eq!(row, visual.debug_bounds(selector).unwrap());
+            assert!(
+                visual
+                    .debug_bounds("empty-card-reminders-items-empty")
+                    .is_none()
+            );
+        } else {
+            assert!(
+                visual
+                    .debug_bounds("empty-card-reminders-items-empty")
+                    .is_some()
+            );
+        }
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn failed_refresh_retains_cards_and_editor(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let mut fixture = Fixture::new(remote);
+        let package = install(&fixture);
+        let saved = save(
+            &fixture,
+            &package,
+            json!({"revision":"0","project":null,"title":"Retained reminder","message":"Keep the draft","due_ms":null,"completed":false}),
+        );
+        let reads = super::scheduled::loading::Reads::bind(&mut fixture, "reminders");
+        let (panel, visual) = mount(&fixture, &package, cx);
+        let id = saved["id"].as_str().unwrap();
+        let card = select(format!("reminder-card-{id}"));
+        wait(visual, |cx| snapshot(&panel, cx).contains(card));
+        click(visual, select(format!("reminder-edit-{id}")));
+        wait(visual, |cx| {
+            snapshot(&panel, cx).contains("reminder-editor")
+        });
+        let before = geometry(visual);
+        let card_bounds = visual.debug_bounds(card).unwrap();
+        let (entered, release) = reads.hold();
+        reads.fail();
+        let mut changed = saved;
+        changed["title"] = "Current Node reminder".into();
+        save(&fixture, &package, changed);
+        wait(visual, |_| entered.is_cancelled());
+        assert_eq!(before, geometry(visual));
+        assert_eq!(card_bounds, visual.debug_bounds(card).unwrap());
+        assert!(
+            visual
+                .update(|_, cx| snapshot(&panel, cx))
+                .contains("reminder-editor")
+        );
+        assert!(visual.debug_bounds("reminders-items-loading").is_none());
+        release.cancel();
+        toast(visual, "Could not load reminders");
+        assert_eq!(before, geometry(visual));
+        assert_eq!(card_bounds, visual.debug_bounds(card).unwrap());
+        assert!(
+            visual
+                .update(|_, cx| snapshot(&panel, cx))
+                .contains("reminder-editor")
+        );
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
+        fixture.close();
+    }
+}
+
 fn save(fixture: &Fixture, package: &plugin::Info, input: Value) -> Value {
     let context = plugin::Context {
         invocation: None,
@@ -506,10 +631,10 @@ fn centers_the_page_and_filters_native_cards(cx: &mut TestAppContext) {
         let package = install(&fixture);
         let (panel, visual) = mount(&fixture, &package, cx);
         wait(visual, |cx| {
-            snapshot(&panel, cx).contains("reminders-empty")
+            super::scheduled::list_ready(&panel, "reminders-items", cx)
         });
         layout(visual, 1440.);
-        assert!(visual.debug_bounds("empty-reminders-empty").is_some());
+        assert!(visual.debug_bounds("empty-reminders-items-empty").is_some());
         empty_card(visual);
         let saved = save(
             &fixture,
@@ -518,17 +643,17 @@ fn centers_the_page_and_filters_native_cards(cx: &mut TestAppContext) {
         );
         let selector = select(format!("reminder-card-{}", saved["id"].as_str().unwrap()));
         wait(visual, |cx| snapshot(&panel, cx).contains(selector));
-        assert!(visual.debug_bounds("empty-reminders-empty").is_none());
+        assert!(visual.debug_bounds("empty-reminders-items-empty").is_none());
         let card = visual.debug_bounds(selector).unwrap();
         let body = visual.debug_bounds("reminders-content").unwrap();
         assert!(card.left() >= body.left() && card.right() <= body.right());
         card_row(visual, saved["id"].as_str().unwrap());
         click(visual, "reminders-completed");
         wait(visual, |cx| {
-            snapshot(&panel, cx).contains("reminders-empty")
+            super::scheduled::list_ready(&panel, "reminders-items", cx)
                 && !snapshot(&panel, cx).contains(selector)
         });
-        assert!(visual.debug_bounds("empty-reminders-empty").is_some());
+        assert!(visual.debug_bounds("empty-reminders-items-empty").is_some());
         empty_card(visual);
         let completed = save(
             &fixture,
@@ -610,10 +735,16 @@ fn card_row(visual: &mut VisualTestContext, id: &str) {
 }
 
 fn empty_card(visual: &mut VisualTestContext) {
-    let card = visual.debug_bounds("empty-card-reminders-empty").unwrap();
+    let card = visual
+        .debug_bounds("empty-card-reminders-items-empty")
+        .unwrap();
     let toolbar = visual.debug_bounds("reminders-toolbar").unwrap();
-    let icon = visual.debug_bounds("empty-icon-reminders-empty").unwrap();
-    let title = visual.debug_bounds("empty-title-reminders-empty").unwrap();
+    let icon = visual
+        .debug_bounds("empty-icon-reminders-items-empty")
+        .unwrap();
+    let title = visual
+        .debug_bounds("empty-title-reminders-items-empty")
+        .unwrap();
     assert_eq!(card.size.width, toolbar.size.width);
     assert!(card.top() >= toolbar.bottom());
     assert!(card.size.height < px(180.));

@@ -53,14 +53,12 @@ pub(crate) struct LayerRecord {
     /// The views drawn inside the content, which render before it is
     /// recorded.
     pub(crate) views: Rc<[EntityId]>,
-    /// Whether the content must paint in the window: it samples a backdrop or
-    /// painted a path that other content draws over.
+    /// Whether the content painted a path that other content draws over.
     /// Paths are never composited from tiles: their antialiasing pairs
     /// pixels in 2×2 quads, so a path moved by an odd number of device
     /// pixels would not match a direct draw (spec §5.6). Such content is
-    /// drawn into the frame instead; a backdrop also depends on earlier
-    /// window pixels absent from an independent tile.
-    pub(crate) requires_direct: bool,
+    /// drawn into the frame instead.
+    pub(crate) has_paths: bool,
     /// The paths the content painted that nothing in it draws over, in
     /// content space, in drawing order: left out of `content`, and drawn
     /// into the frame over the layer's tiles wherever it is composited.

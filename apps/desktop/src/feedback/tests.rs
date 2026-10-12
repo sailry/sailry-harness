@@ -179,23 +179,6 @@ fn surface_interactions(cx: &mut TestAppContext) {
     use std::{cell::Cell, rc::Rc};
 
     let (_, visual) = mount(cx);
-    let rendered = Rc::new(Cell::new(0));
-    visual.update({
-        let rendered = rendered.clone();
-        move |_, cx| {
-            gpui_kit::component::surface::set_renderer(
-                move |child, corners, cx| {
-                    rendered.set(rendered.get() + 1);
-                    assert_eq!(
-                        corners,
-                        Corners::all(cx.theme().surface_radius()).map(|radius| (*radius).into()),
-                    );
-                    div().child(child).into_any_element()
-                },
-                cx,
-            );
-        }
-    });
     let actions = Rc::new(Cell::new(0));
     let clicks = Rc::new(Cell::new(0));
     let closes = Rc::new(Cell::new(0));
@@ -227,16 +210,23 @@ fn surface_interactions(cx: &mut TestAppContext) {
         }
     });
     settle(visual);
-    assert!(rendered.get() > 0);
     let card = visual.debug_bounds("notification-card").unwrap();
+    let quad = crate::ui::overlays::tests::panel(visual, "notification-card");
+    visual.update(|window, cx| {
+        assert_eq!(
+            quad.corner_radii,
+            Corners::all(cx.theme().surface_radius()).scale(window.scale_factor())
+        );
+        assert_eq!(quad.background.as_solid(), Some(cx.theme().popover));
+    });
     let icon = visual.debug_bounds("notification-icon").unwrap();
     let title = visual.debug_bounds("notification-title").unwrap();
     let message = visual.debug_bounds("notification-message").unwrap();
     let close = visual.debug_bounds("notification-close").unwrap();
     let action = visual.debug_bounds("notice-action").unwrap();
-    assert_eq!(icon.left() - card.left(), px(12.));
-    assert_eq!(card.right() - close.right(), px(12.));
-    assert_eq!(title.top() - card.top(), px(12.));
+    assert_eq!(icon.left() - card.left(), px(13.));
+    assert_eq!(card.right() - close.right(), px(13.));
+    assert_eq!(title.top() - card.top(), px(13.));
     assert_eq!(title.left() - icon.right(), px(8.));
     assert_eq!(message.top() - title.bottom(), px(2.));
     assert!(action.left() >= title.right() + px(8.));

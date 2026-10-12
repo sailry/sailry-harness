@@ -1,6 +1,6 @@
 //! Script access to the shared card composition, without package-specific fields.
 use crate::ui::card_list::{self, Column};
-use gpui_kit::IntoElement as _;
+use gpui_kit::{IntoElement as _, SharedString, component::Icon};
 use gpui_shell::{HostModule, HostValue};
 
 #[cfg(test)]
@@ -11,8 +11,8 @@ pub(super) fn extend(module: HostModule) -> HostModule {
         "{}\n{}",
         module.declared().unwrap_or_default(),
         r#"
-            /** Cards share spacing and use the enclosing page's scroll container. */
-            export const CardList: { new(id: string): import("gpui-kit").Element };
+            /** Children are rows. Missing first-read data uses skeletons; existing rows survive refresh. */
+            export const CardList: { new(id: string, props?: { loaded?: boolean; skeleton_rows?: number; empty_icon?: string; empty_label?: string }): import("gpui-kit").Element };
             /** Non-selectable Kit card; children are CardColumn elements with their own controls. */
             export const CardRow: { new(id: string, props?: { row_id?: string }): import("gpui-kit").Element };
             /** Shared column widths and alignment; content and callbacks remain with the caller. */
@@ -22,8 +22,44 @@ pub(super) fn extend(module: HostModule) -> HostModule {
         "#
     );
     module
-        .component("CardList", |mut args, _, _| {
-            card_list::list(args.id().to_owned(), args.take_children()).into_any_element()
+        .component("CardList", |mut args, _, cx| {
+            let id = args.id().to_owned();
+            let mut children = args.take_children();
+            if children.is_empty() {
+                if args.props().get("loaded").and_then(HostValue::as_bool) == Some(false) {
+                    let rows = args
+                        .props()
+                        .get("skeleton_rows")
+                        .and_then(HostValue::as_number)
+                        .filter(|rows| rows.is_finite())
+                        .unwrap_or(3.) as usize;
+                    children.push(crate::ui::skeleton::list(format!("{id}-loading"), rows, cx));
+                } else if let Some(label) =
+                    args.props().get("empty_label").and_then(HostValue::as_str)
+                {
+                    let icon = args
+                        .props()
+                        .get("empty_icon")
+                        .and_then(HostValue::as_str)
+                        .unwrap_or("inbox");
+                    let icon = Icon::empty().path(if icon.contains('/') {
+                        icon.to_owned()
+                    } else {
+                        format!("icons/{icon}.svg")
+                    });
+                    let empty_id: SharedString = format!("{id}-empty").into();
+                    let body = crate::empty_state::list_content(
+                        icon,
+                        label.to_owned().into(),
+                        empty_id.clone(),
+                        cx,
+                    );
+                    children.push(
+                        crate::empty_state::card_content(body, empty_id, cx).into_any_element(),
+                    );
+                }
+            }
+            card_list::list(id, children).into_any_element()
         })
         .component("CardRow", |mut args, _, cx| {
             let id = args.id().to_owned();

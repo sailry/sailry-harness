@@ -3,22 +3,6 @@ use super::*;
 #[gpui::test]
 fn constrains_shell_and_presents_events(cx: &mut TestAppContext) {
     init(cx);
-    let surfaces = std::rc::Rc::new(std::cell::Cell::new(0));
-    cx.update({
-        let surfaces = surfaces.clone();
-        move |cx| {
-            gpui_kit::component::surface::set_renderer(
-                move |child, _, _| {
-                    surfaces.set(surfaces.get() + 1);
-                    div()
-                        .debug_selector(|| "plugin-modal-surface".into())
-                        .child(child)
-                        .into_any_element()
-                },
-                cx,
-            )
-        }
-    });
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let (package, _server) = fixture.game_plugin_with("city-trader", &["player_1_model", "player_2_model"], |root| {
@@ -199,10 +183,8 @@ fn constrains_shell_and_presents_events(cx: &mut TestAppContext) {
         let popup = visual.debug_bounds("plugin-modal-surface").unwrap();
         let coin = visual.debug_bounds("city-event-coin").unwrap();
         assert!((coin.center().x - popup.center().x).abs() <= px(1.));
-        assert!(
-            surfaces.get() > 0,
-            "plugin dialogs must use the shared material renderer"
-        );
+        let native = crate::ui::overlays::tests::panel(visual, "plugin-modal-surface");
+        assert!(native.background.as_solid().is_some());
         wait(visual, |cx| {
             !snapshot(&panel, cx).contains("city-event-dialog")
         });

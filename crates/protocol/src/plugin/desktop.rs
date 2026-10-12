@@ -111,7 +111,6 @@ pub struct NavigationOptions {
     pub target: NavigationTarget,
     pub surface: Surface,
     pub details: bool,
-    pub retention: Retention,
 }
 
 #[derive(
@@ -132,23 +131,8 @@ impl Default for NavigationOptions {
             target: NavigationTarget::Node,
             surface: Surface::Workspace,
             details: false,
-            retention: Retention::default(),
         }
     }
-}
-
-/// Workspace view lifetime; settings always release their view on navigation.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
-)]
-#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Retention {
-    #[default]
-    None,
-    Always,
-    Idle {
-        seconds: std::num::NonZeroU32,
-    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

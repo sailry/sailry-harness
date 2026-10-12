@@ -8,6 +8,7 @@ use sailry_protocol::{
 };
 use std::time::{Duration, Instant};
 
+mod loading;
 #[path = "../../../../../crates/node-runtime/src/backup/tests/server.rs"]
 mod server;
 

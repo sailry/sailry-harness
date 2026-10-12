@@ -54,6 +54,26 @@ impl Render for Library {
         let mut results = Group::new("model_library_results")
             .heading(false)
             .empty(IconName::Search, "model_library_empty");
+        if self.searched.is_none() {
+            results = results.child(if self.loading {
+                crate::ui::skeleton::list("model-library-loading", 3, cx)
+            } else {
+                div()
+                    .h_24()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        crate::feedback::retry("model-library-retry")
+                            .debug_selector(|| "model-library-retry".into())
+                            .disabled(!self.available(cx))
+                            .on_click(cx.listener(|library, _, window, cx| {
+                                library.search(false, window, cx)
+                            })),
+                    )
+                    .into_any_element()
+            });
+        }
         for (index, item) in self.items.iter().enumerate() {
             let repository = item.source.repository.clone();
             let owner = cx.entity();

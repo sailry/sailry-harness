@@ -3,76 +3,12 @@ use crate::plugins::tests::{click, init};
 use core::prelude::v1::test;
 use gpui_kit::component::Root;
 use gpui_shell::policy::{self, Policy};
-use std::cell::Cell;
 
 struct DefaultPolicy(Option<Policy>);
 
 impl Drop for DefaultPolicy {
     fn drop(&mut self) {
         policy::set_default(self.0.take().unwrap());
-    }
-}
-
-// Observe the actual Kit surface without adding layout or replacing its control.
-struct Surface {
-    child: AnyElement,
-    bounds: Rc<Cell<Option<Bounds<Pixels>>>>,
-}
-
-impl Element for Surface {
-    type RequestLayoutState = ();
-    type PrepaintState = ();
-
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, ()) {
-        (self.child.request_layout(window, cx), ())
-    }
-
-    fn prepaint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        bounds: Bounds<Pixels>,
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        self.bounds.set(Some(bounds));
-        self.child.prepaint(window, cx);
-    }
-
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        self.child.paint(window, cx);
-    }
-}
-
-impl IntoElement for Surface {
-    type Element = Self;
-
-    fn into_element(self) -> Self::Element {
-        self
     }
 }
 
@@ -115,23 +51,9 @@ export default class Fields extends View {
     });
     let _restore = DefaultPolicy(previous);
     let runtime = gpui_component_shell::new_isolated_runtime().unwrap();
-    let surface = Rc::new(Cell::new(None));
     let mut script = None;
     let mut application = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
-        gpui_kit::component::surface::set_renderer(
-            {
-                let surface = surface.clone();
-                move |child, _, _| {
-                    Surface {
-                        child,
-                        bounds: surface.clone(),
-                    }
-                    .into_any_element()
-                }
-            },
-            cx,
-        );
         let view = runtime.try_load(directory.path(), window, cx).unwrap();
         let content = view
             .read(cx)
@@ -152,11 +74,12 @@ export default class Fields extends View {
         assert_eq!(script.read(cx).build_error(), None);
     });
     for (selector, width) in [("narrow-select", 220.), ("wide-select", 460.)] {
-        surface.set(None);
         click(visual, selector);
         visual.update(|window, cx| window.draw(cx).clear(cx));
         let trigger = visual.debug_bounds(selector).unwrap();
-        let popup = surface.get().expect("native Select popup surface");
+        let popup = visual
+            .debug_bounds("select-popup")
+            .expect("native Select popup surface");
         assert_eq!(trigger.size.width, px(width));
         assert!(
             f32::from(popup.size.width - trigger.size.width).abs() <= 1.,
@@ -170,20 +93,23 @@ export default class Fields extends View {
             json!({"id":selector,"value":"long"})
         );
         assert!(receiver.try_recv().is_err());
-        surface.set(None);
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        assert!(surface.get().is_none(), "selection closes the real popup");
+        assert!(
+            visual.debug_bounds("select-popup").is_none(),
+            "selection closes the real popup"
+        );
 
         click(visual, selector);
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        let reopened = surface.get().expect("native Select popup after selection");
+        let reopened = visual
+            .debug_bounds("select-popup")
+            .expect("native Select popup after selection");
         assert_eq!(visual.debug_bounds(selector).unwrap().size.width, px(width));
         assert_eq!(reopened.size.width, popup.size.width);
         visual.simulate_keystrokes("escape");
         visual.run_until_parked();
-        surface.set(None);
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        assert!(surface.get().is_none());
+        assert!(visual.debug_bounds("select-popup").is_none());
         assert!(receiver.try_recv().is_err());
     }
     visual.update(|window, _| window.remove_window());

@@ -40,9 +40,3 @@ fn load_mono_sprite(instance_id: u32) -> MonochromeSprite {
 fn load_poly_sprite(instance_id: u32) -> PolychromeSprite {
     return b_poly_sprites[instance_id];
 }
-
-@group(1) @binding(0) var<storage, read> b_backdrop_blurs: array<BackdropBlur>;
-
-fn load_backdrop_blur(instance_id: u32) -> BackdropBlur {
-    return b_backdrop_blurs[instance_id];
-}

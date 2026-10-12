@@ -34,6 +34,7 @@ pub(crate) struct Panel {
     summaries: Vec<Summary>,
     pub(super) snapshot: Snapshot,
     pub(super) selected: Option<Reference>,
+    pub(super) target: Option<String>,
     pub(super) mounted: Option<Mounted>,
     pub(super) loading: bool,
     prepared: Option<super::preload::Prepared>,
@@ -183,6 +184,11 @@ impl Panel {
         self
     }
 
+    pub(crate) fn with_target(mut self, name: impl Into<String>) -> Self {
+        self.target = Some(name.into());
+        self
+    }
+
     pub(crate) fn contributions(
         binding: Binding,
         session: Option<sailry_protocol::SessionId>,
@@ -283,6 +289,7 @@ impl Panel {
             summaries: Vec::new(),
             snapshot: Default::default(),
             selected: None,
+            target: None,
             mounted: None,
             loading: false,
             prepared: None,
@@ -466,6 +473,7 @@ impl Panel {
         self.release();
         self.prepared = None;
         self.selected = None;
+        self.target = None;
         self.reload = false;
         self.connected = false;
         cx.notify();
@@ -476,6 +484,7 @@ impl Panel {
         self.release();
         self.reload = false;
         self.selected = None;
+        self.target = None;
         self.error = None;
         cx.notify();
     }
@@ -498,6 +507,7 @@ impl Panel {
         }
         self.reload = false;
         self.selected = Some(package.clone());
+        self.target = Some(package.name.clone());
         self.error = None;
         self.loading = true;
         self.load_stop = self.stop.child_token();

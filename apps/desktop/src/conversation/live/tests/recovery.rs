@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_link::{Admission, Pending, Subscription};
 use sailry_protocol::{Fault, Topic};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -58,8 +59,12 @@ fn retries_failed_restore(cx: &mut TestAppContext) {
         binding.client = Arc::new(Client::new(transport.clone()));
         let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
         wait(visual, |cx| view.read(cx).node.connected);
-        assert!(visual.debug_bounds("empty-chat_history_loading").is_some());
-        assert!(visual.debug_bounds("live-chat-input").is_none());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+        });
+        assert!(visual.debug_bounds("live-history-loading").is_some());
+        assert!(visual.debug_bounds("live-chat-input").is_some());
+        assert!(visual.debug_bounds("conversation-welcome").is_none());
         transport.release.cancel();
         wait(visual, |cx| view.read(cx).history.error.is_some());
         crate::feedback::tests::settle(visual);
@@ -73,24 +78,30 @@ fn retries_failed_restore(cx: &mut TestAppContext) {
                 visual.update(|window, cx| {
                     let _ = window.draw(cx);
                 });
-                let panel = visual.debug_bounds("chat-unavailable").unwrap();
+                let panel = visual.debug_bounds("live-conversation").unwrap();
                 assert!(visual.debug_bounds("empty-chat_sync_failed").is_none());
                 assert!(visual.debug_bounds("chat-sync-retry").is_some());
                 assert_eq!(panel.size, size(px(width), px(780.)));
                 assert!(!visual.update(|window, cx| window.notifications(cx).is_empty()));
                 assert!(visual.debug_bounds("chat-connection-status").is_none());
                 assert!(visual.debug_bounds("chat-connection-reason").is_none());
-                assert!(visual.debug_bounds("empty-chat_history_loading").is_some());
-                assert!(visual.debug_bounds("live-history-viewport").is_none());
-                assert!(visual.debug_bounds("live-chat-input").is_none());
+                assert!(visual.debug_bounds("live-history-loading").is_some());
+                assert!(visual.debug_bounds("live-history-viewport").is_some());
+                assert!(visual.debug_bounds("live-chat-input").is_some());
+                assert!(visual.debug_bounds("conversation-welcome").is_none());
                 assert!(visual.debug_bounds("chat_sync_failed").is_none());
             }
         }
+        let before = visual.debug_bounds("live-chat-input").unwrap();
         transport.fail.store(false, Ordering::SeqCst);
         fixture::tap(visual, "chat-sync-retry");
         wait(visual, |cx| view.read(cx).connected());
         assert_eq!(view.read_with(visual, |view, _| view.rows.clone()), turns);
-        assert!(visual.debug_bounds("chat-unavailable").is_none());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+        });
+        assert!(visual.debug_bounds("live-history-loading").is_none());
+        assert_eq!(visual.debug_bounds("live-chat-input").unwrap(), before);
         assert!(visual.debug_bounds("chat-connection-status").is_none());
         assert!(visual.debug_bounds("live-chat-input").is_some());
         assert_eq!(
@@ -98,6 +109,40 @@ fn retries_failed_restore(cx: &mut TestAppContext) {
             1,
             "recovery must not replay the Agent turn"
         );
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn empty_restore_keeps_input_position(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_tools(remote, vec![]);
+        let transport = Arc::new(Failing {
+            inner: fixture.transport.clone(),
+            fail: AtomicBool::new(false),
+            release: CancellationToken::new(),
+            node: false,
+        });
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(transport.clone()));
+        let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| view.read(cx).node.connected);
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+        });
+        assert!(visual.debug_bounds("live-history-loading").is_some());
+        assert!(visual.debug_bounds("conversation-welcome").is_none());
+        let before = visual.debug_bounds("live-chat-input").unwrap();
+        transport.release.cancel();
+        wait(visual, |cx| view.read(cx).connected());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+        });
+        assert!(visual.debug_bounds("live-history-loading").is_none());
+        assert_eq!(visual.debug_bounds("live-chat-input").unwrap(), before);
+        assert_eq!(fixture.task_requests(), 0);
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }

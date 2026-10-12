@@ -443,22 +443,22 @@ fn shared_controls_require_a_controller() {
 }
 
 #[test]
-fn retention_defaults_and_round_trips() {
+fn navigation_ignores_removed_options() {
     let options: NavigationOptions = serde_json::from_value(serde_json::json!({})).unwrap();
-    assert_eq!(options.retention, Retention::None);
-    for value in [
-        serde_json::json!({"mode":"none"}),
-        serde_json::json!({"mode":"always"}),
-        serde_json::json!({"mode":"idle","seconds":300}),
-    ] {
-        let policy: Retention = serde_json::from_value(value.clone()).unwrap();
-        assert_eq!(serde_json::to_value(policy).unwrap(), value);
-    }
-    for value in [
-        serde_json::json!({"mode":"idle","seconds":0}),
-        serde_json::json!({"mode":"idle"}),
-        serde_json::json!({"mode":"unknown"}),
-    ] {
-        assert!(serde_json::from_value::<Retention>(value).is_err());
-    }
+    assert_eq!(options, NavigationOptions::default());
+    let mut captured = serde_json::json!({
+        "pinned": true,
+        "order": 42,
+        "target": "worktree",
+        "surface": "workspace",
+        "details": true,
+        "retention": {"mode": "always"}
+    });
+    let options: NavigationOptions = serde_json::from_value(captured.clone()).unwrap();
+    captured.as_object_mut().unwrap().remove("retention");
+    assert_eq!(serde_json::to_value(options).unwrap(), captured);
+    assert_eq!(
+        serde_json::from_value::<NavigationOptions>(captured).unwrap(),
+        options
+    );
 }

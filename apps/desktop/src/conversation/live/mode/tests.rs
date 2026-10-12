@@ -103,7 +103,10 @@ fn session(view: &Entity<View>, cx: &mut VisualTestContext) -> Session {
 }
 
 fn menu_insets(cx: &mut VisualTestContext, first: &'static str, last: &'static str) {
-    let panel = cx.debug_bounds("choice-menu-surface").unwrap();
+    let panel = cx.debug_bounds("popup-menu").unwrap();
+    let quad = crate::ui::overlays::tests::panel(cx, "popup-menu");
+    let scale = cx.update(|window, _| window.scale_factor());
+    assert_eq!(quad.corner_radii, Corners::all(px(24.)).scale(scale));
     let first = cx.debug_bounds(first).unwrap();
     let last = cx.debug_bounds(last).unwrap();
     let inset = first.left() - panel.left();
@@ -127,19 +130,6 @@ fn preserves_queue_and_focus(cx: &mut TestAppContext) {
     init(cx);
     cx.update(|cx| {
         gpui_kit::component::Theme::global_mut(cx).radius_lg = px(12.);
-        gpui_kit::component::surface::set_renderer(
-            |child, corners, _| {
-                assert_eq!(
-                    corners,
-                    Corners::all(px(24.)).map(|radius| (*radius).into())
-                );
-                div()
-                    .debug_selector(|| "choice-menu-surface".into())
-                    .child(child)
-                    .into_any_element()
-            },
-            cx,
-        );
     });
     for remote in [false, true] {
         let fixture = Fixture::with_server(remote, |runtime| {

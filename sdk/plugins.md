@@ -76,15 +76,37 @@ Keys are nonempty UTF-8 strings up to 128 bytes, without NUL. Values are JSON up
 
 Use GPUI Kit controls and its native `transition` API for interpolated position, size and opacity. Plugin scripts sequence game events with `cx.sleep()` and `cx.notify()`; they do not need a per-frame rendering loop. Keep game rules and animation sequencing in the plugin.
 
+`SkeletonList.new(id, { rows: 3 })` from `sailry/ui` composes Kit Skeleton with
+the shared card-row layout. `rows` defaults to three. Keep the page heading,
+toolbar and scroll container mounted while the first read is pending. Show an
+empty state only after a successful read; retain current rows during refresh.
+Use Kit's `Skeleton` directly for forms or other layouts with different geometry.
+
+`CardList` handles these states automatically. Its children are the row-content
+slot: existing children always remain visible; without children, `loaded: false`
+shows the shared skeleton and a successful read shows `empty_label`. Omit the
+state props to use the original layout-only composition. The plugin still owns
+requests, successful-read state, drafts and error reporting.
+
+```js
+import { CardList } from "sailry/ui";
+const content = CardList.new("records", {
+  loaded,
+  skeleton_rows: 3,
+  empty_icon: "inbox",
+  empty_label: text.empty,
+}).children(records.map(renderRecord));
+```
+
 The pinned script Button does not expose composed accessibility names. `ComposedButton.new(id, { label, tooltip, size })` from `sailry/ui` reuses Kit's native ghost button for image targets. Optional `size` sets a square in pixels; activation arrives through `nextCardEvent()`.
 
 Navigation and resource entries use `desktop.navigation` and `desktop.panel`. Scripted surfaces declare their JavaScript entry and resources. The host resolves entries from the captured Node inventory and immutable package; packages do not gain native privileges by choosing a familiar name. Standard conversation controls remain host-owned.
 
-Workspace pages declare `desktop.navigation_options.retention` as `{ "mode": "none" }` (default), `{ "mode": "always" }`, or `{ "mode": "idle", "seconds": 300 }`. Idle seconds must be a positive integer. The host releases `none` views on navigation, retains `always` views until window close, and starts idle expiry when a page is hidden. Returning cancels expiry and runs the normal entry refresh. Package/settings changes, removal, and disconnected scopes still invalidate views. Plugins do not implement their own retention timers; releasing a view cancels its UI runtime, not already admitted Node tasks.
+Workspace and scripted settings pages use Kit's retained View entities. The host loads each scoped page once and switches presentation to its existing `ScriptView` and `ShellRoot`; ordinary navigation does not create another VM or View. Returning runs the normal entry refresh without discarding the mounted page or its drafts. Hidden pages pause visibility-bound work. Package/settings changes, removal, invalid scopes and Node changes still invalidate their runtime; releasing a view does not cancel already admitted Node tasks. There is no separate KeepAlive or Snapshot cache and no package retention timer.
 
 Use `Workspace.new` from `sailry/ui` to supply main content and an optional details child to the Shell's common right sidebar. `has_details` controls availability; the Shell owns its header alignment, divider, width and visibility toggle. Call `showWorkspaceDetails()` after an explicit selection to reveal a previously hidden sidebar without changing its resized width. Do not call it on every render.
 
-Settings ignore workspace retention: entering settings can preload bounded immutable resources without running scripts or reading business data. Opening a settings page creates its view and reads current data; switching releases that view, and leaving the settings area releases all preloaded files.
+Entering settings can preload bounded immutable resources without running scripts or reading business data. Opening a page creates its View on first use and reads current data; later section switches reuse that entity. Leaving the settings area releases preloaded files, while mounted page owners remain with the captured Node until invalidation or window close.
 
 `settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. Feature pages and workflows belong in the package, including bundled language-service and search settings. The host provides Kit composition and scoped service APIs, never package-specific native page selectors.
 

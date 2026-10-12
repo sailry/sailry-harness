@@ -14,7 +14,7 @@ struct Frame {
 
 fn body() -> impl IntoElement {
     div()
-        .debug_selector(|| "material-dialog-body".into())
+        .debug_selector(|| "overlay-dialog-body".into())
         .w_full()
         .h(px(48.))
         .child("Dialog content")
@@ -22,19 +22,19 @@ fn body() -> impl IntoElement {
 
 fn footer() -> impl IntoElement {
     div()
-        .debug_selector(|| "material-dialog-footer".into())
+        .debug_selector(|| "overlay-dialog-footer".into())
         .w_full()
         .child(
             DialogFooter::new()
                 .child(DialogClose::new().trigger(|button| {
                     button
-                        .debug_selector(|| "material-dialog-cancel".into())
+                        .debug_selector(|| "overlay-dialog-cancel".into())
                         .label("Cancel")
                 }))
                 .child(
                     DialogAction::new().child(
-                        Button::new("material-dialog-confirm")
-                            .debug_selector(|| "material-dialog-confirm".into())
+                        Button::new("overlay-dialog-confirm")
+                            .debug_selector(|| "overlay-dialog-confirm".into())
                             .label("Confirm"),
                     ),
                 ),
@@ -48,7 +48,7 @@ impl Render for Frame {
         let accepted = self.accepted.clone();
         let cancelled = self.cancelled.clone();
         div().size_full().child(
-            Button::new("material-dialog-trigger")
+            Button::new("overlay-dialog-trigger")
                 .label("Open")
                 .on_click(move |_, window, cx| {
                     if alert {
@@ -97,27 +97,6 @@ impl Render for Frame {
     }
 }
 
-fn renderer(cx: &mut TestAppContext) -> Rc<RefCell<Vec<Corners<AbsoluteLength>>>> {
-    setup(cx);
-    let corners = Rc::new(RefCell::new(Vec::new()));
-    cx.update({
-        let captured = corners.clone();
-        move |cx| {
-            gpui_kit::component::surface::set_renderer(
-                move |child, corners, _| {
-                    captured.borrow_mut().push(corners);
-                    div()
-                        .debug_selector(|| "material-dialog-surface".into())
-                        .child(Surface { child, corners })
-                        .into_any_element()
-                },
-                cx,
-            );
-        }
-    });
-    corners
-}
-
 fn open(cx: &mut VisualTestContext) -> FocusHandle {
     draw(cx);
     let trigger = cx.update(|window, cx| {
@@ -130,33 +109,19 @@ fn open(cx: &mut VisualTestContext) -> FocusHandle {
     trigger
 }
 
-fn refined(corners: &RefCell<Vec<Corners<AbsoluteLength>>>) {
-    let corners = corners.borrow();
-    assert!(
-        !corners.is_empty(),
-        "the dialog did not use the material renderer"
-    );
-    for corners in corners.iter() {
-        assert_eq!(corners.top_left, rems(1.25).into());
-        assert_eq!(corners.top_right, px(7.).into());
-        assert_eq!(corners.bottom_left, rems(1.25).into());
-        assert_eq!(corners.bottom_right, rems(1.25).into());
-    }
-}
-
 fn finish_close(cx: &mut VisualTestContext, trigger: &FocusHandle) {
     cx.run_until_parked();
     cx.executor().advance_clock(*ANIMATION_DURATION);
     cx.run_until_parked();
     draw(cx);
     assert!(cx.debug_bounds("dialog-layer").is_none());
-    assert!(cx.debug_bounds("material-dialog-surface").is_none());
+    assert!(cx.debug_bounds("dialog-0").is_none());
     assert!(cx.update(|window, _| trigger.is_focused(window)));
 }
 
 #[gpui::test]
 fn footer_actions_keep_intrinsic_widths(cx: &mut TestAppContext) {
-    renderer(cx);
+    setup(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     for alert in [false, true] {
         let accepted = Rc::new(Cell::new(0));
@@ -174,9 +139,9 @@ fn footer_actions_keep_intrinsic_widths(cx: &mut TestAppContext) {
         });
         let trigger = open(visual);
         draw(visual);
-        let footer = visual.debug_bounds("material-dialog-footer").unwrap();
-        let cancel = visual.debug_bounds("material-dialog-cancel").unwrap();
-        let confirm = visual.debug_bounds("material-dialog-confirm").unwrap();
+        let footer = visual.debug_bounds("overlay-dialog-footer").unwrap();
+        let cancel = visual.debug_bounds("overlay-dialog-cancel").unwrap();
+        let confirm = visual.debug_bounds("overlay-dialog-confirm").unwrap();
         assert_eq!(cancel.center().y, confirm.center().y);
         assert_eq!(confirm.right(), footer.right());
         assert!(cancel.left() > footer.left());
@@ -189,7 +154,7 @@ fn footer_actions_keep_intrinsic_widths(cx: &mut TestAppContext) {
 
         let trigger = open(visual);
         draw(visual);
-        let confirm = visual.debug_bounds("material-dialog-confirm").unwrap();
+        let confirm = visual.debug_bounds("overlay-dialog-confirm").unwrap();
         visual.simulate_click(confirm.center(), Modifiers::default());
         finish_close(visual, &trigger);
         assert_eq!(accepted.get(), 1);
@@ -200,7 +165,7 @@ fn footer_actions_keep_intrinsic_widths(cx: &mut TestAppContext) {
 #[gpui::test]
 fn default_surface_radius(cx: &mut TestAppContext) {
     for (radius, expected) in [(8., 16.), (12., 24.), (0., 0.)] {
-        let corners = renderer(cx);
+        setup(cx);
         cx.update(|cx| Theme::global_mut(cx).radius_lg = px(radius));
         let (_, visual) = cx.add_window_view(|window, cx| {
             let frame = cx.new(|_| Frame {
@@ -212,12 +177,9 @@ fn default_surface_radius(cx: &mut TestAppContext) {
             Root::new(frame, window, cx)
         });
         let trigger = open(visual);
-        assert!(!corners.borrow().is_empty());
-        assert!(
-            corners.borrow().iter().all(
-                |corners| *corners == Corners::all(px(expected)).map(|radius| (*radius).into())
-            )
-        );
+        let quad = panel(visual, "dialog-0");
+        let scale = visual.update(|window, _| window.scale_factor());
+        assert_eq!(quad.corner_radii, Corners::all(px(expected)).scale(scale));
         visual.simulate_keystrokes("escape");
         finish_close(visual, &trigger);
         visual.update(|window, _| window.remove_window());
@@ -226,7 +188,7 @@ fn default_surface_radius(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn motion_and_escape_focus(cx: &mut TestAppContext) {
-    let corners = renderer(cx);
+    setup(cx);
     let cancelled = Rc::new(Cell::new(0));
     let (_, visual) = cx.add_window_view({
         let cancelled = cancelled.clone();
@@ -241,8 +203,8 @@ fn motion_and_escape_focus(cx: &mut TestAppContext) {
         }
     });
     let trigger = open(visual);
-    let opening = visual.debug_bounds("material-dialog-surface").unwrap();
-    let opening_body = visual.debug_bounds("material-dialog-body").unwrap();
+    let opening = visual.debug_bounds("dialog-0").unwrap();
+    let opening_body = visual.debug_bounds("overlay-dialog-body").unwrap();
     assert_eq!(opening.size.width, px(320.));
     assert!(opening.size.height > px(0.));
 
@@ -250,15 +212,20 @@ fn motion_and_escape_focus(cx: &mut TestAppContext) {
     // on its next frame; no wall-clock delay is needed to verify both positions.
     visual.update(|_, cx| cx.set_reduce_motion(true));
     draw(visual);
-    let settled = visual.debug_bounds("material-dialog-surface").unwrap();
-    let settled_body = visual.debug_bounds("material-dialog-body").unwrap();
+    let settled = visual.debug_bounds("dialog-0").unwrap();
+    let settled_body = visual.debug_bounds("overlay-dialog-body").unwrap();
     assert_eq!(opening.size, settled.size);
     assert!(opening.top() < settled.top());
     let opening_offset = opening_body.origin - opening.origin;
     let settled_offset = settled_body.origin - settled.origin;
     assert!(f32::from(opening_offset.x - settled_offset.x).abs() < 0.01);
     assert!(f32::from(opening_offset.y - settled_offset.y).abs() < 0.01);
-    refined(&corners);
+    let quad = panel(visual, "dialog-0");
+    let scale = visual.update(|window, _| window.scale_factor());
+    assert_eq!(quad.corner_radii.top_left, px(20.).scale(scale));
+    assert_eq!(quad.corner_radii.top_right, px(7.).scale(scale));
+    assert_eq!(quad.corner_radii.bottom_left, px(20.).scale(scale));
+    assert_eq!(quad.corner_radii.bottom_right, px(20.).scale(scale));
 
     visual.simulate_keystrokes("escape");
     finish_close(visual, &trigger);
@@ -267,7 +234,7 @@ fn motion_and_escape_focus(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn alert_focus(cx: &mut TestAppContext) {
-    let corners = renderer(cx);
+    setup(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     let accepted = Rc::new(Cell::new(0));
     let (_, visual) = cx.add_window_view({
@@ -284,9 +251,14 @@ fn alert_focus(cx: &mut TestAppContext) {
     });
     let trigger = open(visual);
     draw(visual);
-    refined(&corners);
-    let surface = visual.debug_bounds("material-dialog-surface").unwrap();
-    let content = visual.debug_bounds("material-dialog-body").unwrap();
+    let quad = panel(visual, "dialog-0");
+    let scale = visual.update(|window, _| window.scale_factor());
+    assert_eq!(quad.corner_radii.top_left, px(20.).scale(scale));
+    assert_eq!(quad.corner_radii.top_right, px(7.).scale(scale));
+    assert_eq!(quad.corner_radii.bottom_left, px(20.).scale(scale));
+    assert_eq!(quad.corner_radii.bottom_right, px(20.).scale(scale));
+    let surface = visual.debug_bounds("dialog-0").unwrap();
+    let content = visual.debug_bounds("overlay-dialog-body").unwrap();
     assert_eq!(surface.size.width, px(320.));
     assert!(surface.contains(&content.center()));
 
@@ -296,11 +268,11 @@ fn alert_focus(cx: &mut TestAppContext) {
         Modifiers::default(),
     );
     draw(visual);
-    assert!(visual.debug_bounds("material-dialog-surface").is_some());
+    assert!(visual.debug_bounds("dialog-0").is_some());
     assert_eq!(accepted.get(), 0);
 
     let confirm = visual
-        .debug_bounds("material-dialog-confirm")
+        .debug_bounds("overlay-dialog-confirm")
         .unwrap()
         .center();
     visual.simulate_click(confirm, Modifiers::default());

@@ -175,13 +175,8 @@ fn empty_resources_stay_unloaded(cx: &mut TestAppContext) {
                     shell.navigate(crate::preview::Page::Activity, window, cx)
                 })
             });
-            let retention = entry.navigation.retention;
             let cached = open(&shell, entry, visual);
-            if retention == sailry_protocol::plugin::desktop::Retention::None {
-                assert_ne!(cached, panel);
-            } else {
-                assert_eq!(cached, panel);
-            }
+            assert_eq!(cached, panel);
             wait(visual, |cx| panel.read(cx).resource_active());
             assert!(panel.read_with(visual, |panel, _| panel.binding.worktree.is_none()));
             assert!(!shell.read_with(visual, |shell, _| shell.needs_project()));
@@ -202,12 +197,9 @@ fn empty_resources_stay_unloaded(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn entry_reads_again_without_replacing_cached_state(cx: &mut TestAppContext) {
+fn entry_refresh_preserves_view_state(cx: &mut TestAppContext) {
     init(cx);
-    for (remote, retention) in [false, true]
-        .into_iter()
-        .flat_map(|remote| ["always", "none", "idle"].map(|mode| (remote, mode)))
-    {
+    for remote in [false, true] {
         let fixture = Fixture::new(remote);
         fixture.package();
         let root = fixture.directory.path().join("project/package");
@@ -216,20 +208,8 @@ fn entry_reads_again_without_replacing_cached_state(cx: &mut TestAppContext) {
             serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         let desktop = &mut manifest["extensions"]["dev.sailry.platform"]["desktop"];
         desktop["navigation"] =
-            serde_json::json!({"label":"Cached panel","icon":"reicon:files/file-text"});
+            serde_json::json!({"label":"Retained panel","icon":"reicon:files/file-text"});
         desktop["navigation_options"] = serde_json::json!({"pinned":true,"target":"node"});
-        desktop["navigation_options"]["retention"] = if retention == "idle" {
-            serde_json::json!({"mode":"idle","seconds":300})
-        } else {
-            serde_json::json!({"mode":retention})
-        };
-        if retention == "none" {
-            // An omitted policy must use the same release behavior.
-            desktop["navigation_options"]
-                .as_object_mut()
-                .unwrap()
-                .remove("retention");
-        }
         std::fs::write(path, manifest.to_string()).unwrap();
         std::fs::write(
             root.join("dev.sailry.platform/desktop/main.js"),
@@ -238,7 +218,8 @@ fn entry_reads_again_without_replacing_cached_state(cx: &mut TestAppContext) {
         .unwrap();
         let package = fixture.install(0);
         assert!(package.issues.is_empty(), "{:?}", package.issues);
-        cx.update(|cx| cx.set_global(fixture.services(remote)));
+        // Keep the selected Host distinct from Desktop's local client in both lanes.
+        cx.update(|cx| cx.set_global(fixture.services(true)));
         let mut owner = None;
         let (_, visual) = cx.add_window_view(|window, cx| {
             let shell = cx.new(|cx| Shell::new(window, cx));
@@ -274,110 +255,134 @@ fn entry_reads_again_without_replacing_cached_state(cx: &mut TestAppContext) {
                 .find(|entry| entry.package == package.summary.reference())
                 .unwrap()
         });
+        let reads = crate::plugins::tests::preload::Reads::new(fixture.transport.clone());
+        visual.update(|_, cx| {
+            shell.update(cx, |shell, _| {
+                shell
+                    .live
+                    .as_mut()
+                    .unwrap()
+                    .override_transport(reads.clone());
+            })
+        });
         let panel = open(&shell, entry.clone(), visual);
         wait(visual, |cx| snapshot(&panel, cx).contains("entry-reads-1"));
-        let root = panel.read_with(visual, |panel, _| {
-            panel.mounted.as_ref().unwrap().root.entity_id()
+        let retained = panel.downgrade();
+        let (root, script) = panel.read_with(visual, |panel, cx| {
+            let root = &panel.mounted.as_ref().unwrap().root;
+            let script = root
+                .read(cx)
+                .content()
+                .clone()
+                .downcast::<gpui_shell::ScriptView>()
+                .unwrap();
+            (root.downgrade(), script.downgrade())
         });
         click(visual, "entry-edit");
         wait(visual, |cx| snapshot(&panel, cx).contains("entry-draft-1"));
+        let cursor = panel.read_with(visual, |panel, _| {
+            panel.snapshot.borrow().as_ref().unwrap().cursor
+        });
+        drop(panel);
         visual.update(|window, cx| {
             shell.update(cx, |shell, cx| {
                 shell.navigate(crate::preview::Page::Activity, window, cx)
             })
         });
-        if retention != "always" {
-            let weak = panel.downgrade();
-            if retention == "idle" {
-                // Returning cancels the old deadline, even while the view stays open.
-                let returned = open(&shell, entry.clone(), visual);
-                assert_eq!(returned, panel);
-                visual.run_until_parked();
-                visual.executor().advance_clock(Duration::from_secs(301));
-                visual.run_until_parked();
-                assert_eq!(returned, panel);
-                assert!(shell.read_with(visual, |shell, _| {
-                    shell.extensions.as_ref().unwrap().panel.as_ref() == Some(&panel)
-                }));
-                drop(returned);
-            }
-            drop(panel);
-            if retention == "none" {
-                wait(visual, |_| weak.upgrade().is_none());
-                let reopened = open(&shell, entry.clone(), visual);
-                wait(visual, |cx| {
-                    snapshot(&reopened, cx).contains("entry-reads-1")
-                });
-            }
-            // Switching directly to another plugin also applies retention.
-            let other = shell.read_with(visual, |shell, cx| {
-                shell
-                    .extension_entries(cx)
-                    .into_iter()
-                    .find(|entry| entry.package.name == "ssh")
-                    .unwrap()
-            });
-            let previous = shell.read_with(visual, |shell, _| {
-                shell
-                    .extensions
-                    .as_ref()
-                    .unwrap()
-                    .panel
-                    .as_ref()
-                    .unwrap()
-                    .downgrade()
-            });
-            open(&shell, other, visual);
-            if retention == "idle" {
-                visual.run_until_parked();
-                assert!(previous.upgrade().is_some());
-                visual.executor().advance_clock(Duration::from_secs(301));
-            }
-            wait(visual, |_| previous.upgrade().is_none());
-            let reopened = open(&shell, entry, visual);
-            wait(visual, |cx| {
-                snapshot(&reopened, cx).contains("entry-reads-1")
-            });
-            assert!(!reopened.read_with(visual, |_, cx| {
-                snapshot(&reopened, cx).contains("entry-draft-1")
-            }));
-            visual.update(|window, _| window.remove_window());
-            drop(reopened);
-            drop(shell);
-            fixture.close();
-            continue;
-        }
-        let cursor = panel.read_with(visual, |panel, _| {
-            panel.snapshot.borrow().as_ref().unwrap().cursor
+        visual.run_until_parked();
+        visual.executor().advance_clock(Duration::from_secs(301));
+        visual.run_until_parked();
+        assert!(retained.upgrade().is_some());
+        assert!(root.upgrade().is_some());
+        assert!(script.upgrade().is_some());
+
+        let other = shell.read_with(visual, |shell, cx| {
+            shell
+                .extension_entries(cx)
+                .into_iter()
+                .find(|entry| entry.node == fixture.node.id() && entry.package.name == "ssh")
+                .unwrap()
         });
-        let cached = open(&shell, entry, visual);
-        assert_eq!(cached, panel);
-        assert_eq!(
-            cached.read_with(visual, |panel, _| panel
-                .mounted
-                .as_ref()
-                .unwrap()
-                .root
-                .entity_id()),
-            root
-        );
-        wait(visual, |cx| snapshot(&panel, cx).contains("entry-reads-2"));
-        assert!(panel.read_with(visual, |_, cx| {
-            snapshot(&panel, cx).contains("entry-draft-1")
-        }));
-        assert_eq!(
-            panel.read_with(visual, |panel, _| panel
-                .snapshot
-                .borrow()
-                .as_ref()
-                .unwrap()
-                .cursor),
-            cursor
-        );
+        for count in [2, 3] {
+            let (entered, release) = reads.hold();
+            let returned = open(&shell, entry.clone(), visual);
+            assert_eq!(returned.entity_id(), retained.entity_id());
+            let assert_restored = |visual: &mut VisualTestContext| {
+                visual.update(|window, cx| {
+                    window.refresh();
+                    window.draw(cx).clear(cx);
+                    let panel = returned.read(cx);
+                    assert!(!panel.loading);
+                    let mounted = panel.mounted.as_ref().unwrap();
+                    assert_eq!(mounted.root.entity_id(), root.entity_id());
+                    assert_eq!(
+                        mounted
+                            .root
+                            .read(cx)
+                            .content()
+                            .clone()
+                            .downcast::<gpui_shell::ScriptView>()
+                            .unwrap()
+                            .entity_id(),
+                        script.entity_id(),
+                    );
+                    let tree = snapshot(&returned, cx);
+                    assert!(tree.contains("entry-draft-1"));
+                    assert!(tree.contains(&format!("entry-reads-{}", count - 1)));
+                    assert!(!tree.contains("plugin-open-"));
+                });
+                assert!(visual.debug_bounds("plugin-panel-loading").is_none());
+            };
+            assert_restored(visual);
+            wait(visual, |_| entered.is_cancelled());
+            assert_restored(visual);
+            release.cancel();
+            wait(visual, |cx| {
+                snapshot(&returned, cx).contains(&format!("entry-reads-{count}"))
+            });
+            assert_eq!(
+                returned.read_with(visual, |panel, cx| {
+                    let mounted = panel.mounted.as_ref().unwrap();
+                    let script = mounted
+                        .root
+                        .read(cx)
+                        .content()
+                        .clone()
+                        .downcast::<gpui_shell::ScriptView>()
+                        .unwrap();
+                    (mounted.root.entity_id(), script.entity_id())
+                }),
+                (root.entity_id(), script.entity_id()),
+            );
+            assert!(visual.update(|_, cx| { snapshot(&returned, cx).contains("entry-draft-1") }));
+            assert_eq!(
+                returned.read_with(visual, |panel, _| {
+                    panel.snapshot.borrow().as_ref().unwrap().cursor
+                }),
+                cursor,
+            );
+            drop(returned);
+            if count == 2 {
+                let ssh = open(&shell, other.clone(), visual);
+                wait(visual, |cx| {
+                    ssh.read(cx).resource_active() && !snapshot(&ssh, cx).is_empty()
+                });
+                drop(ssh);
+                visual.run_until_parked();
+                visual.executor().advance_clock(Duration::from_secs(301));
+                visual.run_until_parked();
+                assert!(retained.upgrade().is_some());
+                assert!(root.upgrade().is_some());
+                assert!(script.upgrade().is_some());
+            }
+        }
         visual.update(|window, _| window.remove_window());
-        drop(cached);
-        drop(panel);
         drop(shell);
+        visual.cx.update(|_| {});
+        visual.run_until_parked();
+        assert!(retained.upgrade().is_none());
+        assert!(root.upgrade().is_none());
+        assert!(script.upgrade().is_none());
         fixture.close();
     }
 }

@@ -632,6 +632,9 @@ where
                             ("select-popup", cx.entity_id()),
                             bounds,
                             v_flex()
+                                .id("select-popup")
+                                .test_support()
+                                .debug_selector(|| "select-popup".into())
                                 .occlude()
                                 .map(|this| match self.state.menu_width {
                                     Length::Auto => this.w(bounds.size.width),

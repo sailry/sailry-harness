@@ -420,13 +420,14 @@ impl Render for Notification {
         let placement = self.placement.unwrap_or(cx.theme().notification.placement);
 
         let content_width = cx.theme().notification.content_width;
-        let custom_surface = crate::surface::is_custom(cx);
         let card = div()
             .h_flex()
             .relative()
             .w_full()
             .when(content_width, |card| card.w_auto().max_w_full())
             .debug_selector(|| "notification-card".into())
+            .border_1()
+            .border_color(cx.theme().border)
             .bg(cx.theme().tokens.popover)
             .text_color(cx.theme().popover_foreground)
             .text_sm()
@@ -504,8 +505,8 @@ impl Render for Notification {
             .w_full()
             .when(content_width, |toast| toast.w_auto().max_w_full())
             .rounded(cx.theme().surface_radius())
-            .when(!custom_surface, |toast| toast.shadow(toast_shadow(1.)))
-            .child(crate::surface::render(card, cx))
+            .shadow(toast_shadow(1.))
+            .child(card)
             .when_some(self.on_click.clone(), |this, on_click| {
                 this.on_click(cx.listener(move |view, event, window, cx| {
                     view.dismiss(window, cx);
@@ -528,9 +529,7 @@ impl Render for Notification {
                 move |this, delta| {
                     if closing {
                         let opacity = 1. - delta;
-                        let that = this.opacity(opacity).when(!custom_surface, |this| {
-                            this.shadow(toast_shadow(opacity.powi(3)))
-                        });
+                        let that = this.opacity(opacity).shadow(toast_shadow(opacity.powi(3)));
                         let y_offset = match placement {
                             Anchor::TopLeft | Anchor::TopRight | Anchor::TopCenter => {
                                 -delta * NOTIFICATION_TRANSITION_OFFSET
@@ -563,9 +562,7 @@ impl Render for Notification {
                         // threshold, which popped.
                         this.top(px(0.) + y_offset)
                             .opacity(opacity)
-                            .when(!custom_surface, |this| {
-                                this.shadow(toast_shadow(opacity.powi(3)))
-                            })
+                            .shadow(toast_shadow(opacity.powi(3)))
                     }
                 },
             );

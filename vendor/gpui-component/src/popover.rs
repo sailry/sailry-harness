@@ -1,7 +1,7 @@
 use gpui::{
     Anchor, Animation, AnimationExt as _, AnyElement, App, Bounds, Context, Div, ElementId,
     FocusHandle, InteractiveElement as _, IntoElement, MouseButton, ParentElement, PathBuilder,
-    Pixels, Point, RenderOnce, Stateful, StyleRefinement, Styled, Window, canvas, div, point,
+    Pixels, Point, RenderOnce, Stateful, StyleRefinement, Styled, Window, canvas, point,
     prelude::FluentBuilder as _, px,
 };
 use std::{cell::Cell, rc::Rc, time::Duration};
@@ -90,21 +90,6 @@ pub(crate) fn dropdown_popup(
     let travel: f32 = DROPDOWN_ENTER_OFFSET.into();
     // Read out here: the animation runs long after `cx` is gone.
     let ring = popover_ring(cx);
-    if crate::surface::is_custom(cx) {
-        // The fade must surround the material as well as the content. Applying
-        // opacity to the card inside its painter leaves the backdrop unfaded.
-        let surface = div()
-            .flex()
-            .flex_col()
-            .child(crate::surface::render(surface, cx))
-            .with_animation(
-                id,
-                Animation::new(DROPDOWN_ENTER_DURATION).with_easing(ease_out_cubic),
-                move |surface, delta| surface.top(px(travel * (1. - delta))).opacity(delta),
-            );
-        return dropdown_positioner(bounds).child(surface);
-    }
-
     let surface = surface.with_animation(
         id,
         Animation::new(DROPDOWN_ENTER_DURATION).with_easing(ease_out_cubic),
@@ -374,6 +359,7 @@ impl RenderOnce for Popover {
             .content(move |state, window, cx| {
                 v_flex()
                     .id("content")
+                    .debug_selector(|| "popover-surface".into())
                     .occlude()
                     .tab_group()
                     .when(appearance, |this| this.popover_style(cx).p_3())
@@ -424,13 +410,6 @@ impl RenderOnce for Popover {
                             .inset_0()
                             .size_full(),
                         )
-                    })
-                    .map(|content| {
-                        if appearance {
-                            crate::surface::render(content, cx)
-                        } else {
-                            content.into_any_element()
-                        }
                     })
             })
             .when_some(self.trigger, |this, trigger| this.trigger_with(trigger))
@@ -997,19 +976,7 @@ mod tests {
     /// reintroduce by giving the animation a constant id, so it is pinned here.
     #[gpui::test]
     fn the_enter_motion_starts_over_every_time_the_dropdown_opens(cx: &mut gpui::TestAppContext) {
-        check_enter_motion(cx, false);
-    }
-
-    #[gpui::test]
-    fn custom_surfaces_keep_dropdown_bounds_and_reopening_motion(cx: &mut gpui::TestAppContext) {
-        check_enter_motion(cx, true);
-    }
-
-    fn check_enter_motion(cx: &mut gpui::TestAppContext, custom: bool) {
         cx.update(crate::init);
-        if custom {
-            cx.update(|cx| crate::surface::set_renderer(|child, _, _| child, cx));
-        }
         let (view, window) = cx.add_window_view(|_, _| Harness { open: true });
 
         window.update(|window, cx| window.draw(cx).clear(cx));

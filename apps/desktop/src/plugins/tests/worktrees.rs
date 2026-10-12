@@ -4,7 +4,7 @@ use crate::{plugins::contributions::Registry, preview::Page, shell::Shell};
 use sailry_protocol::{Output, Request, WorktreeId, plugin::ui::Intent};
 
 mod fixture;
-use fixture::{Fixture as Worktrees, input, invoke, ready};
+use self::fixture::{Fixture as Worktrees, input, invoke, ready};
 
 #[gpui::test]
 fn creates_and_selects_registered_checkouts(cx: &mut TestAppContext) {

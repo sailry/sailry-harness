@@ -13,8 +13,8 @@
 //! hashed whole, it would dirty every tile of a repaint at a new offset.
 
 use crate::{
-    AtlasTile, BackdropBlur, Background, Bounds, ContentMask, Corners, Edges, Hsla, Point,
-    ScaledPixels, Scene, TileCoord, TransformationMatrix,
+    AtlasTile, Background, Bounds, ContentMask, Corners, Edges, Hsla, Point, ScaledPixels, Scene,
+    TileCoord, TransformationMatrix,
     fast::layers::scene::{drawn_bounds, translate_primitive, visible_bounds},
     point,
     scene::{PaintOperation, Primitive},
@@ -44,12 +44,6 @@ pub(crate) fn tile_hashes(
                 for_tiles(&mut hashers, visible, tile_size, |hasher, origin| {
                     hasher.write_u8(0);
                     hash_primitive(&translate_primitive(primitive, origin), &tile, hasher);
-                });
-            }
-            PaintOperation::BackdropBlur(blur) => {
-                let visible = blur.bounds.intersect(&blur.content_mask.bounds);
-                for_tiles(&mut hashers, visible, tile_size, |hasher, origin| {
-                    hash_backdrop(&blur.translated(origin), &tile, hasher);
                 });
             }
             PaintOperation::StartLayer(bounds) => {
@@ -109,13 +103,6 @@ pub(crate) fn part_tile_hashes(
                 reach = Some(reach.map_or(visible, |reach| reach.union(&visible)));
                 hasher.write_u8(0);
                 hash_primitive(primitive, &drawn, &mut hasher);
-            }
-            PaintOperation::BackdropBlur(blur) => {
-                let visible = blur.bounds.intersect(&blur.content_mask.bounds);
-                if !visible.is_empty() {
-                    reach = Some(reach.map_or(visible, |reach| reach.union(&visible)));
-                    hash_backdrop(blur, &blur.bounds, &mut hasher);
-                }
             }
             PaintOperation::StartLayer(_) => hasher.write_u8(1),
             PaintOperation::EndLayer => hasher.write_u8(2),
@@ -301,29 +288,6 @@ fn hash_primitive(primitive: &Primitive, tile: &Bounds<ScaledPixels>, hasher: &m
             hash_bounds(&surface.bounds, hasher);
             hash_mask(&surface.content_mask, tile, hasher);
         }
-    }
-}
-
-fn hash_backdrop(blur: &BackdropBlur, tile: &Bounds<ScaledPixels>, hasher: &mut FxHasher) {
-    hasher.write_u8(3);
-    hash_bounds(&blur.bounds, hasher);
-    hash_mask(&blur.content_mask, tile, hasher);
-    hash_corners(&blur.corner_radii, hasher);
-    hash_hsla(&blur.tint, hasher);
-    for value in [
-        blur.blur_radius.0,
-        blur.lens.0,
-        blur.reach.0,
-        blur.magnify,
-        blur.dispersion,
-        blur.gain,
-        blur.saturation,
-        blur.edge,
-        blur.edge_width.0,
-        blur.edge_aa.0,
-        blur.opacity,
-    ] {
-        hash_f32(value, hasher);
     }
 }
 

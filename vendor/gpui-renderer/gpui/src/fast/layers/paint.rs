@@ -387,7 +387,7 @@ pub(crate) fn composite_at(
 /// Composites the layer of the container `id` into the frame at
 /// `translation`, `dirtied` of its tiles new this frame: its tile quads
 /// over the viewport, the current content mask, and its [`LayerFrame`].
-/// Content requiring paths or backdrop sampling is drawn into the frame instead.
+/// Content holding paths is drawn into the frame instead.
 pub(crate) fn insert_layer(
     window: &mut Window,
     id: &GlobalElementId,
@@ -401,7 +401,7 @@ pub(crate) fn insert_layer(
     let Some(record) = layer.record.as_ref() else {
         return;
     };
-    if record.requires_direct {
+    if record.has_paths {
         let content = record.content.clone();
         draw_into_frame(window, content.operations(), translation);
         return;
@@ -519,11 +519,6 @@ fn insert_paths(
 pub(crate) fn lift_paths(
     content: Scene,
 ) -> Result<(Scene, Rc<[crate::Path<ScaledPixels>]>), Box<Scene>> {
-    // A backdrop samples the earlier window scene, so it cannot be cached in
-    // an independently rasterized scroll tile. Reuse the direct paint path.
-    if !content.backdrop_blurs.is_empty() {
-        return Err(Box::new(content));
-    }
     if content.paths.is_empty() {
         return Ok((content, Rc::from([])));
     }
@@ -573,7 +568,6 @@ pub(crate) fn lift_paths(
         match operation {
             PaintOperation::Primitive(Primitive::Path(_)) => {}
             PaintOperation::Primitive(primitive) => rest.insert_primitive(primitive.clone()),
-            PaintOperation::BackdropBlur(blur) => rest.insert_backdrop_blur(*blur),
             PaintOperation::StartLayer(bounds) => rest.push_layer(*bounds),
             PaintOperation::EndLayer => rest.pop_layer(),
         }
@@ -664,11 +658,6 @@ pub(crate) fn draw_into_frame<'a>(
                 clip_primitive(&mut primitive, &viewport);
                 scene.insert_primitive(primitive);
             }
-            PaintOperation::BackdropBlur(blur) => {
-                let mut blur = blur.translated(delta);
-                blur.content_mask.bounds = blur.content_mask.bounds.intersect(&viewport);
-                scene.insert_backdrop_blur(blur);
-            }
             PaintOperation::StartLayer(bounds) => {
                 let bounds = Bounds {
                     origin: bounds.origin + delta,
@@ -754,7 +743,7 @@ fn repaint(
         origin: region.origin + to_content,
         size: region.size,
     };
-    let (content, paths, requires_direct) = match lift_paths(content) {
+    let (content, paths, has_paths) = match lift_paths(content) {
         Ok((content, paths)) => (content, paths, false),
         Err(content) => (*content, Rc::from([]), true),
     };
@@ -774,7 +763,7 @@ fn repaint(
         rendered_work as f32 / visible_work.max(1) as f32,
     );
     let hashes = tile_hashes(&content, TILE_SIZE, region);
-    if requires_direct {
+    if has_paths {
         draw_into_frame(window, &painting.scene.paint_operations, Point::default());
     }
 
@@ -800,7 +789,7 @@ fn repaint(
         hovers,
         dependencies: painting.dependencies.union(&paint_dependencies),
         views,
-        requires_direct,
+        has_paths,
         paths,
         view_layouts: Rc::new(mem::take(&mut painting.view_layouts)),
     });
@@ -809,7 +798,7 @@ fn repaint(
         .as_ref()
         .map_or(0, |record| record.dirty_tiles.len());
     crate::fast::layers::input::painted(window, &painting.id, painting.input);
-    if !requires_direct {
+    if !has_paths {
         window
             .layout_engine
             .as_mut()
@@ -922,9 +911,6 @@ fn translated_scene(scene: &Scene, delta: Point<ScaledPixels>) -> Scene {
         match operation {
             PaintOperation::Primitive(primitive) => {
                 translated.insert_primitive(translate_primitive(primitive, delta))
-            }
-            PaintOperation::BackdropBlur(blur) => {
-                translated.insert_backdrop_blur(blur.translated(delta));
             }
             PaintOperation::StartLayer(bounds) => translated.push_layer(Bounds {
                 origin: bounds.origin + delta,

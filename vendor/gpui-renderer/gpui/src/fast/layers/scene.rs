@@ -122,15 +122,6 @@ impl LayerFrame {
                         scene.insert_primitive(translate_primitive(primitive, delta));
                     }
                 }
-                PaintOperation::BackdropBlur(blur) => {
-                    if blur
-                        .bounds
-                        .intersect(&blur.content_mask.bounds)
-                        .intersects(&bounds)
-                    {
-                        scene.insert_backdrop_blur(blur.translated(delta));
-                    }
-                }
                 PaintOperation::StartLayer(layer_bounds) => {
                     scene.push_layer(translate_bounds(*layer_bounds, delta))
                 }

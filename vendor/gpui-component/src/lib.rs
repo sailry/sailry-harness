@@ -15,7 +15,6 @@ mod inspector;
 mod root;
 mod sizing;
 mod styled;
-pub mod surface;
 mod time;
 mod title_bar;
 mod touch_selection;

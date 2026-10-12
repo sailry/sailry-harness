@@ -70,9 +70,6 @@ impl Scene {
                 }
                 crate::PaintOperation::EndLayer => lines.push("end layer".into()),
                 crate::PaintOperation::Primitive(..) => {}
-                crate::PaintOperation::BackdropBlur(blur) => {
-                    lines.push(format!("backdrop {blur:?}"))
-                }
             }
         }
         lines.extend(self.shadows.iter().map(|shadow| format!("{shadow:?}")));

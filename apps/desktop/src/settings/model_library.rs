@@ -354,7 +354,7 @@ pub(super) fn open(
             cursor: None,
             searched: None,
             partial: false,
-            loading: false,
+            loading: true,
             generation: 0,
             closed: false,
             read: None,
@@ -381,9 +381,14 @@ pub(super) fn open(
             .child(library.clone())
     });
     result.update(cx, |_, cx| {
+        // The target's button listener still owns its update while this dialog opens.
         cx.defer_in(window, |library, window, cx| {
-            library.search(false, window, cx)
-        })
+            if library.read.is_none() {
+                library.loading = false;
+                library.search(false, window, cx);
+                cx.notify();
+            }
+        });
     });
     result
 }

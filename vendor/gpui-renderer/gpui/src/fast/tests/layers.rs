@@ -224,7 +224,6 @@ fn content_in_parts_draws_each_tile_as_one_scene_does() {
     for operation in rows.iter().flatten() {
         match operation {
             PaintOperation::Primitive(primitive) => whole.insert_primitive(primitive.clone()),
-            PaintOperation::BackdropBlur(blur) => whole.insert_backdrop_blur(*blur),
             PaintOperation::StartLayer(bounds) => whole.push_layer(*bounds),
             PaintOperation::EndLayer => whole.pop_layer(),
         }
@@ -239,7 +238,6 @@ fn content_in_parts_draws_each_tile_as_one_scene_does() {
                 PaintOperation::Primitive(primitive) => {
                     PaintOperation::Primitive(primitive.clone())
                 }
-                PaintOperation::BackdropBlur(blur) => PaintOperation::BackdropBlur(*blur),
                 PaintOperation::StartLayer(bounds) => PaintOperation::StartLayer(*bounds),
                 PaintOperation::EndLayer => PaintOperation::EndLayer,
             })
@@ -1618,7 +1616,7 @@ mod paint {
             assert_eq!(stats.layer_frames_composited, 1);
             let layer = window.fast_layers.layers.values().next().expect("a layer");
             let record = layer.record.as_ref().expect("painted");
-            assert!(!record.requires_direct);
+            assert!(!record.has_paths);
             assert!(
                 record.content.scene().unwrap().paths.is_empty(),
                 "the tiles hold no path"

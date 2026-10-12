@@ -135,7 +135,7 @@ pub fn send_button(button: Button, disabled: bool, active: bool, cx: &App) -> Bu
 
 pub fn init(cx: &mut App) {
     crate::content::init(cx);
-    crate::ui::material::init(cx);
+    crate::ui::overlays::init(cx);
     let selection = crate::preferences::data(cx).appearance;
     cx.set_global(SystemAppearance(selection.mode == Mode::System));
     let mode = {

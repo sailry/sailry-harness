@@ -10,12 +10,13 @@ use gpui_shell::{HostModule, HostValue};
 mod cards;
 mod collapse;
 mod scroll;
+mod skeleton;
 
 #[cfg(test)]
 mod tests;
 
 pub(super) fn extend(module: HostModule) -> HostModule {
-    let module = scroll::extend(collapse::extend(cards::extend(module)));
+    let module = skeleton::extend(scroll::extend(collapse::extend(cards::extend(module))));
     let declarations = format!(
         "{}\n{}",
         module.declared().unwrap_or_default(),

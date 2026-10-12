@@ -503,16 +503,16 @@ from connection cards and plugin details.
 Plugins without configuration fields or a settings surface have no configuration action.
 Scripted settings pages preload up to four validated resource bundles per captured
 Node, warming on settings entry and navigation hover. Preloading never executes
-scripts or reads configuration values. Returning to a page reuses those files but
-creates a fresh view and reads current data; leaving releases the view and its
-runtime. Leaving the settings area releases all prepared resources. Recent resource
-entries are bounded and invalidated by package/settings revisions, disconnects and
-Node changes. Workspace plugins declare `navigation_options.retention`: `none`
-releases on navigation, `always` retains until window close, and `idle` expires
-after a declared number of seconds away. The host owns these lifetimes, cancels
-expiry on return, and invalidates stale packages regardless of retention. Omitting the
-policy defaults to `none`; bundled games, editors and connection views explicitly
-use `always` to preserve their interactive state.
+scripts or reads configuration values. Workspace and scripted settings navigation
+retain Kit's actual `ScriptView` and `ShellRoot` entities under their scoped owners.
+First use loads a page; later selections display the same instance and run its
+normal entry refresh without discarding drafts or briefly unmounting the page.
+Hidden pages pause visibility-bound work. This uses GPUI's retained ownership,
+not a separate KeepAlive, render-description cache or expiry policy.
+Leaving the settings area releases prepared resources, not mounted page owners.
+Prepared resources remain bounded, and package/settings revisions, removal,
+invalid scopes and Node changes invalidate the relevant runtime. Window close
+releases all page owners; already admitted Node tasks remain Node-owned.
 
 Conversation export reads canonical history through Client. Per-reply actions select
 one turn's user message and final reply; session exports include all user messages

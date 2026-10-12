@@ -832,9 +832,7 @@ impl RenderOnce for Dialog {
                                                 })
                                         }))
                                         .map(|surface| {
-                                            if crate::surface::is_custom(cx) {
-                                                crate::surface::render(surface, cx)
-                                            } else if animated {
+                                            if animated {
                                                 surface
                                                     .with_animation(
                                                         "slide-down-shadow",

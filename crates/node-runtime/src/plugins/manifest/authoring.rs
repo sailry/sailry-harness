@@ -77,40 +77,20 @@ fn validates_continuation_markers() {
 }
 
 #[test]
-fn validates_navigation_retention_offline() {
+fn rejects_retired_navigation_options() {
     let validator = validator();
     let mut manifest: Value =
         serde_json::from_slice(include_bytes!("../../../../../plugins/ssh/plugin.json")).unwrap();
-    for policy in [
-        json!({"mode":"none"}),
-        json!({"mode":"always"}),
-        json!({"mode":"idle","seconds":300}),
-    ] {
-        manifest["extensions"]["dev.sailry.platform"]["desktop"]["navigation_options"]["retention"] =
-            policy;
-        assert!(validator.is_valid(&manifest));
-        assert!(
-            parse(&serde_json::to_vec(&manifest).unwrap())
-                .unwrap()
-                .issues
-                .is_empty()
-        );
-    }
-    for policy in [
-        json!({"mode":"idle","seconds":0}),
-        json!({"mode":"idle"}),
-        json!({"mode":"unknown"}),
-    ] {
-        manifest["extensions"]["dev.sailry.platform"]["desktop"]["navigation_options"]["retention"] =
-            policy;
-        assert!(!validator.is_valid(&manifest));
-        assert!(
-            parse(&serde_json::to_vec(&manifest).unwrap())
-                .unwrap()
-                .extension
-                .is_none()
-        );
-    }
+    assert!(validator.is_valid(&manifest));
+    let current = parse(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+    assert!(current.issues.is_empty());
+
+    manifest["extensions"]["dev.sailry.platform"]["desktop"]["navigation_options"]["retention"] =
+        json!({"mode":"always"});
+    assert!(!validator.is_valid(&manifest));
+    let captured = parse(&serde_json::to_vec(&manifest).unwrap()).unwrap();
+    assert!(captured.issues.is_empty());
+    assert_eq!(captured.extension, current.extension);
 }
 
 #[test]

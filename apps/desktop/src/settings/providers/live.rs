@@ -152,7 +152,7 @@ impl Workspace {
             self.extensions.clear_resources();
         }
         if let Some(snapshot) = view.snapshot.as_ref() {
-            self.extensions.retain_resources(&snapshot.plugins);
+            self.extensions.retain(&snapshot.plugins, cx);
             live.terminal_revision = snapshot.terminal_settings_revision;
             live.sandbox_revision = snapshot.sandbox_settings_revision;
             live.search_revision = snapshot.search_settings_revision;

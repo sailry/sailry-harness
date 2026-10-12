@@ -1543,6 +1543,7 @@ impl Render for PopupMenu {
         v_flex()
             .id("popup-menu")
             .test_support()
+            .debug_selector(|| "popup-menu".into())
             .role(Role::Menu)
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
@@ -1588,7 +1589,6 @@ impl Render for PopupMenu {
             .when(self.scrollable, |this| {
                 this.vertical_scrollbar(&self.scroll_handle)
             })
-            .map(|menu| crate::surface::render(menu, cx))
     }
 }
 

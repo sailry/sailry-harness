@@ -3,7 +3,10 @@ use crate::{
     settings::{entry::Entry, group::Group},
     tr,
 };
-use gpui_kit::{component::button::Button, prelude::FluentBuilder as _};
+use gpui_kit::{
+    component::{button::Button, skeleton::Skeleton},
+    prelude::FluentBuilder as _,
+};
 
 impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -12,12 +15,24 @@ impl Render for Panel {
             .settings
             .as_ref()
             .and_then(|settings| settings.destination.as_ref());
-        let label = destination
-            .map(|value| format!("{} · {}", value.endpoint, value.root))
-            .unwrap_or_else(|| tr("backup_not_configured").to_string());
+        let label = if self.settings.is_none() {
+            div()
+                .debug_selector(|| "backup-destination-loading".into())
+                .child(Skeleton::new().w_64().h_5().rounded_md())
+                .into_any_element()
+        } else {
+            div()
+                .debug_selector(|| "backup-destination-label".into())
+                .child(
+                    destination
+                        .map(|value| format!("{} · {}", value.endpoint, value.root))
+                        .unwrap_or_else(|| tr("backup_not_configured").to_string()),
+                )
+                .into_any_element()
+        };
         let configure = cx.entity();
         let configuration = Group::new("backup_destination").heading(false).child(
-            Entry::new("backup-destination-row", div().child(label)).action(
+            Entry::new("backup-destination-row", label).action(
                 Button::new("backup-configure")
                     .debug_selector(|| "backup-configure".into())
                     .icon(IconName::Settings2)
@@ -109,6 +124,23 @@ impl Render for Panel {
                     ),
                 );
             }
+        } else if self.settings.is_none() || destination.is_some() {
+            records = records.child(if self.loading {
+                crate::ui::skeleton::list("backup-records-loading", 3, cx)
+            } else {
+                div()
+                    .h_24()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        crate::feedback::retry("backup-load-retry")
+                            .debug_selector(|| "backup-load-retry".into())
+                            .disabled(!self.active || self.pending)
+                            .on_click(cx.listener(|panel, _, window, cx| panel.load(window, cx))),
+                    )
+                    .into_any_element()
+            });
         }
         v_flex().gap_6().child(configuration).child(records).when(
             self.page.as_ref().is_some_and(|page| page.partial),

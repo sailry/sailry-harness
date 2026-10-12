@@ -306,13 +306,13 @@ impl Render for Market {
                     ),
                 )
             })
-            .when(self.pending == Some(Loading::Catalog), |view| {
+            .when(self.pending == Some(Loading::Catalog) && self.page.is_none(), |view| {
                 view.child(skeleton(cx))
             })
-            .when_some(self.page.as_ref().filter(|_| self.pending != Some(Loading::Catalog)), |view, page| {
+            .when_some(self.page.as_ref(), |view, page| {
                 let previous = page.page.saturating_sub(1);
                 let next = page.page + 1;
-                view.when(page.entries.is_empty() && self.pending.is_none(), |view| {
+                view.when(page.entries.is_empty(), |view| {
                     view.child(Group::new("plugins_market").heading(false).empty(IconName::Search, "plugins_none"))
                 })
                 .child(

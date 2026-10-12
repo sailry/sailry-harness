@@ -373,8 +373,13 @@ impl View {
                             view.defaults_stop.cancel();
                             view._defaults = None;
                             view.defaults = NodeView::default();
-                            let (subscription, older) =
-                                watch::history(&view.binding, session.id, &view.stop, cx);
+                            let (subscription, older) = watch::history(
+                                &view.binding,
+                                session.id,
+                                History::default(),
+                                &view.stop,
+                                cx,
+                            );
                             view.subscription = Some(subscription);
                             view.older = Some(older);
                             cx.emit(Event::Created(Box::new(session.clone())));

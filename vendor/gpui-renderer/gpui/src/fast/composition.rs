@@ -431,7 +431,6 @@ impl Scene {
             && self.subpixel_sprites.is_empty()
             && self.polychrome_sprites.is_empty()
             && self.surfaces.is_empty()
-            && self.backdrop_blurs.is_empty()
     }
 
     /// Replays a range as a self-contained scene, restoring any layers that
@@ -460,7 +459,7 @@ impl Scene {
                         "source scene closes a layer that is not open"
                     );
                 }
-                PaintOperation::Primitive(_) | PaintOperation::BackdropBlur(_) => {}
+                PaintOperation::Primitive(_) => {}
             }
         }
 
@@ -471,7 +470,6 @@ impl Scene {
         for operation in operations {
             match operation {
                 PaintOperation::Primitive(primitive) => self.insert_primitive(primitive.clone()),
-                PaintOperation::BackdropBlur(blur) => self.insert_backdrop_blur(*blur),
                 PaintOperation::StartLayer(bounds) => {
                     active_layers.push(*bounds);
                     self.push_layer(*bounds);

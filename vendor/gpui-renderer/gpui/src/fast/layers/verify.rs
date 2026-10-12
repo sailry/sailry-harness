@@ -89,11 +89,6 @@ fn expand_layer(
                 clip_to(&mut moved, viewport);
                 scratch.insert_primitive(moved);
             }
-            PaintOperation::BackdropBlur(blur) => {
-                let mut blur = blur.translated(translation);
-                blur.content_mask.bounds = blur.content_mask.bounds.intersect(viewport);
-                scratch.insert_backdrop_blur(blur);
-            }
             PaintOperation::StartLayer(bounds) => scratch.push_layer(Bounds {
                 origin: bounds.origin + translation,
                 size: bounds.size,

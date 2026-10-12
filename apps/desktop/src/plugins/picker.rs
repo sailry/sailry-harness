@@ -455,7 +455,7 @@ fn popup(
                 .left((window.viewport_size().width - width) / 2.)
                 .top(window.viewport_size().height / 10.)
                 .w(width)
-                .child(component::surface::render(
+                .child(
                     div()
                         .id(SharedString::from(id.clone()))
                         .debug_selector(move || id.clone())
@@ -475,8 +475,7 @@ fn popup(
                         .rounded(cx.theme().surface_radius())
                         .shadow_xl()
                         .child(crate::command_picker::list(&list, title, window)),
-                    cx,
-                )),
+                ),
         )
         .into_any_element()
 }

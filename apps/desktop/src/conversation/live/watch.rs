@@ -131,13 +131,27 @@ pub(super) fn node(
 pub(super) fn history(
     binding: &Binding,
     session: SessionId,
+    initial: History,
     stop: &CancellationToken,
     cx: &mut Context<View>,
 ) -> (
     Task<()>,
     tokio::sync::mpsc::Sender<sailry_client::conversation::HistoryRequest>,
 ) {
-    let (sender, mut receiver) = tokio::sync::watch::channel(History::default());
+    let initial = if initial.snapshot.as_ref().is_some_and(|snapshot| {
+        snapshot.node != binding.client.target() || snapshot.page.session != session
+    }) {
+        History::default()
+    } else {
+        initial
+    };
+    let (sender, mut receiver) = tokio::sync::watch::channel(History {
+        connected: false,
+        error: None,
+        loading_older: false,
+        older_error: None,
+        ..initial
+    });
     let (older, requests) = tokio::sync::mpsc::channel(8);
     let client = binding.client.clone();
     let stop = stop.clone();

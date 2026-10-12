@@ -913,6 +913,30 @@ fn failed_switch_rejects_previous_results(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn refresh_preserves_existing_cards(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let (_, visual) = fixture.mount(cx);
+        tap(visual, "plugins-market-tab");
+        shown(visual, "market-install-files", true);
+        let before = visual.debug_bounds("market-card-files").unwrap();
+        fixture.transport.catalog_hold.store(1, Ordering::SeqCst);
+        tap(visual, "plugins-search");
+        wait(visual, |_| fixture.transport.catalog_entered.is_cancelled());
+        assert_eq!(visual.debug_bounds("market-card-files"), Some(before));
+        assert!(visual.debug_bounds("plugin-market-skeleton").is_none());
+        fixture.transport.release.cancel();
+        wait(visual, |_| {
+            fixture.transport.catalog_cancelled.is_cancelled()
+        });
+        shown(visual, "market-install-files", true);
+        assert_eq!(visual.debug_bounds("market-card-files"), Some(before));
+        fixture.close(visual);
+    }
+}
+
+#[gpui::test]
 fn failed_refresh_retains_catalog_and_query(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

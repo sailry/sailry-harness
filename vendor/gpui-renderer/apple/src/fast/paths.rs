@@ -52,8 +52,8 @@ struct PathBatch {
 }
 
 /// Forwarded to by `MetalRenderer::draw_primitives_to_texture`. Encodes the
-/// frame and returns its command buffer, or returns `None` for the standard
-/// encoder when there are no paths or backdrop passes need interleaving.
+/// frame and returns its command buffer, or returns `None` for upstream to
+/// encode a frame without paths, which has no pass to save.
 pub(crate) fn draw_primitives_to_texture(
     renderer: &mut MetalRenderer,
     scene: &Scene,
@@ -62,9 +62,7 @@ pub(crate) fn draw_primitives_to_texture(
     texture: &metal::TextureRef,
     viewport_size: Size<DevicePixels>,
 ) -> Result<Option<metal::CommandBuffer>> {
-    // Backdrops need framebuffer snapshots between ordered batches. The grouped
-    // path encoder does not encode those passes; the standard encoder does.
-    if scene.paths.is_empty() || !scene.backdrop_blurs.is_empty() {
+    if scene.paths.is_empty() {
         return Ok(None);
     }
     let path_batches = plan_paths(scene);

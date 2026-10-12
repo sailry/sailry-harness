@@ -11,6 +11,8 @@ use std::{cell::RefCell, rc::Rc};
 
 struct DefaultPolicy(Option<Policy>);
 
+mod states;
+
 impl Drop for DefaultPolicy {
     fn drop(&mut self) {
         policy::set_default(self.0.take().unwrap());

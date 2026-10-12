@@ -174,7 +174,7 @@ libghostty-vt-sys = { path = "vendor/libghostty-vt-sys" }
 
 [patch.crates-io]
 rquickjs = { path = "vendor/rquickjs-compat" }
-# Preserve approved materials on the Kit-selected GPUI Fast 0.1.3 backend.
+# Preserve input, layout and native integration fixes on Kit's GPUI Fast 0.1.3 backend.
 gpui-fast = { path = "vendor/gpui-renderer/gpui" }
 gpui-fast-apple = { path = "vendor/gpui-renderer/apple" }
 gpui-fast-macos = { path = "vendor/gpui-renderer/macos" }
