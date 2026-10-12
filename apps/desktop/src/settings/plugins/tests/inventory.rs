@@ -64,6 +64,7 @@ fn samples_scroll_work(cx: &mut TestAppContext) {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let Output::PluginCatalog(catalog) = fixture.execute(Command::SearchPluginCatalog {
+            force: false,
             source: Source::Official,
             query: String::new(),
             page: 1,

@@ -48,13 +48,14 @@ impl Host {
         source: CatalogSource,
         query: &str,
         page: u32,
+        force: bool,
         stop: CancellationToken,
     ) -> Result<Page, Fault> {
         if query.len() > 200 || page == 0 {
             return Err(sailry_protocol::Fault::invalid("invalid catalog query"));
         }
         if source == CatalogSource::Official {
-            let mut entries = official::entries(self, &stop).await?;
+            let mut entries = official::entries(self, force, &stop).await?;
             let query = query.to_lowercase();
             entries.retain(|entry| {
                 entry.name.to_lowercase().contains(&query)
@@ -280,7 +281,13 @@ mod tests {
         let mut host = Host::new(None);
         host.github = github::Github::catalog_fixture("http://127.0.0.1:9/");
         let page = host
-            .catalog(CatalogSource::Official, "", 1, CancellationToken::new())
+            .catalog(
+                CatalogSource::Official,
+                "",
+                1,
+                false,
+                CancellationToken::new(),
+            )
             .await
             .unwrap();
         assert!(!page.unavailable);
@@ -295,7 +302,13 @@ mod tests {
             ("筑梦大亨", vec!["city-trader"]),
         ] {
             let page = host
-                .catalog(CatalogSource::Official, query, 1, CancellationToken::new())
+                .catalog(
+                    CatalogSource::Official,
+                    query,
+                    1,
+                    false,
+                    CancellationToken::new(),
+                )
                 .await
                 .unwrap();
             let mut names: Vec<_> = page
@@ -311,6 +324,7 @@ mod tests {
                 CatalogSource::Official,
                 "no-such-plugin",
                 1,
+                false,
                 CancellationToken::new()
             )
             .await
@@ -363,7 +377,13 @@ mod live_tests {
         let host = Host::new(Some(profile.path().canonicalize().unwrap()));
         let stop = CancellationToken::new();
         let page = host
-            .catalog(CatalogSource::ThirdParty, "context7", 1, stop.clone())
+            .catalog(
+                CatalogSource::ThirdParty,
+                "context7",
+                1,
+                false,
+                stop.clone(),
+            )
             .await
             .unwrap();
         let entries: Vec<_> = page
@@ -403,7 +423,13 @@ mod live_tests {
         let host = Host::new(None);
         let stop = CancellationToken::new();
         let page = host
-            .catalog(CatalogSource::ThirdParty, "standards", 1, stop.clone())
+            .catalog(
+                CatalogSource::ThirdParty,
+                "standards",
+                1,
+                false,
+                stop.clone(),
+            )
             .await
             .unwrap();
         assert!(!page.unavailable);

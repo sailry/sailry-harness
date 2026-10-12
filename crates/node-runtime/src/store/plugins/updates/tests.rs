@@ -119,6 +119,7 @@ async fn authorization_distinguishes_full_and_closed() {
     let request = Request::new(
         ingress.node,
         Command::CheckPluginUpdates {
+            force: false,
             packages: Vec::new(),
         },
     );

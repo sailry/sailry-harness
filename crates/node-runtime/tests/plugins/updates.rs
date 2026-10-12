@@ -2,6 +2,7 @@ use super::*;
 
 async fn check(client: &Client, package: &Summary) -> plugin::updates::Report {
     let request = client.prepare(Command::CheckPluginUpdate {
+        force: true,
         name: package.name.clone(),
         expected_revision: package.revision,
     });
@@ -72,7 +73,8 @@ async fn checks_reject_stale_revisions_without_installing() {
             client
                 .execute(client.prepare(Command::CheckPluginUpdate {
                     name: "example".into(),
-                    expected_revision: 1
+                    expected_revision: 1,
+                    force: true,
                 }))
                 .await
                 .unwrap_err()
@@ -97,7 +99,8 @@ async fn checks_reject_stale_revisions_without_installing() {
             client
                 .execute(client.prepare(Command::CheckPluginUpdate {
                     name: "example".into(),
-                    expected_revision: 3
+                    expected_revision: 3,
+                    force: true,
                 }))
                 .await
                 .unwrap_err()
@@ -196,6 +199,7 @@ async fn unavailable_official_source() {
             let current = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);
             let error = client
                 .execute(client.prepare(Command::CheckPluginUpdate {
+                    force: true,
                     name: name.into(),
                     expected_revision: current.summary.revision,
                 }))

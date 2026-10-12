@@ -52,7 +52,7 @@ pub(super) fn create(
             if matches!(event, InputEvent::PressEnter { .. })
                 || (matches!(event, InputEvent::Change) && input.read(cx).value().trim().is_empty())
             {
-                state.search(1, cx);
+                state.search(1, false, cx);
             }
         })
         .detach();
@@ -68,7 +68,7 @@ pub(super) fn create(
             task: None,
         }
     });
-    state.update(cx, |state, cx| state.search(1, cx));
+    state.update(cx, |state, cx| state.search(1, false, cx));
     state
 }
 
@@ -82,7 +82,7 @@ impl Market {
         self.stop.clone()
     }
 
-    fn search(&mut self, page: u32, cx: &mut Context<Self>) {
+    fn search(&mut self, page: u32, force: bool, cx: &mut Context<Self>) {
         let query = self.query.read(cx).value().trim().to_owned();
         let stop = self.begin(Loading::Catalog);
         let cancelled = stop.clone();
@@ -96,6 +96,7 @@ impl Market {
                     source,
                     query,
                     page,
+                    force,
                 })) => Some(result),
             }
         });
@@ -271,7 +272,7 @@ impl Render for Market {
                                     state.page = None;
                                     state.source = source;
                                 }
-                                state.search(1, cx);
+                                state.search(1, false, cx);
                             })),
                     )
                     .child(
@@ -292,7 +293,7 @@ impl Render for Market {
                             .accessibility_label(tr("plugins_search"))
                             .tooltip(tr("plugins_search"))
                             .debug_selector(|| "plugins-search".into())
-                            .on_click(cx.listener(|state, _, _, cx| state.search(1, cx))),
+                            .on_click(cx.listener(|state, _, _, cx| state.search(1, false, cx))),
                     ),
             )
             .when(self.error.is_some(), |view| {
@@ -302,7 +303,7 @@ impl Render for Market {
                             .debug_selector(|| "plugins-market-retry".into())
                             .label(tr("plugins_retry"))
                             .disabled(!connected)
-                            .on_click(cx.listener(|state, _, _, cx| state.search(1, cx))),
+                            .on_click(cx.listener(|state, _, _, cx| state.search(1, true, cx))),
                     ),
                 )
             })
@@ -411,7 +412,7 @@ impl Render for Market {
                                     .accessibility_label(tr("plugins_previous"))
                                     .tooltip(tr("plugins_previous"))
                                     .on_click(cx.listener(move |state, _, _, cx| {
-                                        state.search(previous, cx)
+                                        state.search(previous, false, cx)
                                     })),
                             )
                             .child(
@@ -421,7 +422,7 @@ impl Render for Market {
                                     .accessibility_label(tr("plugins_next"))
                                     .tooltip(tr("plugins_next"))
                                     .on_click(
-                                        cx.listener(move |state, _, _, cx| state.search(next, cx)),
+                                        cx.listener(move |state, _, _, cx| state.search(next, false, cx)),
                                     ),
                             ),
                     )

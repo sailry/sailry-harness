@@ -55,6 +55,7 @@ fn fixture(failures: impl IntoIterator<Item = ErrorCode>) -> (Arc<Fixture>, Clie
     });
     let client = Client::new(transport.clone());
     let request = client.prepare(Command::CheckPluginUpdates {
+        force: false,
         packages: vec![sailry_protocol::plugin::updates::Request {
             name: "example".into(),
             expected_revision: 7,

@@ -25,18 +25,20 @@ impl Ingress {
                 "Node or protocol version mismatch",
             ));
         }
-        let (selections, single) = match &request.command {
+        let (selections, single, force) = match &request.command {
             Command::CheckPluginUpdate {
                 name,
                 expected_revision,
+                force,
             } => (
                 vec![Selection {
                     name: name.clone(),
                     expected_revision: *expected_revision,
                 }],
                 true,
+                *force,
             ),
-            Command::CheckPluginUpdates { packages } => (packages.clone(), false),
+            Command::CheckPluginUpdates { packages, force } => (packages.clone(), false, *force),
             _ => {
                 return Err(Fault::new(
                     ErrorCode::Internal,
@@ -87,7 +89,7 @@ impl Ingress {
         let stop = self.closed.child_token();
         let _guard = stop.clone().drop_guard();
         let packages: Vec<_> = current.iter().map(|(_, info, _)| info.clone()).collect();
-        let catalog = self.plugins.update_catalog(&packages, &stop).await;
+        let catalog = self.plugins.update_catalog(&packages, force, &stop).await;
         for (selection, info, root) in current {
             let result = match self
                 .plugins

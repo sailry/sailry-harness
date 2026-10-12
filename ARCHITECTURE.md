@@ -387,8 +387,11 @@ digest changes, preserving their enable choices and settings. Before the first
 release, official package versions remain `0.1.0`; immutable content and captured
 Git commits distinguish changes.
 Removed packages and packages from other sources are not changed by this refresh.
-The online official marketplace reads the plugin repository's `catalog.json`;
-unavailable networks leave the bundled snapshot installable. Invalid indexes are
+The online official marketplace reads the plugin repository's `catalog.json`.
+The execution Node shares its validated index across listings, source lookup and
+update checks for fifteen minutes. Explicit update checks and marketplace retries
+refresh it; only successful validation replaces the Node-lifetime cache.
+Unavailable networks leave the bundled snapshot installable. Invalid indexes are
 reported, not treated as an offline result. Official installation and updates
 capture immutable repository commits through Node's shared acquisition path.
 Preinstalled packages can update from the official repository without an app

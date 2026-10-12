@@ -329,6 +329,8 @@ pub enum Command {
         source: crate::plugin::catalog::Source,
         query: String,
         page: u32,
+        /// Refresh the official index instead of reusing its TTL cache.
+        force: bool,
     },
     ReadCatalogPlugin {
         source: crate::plugin::catalog::Source,
@@ -345,9 +347,13 @@ pub enum Command {
     CheckPluginUpdate {
         name: String,
         expected_revision: u64,
+        /// Refresh the official index instead of reusing its TTL cache.
+        force: bool,
     },
     CheckPluginUpdates {
         packages: Vec<crate::plugin::updates::Request>,
+        /// Refresh the official index instead of reusing its TTL cache.
+        force: bool,
     },
     InstallPluginSource {
         source: crate::plugin::skills::Resolved,

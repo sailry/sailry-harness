@@ -23,11 +23,12 @@ impl Host {
     pub(crate) async fn update_catalog(
         &self,
         packages: &[Info],
+        force: bool,
         stop: &CancellationToken,
     ) -> Option<Result<Catalog, Fault>> {
         if packages.iter().any(catalog::official::owns) {
             Some(
-                catalog::official::fetch(self, stop)
+                catalog::official::fetch(self, force, stop)
                     .await
                     .map(|entries| Catalog {
                         entries,

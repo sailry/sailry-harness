@@ -19,9 +19,10 @@ impl Ingress {
                 source,
                 query,
                 page,
+                force,
             } => Output::PluginCatalog(
                 self.plugins
-                    .catalog(*source, query, *page, self.closed.clone())
+                    .catalog(*source, query, *page, *force, self.closed.clone())
                     .await?,
             ),
             Command::ReadCatalogPlugin { source, id } => Output::PluginRepository(

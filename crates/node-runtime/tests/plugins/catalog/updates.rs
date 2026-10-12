@@ -3,6 +3,7 @@ use plugin::updates::{Batch, Candidate, Request as Selection};
 
 async fn check(client: &Client, packages: &[Summary]) -> Batch {
     let request = client.prepare(Command::CheckPluginUpdates {
+        force: true,
         packages: packages
             .iter()
             .map(|package| Selection {
@@ -688,7 +689,10 @@ async fn rejects_invalid_selections_without_fetching() {
             vec![selection; plugin::MAX_INSTALLED + 1],
         ] {
             let error = client
-                .execute(client.prepare(Command::CheckPluginUpdates { packages }))
+                .execute(client.prepare(Command::CheckPluginUpdates {
+                    packages,
+                    force: true,
+                }))
                 .await
                 .unwrap_err();
             assert_eq!(error.code, ErrorCode::InvalidRequest);

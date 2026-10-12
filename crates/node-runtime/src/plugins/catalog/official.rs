@@ -1,5 +1,7 @@
 //! The official index selects package directories in one authoritative repository.
 use super::*;
+mod cache;
+pub(in crate::plugins) use cache::Cache;
 
 const REPOSITORY: &str = "https://github.com/sailry/sailry-plugins";
 const INDEX: &str = "https://raw.githubusercontent.com/sailry/sailry-plugins/main/catalog.json";
@@ -29,11 +31,17 @@ struct Package {
     manifest: serde_json::Value,
 }
 
-pub(super) async fn entries(host: &Host, stop: &CancellationToken) -> Result<Vec<Entry>, Fault> {
-    match fetch(host, stop).await {
+pub(super) async fn entries(
+    host: &Host,
+    force: bool,
+    stop: &CancellationToken,
+) -> Result<Vec<Entry>, Fault> {
+    match fetch(host, force, stop).await {
         Ok(entries) => Ok(entries),
         // Listings can use shipped packages without trusting invalid online manifests.
-        Err(error) if unavailable(&error) || error.code == ErrorCode::InvalidRequest => {
+        Err(error)
+            if !force && (unavailable(&error) || error.code == ErrorCode::InvalidRequest) =>
+        {
             bundled::entries()
         }
         Err(error) => Err(error),
@@ -45,7 +53,7 @@ pub(super) async fn source(
     id: &str,
     stop: &CancellationToken,
 ) -> Result<Source, Fault> {
-    let entries = fetch(host, stop).await?;
+    let entries = fetch(host, false, stop).await?;
     if !entries.iter().any(|entry| entry.id == id) {
         return Err(Fault::new(
             ErrorCode::NotFound,
@@ -65,15 +73,21 @@ pub(in crate::plugins) fn unavailable(error: &Fault) -> bool {
 
 pub(in crate::plugins) async fn fetch(
     host: &Host,
+    force: bool,
     stop: &CancellationToken,
 ) -> Result<Vec<Entry>, Fault> {
-    let _permit = host
-        .reads
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| Fault::new(ErrorCode::Busy, "plugin catalog is busy"))?;
-    let index: Index = host.catalog_json(url(host), stop).await?;
-    parse(index)
+    let url = url(host);
+    host.official_catalog
+        .fetch(url.as_str(), force, stop, || async {
+            let _permit = host
+                .reads
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| Fault::new(ErrorCode::Busy, "plugin catalog is busy"))?;
+            let index: Index = host.catalog_json(url.clone(), stop).await?;
+            parse(index)
+        })
+        .await
 }
 
 fn url(_host: &Host) -> url::Url {

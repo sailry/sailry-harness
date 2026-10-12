@@ -1,5 +1,6 @@
 use super::*;
 use std::sync::atomic::Ordering;
+mod cache;
 mod fixture;
 mod live;
 mod updates;
@@ -33,6 +34,7 @@ async fn attach(remote: bool, directory: &tempfile::TempDir, node: &Node) -> (Li
 
 fn search(query: &str) -> Command {
     Command::SearchPluginCatalog {
+        force: false,
         source: plugin::catalog::Source::Official,
         query: query.into(),
         page: 1,
@@ -145,6 +147,7 @@ async fn updates_preinstalled() {
         let Output::PluginUpdate(report) = execute(
             &client,
             Command::CheckPluginUpdate {
+                force: true,
                 name: "reminders".into(),
                 expected_revision: disabled.summary.revision,
             },
@@ -216,6 +219,7 @@ async fn updates_preinstalled() {
         let Output::PluginUpdate(report) = execute(
             &client,
             Command::CheckPluginUpdate {
+                force: true,
                 name: updated.summary.name.clone(),
                 expected_revision: updated.summary.revision,
             },

@@ -26,6 +26,7 @@ async fn catalog_preserves_localized_metadata() {
         let Output::PluginCatalog(catalog) = execute(
             &client,
             Command::SearchPluginCatalog {
+                force: false,
                 source: plugin::catalog::Source::Official,
                 query: String::new(),
                 page: 1,
@@ -67,6 +68,7 @@ async fn catalog_preserves_localized_metadata() {
         let Output::PluginCatalog(filtered) = execute(
             &client,
             Command::SearchPluginCatalog {
+                force: false,
                 source: plugin::catalog::Source::Official,
                 query: summary.description("zh-CN").unwrap().into(),
                 page: 1,
@@ -529,6 +531,7 @@ mod removed_defaults {
         let Output::PluginCatalog(catalog) = execute(
             client,
             Command::SearchPluginCatalog {
+                force: false,
                 source: plugin::catalog::Source::Official,
                 query: String::new(),
                 page: 1,

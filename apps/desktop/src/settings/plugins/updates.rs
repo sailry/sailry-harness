@@ -295,6 +295,7 @@ impl State {
         let cancelled = stop.clone();
         let job = binding.runtime.clone().spawn(async move {
             let request = binding.client.prepare(Command::CheckPluginUpdates {
+                force: !startup,
                 packages: packages.iter().map(|package| checks::Request {
                     name: package.name.clone(),
                     expected_revision: package.revision,
