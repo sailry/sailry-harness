@@ -1,11 +1,12 @@
 use gpui_kit::*;
 use sailry_client::Client;
 use sailry_link::CancellationToken;
-use sailry_protocol::{
-    Command, Output,
-    plugin::{Info, Summary},
-};
+use sailry_protocol::plugin::{Info, Summary};
 use std::{collections::BTreeMap, sync::Arc};
+
+mod loading;
+#[cfg(test)]
+mod tests;
 
 pub(crate) fn title(info: &Info) -> String {
     if let Some(display) = info
@@ -144,6 +145,25 @@ impl Metadata {
         }
     }
 
+    fn apply(&mut self, batch: loading::Batch, stop: &CancellationToken) -> bool {
+        if stop.is_cancelled() {
+            return false;
+        }
+        self.loading = batch.retrying;
+        for (name, result) in batch.results {
+            match result {
+                Ok(info) => {
+                    self.errors.remove(&name);
+                    self.entries.insert(name, info);
+                }
+                Err(error) => {
+                    self.errors.insert(name, error);
+                }
+            }
+        }
+        true
+    }
+
     fn reload(&mut self, cx: &mut Context<Self>) {
         self.stop.cancel();
         self.stop = CancellationToken::new();
@@ -166,59 +186,47 @@ impl Metadata {
         }
         let client = self.client.clone();
         let stop = self.stop.clone();
-        let job = self.runtime.spawn(async move {
-            let mut results = Vec::new();
-            for expected in missing {
-                let result = tokio::select! {
-                    _ = stop.cancelled() => return None,
-                    result = client.execute(client.prepare(Command::ReadPlugin { name: expected.name.clone() })) => result,
-                };
-                let result = match result {
-                    Ok(Output::Plugin(info)) if info.summary == expected => Ok(info),
-                    Ok(Output::Plugin(_)) => Err("plugins_conflict"),
-                    _ => Err("plugins_read_failed"),
-                };
-                results.push((expected.name, result));
-            }
-            Some(results)
-        });
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        let job = self
+            .runtime
+            .spawn(loading::load(client, missing, stop, sender));
         let stop = self.stop.clone();
         self.task = Some(cx.spawn(async move |metadata, cx| {
-            let result = job.await;
-            let _ = metadata.update(cx, |metadata, cx| {
+            while let Some(batch) = receiver.recv().await {
                 if stop.is_cancelled() {
                     return;
                 }
-                metadata.loading = false;
-                match result {
-                    Ok(Some(results)) => {
-                        for (name, result) in results {
-                            match result {
-                                Ok(info) => {
-                                    metadata.entries.insert(name, info);
-                                }
-                                Err(error) => {
-                                    metadata.errors.insert(name, error);
-                                }
-                            }
+                if metadata
+                    .update(cx, |metadata, cx| {
+                        if metadata.apply(batch, &stop) {
+                            cx.notify();
                         }
-                    }
-                    _ => {
-                        for expected in &metadata.expected {
-                            if metadata
-                                .entries
-                                .get(&expected.name)
-                                .is_none_or(|info| info.summary != *expected)
-                            {
-                                metadata
-                                    .errors
-                                    .insert(expected.name.clone(), "plugins_read_failed");
-                            }
-                        }
-                    }
+                    })
+                    .is_err()
+                {
+                    return;
                 }
-                cx.notify();
-            });
+            }
+            if job.await.is_err() {
+                let _ = metadata.update(cx, |metadata, cx| {
+                    if stop.is_cancelled() {
+                        return;
+                    }
+                    metadata.loading = false;
+                    for expected in &metadata.expected {
+                        if metadata
+                            .entries
+                            .get(&expected.name)
+                            .is_none_or(|info| info.summary != *expected)
+                        {
+                            metadata
+                                .errors
+                                .insert(expected.name.clone(), "plugins_read_failed");
+                        }
+                    }
+                    cx.notify();
+                });
+            }
         }));
         cx.notify();
     }

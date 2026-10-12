@@ -732,7 +732,7 @@ fn discards_old_host_reads(cx: &mut TestAppContext) {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         install(&fixture);
-        fixture.transport.read_mode.store(1, Ordering::SeqCst);
+        fixture.transport.read_mode.store(3, Ordering::SeqCst);
         let (owner, visual) = fixture.mount(cx);
         select(&owner, visual, Section::Skills);
         wait(visual, |cx| {

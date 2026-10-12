@@ -140,5 +140,5 @@ fn refetches_origin_after_coalesced_changes(cx: &mut TestAppContext) {
 #[gpui::test]
 fn reports_a_failed_current_read(cx: &mut TestAppContext) {
     init(cx);
-    coalesced(cx, 1);
+    coalesced(cx, 3);
 }

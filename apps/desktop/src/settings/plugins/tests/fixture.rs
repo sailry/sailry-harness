@@ -102,6 +102,12 @@ impl Transport for Observed {
                         self.entered.cancel();
                         self.release.cancelled().await;
                     }
+                    3 => {
+                        return Err(Fault::new(
+                            sailry_protocol::ErrorCode::NotFound,
+                            "injected missing plugin",
+                        ));
+                    }
                     _ => {}
                 }
                 return self.inner.dispatch(request).await;
