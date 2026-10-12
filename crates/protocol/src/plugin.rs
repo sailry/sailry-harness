@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 mod action;
 pub use action::Action;
 pub mod authorization;
+pub mod card;
 pub mod catalog;
 pub mod conversation;
 pub mod desktop;
@@ -132,6 +133,9 @@ pub struct Extension {
     /// Controller-rendered entries with state and named action handlers.
     #[serde(default)]
     pub ui: Vec<ui::Contribution>,
+    /// Inline controllers are captured package resources, not model-authored UI.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cards: Vec<card::Declaration>,
 }
 
 /// Protected native account sources; never expose plaintext to package scripts.
@@ -158,6 +162,7 @@ impl Extension {
                 .is_some_and(|suffix| !suffix.is_empty())
         };
         self.icon.as_deref().is_none_or(contains)
+            && self.cards.iter().all(|card| contains(&card.entry))
             && self
                 .continuation_marker
                 .as_ref()

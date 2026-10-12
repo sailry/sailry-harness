@@ -20,6 +20,7 @@ mod activity;
 mod approvals;
 mod assets;
 mod attachments;
+mod cards;
 mod commands;
 mod compaction;
 mod composer;
@@ -147,6 +148,9 @@ pub(crate) struct View {
     editing: Option<messages::Editing>,
     texts: std::cell::RefCell<BTreeMap<String, Entity<crate::content::markdown::State>>>,
     prompts: std::cell::RefCell<BTreeMap<TurnId, Entity<super::prompt::State>>>,
+    cards: std::cell::RefCell<
+        BTreeMap<sailry_protocol::plugin::card::Receipt, Entity<crate::plugins::cards::Card>>,
+    >,
     selection: Option<crate::content::selection::Excerpt>,
     model_picker: Entity<super::models::Picker>,
     model_controls: Entity<model_controls::Panel>,
@@ -403,6 +407,7 @@ impl View {
             editing: None,
             texts: Default::default(),
             prompts: Default::default(),
+            cards: Default::default(),
             selection: None,
             model_picker,
             model_controls,

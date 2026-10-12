@@ -3,6 +3,7 @@ mod activity;
 mod artifact;
 mod browser;
 mod cache;
+pub(crate) mod cards;
 mod charts;
 mod composer;
 pub(crate) mod contributions;

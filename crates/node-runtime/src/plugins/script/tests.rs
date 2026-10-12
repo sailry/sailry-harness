@@ -2,6 +2,7 @@ use super::*;
 use sailry_protocol::{NodeId, Output, Request};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
+mod cards;
 mod conversation;
 mod knowledge;
 mod models;

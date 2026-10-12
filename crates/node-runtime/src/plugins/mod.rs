@@ -5,6 +5,7 @@ pub(crate) mod applications;
 mod archive;
 pub(crate) mod authorization;
 mod bundled;
+pub(crate) mod cards;
 pub(crate) mod catalog;
 mod collection;
 pub(crate) mod conversation;
@@ -324,6 +325,21 @@ fn describe(
     manifest.issues.extend(issues);
     let skills = skills::discover(source, &mut manifest.issues);
     let servers = mcp::discover(source, &mut manifest.issues);
+    if manifest.extension.as_ref().is_some_and(|extension| {
+        extension.cards.iter().any(|card| {
+            card.mcp_server.as_ref().is_some_and(|name| {
+                servers.get(name).is_none_or(|server| {
+                    server.transport() == sailry_protocol::plugin::McpTransport::Stdio
+                })
+            })
+        })
+    }) {
+        manifest.issues.push(sailry_protocol::plugin::Issue {
+            path: "plugin.json.extensions.dev.sailry.platform.cards".into(),
+            kind: sailry_protocol::plugin::IssueKind::InvalidExtensions,
+        });
+        manifest.extension = None;
+    }
     let settings = settings::discover(
         source,
         manifest.extension.as_ref(),

@@ -9,6 +9,21 @@ pub(in crate::store) fn current(
     package: &plugin::Reference,
     surface: plugin::desktop::Surface,
 ) -> Result<Info, Fault> {
+    if let plugin::desktop::Surface::Card(receipt) = surface {
+        let (mut info, summary) = super::cards::captured(db, receipt)?;
+        if package != &summary.package {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "card package does not match its receipt",
+            ));
+        }
+        // Settings may advance after a login; resources still use the immutable digest.
+        info.summary.settings_revision = summary.package.settings_revision;
+        if let Some(extension) = &mut info.extension {
+            extension.cards.retain(|card| card.key == summary.key);
+        }
+        return Ok(info);
+    }
     let info = required(db, &package.name)?;
     if !info.summary.enabled && surface != plugin::desktop::Surface::Settings {
         return Err(Fault::new(ErrorCode::NotConfigured, "plugin is disabled"));

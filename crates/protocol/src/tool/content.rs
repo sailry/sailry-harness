@@ -28,6 +28,8 @@ pub enum Block {
     Diff(Diff),
     File(File),
     Artifact(crate::artifact::Summary),
+    /// A Node-stamped package controller; never an executable result payload.
+    Card(crate::plugin::card::Summary),
 }
 
 /// Literal output references avoid a second copy of streams in canonical history.
@@ -139,6 +141,7 @@ impl Content {
                 Block::Image { index } => images.insert(*index),
                 Block::File(file) => file.valid(),
                 Block::Artifact(artifact) => artifact.valid(),
+                Block::Card(card) => card.valid(),
                 Block::Diff(diff) => {
                     !diff.path.is_empty()
                         && diff.path.len() <= 4096
@@ -163,24 +166,35 @@ impl Presentation {
     /// Native tools return `sailry_content`; ADK wraps MCP structuredContent in `output`.
     /// Invalid content falls back to the unchanged authoritative result.
     pub fn content(self, result: &Value) -> Option<Content> {
-        if self != Self::Content || fault(result) {
+        if self != Self::Content {
             return None;
         }
         let payload = payload(result)?;
-        if fault(payload) {
-            return None;
-        }
         let raw = payload.get("sailry_content")?;
         if serde_json::to_vec(raw).ok()?.len() > MAX_BYTES {
             return None;
         }
         let content: Content = serde_json::from_value(raw.clone()).ok()?;
+        let failure = fault(result) || fault(payload) || failed(result) || failed(payload);
+        let card_failure = content
+            .blocks
+            .iter()
+            .any(|block| matches!(block, Block::Card(_)))
+            && content.blocks.iter().all(|block| {
+                matches!(
+                    block,
+                    Block::Text(_) | Block::Notice { .. } | Block::Card(_)
+                )
+            });
         if !content.valid()
-            || ((failed(result) || failed(payload))
-                && !content
-                    .blocks
-                    .iter()
-                    .all(|block| matches!(block, Block::Text(_) | Block::Notice { .. })))
+            || ((fault(result) || fault(payload)) && !card_failure)
+            || (failure
+                && !content.blocks.iter().all(|block| {
+                    matches!(
+                        block,
+                        Block::Text(_) | Block::Notice { .. } | Block::Card(_)
+                    )
+                }))
         {
             return None;
         }

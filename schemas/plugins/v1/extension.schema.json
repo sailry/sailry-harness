@@ -24,6 +24,7 @@
             "roles.read",
             "roles.write",
             "models.read",
+            "models.install",
             "media.inspect",
             "media.image",
             "media.video",
@@ -127,6 +128,158 @@
         "web_search"
       ],
       "type": "string"
+    },
+    "CardBrowserMode": {
+      "enum": [
+        "embedded",
+        "external"
+      ],
+      "type": "string"
+    },
+    "CardBrowserSource": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "props",
+              "type": "string"
+            },
+            "pointer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "pointer"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The native controller owns the pending URL; package scripts never receive it.",
+          "properties": {
+            "kind": {
+              "const": "mcp_authorization",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CardBrowserTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "modes": {
+          "items": {
+            "$ref": "#/$defs/CardBrowserMode"
+          },
+          "type": "array"
+        },
+        "name": {
+          "type": "string"
+        },
+        "origins": {
+          "description": "Fixed HTTPS origins, without paths, queries or credential material.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source": {
+          "$ref": "#/$defs/CardBrowserSource"
+        }
+      },
+      "required": [
+        "name",
+        "origins",
+        "source",
+        "modes"
+      ],
+      "type": "object"
+    },
+    "CardCapabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "browser": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CardBrowserTarget"
+          },
+          "type": "array"
+        },
+        "qr": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CardQr"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "refresh": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "CardDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/CardCapabilities",
+          "default": {
+            "browser": [],
+            "refresh": false
+          }
+        },
+        "entry": {
+          "pattern": "^(\\./)?dev\\.sailry\\.platform/",
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "mcp_server": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "props_schema": {
+          "description": "Closed, bounded scalar properties. Credentials are never presentation data."
+        }
+      },
+      "required": [
+        "key",
+        "entry",
+        "props_schema"
+      ],
+      "type": "object"
+    },
+    "CardQr": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "payload": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "type": "object"
     },
     "Cell": {
       "additionalProperties": false,
@@ -424,6 +577,34 @@
     },
     "Declaration3": {
       "additionalProperties": false,
+      "properties": {
+        "client_id": {
+          "type": "string"
+        },
+        "client_secret": {
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "#/$defs/Provider2"
+        },
+        "tenant_scopes": {
+          "description": "Only these application-identity scopes are requested at provider consent.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "provider",
+        "client_id",
+        "client_secret",
+        "tenant_scopes"
+      ],
+      "type": "object"
+    },
+    "Declaration4": {
+      "additionalProperties": false,
       "description": "A plugin can configure only its own named tool; native tools omit the MCP server.",
       "properties": {
         "contexts": {
@@ -507,7 +688,7 @@
       ],
       "type": "object"
     },
-    "Declaration4": {
+    "Declaration5": {
       "additionalProperties": false,
       "properties": {
         "capability": {
@@ -788,7 +969,8 @@
     },
     "InputFormat": {
       "enum": [
-        "command"
+        "command",
+        "session"
       ],
       "type": "string"
     },
@@ -1047,11 +1229,21 @@
     },
     "Operation": {
       "enum": [
+        "models.install",
+        "models.remove",
+        "roles.list",
+        "roles.save",
+        "roles.remove",
+        "roles.apply",
         "artifacts.read",
         "artifacts.list",
         "artifacts.revisions",
         "artifacts.write",
         "code.packages",
+        "code.catalog",
+        "code.servers",
+        "code.start",
+        "code.stop",
         "code.install",
         "code.uninstall",
         "code.diagnostics",
@@ -1318,6 +1510,40 @@
         "dingtalk"
       ],
       "type": "string"
+    },
+    "Provider2": {
+      "enum": [
+        "feishu"
+      ],
+      "type": "string"
+    },
+    "Receipt": {
+      "additionalProperties": false,
+      "description": "This identifies one canonical result block, not a permission token.",
+      "properties": {
+        "block": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "call": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "turn": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "turn",
+        "call",
+        "block"
+      ],
+      "type": "object"
     },
     "Reference": {
       "additionalProperties": false,
@@ -1593,13 +1819,29 @@
       "type": "string"
     },
     "Surface": {
-      "enum": [
-        "workspace",
-        "settings",
-        "composer",
-        "project"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "workspace",
+            "settings",
+            "composer",
+            "project"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "card": {
+              "$ref": "#/$defs/Receipt"
+            }
+          },
+          "required": [
+            "card"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "Table": {
       "additionalProperties": false,
@@ -1826,6 +2068,13 @@
       ],
       "description": "Shared HTML resource surfaces load this package-owned presentation."
     },
+    "cards": {
+      "description": "Inline controllers are captured package resources, not model-authored UI.",
+      "items": {
+        "$ref": "#/$defs/CardDeclaration"
+      },
+      "type": "array"
+    },
     "continuation_marker": {
       "anyOf": [
         {
@@ -1919,7 +2168,7 @@
       "default": [],
       "description": "Provider-executed capabilities; these are not local function handlers.",
       "items": {
-        "$ref": "#/$defs/Declaration4"
+        "$ref": "#/$defs/Declaration5"
       },
       "type": "array"
     },
@@ -1932,6 +2181,17 @@
           "type": "null"
         }
       ]
+    },
+    "registration": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Declaration3"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Provider-owned application creation without a pre-registered client."
     },
     "scope": {
       "$ref": "#/$defs/Scope",
@@ -1970,7 +2230,7 @@
       "default": [],
       "description": "Output presentation for tools provided by this package.",
       "items": {
-        "$ref": "#/$defs/Declaration3"
+        "$ref": "#/$defs/Declaration4"
       },
       "type": "array"
     },

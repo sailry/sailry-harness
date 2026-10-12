@@ -388,6 +388,9 @@ impl Script {
         let stop = self.stop.clone();
         let mode = self.mode;
         let read_only = self.is_read_only();
+        let card_scope = scope.clone();
+        let card_package = package.clone();
+        let node = ingress.node;
         let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
             let _permit = permit;
@@ -407,7 +410,7 @@ impl Script {
                 turn: turn_state.as_deref().cloned(),
                 staged_turn: None,
             }));
-            let result = crate::plugins::script::run_tool(
+            let mut result = crate::plugins::script::run_tool(
                 bundle,
                 &handler,
                 arguments,
@@ -430,6 +433,7 @@ impl Script {
                 state.clone(),
             )
             .map_err(|fault| AdkError::tool(fault.message))?;
+            crate::plugins::cards::stamp(&mut result, node, &card_scope, &card_package, call_id);
             if let Some(staged) = state
                 .lock()
                 .map_err(|_| AdkError::tool("plugin turn state is unavailable"))?

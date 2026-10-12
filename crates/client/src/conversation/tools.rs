@@ -256,6 +256,9 @@ fn content(call: &Call, page: &Page) -> Option<sailry_protocol::tool::Content> {
             sailry_protocol::tool::Block::Image { index } => {
                 images.iter().any(|image| image.index == *index)
             }
+            sailry_protocol::tool::Block::Card(card) => {
+                card.receipt.session == page.session && card.receipt.turn == call.turn
+            }
             _ => true,
         })
         .then_some(content)

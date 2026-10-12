@@ -2,6 +2,8 @@ use super::*;
 use std::collections::BTreeSet;
 #[path = "plugins/assistants.rs"]
 mod assistants;
+#[path = "plugins/cards.rs"]
+mod cards;
 #[path = "plugins/commands.rs"]
 mod commands;
 #[path = "plugins/failures.rs"]

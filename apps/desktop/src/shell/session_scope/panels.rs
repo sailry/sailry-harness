@@ -13,12 +13,18 @@ impl Shell {
         let Some(key) = self.session_scope.mounted.take() else {
             return;
         };
+        if let Some(chat) = self.current_chat().cloned() {
+            chat.update(cx, |chat, cx| chat.suspend_cards(cx));
+        }
         if let Some(browser) = self
             .side_resource
             .as_ref()
             .and_then(|panel| panel.browser(cx))
         {
             browser.update(cx, |browser, cx| browser.visibility(false, window, cx));
+        }
+        if let Some(SideResource::CardBrowser(browser)) = &self.side_resource {
+            browser.update(cx, |browser, cx| browser.hide(cx));
         }
         self.session_scope.panels.insert(
             key,

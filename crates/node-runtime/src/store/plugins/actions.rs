@@ -26,6 +26,12 @@ impl Database {
                 "Node or protocol version mismatch",
             ));
         }
+        if matches!(
+            context.surface,
+            sailry_protocol::plugin::desktop::Surface::Card(_)
+        ) {
+            return super::cards::check(&self.connection, self.node, caller, request);
+        }
         // Browser provisioning and controller authority follow live package availability,
         // while code and settings retain the admitted package revision.
         if (matches!(
@@ -632,6 +638,20 @@ impl Database {
                 }
                 // Reading a plugin's own public settings is intrinsic, not another grant.
                 Command::ReadPluginSettings { package } if *package == context.package => {
+                    (None, None, None)
+                }
+                Command::ReadMcpAuthorization { package, server }
+                    if *package == context.package
+                        && context.turn.is_some()
+                        && context.invocation.is_none() =>
+                {
+                    let package = self.plugin_package(caller, request)?;
+                    if !package.mcp.iter().any(|entry| {
+                        entry.name == *server
+                            && entry.transport != sailry_protocol::plugin::McpTransport::Stdio
+                    }) {
+                        return Err(denied("MCP status requires an owned HTTP server"));
+                    }
                     (None, None, None)
                 }
                 Command::SavePluginSettings { package, .. }

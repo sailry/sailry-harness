@@ -7,14 +7,7 @@ pub(super) fn call(
     tool: &str,
     call: &str,
 ) -> adk_core::Result<RequestId> {
-    let encoded = serde_json::to_vec(&(turn, package, tool, call))
-        .map_err(|_| AdkError::tool("invalid plugin tool identity"))?;
-    let mut identity = blake3::Hasher::new_derive_key("Sailry plugin tool call v1");
-    identity.update(&encoded);
-    let mut bytes: [u8; 16] = identity.finalize().as_bytes()[..16].try_into().unwrap();
-    bytes[6] = (bytes[6] & 0x0f) | 0x80;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    RequestId::try_from(uuid::Uuid::from_bytes(bytes))
+    crate::plugins::cards::identity(turn, package, tool, call)
         .map_err(|_| AdkError::tool("invalid plugin tool identity"))
 }
 

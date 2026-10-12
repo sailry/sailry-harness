@@ -42,6 +42,52 @@ fn fixture() -> Page {
     page
 }
 
+mod cards {
+    use super::*;
+
+    #[test]
+    fn restores_failed_cards_without_changing_results() {
+        let mut page = fixture();
+        let summary = sailry_protocol::plugin::card::Summary {
+            receipt: sailry_protocol::plugin::card::Receipt {
+                session: page.session,
+                turn: page.runs[0].turn,
+                call: sailry_protocol::RequestId::new(),
+                block: 0,
+            },
+            node: sailry_protocol::NodeId([1; 32]),
+            worktree: WorktreeId::new(),
+            package: sailry_protocol::plugin::Reference {
+                name: "example".into(),
+                digest: "a".repeat(64),
+                settings_revision: 0,
+            },
+            key: "connection".into(),
+            props: json!({"configured":false}),
+            fallback: serde_json::from_value(json!({"label":"Connect"})).unwrap(),
+        };
+        let original = json!({"isError":true,"error":{"code":"not_configured","message":"Connect"},"sailry_content":{"version":1,"blocks":[sailry_protocol::tool::Block::Card(summary.clone())]}});
+        if let Part::ToolResult { result, images, .. } = &mut page.entries[1].parts[0] {
+            *result = original.clone();
+            images.clear();
+        }
+        let calls = collect(&page);
+        assert_eq!(
+            calls[0].content.as_ref().unwrap().blocks,
+            vec![sailry_protocol::tool::Block::Card(summary)]
+        );
+        assert_eq!(calls[0].result(&page), Some(&original));
+        let restored: Page = serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
+        assert_eq!(collect(&restored), calls);
+        assert_eq!(calls[0].result(&restored), Some(&original));
+        if let Part::ToolResult { result, .. } = &mut page.entries[1].parts[0] {
+            result["sailry_content"]["blocks"][0]["receipt"]["session"] =
+                json!(sailry_protocol::SessionId::new());
+        }
+        assert!(collect(&page)[0].content.is_none());
+    }
+}
+
 #[test]
 fn restores() {
     let page = fixture();

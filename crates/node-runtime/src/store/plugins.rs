@@ -1,6 +1,7 @@
 //! Plugin inventory shares durable admission, configuration transactions and Node events.
 mod actions;
 pub(super) mod authorization;
+pub(in crate::store) mod cards;
 mod catalog;
 pub(super) mod collection;
 pub(in crate::store) mod command;

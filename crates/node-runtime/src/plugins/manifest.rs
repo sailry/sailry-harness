@@ -5,6 +5,7 @@ use sailry_protocol::{
     plugin::{Extension, Issue, IssueKind},
 };
 use serde_json::{Map, Value};
+mod cards;
 
 pub(super) const SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
 const FIELDS: &[&str] = &[
@@ -109,6 +110,7 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             )
                             && sailry_protocol::plugin::valid_icon(&parsed.icon)
                             && sailry_protocol::plugin::ui::valid(&parsed.ui)
+                            && cards::valid(&parsed)
                             && parsed.storage.as_ref().is_none_or(|storage| super::storage::validate(storage).is_ok())
                             && parsed.registration.as_ref().is_none_or(|declaration| declaration.valid() && parsed.oauth.is_none())
                             && parsed.ui.iter().all(|entry| entry.command.as_ref().is_none_or(|command| {
@@ -172,6 +174,11 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                                         .iter()
                                         .all(|renderer| renderer.valid(&parsed))
                                     && (desktop.entry.is_some()
+                                        || !parsed.cards.is_empty()
+                                            && desktop.navigation.is_none()
+                                            && desktop.panel.is_none()
+                                            && desktop.conversations.is_empty()
+                                            && desktop.renderers.is_empty()
                                         || desktop.ui_entry.is_some()
                                             && desktop.navigation.is_none()
                                             && desktop.panel.is_none()

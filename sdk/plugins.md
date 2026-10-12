@@ -328,6 +328,78 @@ Plugin commands retain the existing declaration, exact installed-package, Node, 
 The current development schema remains v1. Startup fills missing schema objects and storage fields with their defaults, validates the update on an isolated snapshot, saves a private backup and applies it transactionally. Invalid updates preserve the existing profile; startup never resets or deletes user data.
 
 `credential_source: "github_cli"` opts a schema form into the protected GitHub CLI account source. The execution Node verifies the token field, Bearer header and official GitHub MCP endpoint before linking; changing the package name grants no access. The shared native credential form keeps account secrets outside plugin JavaScript.
+## Inline conversation cards
+
+Declare `cards` in the v1 extension. Each card has a unique `key`, a JavaScript
+`entry` listed in `desktop.resources`, and a closed `props_schema`. Properties
+are bounded strings, booleans, or integers, not nested data. Set
+`additionalProperties: false`; strings require `maxLength` at most 4096.
+Credentials, callback addresses, OAuth URLs, scripts and commands are not public
+card properties. A card-only package does not need a workspace navigation entry.
+
+An admitted host tool imports `card` and `status` from `sailry/cards`:
+
+```javascript
+const props = await status("owned-server");
+return {sailry_content: {version: 1, blocks: [
+  card("connection", props, {label: "Connect", locales: {"zh-CN": "连接"}})
+]}};
+```
+
+`status` reads only the configured boolean of an HTTP MCP server owned by the
+captured package. Headless tools cannot begin login. Node stamps the canonical
+block with its package digest, Node, session, worktree, turn, stable call and
+block position. Invalid drafts lose their presentation without changing the
+original tool result. A failed result may keep its validated card and original
+error; the card does not make that operation succeed.
+
+The card entry extends Kit `View` and uses the narrow `sailry/card` module, not
+the ordinary workspace SDK. It provides `state`, `theme`, `status`, `nextChange`,
+`publishProps`, `toast`, native Kit `Action` buttons and native `Qr` images.
+`publishProps` changes only this instance's display state, never the canonical
+receipt. Package code owns layout, localization and refresh handling.
+`nextChange` has a string cursor and an optional unique refresh action string.
+
+Capabilities are independent and optional:
+
+- `qr: {payload: "/field", expires_at: "/expiry"}` displays a public string
+  property, bounded to 2048 UTF-8 bytes, with an optional epoch-millisecond
+  expiry. Encoding stays in memory. Notion MCP login is not a device-QR flow.
+- `refresh: true` permits an explicit native `Action` with `{kind: "refresh"}`.
+  The package reads current status when it receives that action; no model turn
+  or failed tool is automatically replayed.
+- `browser` contains named targets with fixed HTTPS `origins`, bounded
+  `modes` (`embedded` and/or `external`), and a `source`: either
+  `{kind: "props", pointer: "/publicUrl"}` or `{kind: "mcp_authorization"}`.
+  The latter requires the card's `mcp_server`; its URL remains native and private.
+
+`Action.new(id, {label, action})` binds an actual Kit Button to a native user
+gesture. Intents are `connect` (optionally a declared target and mode), `cancel`,
+`refresh`, or `browser` with a declared target and mode. There is no callable
+JavaScript connect/browser function. A mount may read status but cannot start
+login. OAuth uses the existing Client observer and Node MCP authorization
+engine, including original durable request IDs and outcome inspection. URLs,
+PKCE, callbacks and tokens are never exposed to scripts, history or models.
+Remote login still uses the controller's private loopback callback and the
+ordinary remote command path, not a Node HTTP relay.
+
+Embedded targets use an isolated, non-instrumented native Kit WebView in the
+inspector. They are not Browser resources or Agent tools and have no DOM/IPC
+bridge, download or popup permission. Only declared origins and the native
+flow's exact loopback callback are navigable. MacOS uses a non-persistent data
+store. Embedded isolation is not accepted on Windows or Linux; an independently
+declared external action remains available. Opening an external URL is a launch
+request, not proof that the browser or account flow succeeded.
+
+Only a visible, connected, latest own main-session receipt can mount or act.
+Historical turns, forks, child sessions, rewinds, disabled/replaced packages and
+disconnection retain localized static fallback. Hidden mounts stop subscriptions
+and clear private pending URLs. Every service action rechecks canonical history,
+current package settings and scope at Node admission. A login may advance
+settings while immutable captured code remains available under the same digest.
+Uncertain side effects retain their original request and require outcome
+inspection, never automatic replay. These contracts do not establish real
+Notion account or embedded sign-in acceptance.
 
 An optional `registration` declaration binds application creation to the existing
 settings schema: `{provider:"feishu", client_id:"app_id",

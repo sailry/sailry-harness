@@ -12717,6 +12717,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+dependencies = [
+ "image",
+]
+
+[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14409,6 +14418,7 @@ dependencies = [
  "platform-macos",
  "portable-pty",
  "pulldown-cmark",
+ "qrcode",
  "raw-window-handle",
  "reqwest 0.13.4",
  "rfd",

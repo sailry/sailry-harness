@@ -223,6 +223,7 @@ pub enum Surface {
     Settings,
     Composer,
     Project,
+    Card(super::card::Receipt),
 }
 
 impl Manifest {

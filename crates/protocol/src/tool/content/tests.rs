@@ -1,6 +1,85 @@
 use super::*;
 use serde_json::json;
 
+mod cards {
+    use super::*;
+
+    fn summary() -> crate::plugin::card::Summary {
+        crate::plugin::card::Summary {
+            receipt: crate::plugin::card::Receipt {
+                session: crate::SessionId::new(),
+                turn: crate::TurnId::new(),
+                call: crate::RequestId::new(),
+                block: 0,
+            },
+            node: crate::NodeId([1; 32]),
+            worktree: crate::WorktreeId::new(),
+            package: crate::plugin::Reference {
+                name: "example".into(),
+                digest: "a".repeat(64),
+                settings_revision: 0,
+            },
+            key: "connection".into(),
+            props: json!({"configured":false}),
+            fallback: serde_json::from_value(json!({"label":"Connect","locales":{"zh-CN":"连接"}}))
+                .unwrap(),
+        }
+    }
+
+    #[test]
+    fn preserves_failed_receipts_and_original_errors() {
+        let card = summary();
+        let result = json!({"isError":true,"error":{"code":"not_configured","message":"Connect"},"sailry_content":{"version":1,"blocks":[Block::Card(card.clone())]}});
+        let parsed = Presentation::Content.content(&result).unwrap();
+        assert_eq!(parsed.blocks, vec![Block::Card(card)]);
+        assert_eq!(result["error"]["code"], "not_configured");
+        assert!(result["isError"].as_bool().unwrap());
+        assert_eq!(
+            Presentation::Content.content(&json!({"output":result})),
+            Some(parsed)
+        );
+    }
+
+    #[test]
+    fn rejects_forged_drafts_and_private_properties() {
+        let mut card = summary();
+        for props in [
+            json!({"token":"private"}),
+            json!({"url":"https://example.test/authorize?code_challenge=private"}),
+            json!({"nested":{"configured":false}}),
+        ] {
+            card.props = props;
+            assert!(Presentation::Content.content(&json!({"sailry_content":{"version":1,"blocks":[Block::Card(card.clone())]}})).is_none());
+        }
+        assert!(Presentation::Content.content(&json!({"sailry_content":{"version":1,"blocks":[{"kind":"card","key":"connection","props":{},"fallback":{"label":"Connect"}}]}})).is_none());
+    }
+
+    #[test]
+    fn bounds_closed_schema_and_optional_capabilities() {
+        let mut declaration: crate::plugin::card::Declaration = serde_json::from_value(json!({
+            "key":"connection","entry":"dev.sailry.platform/card.js",
+            "props_schema":{"type":"object","additionalProperties":false,"properties":{"configured":{"type":"boolean"},"payload":{"type":"string","maxLength":2048},"expiry":{"type":"integer"}},"required":["configured"]}
+        })).unwrap();
+        let mut extension: crate::plugin::Extension = serde_json::from_value(json!({"api_version":"v1","actions":[],"desktop":{"resources":["dev.sailry.platform/card.js"]}})).unwrap();
+        assert!(declaration.valid(&extension));
+        assert!(declaration.accepts(&json!({"configured":false})));
+        assert!(!declaration.accepts(&json!({"configured":false,"unknown":true})));
+        declaration.capabilities.qr = Some(crate::plugin::card::Qr {
+            payload: "/payload".into(),
+            expires_at: Some("/expiry".into()),
+        });
+        assert!(declaration.valid(&extension));
+        declaration.capabilities.qr.as_mut().unwrap().payload = "/unknown".into();
+        assert!(!declaration.valid(&extension));
+        declaration.capabilities.qr = None;
+        declaration.props_schema["additionalProperties"] = json!(true);
+        assert!(!declaration.valid(&extension));
+        declaration.props_schema["additionalProperties"] = json!(false);
+        extension.desktop.as_mut().unwrap().resources.clear();
+        assert!(!declaration.valid(&extension));
+    }
+}
+
 fn content() -> Value {
     json!({"version":1,"blocks":[
         {"kind":"table","columns":["File","State"],"rows":[["中文 🙂","Ready"]]},

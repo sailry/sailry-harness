@@ -377,6 +377,7 @@ fn allowed(command: &Command) -> bool {
             | Command::RemovePluginValue { .. }
             | Command::RemovePluginConversationValue { .. }
             | Command::ReadPluginSettings { .. }
+            | Command::ReadMcpAuthorization { .. }
             | Command::PublishNotification { .. }
             | Command::Dispatch { .. }
             | Command::StopDispatchTurn { .. }

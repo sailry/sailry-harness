@@ -55,6 +55,7 @@ cap-std.workspace = true
 cap-fs-ext.workspace = true
 mime_guess.workspace = true
 image = { workspace = true, features = ["tiff", "bmp"] }
+qrcode.workspace = true
 rusqlite.workspace = true
 serde_json = { workspace = true, features = ["raw_value"] }
 serde.workspace = true

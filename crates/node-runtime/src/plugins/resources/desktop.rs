@@ -25,6 +25,16 @@ impl Host {
                 .as_ref()
                 .and_then(|extension| extension.settings_page.as_ref())
                 .and_then(|page| page.entry.clone());
+            let card_entry = match surface {
+                sailry_protocol::plugin::desktop::Surface::Card(_) => {
+                    // The store has already resolved the exact receipt declaration.
+                    info.extension
+                        .as_ref()
+                        .and_then(|extension| extension.cards.first())
+                        .map(|card| card.entry.clone())
+                }
+                _ => None,
+            };
             let manifest = info
                 .extension
                 .and_then(|extension| extension.desktop)
@@ -35,6 +45,9 @@ impl Host {
             let mut bundle = Bundle {
                 package,
                 entry: match surface {
+                    sailry_protocol::plugin::desktop::Surface::Card(_) => {
+                        card_entry.ok_or_else(|| Fault::invalid("plugin has no card entry"))?
+                    }
                     sailry_protocol::plugin::desktop::Surface::Workspace => {
                         manifest.entry.ok_or_else(|| {
                             sailry_protocol::Fault::invalid(

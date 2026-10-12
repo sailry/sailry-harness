@@ -17,6 +17,10 @@ impl View {
                 continue;
             };
             for (index, block) in content.blocks.iter().enumerate() {
+                if let Block::Card(card) = block {
+                    cards.push(self.interactive_card(card.clone(), cx));
+                    continue;
+                }
                 if let Block::Artifact(artifact) = block {
                     if documents.insert(artifact.id) {
                         cards.push(self.document_card(artifact.clone(), cx));

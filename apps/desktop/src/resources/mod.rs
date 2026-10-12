@@ -1,4 +1,5 @@
 mod browser;
+pub(crate) mod cards;
 pub(crate) mod checkpoints;
 mod close;
 mod document_actions;
@@ -47,6 +48,7 @@ pub(crate) enum SideResource {
     Subagent(crate::conversation::subagent::Panel),
     Child(crate::conversation::live::subagents::Panel),
     Plugin(Entity<crate::plugins::Panel>),
+    CardBrowser(Entity<crate::plugins::cards::browser::Browser>),
 }
 
 impl SideResource {
@@ -67,7 +69,8 @@ impl SideResource {
             | Self::Artifact(_)
             | Self::Subagent(_)
             | Self::Child(_)
-            | Self::Plugin(_) => Page::Conversation,
+            | Self::Plugin(_)
+            | Self::CardBrowser(_) => Page::Conversation,
         }
     }
 }
@@ -120,6 +123,11 @@ impl Shell {
 
     pub(crate) fn sync_conversation_panel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let stale = match &self.side_resource {
+            Some(SideResource::CardBrowser(browser)) => {
+                self.page != Page::Conversation
+                    || self.current_chat() != browser.read(cx).source.upgrade().as_ref()
+                    || !browser.read(cx).active(cx)
+            }
             Some(SideResource::Plugin(panel) | SideResource::Launcher(Some(panel))) => {
                 self.page != Page::Conversation
                     || self.current_chat() != panel.read(cx).source.as_ref()
@@ -182,6 +190,7 @@ impl Shell {
             SideResource::Launcher(_) => self.resource_launcher(cx),
             SideResource::Tool(destination) => self.resource_tool_preview(*destination, cx),
             SideResource::Artifact(panel) => panel.clone().into_any_element(),
+            SideResource::CardBrowser(browser) => browser.clone().into_any_element(),
             SideResource::Subagent(panel) => self.subagent_panel(panel, cx),
             SideResource::Child(panel) => self.live_child_panel(panel, cx),
             SideResource::Plugin(panel)

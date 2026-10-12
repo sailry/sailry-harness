@@ -1,4 +1,4 @@
-/** Node callback subset of sailry/sdk. Model installation modules have separate declarations. */
+/** Node callback subset of sailry/sdk. Model installation and card modules have separate declarations. */
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Entry = { key: string; revision: string; value: Json; present: boolean };
 /** Opaque private state follows visible conversation history. Restoration does not authorize execution. */
