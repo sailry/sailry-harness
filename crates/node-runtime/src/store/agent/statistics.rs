@@ -22,7 +22,9 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
         )
         .map_err(storage_error)?;
     let (metrics, delegated) = report::session(db, session)?;
-    let context_tokens = context_tokens(db, session)?;
+    let observation = observation(db, session)?;
+    let context_tokens = observation.as_ref().and_then(|value| value.tokens);
+    let first_token_us = observation.as_ref().and_then(|value| value.first_token_us);
     db.query_row(TOTALS, [session.to_string()], |row| {
         let responses = row.get::<_, i64>(0)? as u64;
         let usage = if responses > 0 {
@@ -40,6 +42,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
             responses,
             usage,
             context_tokens,
+            first_token_us,
             cost: metrics.cost.clone(),
             generation: metrics.generation.clone(),
             delegated: delegated.clone(),
@@ -63,15 +66,22 @@ pub(super) fn parents(db: &Connection, turn: TurnId) -> Result<Vec<SessionId>, F
         .collect()
 }
 
-fn context_tokens(db: &Connection, session: SessionId) -> Result<Option<u64>, Fault> {
-    observation(db, session).map(|value| value.map(|(_, tokens)| tokens))
+struct Observation {
+    sequence: i64,
+    tokens: Option<u64>,
+    first_token_us: Option<u64>,
 }
 
 pub(super) fn context_usage(
     db: &Connection,
     session: SessionId,
 ) -> Result<Option<ContextUsage>, Fault> {
-    let Some((sequence, tokens)) = observation(db, session)? else {
+    let Some(Observation {
+        sequence,
+        tokens: Some(tokens),
+        ..
+    }) = observation(db, session)?
+    else {
         return Ok(None);
     };
     // Both reads run in one storage job. Only new canonical content is decoded;
@@ -94,7 +104,7 @@ pub(super) fn context_usage(
     Ok(Some(ContextUsage { tokens, pending }))
 }
 
-fn observation(db: &Connection, session: SessionId) -> Result<Option<(i64, u64)>, Fault> {
+fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation>, Fault> {
     // Read the last model observation in canonical order. A summary invalidates
     // the old window measurement; its own prompt is not the resumed context.
     db.query_row(
@@ -102,7 +112,13 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<(i64, u64)>
           AND json_extract(e.body,'$.usage_metadata.prompt_token_count') >= 0
           AND json_extract(e.body,'$.usage_metadata.candidates_token_count') >= 0
          THEN json_extract(e.body,'$.usage_metadata.prompt_token_count')
-            + json_extract(e.body,'$.usage_metadata.candidates_token_count') END
+            + json_extract(e.body,'$.usage_metadata.candidates_token_count') END,
+         CASE WHEN json_type(e.body,'$.actions.compaction') IS NULL
+          AND json_extract(e.body,'$.usage_metadata.prompt_token_count') >= 0
+          AND json_extract(e.body,'$.usage_metadata.candidates_token_count') >= 0
+          AND json_type(e.body,'$.provider_metadata.sailry_timing.first_token_us')='integer'
+          AND json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') >= 0
+         THEN json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') END
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
            AND (json_extract(e.body,'$.content.role')='model'
@@ -110,12 +126,15 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<(i64, u64)>
            OR json_type(e.body,'$.actions.compaction')='object')
          ORDER BY h.sequence DESC LIMIT 1",
         [session.to_string()],
-        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
+        |row| {
+            Ok(Observation {
+                sequence: row.get(0)?,
+                tokens: row.get::<_, Option<i64>>(1)?.map(|value| value as u64),
+                first_token_us: row.get::<_, Option<i64>>(2)?.map(|value| value as u64),
+            })
+        },
     )
     .optional()
-    .map(|value| {
-        value.and_then(|(sequence, tokens)| tokens.map(|tokens| (sequence, tokens as u64)))
-    })
     .map_err(storage_error)
 }
 

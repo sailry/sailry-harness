@@ -379,6 +379,10 @@ pub struct Statistics {
     /// Latest model response's input plus output, not cumulative session usage.
     /// An estimate of occupied context; unknown after compaction or an unmetered response.
     pub context_tokens: Option<u64>,
+    /// Recorded first text latency of the latest visible normal model response.
+    /// Includes retries within that logical invocation; absent when unrecorded.
+    #[serde(default)]
+    pub first_token_us: Option<u64>,
     pub cost: Option<crate::usage::Cost>,
     pub generation: Option<crate::usage::Generation>,
     /// Canonical child responses linked to this conversation's visible parent turns.

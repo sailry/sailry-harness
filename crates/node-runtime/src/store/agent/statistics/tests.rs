@@ -17,6 +17,53 @@ fn event(input: i32, output: i32) -> AdkEvent {
     event
 }
 
+fn timed(input: i32, output: i32, first_token_us: u64) -> AdkEvent {
+    let mut response = event(input, output);
+    response.llm_response.provider_metadata = Some(serde_json::json!({
+        "sailry_timing": {"first_token_us": first_token_us}
+    }));
+    response
+}
+
+#[test]
+fn follows_latest_recorded_first_text() {
+    let mut fixture = Fixture::new();
+    let read_time = |fixture: &Fixture| {
+        read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .first_token_us
+    };
+    fixture.append([timed(100, 20, 125_000)]);
+    assert_eq!(read_time(&fixture), Some(125_000));
+    let mut media = timed(500, 40, 1_000);
+    media
+        .provider_metadata
+        .insert("sailry_media".into(), "image".into());
+    fixture.append([media]);
+    assert_eq!(read_time(&fixture), Some(125_000));
+    fixture.append([event(200, 30)]);
+    assert_eq!(
+        read_time(&fixture),
+        None,
+        "missing timing resets stale latency"
+    );
+    fixture.append([timed(40, 8, 0)]);
+    assert_eq!(read_time(&fixture), Some(0));
+    fixture.completed(&["Unmetered response"]);
+    assert_eq!(read_time(&fixture), None);
+    for invalid in [
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!("125000"),
+    ] {
+        let mut response = event(50, 10);
+        response.llm_response.provider_metadata =
+            Some(serde_json::json!({"sailry_timing":{"first_token_us":invalid}}));
+        fixture.append([response]);
+        assert_eq!(read_time(&fixture), None);
+    }
+}
+
 #[test]
 fn counts_reported_usage_once() {
     let mut fixture = Fixture::new();
@@ -149,7 +196,7 @@ fn follows_visible_history() {
 #[test]
 fn invalidates_stale_context() {
     let mut fixture = Fixture::new();
-    let original = event(100, 20);
+    let original = timed(100, 20, 125_000);
     fixture.append([original.clone()]);
     let read_context = |fixture: &Fixture| {
         let tokens = read(&fixture.database.connection, fixture.session)
@@ -164,6 +211,12 @@ fn invalidates_stale_context() {
         tokens
     };
     assert_eq!(read_context(&fixture), Some(120));
+    assert_eq!(
+        read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .first_token_us,
+        Some(125_000)
+    );
     let mut media = event(500, 40);
     media
         .provider_metadata
@@ -172,7 +225,13 @@ fn invalidates_stale_context() {
     assert_eq!(read_context(&fixture), Some(120));
     fixture.completed(&["Unmetered response"]);
     assert_eq!(read_context(&fixture), None);
-    fixture.append([event(200, 30)]);
+    assert_eq!(
+        read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .first_token_us,
+        None
+    );
+    fixture.append([timed(200, 30, 250_000)]);
     assert_eq!(read_context(&fixture), Some(230));
     let mut summary = AdkEvent::new("summary-fixture");
     summary.author = "system".into();
@@ -185,8 +244,16 @@ fn invalidates_stale_context() {
         compacted_content: adk_core::Content::new("model").with_text("Summary"),
     });
     summary.llm_response.usage_metadata = event(400, 50).llm_response.usage_metadata;
+    summary.llm_response.provider_metadata = timed(400, 50, 1_000).llm_response.provider_metadata;
     fixture.append([summary]);
     assert_eq!(read_context(&fixture), None);
+    assert_eq!(
+        read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .first_token_us,
+        None,
+        "summary timing is not resumed context timing"
+    );
     fixture.append([event(40, 8)]);
     assert_eq!(read_context(&fixture), Some(48));
 }

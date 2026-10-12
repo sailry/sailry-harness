@@ -31,6 +31,32 @@ async fn turn(client: &Client, session: SessionId) {
         finished(client, session, turn.id).await.runs[0].status,
         Status::Completed
     );
+    let now = chrono::Utc::now().timestamp_millis();
+    let report = client
+        .read_usage(Query {
+            start_ms: now - 86_400_000,
+            end_ms: now + 86_400_000,
+            dimension: Dimension::Model,
+            projects: vec![],
+            worktrees: vec![],
+            providers: vec![],
+            models: vec![],
+            before: None,
+        })
+        .await
+        .unwrap();
+    let latest = report
+        .requests
+        .items
+        .iter()
+        .find(|request| request.session == session)
+        .unwrap();
+    let mut conversation = client.subscribe_conversation(session).await.unwrap();
+    let Update::ConversationSnapshot(snapshot) = conversation.next().await.unwrap() else {
+        panic!("conversation snapshot expected");
+    };
+    assert_eq!(snapshot.statistics.first_token_us, latest.first_token_us);
+    assert!(snapshot.statistics.first_token_us.is_some());
 }
 
 #[tokio::test]

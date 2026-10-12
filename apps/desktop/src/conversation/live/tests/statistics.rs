@@ -94,6 +94,15 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                 .generation
                 .clone()
         });
+        expected.first_token_us = view.read_with(visual, |view, _| {
+            view.history
+                .snapshot
+                .as_ref()
+                .unwrap()
+                .statistics
+                .first_token_us
+        });
+        assert!(expected.first_token_us.is_some());
         let generation = expected
             .generation
             .as_ref()
@@ -161,6 +170,9 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
             );
             details(metric("composer_tokens"), "16", "0");
             details(metric("composer_cost"), "—", "$0.00");
+            let first = &metric("composer_speed").state.details[2];
+            assert_eq!(first.label.label(&rust_i18n::locale()), "First token time");
+            assert_ne!(first.value, "—");
         });
         visual.simulate_input("Preserved draft 中文 🙂");
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
@@ -237,7 +249,7 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                         "plugin-stat-statistics-composer_tokens",
                         2,
                     ),
-                    ("composer_speed", "plugin-stat-statistics-composer_speed", 2),
+                    ("composer_speed", "plugin-stat-statistics-composer_speed", 3),
                     ("composer_cost", "plugin-stat-statistics-composer_cost", 2),
                     ("composer_cache", "plugin-stat-statistics-composer_cache", 3),
                     ("composer_turns", "plugin-stat-statistics-composer_turns", 1),

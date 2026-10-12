@@ -83,9 +83,9 @@ fn follows_fork_and_rewind_membership() {
     let mut fixture = Fixture::new();
     let source = fixture.session;
     let inherited = user("Inherited pending input");
-    let first = fixture.append([event(100, 20), inherited.clone()]);
+    let first = fixture.append([timed(100, 20, 125_000), inherited.clone()]);
     let source_result = tool("Source-only evidence");
-    let head = fixture.append([event(200, 30), source_result.clone()]);
+    let head = fixture.append([timed(200, 30, 250_000), source_result.clone()]);
 
     let Output::Session(fork) = command(
         &mut fixture.database,
@@ -102,7 +102,19 @@ fn follows_fork_and_rewind_membership() {
     let fork_input = user("Fork-only input");
     fixture.append([fork_input.clone()]);
     assert_context(&fixture, fork.id, 120, &[&inherited, &fork_input]);
+    assert_eq!(
+        read(&fixture.database.connection, fork.id)
+            .unwrap()
+            .first_token_us,
+        Some(125_000)
+    );
     assert_context(&fixture, source, 230, &[&source_result]);
+    assert_eq!(
+        read(&fixture.database.connection, source)
+            .unwrap()
+            .first_token_us,
+        Some(250_000)
+    );
 
     let retained = fixture.fork(source, head);
     let Output::Rewound(rewind) = command(
@@ -118,6 +130,12 @@ fn follows_fork_and_rewind_membership() {
         panic!("rewind expected");
     };
     assert_context(&fixture, source, 120, &[&inherited]);
+    assert_eq!(
+        read(&fixture.database.connection, source)
+            .unwrap()
+            .first_token_us,
+        Some(125_000)
+    );
     assert!(rewind.backup.is_none());
     assert_context(&fixture, retained.id, 230, &[&source_result]);
     assert_context(&fixture, fork.id, 120, &[&inherited, &fork_input]);

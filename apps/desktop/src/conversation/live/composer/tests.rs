@@ -140,7 +140,7 @@ fn narrow_controls(cx: &mut TestAppContext) {
                 assert!(panel.bottom() < location.top());
                 for (metric, details) in [
                     ("composer_tokens", 2),
-                    ("composer_speed", 2),
+                    ("composer_speed", 3),
                     ("composer_cost", 2),
                     ("composer_cache", 3),
                     ("composer_turns", 1),

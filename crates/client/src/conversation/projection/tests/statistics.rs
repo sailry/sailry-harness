@@ -8,6 +8,7 @@ fn recovers_totals_across_generations() {
         turns: 25,
         responses: 30,
         context_tokens: Some(16),
+        first_token_us: Some(125_000),
         usage: Some(Usage {
             input: 300,
             output: 60,
@@ -22,6 +23,7 @@ fn recovers_totals_across_generations() {
     let mut updated = snapshot.statistics.clone();
     updated.responses += 1;
     updated.context_tokens = Some(26);
+    updated.first_token_us = None;
     updated.usage.as_mut().unwrap().input += 10;
     let event = frame(&snapshot, 11, Change::Statistics(updated.clone()));
     projection.apply(1, event.clone()).unwrap();
