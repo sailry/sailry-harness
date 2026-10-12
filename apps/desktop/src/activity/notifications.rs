@@ -177,7 +177,7 @@ impl Shell {
             Kind::Approval | Kind::Input => Lane::Waiting,
         };
         let mut parts = vec![title.to_string(), host.to_string(), tr(label).to_string()];
-        if !notice.message.is_empty() {
+        if notice.error.is_none() && !notice.message.is_empty() {
             parts.push(notice.message.clone());
         }
         if !available {

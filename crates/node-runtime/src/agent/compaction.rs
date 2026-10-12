@@ -220,9 +220,8 @@ impl BaseEventsSummarizer for Summarizer {
         let response = tokio::select! {
             biased;
             _ = self.stop.cancelled() => return Ok(None),
-            result = tokio::time::timeout(Duration::from_secs(60), summarize(&*self.model, request)) => {
-                result.map_err(|_| invalid("context summary timed out"))??
-            }
+            // The shared model owns first-response and per-event inactivity deadlines.
+            result = summarize(&*self.model, request) => result?,
         };
         let Summary {
             mut text,

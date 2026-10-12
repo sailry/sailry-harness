@@ -157,7 +157,7 @@ fn short_title(source: &str) -> String {
     }
 }
 
-fn title_source(db: &Connection, session: SessionId) -> Result<String, Fault> {
+pub(super) fn assigned_title(db: &Connection, session: SessionId) -> Result<Option<String>, Fault> {
     let assigned: Option<Vec<u8>> = db
         .query_row(
             "SELECT body FROM agent_state WHERE owner=?1 AND key=?2",
@@ -166,8 +166,14 @@ fn title_source(db: &Connection, session: SessionId) -> Result<String, Fault> {
         )
         .optional()
         .map_err(storage_error)?;
-    if let Some(body) = assigned {
-        return serde_json::from_slice(&body).map_err(storage_error);
+    assigned
+        .map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()
+}
+
+fn title_source(db: &Connection, session: SessionId) -> Result<String, Fault> {
+    if let Some(title) = assigned_title(db, session)? {
+        return Ok(title);
     }
     let first: Option<String> = db.query_row(
         "SELECT t.id FROM conversation_turns h JOIN turns t ON t.id=h.turn

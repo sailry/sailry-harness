@@ -5,7 +5,7 @@ use sailry_protocol::{
     notification::{Draft, Kind},
 };
 
-struct Background;
+pub(super) struct Background;
 impl Render for Background {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()

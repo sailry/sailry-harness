@@ -79,6 +79,7 @@ tool_review_memories: Review memories
 tool_consolidate_memories: Consolidate memories
 tool_session_title: Set session title
 chat_compact: Compact context
+notification_details: Details
 tool_inspect_image: Inspect image
 tool_generate_image: Generate image
 tool_generate_video: Generate video

@@ -268,6 +268,13 @@ async fn execute_with(
     let capture_output = invocation.child.is_some();
     let planning = invocation.turn.config.mode == sailry_protocol::WorkMode::Plan;
     let reviewing = planning && invocation.child.is_none();
+    let metadata = invocation.provider.as_ref().and_then(|provider| {
+        provider
+            .models
+            .iter()
+            .find(|model| model.id == invocation.turn.config.model)
+    });
+    let tool_capable = metadata.is_none_or(|model| model.tools);
     let mut instruction = prompt::instruction(
         invocation.turn.config.mode,
         invocation.turn.config.permission,
@@ -317,6 +324,14 @@ async fn execute_with(
         instruction.push_str("\n\n");
         instruction.push_str(prompt::recipient(false));
     }
+    if let Some(policy) = title::instruction(
+        invocation.title.as_deref(),
+        tool_capable,
+        invocation.child.is_some(),
+    ) {
+        instruction.push_str("\n\n");
+        instruction.push_str(&policy);
+    }
     let (compact, compaction_config, compact_tool) = compaction::bind(
         ingress,
         model.clone(),
@@ -361,16 +376,10 @@ async fn execute_with(
     {
         agent = agent.max_iterations(limit);
     }
-    let metadata = invocation.provider.as_ref().and_then(|provider| {
-        provider
-            .models
-            .iter()
-            .find(|model| model.id == invocation.turn.config.model)
-    });
     if let Some(model) = metadata {
         agent = agent.max_output_tokens(model.output as i32);
     }
-    if metadata.is_none_or(|model| model.tools) {
+    if tool_capable {
         extensions
             .tools
             .push(catalog::Registration::managed(compact_tool));

@@ -1045,6 +1045,7 @@ activity_approval: 待批准
 activity_input: 待回复
 notifications: 通知
 notification_open: 打开
+notification_details: 详情
 notifications_empty: 暂无通知
 notifications_read_all: 全部已读
 notifications_clear: 清空通知

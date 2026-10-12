@@ -332,6 +332,7 @@ fn claim_with(
     );
     let invocation = Invocation {
         hooks: super::super::hooks::frozen(&transaction, queued.turn.id)?,
+        title: super::activity::assigned_title(&transaction, queued.turn.session)?,
         automatic: transaction
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM agent_continuations WHERE turn=?1)",

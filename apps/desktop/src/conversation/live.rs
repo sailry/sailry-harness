@@ -36,6 +36,7 @@ mod forks;
 mod loading;
 mod location;
 mod messages;
+pub(crate) use messages::failure_key;
 mod mode;
 mod model_controls;
 mod navigation;

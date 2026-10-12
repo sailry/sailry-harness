@@ -100,7 +100,9 @@ impl Shell {
         };
         let id = notice.id;
         let key = format!("{id:?}");
-        let message = if notice.title.is_empty() {
+        let message = if let Some(error) = &notice.error {
+            tr(crate::conversation::live::failure_key(error))
+        } else if notice.title.is_empty() {
             match id.target {
                 Target::Notification(_) => tr("notifications"),
                 Target::Session(_) => tr("conversation"),
@@ -114,6 +116,7 @@ impl Shell {
             }
         };
         let owner = cx.weak_entity();
+        let error = notice.error.clone();
         let action = match id.target {
             Target::Notification(_) => "notification_open",
             Target::Session(_) => "workspace_open_session",
@@ -130,6 +133,24 @@ impl Shell {
                 .delivery(delivery)
                 .autohide(false)
                 .action(move |_, _, _| {
+                    // Kit exposes one action; the toast itself still opens the target.
+                    if let Some(error) = error.clone() {
+                        return Button::new("notification-details")
+                            .ghost()
+                            .icon(IconName::Info)
+                            .tooltip(tr("notification_details"))
+                            .accessibility_label(tr("notification_details"))
+                            .debug_selector(|| "notification-details".into())
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                crate::feedback::error(
+                                    &tr("notification_details"),
+                                    &error.to_string(),
+                                    window,
+                                    cx,
+                                );
+                            });
+                    }
                     let owner = owner.clone();
                     Button::new("notification-open")
                         .ghost()

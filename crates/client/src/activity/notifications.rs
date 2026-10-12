@@ -37,6 +37,7 @@ pub struct Notice {
     pub worktree: Option<WorktreeId>,
     pub title: String,
     pub message: String,
+    pub error: Option<sailry_protocol::Fault>,
     pub presentation: Option<sailry_protocol::notification::Presentation>,
     pub kind: Kind,
     pub read: bool,
@@ -148,6 +149,7 @@ impl Feed {
                         worktree: None,
                         title: entry.content.title.clone(),
                         message: entry.content.message.clone(),
+                        error: None,
                         presentation: entry.content.presentation.clone(),
                         kind: Kind::Notification(entry.content.kind),
                         read: entry.read,
@@ -198,7 +200,17 @@ impl Feed {
                         project: session.project,
                         worktree: Some(session.worktree),
                         title: activity.title.clone(),
-                        message: String::new(),
+                        message: if matches!(kind, Kind::Failed) {
+                            run.error
+                                .as_ref()
+                                .map(|error| error.message.clone())
+                                .unwrap_or_default()
+                        } else {
+                            String::new()
+                        },
+                        error: matches!(kind, Kind::Failed)
+                            .then(|| run.error.clone())
+                            .flatten(),
                         presentation: None,
                         kind,
                         read: false,
@@ -235,6 +247,7 @@ impl Feed {
                     worktree: Some(tree.id),
                     title: String::new(),
                     message: String::new(),
+                    error: None,
                     presentation: None,
                     kind,
                     read: false,
@@ -267,6 +280,7 @@ mod inbox_tests {
             worktree: Some(WorktreeId::new()),
             title: "Fixture".into(),
             message: String::new(),
+            error: None,
             presentation: None,
             kind: Kind::Completed,
             read: false,

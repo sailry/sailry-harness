@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 mod center;
 mod delivery;
+mod failures;
 mod navigation;
 mod preferences;
 

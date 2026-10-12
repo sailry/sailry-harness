@@ -1,4 +1,5 @@
 app: "Sailry"
+notification_details: "詳細"
 content_plain: "テキスト"
 content_copy: "コピー"
 content_copied: "コピー"

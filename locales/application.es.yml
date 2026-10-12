@@ -1,4 +1,5 @@
 app: "Sailry"
+notification_details: "Detalles"
 content_plain: "Texto"
 content_copy: "Copiar"
 content_copied: "Copiado"

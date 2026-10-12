@@ -1,6 +1,89 @@
 use super::*;
 use crate::activity::{Feed, Inbox, Kind, Notice, Target};
-use sailry_protocol::{NotificationId, notification};
+use sailry_protocol::{
+    Effort, NotificationId, Permission, ProviderId, SessionConfig, SessionId, TurnId, WorkMode,
+    WorktreeId, notification,
+};
+
+#[test]
+fn retains_canonical_failure_details() {
+    use sailry_protocol::conversation::{Run, RunKind, Status};
+    let mut state = snapshot(0);
+    let session = sailry_protocol::Session {
+        id: SessionId::new(),
+        archived: false,
+        activity: Default::default(),
+        project: None,
+        worktree: WorktreeId::new(),
+        revision: 1,
+        config: SessionConfig {
+            assistant: None,
+            resource: None,
+            provider: ProviderId::new(),
+            model: "fixture".into(),
+            effort: Effort::Default,
+            mode: WorkMode::Code,
+            permission: Permission::Ask,
+            credential: None,
+        },
+        roles: Default::default(),
+        profile: None,
+        fork: None,
+        delegation: None,
+    };
+    state.sessions.push(session);
+    let session = &mut state.sessions[0];
+    session.activity.title = "Original conversation title".into();
+    session.activity.run = Some(Run {
+        worktree: session.worktree,
+        turn: TurnId::new(),
+        kind: RunKind::Compaction,
+        session: session.id,
+        sequence: 1,
+        revision: 1,
+        status: Status::Running,
+        error: None,
+        started_ms: Some(1000),
+        finished_ms: None,
+        origin: None,
+        continuation: None,
+    });
+    let mut feed = Feed::default();
+    feed.observe(&state);
+    assert!(feed.notices.is_empty());
+
+    let fault = Fault::new(ErrorCode::Unavailable, "context summary timed out");
+    let run = state.sessions[0].activity.run.as_mut().unwrap();
+    run.status = Status::Failed;
+    run.error = Some(fault.clone());
+    run.finished_ms = Some(61000);
+    state.cursor = 1;
+    feed.observe(&state);
+    assert_eq!(feed.notices.len(), 1);
+    let notice = feed.notices[0].clone();
+    assert_eq!(notice.kind, Kind::Failed);
+    assert_eq!(notice.message, fault.message);
+    assert_eq!(notice.error.as_ref(), Some(&fault));
+    assert_eq!(notice.title, "Original conversation title");
+
+    let mut inbox = Inbox::default();
+    assert_eq!(inbox.merge(state.node, &feed.notices).len(), 1);
+    feed.observe(&state);
+    assert!(inbox.merge(state.node, &feed.notices).is_empty());
+    let run = state.sessions[0].activity.run.as_mut().unwrap();
+    run.turn = TurnId::new();
+    run.sequence = 2;
+    run.status = Status::Completed;
+    run.error = None;
+    state.cursor = 2;
+    feed.observe(&state);
+    inbox.merge(state.node, &feed.notices);
+    assert!(
+        inbox.notices().iter().any(|retained| {
+            retained.id == notice.id && retained.error.as_ref() == Some(&fault)
+        })
+    );
+}
 
 fn notice(sequence: u64, read: bool) -> notification::Notice {
     notification::Notice {
@@ -91,6 +174,7 @@ fn plugin_and_activity_sequences_remain_independent() {
         worktree: None,
         title: "Task".into(),
         message: String::new(),
+        error: None,
         presentation: None,
         kind: Kind::Completed,
         read: false,

@@ -347,6 +347,7 @@ pub(super) fn admit(
     Ok(Invocation {
         hooks: super::super::hooks::frozen(&database.connection, turn.id)?,
         automatic: false,
+        title: None,
         project: previous.project,
         connections: connections::catalog(&database.connection, turn.session)?,
         media,

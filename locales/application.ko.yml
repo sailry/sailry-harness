@@ -1,4 +1,5 @@
 app: "Sailry"
+notification_details: "세부 정보"
 content_plain: "텍스트"
 content_copy: "복사"
 content_copied: "복사됨"

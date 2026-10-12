@@ -677,7 +677,7 @@ impl View {
     }
 }
 
-pub(super) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
+pub(crate) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
     match error.message.as_str() {
         "context summary timed out" => return "chat_compact_timeout",
         "context summary did not reduce the conversation" => return "chat_compact_no_reduction",

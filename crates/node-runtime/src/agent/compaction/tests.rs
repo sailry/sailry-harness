@@ -2,6 +2,8 @@ use super::*;
 use adk_core::{LlmResponse, LlmResponseStream, UsageMetadata};
 use std::sync::Mutex;
 
+mod timing;
+
 struct Model {
     responses: Vec<LlmResponse>,
     requests: Mutex<Vec<LlmRequest>>,

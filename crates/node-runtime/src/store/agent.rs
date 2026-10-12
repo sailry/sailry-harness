@@ -222,6 +222,7 @@ pub(super) enum Operation {
 pub(crate) struct Invocation {
     pub hooks: hooks::Settings,
     pub automatic: bool,
+    pub title: Option<String>,
     pub connections: connections::Catalog,
     pub turn: QueuedTurn,
     pub caller: NodeId,
