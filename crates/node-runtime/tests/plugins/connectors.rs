@@ -35,22 +35,23 @@ async fn installs_and_configures_declared_connectors() {
             assert_eq!(extension.api_version, "v1");
             assert_eq!(extension.display.as_ref().unwrap().locales.len(), 10);
             assert_eq!(extension.description.as_ref().unwrap().locales.len(), 10);
-            if [
-                "notion",
-                "linear",
-                "figma",
-                "slack",
-                "feishu",
-                "tencent-docs",
-            ]
-            .contains(&name)
-            {
+            if ["notion", "linear", "slack", "feishu", "tencent-docs"].contains(&name) {
                 assert_eq!(info.mcp.len(), 1);
                 assert_eq!(info.mcp[0].transport, McpTransport::StreamableHttp);
                 assert!(extension.host.is_none());
             } else {
                 assert!(extension.host.as_ref().unwrap().valid());
                 assert_eq!(extension.tools.len(), 1);
+                if name == "figma" {
+                    assert!(info.mcp.is_empty());
+                    let binding = info.settings.as_ref().unwrap().properties["token"]
+                        .secret
+                        .as_ref()
+                        .unwrap();
+                    assert_eq!(binding.origin.as_deref(), Some("https://api.figma.com"));
+                    assert_eq!(binding.header.as_deref(), Some("X-Figma-Token"));
+                    assert!(binding.prefix.is_none());
+                }
             }
             let expected = match name {
                 "google-workspace" => Some(Provider::Google),

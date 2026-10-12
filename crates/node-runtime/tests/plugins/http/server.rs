@@ -15,6 +15,14 @@ pub struct Server {
 
 impl Server {
     pub async fn start() -> Self {
+        Self::respond(None, None).await
+    }
+
+    pub async fn with_json(body: serde_json::Value, held_path: Option<String>) -> Self {
+        Self::respond(Some(body.to_string()), held_path).await
+    }
+
+    async fn respond(body: Option<String>, held_path: Option<String>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -37,6 +45,7 @@ impl Server {
                 };
                 let (records, held, disconnected) =
                     (requests.clone(), held.clone(), disconnected.clone());
+                let (body, held_path) = (body.clone(), held_path.clone());
                 connections.spawn(async move {
                     let mut bytes = Vec::new();
                     let (header, offset, length) = loop {
@@ -60,7 +69,7 @@ impl Server {
                     records.lock().unwrap().push((header, String::from_utf8(bytes[offset..offset + length].to_vec()).unwrap()));
                     match path.as_str() {
                         "/drop" => {},
-                        "/hold" => {
+                        path if path == "/hold" || held_path.as_deref() == Some(path) => {
                             held.cancel();
                             let _ = stream.read(&mut [0; 1]).await;
                             disconnected.cancel();
@@ -73,7 +82,14 @@ impl Server {
                         "/redirect" => {
                             let _ = stream.write_all(b"HTTP/1.1 302 Found\r\nLocation: /target\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
                         },
-                        _ => { let _ = stream.write_all(b"HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: 5\r\nConnection: close\r\n\r\nsaved").await; }
+                        _ => {
+                            if let Some(body) = body {
+                                let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                                let _ = stream.write_all(response.as_bytes()).await;
+                            } else {
+                                let _ = stream.write_all(b"HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: 5\r\nConnection: close\r\n\r\nsaved").await;
+                            }
+                        }
                     }
                 });
             }
