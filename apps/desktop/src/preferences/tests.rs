@@ -1,5 +1,36 @@
 use super::*;
 
+mod picker {
+    use super::*;
+    #[test]
+    fn missing_uses_list_without_hidden() {
+        let mut value = serde_json::to_value(Data::default()).unwrap();
+        value.as_object_mut().unwrap().remove("file_picker");
+        let data: Data = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            data.file_picker.unwrap_or_default(),
+            FilePicker {
+                grid: false,
+                hidden: false
+            }
+        );
+        assert_eq!(data.version, 1);
+    }
+    #[test]
+    fn round_trip_preserves_other_choices() {
+        let mut data = Data::default();
+        data.toast_seconds = 8;
+        data.notifications[0] = false;
+        data.file_picker = Some(FilePicker {
+            grid: true,
+            hidden: true,
+        });
+        let restored: Data = serde_json::from_slice(&serde_json::to_vec(&data).unwrap()).unwrap();
+        assert_eq!(restored, data);
+        assert_eq!(restored.version, 1);
+    }
+}
+
 mod message_size {
     use super::*;
 

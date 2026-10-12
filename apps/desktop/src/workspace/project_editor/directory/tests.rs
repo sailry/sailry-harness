@@ -1,4 +1,5 @@
 use super::*;
+use crate::file_picker::actions;
 use core::prelude::v1::test;
 use std::time::{Duration, Instant};
 
@@ -55,12 +56,12 @@ fn opens_folders(cx: &mut TestAppContext) {
         });
         let shell = shell.unwrap();
         for attempt in 0..2 {
-            let picker = visual.update(|window, cx| {
+            let (picker, editor) = visual.update(|window, cx| {
                 shell.update(cx, |shell, cx| {
                     let form = shell
                         .build_project_editor(0, None, None, window, cx)
                         .unwrap();
-                    open_project(form, window, cx)
+                    (open_project(form.clone(), window, cx), form)
                 })
             });
             wait(visual, &picker);
@@ -81,8 +82,6 @@ fn opens_folders(cx: &mut TestAppContext) {
             }
             click(visual, "directory-confirm");
             if remote && attempt == 0 {
-                let editor =
-                    picker.read_with(visual, |picker, _| picker.registration.clone().unwrap());
                 let deadline = Instant::now() + Duration::from_secs(10);
                 loop {
                     visual.run_until_parked();
@@ -233,7 +232,7 @@ fn host_operations(cx: &mut TestAppContext) {
         let locations = visual.debug_bounds("directory-locations").unwrap();
         let grid = visual.debug_bounds("directory-list").unwrap();
         assert_eq!(locations.top(), grid.top());
-        assert_eq!(locations.bottom(), grid.bottom());
+        assert_eq!(locations.bottom() - grid.bottom(), px(28.));
         assert_eq!(
             picker.read_with(visual, |picker, _| picker.entries().len()),
             3
@@ -317,4 +316,69 @@ fn host_operations(cx: &mut TestAppContext) {
     }
     runtime.block_on(controller.close()).unwrap();
     runtime.block_on(node.shutdown()).unwrap();
+}
+
+#[gpui::test]
+fn rejects_changed_host(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+        crate::shell::init(cx);
+    });
+    for remote in [false, true] {
+        let fixture = crate::plugins::fixture::Fixture::new(remote);
+        cx.update(|cx| cx.set_global(fixture.services(remote)));
+        let path = fixture.directory.path().canonicalize().unwrap();
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let shell = cx.new(|cx| Shell::new(window, cx));
+            Root::new(shell, window, cx)
+        });
+        let (editor, picker) = visual.update(|window, cx| {
+            let shell = cx.new(|cx| Shell::new(window, cx));
+            let editor = shell
+                .update(cx, |shell, cx| {
+                    shell.build_project_editor(0, None, None, window, cx)
+                })
+                .unwrap();
+            editor.update(cx, |editor, cx| {
+                editor.live = Some(fixture.transport.clone());
+                editor.inputs[1].update(cx, |input, cx| {
+                    input.set_value(path.to_str().unwrap(), window, cx)
+                });
+            });
+            let picker = open(editor.clone(), window, cx);
+            (editor, picker)
+        });
+        wait(visual, &picker);
+        visual.update(|_, cx| {
+            editor.update(cx, |editor, cx| {
+                editor.host = 1;
+                cx.notify();
+            })
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("directory-error").is_some());
+        click(visual, "directory-confirm");
+        assert_eq!(
+            editor.read_with(visual, |editor, cx| editor.inputs[1].read(cx).value()),
+            path.to_str().unwrap()
+        );
+        assert!(
+            fixture
+                .transport
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|request| !matches!(
+                    request.command,
+                    sailry_protocol::Command::ManageFiles(_)
+                        | sailry_protocol::Command::CreateProject(_)
+                ))
+        );
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
 }

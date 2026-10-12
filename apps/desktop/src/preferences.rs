@@ -45,6 +45,7 @@ pub(crate) struct Data {
     pub plugin_directories: Option<std::collections::BTreeMap<String, plugins::Directory>>,
     pub message_display: Option<MessageDisplay>,
     pub message_text_size: Option<u8>,
+    pub file_picker: Option<FilePicker>,
     pub language: Option<crate::locale::Language>,
     #[serde(default)]
     pub sidebar_metrics: bool,
@@ -56,6 +57,12 @@ pub(crate) enum MessageDisplay {
     #[default]
     Detailed,
     Compact,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct FilePicker {
+    pub grid: bool,
+    pub hidden: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -123,6 +130,7 @@ impl Default for Data {
             recent: None,
             message_display: None,
             message_text_size: None,
+            file_picker: None,
             language: None,
             sidebar_metrics: false,
         }

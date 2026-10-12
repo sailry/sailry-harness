@@ -1,12 +1,82 @@
 use super::*;
 use gpui_kit::component::native_menu::NativeMenu;
 
+fn outcome_key(outcomes: &[sailry_protocol::file_browser::Outcome]) -> Option<&'static str> {
+    let errors: Vec<_> = outcomes
+        .iter()
+        .filter_map(|outcome| outcome.error.as_ref())
+        .collect();
+    if errors.iter().any(|error| {
+        matches!(
+            error.code,
+            sailry_protocol::ErrorCode::OutcomeUnknown | sailry_protocol::ErrorCode::Unavailable
+        )
+    }) {
+        Some("directory_outcome_unknown")
+    } else if errors
+        .iter()
+        .any(|error| error.code == sailry_protocol::ErrorCode::Conflict)
+    {
+        Some("files_paste_conflict")
+    } else if errors.is_empty() {
+        None
+    } else {
+        Some("directory_action_failed")
+    }
+}
+
+fn completion_toast(
+    key: Option<&'static str>,
+    target: sailry_protocol::NodeId,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let text: SharedString = format!(
+        "{} · {}: {}",
+        tr(key.unwrap_or("task_completed")),
+        tr("project_host"),
+        crate::live::node_key(target)
+    )
+    .into();
+    let message = match key {
+        Some(_) => Notification::error(text.clone()),
+        None => Notification::success(text.clone()),
+    };
+    crate::feedback::toast(window, text, message, cx);
+}
+
+#[cfg(test)]
+mod completion {
+    use super::outcome_key;
+    use sailry_protocol::{ErrorCode, Fault, file_browser::Outcome};
+
+    #[core::prelude::v1::test]
+    fn uncertainty_precedes_failures() {
+        let outcome = |code| Outcome {
+            path: "/fixture".into(),
+            destination: None,
+            error: Some(Fault::new(code, "fixture")),
+        };
+        for code in [ErrorCode::OutcomeUnknown, ErrorCode::Unavailable] {
+            assert_eq!(
+                outcome_key(&[outcome(ErrorCode::Conflict), outcome(code)]),
+                Some("directory_outcome_unknown")
+            );
+        }
+        assert_eq!(
+            outcome_key(&[outcome(ErrorCode::Conflict)]),
+            Some("files_paste_conflict")
+        );
+        assert_eq!(outcome_key(&[]), None);
+    }
+}
+
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = file_picker, no_json)]
-pub(super) struct Dispatch(pub(super) Operation);
+pub(crate) struct Dispatch(pub(crate) Operation);
 
 #[derive(Clone, PartialEq)]
-pub(super) enum Operation {
+pub(crate) enum Operation {
     Open,
     Copy,
     Cut,
@@ -26,7 +96,7 @@ impl Picker {
         cx: &mut Context<Self>,
     ) {
         cx.stop_propagation();
-        if self.busy {
+        if self.closed || self.busy || !(self.valid)(cx) {
             return;
         }
         if index.is_some_and(|index| {
@@ -65,7 +135,8 @@ impl Picker {
             menu = menu
                 .menu_with_disabled(
                     tr("directory_open"),
-                    self.entries()[index].kind != EntryKind::Directory,
+                    self.entries()[index].kind != EntryKind::Directory
+                        && !matches!(self.mode, Mode::Files { .. }),
                     action(Operation::Open),
                 )
                 .separator()
@@ -121,7 +192,7 @@ impl Picker {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.busy {
+        if self.closed || self.busy || !(self.valid)(cx) {
             return;
         }
         match action.0 {
@@ -287,7 +358,7 @@ impl Picker {
     }
 
     fn execute(&mut self, action: FileAction, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.closed || self.busy || !(self.valid)(cx) {
             return;
         }
         let Some(client) = self.client.clone() else {
@@ -314,15 +385,38 @@ impl Picker {
             .get_or_insert_with(|| client.prepare(command))
             .clone();
         let runtime = cx.global::<crate::backend::Services>().runtime.clone();
+        let generation = self.generation;
+        let target = client.target();
         let job = runtime.spawn(async move { client.execute(request).await });
         self.busy = true;
-        self.task = Some(cx.spawn_in(window, async move |picker, cx| {
+        cx.spawn_in(window, async move |picker, cx| {
             let result = job.await;
-            let _ = picker.update_in(cx, |picker, window, cx| {
+            let key = match &result {
+                Ok(Ok(Output::FilesManaged(outcomes))) => outcome_key(outcomes),
+                Ok(Err(error))
+                    if !matches!(
+                        error.code,
+                        sailry_protocol::ErrorCode::OutcomeUnknown
+                            | sailry_protocol::ErrorCode::Unavailable
+                    ) =>
+                {
+                    Some("directory_action_failed")
+                }
+                _ => Some("directory_outcome_unknown"),
+            };
+            let updated = picker.update_in(cx, |picker, window, cx| {
+                if picker.closed || picker.generation != generation || !(picker.valid)(cx) {
+                    completion_toast(key, target, window, cx);
+                    // Presentation is gone, but the captured request remains available
+                    // for outcome reconciliation. Never rebind or automatically replay it.
+                    return;
+                }
                 picker.busy = false;
                 match result {
                     Ok(Ok(Output::FilesManaged(outcomes))) => {
-                        picker.request = None;
+                        if key != Some("directory_outcome_unknown") {
+                            picker.request = None;
+                        }
                         if let Some((paths, true)) = &mut picker.clipboard {
                             paths.retain(|path| {
                                 !outcomes
@@ -333,16 +427,7 @@ impl Picker {
                                 picker.clipboard = None;
                             }
                         }
-                        if let Some(error) =
-                            outcomes.iter().find_map(|outcome| outcome.error.as_ref())
-                        {
-                            let key = if error.code == sailry_protocol::ErrorCode::OutcomeUnknown {
-                                "directory_outcome_unknown"
-                            } else if error.code == sailry_protocol::ErrorCode::Conflict {
-                                "files_paste_conflict"
-                            } else {
-                                "directory_action_failed"
-                            };
+                        if let Some(key) = key {
                             picker.fail(key, window, cx);
                         }
                         picker.refresh(window, cx);
@@ -361,7 +446,11 @@ impl Picker {
                 }
                 cx.notify();
             });
-        }));
+            if updated.is_err() {
+                let _ = cx.update(|window, cx| completion_toast(key, target, window, cx));
+            }
+        })
+        .detach();
         cx.notify();
     }
 }

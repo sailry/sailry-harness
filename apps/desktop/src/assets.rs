@@ -8,6 +8,7 @@ pub(crate) struct Assets;
 
 gpui_kit::assets::icon_assets!(ActivityAssets, [ListTodo]);
 gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare]);
+gpui_kit::assets::icon_assets!(PickerAssets, [Monitor, List, LayoutGrid]);
 gpui_kit::assets::icon_assets!(
     SettingsAssets,
     [
@@ -396,6 +397,9 @@ impl AssetSource for Assets {
         if let Some(bytes) = SettingsAssets.load(path)? {
             return Ok(Some(bytes));
         }
+        if let Some(bytes) = PickerAssets.load(path)? {
+            return Ok(Some(bytes));
+        }
         gpui_kit::assets::Assets.load(path)
     }
 
@@ -404,6 +408,7 @@ impl AssetSource for Assets {
         names.extend(ActivityAssets.list(path)?);
         names.extend(UsageAssets.list(path)?);
         names.extend(SettingsAssets.list(path)?);
+        names.extend(PickerAssets.list(path)?);
         names.extend(
             ICONS
                 .iter()
@@ -454,6 +459,22 @@ mod tests {
         ] {
             let expected = SettingsAssets.load(path).unwrap().unwrap();
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);
+            assert!(names.iter().any(|name| name.as_ref() == path));
+        }
+    }
+
+    #[test]
+    fn picker_icons() {
+        let names = Assets.list("icons/").unwrap();
+        for path in [
+            "icons/monitor.svg",
+            "icons/list.svg",
+            "icons/layout-grid.svg",
+        ] {
+            assert_eq!(
+                Assets.load(path).unwrap().unwrap(),
+                PickerAssets.load(path).unwrap().unwrap()
+            );
             assert!(names.iter().any(|name| name.as_ref() == path));
         }
     }

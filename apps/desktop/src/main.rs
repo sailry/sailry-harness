@@ -28,6 +28,7 @@ mod discovery_fixture;
 mod downloads;
 mod empty_state;
 mod feedback;
+mod file_picker;
 mod header;
 mod hosts;
 mod installations;
