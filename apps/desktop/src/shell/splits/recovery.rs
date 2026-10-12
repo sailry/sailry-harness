@@ -5,11 +5,15 @@ use gpui_kit::{
     component::{button::Button, *},
     *,
 };
+mod load;
+mod state;
+pub(crate) use state::State;
 
 pub(super) struct View {
     target: Target,
     owner: WeakEntity<Shell>,
     pending: bool,
+    error: Option<sailry_protocol::Fault>,
 }
 
 impl View {
@@ -18,11 +22,13 @@ impl View {
             target,
             owner,
             pending: true,
+            error: None,
         }
     }
 
-    pub fn failed(&mut self, cx: &mut Context<Self>) {
+    pub fn failed(&mut self, error: sailry_protocol::Fault, cx: &mut Context<Self>) {
         self.pending = false;
+        self.error = Some(error);
         cx.notify();
     }
 }

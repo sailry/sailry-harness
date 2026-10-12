@@ -11,6 +11,23 @@ pub(crate) struct State {
     registries: BTreeMap<(NodeId, WorktreeId), Entity<Registry>>,
 }
 
+impl State {
+    pub(crate) fn prune(
+        &mut self,
+        node: NodeId,
+        snapshot: &sailry_protocol::Snapshot,
+        cx: &mut App,
+    ) {
+        self.registries.retain(|(owner, _), registry| {
+            let keep = *owner != node || registry.read(cx).scope_available(snapshot);
+            if !keep {
+                registry.update(cx, |registry, cx| registry.close(cx));
+            }
+            keep
+        });
+    }
+}
+
 impl Shell {
     pub(crate) fn project_contribution(
         &mut self,

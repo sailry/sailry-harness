@@ -157,3 +157,6 @@ pub(crate) fn observe_with<T: 'static, Errors>(
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+mod node;
+pub(crate) use node::observe as observe_node;

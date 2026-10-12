@@ -1,4 +1,6 @@
 app: "Sailry"
+live_read_busy: "호스트 응답 대기 중"
+approval_busy: "승인 대기 중"
 notification_details: "세부 정보"
 content_plain: "텍스트"
 content_copy: "복사"

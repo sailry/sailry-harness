@@ -1,4 +1,6 @@
 chat_assets_title: "活動"
+live_read_busy: "等待主機回應"
+approval_busy: "審批處理中"
 notification_details: "詳情"
 chat_assets_activity: "活動"
 chat_assets_progress: "進度"

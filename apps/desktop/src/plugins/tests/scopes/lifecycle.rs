@@ -56,7 +56,7 @@ fn remove(fixture: &Fixture, worktree: &Worktree, head: String) {
 fn released(panel: &Entity<Panel>, worktree: &Worktree, visual: &mut VisualTestContext) {
     wait(visual, |cx| {
         let panel = panel.read(cx);
-        panel.connected
+        panel.stop.is_cancelled()
             && panel.snapshot.borrow().as_ref().is_some_and(|snapshot| {
                 !snapshot.worktrees.iter().any(|tree| tree.id == worktree.id)
             })

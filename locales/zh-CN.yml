@@ -1742,6 +1742,8 @@ live_host_active: 活动会话
 live_host_empty: 暂无活动会话
 live_disconnected: 连接中或离线 · 等待节点更新
 live_sync_failed: 主机同步失败
+live_read_busy: 等待主机响应
+approval_busy: 审批处理中
 live_project_editor: 在当前执行节点注册项目，请填写该节点可访问的绝对目录
 live_project_register: 注册项目
 live_request_failed: 请求未完成，请检查节点连接和目录；重试会保留原请求标识

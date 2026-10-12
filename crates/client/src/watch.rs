@@ -6,6 +6,9 @@ use tokio::sync::watch;
 
 use crate::{Apply, Client, Projection};
 
+mod shared;
+pub use shared::Observers;
+
 /// One latest projection for each observer; UI caches are not service history.
 #[derive(Clone, Default, serde::Serialize)]
 pub struct View {
@@ -26,6 +29,17 @@ impl Client {
     /// Own subscription generations and recovery here, not in each presentation.
     /// Reconnecting a read stream never replays a business command.
     pub async fn watch(
+        &self,
+        updates: watch::Sender<View>,
+        stop: CancellationToken,
+    ) -> Result<(), Fault> {
+        if let Some(observers) = &self.observers {
+            return observers.watch(self, updates, stop).await;
+        }
+        self.watch_node(updates, stop).await
+    }
+
+    async fn watch_node(
         &self,
         updates: watch::Sender<View>,
         stop: CancellationToken,
@@ -87,10 +101,13 @@ impl Client {
                 }
                 Err(error) => error,
             };
+            let connected = outcome.code == ErrorCode::Busy && updates.borrow().connected;
             updates.send_replace(View {
                 snapshot: projection.snapshot().cloned(),
                 notifications: activity.notices.clone(),
-                connected: false,
+                // Backpressure is not evidence that the authenticated transport
+                // or an already-valid projection became unavailable.
+                connected,
                 error: Some(outcome.clone()),
             });
             if !matches!(outcome.code, ErrorCode::Unavailable | ErrorCode::Busy) {

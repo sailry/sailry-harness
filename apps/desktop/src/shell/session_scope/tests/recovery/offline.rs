@@ -226,9 +226,19 @@ fn retains_remote_restart_layout(cx: &mut TestAppContext) {
             .status,
         TerminalStatus::Stopped,
     );
-    for retry in &retries {
-        click(&shell, visual, retry.to_string());
-    }
+    // The sidebar must reopen the retained terminal, not create another resource.
+    let restored = snapshot
+        .terminals
+        .iter()
+        .find(|entry| entry.id == info.id)
+        .unwrap();
+    visual.update(|window, cx| {
+        shell.update(cx, |shell, cx| {
+            assert!(shell.recovery.contains(terminal));
+            shell.open_terminal_pane(Some(project.id), restored, window, cx);
+        });
+    });
+    click(&shell, visual, retries[0].to_string());
     wait(visual, |cx| {
         let shell = shell.read(cx);
         shell

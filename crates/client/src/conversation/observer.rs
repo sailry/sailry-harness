@@ -235,7 +235,7 @@ impl Client {
                 Err(error) => error,
             };
             updates.send_modify(|view| {
-                view.connected = false;
+                view.connected &= failure.code == ErrorCode::Busy;
                 view.loading_older = false;
                 view.error = Some(failure.clone());
             });

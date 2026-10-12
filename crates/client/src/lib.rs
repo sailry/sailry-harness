@@ -24,7 +24,7 @@ mod watch;
 pub use document::{DocumentWrite, MAX_DOCUMENT_BYTES};
 pub use files::FileView;
 pub use transfers::FileMove;
-pub use watch::View;
+pub use watch::{Observers, View};
 
 use std::sync::Arc;
 
@@ -36,6 +36,7 @@ pub use projection::{Apply, Projection};
 pub struct Client {
     transport: Arc<dyn Transport>,
     git: Option<Arc<git::Reads>>,
+    observers: Option<Arc<Observers>>,
     usage_scope: Option<(sailry_protocol::plugin::Context, bool)>,
 }
 
@@ -51,6 +52,7 @@ impl Client {
         Self {
             transport,
             git: None,
+            observers: None,
             usage_scope: None,
         }
     }
@@ -60,11 +62,18 @@ impl Client {
         self
     }
 
+    /// Share Node observations only between clients using the exact same transport.
+    pub fn with_observers(mut self, observers: Arc<Observers>) -> Self {
+        self.observers = Some(observers);
+        self
+    }
+
     /// Scope report reads while retaining the core observer's Node event reduction.
     pub fn with_usage_scope(&self, context: sailry_protocol::plugin::Context) -> Self {
         Self {
             transport: self.transport.clone(),
             git: self.git.clone(),
+            observers: self.observers.clone(),
             usage_scope: Some((context, false)),
         }
     }
@@ -75,6 +84,7 @@ impl Client {
         Self {
             transport: self.transport.clone(),
             git: self.git.clone(),
+            observers: self.observers.clone(),
             usage_scope: Some((context, true)),
         }
     }

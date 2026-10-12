@@ -1,4 +1,6 @@
 app: "Sailry"
+live_read_busy: "Esperando al host"
+approval_busy: "Aprobación pendiente"
 notification_details: "Detalles"
 content_plain: "Texto"
 content_copy: "Copiar"

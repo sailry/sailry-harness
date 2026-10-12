@@ -32,7 +32,10 @@ impl View {
                     let page = &history.snapshot.as_ref()?.page;
                     call.approval
                         .as_ref()
-                        .is_some_and(|approval| approval.state == ApprovalState::Pending)
+                        .is_some_and(|approval| {
+                            approval.state == ApprovalState::Pending
+                                && !self.approvals.resolved(approval.id)
+                        })
                         .then_some((call, page, history.connected))
                 })
             })

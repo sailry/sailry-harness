@@ -70,6 +70,7 @@ pub(crate) struct Metadata {
     expected: Vec<Summary>,
     pub(crate) entries: BTreeMap<String, Info>,
     pub(crate) errors: BTreeMap<String, &'static str>,
+    pub(crate) diagnostics: BTreeMap<String, sailry_protocol::Fault>,
     loading: bool,
     stop: CancellationToken,
     task: Option<Task<()>>,
@@ -82,6 +83,15 @@ impl Drop for Metadata {
 }
 
 impl Metadata {
+    pub(crate) fn close(&mut self, cx: &mut Context<Self>) {
+        self.stop.cancel();
+        self.task = None;
+        self.loading = false;
+        self.errors.clear();
+        self.diagnostics.clear();
+        cx.notify();
+    }
+
     pub(crate) fn new(client: Arc<Client>, runtime: Arc<tokio::runtime::Runtime>) -> Self {
         Self {
             client,
@@ -89,6 +99,7 @@ impl Metadata {
             expected: Vec::new(),
             entries: BTreeMap::new(),
             errors: BTreeMap::new(),
+            diagnostics: BTreeMap::new(),
             loading: false,
             stop: CancellationToken::new(),
             task: None,
@@ -100,6 +111,8 @@ impl Metadata {
             return;
         }
         self.expected = expected.to_vec();
+        self.diagnostics
+            .retain(|name, _| expected.iter().any(|summary| summary.name == *name));
         self.entries.retain(|_, info| {
             let Some(summary) = expected
                 .iter()
@@ -151,6 +164,10 @@ impl Metadata {
         }
         self.loading = batch.retrying;
         for (name, result) in batch.results {
+            self.diagnostics.remove(&name);
+            if let Some(error) = batch.diagnostics.get(&name) {
+                self.diagnostics.insert(name.clone(), error.clone());
+            }
             match result {
                 Ok(info) => {
                     self.errors.remove(&name);
@@ -168,6 +185,7 @@ impl Metadata {
         self.stop.cancel();
         self.stop = CancellationToken::new();
         self.errors.clear();
+        self.diagnostics.clear();
         let missing: Vec<_> = self
             .expected
             .iter()

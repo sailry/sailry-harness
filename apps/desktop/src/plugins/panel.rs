@@ -41,7 +41,7 @@ pub(crate) struct Panel {
     reload: bool,
     pub(super) error: Option<&'static str>,
     pub(super) viewport: Option<Size<Pixels>>,
-    stop: CancellationToken,
+    pub(super) stop: CancellationToken,
     load_stop: CancellationToken,
     _watch: Task<()>,
     _metadata: Subscription,
@@ -321,7 +321,11 @@ impl Panel {
         }
         if !self.scope_available() {
             // Retained views must stop before a removed worktree reaches observers.
-            self.release();
+            if self.snapshot.borrow().is_some() {
+                self.close(cx);
+            } else {
+                self.release();
+            }
             self.reload = false;
             self.error = None;
             cx.notify();
@@ -355,7 +359,14 @@ impl Panel {
                     // Retain presentation only; the obsolete scope must stop immediately.
                     mounted.close();
                 }
-            } else if self.reference_changed() {
+            } else if self.reference_changed()
+                || self.reload
+                    && self.available(package)
+                    && self
+                        .mounted
+                        .as_ref()
+                        .is_some_and(|mounted| !mounted.active())
+            {
                 self.reload = true;
                 if let Some(mounted) = &self.mounted {
                     mounted.close();
@@ -406,6 +417,14 @@ impl Panel {
     }
 
     fn scope_available(&self) -> bool {
+        if self.binding.project.is_some_and(|project| {
+            self.snapshot
+                .borrow()
+                .as_ref()
+                .is_some_and(|snapshot| !snapshot.projects.iter().any(|entry| entry.id == project))
+        }) {
+            return false;
+        }
         self.binding.worktree.is_none_or(|id| {
             self.snapshot
                 .borrow()
@@ -495,12 +514,15 @@ impl Panel {
 
     pub(crate) fn close(&mut self, cx: &mut Context<Self>) {
         self.stop.cancel();
+        self.metadata.update(cx, |metadata, cx| metadata.close(cx));
         self.release();
         self.prepared = None;
         self.selected = None;
         self.target = None;
         self.reload = false;
         self.connected = false;
+        self.source_error = None;
+        self.error = None;
         cx.notify();
     }
 

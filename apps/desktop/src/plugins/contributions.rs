@@ -78,6 +78,7 @@ pub(crate) struct Registry {
     composer: Option<WeakEntity<crate::conversation::live::View>>,
     surface: Surface,
     node: NodeId,
+    project: Option<sailry_protocol::ProjectId>,
     worktree: Option<WorktreeId>,
     session: Option<sailry_protocol::SessionId>,
     metadata: Entity<Metadata>,
@@ -89,6 +90,23 @@ pub(crate) struct Registry {
 impl EventEmitter<Event> for Registry {}
 
 impl Registry {
+    pub(super) fn scope_available(&self, snapshot: &Snapshot) -> bool {
+        self.project
+            .is_none_or(|project| snapshot.projects.iter().any(|entry| entry.id == project))
+            && self
+                .worktree
+                .is_none_or(|worktree| snapshot.worktrees.iter().any(|tree| tree.id == worktree))
+    }
+
+    pub(crate) fn close(&mut self, cx: &mut Context<Self>) {
+        for mounted in self.mounted.values() {
+            mounted.panel.update(cx, |panel, cx| panel.close(cx));
+        }
+        self.mounted.clear();
+        self.metadata.update(cx, |metadata, cx| metadata.close(cx));
+        cx.notify();
+    }
+
     pub(crate) fn preview_available(&self, mime: &str, cx: &App) -> bool {
         self.metadata
             .read(cx)
@@ -122,6 +140,7 @@ impl Registry {
             composer: None,
             surface,
             node: binding.client.target(),
+            project: binding.project,
             worktree: binding.worktree,
             session: None,
             metadata,

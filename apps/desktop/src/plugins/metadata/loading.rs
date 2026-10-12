@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 pub(super) struct Batch {
     pub results: Vec<(String, Result<Info, &'static str>)>,
     pub retrying: bool,
+    pub diagnostics: std::collections::BTreeMap<String, sailry_protocol::Fault>,
 }
 
 pub(super) async fn load(
@@ -23,6 +24,7 @@ pub(super) async fn load(
     loop {
         let mut results = Vec::new();
         let mut retry = Vec::new();
+        let mut diagnostics = std::collections::BTreeMap::new();
         for expected in missing {
             let result = tokio::select! {
                 biased;
@@ -38,6 +40,10 @@ pub(super) async fn load(
             let result = match result {
                 Ok(Output::Plugin(info)) if info.summary == expected => Ok(info),
                 Ok(Output::Plugin(_)) => Err("plugins_conflict"),
+                Err(error) => {
+                    diagnostics.insert(expected.name.clone(), error);
+                    Err("plugins_read_failed")
+                }
                 _ => Err("plugins_read_failed"),
             };
             results.push((expected.name, result));
@@ -46,7 +52,7 @@ pub(super) async fn load(
         tokio::select! {
             biased;
             _ = stop.cancelled() => return,
-            result = sender.send(Batch { results, retrying }) => {
+            result = sender.send(Batch { results, retrying, diagnostics }) => {
                 if result.is_err() { return; }
             },
         }

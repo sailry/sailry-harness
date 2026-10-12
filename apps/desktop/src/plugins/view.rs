@@ -9,13 +9,58 @@ use gpui_kit::{
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.viewport.is_none() {
-            crate::feedback::observe(window, cx, |view: &Self, cx| {
-                view.error
-                    .into_iter()
-                    .chain(view.metadata.read(cx).errors.values().copied())
-                    .chain(view.source_error.as_ref().map(|_| "live_sync_failed"))
-                    .collect()
+            crate::feedback::observe_node(window, cx, |view: &Self, cx| {
+                view.source_error
+                    .iter()
+                    .chain(view.metadata.read(cx).diagnostics.values())
+                    .find(|error| error.code == sailry_protocol::ErrorCode::Busy)
+                    .cloned()
+                    .map(|error| (view.binding.client.target(), error))
             });
+            crate::feedback::observe_with(
+                window,
+                cx,
+                |view: &Self, cx| {
+                    let metadata = view.metadata.read(cx);
+                    view.error
+                        .into_iter()
+                        .chain(
+                            metadata
+                                .errors
+                                .iter()
+                                .filter(|(name, _)| {
+                                    !metadata.diagnostics.get(*name).is_some_and(|error| {
+                                        error.code == sailry_protocol::ErrorCode::Busy
+                                    })
+                                })
+                                .map(|(_, key)| *key),
+                        )
+                        .chain(
+                            view.source_error
+                                .as_ref()
+                                .filter(|error| error.code != sailry_protocol::ErrorCode::Busy)
+                                .map(|_| "live_sync_failed"),
+                        )
+                        .collect()
+                },
+                |view, key, cx| {
+                    let error = if key == "live_sync_failed" {
+                        view.source_error.as_ref()
+                    } else {
+                        view.metadata
+                            .read(cx)
+                            .diagnostics
+                            .values()
+                            .find(|error| error.code != sailry_protocol::ErrorCode::Busy)
+                    };
+                    error.map_or_else(
+                        || gpui_kit::component::notification::Notification::error(tr(key)),
+                        |error| {
+                            crate::feedback::diagnostic(error.to_string().into()).title(tr(key))
+                        },
+                    )
+                },
+            );
         }
         self.sync_preview(window, cx);
         self.sync_document(window, cx);

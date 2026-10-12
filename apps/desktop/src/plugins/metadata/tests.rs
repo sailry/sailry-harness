@@ -184,9 +184,13 @@ async fn recovers_with_unchanged_inventory() {
     );
 
     // One inventory load recovers without another accept or manual refresh.
-    for _ in 0..2 {
+    for code in [ErrorCode::Busy, ErrorCode::Unavailable] {
         let batch = next(&mut receiver).await;
         assert!(batch.retrying);
+        assert_eq!(
+            batch.diagnostics.get("ssh"),
+            Some(&Fault::new(code, "injected metadata failure"))
+        );
         assert_eq!(
             batch.results,
             vec![("ssh".into(), Err("plugins_read_failed"))]
@@ -194,6 +198,7 @@ async fn recovers_with_unchanged_inventory() {
     }
     let batch = next(&mut receiver).await;
     assert!(!batch.retrying);
+    assert!(batch.diagnostics.is_empty());
     assert_eq!(batch.results, vec![("ssh".into(), Ok(package))]);
     finish(job).await;
     assert_eq!(*reads.requests.lock().unwrap(), ["ssh", "ssh", "ssh"]);
@@ -333,10 +338,16 @@ fn clears_only_recovered_errors() {
         ("ssh".into(), "plugins_read_failed"),
         ("databases".into(), "plugins_read_failed"),
     ]);
+    let fault = Fault::new(ErrorCode::Busy, "metadata storage queue is full");
+    cache.diagnostics = BTreeMap::from([
+        ("ssh".into(), fault.clone()),
+        ("databases".into(), fault.clone()),
+    ]);
     let ssh = info("ssh");
     assert!(cache.apply(
         Batch {
             results: vec![("ssh".into(), Ok(ssh.clone()))],
+            diagnostics: Default::default(),
             retrying: false,
         },
         &cache.stop.clone(),
@@ -348,6 +359,10 @@ fn clears_only_recovered_errors() {
         BTreeMap::from([("databases".into(), "plugins_read_failed")])
     );
     assert!(!cache.settled());
+    assert_eq!(
+        cache.diagnostics,
+        BTreeMap::from([("databases".into(), fault)])
+    );
 }
 
 #[test]
@@ -364,6 +379,7 @@ fn ignores_cancelled_batches() {
     assert!(!cache.apply(
         Batch {
             results: vec![("ssh".into(), Ok(old))],
+            diagnostics: Default::default(),
             retrying: false,
         },
         &stop,

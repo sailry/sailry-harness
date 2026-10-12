@@ -3,11 +3,24 @@ use super::*;
 
 impl View {
     pub(super) fn observe_errors(window: &Window, cx: &mut Context<Self>) {
+        crate::feedback::observe_node(window, cx, |view: &Self, _| {
+            [
+                &view.history.error,
+                &view.node.error,
+                &view.configuration().error,
+            ]
+            .into_iter()
+            .flatten()
+            .find(|error| error.code == sailry_protocol::ErrorCode::Busy)
+            .cloned()
+            .map(|error| (view.binding.client.target(), error))
+        });
         crate::feedback::observe_with(
             window,
             cx,
             |view: &Self, _| {
                 view.connection_error()
+                    .filter(|error| error.code != sailry_protocol::ErrorCode::Busy)
                     .map(|error| {
                         if retrying(error) {
                             "chat_reconnecting"

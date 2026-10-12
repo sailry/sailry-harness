@@ -1,4 +1,6 @@
 welcome_hi: Hi,
+live_read_busy: Waiting for the host
+approval_busy: Approval pending
 search: Search
 host_added: Host added
 notification_open: Open

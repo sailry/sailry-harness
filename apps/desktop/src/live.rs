@@ -37,6 +37,8 @@ pub(crate) struct State {
     #[cfg(test)]
     test_transports: BTreeMap<NodeId, Arc<dyn Transport>>,
     git_reads: Arc<sailry_client::git::Reads>,
+    observers: Arc<sailry_client::Observers>,
+    remote_transports: std::cell::RefCell<BTreeMap<NodeId, (EndpointAddr, Arc<dyn Transport>)>>,
     watch: Option<Watch>,
     _peers: Task<()>,
 }
@@ -54,6 +56,16 @@ impl Drop for Watch {
 
 impl Shell {
     pub(crate) fn observe_live_errors(window: &Window, cx: &mut Context<Self>) {
+        crate::feedback::observe_node(window, cx, |shell: &Self, _| {
+            shell.live.as_ref().and_then(|live| {
+                live.view
+                    .error
+                    .as_ref()
+                    .filter(|error| error.code == sailry_protocol::ErrorCode::Busy)
+                    .cloned()
+                    .map(|error| (live.selected, error))
+            })
+        });
         crate::feedback::observe(window, cx, |shell: &Self, _| {
             shell
                 .live
@@ -70,7 +82,12 @@ impl Shell {
                 shell
                     .live
                     .as_ref()
-                    .and_then(|live| live.view.error.as_ref())
+                    .and_then(|live| {
+                        live.view
+                            .error
+                            .as_ref()
+                            .filter(|error| error.code != sailry_protocol::ErrorCode::Busy)
+                    })
                     .map(|_| "live_sync_failed")
                     .into_iter()
                     .collect()
@@ -101,7 +118,9 @@ impl State {
     }
 
     pub(crate) fn client_for(&self, transport: Arc<dyn Transport>) -> Client {
-        Client::new(transport).with_git_reads(self.git_reads.clone())
+        Client::new(transport)
+            .with_git_reads(self.git_reads.clone())
+            .with_observers(self.observers.clone())
     }
 
     pub fn attach(cx: &mut Context<Shell>) -> Option<Self> {
@@ -122,6 +141,8 @@ impl State {
             #[cfg(test)]
             test_transports: BTreeMap::new(),
             git_reads: Default::default(),
+            observers: Default::default(),
+            remote_transports: Default::default(),
             services,
             watch: None,
             _peers: peers,
@@ -140,7 +161,15 @@ impl State {
         if node == self.services.local.target() {
             Some(self.services.local.clone())
         } else if let Some(address) = self.hosts.get(&node) {
-            Some(self.services.link.remote(address.clone()))
+            let mut transports = self.remote_transports.borrow_mut();
+            if let Some((previous, transport)) = transports.get(&node)
+                && previous == address
+            {
+                return Some(transport.clone());
+            }
+            let transport: Arc<dyn Transport> = self.services.link.remote(address.clone());
+            transports.insert(node, (address.clone(), transport.clone()));
+            Some(transport)
         } else {
             None
         }
@@ -192,8 +221,9 @@ impl State {
                 });
             }
         });
+        let client = self.client_for(transport);
         self.services.runtime.spawn(async move {
-            let _ = Client::new(transport).watch(sender, cancellation).await;
+            let _ = client.watch(sender, cancellation).await;
         });
         let task = cx.spawn(async move |shell, cx| {
             loop {
@@ -207,6 +237,7 @@ impl State {
                             if let Some(snapshot) = &live.view.snapshot {
                                 shell.terminals.prune(node, snapshot);
                                 shell.plugin_panes.prune(node, snapshot);
+                                shell.project_plugins.prune(node, snapshot, cx);
                             }
                             cx.notify();
                         }

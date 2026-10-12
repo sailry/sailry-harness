@@ -25,6 +25,9 @@ impl Shell {
         let target = Target::Terminal(node, tree, info.id);
         self.terminals.remember(live.selected, info.id, project);
         if self.splits.read(cx).contains(target) {
+            if self.recovery.contains(target) {
+                self.restore_pane(target, window, cx);
+            }
             self.splits
                 .update(cx, |splits, cx| splits.focus(target, cx));
         } else if let Some(snapshot) = live.view.snapshot.clone() {
