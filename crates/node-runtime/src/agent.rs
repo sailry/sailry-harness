@@ -7,6 +7,7 @@ mod compaction;
 pub(crate) mod completion;
 mod controls;
 mod delegation;
+mod diagnostics;
 mod guidance;
 mod mcp;
 pub(crate) mod media;
@@ -32,6 +33,7 @@ use crate::{
 };
 use adk_core::RunConfig;
 use adk_runner::Runner;
+use diagnostics::{Diagnostics, Phase};
 use futures::StreamExt;
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, SessionId, TurnId, conversation::Status};
@@ -83,11 +85,21 @@ async fn run(
 ) -> Result<(Status, Option<String>), Fault> {
     let controls = &ingress.agents;
     let turn = invocation.turn.id;
+    let diagnostics = Diagnostics::new(turn);
+    let _turn = diagnostics.span(Phase::Turn, None);
     let session = invocation.turn.session;
     let main = invocation.child.is_none();
     let callbacks = plugins::callbacks::capture(&invocation);
     let hooks = crate::hooks::Binding::capture(ingress, &invocation, token.clone());
-    let mut result = execute(ingress, tasks, invocation, token.clone(), hooks.clone()).await;
+    let mut result = execute(
+        ingress,
+        tasks,
+        invocation,
+        token.clone(),
+        hooks.clone(),
+        &diagnostics,
+    )
+    .await;
     if owner.as_ref().is_some_and(CancellationToken::is_cancelled) {
         // Owner Stop or timeout must retain input before observers can see a
         // terminal child run. A guidance handoff cancels only the Runner token.
@@ -98,12 +110,14 @@ async fn run(
     if main && (token.is_cancelled() || result.is_err()) {
         // Normal completion leaves background children with their session owner.
         // Interruption retains the existing cancellation and guidance settlement.
+        let _settlement = diagnostics.span(Phase::ChildSettlement, None);
         settle_children(ingress, session, turn, &token).await;
     }
     if !controls.stopped.is_cancelled()
         && !token.is_cancelled()
         && let Some(hooks) = &hooks
     {
+        let _completion = diagnostics.span(Phase::CompletionHooks, None);
         let status = if result.is_ok() {
             "completed"
         } else {
@@ -115,10 +129,15 @@ async fn run(
     }
     // Completion hooks can fail or be interrupted after a successful Runner.
     if main && (token.is_cancelled() || result.is_err()) {
+        let _settlement = diagnostics.span(Phase::ChildSettlement, None);
         settle_children(ingress, session, turn, &token).await;
     }
     // Hook and tool process owners survive dropped ADK callback futures.
-    controls.drain(turn).await;
+    {
+        let operations = diagnostics.enabled().then(|| controls.operations(turn));
+        let _drain = diagnostics.span(Phase::OperationDrain, operations);
+        controls.drain(turn).await;
+    }
     let (status, error, output) = if controls.stopped.is_cancelled() {
         (
             Status::Interrupted,
@@ -142,7 +161,10 @@ async fn run(
             Err(error) => (Status::Failed, Some(error), None),
         }
     };
-    let persisted = ingress.finish_run(turn, status, error.clone(), owner).await;
+    let persisted = {
+        let _persistence = diagnostics.span(Phase::FinishRun, None);
+        ingress.finish_run(turn, status, error.clone(), owner).await
+    };
     if let Err(error) = &persisted {
         eprintln!("Agent completion persistence failed: {error}");
     }
@@ -201,6 +223,7 @@ async fn execute(
     invocation: Invocation,
     stop: CancellationToken,
     hooks: Option<Arc<crate::hooks::Binding>>,
+    diagnostics: &Diagnostics,
 ) -> Result<Option<String>, Fault> {
     let session = invocation.turn.session;
     let mut connections = ingress.agents.mcp.take(session);
@@ -211,6 +234,7 @@ async fn execute(
         stop.clone(),
         &mut connections,
         hooks,
+        diagnostics,
     )
     .await;
     // Computer observations belong to the conversation's trusted SDK handle,
@@ -218,6 +242,7 @@ async fn execute(
     // ADK can drop a tool future on interruption before its async cleanup runs.
     // Retain browser cleanup at the same Node-owned boundary as MCP connections.
     let browsers = if stop.is_cancelled() {
+        let _cleanup = diagnostics.span(Phase::BrowserCleanup, None);
         ingress
             .external_browser
             .close(session)
@@ -232,12 +257,19 @@ async fn execute(
         Ok(())
     };
     if result.is_ok() && !stop.is_cancelled() && connections.reusable() {
-        if let Err(error) = connections.settle().await {
+        let settled = {
+            let _settlement = diagnostics.span(Phase::McpSettle, None);
+            connections.settle().await
+        };
+        if let Err(error) = settled {
+            let _cleanup = diagnostics.span(Phase::McpClose, None);
             connections.release().await?;
             return Err(error);
         }
+        let _cache = diagnostics.span(Phase::McpCache, None);
         ingress.agents.mcp.put(session, connections).await?;
     } else {
+        let _cleanup = diagnostics.span(Phase::McpClose, None);
         connections.close().await?;
     }
     browsers?;
@@ -251,6 +283,7 @@ async fn execute_with(
     stop: CancellationToken,
     connections: &mut mcp::Connections,
     hooks: Option<Arc<crate::hooks::Binding>>,
+    diagnostics: &Diagnostics,
 ) -> Result<Option<String>, Fault> {
     if stop.is_cancelled() {
         return Ok(None);
@@ -457,6 +490,7 @@ async fn execute_with(
     let user = adk_core::UserId::try_from(USER).map_err(|error| model::error(error.into()))?;
     let session_id = adk_core::SessionId::try_from(session.as_str())
         .map_err(|error| model::error(error.into()))?;
+    let mut runner_span = diagnostics.span(Phase::Runner, None);
     let mut events = runner
         .run(user, session_id, content)
         .await
@@ -479,6 +513,9 @@ async fn execute_with(
         };
         match next {
             Some(Ok(event)) => {
+                if diagnostics.enabled() && event.content().is_some() {
+                    runner_span.content();
+                }
                 // Runner has already committed non-partial events through Sessions.
                 if event.llm_response.error_code.is_some()
                     || event.llm_response.error_message.is_some()
@@ -525,6 +562,7 @@ async fn execute_with(
             }
             Some(Err(error)) => return Err(model::error(error)),
             None => {
+                drop(runner_span);
                 if !cancelled && !stop.is_cancelled() && !has_result {
                     return Err(Fault::new(
                         ErrorCode::Unavailable,
@@ -537,6 +575,7 @@ async fn execute_with(
                     && !stop.is_cancelled()
                     && let Some(source) = proposal
                 {
+                    let _review = diagnostics.span(Phase::PlanReview, None);
                     review::wait(ingress, &invocation, &stop, source).await?;
                 }
                 return Ok(output);

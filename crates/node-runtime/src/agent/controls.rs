@@ -298,6 +298,14 @@ impl Controls {
         self.changed.notify_waiters();
     }
 
+    pub(super) fn operations(&self, turn: TurnId) -> usize {
+        self.active
+            .lock()
+            .unwrap()
+            .get(&turn)
+            .map_or(0, |active| active.operations)
+    }
+
     pub async fn drain(&self, turn: TurnId) {
         loop {
             let notified = self.changed.notified();
@@ -327,6 +335,24 @@ impl Controls {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn counts_scoped_operations_without_changing_ownership() {
+        let controls = Controls::default();
+        let turn = TurnId::new();
+        assert_eq!(controls.operations(turn), 0);
+        controls.register(turn, SessionId::new(), CancellationToken::new());
+        assert!(controls.begin_operation(turn).is_some());
+        assert!(controls.begin_operation(turn).is_some());
+        assert_eq!(controls.operations(turn), 2);
+        assert_eq!(controls.operations(TurnId::new()), 0);
+        controls.finish_operation(turn);
+        assert_eq!(controls.operations(turn), 1);
+        controls.finish_operation(turn);
+        assert_eq!(controls.operations(turn), 0);
+        controls.finish(turn);
+        assert_eq!(controls.operations(turn), 0);
+    }
 
     #[test]
     fn interrupts_only_model_phase() {
