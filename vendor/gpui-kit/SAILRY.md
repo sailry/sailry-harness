@@ -61,3 +61,19 @@ workflow is added. These reusable catalog bindings are upstream candidates.
 Dropping a holder cancels publication and queued work. A synchronous parse already
 running on an executor may finish; it cannot publish into a released holder or
 replace a newer generation.
+
+## Isolated script browser activation
+
+Upstream script views allow system-browser activation through `cx.open_url`,
+Base Link, TextView's default link handler and Component Shell Link independently
+of resource grants. Inline package cards need named, native browser actions instead.
+The focused Shell policy patch adds a frozen opt-out, preserving ordinary views'
+default behavior. Described nodes capture this authority while executing their
+own call scope; snapshots, deferred factories and transient arenas retain it
+without consulting the ambient default during materialization. Registered
+components receive the captured choice through MaterializeRequest. This reusable
+framework extension does not implement application browser targets or workflows.
+
+The original source revision, Apache-2.0 licenses and upstream notices above are
+unchanged. Source and fixture coverage alone do not establish OS-browser or
+embedded-browser platform acceptance.

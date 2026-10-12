@@ -101,7 +101,10 @@ impl ComponentMaterializer for LinkMaterializer {
         let mut component = Link::new(id.0.clone()).disabled(request.disabled());
         for operation in operations {
             match operation {
-                LinkOp::Href(value) => component = component.href(value),
+                LinkOp::Href(value) if request.allows_external_urls() => {
+                    component = component.href(value);
+                }
+                LinkOp::Href(_) => {}
             }
         }
         if let Some(callback) = request.on_click() {

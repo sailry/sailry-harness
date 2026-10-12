@@ -832,11 +832,17 @@ impl SpecOp {
 #[derive(Clone, Debug, Default)]
 pub struct SpecNode {
     component: Option<Component>,
+    external_urls: bool,
     ops: SmallVec<[SpecOp; 8]>,
     children: SmallVec<[SpecId; 4]>,
 }
 
 impl SpecNode {
+    /// Browser authority captured while this node was described, not replayed.
+    pub fn allows_external_urls(&self) -> bool {
+        self.external_urls
+    }
+
     /// What constructed this node. `None` only for a node that was never
     /// pushed, which a reader should treat as absent.
     pub fn component(&self) -> Option<&Component> {
@@ -1087,6 +1093,7 @@ impl SpecArena {
         self.structure = mix(self.structure, component.shape());
         self.nodes.push(SpecNode {
             component: Some(component),
+            external_urls: crate::scope::policy().allows_external_urls(),
             ..Default::default()
         });
         self.parented.push(false);
@@ -1521,6 +1528,17 @@ impl std::error::Error for SpecError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_choice_survives_default_changes() {
+        crate::policy::set_default(crate::policy::Policy::new().with_external_urls(false));
+        let mut arena = SpecArena::new();
+        let card = arena.push(Component::Link("card".into()));
+        crate::policy::set_default(crate::policy::Policy::new());
+        let normal = arena.push(Component::Link("normal".into()));
+        assert!(!arena.node(card).unwrap().allows_external_urls());
+        assert!(arena.node(normal).unwrap().allows_external_urls());
+    }
 
     #[test]
     fn attaching_an_element_twice_is_an_error() {

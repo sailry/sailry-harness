@@ -663,6 +663,7 @@ impl fmt::Debug for MethodDescriptor {
 }
 
 pub struct MaterializeRequest<'a> {
+    external_urls: bool,
     component_name: &'static str,
     payload: &'a ComponentPayload,
     operations: &'a [crate::spec::SpecOp],
@@ -703,6 +704,7 @@ pub(crate) type Slots = SmallVec<[(&'static str, AnyElement); 2]>;
 pub(crate) type SlotSpecs = SmallVec<[(&'static str, u32); 2]>;
 
 pub(crate) struct MaterializeRequestInit<'a> {
+    pub external_urls: bool,
     pub component_name: &'static str,
     pub element_id: gpui::ElementId,
     pub payload: &'a ComponentPayload,
@@ -728,6 +730,7 @@ pub(crate) struct MaterializeRequestInit<'a> {
 impl<'a> MaterializeRequest<'a> {
     pub(crate) fn new(init: MaterializeRequestInit<'a>) -> Self {
         Self {
+            external_urls: init.external_urls,
             component_name: init.component_name,
             payload: init.payload,
             operations: init.operations,
@@ -761,6 +764,11 @@ impl<'a> MaterializeRequest<'a> {
             anyhow::anyhow!("component app effects require a root application snapshot")
         })?;
         Ok(ComponentAppEffects::new(self.runtime, application, view))
+    }
+
+    /// The described node's frozen browser authority, including deferred replay.
+    pub fn allows_external_urls(&self) -> bool {
+        self.external_urls
     }
 
     /// The element id of the spec node being materialized: the script's `key`
@@ -2455,6 +2463,7 @@ mod tests {
             anyhow::bail!("no element argument expected")
         };
         let mut request = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "Slotted",
             payload: &payload,
@@ -2495,6 +2504,7 @@ mod tests {
             anyhow::bail!("no element argument expected")
         };
         let mut request = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "Slotted",
             payload: &payload,
@@ -2539,6 +2549,7 @@ mod tests {
             Ok(div().into_any_element())
         };
         let mut request = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "Parent",
             payload: &payload,
@@ -2577,6 +2588,7 @@ mod tests {
             Ok(div().into_any_element())
         };
         let mut request = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "RepeatedParent",
             payload: &payload,
@@ -2617,6 +2629,7 @@ mod tests {
         let mut ordinary_resolver =
             |_, _: Option<&mut Window>, _: Option<&mut App>| Ok(div().into_any_element());
         let mut ordinary = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "Ordinary",
             payload: &payload,
@@ -2644,6 +2657,7 @@ mod tests {
         let mut typed_resolver =
             |_, _: Option<&mut Window>, _: Option<&mut App>| Ok(div().into_any_element());
         let mut typed = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "Typed",
             payload: &payload,
@@ -2687,6 +2701,7 @@ mod tests {
         let mut resolve_element =
             |_, _: Option<&mut Window>, _: Option<&mut App>| anyhow::bail!("child adapter failed");
         let request = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "Parent",
             payload: &payload,
@@ -2725,6 +2740,7 @@ mod tests {
         let mut resolver_c =
             |_, _: Option<&mut Window>, _: Option<&mut App>| Ok(div().into_any_element());
         let mut request_a = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "A",
             payload: &payload,
@@ -2743,6 +2759,7 @@ mod tests {
             application_owner: None,
         });
         let mut request_b = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "B",
             payload: &payload,
@@ -2761,6 +2778,7 @@ mod tests {
             application_owner: None,
         });
         let mut request_c = MaterializeRequest::new(MaterializeRequestInit {
+            external_urls: true,
             element_id: gpui::ElementId::Name("test".into()),
             component_name: "C",
             payload: &payload,

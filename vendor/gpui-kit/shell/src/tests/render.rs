@@ -5,6 +5,188 @@
 //! plain data. They run against whichever engine is enabled, which is what
 //! keeps the fallback engine honest.
 
+mod browser_authority {
+    use super::*;
+    use crate::{
+        ComponentDescriptor, ComponentElementFactory, ComponentMaterializer, ComponentPayload,
+        ComponentRegistry, ConstructorDescriptor, MaterializeRequest,
+        snapshot::RenderSnapshot,
+        spec::{Component, RegisteredComponentSpec, SpecArena, SpecOp},
+    };
+    use std::sync::{Arc, Mutex};
+
+    thread_local! {
+        static FACTORIES: RefCell<Vec<ComponentElementFactory>> = const { RefCell::new(Vec::new()) };
+    }
+
+    struct Probe(Arc<Mutex<Vec<bool>>>);
+
+    impl ComponentMaterializer for Probe {
+        fn materialize(
+            &self,
+            mut request: MaterializeRequest<'_>,
+        ) -> anyhow::Result<gpui::AnyElement> {
+            self.0.lock().unwrap().push(request.allows_external_urls());
+            if let Some(factory) = request.take_slot_factory("content") {
+                FACTORIES.with(|held| held.borrow_mut().push(factory));
+            }
+            request.finish(gpui::div())
+        }
+    }
+
+    #[gpui::test]
+    fn replay_retains_each_nodes_choice(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let mut registry = ComponentRegistry::new(
+            crate::COMPONENT_REGISTRY_API_VERSION,
+            crate::DEFAULT_COMPONENT_MODULE,
+        )
+        .unwrap();
+        let id = registry
+            .register(
+                ComponentDescriptor::new("Probe", Arc::new(Probe(seen.clone()))).with_constructors(
+                    vec![ConstructorDescriptor::new("Probe", Vec::new(), |_| {
+                        Ok(ComponentPayload::new(()))
+                    })],
+                ),
+            )
+            .unwrap();
+        let runtime =
+            ShellRuntime::new_isolated_with_components(registry.freeze().unwrap()).unwrap();
+        let window = cx.add_window(|_, _| Empty);
+        let mut context = VisualTestContext::from_window(*window.deref(), cx);
+        for allowed in [true, false] {
+            let snapshot = context.update(|window, cx| {
+                let (guard, _) = crate::scope::enter_with_runtime(
+                    &runtime,
+                    window,
+                    cx,
+                    crate::scope::ScopePhase::Task,
+                    None,
+                    Rc::new(Policy::new().with_external_urls(allowed)),
+                );
+                let mut arena = SpecArena::new();
+                let content = arena.push(Component::Registered(RegisteredComponentSpec::new(
+                    id,
+                    "Probe",
+                    ComponentPayload::new(()),
+                )));
+                let root = arena.push(Component::Registered(RegisteredComponentSpec::new(
+                    id,
+                    "Probe",
+                    ComponentPayload::new(()),
+                )));
+                arena
+                    .push_op(root, SpecOp::Slot("content", content))
+                    .unwrap();
+                drop(guard);
+                RenderSnapshot::new(&runtime, 0, root, arena, None, None)
+            });
+            crate::policy::set_default(Policy::new().with_external_urls(!allowed));
+            let retained = snapshot.clone();
+            drop(snapshot);
+            context.update(|window, cx| {
+                drop(crate::materialize::materialize(
+                    &runtime, &retained, window, cx,
+                ));
+            });
+            drop(retained);
+        }
+        assert_eq!(*seen.lock().unwrap(), vec![true, false]);
+        crate::policy::set_default(Policy::new());
+        let factories = FACTORIES.with(|held| std::mem::take(&mut *held.borrow_mut()));
+        context.update(|window, cx| {
+            for factory in factories {
+                drop(factory.build(window, cx).expect("deferred content"));
+            }
+        });
+        assert_eq!(*seen.lock().unwrap(), vec![true, false, true, false]);
+    }
+
+    #[gpui::test]
+    fn tasks_resume_under_their_own_choice(cx: &mut TestAppContext) {
+        cx.update(crate::init);
+        let runtime = ShellRuntime::new_isolated().unwrap();
+        let view_type = runtime
+            .load_source(
+                "browser-authority.js",
+                r#"
+import { div, View } from "gpui-kit";
+import { Link } from "gpui-base";
+export default class Probe extends View {
+  init(_props, cx) {
+    this.result = "waiting";
+    cx.spawn(async cx => {
+      await cx.sleep(1);
+      try { cx.open_url("not-a-url"); }
+      catch (error) { this.result = error.message; }
+      cx.notify();
+    });
+  }
+  render() {
+    return div().child(this.result).child(Link.new("target").href("https://example.com"));
+  }
+}
+"#,
+            )
+            .unwrap();
+        let window = cx.add_window(|_, _| Empty);
+        let mut context = VisualTestContext::from_window(*window.deref(), cx);
+        let mut views = Vec::new();
+        for allowed in [true, false] {
+            views.push(context.update(|window, cx| {
+                runtime
+                    .instantiate_view_with_policy(
+                        &view_type,
+                        Rc::new(Policy::new().with_external_urls(allowed)),
+                        window,
+                        cx,
+                    )
+                    .unwrap()
+            }));
+        }
+        crate::policy::set_default(Policy::new());
+        context
+            .executor()
+            .advance_clock(std::time::Duration::from_millis(5));
+        context.run_until_parked();
+        for (view, allowed) in views.iter().zip([true, false]) {
+            draw(&mut context, view);
+            let snapshot = context.update(|_, cx| view.read(cx).snapshot().unwrap().clone());
+            let expected = if allowed {
+                "expects an absolute HTTP(S) URL"
+            } else {
+                "external URL activation is unavailable"
+            };
+            assert!(
+                snapshot.debug_tree().contains(expected),
+                "{}",
+                snapshot.debug_tree()
+            );
+            for id in 0..snapshot.arena().len() {
+                assert_eq!(
+                    snapshot
+                        .arena()
+                        .node(id as u32)
+                        .unwrap()
+                        .allows_external_urls(),
+                    allowed
+                );
+            }
+        }
+        let card = views.pop().unwrap();
+        drop(views);
+        crate::policy::set_default(Policy::new());
+        draw(&mut context, &card);
+        assert!(
+            context
+                .update(|_, cx| card.read(cx).snapshot().unwrap().debug_tree())
+                .contains("external URL activation is unavailable")
+        );
+    }
+}
+
 use crate::{
     HostModule, HostValue, ScriptView, ShellRuntime, capability::Capabilities, policy::Policy,
 };

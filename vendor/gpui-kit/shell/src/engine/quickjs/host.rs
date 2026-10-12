@@ -101,16 +101,17 @@ pub fn install(_ctx: &Ctx<'_>, module: &Object<'_>) -> JsResult<()> {
 
 /// Hands a URL to whatever the system opens URLs with.
 ///
-/// This is `Link`'s `href` without the element, and it carries exactly the
-/// authority that already does: the same absolute-HTTP(S)-with-a-host guard,
-/// and no grant of its own, because a script that can describe a `Link` can
-/// already open any address it likes. Adding a capability here would gate the
-/// imperative half of a pair whose declarative half is ungated, which reads as
-/// protection without being any.
+/// This shares the view's frozen browser authority with declarative links.
 ///
 /// The rule itself is [`is_openable_url`], shared with `href` and the
 /// `TextView` default link handler.
 fn open_url(ctx: Ctx<'_>, url: String) -> JsResult<()> {
+    if !scope::policy().allows_external_urls() {
+        return Err(Exception::throw_type(
+            &ctx,
+            "external URL activation is unavailable in this view",
+        ));
+    }
     if !is_openable_url(&url) {
         return Err(Exception::throw_type(
             &ctx,
@@ -1308,9 +1309,7 @@ mod tests {
 
     #[test]
     fn open_url_takes_no_capability_and_fails_cleanly_outside_a_host_call() {
-        // No grant is installed here on purpose: a script that can describe a
-        // `Link` can already open any address, so gating this half alone would
-        // read as protection without being any.
+        // Resource grants do not change normal views' browser activation.
         crate::capability::install(Capabilities::new());
 
         let message = with_host(|ctx| error_of(ctx, "__open_url('https://example.com/x')"));
@@ -1330,6 +1329,15 @@ mod tests {
             ctx.eval::<(), _>("console.info('loaded', 3, { ok: true })")
                 .expect("logging is always available");
         });
+    }
+
+    #[test]
+    fn browser_denial_precedes_host_dispatch() {
+        crate::policy::set_default(Policy::new().with_external_urls(false));
+        let message = with_host(|ctx| error_of(ctx, "__open_url('https://example.com/x')"));
+        assert!(message.contains("external URL activation is unavailable"));
+        assert!(!message.contains("needs a live host call"));
+        crate::policy::set_default(Policy::new());
     }
 
     #[test]

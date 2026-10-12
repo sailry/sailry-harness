@@ -70,6 +70,7 @@ pub struct Policy {
     /// question asked of persistence.
     application: Rc<str>,
     capabilities: Capabilities,
+    external_urls: bool,
     /// A live handle, not a value — and deliberately unlike `capabilities`.
     ///
     /// A grant is frozen with the code it was given to: that is the whole point
@@ -108,11 +109,12 @@ impl Default for Policy {
 }
 
 impl Policy {
-    /// A policy that permits nothing. Every grant is added deliberately.
+    /// A policy with no resource grants and the standard URL activation behavior.
     pub fn new() -> Self {
         Self {
             application: Rc::from(DEFAULT_APPLICATION),
             capabilities: Capabilities::default(),
+            external_urls: true,
             modules: Rc::new(RefCell::new(Rc::new(HostModules::default()))),
             store: Rc::new(RefCell::new(None)),
             session: Rc::new(RefCell::new(Some(Storage::in_memory()))),
@@ -143,6 +145,17 @@ impl Policy {
     pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
         self.capabilities = capabilities;
         self
+    }
+
+    /// Controls imperative and declarative system-browser activation.
+    /// The choice is frozen with the view, independently of resource grants.
+    pub fn with_external_urls(mut self, allowed: bool) -> Self {
+        self.external_urls = allowed;
+        self
+    }
+
+    pub fn allows_external_urls(&self) -> bool {
+        self.external_urls
     }
 
     /// Names the `localStorage` file and reads it.
@@ -251,8 +264,8 @@ impl Policy {
     /// Used when the default is edited while a view already holds it: the view
     /// keeps what it was given, and the edit lands on a new default handle.
     ///
-    /// The split is the rule this whole module exists for. **The capability
-    /// grant is the one thing a view freezes** — authority belongs to the code,
+    /// The split is the rule this whole module exists for. Resource grants and
+    /// browser activation are frozen with a view — authority belongs to the code,
     /// and a view whose permissions could be changed after it was built is
     /// exactly the hole the policy replaced. Everything else here is the host's
     /// live configuration of one application: revoking a module has to reach the
@@ -264,6 +277,7 @@ impl Policy {
             // the layout the user had.
             application: self.application.clone(),
             capabilities: self.capabilities.clone(),
+            external_urls: self.external_urls,
             modules: self.modules.clone(),
             store: self.store.clone(),
             session: self.session.clone(),
@@ -279,6 +293,20 @@ mod tests {
 
     fn reading(root: &str) -> Policy {
         Policy::new().with_capabilities(Capabilities::new().read_roots([PathBuf::from(root)]))
+    }
+
+    #[test]
+    fn browser_choice_is_frozen_in_copies() {
+        assert!(Policy::new().allows_external_urls());
+        set_default(Policy::new().with_external_urls(false));
+        let held = default();
+        update_default(|policy| policy.with_capabilities(Capabilities::new()));
+        assert!(!default().allows_external_urls());
+        update_default(|policy| policy.with_external_urls(true));
+        assert!(default().allows_external_urls());
+        assert!(!held.allows_external_urls());
+        assert!(!held.duplicate().allows_external_urls());
+        set_default(Policy::new());
     }
 
     /// Two plugins loaded at once hold two grants. This is the whole point.

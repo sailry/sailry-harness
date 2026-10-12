@@ -944,6 +944,7 @@ fn materialize_registered_component(
     };
     let mut request =
         crate::MaterializeRequest::new(crate::component_registry::MaterializeRequestInit {
+            external_urls: node.allows_external_urls(),
             component_name: component.name(),
             element_id: identity,
             payload: component.payload(),
@@ -1082,7 +1083,8 @@ fn materialize_component(
                     route.emit(crate::HostValue::from(url.to_string()), window, cx);
                 });
             } else {
-                view = view.on_link_click(|url, event, _, cx| {
+                let external_urls = node.allows_external_urls();
+                view = view.on_link_click(move |url, event, _, cx| {
                     // Preserve Base's activation behavior, but apply Shell's URL rules.
                     let activate = match event {
                         gpui::ClickEvent::Mouse(click) => {
@@ -1091,7 +1093,7 @@ fn materialize_component(
                         gpui::ClickEvent::Keyboard(_) => true,
                         gpui::ClickEvent::Touch(click) => !click.long_press,
                     };
-                    if activate && is_openable_url(url) {
+                    if external_urls && activate && is_openable_url(url) {
                         cx.open_url(url);
                     }
                 });
@@ -1177,9 +1179,12 @@ fn materialize_component(
                 link = link.tab_stop(stop);
             }
             if let Some(href) = behavior.href.clone() {
-                link = link
-                    .href(href)
-                    .open_with(|href, _, _, cx| cx.open_url(href));
+                let external_urls = node.allows_external_urls();
+                link = link.href(href).open_with(move |href, _, _, cx| {
+                    if external_urls {
+                        cx.open_url(href);
+                    }
+                });
             }
             if let Some(callback) = behavior.on_click {
                 let runtime = Rc::downgrade(runtime);
