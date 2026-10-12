@@ -5,7 +5,7 @@ export type Entry = { key: string; revision: string; value: Json; present: boole
 export type ConversationEntry = Entry & { restored: boolean };
 /** Turn initialization receives the admitted configuration, never live session defaults.
  * config is null unless the package declares conversation.read. */
-export type TurnInput = { project: string | null; tools: string[]; mode: "plan" | "code"; config: Json };
+export type TurnInput = { project: string | null; tools: string[]; mode: "plan" | "code"; config: Json; session_revision: string | null };
 export function context(): Json;
 /** Registered projects and worktrees only; requires projects.read and an unscoped context. */
 export function readProjectCatalog(): Promise<Json>;
@@ -17,6 +17,13 @@ export function prepareTransaction(operations: Json[]): string;
 export function completeRequest(id: string): Promise<Json>;
 export function forgetRequest(id: string): void;
 export function readSettings(): Promise<{ values: Record<string, Json>; ready: boolean }>;
+/** Safe execution-Node catalog, not session snapshots or provider configuration. */
+export type RoleProfile = {
+  id:string; revision:string; key:string; name:string; description:string; instructions:string;
+  read_only:boolean; appearance:Json; model:{provider:string;model:string;effort:Json}|null;
+  max_turns:number|null; skills:string[];
+};
+export function listRoles(): Promise<RoleProfile[]>;
 export type WebRequest = { url: string; offset?: number };
 export type WebPage = {
   url: string; status: number; content_type: string; content: string; title: string | null;

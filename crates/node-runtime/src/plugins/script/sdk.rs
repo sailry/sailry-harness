@@ -306,6 +306,13 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
 }
 
 fn output(value: Output) -> Json {
+    if let Output::Roles(roles) = value {
+        return json!({"kind":"roles","data":roles.into_iter().map(|role| {
+            let mut value = json!(role);
+            value["revision"] = json!(role.revision.to_string());
+            value
+        }).collect::<Vec<_>>()});
+    }
     plugin::transaction::sdk::output(value)
 }
 
@@ -313,6 +320,7 @@ fn allowed(command: &Command) -> bool {
     matches!(
         command,
         Command::PluginTransaction { .. }
+            | Command::ListRoles
             | Command::ReadArtifact { .. }
             | Command::ListArtifacts { .. }
             | Command::ListArtifactRevisions { .. }

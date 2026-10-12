@@ -337,6 +337,7 @@ pub(super) fn execute(
             role,
             expected_revision,
         } => {
+            super::roles::approvals::check(db, request)?;
             let role = super::roles::put(db, role, *expected_revision)?;
             Ok((Output::Role(role.clone()), Some(Event::RoleChanged(role))))
         }
@@ -344,6 +345,7 @@ pub(super) fn execute(
             role,
             expected_revision,
         } => {
+            super::roles::approvals::check(db, request)?;
             super::roles::remove(db, *role, *expected_revision)?;
             Ok((
                 Output::Roles(super::roles::list(db)?),
@@ -906,6 +908,7 @@ pub(super) fn execute(
             expected_revision,
             roles,
         } => {
+            super::roles::approvals::check(db, request)?;
             let mut session = session(db, *id)?;
             super::sessions::writable(&session)?;
             check_revision(session.revision, *expected_revision)?;

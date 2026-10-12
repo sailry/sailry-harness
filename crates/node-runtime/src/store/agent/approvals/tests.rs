@@ -7,6 +7,7 @@ mod code;
 mod management;
 mod permissions;
 mod planning;
+mod roles;
 mod rules;
 
 struct Fixture {
@@ -33,6 +34,14 @@ impl Fixture {
     }
 
     fn with_catalog(permission: Permission, mode: sailry_protocol::WorkMode, code: bool) -> Self {
+        Self::with_package(permission, mode, code.then_some("code"))
+    }
+
+    fn with_package(
+        permission: Permission,
+        mode: sailry_protocol::WorkMode,
+        package: Option<&str>,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let path = directory
             .path()
@@ -41,8 +50,8 @@ impl Fixture {
             .join("node.sqlite3");
         let mut database = Database::open(&path, NodeId([31; 32]), None).unwrap();
         super::super::tests::fixture::files(&database, directory.path());
-        if code {
-            super::super::tests::fixture::package(&database, directory.path(), "code");
+        if let Some(package) = package {
+            super::super::tests::fixture::package(&database, directory.path(), package);
         }
         let (events, _) = broadcast::channel(64);
         let Output::Project(project) = command(

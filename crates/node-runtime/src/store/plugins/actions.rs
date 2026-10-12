@@ -139,18 +139,25 @@ impl Database {
                     (Some(Action::ReadUsage), None, None)
                 }
                 Command::ListRoles
-                    if context.turn.is_none()
-                        && context.surface
-                            == sailry_protocol::plugin::desktop::Surface::Settings =>
+                    if context.turn.is_some()
+                        || (context.turn.is_none()
+                            && context.surface
+                                == sailry_protocol::plugin::desktop::Surface::Settings) =>
                 {
                     (Some(Action::ReadRoles), None, None)
                 }
                 Command::PutRole { .. } | Command::RemoveRole { .. }
-                    if context.turn.is_none()
-                        && context.surface
-                            == sailry_protocol::plugin::desktop::Surface::Settings =>
+                    if context.turn.is_some()
+                        || (context.turn.is_none()
+                            && context.surface
+                                == sailry_protocol::plugin::desktop::Surface::Settings) =>
                 {
+                    super::super::roles::approvals::check(&self.connection, request)?;
                     (Some(Action::WriteRoles), None, None)
+                }
+                Command::SetSessionRoles { session, .. } if context.turn.is_some() => {
+                    super::super::roles::approvals::check(&self.connection, request)?;
+                    (Some(Action::WriteRoles), context.worktree, Some(*session))
                 }
                 Command::ReadPluginSecret { .. }
                 | Command::ReadPluginAuthorization { .. }

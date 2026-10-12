@@ -87,6 +87,14 @@ pub struct Flow {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub enum Operation {
+    #[serde(rename = "roles.list")]
+    ListRoles,
+    #[serde(rename = "roles.save")]
+    SaveRole,
+    #[serde(rename = "roles.remove")]
+    RemoveRole,
+    #[serde(rename = "roles.apply")]
+    ApplyRoles,
     #[serde(rename = "artifacts.read")]
     ReadArtifact,
     #[serde(rename = "artifacts.list")]
@@ -253,6 +261,8 @@ impl Operation {
     pub fn action(self) -> Option<crate::plugin::Action> {
         use crate::plugin::Action;
         match self {
+            Self::ListRoles => Some(Action::ReadRoles),
+            Self::SaveRole | Self::RemoveRole | Self::ApplyRoles => Some(Action::WriteRoles),
             Self::ReadArtifact | Self::ListArtifacts | Self::ListArtifactRevisions => {
                 Some(Action::ReadArtifacts)
             }
@@ -336,6 +346,9 @@ impl Operation {
         !matches!(
             self,
             Self::InstallCodeServer
+                | Self::SaveRole
+                | Self::RemoveRole
+                | Self::ApplyRoles
                 | Self::StartCodeServer
                 | Self::StopCodeServer
                 | Self::WriteArtifact

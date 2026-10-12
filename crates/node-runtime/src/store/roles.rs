@@ -2,6 +2,7 @@
 use super::database::{encode, storage_error};
 use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{ErrorCode, Fault, RoleId, role};
+pub(super) mod approvals;
 
 pub(super) fn initialize(db: &Connection) -> Result<(), Fault> {
     put(

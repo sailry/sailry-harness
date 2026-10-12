@@ -14,6 +14,7 @@ mod files;
 mod knowledge;
 mod progress;
 mod repository;
+mod roles;
 mod schema;
 pub(super) use crate::plugins::tools::alias;
 
@@ -373,6 +374,9 @@ impl HostOperation {
                     "plugin tool response is unavailable",
                 )
             })??;
+            if roles::handles(self.operation) {
+                return roles::output(output);
+            }
             if self.operation == Operation::ListWorktrees {
                 let registered = self.ingress.agent_worktrees(self.turn).await?;
                 return repository::output(
@@ -456,7 +460,9 @@ impl HostOperation {
                     )
                     .await?;
             }
-            if !connections::management(self.operation) {
+            if !connections::management(self.operation)
+                && !(roles::handles(self.operation) && !self.is_read_only())
+            {
                 self.ingress
                     .check_plugin(self.caller, request.clone())
                     .await?;

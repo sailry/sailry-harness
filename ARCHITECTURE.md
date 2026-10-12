@@ -355,7 +355,12 @@ logout, account changes and token rotation invalidate cached connections. Public
 GitHub reads do not require a GitHub MCP credential.
 
 The delegation plugin manages role settings; Node owns and freezes the configured
-roster. Delegation selects a matching configured role. An omitted or null role
+roster. Its conversation tools edit the public Node catalog through the same
+revision-checked services as settings. Catalog edits do not change existing
+session rosters. Explicit application selects exact catalog revisions for one
+captured session and affects future admission only; running and queued turns and
+existing children retain their captures. Tool results never expose frozen
+provider configuration or credentials. Delegation selects a matching configured role. An omitted or null role
 uses the parent's effective model and assistant instructions; an unknown explicit
 role is rejected.
 

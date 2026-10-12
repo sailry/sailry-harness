@@ -80,7 +80,10 @@ pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &
                 .contains(&plugin::Action::ReadConversation)
         })
         .map(|_| &invocation.turn.config);
-    json!({"roles":roles,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}})
+    let session_revision = operations
+        .contains(&Operation::ApplyRoles)
+        .then(|| invocation.turn.revision.to_string());
+    json!({"roles":roles,"session_revision":session_revision,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}})
 }
 
 fn role_summary(profile: &sailry_protocol::role::Profile) -> Value {

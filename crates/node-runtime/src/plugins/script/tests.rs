@@ -6,6 +6,7 @@ mod conversation;
 mod knowledge;
 mod models;
 mod planning;
+mod roles;
 mod web;
 
 fn context() -> plugin::Context {

@@ -15,6 +15,12 @@ pub(super) fn description(operation: Operation) -> &'static str {
         return knowledge::description(operation);
     }
     match operation {
+        Operation::ListRoles
+        | Operation::SaveRole
+        | Operation::RemoveRole
+        | Operation::ApplyRoles => {
+            "Manage public role definitions and explicitly apply selected revisions to this conversation"
+        }
         Operation::WriteArtifact
         | Operation::ReadArtifact
         | Operation::ListArtifacts
@@ -116,6 +122,9 @@ pub(super) fn description(operation: Operation) -> &'static str {
 }
 
 pub(super) fn parameters(operation: Operation) -> Value {
+    if roles::handles(operation) {
+        return roles::parameters(operation);
+    }
     if artifacts::handles(operation) {
         return artifacts::parameters(operation);
     }
@@ -154,6 +163,10 @@ pub(super) fn parameters(operation: Operation) -> Value {
     let key = json!({"type":"string", "minLength":1, "maxLength":plugin::storage::MAX_KEY_BYTES});
     let revision = json!({"type":"integer", "minimum":0});
     let (properties, required) = match operation {
+        Operation::ListRoles
+        | Operation::SaveRole
+        | Operation::RemoveRole
+        | Operation::ApplyRoles => unreachable!("role parameters handled above"),
         Operation::WriteArtifact
         | Operation::ReadArtifact
         | Operation::ListArtifacts
@@ -307,6 +320,9 @@ pub(super) fn command(
 ) -> Result<Command, Fault> {
     if artifacts::handles(operation) {
         return artifacts::command(operation, arguments, context);
+    }
+    if roles::handles(operation) {
+        return roles::command(operation, arguments, context);
     }
     if crate::code::management::handles(operation) {
         return crate::code::management::command(operation, arguments, context);
@@ -514,6 +530,10 @@ pub(super) fn command(
         _ => {}
     }
     let kind = match operation {
+        Operation::ListRoles
+        | Operation::SaveRole
+        | Operation::RemoveRole
+        | Operation::ApplyRoles => unreachable!("role command handled above"),
         Operation::KnowledgeQuery
         | Operation::KnowledgeRead
         | Operation::KnowledgeCollections

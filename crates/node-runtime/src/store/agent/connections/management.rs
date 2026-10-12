@@ -1,5 +1,6 @@
 //! Conversation connection edits contain public configuration and preserve stored credentials.
 use super::*;
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

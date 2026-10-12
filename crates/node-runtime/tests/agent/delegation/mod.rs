@@ -1,6 +1,7 @@
 use super::*;
 use serde_json::{Value, json};
 
+mod catalog;
 mod explore;
 mod research;
 

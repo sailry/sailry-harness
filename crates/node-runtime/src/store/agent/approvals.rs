@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 
 mod access;
 mod prefix;
+mod prepared;
+pub(in crate::store) use prepared::Prepared;
 pub(crate) mod results;
 mod rules;
 pub(crate) use rules::Binding;
@@ -442,12 +444,7 @@ pub(super) fn authorize(
             "UPDATE agent_approvals SET claimed=1,prepared=?2 WHERE id=?1",
             params![
                 approval.id.to_string(),
-                encode(
-                    &prepared
-                        .map(connections::Prepared::new)
-                        .transpose()?
-                        .flatten()
-                )?
+                encode(&prepared.map(Prepared::new).transpose()?.flatten())?
             ],
         )
         .map_err(storage_error)?;
@@ -524,7 +521,7 @@ fn put(db: &Connection, approval: &Approval) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(super) fn request(
+pub(in crate::store) fn request(
     db: &Connection,
     approval: &Approval,
 ) -> Result<ToolConfirmationRequest, Fault> {

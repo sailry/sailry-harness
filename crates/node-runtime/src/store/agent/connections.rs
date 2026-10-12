@@ -1,7 +1,7 @@
 //! Connection credentials stay behind the same Node workers used by desktop clients.
+use super::approvals::Prepared;
 use super::*;
 use sailry_protocol::connection::Resource;
-use serde::{Deserialize, Serialize};
 mod management;
 pub(crate) use management::{DatabaseInput, SshInput};
 
@@ -170,34 +170,6 @@ pub(super) fn command(
                 _ => Err(denied()),
             }
         }
-    }
-}
-
-/// The Node retains a digest, not another copy of credentials, for exact durable admission.
-#[derive(Serialize, Deserialize)]
-pub(in crate::store) struct Prepared {
-    command: Command,
-    digest: String,
-}
-impl Prepared {
-    pub(super) fn new(command: &Command) -> Result<Option<Self>, Fault> {
-        if !matches!(
-            command,
-            Command::SaveDatabase { .. } | Command::SaveSsh { .. }
-        ) {
-            return Ok(None);
-        }
-        let digest = blake3::hash(&encode(command)?).to_hex().to_string();
-        let mut command = command.clone();
-        match &mut command {
-            Command::SaveDatabase { password, .. } => *password = None,
-            Command::SaveSsh { credential, .. } => *credential = None,
-            _ => unreachable!(),
-        }
-        Ok(Some(Self { command, digest }))
-    }
-    pub(in crate::store) fn matches(&self, command: &Command) -> Result<bool, Fault> {
-        Ok(self.digest == blake3::hash(&encode(command)?).to_hex().as_str())
     }
 }
 

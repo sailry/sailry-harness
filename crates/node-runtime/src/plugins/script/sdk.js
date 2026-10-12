@@ -30,6 +30,8 @@ export async function completeRequest(id) { return call("complete", id); }
 export function forgetRequest(id) { call("forget", id); }
 async function read(kind, data) { return call("read", {kind, data}).data; }
 export async function readSettings() { return read("read_plugin_settings", {package: scope.package}); }
+/** Public catalog definitions only; fixed-model provider configuration remains private. */
+export async function listRoles() { return read("list_roles"); }
 export async function fetchWeb(input) { return read("fetch_web", input); }
 export async function getValue(key) { return read("read_plugin_value", {key}); }
 export async function getConversationValue(key) { return read("read_plugin_conversation_value", {key}); }

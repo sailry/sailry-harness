@@ -1,7 +1,7 @@
 //! Agent management consumes the exact prepared command or explicit host-key consent.
 use super::*;
 use crate::store::{
-    agent::{ApprovalBinding, connections::Prepared},
+    agent::{ApprovalBinding, approvals::Prepared},
     database::storage_error,
 };
 use rusqlite::{OptionalExtension, params};

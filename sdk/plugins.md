@@ -301,6 +301,20 @@ The runnable [tool-content MCP example](../plugins/examples/tool-content) return
 
 ## Boundaries
 
+Headless `listRoles()` requires `roles.read` and returns public catalog profiles,
+with decimal-string revisions and model identifiers, not session provider
+snapshots or credentials. Package-owned handlers prepare `roles.save`,
+`roles.remove` and `roles.apply` with `roles.write`; direct callback writes are
+not exposed. Mutations consume the original canonical tool approval and its exact
+prepared command through durable Node admission. Plan turns cannot mutate roles.
+`roles.apply` accepts a complete bounded set of distinct `{id, revision}`
+references and `expected_revision`, all revisions as decimal strings. Its session
+comes only from the captured operation context. The turn initializer exposes
+`session_revision` only when this operation is selected, without conversation
+configuration. Application returns only the session ID, new revision and selected
+references; existing sent turns and children remain immutable. Catalog changes
+alone affect new sessions, not an existing roster.
+
 Plugin commands retain the existing declaration, exact installed-package, Node, worktree and session checks. File/Git/conversation operations use the existing scoped protocol through `prepareRequest`; HTTP uses the declared Node service; the SDK grants no raw process or OS access. UI and game rules stay in plugins. Persistence, credentials, model execution and durable receipts stay in Rust.
 
 The current development schema remains v1. Startup fills missing schema objects and storage fields with their defaults, validates the update on an isolated snapshot, saves a private backup and applies it transactionally. Invalid updates preserve the existing profile; startup never resets or deletes user data.
