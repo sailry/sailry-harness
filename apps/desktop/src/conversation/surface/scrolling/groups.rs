@@ -249,7 +249,7 @@ fn preserves_blank_lines_without_footer(cx: &mut TestAppContext) {
                 lines.iter().filter(|line| line.label() == Some("")).count(),
                 rows - 1
             );
-            window.within(("new", 0usize)).click(("line", rows - 1), cx);
+            window.click(("line", rows - 1), cx);
             window.press("secondary-a", cx);
             window.press("secondary-c", cx);
             assert_eq!(
