@@ -1,8 +1,9 @@
 //! Bounded headless execution using the same QuickJS binding as GPUI Shell.
 //! No GPUI, filesystem loader, process, fetch, or Node.js globals are installed.
 use rquickjs::{
-    Context, Function, Module, Runtime, Value,
+    Context, Ctx, Function, Module, Runtime, Value,
     loader::{BuiltinLoader, BuiltinResolver},
+    prelude::List,
 };
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, plugin};
@@ -169,28 +170,48 @@ fn evaluate_with(
     resolver.add_module(bundle.entry.clone());
     runtime.set_loader(resolver, loader);
     let vm = Context::full(&runtime).map_err(engine)?;
-    let result = vm.with(|ctx| -> rquickjs::Result<String> {
-        sdk::install(
-            &ctx,
-            target,
-            context,
-            stop.clone(),
-            deadline,
-            dispatch,
-            execution,
-        )?;
-        let (module, ready) = Module::declare(ctx.clone(), bundle.entry, source)?.eval()?;
-        ready.finish::<()>()?;
-        let function: Function = module.get(handler)?;
-        let input = ctx.json_parse(input.to_string())?;
-        let value: Value = function.call((input,))?;
-        let value = match value.as_promise() {
-            Some(promise) => promise.finish::<Value>()?,
-            None => value,
-        };
-        ctx.json_stringify(value)?
-            .ok_or(rquickjs::Error::Unknown)?
-            .to_string()
+    let result = vm.with(|ctx| -> Result<String, Fault> {
+        // Capture intrinsics before package code can replace them. Only own string
+        // data properties of native Errors are inspected; accessors never run.
+        let inspect: Function = ctx
+            .eval(
+                r#"(() => {
+            const descriptor = Object.getOwnPropertyDescriptor;
+            const own = Object.hasOwn;
+            const field = (error, key, limit) => {
+                const property = descriptor(error, key);
+                return property && own(property, 'value')
+                    && typeof property.value === 'string' && property.value.length <= limit
+                    ? property.value : null;
+            };
+            return error => [field(error, 'message', 1024), field(error, 'code', 32)];
+        })()"#,
+            )
+            .map_err(engine)?;
+        let result = (|| -> rquickjs::Result<String> {
+            sdk::install(
+                &ctx,
+                target,
+                context,
+                stop.clone(),
+                deadline,
+                dispatch,
+                execution,
+            )?;
+            let (module, ready) = Module::declare(ctx.clone(), bundle.entry, source)?.eval()?;
+            ready.finish::<()>()?;
+            let function: Function = module.get(handler)?;
+            let input = ctx.json_parse(input.to_string())?;
+            let value: Value = function.call((input,))?;
+            let value = match value.as_promise() {
+                Some(promise) => promise.finish::<Value>()?,
+                None => value,
+            };
+            ctx.json_stringify(value)?
+                .ok_or(rquickjs::Error::Unknown)?
+                .to_string()
+        })();
+        result.map_err(|error| exception(&ctx, &inspect, error))
     });
     if stop.is_cancelled() {
         return Err(Fault::new(
@@ -204,7 +225,7 @@ fn evaluate_with(
             "plugin callback deadline exceeded",
         ));
     }
-    let text = result.map_err(engine)?;
+    let text = result?;
     if text.len() > plugin::host::MAX_DATA_BYTES {
         return Err(sailry_protocol::Fault::invalid(
             "plugin callback result exceeds limit",
@@ -217,4 +238,28 @@ fn evaluate_with(
 fn engine(error: rquickjs::Error) -> Fault {
     // Never stringify a thrown package object: getters may run unbounded user code.
     Fault::invalid(format!("plugin JavaScript execution failed: {error}"))
+}
+
+fn exception<'js>(ctx: &Ctx<'js>, inspect: &Function<'js>, error: rquickjs::Error) -> Fault {
+    if !matches!(error, rquickjs::Error::Exception) {
+        return engine(error);
+    }
+    let thrown = ctx.catch();
+    if !thrown.is_error() {
+        return engine(error);
+    }
+    let fields: Result<List<(Option<String>, Option<String>)>, _> = inspect.call((thrown,));
+    let Ok(List((Some(message), code))) = fields else {
+        return engine(error);
+    };
+    if message.is_empty() || message.len() > 1024 {
+        return engine(error);
+    }
+    let code = code
+        .and_then(|code| serde_json::from_value(serde_json::Value::String(code)).ok())
+        .unwrap_or(ErrorCode::InvalidRequest);
+    Fault::new(
+        code,
+        format!("plugin JavaScript execution failed: {message}"),
+    )
 }

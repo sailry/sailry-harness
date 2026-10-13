@@ -4,6 +4,7 @@ use serde_json::json;
 use std::sync::{Arc, Mutex};
 mod cards;
 mod conversation;
+mod errors;
 mod knowledge;
 mod models;
 mod planning;

@@ -1,7 +1,7 @@
 //! Package tools join one execution catalog and lifecycle.
 use super::catalog::Registration as ToolRegistration;
 use super::*;
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::atomic::AtomicBool};
 mod assistants;
 mod computer;
 mod model_tools;
@@ -13,6 +13,7 @@ pub(super) struct Contribution {
     pub tools: Vec<ToolRegistration>,
     pub instruction: String,
     pub callbacks: Vec<(i16, adk_core::BeforeModelCallback)>,
+    pub completion: Arc<AtomicBool>,
 }
 
 pub(super) async fn bind(
@@ -93,6 +94,7 @@ pub(super) async fn bind(
         }
         bound.tools.extend(native);
         let scripts = scripts::bind(ingress, tasks, invocation, stop).await?;
+        bound.completion = scripts.completion;
         bound.tools.extend(scripts.tools);
         bound.callbacks.extend(scripts.callbacks);
         bound.instruction.push_str(&scripts.instruction);

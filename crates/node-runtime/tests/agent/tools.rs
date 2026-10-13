@@ -173,7 +173,17 @@ async fn reads_bound_worktree() {
         let packages: &[(&str, &[&str])] = &[
             ("reminders", &["reminders"]),
             ("scheduled-tasks", &["scheduled_tasks"]),
-            ("goals", &["create_goal", "get_goal", "update_goal"]),
+            (
+                "goals",
+                &[
+                    "create_goal",
+                    "get_goal",
+                    "update_goal",
+                    "resume_goal",
+                    "pause_goal",
+                    "clear_goal",
+                ],
+            ),
             (
                 "commands",
                 &[
@@ -209,11 +219,45 @@ async fn reads_bound_worktree() {
                     "read_office",
                     "read_notebook",
                     "edit_notebook",
+                    "list_ocr_models",
+                    "install_ocr_model",
+                    "uninstall_ocr_model",
                 ],
             ),
             ("progress", &["update_plan"]),
             ("brief", &["read_brief", "list_briefs", "write_brief"]),
-            ("delegation", &["spawn_agent", "guide_agent", "wait_agent"]),
+            (
+                "delegation",
+                &[
+                    "spawn_agent",
+                    "guide_agent",
+                    "wait_agent",
+                    "list_agents",
+                    "add_agent",
+                    "edit_agent",
+                    "delete_agent",
+                    "apply_agents",
+                ],
+            ),
+            (
+                "databases",
+                &[
+                    "database_catalog",
+                    "database_query",
+                    "database_execute",
+                    "database_connections",
+                    "database_save_connection",
+                ],
+            ),
+            (
+                "ssh",
+                &[
+                    "ssh_run",
+                    "ssh_transfer",
+                    "ssh_connections",
+                    "ssh_save_connection",
+                ],
+            ),
             (
                 "media",
                 &["inspect_image", "generate_image", "generate_video"],
@@ -250,6 +294,10 @@ async fn reads_bound_worktree() {
                     "code_packages",
                     "code_install",
                     "code_uninstall",
+                    "code_catalog",
+                    "code_servers",
+                    "code_start",
+                    "code_stop",
                 ],
             ),
         ];

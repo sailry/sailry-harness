@@ -6,6 +6,8 @@ mod assistants;
 mod cards;
 #[path = "plugins/commands.rs"]
 mod commands;
+#[path = "plugins/errors.rs"]
+mod errors;
 #[path = "plugins/failures.rs"]
 mod failures;
 #[path = "plugins/files.rs"]

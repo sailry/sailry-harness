@@ -3,6 +3,8 @@ use process::Fixture;
 use sailry_link::CancellationToken;
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, watch};
+#[path = "goals/controls.rs"]
+mod controls;
 #[path = "goals/execution.rs"]
 mod execution;
 #[path = "goals/packages.rs"]

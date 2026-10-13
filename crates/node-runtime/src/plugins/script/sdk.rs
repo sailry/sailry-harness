@@ -218,6 +218,13 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             | Command::InstallOcrModel { .. }
                             | Command::InstallKnowledgeModel { .. }
                     )
+                    && !matches!(&command, Command::PluginTransaction { operations }
+                        if operations.iter().all(|operation| matches!(operation,
+                            plugin::transaction::Operation::ConversationWrite { .. }
+                                | plugin::transaction::Operation::ConversationRemove { .. }
+                                | plugin::transaction::Operation::QueuePause { .. }
+                                | plugin::transaction::Operation::Continue { .. }
+                                | plugin::transaction::Operation::Stop { .. })))
                 {
                     return Err(Fault::new(
                         ErrorCode::PermissionDenied,

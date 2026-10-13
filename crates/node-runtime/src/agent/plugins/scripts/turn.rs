@@ -2,7 +2,10 @@
 //! It can inspect its own visible results, never modify model messages or history.
 use super::*;
 use adk_core::{BeforeModelCallback, BeforeModelResult, Part};
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    sync::atomic::{AtomicBool, Ordering},
+};
 mod catalog;
 
 pub(super) struct Turn {
@@ -113,7 +116,7 @@ impl Turn {
         })
     }
 
-    pub fn observer(self: &Arc<Self>) -> Option<BeforeModelCallback> {
+    pub fn observer(self: &Arc<Self>, completion: Arc<AtomicBool>) -> Option<BeforeModelCallback> {
         let handler = self
             .package
             .extension
@@ -145,12 +148,14 @@ impl Turn {
                 .collect();
             let owner = owner.clone();
             let handler = handler.clone();
+            let completion = completion.clone();
             Box::pin(async move {
                 let result = owner
                     .evaluate(handler, json!({"results":results}))
                     .await
                     .map_err(|fault| AdkError::tool(fault.message))?;
                 if result.get("stop").and_then(Value::as_bool) == Some(true) {
+                    completion.store(true, Ordering::Release);
                     return Ok(BeforeModelResult::Skip(adk_core::LlmResponse {
                         turn_complete: true,
                         finish_reason: Some(adk_core::FinishReason::Stop),

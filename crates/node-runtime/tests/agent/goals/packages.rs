@@ -163,7 +163,14 @@ async fn commands_and_new_turns_follow_enablement() {
             finished(&fixture.client, fixture.session.id, turn).await;
             let requests = server.requests.lock().unwrap();
             let tools = requests.last().unwrap()["tools"].as_array().unwrap();
-            for name in ["create_goal", "get_goal", "update_goal"] {
+            for name in [
+                "create_goal",
+                "get_goal",
+                "update_goal",
+                "resume_goal",
+                "pause_goal",
+                "clear_goal",
+            ] {
                 assert_eq!(
                     tools
                         .iter()

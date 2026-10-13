@@ -37,7 +37,10 @@ use diagnostics::{Diagnostics, Phase};
 use futures::StreamExt;
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, SessionId, TurnId, conversation::Status};
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, atomic::Ordering},
+    time::Duration,
+};
 
 pub(crate) fn start(ingress: Arc<Ingress>, tasks: &Tasks) -> Result<(), Error> {
     for _ in 0..8 {
@@ -370,6 +373,7 @@ async fn execute_with(
         connections,
     )
     .await?;
+    let completion = extensions.completion.clone();
     instruction.push_str("\n\n");
     instruction.push_str(&prompt::environment(ingress, &invocation, &stop).await);
     extensions.tools.retain(|registration| {
@@ -580,7 +584,11 @@ async fn execute_with(
             Some(Err(error)) => return Err(model::error(error)),
             None => {
                 drop(runner_span);
-                if !cancelled && !stop.is_cancelled() && !has_result {
+                if !cancelled
+                    && !stop.is_cancelled()
+                    && !has_result
+                    && !completion.load(Ordering::Acquire)
+                {
                     return Err(Fault::new(
                         ErrorCode::Unavailable,
                         "Model returned no answer",

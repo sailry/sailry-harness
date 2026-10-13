@@ -1,4 +1,4 @@
-//! Completion requires a final answer or a resolved planning review.
+//! Final content and resolved planning reviews provide answer evidence.
 use adk_core::{Event, Part};
 use sailry_protocol::{ErrorCode, Fault};
 

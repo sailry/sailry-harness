@@ -98,7 +98,7 @@ pub(super) async fn bind(
         if initialized.tools.is_empty() {
             continue;
         }
-        if let Some(callback) = initialized.owner.observer() {
+        if let Some(callback) = initialized.owner.observer(contribution.completion.clone()) {
             contribution.callbacks.push((10, callback));
         }
         contribution.instruction.push_str(&initialized.instruction);
