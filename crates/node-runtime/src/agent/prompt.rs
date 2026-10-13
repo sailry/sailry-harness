@@ -158,11 +158,17 @@ mod tests {
         assert!(recipient(false).contains("at most six bullets"));
         for rule in [
             "1. Create or update the real file with available tools and verify the result",
+            "A session-owned artifact is not a saved worktree file",
+            "If the user requests a specific worktree path, create and verify that real file",
+            "do not substitute an artifact or claim the file exists when writing is unavailable",
             "2. Put EACH deliverable's Markdown link alone in its own paragraph",
             "blank lines before and after it",
             "[output/report.docx](output/report.docx)",
             "Do not add a prefix, suffix, list marker, code fence or blockquote",
             "3. Put explanations in separate paragraphs",
+            "A tool-returned artifact card already delivers that artifact",
+            "Do not add a duplicate Markdown file link unless the user separately requests a file copy",
+            "that file has actually been created and verified",
             "Preserve exact returned paths and filenames; never invent a file path",
             "Ordinary source references may remain inline links",
             "Ordinary links within prose remain links and are not added to outputs",
