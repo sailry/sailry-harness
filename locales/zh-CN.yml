@@ -191,7 +191,7 @@ approval_rejected: 已拒绝
 approval_cancelled: 已取消
 approval_approve: 允许
 approval_reject: 拒绝
-approval_allow_once: 允许一次
+approval_allow_once: 允许
 approval_allow_session: 本会话允许
 approval_allow_prefix: '允许前缀“%{prefix}”'
 approval_deny_reason: 附理由拒绝
@@ -1591,8 +1591,8 @@ interaction_answered: 已回答 · 示例
 interaction_continue_recorded: 已选择继续规划 · 示例
 interaction_start_recorded: 已选择开始编码 · 示例，未执行
 interaction_cancelled: 已取消
-interaction_continue: 继续规划
-interaction_start: 执行计划
+interaction_continue: 继续
+interaction_start: 执行
 question_reply: 等待回答
 interaction_submit: "提交"
 interaction_cancel: "取消"
