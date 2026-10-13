@@ -156,5 +156,21 @@ mod tests {
         assert!(!child.contains("renders a file card"));
         assert!(recipient(false).contains("Finish with an answer to the user's request"));
         assert!(recipient(false).contains("at most six bullets"));
+        for rule in [
+            "1. Create or update the real file with available tools and verify the result",
+            "2. Put EACH deliverable's Markdown link alone in its own paragraph",
+            "blank lines before and after it",
+            "[output/report.docx](output/report.docx)",
+            "Do not add a prefix, suffix, list marker, code fence or blockquote",
+            "3. Put explanations in separate paragraphs",
+            "Preserve exact returned paths and filenames; never invent a file path",
+            "Ordinary source references may remain inline links",
+            "Ordinary links within prose remain links and are not added to outputs",
+            "No display or publish tool is needed; do not print internal content JSON",
+            "with a local copy prepared first for remote files",
+        ] {
+            assert!(recipient(false).contains(rule), "{rule}");
+            assert!(!child.contains(rule), "{rule}");
+        }
     }
 }
