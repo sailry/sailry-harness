@@ -54,6 +54,7 @@ fn selector(value: String) -> &'static str {
 
 #[track_caller]
 fn ready(owner: &Entity<Workspace>, visual: &mut VisualTestContext, selector: &str) {
+    use gpui_kit::test::TestWindowExt as _;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
         draw(visual);
@@ -65,6 +66,25 @@ fn ready(owner: &Entity<Workspace>, visual: &mut VisualTestContext, selector: &s
                 .unwrap_or_else(|| "settings panel missing".into())
         });
         let lines: Vec<_> = snapshot.lines().collect();
+        if lines.iter().any(|line| {
+            line.contains("module_component sailry/ui.IconButton")
+                && line.contains(&format!("{selector:?}"))
+                && line.contains("(\"disabled\", Bool(false))")
+        }) {
+            visual.update(|window, cx| {
+                window.render_frame(cx);
+                let target = window.find(selector.to_owned());
+                assert_eq!(target.role(), Some(gpui_kit::Role::Button));
+                let label = tr(if selector.starts_with("memory-edit-") {
+                    "settings_edit"
+                } else {
+                    "settings_delete"
+                });
+                assert_eq!(target.label(), Some(label.as_ref()));
+                assert!(target.visible());
+            });
+            return;
+        }
         if let Some(index) = lines.iter().position(|line| line.contains(selector)) {
             let indent = |line: &str| line.len() - line.trim_start().len();
             let depth = indent(lines[index]);
