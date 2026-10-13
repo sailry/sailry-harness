@@ -1,7 +1,7 @@
 use gpui_kit::{
     component::{
         ActiveTheme,
-        diff::{Diff, DiffState},
+        diff::{Diff, DiffHunkSeparator, DiffState},
         text::TextView,
     },
     *,
@@ -123,6 +123,7 @@ impl Render for State {
         }
         Diff::new(&self.diff)
             .header_visible(false)
+            .hunk_separator(DiffHunkSeparator::Simple)
             .border_0()
             .bg(super::background(cx))
             .size_full()

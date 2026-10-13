@@ -90,6 +90,16 @@ fn bounds_groups_and_routes_nested_scrolling(cx: &mut TestAppContext) {
                     assert!(std::time::Instant::now() < deadline, "diff rows deadline");
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
+                visual.update(|window, _| {
+                    let body = window.find("diff-body-output").bounds();
+                    let first = window
+                        .within("diff-body-output")
+                        .find_all("source")
+                        .into_iter()
+                        .find(|line| line.label() == Some("line 0"))
+                        .unwrap();
+                    assert!(first.bounds().top() - body.top() < px(8.));
+                });
             }
             let output = output_bounds(visual, diff);
             let text = if diff {

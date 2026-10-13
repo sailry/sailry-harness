@@ -127,6 +127,8 @@ async fn identical_patch_keeps_selection_and_state(cx: &mut TestAppContext) {
     cx.update_window(handle.into(), |_, window, cx| {
         let state = window.root::<State>().flatten().unwrap();
         let diff = state.read(cx).diff.clone();
+        let first = window.find_all("source").into_iter().next().unwrap();
+        assert!(first.bounds().top() < px(8.));
         let entity = diff.entity_id();
         window.within(("new", 0usize)).click(("line", 0usize), cx);
         let selection = diff.read(cx).selected_lines();
