@@ -1,6 +1,6 @@
 use super::*;
 use gpui_kit::component::{
-    ActiveTheme as _, Icon,
+    ActiveTheme as _, Icon, Selectable as _,
     badge::Badge,
     button::{Button, ButtonVariants},
     popover::Popover,

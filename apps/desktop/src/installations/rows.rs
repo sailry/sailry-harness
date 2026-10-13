@@ -1,7 +1,7 @@
 use super::*;
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, IndexPath, Sizable as _, Tooltip, h_flex, v_flex,
+    ActiveTheme as _, Icon, IndexPath, Sizable as _, h_flex, tooltip::Tooltip, v_flex,
 };
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
@@ -186,7 +186,7 @@ impl ListDelegate for Rows {
                 cx.theme().danger.opacity(0.1),
             ),
             Presentation::Observed(Status::Uncertain { .. }) => (
-                IconName::CircleHelp,
+                IconName::CircleQuestionMark,
                 cx.theme().warning,
                 cx.theme().warning.opacity(0.1),
             ),

@@ -13,8 +13,18 @@ gpui_kit::assets::icon_assets!(PickerAssets, [Monitor, List, LayoutGrid]);
 gpui_kit::assets::icon_assets!(
     SettingsAssets,
     [
-        Download, Upload, Trash, Volume2, Square, Pause, House, RotateCcw, Package, Code, Clock,
-        CircleHelp
+        Download,
+        Upload,
+        Trash,
+        Volume2,
+        Square,
+        Pause,
+        House,
+        RotateCcw,
+        Package,
+        Code,
+        Clock,
+        CircleQuestionMark
     ]
 );
 
