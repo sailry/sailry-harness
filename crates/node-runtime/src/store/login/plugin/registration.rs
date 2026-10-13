@@ -16,8 +16,13 @@ impl Worker {
             if self.closed.is_cancelled() {
                 return Err(super::super::super::unavailable());
             }
-            let (_, declaration) =
+            let (info, declaration) =
                 crate::store::plugins::registration::current(&database.connection, package)?;
+            let baseline = crate::store::plugins::registration::Baseline::capture(
+                &database.connection,
+                &info,
+                &declaration,
+            )?;
             if self.plugin.values().filter(|entry| !entry.finished).count() >= 4
                 || self.plugin.values().any(|entry| {
                     let update = entry.updates.borrow();
@@ -31,10 +36,10 @@ impl Worker {
                     "plugin account authorization is already active or capacity is exhausted",
                 ));
             }
-            Ok(declaration)
+            Ok((declaration, baseline))
         })();
-        let declaration = match prepared {
-            Ok(declaration) => declaration,
+        let (declaration, baseline) = match prepared {
+            Ok(prepared) => prepared,
             Err(error) => return database.finish_external(caller, request, Err(error), events),
         };
         let attempt = Attempt {
@@ -84,7 +89,7 @@ impl Worker {
                     .map_err(|_| super::super::super::unavailable())
             }, &stop);
             let result = AssertUnwindSafe(operation).catch_unwind().await.unwrap_or_else(|_| Err(Fault::new(ErrorCode::OutcomeUnknown, "application registration outcome is unknown; check the provider before creating another application")))
-                .map(Authorized::Application);
+                .map(|credentials| Authorized::Application(credentials, baseline));
             let _ = sender.send(Job::Login(Box::new(super::super::Progress::Plugin(Progress::Finished { caller, id, result })))).await;
         });
         Ok(output)

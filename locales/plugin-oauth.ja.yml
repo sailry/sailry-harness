@@ -1,3 +1,5 @@
 plugin_oauth_client_id: "クライアント ID"
 plugin_oauth_client_secret: "クライアント シークレット"
 plugin_oauth_tenant: "テナント（任意）"
+plugin_registration_replace: "アプリを置き換え"
+plugin_registration_replace_effect: "%{name} のアプリ認証情報を新しく作成するアプリのものに置き換えます"

@@ -1,3 +1,5 @@
 plugin_oauth_client_id: "ID клиента"
 plugin_oauth_client_secret: "Секрет клиента"
 plugin_oauth_tenant: "Арендатор (необязательно)"
+plugin_registration_replace: "Заменить приложение"
+plugin_registration_replace_effect: "Заменить учётные данные %{name} данными нового приложения"

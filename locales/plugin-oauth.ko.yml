@@ -1,3 +1,5 @@
 plugin_oauth_client_id: "클라이언트 ID"
 plugin_oauth_client_secret: "클라이언트 비밀 키"
 plugin_oauth_tenant: "테넌트 (선택 사항)"
+plugin_registration_replace: "앱 교체"
+plugin_registration_replace_effect: "%{name} 앱 자격 증명을 새 앱의 자격 증명으로 교체"

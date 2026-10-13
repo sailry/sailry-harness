@@ -91,7 +91,7 @@ impl Host {
         owner.update(cx, |state, cx| {
             state.publish(cx);
             if state.host.context().controller_settings() {
-                state.load(window, cx);
+                state.load(false, window, cx);
             }
             let stop = state.host.stop_token();
             state.lifecycle = Some(cx.spawn_in(window, async move |owner, cx| {
@@ -215,7 +215,7 @@ impl Controller {
         (*expires_at_ms > chrono::Utc::now().timestamp_millis().max(0) as u64).then_some(url)
     }
 
-    fn load(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn load(&mut self, begin: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.closed || self.pending || !self.host.context().controller_settings() {
             return;
         }
@@ -229,7 +229,7 @@ impl Controller {
         });
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
-            let _ = owner.update_in(cx, |state, _, cx| {
+            let _ = owner.update_in(cx, |state, window, cx| {
                 if state.closed {
                     return;
                 }
@@ -239,6 +239,9 @@ impl Controller {
                         state.declaration = Some(declaration);
                         state.configured = configured;
                         state.fault = None;
+                        if begin {
+                            state.confirm(window, cx);
+                        }
                     }
                     _ => {
                         state.phase = "unavailable";
@@ -288,10 +291,34 @@ impl Controller {
                         self.cancel(true, window, cx);
                     }
                 } else {
-                    self.begin(window, cx);
+                    self.load(true, window, cx);
                 }
             }
         }
+    }
+
+    fn confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.configured {
+            self.begin(window, cx);
+            return;
+        }
+        let package = self.host.context().package;
+        let detail = rust_i18n::t!("plugin_registration_replace_effect", name = package.name);
+        let owner = cx.entity();
+        crate::prompts::confirm(
+            &crate::tr("plugin_registration_replace"),
+            &detail,
+            crate::tr("plugin_registration_replace"),
+            window,
+            cx,
+            move |window, cx| {
+                owner.update(cx, |state, cx| {
+                    if !state.closed && !state.pending && state.host.context().package == package {
+                        state.begin(window, cx);
+                    }
+                });
+            },
+        );
     }
 
     fn begin(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -35,7 +35,10 @@ pub(in crate::store) enum Progress {
 
 pub(in crate::store) enum Authorized {
     Account(Grant),
-    Application(crate::plugins::registration::Credentials),
+    Application(
+        crate::plugins::registration::Credentials,
+        crate::store::plugins::registration::Baseline,
+    ),
 }
 
 impl Worker {
@@ -316,8 +319,13 @@ fn save(
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let info = match grant {
         Authorized::Account(grant) => oauth::save(&transaction, &attempt.package, grant)?,
-        Authorized::Application(credentials) => {
-            crate::store::plugins::registration::save(&transaction, &attempt.package, credentials)?
+        Authorized::Application(credentials, baseline) => {
+            crate::store::plugins::registration::save(
+                &transaction,
+                &attempt.package,
+                credentials,
+                baseline,
+            )?
         }
     };
     let package = info.summary.reference();

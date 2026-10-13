@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 pub(in crate::store) struct Stored {
     pub(super) schema: Option<Schema>,
     #[serde(default)]
-    values: BTreeMap<String, Value>,
+    pub(super) values: BTreeMap<String, Value>,
     #[serde(default)]
     pub(super) slots: BTreeMap<String, Option<Secret>>,
     #[serde(default)]

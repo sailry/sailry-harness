@@ -1,3 +1,5 @@
 plugin_oauth_client_id: "客户端 ID"
 plugin_oauth_client_secret: "客户端密钥"
 plugin_oauth_tenant: "租户（可选）"
+plugin_registration_replace: "替换应用"
+plugin_registration_replace_effect: "用新建应用替换 %{name} 的应用凭据"

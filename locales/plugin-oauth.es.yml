@@ -1,3 +1,5 @@
 plugin_oauth_client_id: "ID de cliente"
 plugin_oauth_client_secret: "Secreto de cliente"
 plugin_oauth_tenant: "Inquilino (opcional)"
+plugin_registration_replace: "Reemplazar aplicación"
+plugin_registration_replace_effect: "Reemplazar las credenciales de %{name} por las de una aplicación nueva"

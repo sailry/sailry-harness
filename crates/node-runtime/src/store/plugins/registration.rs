@@ -4,6 +4,29 @@ use crate::plugins::registration::{Credentials, validate};
 use sailry_protocol::plugin::{registration::Declaration, settings::SecretUpdate};
 use std::collections::BTreeMap;
 
+pub(in crate::store) struct Baseline {
+    client_id: Option<serde_json::Value>,
+    client_secret: Option<sailry_protocol::Secret>,
+}
+
+impl Baseline {
+    pub(in crate::store) fn capture(
+        db: &Connection,
+        info: &Info,
+        declaration: &Declaration,
+    ) -> Result<Self, Fault> {
+        let saved = settings::stored(db, info)?;
+        Ok(Self {
+            client_id: saved.values.get(&declaration.client_id).cloned(),
+            client_secret: saved
+                .slots
+                .get(&declaration.client_secret)
+                .cloned()
+                .flatten(),
+        })
+    }
+}
+
 pub(in crate::store) fn current(
     db: &Connection,
     package: &plugin::Reference,
@@ -28,14 +51,30 @@ pub(in crate::store) fn save(
     db: &Connection,
     package: &plugin::Reference,
     credentials: Credentials,
+    baseline: Baseline,
 ) -> Result<Info, Fault> {
-    let (info, declaration) = current(db, package)?;
+    let latest = required(db, &package.name)?;
+    if latest.summary.digest != package.digest {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "application registration package changed",
+        ));
+    }
+    let reference = latest.summary.reference();
+    let (info, declaration) = current(db, &reference)?;
     if declaration != credentials.declaration {
         return Err(Fault::invalid(
             "application registration declaration changed",
         ));
     }
-    let state = settings::read(db, package)?;
+    let latest = Baseline::capture(db, &info, &declaration)?;
+    if baseline.client_id != latest.client_id || baseline.client_secret != latest.client_secret {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "application registration credentials changed",
+        ));
+    }
+    let state = settings::read(db, &reference)?;
     let mut values = state.values;
     values.insert(
         declaration.client_id,
@@ -54,6 +93,6 @@ pub(in crate::store) fn save(
         declaration.client_secret,
         SecretUpdate::Replace(credentials.client_secret),
     );
-    let saved = settings::save(db, package, &values, &secrets)?;
+    let saved = settings::save(db, &reference, &values, &secrets)?;
     settings::current(db, &saved.package)
 }

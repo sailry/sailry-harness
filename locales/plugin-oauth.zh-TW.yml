@@ -1,3 +1,5 @@
 plugin_oauth_client_id: "用戶端 ID"
 plugin_oauth_client_secret: "用戶端密鑰"
 plugin_oauth_tenant: "租用戶（選填）"
+plugin_registration_replace: "替換應用程式"
+plugin_registration_replace_effect: "以新建應用程式替換 %{name} 的應用程式憑證"

@@ -311,7 +311,7 @@ async fn rejects_stale_scopes_and_cancels_polling() {
 #[tokio::test]
 async fn preserves_settings_after_revision_change() {
     for remote in [false, true] {
-        for disable in [false, true] {
+        for change in ["unrelated", "id", "secret", "cleared", "disabled"] {
             let issuer = server::Server::start(vec![]).await;
             let (directory, node, controller, client, worktree) = fixture(remote).await;
             node.set_plugin_registration_fixture(&issuer.endpoint);
@@ -357,7 +357,7 @@ async fn preserves_settings_after_revision_change() {
                 matches!(state, State::Pending { .. })
             })
             .await;
-            let current = if disable {
+            let current = if change == "disabled" {
                 let installed = info(
                     execute(
                         &client,
@@ -386,12 +386,35 @@ async fn preserves_settings_after_revision_change() {
                     Command::SavePluginSettings {
                         package: initial.package.clone(),
                         values: BTreeMap::from([
-                            ("app_id".into(), json!("cli_previous")),
+                            (
+                                "app_id".into(),
+                                json!(if change == "id" {
+                                    "cli_changed"
+                                } else {
+                                    "cli_previous"
+                                }),
+                            ),
                             ("note".into(), json!("newer explicit setting")),
                         ]),
                         secrets: BTreeMap::from([
-                            ("app_secret".into(), SecretUpdate::Keep),
-                            ("other".into(), SecretUpdate::Keep),
+                            (
+                                "app_secret".into(),
+                                if change == "cleared" {
+                                    SecretUpdate::Clear
+                                } else if change == "secret" {
+                                    SecretUpdate::Replace(Secret::new(
+                                        "changed-private-marker".into(),
+                                    ))
+                                } else {
+                                    SecretUpdate::Keep
+                                },
+                            ),
+                            (
+                                "other".into(),
+                                SecretUpdate::Replace(Secret::new(
+                                    "new-other-private-marker".into(),
+                                )),
+                            ),
                         ]),
                     },
                 )
@@ -406,19 +429,25 @@ async fn preserves_settings_after_revision_change() {
                 .lock()
                 .unwrap()
                 .push_back(server::Server::success());
-            let State::Failed(fault) =
-                state(&client, &attempt, |state| matches!(state, State::Failed(_))).await
-            else {
-                unreachable!()
-            };
-            assert_eq!(
-                fault.code,
-                if disable {
-                    ErrorCode::NotConfigured
-                } else {
-                    ErrorCode::RevisionConflict
+            let result = state(&client, &attempt, |state| !state.active()).await;
+            let current = match result {
+                State::Connected(saved) if change == "unrelated" => {
+                    assert_eq!(saved.settings_revision, current.settings_revision + 1);
+                    saved
                 }
-            );
+                State::Failed(fault) if change != "unrelated" => {
+                    assert_eq!(
+                        fault.code,
+                        if change == "disabled" {
+                            ErrorCode::NotConfigured
+                        } else {
+                            ErrorCode::RevisionConflict
+                        }
+                    );
+                    current
+                }
+                _ => panic!("unexpected registration result"),
+            };
             let Output::PluginSettings(saved) = execute(
                 &client,
                 Command::ReadPluginSettings {
@@ -430,18 +459,39 @@ async fn preserves_settings_after_revision_change() {
                 panic!("settings expected")
             };
             assert_eq!(saved.package, current);
-            assert_eq!(saved.values["app_id"], "cli_previous");
+            assert_eq!(
+                saved.values["app_id"],
+                match change {
+                    "unrelated" => "cli_registered",
+                    "id" => "cli_changed",
+                    _ => "cli_previous",
+                }
+            );
             assert_eq!(
                 saved.values["note"],
-                if disable {
+                if change == "disabled" {
                     "retain previous note"
                 } else {
                     "newer explicit setting"
                 }
             );
             for (field, expected) in [
-                ("app_secret", "previous-private-marker"),
-                ("other", "other-private-marker"),
+                (
+                    "app_secret",
+                    match change {
+                        "unrelated" => "private-app-secret-marker",
+                        "secret" => "changed-private-marker",
+                        _ => "previous-private-marker",
+                    },
+                ),
+                (
+                    "other",
+                    if change == "disabled" {
+                        "other-private-marker"
+                    } else {
+                        "new-other-private-marker"
+                    },
+                ),
             ] {
                 let Output::PluginSecret(secret) = execute(
                     &client,
@@ -454,7 +504,11 @@ async fn preserves_settings_after_revision_change() {
                 else {
                     panic!("private setting expected")
                 };
-                assert_eq!(secret.unwrap().expose(), expected);
+                if field == "app_secret" && change == "cleared" {
+                    assert!(secret.is_none());
+                } else {
+                    assert_eq!(secret.unwrap().expose(), expected);
+                }
             }
             assert!(
                 !serde_json::to_string(&saved)

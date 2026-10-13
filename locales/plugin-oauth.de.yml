@@ -1,3 +1,5 @@
 plugin_oauth_client_id: "Client-ID"
 plugin_oauth_client_secret: "Client-Geheimnis"
 plugin_oauth_tenant: "Mandant (optional)"
+plugin_registration_replace: "App ersetzen"
+plugin_registration_replace_effect: "App-Zugangsdaten für %{name} durch eine neu erstellte App ersetzen"

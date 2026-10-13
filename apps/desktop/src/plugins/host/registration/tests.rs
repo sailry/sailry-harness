@@ -216,6 +216,57 @@ fn creates_only_after_click(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn confirms_configured_replacement(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let issuer = fixture.runtime.block_on(server::Server::start(vec![]));
+        fixture
+            .node
+            .set_plugin_registration_fixture(&issuer.endpoint);
+        let mut package = package(&fixture);
+        let Output::PluginSettings(saved) = fixture.execute(Command::SavePluginSettings {
+            package: package.summary.reference(),
+            values: std::collections::BTreeMap::from([("app_id".into(), json!("cli_existing"))]),
+            secrets: std::collections::BTreeMap::from([(
+                "app_secret".into(),
+                plugin::settings::SecretUpdate::Replace(sailry_protocol::Secret::new(
+                    "existing-private-marker".into(),
+                )),
+            )]),
+        }) else {
+            panic!("settings expected")
+        };
+        package.summary.settings_revision = saved.package.settings_revision;
+        let (panel, visual) = mount(&fixture, &package, cx);
+        wait(visual, |cx| snapshot(&panel, cx).contains("Replace app"));
+        click(visual, "feishu-register");
+        let (_, detail) = crate::prompts::tests::wait(visual);
+        assert!(detail.contains(&package.summary.name));
+        assert_eq!(starts(&issuer), 0);
+        crate::prompts::tests::answer(visual, "settings_cancel");
+        assert_eq!(starts(&issuer), 0);
+        let Output::PluginSecret(secret) = fixture.execute(Command::ReadPluginSecret {
+            package: saved.package.clone(),
+            field: "app_secret".into(),
+        }) else {
+            panic!("private setting expected")
+        };
+        assert_eq!(secret.unwrap().expose(), "existing-private-marker");
+        click(visual, "feishu-register");
+        crate::prompts::tests::answer(visual, "plugin_registration_replace");
+        wait(visual, |cx| {
+            starts(&issuer) == 1 && snapshot(&panel, cx).contains("Scan to create an app")
+        });
+        let host = panel.read_with(visual, |panel, _| panel.mounted.as_ref().unwrap().host());
+        host.close();
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn refresh_and_close_cancel_owned_attempts(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
