@@ -43,6 +43,87 @@ async fn select(fixture: &mut Fixture, model: &str, product: Product) {
 }
 
 #[tokio::test]
+async fn keeps_cache_identity_across_controllers() {
+    for remote in [false, true] {
+        for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
+            let server = if api == ModelApi::Responses {
+                completion::server(vec![serde_json::json!({
+                    "type":"response.completed", "sequence_number":10,
+                    "response":{"id":"completed", "object":"response", "created_at":1,
+                        "model":"fixture-a", "status":"completed", "output":[{
+                            "type":"message", "id":"answer", "role":"assistant",
+                            "status":"completed", "content":[{
+                                "type":"output_text", "text":server::ANSWER, "annotations":[]
+                            }]
+                        }]}
+                })])
+                .await
+            } else {
+                Server::start(api, Reply::Text).await
+            };
+            let mut fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let session = fixture.session.id;
+            for message in ["First request", "Continue from another controller"] {
+                let turn = fixture.submit(message).await;
+                let page = finished(&fixture.client, session, turn).await;
+                assert_eq!(
+                    page.runs.last().unwrap().status,
+                    Status::Completed,
+                    "{api:?}, remote={remote}: {:?}",
+                    page.runs
+                );
+                assert!(text(&page).contains(server::ANSWER));
+                fixture.client = Client::new(fixture.node.local());
+            }
+            let Output::Session(created) = execute(
+                &fixture.client,
+                Command::CreateSession {
+                    project: fixture.session.project,
+                    worktree: Some(fixture.session.worktree),
+                    config: Some(fixture.session.config.clone()),
+                },
+            )
+            .await
+            else {
+                panic!("session expected")
+            };
+            fixture.session = created;
+            assert_ne!(fixture.session.id, session);
+            let turn = fixture.submit("Start a separate conversation").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+            assert!(text(&page).contains(server::ANSWER));
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), 3, "{api:?}, remote={remote}");
+            let route = if api == ModelApi::Responses {
+                "responses"
+            } else {
+                "chat/completions"
+            };
+            for (request, expected) in requests.iter().zip([session, session, fixture.session.id]) {
+                assert_eq!(request.path, format!("/v1/{route}"));
+                assert_eq!(request.body["prompt_cache_key"], expected.to_string());
+                assert_eq!(request.headers["session-id"], expected.to_string());
+                assert_eq!(request.headers["session_id"], expected.to_string());
+                assert_eq!(request.body["model"], "fixture-a");
+                assert_eq!(request.body["stream"], true);
+                assert_eq!(
+                    request.headers["authorization"],
+                    format!("Bearer {}", server::KEY)
+                );
+                assert_eq!(
+                    request.headers["user-agent"],
+                    concat!("Sailry/", env!("CARGO_PKG_VERSION"))
+                );
+                assert!(!request.body.to_string().contains(server::KEY));
+            }
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn preserves_regional_routes_and_usage() {
     use Product::{Coding, Metered};
     // Only each public endpoint's path is exercised. The isolated HTTP server
@@ -249,6 +330,18 @@ async fn replays_tool_continuations() {
                 assert_eq!(request.path, "/v1/chat/completions");
                 assert_eq!(request.body["model"], model);
                 assert_eq!(
+                    request.body["prompt_cache_key"],
+                    fixture.session.id.to_string()
+                );
+                assert_eq!(
+                    request.headers["session-id"],
+                    fixture.session.id.to_string()
+                );
+                assert_eq!(
+                    request.headers["session_id"],
+                    fixture.session.id.to_string()
+                );
+                assert_eq!(
                     request.headers["user-agent"],
                     concat!("Sailry/", env!("CARGO_PKG_VERSION"))
                 );
@@ -304,6 +397,9 @@ async fn keeps_anthropic_compatible_identity() {
                 concat!("Sailry/", env!("CARGO_PKG_VERSION"))
             );
             assert!(!requests[0].headers.contains_key("authorization"));
+            assert!(!requests[0].headers.contains_key("session-id"));
+            assert!(!requests[0].headers.contains_key("session_id"));
+            assert!(requests[0].body.get("prompt_cache_key").is_none());
             assert!(requests[0].body.get("preserve_thinking").is_none());
             assert!(requests[0].body.get("thinking").is_none());
             fixture.controller.close().await.unwrap();

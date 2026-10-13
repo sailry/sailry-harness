@@ -1,8 +1,8 @@
-//! API-key compatibility for documented assistant reasoning fields.
+//! API-key cache identity and documented assistant reasoning fields.
 use adk_model::openai::RequestAdapter;
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use sailry_protocol::{
-    Authentication,
+    Authentication, SessionId,
     conversation::{ModelApi, Provider},
 };
 use serde_json::json;
@@ -17,6 +17,37 @@ pub(super) fn headers() -> HeaderMap {
 
 pub(super) fn replay(provider: &Provider, model: &str) -> bool {
     policy(provider, model).is_some()
+}
+
+pub(super) fn session_adapter(
+    provider: &Provider,
+    model: &str,
+    session: SessionId,
+) -> Option<RequestAdapter> {
+    if provider.authentication != Authentication::ApiKey
+        || !matches!(
+            provider.api,
+            ModelApi::Responses | ModelApi::ChatCompletions
+        )
+    {
+        return None;
+    }
+    let reasoning = adapter(provider, model);
+    let session = session.to_string();
+    Some(Arc::new(move |body, headers| {
+        if let Some(adapter) = &reasoning {
+            adapter(body, headers)?;
+        }
+        let fields = body.as_object_mut().ok_or_else(|| {
+            adk_core::AdkError::model("compatible request body must be an object")
+        })?;
+        fields.insert("prompt_cache_key".into(), json!(session));
+        let value = HeaderValue::from_str(&session)
+            .map_err(|_| adk_core::AdkError::model("session ID is not a valid HTTP header"))?;
+        headers.insert("session-id", value.clone());
+        headers.insert("session_id", value);
+        Ok(())
+    }))
 }
 
 pub(super) fn adapter(provider: &Provider, model: &str) -> Option<RequestAdapter> {

@@ -175,3 +175,108 @@ fn rejects_malformed_parameters() {
         assert!(adapter(&provider, model).unwrap()(&mut body, &mut HeaderMap::new()).is_err());
     }
 }
+
+mod cache {
+    use super::*;
+
+    #[test]
+    fn keeps_identity_and_request() {
+        let session = SessionId::new();
+        for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
+            let mut provider = provider();
+            provider.api = api;
+            let adapter = session_adapter(&provider, "fixture", session).unwrap();
+            let mut original = json!({"model":"fixture", "stream":true, "temperature":0.2});
+            let field = if api == ModelApi::Responses {
+                "input"
+            } else {
+                "messages"
+            };
+            original[field] = json!([{"role":"user", "content":"Inspect the file"}]);
+            for _ in 0..2 {
+                let mut body = original.clone();
+                let mut headers = headers();
+                headers.insert("authorization", HeaderValue::from_static("Bearer fixture"));
+                let original_headers = headers.clone();
+                adapter(&mut body, &mut headers).unwrap();
+                assert_eq!(body["prompt_cache_key"], session.to_string());
+                assert_eq!(headers["session-id"], session.to_string());
+                assert_eq!(headers["session_id"], session.to_string());
+                body.as_object_mut().unwrap().remove("prompt_cache_key");
+                headers.remove("session-id");
+                headers.remove("session_id");
+                assert_eq!(body, original);
+                assert_eq!(headers, original_headers);
+            }
+        }
+    }
+
+    #[test]
+    fn separates_sessions() {
+        let provider = provider();
+        let mut keys = Vec::new();
+        for session in [SessionId::new(), SessionId::new()] {
+            let mut body = json!({"model":"fixture"});
+            let mut headers = HeaderMap::new();
+            session_adapter(&provider, "fixture", session).unwrap()(&mut body, &mut headers)
+                .unwrap();
+            keys.push(body["prompt_cache_key"].clone());
+            assert_eq!(headers["session-id"], session.to_string());
+            assert_eq!(headers["session_id"], session.to_string());
+        }
+        assert_ne!(keys[0], keys[1]);
+    }
+
+    #[test]
+    fn composes_reasoning_fields() {
+        let provider = provider();
+        let session = SessionId::new();
+        for model in ["qwen3.6-plus", "glm-5.2"] {
+            let mut body = json!({"model":model, "thinking":{"type":"disabled"}});
+            session_adapter(&provider, model, session).unwrap()(&mut body, &mut HeaderMap::new())
+                .unwrap();
+            assert_eq!(body["prompt_cache_key"], session.to_string());
+            assert_eq!(body["thinking"]["type"], "disabled");
+            if model.starts_with("qwen") {
+                assert_eq!(body["preserve_thinking"], true);
+            } else {
+                assert_eq!(body["thinking"]["clear_thinking"], false);
+            }
+        }
+    }
+
+    #[test]
+    fn leaves_other_contracts_unchanged() {
+        let mut provider = provider();
+        let session = SessionId::new();
+        for authentication in [
+            Authentication::ChatGpt,
+            Authentication::ChatGptOAuth,
+            Authentication::ClaudeOAuth,
+            Authentication::Copilot,
+        ] {
+            provider.authentication = authentication;
+            assert!(session_adapter(&provider, "fixture", session).is_none());
+        }
+        provider.authentication = Authentication::ApiKey;
+        for api in [
+            ModelApi::Anthropic,
+            ModelApi::Gemini,
+            ModelApi::DeepSeek,
+            ModelApi::OpenCodeGo,
+            ModelApi::OpenCodeZen,
+            ModelApi::AzureOpenAi,
+            ModelApi::AzureAi,
+        ] {
+            provider.api = api;
+            assert!(session_adapter(&provider, "fixture", session).is_none());
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_body() {
+        let provider = provider();
+        let adapter = session_adapter(&provider, "fixture", SessionId::new()).unwrap();
+        assert!(adapter(&mut Value::Null, &mut HeaderMap::new()).is_err());
+    }
+}

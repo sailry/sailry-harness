@@ -128,7 +128,14 @@ pub(super) async fn configured(
         if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
             opencode::build(provider, config, key, effort, session)?
         } else {
-            native(provider, config, key, effort, None, None)?
+            native(
+                provider,
+                config,
+                key,
+                effort,
+                hosted::session_adapter(provider, &config.model, session),
+                None,
+            )?
         }
     } else {
         crate::providers::login::validate(provider)?;
@@ -182,9 +189,6 @@ pub(super) fn native(
                 if hosted::replay(provider, &config.model) {
                     client =
                         client.with_reasoning_replay_field(ReasoningReplayField::ReasoningContent);
-                }
-                if let Some(adapter) = hosted::adapter(provider, &config.model) {
-                    client = client.with_request_adapter(adapter);
                 }
             }
             if let Some(adapter) = adapter {
