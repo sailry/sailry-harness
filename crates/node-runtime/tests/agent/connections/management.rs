@@ -505,7 +505,7 @@ async fn bundled_writes_initialize_only_after_approval() {
             let server = Server::result_tools(vec![
                 (
                     agent_support::plugin_tool("databases", "database_save_connection"),
-                    json!({"name":"New SQLite","engine":"sqlite","path":"created.db","read_only":false}),
+                    json!({"name":"New SQLite","engine":"sqlite","path":"output/data/created.db","read_only":false}),
                 ),
                 (
                     agent_support::plugin_tool("databases", "database_execute"),
@@ -519,7 +519,7 @@ async fn bundled_writes_initialize_only_after_approval() {
             .await;
             let mut fixture = process::Fixture::new(remote, &server).await;
             configure(&mut fixture, Permission::Ask).await;
-            let path = fixture.root.join("created.db");
+            let path = fixture.root.join("output/data/created.db");
             assert!(!path.exists());
             let turn = submit(&fixture).await;
             let (_, save) = approvals::pending(&fixture.client, fixture.session.id).await;
@@ -539,13 +539,14 @@ async fn bundled_writes_initialize_only_after_approval() {
                         .root
                         .canonicalize()
                         .unwrap()
-                        .join("created.db")
+                        .join("output/data/created.db")
                         .to_str()
                         .unwrap()
                         .into(),
                 }
             );
             assert!(!path.exists());
+            assert!(!path.parent().unwrap().exists());
             process::decide(
                 &fixture.client,
                 &write,
@@ -575,6 +576,7 @@ async fn bundled_writes_initialize_only_after_approval() {
                 );
             } else {
                 assert!(!path.exists());
+                assert!(!path.parent().unwrap().exists());
                 assert_eq!(
                     output[1]["error"],
                     format!(

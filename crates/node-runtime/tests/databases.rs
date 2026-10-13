@@ -496,8 +496,7 @@ async fn exercise_transport(
 #[tokio::test]
 async fn sqlite_ownership() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("fixture.sqlite3");
-    rusqlite::Connection::open(&path).unwrap();
+    let path = directory.path().join("nested/fixture.sqlite3");
     exercise(
         Connection::Sqlite {
             path: path.to_str().unwrap().into(),
@@ -526,7 +525,7 @@ async fn sqlite_initializes_explicit_schema_writes() {
         } else {
             node.local()
         });
-        let path = directory.path().join("created.db");
+        let path = directory.path().join("output/data/created.db");
         let Output::DatabaseProfile(profile) = execute(
             &client,
             Command::SaveDatabase {
@@ -549,6 +548,7 @@ async fn sqlite_initializes_explicit_schema_writes() {
             panic!("database profile expected")
         };
         assert!(!path.exists());
+        assert!(!path.parent().unwrap().exists());
         let mut stale = client.prepare(query(&profile, "CREATE TABLE stale(value INTEGER)"));
         if let Command::QueryDatabase {
             expected_revision, ..
@@ -561,6 +561,7 @@ async fn sqlite_initializes_explicit_schema_writes() {
             ErrorCode::RevisionConflict
         );
         assert!(!path.exists());
+        assert!(!path.parent().unwrap().exists());
         let request = client.prepare(query(&profile, "CREATE TABLE items(value INTEGER)"));
         let created = client.execute(request.clone()).await.unwrap();
         assert!(path.is_file());
@@ -612,15 +613,9 @@ async fn sqlite_initializes_explicit_schema_writes() {
             ErrorCode::InvalidRequest
         );
         assert_eq!(std::fs::read(&invalid).unwrap(), contents.to_vec());
-        for (target, code) in [
-            (
-                directory.path().join("absent/created.db"),
-                ErrorCode::NotFound,
-            ),
-            (
-                node.profile().join("created.db"),
-                ErrorCode::PermissionDenied,
-            ),
+        for target in [
+            node.profile().join("created.db"),
+            node.profile().join("absent/created.db"),
         ] {
             let Output::DatabaseProfile(profile) = execute(
                 &client,
@@ -647,10 +642,10 @@ async fn sqlite_initializes_explicit_schema_writes() {
                     .await
                     .unwrap_err()
                     .code,
-                code
+                ErrorCode::PermissionDenied
             );
             assert!(!target.exists());
-            if code == ErrorCode::NotFound {
+            if target.parent().unwrap() != node.profile() {
                 assert!(!target.parent().unwrap().exists());
             }
         }
@@ -713,7 +708,7 @@ async fn sqlite_catalog_reports_missing_without_creation() {
         } else {
             node.local()
         });
-        let missing = directory.path().join("missing.db");
+        let missing = directory.path().join("absent/missing.db");
         for read_only in [true, false] {
             let Output::DatabaseProfile(profile) = execute(
                 &client,
@@ -746,15 +741,6 @@ async fn sqlite_catalog_reports_missing_without_creation() {
                 query(&profile, "EXPLAIN CREATE TABLE items(value INTEGER)"),
                 query(&profile, "PRAGMA user_version = 7"),
                 query(&profile, "EXPLAIN PRAGMA user_version = 7"),
-                Command::CheckDatabase {
-                    profile: profile.id,
-                    expected_revision: profile.revision,
-                },
-                Command::TestDatabase {
-                    profile: profile.clone(),
-                    expected_revision: profile.revision,
-                    password: None,
-                },
                 Command::QueryDatabase {
                     profile: profile.id,
                     expected_revision: profile.revision,
@@ -769,6 +755,7 @@ async fn sqlite_catalog_reports_missing_without_creation() {
                 assert_eq!(fault.code, ErrorCode::NotFound);
                 assert_eq!(fault.message, "Database file does not exist");
                 assert!(!missing.exists());
+                assert!(!missing.parent().unwrap().exists());
             }
             if read_only {
                 let fault = client
@@ -786,6 +773,66 @@ async fn sqlite_catalog_reports_missing_without_creation() {
                     assert_eq!(fault.code, ErrorCode::InvalidRequest);
                     assert!(!missing.exists());
                 }
+            }
+            let commands = [
+                Command::CheckDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                },
+                Command::TestDatabase {
+                    profile: profile.clone(),
+                    expected_revision: profile.revision,
+                    password: None,
+                },
+            ];
+            for command in commands {
+                let result = client.execute(client.prepare(command)).await;
+                if read_only {
+                    assert_eq!(result.unwrap_err().code, ErrorCode::NotFound);
+                    assert!(!missing.exists());
+                    assert!(!missing.parent().unwrap().exists());
+                } else {
+                    assert_eq!(result.unwrap(), Output::DatabaseOutcome(Outcome::Connected));
+                    assert!(missing.is_file());
+                }
+            }
+            if !read_only {
+                let draft_path = directory.path().join("draft/nested.db");
+                let mut draft = profile.clone();
+                draft.connection = Connection::Sqlite {
+                    path: draft_path.to_str().unwrap().into(),
+                };
+                assert_eq!(
+                    execute(
+                        &client,
+                        Command::TestDatabase {
+                            profile: draft,
+                            expected_revision: profile.revision,
+                            password: None,
+                        },
+                    )
+                    .await,
+                    Output::DatabaseOutcome(Outcome::Connected)
+                );
+                assert!(draft_path.is_file());
+                execute(
+                    &client,
+                    query(&profile, "CREATE TABLE items(value INTEGER)"),
+                )
+                .await;
+                execute(&client, query(&profile, "INSERT INTO items VALUES (37)")).await;
+                execute(
+                    &client,
+                    Command::CheckDatabase {
+                        profile: profile.id,
+                        expected_revision: profile.revision,
+                    },
+                )
+                .await;
+                assert_eq!(
+                    rows(execute(&client, query(&profile, "SELECT value FROM items")).await).rows,
+                    vec![vec![Value::Integer(37)]]
+                );
             }
         }
         let empty = directory.path().join("empty.db");

@@ -13,6 +13,9 @@ pub(super) fn run(
     stop: CancellationToken,
     closed: CancellationToken,
 ) -> Result<ResultSet, Fault> {
+    if stop.is_cancelled() || closed.is_cancelled() {
+        return Err(unknown());
+    }
     let Connection::Sqlite { path } = &operation.profile.connection else {
         unreachable!()
     };
@@ -20,31 +23,17 @@ pub(super) fn run(
     let (path, create) = match requested.canonicalize() {
         Ok(path) => (path, false),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if operation.profile.read_only || operation.query.is_none() || !initializes(query)? {
+            if operation.profile.read_only || (operation.query.is_some() && !initializes(query)?) {
                 return Err(missing());
             }
-            let parent = requested
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."));
-            let parent = parent.canonicalize().map_err(crate::files::io_error)?;
-            let name = requested
-                .file_name()
-                .ok_or_else(|| Fault::invalid("Database filename is missing"))?;
-            (parent.join(name), true)
+            (
+                creation_path(requested, operation.storage.as_deref())?,
+                true,
+            )
         }
         Err(error) => return Err(crate::files::io_error(error)),
     };
-    if operation
-        .storage
-        .as_ref()
-        .is_some_and(|storage| path.starts_with(storage))
-    {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "Node storage cannot be opened as a query database",
-        ));
-    }
+    check_storage(&path, operation.storage.as_deref())?;
     let mut flags = if operation.profile.read_only {
         OpenFlags::SQLITE_OPEN_READ_ONLY
     } else {
@@ -106,6 +95,57 @@ pub(super) fn run(
     }
     Ok(result.result)
 }
+
+fn creation_path(requested: &Path, storage: Option<&Path>) -> Result<PathBuf, Fault> {
+    if requested.components().any(|component| {
+        matches!(
+            component,
+            std::path::Component::CurDir | std::path::Component::ParentDir
+        )
+    }) {
+        return Err(Fault::invalid("Database path must be normalized"));
+    }
+    let name = requested
+        .file_name()
+        .ok_or_else(|| Fault::invalid("Database filename is missing"))?;
+    let mut relative = PathBuf::from(name);
+    let mut parent = requested
+        .parent()
+        .ok_or_else(|| Fault::invalid("Database parent is missing"))?;
+    let root = loop {
+        match parent.canonicalize() {
+            Ok(root) => break root,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let name = parent
+                    .file_name()
+                    .ok_or_else(|| Fault::invalid("Database parent is missing"))?;
+                relative = PathBuf::from(name).join(relative);
+                parent = parent
+                    .parent()
+                    .ok_or_else(|| Fault::invalid("Database parent is missing"))?;
+            }
+            Err(error) => return Err(crate::files::io_error(error)),
+        }
+    };
+    let path = root.join(&relative);
+    check_storage(&path, storage)?;
+    let relative = relative
+        .to_str()
+        .ok_or_else(|| Fault::invalid("Database path must be UTF-8"))?;
+    crate::files::path::create_parents(root.as_path(), relative)?;
+    Ok(path)
+}
+
+fn check_storage(path: &Path, storage: Option<&Path>) -> Result<(), Fault> {
+    if storage.is_some_and(|storage| path.starts_with(storage)) {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "Node storage cannot be opened as a query database",
+        ));
+    }
+    Ok(())
+}
+
 fn initializes(query: &Query) -> Result<bool, Fault> {
     let connection = Sqlite::open_in_memory().map_err(query_error)?;
     // Some PRAGMAs act during preparation, even under EXPLAIN. This guard belongs
