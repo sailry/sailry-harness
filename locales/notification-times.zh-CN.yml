@@ -1,0 +1,4 @@
+notifications_time_now: "刚刚"
+notifications_time_minutes: "%{count} 分钟前"
+notifications_time_hours: "%{count} 小时前"
+notifications_time_days: "%{count} 天前"

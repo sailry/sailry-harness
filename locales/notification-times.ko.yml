@@ -1,0 +1,4 @@
+notifications_time_now: "방금"
+notifications_time_minutes: "%{count}분 전"
+notifications_time_hours: "%{count}시간 전"
+notifications_time_days: "%{count}일 전"

@@ -53,6 +53,14 @@ fn status_icons_use_embedded_catalog() {
                 .is_some()
         );
     }
+    for path in [
+        "icons/check-check.svg",
+        "icons/circle-check.svg",
+        "icons/shield-alert.svg",
+        "icons/message-circle-question-mark.svg",
+    ] {
+        assert!(crate::assets::Assets.load(path).unwrap().is_some());
+    }
 }
 
 #[gpui::test]
@@ -133,10 +141,18 @@ fn background_host_navigation(cx: &mut TestAppContext) {
             .debug_bounds(Box::leak(format!("{selector}-icon").into_boxed_str()))
             .unwrap();
         let bounds = visual.debug_bounds(selector).unwrap();
-        assert_eq!(bounds.size.height, px(36.));
+        let time = visual
+            .debug_bounds(Box::leak(format!("{selector}-time").into_boxed_str()))
+            .unwrap();
+        let marker = visual
+            .debug_bounds(Box::leak(format!("{selector}-marker").into_boxed_str()))
+            .unwrap();
+        assert_eq!(bounds.size.height, px(40.));
         assert!(label.size.height <= px(24.));
         assert!(icon.right() < label.left());
-        assert_eq!(label.right(), bounds.right() - px(8.));
+        assert!(label.right() < time.left());
+        assert!(time.right() < marker.left());
+        assert_eq!(marker.right(), bounds.right() - px(8.));
         assert!((label.center().y - icon.center().y).abs() < px(1.));
         click(visual, selector);
         wait(visual, |cx| {

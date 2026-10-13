@@ -102,10 +102,23 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
         let icon = visual
             .debug_bounds(Box::leak(format!("{selector}-icon").into_boxed_str()))
             .unwrap();
-        assert_eq!(row.size.height, px(36.));
+        let time = visual
+            .debug_bounds(Box::leak(format!("{selector}-time").into_boxed_str()))
+            .unwrap();
+        let marker = visual
+            .debug_bounds(Box::leak(format!("{selector}-marker").into_boxed_str()))
+            .unwrap();
+        assert_eq!(row.size.height, px(40.));
         assert!(label.size.height <= px(24.));
         assert!(icon.right() < label.left());
-        assert_eq!(label.right(), row.right() - px(8.));
+        assert!(label.right() < time.left());
+        assert!(time.right() < marker.left());
+        assert_eq!(marker.right(), row.right() - px(8.));
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("{selector}-unread").into_boxed_str()))
+                .is_some()
+        );
     }
     let handle = visual.update(|window, _| window.window_handle());
     for viewport in [size(px(900.), px(640.)), size(px(680.), px(480.))] {
@@ -123,6 +136,32 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
         assert!(panel.top() >= px(0.));
         assert!(panel.right() <= viewport.width);
     }
+    let selected = shell.read_with(visual, |shell, _| shell.live.as_ref().unwrap().selected);
+    click(visual, "notifications-read-all");
+    wait(visual, |cx| shell.read(cx).activity.inbox.unread() == 0);
+    for index in 0..2 {
+        let notices = delivery::snapshot(&fixture, index).notifications;
+        assert_eq!(notices.len(), 1);
+        assert!(notices[0].read);
+        let selector = Box::leak(format!("notification-{index}").into_boxed_str());
+        assert!(visual.debug_bounds(selector).is_some());
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("{selector}-marker").into_boxed_str()))
+                .is_some()
+        );
+        assert!(
+            visual
+                .debug_bounds(Box::leak(format!("{selector}-unread").into_boxed_str()))
+                .is_none()
+        );
+    }
+    assert!(shell.read_with(visual, |shell, _| shell.activity.open));
+    assert_eq!(
+        shell.read_with(visual, |shell, _| shell.live.as_ref().unwrap().selected),
+        selected
+    );
+    assert_eq!(visual.update(|window, cx| window.notifications(cx)), toasts);
     click(visual, "notifications-clear");
     wait(visual, |cx| {
         shell.read(cx).activity.inbox.notices().is_empty()

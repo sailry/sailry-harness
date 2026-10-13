@@ -1,0 +1,4 @@
+notifications_time_now: "Ahora mismo"
+notifications_time_minutes: "hace %{count} min"
+notifications_time_hours: "hace %{count} h"
+notifications_time_days: "hace %{count} d"

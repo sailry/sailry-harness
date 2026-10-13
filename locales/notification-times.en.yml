@@ -1,0 +1,4 @@
+notifications_time_now: "Just now"
+notifications_time_minutes: "%{count} min ago"
+notifications_time_hours: "%{count} h ago"
+notifications_time_days: "%{count} d ago"

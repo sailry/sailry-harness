@@ -1,0 +1,4 @@
+notifications_time_now: "Только что"
+notifications_time_minutes: "%{count} мин. назад"
+notifications_time_hours: "%{count} ч назад"
+notifications_time_days: "%{count} дн. назад"

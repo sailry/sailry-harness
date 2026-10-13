@@ -7,9 +7,18 @@ pub(crate) mod icons;
 
 pub(crate) struct Assets;
 
-gpui_kit::assets::icon_assets!(ActivityAssets, [ListTodo]);
+gpui_kit::assets::icon_assets!(
+    ActivityAssets,
+    [
+        ListTodo,
+        CheckCheck,
+        CircleCheck,
+        ShieldAlert,
+        MessageCircleQuestionMark
+    ]
+);
 gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare]);
-gpui_kit::assets::icon_assets!(PickerAssets, [Monitor, List, LayoutGrid]);
+gpui_kit::assets::icon_assets!(PickerAssets, [Monitor, List, LayoutGrid, FolderInput]);
 gpui_kit::assets::icon_assets!(
     SettingsAssets,
     [
