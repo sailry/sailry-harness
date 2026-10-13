@@ -33,7 +33,7 @@ pub(in crate::agent) async fn instruction(
                         ));
                     }
                     if !package.skills.is_empty() {
-                        result.push_str("\nLoad the relevant skill with load_skill before following its workflow; do not load unrelated skills.");
+                        result.push_str("\nIf load_skill is available in this turn's tool catalog, load the relevant skill before following its workflow unless its full instructions are already supplied. Otherwise use already supplied full instructions or explain that skill loading is unavailable; do not follow a partly loaded workflow or load unrelated skills.");
                     }
                 }
                 result.push_str("\nIf a required capability is unavailable, explain that limitation instead of claiming the plugin was used.");

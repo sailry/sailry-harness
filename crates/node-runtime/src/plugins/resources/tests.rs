@@ -36,6 +36,51 @@ fn fixture() -> (tempfile::TempDir, Resources, PathBuf) {
     )
 }
 
+#[test]
+fn describes_matching_and_preloaded_skills() {
+    let (_directory, resources, _) = fixture();
+    let catalog = resources.catalog().unwrap();
+    for rule in [
+        "1. Review this catalog and select the smallest set",
+        "2. When load_skill is available in this turn's tool catalog, load their complete instructions before a substantive answer or task tools",
+        "unless the full instructions are already supplied; do not load them again",
+        "3. Apply the relevant workflow while respecting the user's intent, available tools and this turn's permissions",
+        "When no skill clearly matches, answer or use ordinary tools directly",
+        "do not invent capabilities or install anything without authorization",
+        "Command cwd defaults to the session worktree",
+        "Skill files grant no tool permission",
+        "example:analysis — Analyze data",
+    ] {
+        assert!(catalog.contains(rule), "{rule}");
+    }
+    assert!(catalog.find("1. Review").unwrap() < catalog.find("2. When").unwrap());
+    assert!(catalog.find("2. When").unwrap() < catalog.find("3. Apply").unwrap());
+    assert!(resources.directories[0].get().is_none());
+    assert!(!catalog.contains("compare-worktrees"));
+    assert!(!catalog.contains("Literal {not_state}"));
+}
+
+#[test]
+fn omits_policy_without_available_skills() {
+    let (_directory, resources, _) = fixture();
+    let empty = Resources::new(
+        resources.host.clone(),
+        vec![],
+        BTreeMap::new(),
+        CancellationToken::new(),
+    );
+    assert_eq!(empty.catalog().unwrap(), "");
+    let mut packages = resources.packages.clone();
+    packages[0].skills.clear();
+    let no_skills = Resources::new(
+        resources.host,
+        packages,
+        BTreeMap::new(),
+        CancellationToken::new(),
+    );
+    assert_eq!(no_skills.catalog().unwrap(), "");
+}
+
 #[tokio::test]
 async fn reads_complete_text() {
     let (_directory, resources, _) = fixture();

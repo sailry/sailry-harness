@@ -321,9 +321,10 @@ async fn stop_preserves_child_direction_without_replay() {
 async fn continues_after_background_answer() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
+        let title = "补充库存模块测试 🙂";
         let parent = Server::scripted_tools(vec![(
             plugin_tool("delegation", "spawn_agent"),
-            json!({"role":"review","task":"Wait for the held response","background":true}),
+            json!({"role":"review","title":title,"task":"Wait for the held response","background":true}),
         )])
         .await;
         let child = Server::markdown_held("Final child evidence".into(), release.clone()).await;
@@ -367,6 +368,36 @@ async fn continues_after_background_answer() {
         assert_eq!(guidance["session"], json!(child.id));
         assert!(guidance["recipient"].is_string());
         assert_eq!(guidance["status"], "queued");
+        let observed = crate::progress::observe(&fixture.client, fixture.session.id).await;
+        let page = &observed.snapshot.as_ref().unwrap().page;
+        let canonical = page
+            .children
+            .iter()
+            .find(|value| value.run.session == child.id)
+            .unwrap();
+        assert!(canonical.origin.role.is_some());
+        let expected = format!("{} {title}", canonical.name.as_deref().unwrap());
+        let guide = observed
+            .calls
+            .iter()
+            .find(|call| {
+                call.turn == directed.id && call.name == plugin_tool("delegation", "guide_agent")
+            })
+            .unwrap();
+        assert_eq!(guide.arguments(page).unwrap()["session"], json!(child.id));
+        assert_eq!(
+            guide
+                .resolved
+                .as_ref()
+                .unwrap()
+                .input
+                .summary
+                .as_ref()
+                .unwrap()
+                .text,
+            expected
+        );
+        assert!(!expected.contains(&child.id.to_string()));
         fixture.parent.replace_tools(vec![(
             plugin_tool("delegation", "wait_agent"),
             json!({"session":child.id}),

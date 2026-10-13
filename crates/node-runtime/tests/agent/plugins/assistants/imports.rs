@@ -158,6 +158,52 @@ fn result<'a>(page: &'a Page, tool: &str) -> &'a Value {
 }
 
 #[tokio::test]
+async fn qualifies_policy_without_a_loader() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let fixture = process::Fixture::new(remote, &server).await;
+        let info = assistant(&fixture, json!([{"kind":"plugin","name":"read_note"}])).await;
+        let session = create(&fixture, &info).await;
+        let turn = submit(&fixture.client, &session, false).await;
+        let page = finished(&fixture.client, session.id, turn.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Completed
+        );
+        let request = server.requests.lock().unwrap()[0].clone();
+        let tools: std::collections::BTreeSet<_> = request["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|tool| tool["function"]["name"].as_str())
+            .collect();
+        assert!(tools.contains(alias("read_note").as_str()));
+        assert!(!tools.contains("load_skill"));
+        assert!(!tools.contains("read_skill_resource"));
+        let instruction = request["messages"][0].to_string();
+        assert!(instruction.contains("assistant-notes:review"));
+        assert!(instruction.contains("When load_skill is available in this turn's tool catalog"));
+        assert!(
+            instruction
+                .contains("If a required skill or tool is unavailable, explain the limitation")
+        );
+        assert!(
+            instruction.contains(
+                "unless the full instructions are already supplied; do not load them again"
+            )
+        );
+        assert!(!instruction.contains("delegation:compare-worktrees"));
+        assert!(!instruction.contains("<selected_skill>"));
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn selects_tools_without_importing_resources() {
     for remote in [false, true] {
         selected(remote, false, Permission::Full).await;

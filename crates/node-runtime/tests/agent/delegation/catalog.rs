@@ -42,6 +42,202 @@ async fn catalog(client: &Client) -> Vec<role::Profile> {
 }
 
 #[tokio::test]
+async fn scopes_skill_policy_to_admitted_inventory() {
+    use sailry_protocol::conversation::reference::{Reference, Target};
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let unused = Server::tools(vec![]).await;
+        let fixture = super::fixture::Fixture::start(remote, server, unused).await;
+        for name in ["delegation", "worktrees"] {
+            let Output::Plugin(info) = fixture
+                .client
+                .execute(
+                    fixture
+                        .client
+                        .prepare(Command::ReadPlugin { name: name.into() }),
+                )
+                .await
+                .unwrap()
+            else {
+                panic!("plugin expected")
+            };
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: info.summary.revision,
+                    enabled: true,
+                }))
+                .await
+                .unwrap();
+        }
+        let mut message: Input = "Compare two independent implementations".into();
+        message.references.push(Reference {
+            target: Target::Skill {
+                package: "delegation".into(),
+                name: "compare-worktrees".into(),
+            },
+            label: "Compare approaches".into(),
+        });
+        let Output::QueuedTurn(selected) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        let page = finished(&fixture.client, fixture.session.id, selected.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == selected.id)
+                .unwrap()
+                .status,
+            Status::Completed
+        );
+        let request = fixture.parent.requests.lock().unwrap()[0].clone();
+        let instruction = request["messages"][0].to_string();
+        assert_eq!(instruction.matches("<selected_skill>").count(), 1);
+        assert!(instruction.contains(
+            "Use this skill when the user requests two or more competing implementations"
+        ));
+        assert!(
+            instruction.contains(
+                "unless the full instructions are already supplied; do not load them again"
+            )
+        );
+
+        for stage in [
+            "enabled",
+            "worktrees_disabled",
+            "worktrees_removed",
+            "delegation_disabled",
+            "delegation_removed",
+        ] {
+            if stage != "enabled" {
+                let name = if stage.starts_with("worktrees") {
+                    "worktrees"
+                } else {
+                    "delegation"
+                };
+                let Output::Plugin(info) = fixture
+                    .client
+                    .execute(
+                        fixture
+                            .client
+                            .prepare(Command::ReadPlugin { name: name.into() }),
+                    )
+                    .await
+                    .unwrap()
+                else {
+                    panic!("plugin expected")
+                };
+                let command = if stage.ends_with("removed") {
+                    Command::RemovePlugin {
+                        name: name.into(),
+                        expected_revision: info.summary.revision,
+                    }
+                } else {
+                    Command::SetPluginEnabled {
+                        name: name.into(),
+                        expected_revision: info.summary.revision,
+                        enabled: false,
+                    }
+                };
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(command))
+                    .await
+                    .unwrap();
+            }
+            let offset = fixture.parent.requests.lock().unwrap().len();
+            let turn = fixture
+                .push("Inspect the currently available capabilities")
+                .await;
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(
+                page.runs
+                    .iter()
+                    .find(|run| run.turn == turn.id)
+                    .unwrap()
+                    .status,
+                Status::Completed,
+                "{stage}"
+            );
+            let request = fixture.parent.requests.lock().unwrap()[offset].clone();
+            let tools: std::collections::BTreeSet<_> = request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|tool| tool["function"]["name"].as_str())
+                .collect();
+            let instruction = request["messages"][0].to_string();
+            assert!(instruction.contains("1. Review this catalog and select the smallest set"));
+            assert!(
+                instruction.contains("When load_skill is available in this turn's tool catalog")
+            );
+            assert!(
+                instruction.contains(
+                    "do not invent capabilities or install anything without authorization"
+                )
+            );
+            assert!(tools.contains("load_skill"));
+            let delegation = !stage.starts_with("delegation");
+            assert_eq!(
+                instruction.contains("delegation:compare-worktrees"),
+                delegation,
+                "{stage}"
+            );
+            assert_eq!(
+                turn.plugins
+                    .iter()
+                    .any(|package| package.name == "delegation"),
+                delegation,
+                "{stage}"
+            );
+            for name in ["spawn_agent", "guide_agent", "wait_agent"] {
+                assert_eq!(
+                    tools.contains(tool(name).as_str()),
+                    delegation,
+                    "{stage} {name}"
+                );
+            }
+            let worktrees = stage == "enabled";
+            for name in ["create_worktree", "register_worktree"] {
+                assert_eq!(
+                    tools.contains(plugin_tool("worktrees", name).as_str()),
+                    worktrees,
+                    "{stage} {name}"
+                );
+            }
+            assert_eq!(
+                turn.plugins
+                    .iter()
+                    .any(|package| package.name == "worktrees"),
+                worktrees,
+                "{stage}"
+            );
+            assert!(!instruction.contains("<selected_skill>"));
+            assert!(results(&page).is_empty());
+        }
+        assert!(
+            selected
+                .plugins
+                .iter()
+                .any(|package| package.name == "delegation")
+        );
+        assert!(fixture.child.requests.lock().unwrap().is_empty());
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn edits_catalog_and_applies_future_capture() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
