@@ -143,6 +143,7 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         | Command::SavePluginMcp { .. } => Some(Target::Plugin),
         Command::SetPluginEnabled { enabled: true, .. } => Some(Target::Plugin),
         Command::ManageFiles(_)
+        | Command::RemoveProject { .. }
         | Command::StopHostProcess { .. }
         | Command::OpenTerminal { .. }
         | Command::StopCommand { .. }

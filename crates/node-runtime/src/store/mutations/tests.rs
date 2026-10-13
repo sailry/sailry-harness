@@ -9,6 +9,7 @@ use super::super::{CAPACITY, Store, mutations};
 
 mod entries;
 mod outcomes;
+mod projects;
 mod removal;
 mod streaming;
 mod trash;

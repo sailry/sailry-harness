@@ -5,6 +5,64 @@ fn unknown(data: Value) -> Value {
     json!({ "kind": "future_result", "data": data })
 }
 
+mod faults {
+    use super::*;
+
+    #[test]
+    fn defaults_missing_details() {
+        let value = json!({ "code": "busy", "message": "fixture busy" });
+        let fault: Fault = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(fault.details, None);
+        assert_eq!(serde_json::to_value(&fault).unwrap(), value);
+        assert_eq!(fault, Fault::new(ErrorCode::Busy, "fixture busy"));
+    }
+
+    #[test]
+    fn round_trips_removal_details() {
+        let mut fault = Fault::new(ErrorCode::Busy, "fixture project has pending tasks");
+        fault.details = Some(FaultDetails::ProjectRemoval {
+            tasks_active: true,
+            terminals_may_be_closed: true,
+        });
+        let encoded = serde_json::to_value(&fault).unwrap();
+        assert_eq!(
+            encoded["details"],
+            json!({
+                "kind": "project_removal",
+                "tasks_active": true,
+                "terminals_may_be_closed": true,
+            }),
+        );
+        assert_eq!(serde_json::from_value::<Fault>(encoded).unwrap(), fault);
+        let output = Output::RequestOutcome {
+            id: RequestId::new(),
+            outcome: RequestOutcome::Completed(Box::new(Err(fault))),
+        };
+        assert_eq!(
+            serde_json::from_value::<Output>(serde_json::to_value(&output).unwrap()).unwrap(),
+            output,
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_details() {
+        for details in [
+            json!({ "kind": "future" }),
+            json!({ "kind": "project_removal" }),
+            json!({ "kind": "project_removal", "tasks_active": "true", "terminals_may_be_closed": false }),
+        ] {
+            assert!(
+                serde_json::from_value::<Fault>(json!({
+                    "code": "busy",
+                    "message": "fixture busy",
+                    "details": details,
+                }))
+                .is_err()
+            );
+        }
+    }
+}
+
 mod history {
     use super::*;
 

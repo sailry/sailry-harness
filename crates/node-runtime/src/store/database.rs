@@ -486,6 +486,8 @@ impl Database {
                     let validation = if let Command::ManageFiles(action) = &request.command {
                         crate::files::browser::targets(action)
                             .and_then(|paths| self.begin_relocation(caller, request.id, &paths))
+                    } else if let Command::RemoveProject { expected } = &request.command {
+                        self.begin_project_removal(caller, &request, expected)
                     } else {
                         Ok(())
                     };
@@ -854,10 +856,19 @@ impl Database {
             Ok(envelopes)
         })();
         match recorded {
-            Err(_) => Err(Fault::new(
-                ErrorCode::OutcomeUnknown,
-                "operation result could not be recorded; inspect the target before retrying",
-            )),
+            Err(_) => {
+                let mut error = Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    "operation result could not be recorded; inspect the target before retrying",
+                );
+                if matches!(request.command, Command::RemoveProject { .. }) {
+                    error.details = Some(FaultDetails::ProjectRemoval {
+                        tasks_active: false,
+                        terminals_may_be_closed: true,
+                    });
+                }
+                Err(error)
+            }
             Ok(envelopes) => {
                 for event in envelopes {
                     match &event.event {

@@ -3,6 +3,7 @@ use super::database::{encode, storage_error};
 use rusqlite::{Connection, OptionalExtension, params};
 use sailry_protocol::{projects::*, *};
 use std::path::{Path, PathBuf};
+pub(super) mod removal;
 
 pub(super) fn prepare(draft: &Draft) -> Result<PathBuf, Fault> {
     validate(&draft.name, &draft.path, &draft.appearance)?;
@@ -108,6 +109,32 @@ pub(super) fn finish(
     command: &Command,
     result: &mut sailry_link::Response,
 ) -> Result<Option<Event>, Fault> {
+    if let Command::RemoveProject { expected } = command {
+        if matches!(result, Ok(Output::ProjectRemoved { id }) if *id == expected.id) {
+            return match remove(db, expected) {
+                Ok((output, event)) => {
+                    *result = Ok(output);
+                    Ok(event)
+                }
+                Err(mut error) => {
+                    let tasks_active = matches!(
+                        error.details,
+                        Some(FaultDetails::ProjectRemoval {
+                            tasks_active: true,
+                            ..
+                        })
+                    );
+                    error.details = Some(FaultDetails::ProjectRemoval {
+                        tasks_active,
+                        terminals_may_be_closed: true,
+                    });
+                    *result = Err(error);
+                    Ok(None)
+                }
+            };
+        }
+        return Ok(None);
+    }
     if !matches!(command, Command::CreateProject(_)) {
         return Ok(None);
     }
@@ -311,20 +338,11 @@ pub(super) fn remove(
     db: &Connection,
     expected: &Project,
 ) -> Result<(Output, Option<Event>), Fault> {
-    check(db, expected)?;
-    let active: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn JOIN sessions s ON s.id=t.session WHERE s.project=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))",
-        [expected.id.to_string()], |row| row.get(0)).map_err(storage_error)?;
-    if active {
-        return Err(Fault::new(ErrorCode::Busy, "project has pending tasks"));
-    }
-    let trees = super::worktrees::list(db)?;
-    if super::terminals::list(db)?.iter().any(|terminal| {
-        terminal.status == terminal::Status::Running
-            && trees
-                .iter()
-                .any(|tree| tree.project == Some(expected.id) && Some(tree.id) == terminal.worktree)
-    }) {
-        return Err(Fault::new(ErrorCode::Busy, "project has running terminals"));
+    if !removal::prepare(db, expected)?.terminals.is_empty() {
+        return Err(Fault::new(
+            ErrorCode::Busy,
+            "project still has open terminals",
+        ));
     }
     db.execute(
         "INSERT INTO removed_projects(project) VALUES(?1)",

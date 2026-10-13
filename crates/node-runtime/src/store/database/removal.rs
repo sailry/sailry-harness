@@ -1,4 +1,4 @@
-//! Protect Node-owned resources while the existing mutation worker removes a worktree.
+//! Protect Node-owned resources during worktree deletion or project removal.
 use super::*;
 use std::path::PathBuf;
 
@@ -6,6 +6,7 @@ pub(super) struct Pending {
     caller: NodeId,
     request: RequestId,
     root: PathBuf,
+    project: Option<ProjectId>,
 }
 
 impl Database {
@@ -35,6 +36,30 @@ impl Database {
         {
             self.check_removing(id)?;
         }
+        let project = match command {
+            Command::CreateSession { project, .. } => *project,
+            Command::CreateWorktree { project, .. }
+            | Command::RegisterWorktree { project, .. }
+            | Command::CreateManagedWorktree { project, .. } => Some(*project),
+            Command::UpdateProject { expected, .. } | Command::RemoveProject { expected } => {
+                Some(expected.id)
+            }
+            _ => None,
+        };
+        if let Some(project) = project
+            && self
+                .removals
+                .values()
+                .any(|pending| pending.project == Some(project))
+        {
+            return Err(busy());
+        }
+        if let Command::OpenTerminal { terminal, .. } = command {
+            let info = super::super::terminals::required(&self.connection, *terminal)?;
+            if let Some(id) = info.worktree {
+                self.check_removing(id)?;
+            }
+        }
         // Do not introduce registered resources inside a directory being relocated.
         let path = match command {
             Command::CreateProject(draft) => Path::new(&draft.path),
@@ -55,7 +80,7 @@ impl Database {
         if resolved.is_ok_and(|path| {
             self.removals
                 .values()
-                .any(|pending| path.starts_with(&pending.root))
+                .any(|pending| pending.project.is_none() && path.starts_with(&pending.root))
                 || self
                     .relocations
                     .values()
@@ -82,8 +107,111 @@ impl Database {
                 caller,
                 request: request.id,
                 root: root.to_owned(),
+                project: None,
             },
         );
+        Ok(())
+    }
+
+    pub(super) fn begin_project_removal(
+        &mut self,
+        caller: NodeId,
+        request: &Request,
+        expected: &Project,
+    ) -> Result<(), Fault> {
+        let plan = super::super::projects::removal::prepare(&self.connection, expected)?;
+        self.guard_project(caller, request.id, expected.id, &plan.worktrees)
+    }
+
+    pub(in crate::store) fn prepare_project_removal(
+        &mut self,
+        caller: NodeId,
+        request: RequestId,
+        expected: &Project,
+    ) -> Result<Vec<terminal::Info>, Fault> {
+        if !self.removals.values().any(|pending| {
+            pending.caller == caller
+                && pending.request == request
+                && pending.project == Some(expected.id)
+        }) {
+            return Err(Fault::new(
+                ErrorCode::Conflict,
+                "project removal is no longer pending",
+            ));
+        }
+        let plan = super::super::projects::removal::prepare(&self.connection, expected)?;
+        // Earlier admitted worktree registrations finish before the worker prepares again.
+        self.guard_project(caller, request, expected.id, &plan.worktrees)?;
+        Ok(plan.terminals)
+    }
+
+    fn guard_project(
+        &mut self,
+        caller: NodeId,
+        request: RequestId,
+        project: ProjectId,
+        worktrees: &[Worktree],
+    ) -> Result<(), Fault> {
+        if worktrees.iter().any(|tree| {
+            self.removals
+                .get(&tree.id)
+                .is_some_and(|pending| pending.caller != caller || pending.request != request)
+        }) {
+            return Err(busy());
+        }
+        for tree in worktrees {
+            self.removals.insert(
+                tree.id,
+                Pending {
+                    caller,
+                    request,
+                    root: tree.path.clone().into(),
+                    project: Some(project),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    pub(in crate::store) fn project_terminal_closed(
+        &mut self,
+        worktree: WorktreeId,
+        terminal: TerminalId,
+        result: Result<terminal::Info, Fault>,
+        events: &broadcast::Sender<EventEnvelope>,
+    ) -> Result<(), Fault> {
+        let mut result = result.map(Output::Terminal);
+        let changes = (|| {
+            let transaction = self.connection.transaction().map_err(storage_error)?;
+            let event = super::super::terminals::finish(
+                &transaction,
+                &Command::CloseTerminal { worktree, terminal },
+                &mut result,
+            )?;
+            if result.is_err() {
+                return Ok(Vec::new());
+            }
+            let info = super::super::terminals::required(&transaction, terminal)?;
+            if info.worktree != Some(worktree) || info.status != terminal::Status::Closed {
+                return Err(Fault::new(
+                    ErrorCode::OutcomeUnknown,
+                    "terminal closure was not recorded",
+                ));
+            }
+            let changes = record(&transaction, self.node, event.into_iter().collect())?;
+            transaction.commit().map_err(storage_error)?;
+            Ok(changes)
+        })()
+        .map_err(|_: Fault| {
+            Fault::new(
+                ErrorCode::OutcomeUnknown,
+                "terminal closure could not be recorded; inspect the terminal before retrying",
+            )
+        })?;
+        result?;
+        for event in changes {
+            let _ = events.send(event);
+        }
         Ok(())
     }
 
@@ -149,6 +277,11 @@ impl Database {
     }
 
     pub(super) fn end_removal(&mut self, caller: NodeId, request: &Request) {
+        if matches!(request.command, Command::RemoveProject { .. }) {
+            self.removals
+                .retain(|_, pending| pending.caller != caller || pending.request != request.id);
+            return;
+        }
         if let Command::RemoveWorktree { worktree, .. } = request.command
             && self
                 .removals
@@ -161,5 +294,5 @@ impl Database {
 }
 
 fn busy() -> Fault {
-    Fault::new(ErrorCode::Busy, "resource path is changing")
+    Fault::new(ErrorCode::Busy, "resource operation is pending")
 }

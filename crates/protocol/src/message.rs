@@ -32,6 +32,17 @@ pub enum ErrorCode {
 pub struct Fault {
     pub code: ErrorCode,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<FaultDetails>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FaultDetails {
+    ProjectRemoval {
+        tasks_active: bool,
+        terminals_may_be_closed: bool,
+    },
 }
 
 impl Fault {
@@ -43,6 +54,7 @@ impl Fault {
         Self {
             code,
             message: message.into(),
+            details: None,
         }
     }
 }

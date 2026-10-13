@@ -210,7 +210,13 @@ project_new: 新建项目
 project_edit: 编辑项目
 project_path_in_use: 路径已关联会话或 worktree，不能直接修改
 project_remove_retained: 从项目列表移除，文件和会话记录保留
-project_remove_busy: 请先停止任务并关闭终端
+project_remove_busy: "项目正在使用中，请稍后重试"
+project_remove_tasks: "请先停止运行中的任务再移除项目"
+project_remove_tasks_partial: "项目已保留，请先停止任务再重试，部分终端可能已关闭"
+project_remove_failed: "项目已保留，部分终端可能已关闭"
+project_remove_changed_partial: "项目已变化，请重新打开后重试，部分终端可能已关闭"
+project_remove_unknown: "移除结果未确认，请检查项目和终端"
+project_removed: "项目已移除"
 project_name: 项目名称
 project_path: 项目路径
 project_required: 请填写项目名称和路径
@@ -2141,7 +2147,7 @@ provider_tokens_m: "%{count}M"
 
 files_move: 移动
 session_delete_named: 确认删除会话“%{name}”及其子代理？无法恢复
-project_remove_named: 确认移除项目“%{name}”？文件和会话会保留
+project_remove_named: "确认移除项目“%{name}”？将关闭其终端，文件和会话会保留"
 project_remove_sample: 确认移除示例项目“%{name}”
 worktree_remove_named: 确认删除 worktree“%{name}”？Git 分支会保留
 worktree_remove_sample: 确认移除示例 worktree“%{name}”

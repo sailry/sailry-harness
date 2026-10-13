@@ -14,6 +14,37 @@ async fn snapshot(client: &Client) -> Snapshot {
     value
 }
 
+fn launch(worktree: WorktreeId) -> terminal::Launch {
+    terminal::Launch {
+        access: sailry_protocol::process::Access::Workspace,
+        worktree,
+        viewport: terminal::Viewport {
+            columns: 80,
+            rows: 24,
+            pixel_width: 640,
+            pixel_height: 480,
+        },
+        appearance: terminal::Appearance {
+            foreground: terminal::Rgb {
+                red: 240,
+                green: 240,
+                blue: 240,
+            },
+            background: terminal::Rgb {
+                red: 20,
+                green: 20,
+                blue: 20,
+            },
+            palette: [terminal::Rgb {
+                red: 128,
+                green: 128,
+                blue: 128,
+            }; 16],
+            color_scheme: terminal::ColorScheme::Dark,
+        },
+    }
+}
+
 #[tokio::test]
 async fn edits_and_restores() {
     let temp = tempfile::tempdir().unwrap();
@@ -121,76 +152,130 @@ async fn edits_and_restores() {
         else {
             panic!("queued turn expected")
         };
+        let busy_request = client.prepare(Command::RemoveProject {
+            expected: updated.clone(),
+        });
+        let busy = client.execute(busy_request.clone()).await.unwrap_err();
+        assert_eq!(busy.code, ErrorCode::Busy);
         assert_eq!(
-            client
-                .execute(client.prepare(Command::RemoveProject {
-                    expected: updated.clone()
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
+            busy.details,
+            Some(FaultDetails::ProjectRemoval {
+                tasks_active: true,
+                terminals_may_be_closed: false,
+            })
+        );
+        assert_eq!(
+            client.execute(busy_request.clone()).await.unwrap_err(),
+            busy
+        );
+        assert_eq!(
+            client.outcome(&busy_request).await.unwrap(),
+            RequestOutcome::Completed(Box::new(Err(busy)))
         );
         client
             .execute(client.prepare(Command::StopTurn { turn: turn.id }))
             .await
             .unwrap();
         let Output::Terminal(terminal) = client
-            .execute(client.prepare(Command::CreateTerminal(terminal::Launch {
-                access: sailry_protocol::process::Access::Workspace,
-                worktree: session.worktree,
-                viewport: terminal::Viewport {
-                    columns: 80,
-                    rows: 24,
-                    pixel_width: 640,
-                    pixel_height: 480,
-                },
-                appearance: terminal::Appearance {
-                    foreground: terminal::Rgb {
-                        red: 240,
-                        green: 240,
-                        blue: 240,
-                    },
-                    background: terminal::Rgb {
-                        red: 20,
-                        green: 20,
-                        blue: 20,
-                    },
-                    palette: [terminal::Rgb {
-                        red: 128,
-                        green: 128,
-                        blue: 128,
-                    }; 16],
-                    color_scheme: terminal::ColorScheme::Dark,
-                },
-            })))
+            .execute(client.prepare(Command::CreateTerminal(launch(session.worktree))))
             .await
             .unwrap()
         else {
             panic!("terminal expected")
         };
-        assert_eq!(
-            client
-                .execute(client.prepare(Command::RemoveProject {
-                    expected: updated.clone()
-                }))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::Busy
-        );
-        client
-            .execute(client.prepare(Command::CloseTerminal {
-                worktree: session.worktree,
-                terminal: terminal.id,
+        assert_eq!(terminal.status, terminal::Status::Running);
+        let other_path = root.join(format!("other-{index}"));
+        std::fs::create_dir(&other_path).unwrap();
+        let Output::Project(other) = client
+            .execute(client.prepare(Command::RegisterProject {
+                name: "Other project".into(),
+                path: other_path.to_str().unwrap().into(),
             }))
             .await
+            .unwrap()
+        else {
+            panic!("project expected")
+        };
+        let other_tree = snapshot(&client)
+            .await
+            .worktrees
+            .into_iter()
+            .find(|tree| tree.project == Some(other.id))
+            .unwrap()
+            .id;
+        let Output::Terminal(other_terminal) = client
+            .execute(client.prepare(Command::CreateTerminal(launch(other_tree))))
+            .await
+            .unwrap()
+        else {
+            panic!("terminal expected")
+        };
+        let history = client
+            .read_conversation(session.id, None, 100)
+            .await
+            .unwrap();
+        let retained_session = snapshot(&client)
+            .await
+            .sessions
+            .into_iter()
+            .find(|value| value.id == session.id)
             .unwrap();
         let request = client.prepare(Command::RemoveProject {
             expected: updated.clone(),
         });
         let result = client.execute(request.clone()).await.unwrap();
         assert_eq!(client.execute(request).await.unwrap(), result);
+        assert_eq!(result, Output::ProjectRemoved { id: updated.id });
+        let state = snapshot(&client).await;
+        let closed = state
+            .terminals
+            .iter()
+            .find(|info| info.id == terminal.id)
+            .unwrap();
+        assert_eq!(closed.status, terminal::Status::Closed);
+        assert_eq!(closed.owner, None);
+        assert!(closed.revision > terminal.revision);
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::InspectTerminal {
+                    terminal: terminal.id
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound,
+        );
+        assert_eq!(
+            state
+                .terminals
+                .iter()
+                .find(|info| info.id == other_terminal.id)
+                .unwrap()
+                .status,
+            terminal::Status::Running,
+        );
+        assert!(matches!(
+            client
+                .execute(client.prepare(Command::InspectTerminal {
+                    terminal: other_terminal.id
+                }))
+                .await
+                .unwrap(),
+            Output::TerminalSnapshot(_),
+        ));
+        assert!(
+            state
+                .sessions
+                .iter()
+                .any(|value| value == &retained_session)
+        );
+        assert_eq!(
+            client
+                .read_conversation(session.id, None, 100)
+                .await
+                .unwrap(),
+            history
+        );
         assert!(
             !snapshot(&client)
                 .await
@@ -229,6 +314,10 @@ async fn edits_and_restores() {
             .await
             .unwrap();
         removed.push(restored);
+        client
+            .execute(client.prepare(Command::RemoveProject { expected: other }))
+            .await
+            .unwrap();
     }
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();

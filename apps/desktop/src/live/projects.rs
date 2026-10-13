@@ -1,6 +1,8 @@
 //! Project inventory removal keeps execution history and files on the Node.
 use super::*;
-use sailry_protocol::{ErrorCode, Project, Request};
+use sailry_protocol::{ErrorCode, Fault, FaultDetails, Project, Request};
+#[cfg(test)]
+mod tests;
 
 impl Shell {
     pub(super) fn remove_live_project(
@@ -48,15 +50,6 @@ struct Removal {
 impl Removal {
     fn prompt(&self, window: &mut Window, cx: &mut Context<Self>) {
         let detail = rust_i18n::t!("project_remove_named", name = self.expected.path).to_string();
-        if let Some(error) = self.error {
-            use gpui_kit::component::notification::Notification;
-            crate::feedback::toast(
-                window,
-                tr(error),
-                Notification::error(tr(error)).id1::<Self>(("error", cx.entity_id())),
-                cx,
-            );
-        }
         let form = cx.entity();
         crate::prompts::confirm(
             &tr("project_remove"),
@@ -87,6 +80,14 @@ impl Removal {
                 form.pending = false;
                 match result {
                     Ok(Ok(Output::ProjectRemoved { id })) if id == form.expected.id => {
+                        use gpui_kit::component::notification::Notification;
+                        crate::feedback::toast(
+                            window,
+                            tr("project_removed"),
+                            Notification::success(tr("project_removed"))
+                                .id1::<Self>(("removed", cx.entity_id())),
+                            cx,
+                        );
                         let _ = form.owner.update(cx, |shell, cx| {
                             if let Some(live) = &mut shell.live
                                 && live.selected == form.request.target
@@ -98,27 +99,25 @@ impl Removal {
                         });
                     }
                     Ok(Err(error)) => {
-                        form.error = Some(match error.code {
-                            ErrorCode::Busy => "project_remove_busy",
-                            ErrorCode::RevisionConflict | ErrorCode::NotFound => "project_changed",
-                            ErrorCode::Unavailable | ErrorCode::OutcomeUnknown => {
-                                "project_outcome_unknown"
-                            }
-                            _ => "live_request_failed",
-                        });
+                        let (key, uncertain) = failure(&error);
+                        form.error = Some(key);
                         // Definitive failures are durable too; a later retry is a new attempt.
-                        if !matches!(
-                            error.code,
-                            ErrorCode::Unavailable | ErrorCode::OutcomeUnknown
-                        ) {
+                        if !uncertain {
                             form.request = form.client.prepare(Command::RemoveProject {
                                 expected: form.expected.clone(),
                             });
                         }
                     }
-                    _ => form.error = Some("project_outcome_unknown"),
+                    _ => form.error = Some("project_remove_unknown"),
                 }
-                if form.error.is_some() {
+                if let Some(error) = form.error {
+                    use gpui_kit::component::notification::Notification;
+                    crate::feedback::toast(
+                        window,
+                        tr(error),
+                        Notification::error(tr(error)).id1::<Self>(("error", cx.entity_id())),
+                        cx,
+                    );
                     form.prompt(window, cx);
                 }
                 cx.notify();
@@ -127,4 +126,36 @@ impl Removal {
         .detach();
         cx.notify();
     }
+}
+
+fn failure(error: &Fault) -> (&'static str, bool) {
+    let uncertain = error.code == ErrorCode::OutcomeUnknown
+        || (error.code == ErrorCode::Unavailable && error.details.is_none());
+    if uncertain {
+        return ("project_remove_unknown", true);
+    }
+    if let Some(FaultDetails::ProjectRemoval {
+        tasks_active,
+        terminals_may_be_closed,
+    }) = &error.details
+    {
+        return (
+            match (*tasks_active, *terminals_may_be_closed, error.code) {
+                (true, true, _) => "project_remove_tasks_partial",
+                (true, false, _) => "project_remove_tasks",
+                (false, true, ErrorCode::RevisionConflict) => "project_remove_changed_partial",
+                (false, true, _) => "project_remove_failed",
+                _ => "live_request_failed",
+            },
+            false,
+        );
+    }
+    (
+        match error.code {
+            ErrorCode::Busy => "project_remove_busy",
+            ErrorCode::RevisionConflict | ErrorCode::NotFound => "project_changed",
+            _ => "live_request_failed",
+        },
+        false,
+    )
 }

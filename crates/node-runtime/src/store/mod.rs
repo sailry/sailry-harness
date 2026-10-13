@@ -169,6 +169,18 @@ enum Job {
     },
     Agent(Box<agent::Operation>),
     TerminalInfo(sailry_protocol::terminal::Info),
+    ProjectRemovalPlan {
+        caller: NodeId,
+        request: sailry_protocol::RequestId,
+        expected: sailry_protocol::Project,
+        reply: oneshot::Sender<Result<Vec<sailry_protocol::terminal::Info>, Fault>>,
+    },
+    ProjectTerminalClosed {
+        worktree: sailry_protocol::WorktreeId,
+        terminal: sailry_protocol::TerminalId,
+        result: Result<sailry_protocol::terminal::Info, Fault>,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
     Request {
         caller: NodeId,
         request: Box<Request>,
@@ -519,6 +531,11 @@ impl Store {
                     match mutations::Worker::start(completed, move |caller, roots, request| {
                         let root = &roots.target;
                         match &request.command {
+                            sailry_protocol::Command::RemoveProject { expected } => {
+                                return projects::removal::execute(
+                                    &validation, &terminals, caller, request, expected,
+                                );
+                            }
                             sailry_protocol::Command::SavePluginMcp {
                                 package,
                                 configuration,
@@ -815,6 +832,14 @@ impl Store {
                             if let Err(error) = database.terminal_changed(info, &events) {
                                 eprintln!("terminal lifecycle persistence failed: {error}");
                             }
+                        }
+                        Job::ProjectRemovalPlan { caller, request, expected, reply } => {
+                            let _ = reply.send(database.prepare_project_removal(caller, request, &expected));
+                        }
+                        Job::ProjectTerminalClosed { worktree, terminal, result, reply } => {
+                            let _ = reply.send(database.project_terminal_closed(
+                                worktree, terminal, result, &events,
+                            ));
                         }
                         Job::Shutdown => {
                             accepting.store(false, Ordering::Release);
