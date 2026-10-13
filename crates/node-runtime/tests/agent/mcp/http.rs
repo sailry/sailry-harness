@@ -18,6 +18,7 @@ use tokio::{
 #[derive(Clone)]
 enum Reply {
     Normal,
+    HeldInitialization,
     Expired,
     Redirect(String),
     Oversized { method: &'static str, chunked: bool },
@@ -224,6 +225,9 @@ async fn respond(
         .lock()
         .unwrap()
         .push((method.clone(), headers, request.clone()));
+    if matches!(reply, Reply::HeldInitialization) && request["method"] == "initialize" {
+        std::future::pending::<()>().await;
+    }
     if let Reply::Oversized { method, chunked } = reply
         && request["method"] == method
     {
@@ -271,6 +275,44 @@ async fn respond(
         .map(|result| json!({"jsonrpc": "2.0", "id": request["id"], "result": result}).to_string())
         .unwrap_or_default();
     stream.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n{extra}\r\n{body}", body.len()).as_bytes()).await
+}
+
+#[tokio::test]
+async fn cancellation_joins_held_initialization() {
+    for remote in [false, true] {
+        let http = Http::start(Reply::HeldInitialization).await;
+        let model = Server::tools(vec![]).await;
+        let fixture = process::Fixture::new(remote, &model).await;
+        package(
+            &fixture.root,
+            json!({"remote": {"type":"streamable-http", "url":http.endpoint}}),
+            "held initialization",
+        );
+        install(&fixture, 0).await;
+        let (_, turn) = submit(&fixture, false).await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while http.count("initialize") == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("MCP initialization did not start");
+        let stopping = tokio::time::Instant::now();
+        execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let run = page.runs.iter().find(|run| run.turn == turn.id).unwrap();
+        assert_eq!(run.status, Status::Cancelled);
+        assert!(page.entries.is_empty());
+        assert!(model.requests.lock().unwrap().is_empty());
+        assert!(
+            run.error.is_none(),
+            "cleanup after {:?}: {:?}",
+            stopping.elapsed(),
+            run.error
+        );
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
 }
 
 #[tokio::test]

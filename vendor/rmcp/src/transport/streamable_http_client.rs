@@ -478,6 +478,49 @@ struct SessionCleanupInfo<C> {
     protocol_headers: HashMap<HeaderName, HeaderValue>,
 }
 
+impl<C: StreamableHttpClient> SessionCleanupInfo<C> {
+    async fn finish(self) {
+        let cleanup_session_id = self.session_id.clone();
+        match tokio::time::timeout(
+            SESSION_CLEANUP_TIMEOUT,
+            self.client.delete_session(
+                self.uri,
+                self.session_id,
+                self.auth_header,
+                self.protocol_headers,
+            ),
+        )
+        .await
+        {
+            Ok(Ok(_)) => {
+                tracing::info!(
+                    session_id = cleanup_session_id.as_ref(),
+                    "delete session success"
+                )
+            }
+            Ok(Err(StreamableHttpError::ServerDoesNotSupportDeleteSession)) => {
+                tracing::info!(
+                    session_id = cleanup_session_id.as_ref(),
+                    "server doesn't support delete session"
+                )
+            }
+            Ok(Err(e)) => {
+                tracing::error!(
+                    session_id = cleanup_session_id.as_ref(),
+                    "fail to delete session: {e}"
+                );
+            }
+            Err(_elapsed) => {
+                tracing::warn!(
+                    session_id = cleanup_session_id.as_ref(),
+                    "session cleanup timed out after {:?}",
+                    SESSION_CLEANUP_TIMEOUT
+                );
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct StreamableHttpClientWorker<C: StreamableHttpClient> {
@@ -851,114 +894,183 @@ impl<C: StreamableHttpClient> Worker for StreamableHttpClientWorker<C> {
         let config = self.config.clone();
         let transport_task_ct = context.cancellation_token.clone();
         let _drop_guard = transport_task_ct.clone().drop_guard();
-        let WorkerSendRequest {
-            responder,
-            message: startup_request,
-        } = context.recv_from_handler().await?;
-        let is_legacy_startup = matches!(
-            &startup_request,
-            ClientJsonRpcMessage::Request(request)
-                if matches!(&request.request, ClientRequest::InitializeRequest(_))
-        );
-        let mut saved_init_request = is_legacy_startup.then(|| startup_request.clone());
-        let empty_tool_cache = HashMap::new();
-        let (bootstrap_version, bootstrap_headers) = if is_legacy_startup {
-            (ProtocolVersion::default(), config.custom_headers.clone())
-        } else {
-            request_version_headers(
-                &config.custom_headers,
-                &startup_request,
-                &ProtocolVersion::default(),
-                &empty_tool_cache,
-            )
-        };
-        let (message, session_id) = match self
-            .client
-            .post_message_with_max_sse_event_size(
-                config.uri.clone(),
-                startup_request,
-                None,
-                config.auth_header.clone(),
-                bootstrap_headers.clone(),
-                config.max_sse_event_size,
-            )
-            .await
-        {
-            Ok(res) => {
-                let _ = responder.send(Ok(()));
-                res.expect_initialized::<C::Error>().await.map_err(
-                    WorkerQuitReason::fatal_context("process initialize response"),
-                )?
-            }
-            Err(err) => {
-                let msg = format!("{:?}", err);
-                let _ = responder.send(Err(err));
-                return Err(WorkerQuitReason::fatal(
-                    StreamableHttpError::TransportChannelClosed,
-                    msg,
-                ));
-            }
-        };
-        let mut uses_modern_http = !is_legacy_startup;
-        let mut session_id: Option<Arc<str>> = if uses_modern_http {
-            None
-        } else if let Some(session_id) = session_id {
-            Some(session_id.into())
-        } else {
-            if !self.config.allow_stateless {
-                return Err(WorkerQuitReason::fatal(
-                    StreamableHttpError::<C::Error>::MissingSessionIdInResponse,
-                    "process initialize response",
-                ));
-            }
-            None
-        };
-        let (mut negotiated_version, mut protocol_headers) = if is_legacy_startup {
-            negotiate_version_headers(&message, config.custom_headers.clone())
-        } else {
-            (bootstrap_version, bootstrap_headers)
-        };
-        // SEP-2243: tool input schemas (name -> schema) cached from tools/list responses,
-        // used to promote annotated tools/call arguments to Mcp-Param-* headers.
-        let mut tool_header_cache: HashMap<String, Arc<JsonObject>> = HashMap::new();
-
-        // Store session info for cleanup when run() exits (not spawned, so cleanup completes before close() returns)
-        let mut session_cleanup_info = session_id.as_ref().map(|sid| SessionCleanupInfo {
-            client: self.client.clone(),
-            uri: config.uri.clone(),
-            session_id: sid.clone(),
-            auth_header: config.auth_header.clone(),
-            protocol_headers: protocol_headers.clone(),
-        });
-
-        context.send_to_handler(message).await?;
-        if is_legacy_startup {
-            let initialized_notification = context.recv_from_handler().await?;
-            let initialized_headers = build_request_headers(
-                &protocol_headers,
-                &initialized_notification.message,
-                &tool_header_cache,
-                &negotiated_version,
-            );
-            self.client
-                .post_message_with_max_sse_event_size(
+        let mut session_cleanup_info = None;
+        let startup = {
+            let client = self.client.clone();
+            let transport_task_ct = transport_task_ct.clone();
+            let config = &config;
+            let context = &mut context;
+            let cleanup = &mut session_cleanup_info;
+            async move {
+                let WorkerSendRequest {
+                    responder,
+                    message: startup_request,
+                } = tokio::select! {
+                    biased;
+                    _ = transport_task_ct.cancelled() => return Err(WorkerQuitReason::Cancelled),
+                    result = context.recv_from_handler() => result?,
+                };
+                let is_legacy_startup = matches!(
+                    &startup_request,
+                    ClientJsonRpcMessage::Request(request)
+                        if matches!(&request.request, ClientRequest::InitializeRequest(_))
+                );
+                let saved_init_request = is_legacy_startup.then(|| startup_request.clone());
+                let empty_tool_cache = HashMap::new();
+                let (bootstrap_version, bootstrap_headers) = if is_legacy_startup {
+                    (ProtocolVersion::default(), config.custom_headers.clone())
+                } else {
+                    request_version_headers(
+                        &config.custom_headers,
+                        &startup_request,
+                        &ProtocolVersion::default(),
+                        &empty_tool_cache,
+                    )
+                };
+                let initialize = client.post_message_with_max_sse_event_size(
                     config.uri.clone(),
-                    initialized_notification.message,
-                    session_id.clone(),
+                    startup_request,
+                    None,
                     config.auth_header.clone(),
-                    initialized_headers,
+                    bootstrap_headers.clone(),
                     config.max_sse_event_size,
-                )
-                .await
-                .map_err(WorkerQuitReason::fatal_context(
-                    "send initialized notification",
-                ))?
-                .expect_accepted_or_json::<C::Error>()
-                .map_err(WorkerQuitReason::fatal_context(
-                    "process initialized notification response",
-                ))?;
-            let _ = initialized_notification.responder.send(Ok(()));
+                );
+                let (message, session_id) = match tokio::select! {
+                    biased;
+                    _ = transport_task_ct.cancelled() => return Err(WorkerQuitReason::Cancelled),
+                    result = initialize => result,
+                } {
+                    Ok(res) => {
+                        let _ = responder.send(Ok(()));
+                        if is_legacy_startup {
+                            let session = match &res {
+                                StreamableHttpPostResponse::Json(_, session)
+                                | StreamableHttpPostResponse::Sse(_, session) => session.as_ref(),
+                                StreamableHttpPostResponse::Accepted => None,
+                            };
+                            *cleanup = session.map(|session| SessionCleanupInfo {
+                                client: client.clone(),
+                                uri: config.uri.clone(),
+                                session_id: Arc::from(session.as_str()),
+                                auth_header: config.auth_header.clone(),
+                                protocol_headers: bootstrap_headers.clone(),
+                            });
+                        }
+                        tokio::select! {
+                            biased;
+                            _ = transport_task_ct.cancelled() => return Err(WorkerQuitReason::Cancelled),
+                            result = res.expect_initialized::<C::Error>() => result.map_err(
+                                WorkerQuitReason::fatal_context("process initialize response"),
+                            )?,
+                        }
+                    }
+                    Err(err) => {
+                        let msg = format!("{:?}", err);
+                        let _ = responder.send(Err(err));
+                        return Err(WorkerQuitReason::fatal(
+                            StreamableHttpError::TransportChannelClosed,
+                            msg,
+                        ));
+                    }
+                };
+                let uses_modern_http = !is_legacy_startup;
+                let session_id: Option<Arc<str>> = if uses_modern_http {
+                    None
+                } else if let Some(session_id) = session_id {
+                    Some(session_id.into())
+                } else {
+                    if !config.allow_stateless {
+                        return Err(WorkerQuitReason::fatal(
+                            StreamableHttpError::<C::Error>::MissingSessionIdInResponse,
+                            "process initialize response",
+                        ));
+                    }
+                    None
+                };
+                let (negotiated_version, protocol_headers) = if is_legacy_startup {
+                    negotiate_version_headers(&message, config.custom_headers.clone())
+                } else {
+                    (bootstrap_version, bootstrap_headers)
+                };
+                // SEP-2243: tool input schemas (name -> schema) cached from tools/list responses,
+                // used to promote annotated tools/call arguments to Mcp-Param-* headers.
+                let tool_header_cache: HashMap<String, Arc<JsonObject>> = HashMap::new();
+
+                // Store session info for cleanup when run() exits (not spawned, so cleanup completes before close() returns)
+                *cleanup = session_id.as_ref().map(|sid| SessionCleanupInfo {
+                    client: client.clone(),
+                    uri: config.uri.clone(),
+                    session_id: sid.clone(),
+                    auth_header: config.auth_header.clone(),
+                    protocol_headers: protocol_headers.clone(),
+                });
+
+                tokio::select! {
+                    biased;
+                    _ = transport_task_ct.cancelled() => return Err(WorkerQuitReason::Cancelled),
+                    result = context.send_to_handler(message) => result?,
+                }
+                if is_legacy_startup {
+                    let initialized_notification = tokio::select! {
+                        biased;
+                        _ = transport_task_ct.cancelled() => return Err(WorkerQuitReason::Cancelled),
+                        result = context.recv_from_handler() => result?,
+                    };
+                    let initialized_headers = build_request_headers(
+                        &protocol_headers,
+                        &initialized_notification.message,
+                        &tool_header_cache,
+                        &negotiated_version,
+                    );
+                    let notified = client.post_message_with_max_sse_event_size(
+                        config.uri.clone(),
+                        initialized_notification.message,
+                        session_id.clone(),
+                        config.auth_header.clone(),
+                        initialized_headers,
+                        config.max_sse_event_size,
+                    );
+                    tokio::select! {
+                        biased;
+                        _ = transport_task_ct.cancelled() => return Err(WorkerQuitReason::Cancelled),
+                        result = notified => result,
+                    }
+                        .map_err(WorkerQuitReason::fatal_context(
+                            "send initialized notification",
+                        ))?
+                        .expect_accepted_or_json::<C::Error>()
+                        .map_err(WorkerQuitReason::fatal_context(
+                            "process initialized notification response",
+                        ))?;
+                    let _ = initialized_notification.responder.send(Ok(()));
+                }
+                Ok((
+                    saved_init_request,
+                    uses_modern_http,
+                    session_id,
+                    negotiated_version,
+                    protocol_headers,
+                    tool_header_cache,
+                ))
+            }
         }
+        .await;
+        let (
+            mut saved_init_request,
+            mut uses_modern_http,
+            mut session_id,
+            mut negotiated_version,
+            mut protocol_headers,
+            mut tool_header_cache,
+        ) = match startup {
+            Ok(state) => state,
+            Err(reason) => {
+                if let Some(cleanup) = session_cleanup_info {
+                    cleanup.finish().await;
+                }
+                return Err(reason);
+            }
+        };
         #[expect(
             clippy::large_enum_variant,
             reason = "the event is short-lived and boxing would add allocation in the event loop"
@@ -1456,47 +1568,9 @@ impl<C: StreamableHttpClient> Worker for StreamableHttpClientWorker<C> {
             }
         };
 
-        // Cleanup session before returning (ensures close() waits for session deletion)
-        // Use a timeout to prevent indefinite hangs if the server is unresponsive
+        // Cleanup remains awaited and bounded even when startup was cancelled.
         if let Some(cleanup) = session_cleanup_info {
-            let cleanup_session_id = cleanup.session_id.clone();
-            match tokio::time::timeout(
-                SESSION_CLEANUP_TIMEOUT,
-                cleanup.client.delete_session(
-                    cleanup.uri,
-                    cleanup.session_id,
-                    cleanup.auth_header,
-                    cleanup.protocol_headers,
-                ),
-            )
-            .await
-            {
-                Ok(Ok(_)) => {
-                    tracing::info!(
-                        session_id = cleanup_session_id.as_ref(),
-                        "delete session success"
-                    )
-                }
-                Ok(Err(StreamableHttpError::ServerDoesNotSupportDeleteSession)) => {
-                    tracing::info!(
-                        session_id = cleanup_session_id.as_ref(),
-                        "server doesn't support delete session"
-                    )
-                }
-                Ok(Err(e)) => {
-                    tracing::error!(
-                        session_id = cleanup_session_id.as_ref(),
-                        "fail to delete session: {e}"
-                    );
-                }
-                Err(_elapsed) => {
-                    tracing::warn!(
-                        session_id = cleanup_session_id.as_ref(),
-                        "session cleanup timed out after {:?}",
-                        SESSION_CLEANUP_TIMEOUT
-                    );
-                }
-            }
+            cleanup.finish().await;
         }
 
         loop_result
@@ -1807,6 +1881,265 @@ mod tests {
         },
         service::InboundStreamOrigin,
     };
+
+    #[derive(Clone, Copy)]
+    enum StartupPhase {
+        Post,
+        Body,
+        BrokenBody,
+        Notification,
+    }
+
+    #[derive(Clone)]
+    struct HeldStartup {
+        phase: StartupPhase,
+        session: bool,
+        entered: Arc<tokio::sync::Semaphore>,
+        deleting: Arc<tokio::sync::Semaphore>,
+        deleted: Arc<Mutex<Vec<(String, HashMap<HeaderName, HeaderValue>)>>>,
+        release: CancellationToken,
+    }
+
+    impl HeldStartup {
+        fn new(phase: StartupPhase, session: bool) -> Self {
+            Self {
+                phase,
+                session,
+                entered: Arc::new(tokio::sync::Semaphore::new(0)),
+                deleting: Arc::new(tokio::sync::Semaphore::new(0)),
+                deleted: Arc::new(Mutex::new(vec![])),
+                release: CancellationToken::new(),
+            }
+        }
+    }
+
+    impl StreamableHttpClient for HeldStartup {
+        type Error = std::io::Error;
+
+        async fn post_message(
+            &self,
+            _uri: Arc<str>,
+            message: ClientJsonRpcMessage,
+            _session_id: Option<Arc<str>>,
+            _auth_header: Option<String>,
+            _custom_headers: HashMap<HeaderName, HeaderValue>,
+        ) -> Result<StreamableHttpPostResponse, StreamableHttpError<Self::Error>> {
+            if matches!(message, ClientJsonRpcMessage::Notification(_)) {
+                assert!(matches!(self.phase, StartupPhase::Notification));
+                self.entered.add_permits(1);
+                std::future::pending().await
+            } else if matches!(self.phase, StartupPhase::Post) {
+                self.entered.add_permits(1);
+                std::future::pending().await
+            } else if matches!(self.phase, StartupPhase::Body) {
+                let entered = self.entered.clone();
+                Ok(StreamableHttpPostResponse::Sse(
+                    futures::stream::once(async move {
+                        entered.add_permits(1);
+                        std::future::pending::<Result<Sse, SseError>>().await
+                    })
+                    .boxed(),
+                    self.session.then(|| "fixture-session".into()),
+                ))
+            } else if matches!(self.phase, StartupPhase::BrokenBody) {
+                Ok(StreamableHttpPostResponse::Sse(
+                    futures::stream::iter([Ok(Sse {
+                        event: None,
+                        data: Some("invalid JSON".into()),
+                        id: None,
+                        retry: None,
+                    })])
+                    .boxed(),
+                    self.session.then(|| "fixture-session".into()),
+                ))
+            } else {
+                let ClientJsonRpcMessage::Request(request) = message else {
+                    panic!("startup request expected");
+                };
+                Ok(StreamableHttpPostResponse::Json(
+                    ServerJsonRpcMessage::response(
+                        ServerResult::InitializeResult(
+                            crate::model::InitializeResult::new(
+                                crate::model::ServerCapabilities::default(),
+                            )
+                            .with_protocol_version(ProtocolVersion::V_2025_06_18),
+                        ),
+                        request.id,
+                    ),
+                    self.session.then(|| "fixture-session".into()),
+                ))
+            }
+        }
+
+        async fn delete_session(
+            &self,
+            _uri: Arc<str>,
+            session_id: Arc<str>,
+            _auth_header: Option<String>,
+            headers: HashMap<HeaderName, HeaderValue>,
+        ) -> Result<(), StreamableHttpError<Self::Error>> {
+            self.deleted
+                .lock()
+                .unwrap()
+                .push((session_id.to_string(), headers));
+            self.deleting.add_permits(1);
+            self.release.cancelled().await;
+            Ok(())
+        }
+
+        async fn get_stream(
+            &self,
+            _uri: Arc<str>,
+            _session_id: Option<Arc<str>>,
+            _last_event_id: Option<String>,
+            _auth_header: Option<String>,
+            _custom_headers: HashMap<HeaderName, HeaderValue>,
+        ) -> Result<BoxedSseStream, StreamableHttpError<Self::Error>> {
+            std::future::pending().await
+        }
+    }
+
+    #[tokio::test]
+    async fn joins_cancelled_startup_phases() {
+        use crate::transport::Transport;
+        for (phase, legacy, session) in [
+            (StartupPhase::Post, true, false),
+            (StartupPhase::Post, false, false),
+            (StartupPhase::Body, true, true),
+            (StartupPhase::Body, true, false),
+            (StartupPhase::Body, false, true),
+            (StartupPhase::Notification, true, true),
+        ] {
+            let client = HeldStartup::new(phase, session);
+            let mut config = StreamableHttpClientTransportConfig::with_uri("http://localhost/mcp");
+            config.custom_headers.insert(
+                HeaderName::from_static("x-fixture"),
+                HeaderValue::from_static("captured"),
+            );
+            let mut transport = WorkerTransport::spawn(StreamableHttpClientWorker {
+                client: client.clone(),
+                config,
+            });
+            let request: ClientJsonRpcMessage = serde_json::from_value(if legacy {
+                json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                    "protocolVersion":"2025-06-18","capabilities":{},
+                    "clientInfo":{"name":"fixture","version":"0.1.0"}
+                }})
+            } else {
+                json!({"jsonrpc":"2.0","id":1,"method":"server/discover","params":{}})
+            })
+            .unwrap();
+            let sending = tokio::spawn(transport.send(request));
+            let notification = if matches!(phase, StartupPhase::Notification) {
+                tokio::time::timeout(Duration::from_secs(1), transport.receive())
+                    .await
+                    .expect("initialize response")
+                    .expect("handler response");
+                let message = serde_json::from_value(json!({
+                    "jsonrpc":"2.0","method":"notifications/initialized"
+                }))
+                .unwrap();
+                Some(tokio::spawn(transport.send(message)))
+            } else {
+                None
+            };
+            tokio::time::timeout(Duration::from_secs(1), client.entered.acquire())
+                .await
+                .expect("startup phase")
+                .unwrap()
+                .forget();
+            let known = legacy && session;
+            let closing = transport.close();
+            tokio::pin!(closing);
+            if known {
+                tokio::time::timeout(Duration::from_secs(1), async {
+                    tokio::select! {
+                        permit = client.deleting.acquire() => permit.unwrap().forget(),
+                        result = &mut closing => panic!("close did not wait for DELETE: {result:?}"),
+                    }
+                }).await.expect("session cleanup started");
+                assert_eq!(client.deleted.lock().unwrap().len(), 1);
+                client.release.cancel();
+            }
+            tokio::time::timeout(Duration::from_secs(1), closing)
+                .await
+                .expect("worker joined")
+                .expect("transport closed");
+            let _ = sending.await.unwrap();
+            if let Some(notification) = notification {
+                let _ = notification.await.unwrap();
+            }
+            let deleted = client.deleted.lock().unwrap();
+            assert_eq!(deleted.len(), usize::from(known));
+            if known {
+                assert_eq!(deleted[0].0, "fixture-session");
+                assert_eq!(
+                    deleted[0]
+                        .1
+                        .get(&HeaderName::from_static("x-fixture"))
+                        .unwrap(),
+                    "captured"
+                );
+                if matches!(phase, StartupPhase::Notification) {
+                    assert_eq!(
+                        deleted[0]
+                            .1
+                            .get(&HeaderName::from_static("mcp-protocol-version"))
+                            .unwrap(),
+                        "2025-06-18"
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn joins_before_the_first_request() {
+        use crate::transport::Transport;
+        let client = HeldStartup::new(StartupPhase::Post, false);
+        let mut transport = WorkerTransport::spawn(StreamableHttpClientWorker {
+            client: client.clone(),
+            config: StreamableHttpClientTransportConfig::with_uri("http://localhost/mcp"),
+        });
+        tokio::time::timeout(Duration::from_secs(1), transport.close())
+            .await
+            .expect("worker joined")
+            .expect("transport closed");
+        assert!(client.deleted.lock().unwrap().is_empty());
+        assert_eq!(client.entered.available_permits(), 0);
+    }
+
+    #[tokio::test]
+    async fn cleans_up_failed_initialize_body() {
+        use crate::transport::Transport;
+        let client = HeldStartup::new(StartupPhase::BrokenBody, true);
+        client.release.cancel();
+        let mut transport = WorkerTransport::spawn(StreamableHttpClientWorker {
+            client: client.clone(),
+            config: StreamableHttpClientTransportConfig::with_uri("http://localhost/mcp"),
+        });
+        let request = serde_json::from_value(json!({
+            "jsonrpc":"2.0","id":1,"method":"initialize","params":{
+                "protocolVersion":"2025-06-18","capabilities":{},
+                "clientInfo":{"name":"fixture","version":"0.1.0"}
+            }
+        }))
+        .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), transport.send(request))
+            .await
+            .expect("POST response")
+            .expect("request sent");
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), transport.receive())
+                .await
+                .expect("worker exited")
+                .is_none()
+        );
+        transport.close().await.expect("worker joined");
+        let deleted = client.deleted.lock().unwrap();
+        assert_eq!(deleted.len(), 1);
+        assert_eq!(deleted[0].0, "fixture-session");
+    }
 
     #[expect(
         deprecated,
