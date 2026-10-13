@@ -99,6 +99,49 @@ async fn does_not_replay_a_local_deadline() {
     assert_eq!(attempts, 1);
 }
 
+#[tokio::test(start_paused = true)]
+async fn honors_and_bounds_server_delays() {
+    for structured in [false, true] {
+        for seconds in [2, 86_400] {
+            let policy = RetryConfig::default().with_max_retries(2);
+            let hint = adk_model::retry::ServerRetryHint {
+                retry_after: Some(std::time::Duration::from_secs(seconds)),
+            };
+            let expected = hint.retry_after.unwrap().min(policy.max_delay);
+            let mut attempts = 0;
+            let mut observed = Vec::new();
+            let started = tokio::time::Instant::now();
+            let result = execute_with_retry_observer(
+                &policy,
+                retryable,
+                Some(&hint),
+                &mut || {
+                    attempts += 1;
+                    let mut error = AdkError::model("HTTP 429 rate limit");
+                    if structured {
+                        error.retry.retry_after_ms = Some(seconds * 1_000);
+                    }
+                    std::future::ready(if attempts < 3 { Err(error) } else { Ok(()) })
+                },
+                |attempt, limit, delay| {
+                    observed.push((attempt, limit, delay));
+                    std::future::ready(Ok(()))
+                },
+            )
+            .await;
+            assert!(result.is_ok());
+            assert_eq!(attempts, 3);
+            let second = if structured {
+                expected
+            } else {
+                std::time::Duration::from_millis(500)
+            };
+            assert_eq!(observed, vec![(1, 2, expected), (2, 2, second)]);
+            assert_eq!(started.elapsed(), expected + second);
+        }
+    }
+}
+
 #[async_trait]
 impl Llm for Streaming {
     fn name(&self) -> &str {

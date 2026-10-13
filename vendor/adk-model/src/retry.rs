@@ -10,7 +10,7 @@ pub struct RetryConfig {
     pub max_retries: u32,
     /// Initial delay before the first retry.
     pub initial_delay: Duration,
-    /// Maximum delay between retries (caps exponential growth).
+    /// Maximum delay between retries, including server-provided delays.
     pub max_delay: Duration,
     /// Multiplier applied to the delay after each retry.
     pub backoff_multiplier: f32,
@@ -120,7 +120,7 @@ fn next_retry_delay(current: Duration, retry_config: &RetryConfig) -> Duration {
 /// Hint from the server about when to retry.
 ///
 /// When the server provides a `retry-after` header, this hint overrides the
-/// exponential backoff calculation for the next retry attempt.
+/// exponential backoff calculation for the next retry attempt, capped by `max_delay`.
 ///
 /// # Example
 ///
@@ -155,8 +155,7 @@ where
 /// retry hint to override the backoff delay.
 ///
 /// When `server_hint` contains a `retry_after` duration, that duration is used
-/// instead of the exponential backoff calculation. This respects server-provided
-/// timing from `retry-after` headers (Requirement 5.1).
+/// instead of the exponential backoff calculation, capped by `max_delay`.
 pub async fn execute_with_retry_hint<T, Op, Fut, Classify>(
     retry_config: &RetryConfig,
     classify_error: Classify,
@@ -218,7 +217,8 @@ where
                     server_delay.unwrap_or(delay)
                 } else {
                     delay
-                };
+                }
+                .min(retry_config.max_delay);
 
                 adk_telemetry::warn!(
                     attempt = attempt,
