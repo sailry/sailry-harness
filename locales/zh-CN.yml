@@ -1249,8 +1249,8 @@ composer_context_usage: "%{used} / %{limit}"
 composer_context_thousand: "%{value}K"
 composer_context_million: "%{value}M"
 composer_context_unknown: 上下文用量待更新
-composer_mode_code: 代码
-composer_mode_plan: 规划
+composer_mode_code: "build"
+composer_mode_plan: "plan"
 composer_mode_code_description: 编写代码、修改文件并验证结果
 composer_mode_plan_description: 分析需求、制定方案，不修改文件
 composer_branch_main: main
