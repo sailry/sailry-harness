@@ -126,7 +126,7 @@ impl TableDelegate for Rows {
         h_flex()
             .size_full()
             .min_w_0()
-            .text_sm()
+            .text_xs()
             .text_color(if folder {
                 cx.theme().foreground
             } else {
@@ -152,7 +152,7 @@ impl TableDelegate for Rows {
                                 }),
                         )
                     })
-                    .child(icon(entry, px(16.), cx))
+                    .child(icon(entry, rems(1.)))
                     .child(div().min_w_0().truncate().child(entry.name.clone()))
             })
             .when(column == 1, |cell| {
@@ -186,23 +186,13 @@ impl TableDelegate for Rows {
             ))
     }
 }
-pub(super) fn icon(entry: &FileEntry, size: Pixels, cx: &App) -> impl IntoElement + use<> {
-    let folder = entry.kind == EntryKind::Directory;
-    Icon::new(if folder {
-        IconName::Folder
+pub(super) fn icon(entry: &FileEntry, size: Rems) -> AnyElement {
+    let path = if entry.kind == EntryKind::Directory {
+        format!("{}/", entry.name)
     } else {
-        IconName::File
-    })
-    .size(size)
-    .text_color(if folder {
-        cx.theme().primary
-    } else {
-        cx.theme().muted_foreground
-    })
-    .when(folder, |icon| {
-        icon.bg(cx.theme().primary.opacity(0.18))
-            .rounded(cx.theme().radius)
-    })
+        entry.name.clone()
+    };
+    crate::ui::file_icon::render(&path, "", size)
 }
 fn kind(entry: &FileEntry) -> SharedString {
     if entry.kind == EntryKind::Directory {

@@ -1,7 +1,7 @@
 use super::*;
 use gpui_kit::component::{
-    breadcrumb::{Breadcrumb, BreadcrumbItem},
     button::{Toggle, ToggleGroup, ToggleVariants},
+    menu::DropdownMenu,
 };
 impl Picker {
     pub(super) fn toolbar(
@@ -38,21 +38,62 @@ impl Picker {
                     |picker, window, cx| picker.up(window, cx),
                 ),
             );
+        // Kit BreadcrumbItem cannot host a selectable dropdown trigger. These
+        // supported Kit buttons remain navigation controls, not a copied widget.
         let breadcrumb =
-            Breadcrumb::new()
-                .text_sm()
+            h_flex()
+                .min_w_0()
+                .gap_1()
                 .children(
                     breadcrumbs
                         .into_iter()
                         .enumerate()
                         .map(|(index, (label, path))| {
-                            BreadcrumbItem::new(label)
-                                .disabled(self.busy)
-                                .when(index == last, |item| item.font_weight(FontWeight::SEMIBOLD))
-                                .on_click(cx.listener(move |picker, _, window, cx| {
-                                    cx.stop_propagation();
-                                    picker.navigate(Some(path.clone()), Visit::Push, window, cx);
-                                }))
+                            let owner = cx.entity().downgrade();
+                            let dismiss = owner.clone();
+                            let generation = self.generation;
+                            h_flex()
+                                .min_w_0()
+                                .gap_1()
+                                .when(index > 0, |segment| {
+                                    segment.child(Icon::new(IconName::ChevronRight).size_3p5())
+                                })
+                                .child(
+                                    Button::new(("directory-crumb", index))
+                                        .small()
+                                        .text()
+                                        .label(label)
+                                        .disabled(self.busy)
+                                        .on_click(|_, _, cx| cx.stop_propagation())
+                                        .when(index == last, |button| {
+                                            button.font_weight(FontWeight::SEMIBOLD)
+                                        })
+                                        .debug_selector(move || format!("directory-crumb-{index}"))
+                                        .dropdown_menu(move |menu, window, cx| {
+                                            let owner = owner.clone();
+                                            let path = path.clone();
+                                            let popup = cx.entity().downgrade();
+                                            cx.defer_in(window, move |_, window, cx| {
+                                                if let Some(popup) = popup.upgrade() {
+                                                    let _ = owner.update(cx, |picker, cx| {
+                                                        picker.children(
+                                                            path, generation, popup, window, cx,
+                                                        )
+                                                    });
+                                                }
+                                            });
+                                            menu.scrollable(true)
+                                                .max_h(px(320.))
+                                                .label(tr("plugins_loading"))
+                                        })
+                                        .on_open_change(move |open, _, cx| {
+                                            if !*open {
+                                                let _ = dismiss.update(cx, |picker, _| {
+                                                    picker.cancel_children()
+                                                });
+                                            }
+                                        }),
+                                )
                         }),
                 );
         let address = div()

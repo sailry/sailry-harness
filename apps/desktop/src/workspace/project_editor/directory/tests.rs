@@ -313,7 +313,19 @@ fn host_operations(cx: &mut TestAppContext) {
                     input.set_value(path.to_str().unwrap(), window, cx)
                 });
             });
-            let picker = open(editor.clone(), window, cx);
+            let picker = file_picker::open(
+                Options {
+                    client: Some(Arc::new(Client::new(editor.read(cx).live.clone().unwrap()))),
+                    preview_host: 0,
+                    initial: Some(path.to_str().unwrap().into()),
+                    mode: Mode::Files { multiple: true },
+                    title: "directory_title",
+                    confirm: "directory_open",
+                },
+                |_, _, _| Ok(Completion::KeepOpen),
+                window,
+                cx,
+            );
             (editor, picker)
         });
         wait(visual, &picker);
@@ -386,6 +398,21 @@ fn host_operations(cx: &mut TestAppContext) {
         crate::prompts::tests::answer(visual, "files_trash");
         wait(visual, &picker);
         assert!(!path.join("destination/new-folder").exists());
+        visual.update(|window, cx| window.click("directory-cancel", cx));
+        visual.run_until_parked();
+        let picker = visual.update(|window, cx| open(editor.clone(), window, cx));
+        wait(visual, &picker);
+        visual.update(|window, cx| {
+            picker.update(cx, |picker, cx| {
+                picker.navigate(
+                    Some(path.join("destination").to_str().unwrap().into()),
+                    Visit::Push,
+                    window,
+                    cx,
+                )
+            })
+        });
+        wait(visual, &picker);
         visual.update(|window, cx| {
             editor.update(cx, |editor, cx| {
                 editor.inputs[0].update(cx, |input, cx| {

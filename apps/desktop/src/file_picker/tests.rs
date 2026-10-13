@@ -4,6 +4,7 @@ use std::{
     sync::Mutex,
     time::{Duration, Instant},
 };
+mod controls;
 
 mod selection {
     use super::*;
@@ -65,11 +66,19 @@ mod selection {
         );
     }
     #[test]
-    fn directory_uses_folder_or_current() {
+    fn directory_requires_folder_selection() {
         let listing = listing('/');
         assert_eq!(
-            super::super::selection::resolve(&Mode::Directory, &listing, &BTreeSet::from([1]), ""),
+            super::super::selection::resolve(&Mode::Directory, &listing, &BTreeSet::new(), ""),
             Some(Selection::Directory("/node/目录".into()))
+        );
+        assert_eq!(
+            super::super::selection::resolve(&Mode::Directory, &listing, &BTreeSet::from([1]), ""),
+            None
+        );
+        assert_eq!(
+            super::super::selection::resolve(&Mode::Directory, &listing, &BTreeSet::from([0]), ""),
+            Some(Selection::Directory("/node/目录/folder".into()))
         );
         assert_eq!(
             super::super::selection::resolve(
@@ -78,12 +87,21 @@ mod selection {
                 &BTreeSet::from([0, 1]),
                 ""
             ),
-            Some(Selection::Directory("/node/目录/folder".into()))
+            None
         );
     }
     #[test]
     fn files_require_regular_selection() {
         let listing = listing('/');
+        assert_eq!(
+            super::super::selection::resolve(
+                &Mode::Files { multiple: false },
+                &listing,
+                &BTreeSet::from([0, 1]),
+                ""
+            ),
+            None
+        );
         assert_eq!(
             super::super::selection::resolve(
                 &Mode::Files { multiple: false },
@@ -225,6 +243,15 @@ fn modes_keep_host_paths(cx: &mut TestAppContext) {
                         .position(|entry| entry.name == "second.txt")
                         .unwrap();
                     picker.choose(first, false, window, cx);
+                    if matches!(mode, Mode::Directory) {
+                        assert_eq!(picker.selection(cx), None);
+                        let folder = picker
+                            .entries()
+                            .iter()
+                            .position(|entry| entry.name == "folder")
+                            .unwrap();
+                        picker.choose(folder, false, window, cx);
+                    }
                     assert_eq!(
                         picker.table.read(cx).delegate().multiple,
                         matches!(mode, Mode::Files { multiple: true })
@@ -272,7 +299,9 @@ fn modes_keep_host_paths(cx: &mut TestAppContext) {
                 visual.run_until_parked();
             }
             let expected = match mode {
-                Mode::Directory => Selection::Directory(path.to_str().unwrap().into()),
+                Mode::Directory => {
+                    Selection::Directory(path.join("folder").to_str().unwrap().into())
+                }
                 Mode::Files { multiple } => Selection::Files(if multiple {
                     vec![
                         path.join("Alpha.md").to_str().unwrap().into(),

@@ -10,13 +10,18 @@ impl Render for Picker {
         let width = (window.viewport_size().width - px(48.)).min(px(900.)) - px(48.);
         let height = (window.viewport_size().height - px(300.)).clamp(px(120.), px(480.));
         let content = width - px(188.);
+        let inset = window.rem_size() * 1.5;
+        let gap = window.rem_size() * 0.5;
+        let grid_width = (content - inset - px(2.)).max(px(1.));
         self.columns = if self.grid {
-            ((f32::from(content) - 16.) / 108.).floor().clamp(1., 8.) as usize
+            (f32::from(grid_width + gap) / f32::from(window.rem_size() * 6.75 + gap))
+                .floor()
+                .clamp(1., 8.) as usize
         } else {
             1
         };
         self.table.update(cx, |table, cx| {
-            let width = (f32::from(content) - 192.).max(80.);
+            let width = (f32::from(content - inset) - 192.).max(80.);
             if table.delegate().width != width {
                 table.delegate_mut().width = width;
                 table.refresh(cx);
@@ -66,6 +71,7 @@ impl Render for Picker {
                                     .id("directory-content")
                                     .debug_selector(|| "directory-list".into())
                                     .relative()
+                                    .p_3()
                                     .track_focus(&self.focus)
                                     .flex_1()
                                     .min_h_0()
@@ -75,33 +81,44 @@ impl Render for Picker {
                                             picker.menu(None, event, window, cx)
                                         }),
                                     )
-                                    .when(!self.visible.is_empty() || !self.grid, |body| {
-                                        body.child(if self.grid {
-                                            self.grid(content, cx)
-                                        } else {
-                                            DataTable::new(&self.table)
-                                                .bordered(false)
-                                                .stripe(true)
-                                                .with_size(gpui_kit::component::Size::Size(px(28.)))
-                                                .into_any_element()
-                                        })
-                                    })
-                                    .when(self.grid && self.visible.is_empty(), |body| {
-                                        body.child(
-                                            div()
-                                                .debug_selector(|| "directory-empty".into())
-                                                .size_full()
-                                                .child(crate::empty_state::panel(
-                                                    IconName::FolderOpen,
-                                                    if self.filter.read(cx).value().is_empty() {
-                                                        "files_directory_empty"
-                                                    } else {
-                                                        "directory_no_matches"
-                                                    },
-                                                    cx,
-                                                )),
-                                        )
-                                    })
+                                    .when(
+                                        self.listing.is_some()
+                                            && (!self.visible.is_empty() || !self.grid),
+                                        |body| {
+                                            body.child(if self.grid {
+                                                self.grid(grid_width, gap, window.rem_size(), cx)
+                                            } else {
+                                                DataTable::new(&self.table)
+                                                    .bordered(false)
+                                                    .stripe(true)
+                                                    .with_size(gpui_kit::component::Size::Size(px(
+                                                        28.,
+                                                    )))
+                                                    .into_any_element()
+                                            })
+                                        },
+                                    )
+                                    .when(
+                                        self.listing.is_some()
+                                            && self.grid
+                                            && self.visible.is_empty(),
+                                        |body| {
+                                            body.child(
+                                                div()
+                                                    .debug_selector(|| "directory-empty".into())
+                                                    .size_full()
+                                                    .child(crate::empty_state::panel(
+                                                        IconName::FolderOpen,
+                                                        if self.filter.read(cx).value().is_empty() {
+                                                            "files_directory_empty"
+                                                        } else {
+                                                            "directory_no_matches"
+                                                        },
+                                                        cx,
+                                                    )),
+                                            )
+                                        },
+                                    )
                                     .when(self.busy && self.listing.is_none(), |body| {
                                         body.child(crate::ui::pending::overlay(
                                             "directory-pending",

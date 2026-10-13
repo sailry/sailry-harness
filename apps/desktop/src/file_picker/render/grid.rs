@@ -2,28 +2,39 @@ use super::*;
 use gpui_kit::component::v_virtual_list;
 use std::rc::Rc;
 impl Picker {
-    pub(super) fn grid(&self, width: Pixels, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn grid(
+        &self,
+        width: Pixels,
+        gap: Pixels,
+        rem: Pixels,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let height = rem * 6.5;
+        let tile_width =
+            (width - gap * self.columns.saturating_sub(1) as f32) / self.columns as f32;
         let sizes = Rc::new(vec![
-            size(width, px(104.));
+            size(width, height);
             self.visible.len().div_ceil(self.columns)
         ]);
         v_virtual_list(
             cx.entity(),
             "directory-tiles",
             sizes,
-            |picker, range, _, cx| {
+            move |picker, range, _, cx| {
                 range
                     .map(|row| {
-                        h_flex()
-                            .w_full()
-                            .h(px(104.))
-                            .gap_1()
-                            .items_start()
-                            .children(
-                                (row * picker.columns
-                                    ..((row + 1) * picker.columns).min(picker.visible.len()))
-                                    .map(|position| picker.tile(picker.visible[position], cx)),
-                            )
+                        h_flex().w_full().h(height).gap_2().items_start().children(
+                            (row * picker.columns
+                                ..((row + 1) * picker.columns).min(picker.visible.len()))
+                                .map(|position| {
+                                    picker.tile(
+                                        picker.visible[position],
+                                        tile_width,
+                                        height - gap,
+                                        cx,
+                                    )
+                                }),
+                        )
                     })
                     .collect()
             },
@@ -32,11 +43,18 @@ impl Picker {
         .track_scroll(&self.scroll)
         .into_any_element()
     }
-    fn tile(&self, index: usize, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn tile(
+        &self,
+        index: usize,
+        width: Pixels,
+        height: Pixels,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let entry = &self.entries()[index];
         div()
             .id(("directory-tile", index))
-            .w(relative(1. / self.columns as f32))
+            .w(width)
+            .flex_shrink_0()
             .min_w_0()
             .on_mouse_down(
                 MouseButton::Right,
@@ -48,7 +66,7 @@ impl Picker {
                 Button::new(("directory-entry", index))
                     .custom(crate::theme::subtle_button(cx))
                     .w_full()
-                    .h(px(100.))
+                    .h(height)
                     .p_2()
                     .selected(self.selected.contains(&index))
                     .disabled(!matches!(
@@ -64,14 +82,17 @@ impl Picker {
                             .items_center()
                             .justify_center()
                             .gap_2()
-                            .child(super::list::icon(entry, px(44.), cx))
+                            .child(super::list::icon(entry, rems(2.)))
                             .child(
                                 div()
                                     .w_full()
-                                    .text_sm()
+                                    .debug_selector(move || format!("directory-label-{index}"))
+                                    .min_w_0()
+                                    .text_xs()
                                     .text_center()
                                     .whitespace_normal()
                                     .line_clamp(2)
+                                    .text_ellipsis()
                                     .overflow_hidden()
                                     .text_color(if entry.kind == EntryKind::Directory {
                                         cx.theme().foreground

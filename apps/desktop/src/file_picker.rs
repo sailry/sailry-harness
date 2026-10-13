@@ -3,6 +3,7 @@
 //! Kit tables track one focused row. Multi-file selection uses a Kit name-cell
 //! checkbox; the application also composes grid selection from Kit buttons.
 pub(crate) mod actions;
+mod breadcrumbs;
 mod catalog;
 mod navigation;
 mod render;
@@ -180,6 +181,7 @@ pub(crate) fn open(
             request: None,
             task: None,
             read_stop: None,
+            children_stop: None,
             generation: 0,
             callback: Some(Box::new(callback)),
             valid: Box::new(|_| true),
@@ -255,6 +257,7 @@ pub(crate) struct Picker {
     request: Option<Request>,
     task: Option<Task<()>>,
     read_stop: Option<sailry_link::CancellationToken>,
+    children_stop: Option<sailry_link::CancellationToken>,
     generation: u64,
     callback: Option<Callback>,
     valid: Guard,
@@ -269,6 +272,7 @@ impl Drop for Picker {
         if let Some(stop) = &self.read_stop {
             stop.cancel();
         }
+        self.cancel_children();
     }
 }
 impl Picker {
@@ -285,6 +289,7 @@ impl Picker {
     }
     pub(crate) fn invalidate(&mut self, cx: &mut Context<Self>) {
         if !(self.valid)(cx) {
+            self.cancel_children();
             self.generation += 1;
             if let Some(stop) = self.read_stop.take() {
                 stop.cancel();
@@ -391,6 +396,7 @@ impl Picker {
         self.overlay.close(window, cx);
     }
     fn stop(&mut self) {
+        self.cancel_children();
         self.closed = true;
         self.generation += 1;
         if let Some(stop) = self.read_stop.take() {

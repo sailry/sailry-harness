@@ -296,6 +296,24 @@ impl Picker {
                         .ok_text(tr("settings_save"))
                         .cancel_text(tr("settings_cancel")),
                 )
+                .footer(
+                    gpui_kit::component::dialog::DialogFooter::new()
+                        .child(
+                            gpui_kit::component::dialog::DialogClose::new().trigger(|button| {
+                                button
+                                    .label(tr("settings_cancel"))
+                                    .debug_selector(|| "directory-name-cancel".into())
+                            }),
+                        )
+                        .child(
+                            gpui_kit::component::dialog::DialogAction::new().child(
+                                Button::new("directory-name-save")
+                                    .primary()
+                                    .label(tr("settings_save"))
+                                    .debug_selector(|| "directory-name-save".into()),
+                            ),
+                        ),
+                )
                 .on_ok(move |_, window, cx| {
                     let name = input.read(cx).value();
                     let name = name.trim();
@@ -361,6 +379,7 @@ impl Picker {
         if self.closed || self.busy || !(self.valid)(cx) {
             return;
         }
+        self.cancel_children();
         let Some(client) = self.client.clone() else {
             match self.catalog.apply(&action) {
                 Ok(()) => {

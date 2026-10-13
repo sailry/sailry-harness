@@ -18,6 +18,7 @@ impl Picker {
         if self.closed || self.busy || !(self.valid)(cx) {
             return;
         }
+        self.cancel_children();
         self.generation += 1;
         let generation = self.generation;
         if let Some(stop) = self.read_stop.take() {
@@ -27,45 +28,7 @@ impl Picker {
             let stop = sailry_link::CancellationToken::new();
             self.read_stop = Some(stop.clone());
             let runtime = cx.global::<crate::backend::Services>().runtime.clone();
-            let job = runtime.spawn(async move {
-                let mut listing: Option<Listing> = None;
-                let mut after = None;
-                let mut cursors = Vec::new();
-                loop {
-                    let command = Command::BrowseFiles {
-                        directory: path.clone(),
-                        after,
-                    };
-                    let output = tokio::select! {
-                        _ = stop.cancelled() => return Err(sailry_protocol::Fault::new(sailry_protocol::ErrorCode::Cancelled, "directory request cancelled")),
-                        result = client.execute(client.prepare(command)) => result?,
-                    };
-                    let Output::FileListing(page) = output
-                    else {
-                        return Err(sailry_protocol::Fault::new(
-                            sailry_protocol::ErrorCode::Internal,
-                            "unexpected directory response",
-                        ));
-                    };
-                    after = page.directory.next.clone();
-                    if let Some(listing) = &mut listing {
-                        if listing.directory.path != page.directory.path || listing.separator != page.separator
-                            || listing.directory.entries.last().zip(page.directory.entries.first()).is_some_and(|(last, first)| last.sort_key() >= first.sort_key()) {
-                            return Err(sailry_protocol::Fault::new(sailry_protocol::ErrorCode::Internal, "invalid directory continuation"));
-                        }
-                        listing.directory.entries.extend(page.directory.entries);
-                        listing.directory.next = after.clone();
-                        listing.directory.truncated = page.directory.truncated;
-                    } else {
-                        listing = Some(page);
-                    }
-                    if after.is_none() {
-                        return Ok(listing.unwrap());
-                    }
-                    if cursors.contains(&after) { return Err(sailry_protocol::Fault::new(sailry_protocol::ErrorCode::Internal, "repeated directory continuation")); }
-                    cursors.push(after.clone());
-                }
-            });
+            let job = runtime.spawn(read(client, path, stop));
             self.busy = true;
             self.task = Some(cx.spawn_in(window, async move |picker, cx| {
                 let result = job.await;
@@ -215,7 +178,7 @@ impl Picker {
         let additive = additive
             && !matches!(
                 self.mode,
-                Mode::Files { multiple: false } | Mode::Save { .. }
+                Mode::Directory | Mode::Files { multiple: false } | Mode::Save { .. }
             );
         if !additive {
             self.selected.clear();
@@ -246,7 +209,7 @@ impl Picker {
         if modifiers.shift
             && !matches!(
                 self.mode,
-                Mode::Files { multiple: false } | Mode::Save { .. }
+                Mode::Directory | Mode::Files { multiple: false } | Mode::Save { .. }
             )
         {
             if let Some((anchor, position)) = self
@@ -326,6 +289,10 @@ impl Picker {
                     self.paste(Conflict::Stop, window, cx);
                 }
                 "a" => {
+                    if matches!(self.mode, Mode::Directory | Mode::Files { multiple: false }) {
+                        cx.stop_propagation();
+                        return;
+                    }
                     self.selected = self
                         .visible
                         .iter()
@@ -336,10 +303,7 @@ impl Picker {
                         })
                         .collect();
                     self.sync_table(cx);
-                    if matches!(
-                        self.mode,
-                        Mode::Files { multiple: false } | Mode::Save { .. }
-                    ) {
+                    if matches!(self.mode, Mode::Save { .. }) {
                         self.selected = self
                             .selected
                             .iter()
@@ -392,5 +356,63 @@ impl Picker {
         }
         cx.stop_propagation();
         cx.notify();
+    }
+}
+
+pub(super) async fn read(
+    client: Arc<Client>,
+    path: Option<String>,
+    stop: sailry_link::CancellationToken,
+) -> Result<Listing, sailry_protocol::Fault> {
+    let mut listing: Option<Listing> = None;
+    let mut after = None;
+    let mut cursors = Vec::new();
+    loop {
+        let command = Command::BrowseFiles {
+            directory: path.clone(),
+            after,
+        };
+        let output = tokio::select! {
+            _ = stop.cancelled() => return Err(sailry_protocol::Fault::new(sailry_protocol::ErrorCode::Cancelled, "directory request cancelled")),
+            result = client.execute(client.prepare(command)) => result?,
+        };
+        let Output::FileListing(page) = output else {
+            return Err(sailry_protocol::Fault::new(
+                sailry_protocol::ErrorCode::Internal,
+                "unexpected directory response",
+            ));
+        };
+        after = page.directory.next.clone();
+        if let Some(listing) = &mut listing {
+            if listing.directory.path != page.directory.path
+                || listing.separator != page.separator
+                || listing
+                    .directory
+                    .entries
+                    .last()
+                    .zip(page.directory.entries.first())
+                    .is_some_and(|(last, first)| last.sort_key() >= first.sort_key())
+            {
+                return Err(sailry_protocol::Fault::new(
+                    sailry_protocol::ErrorCode::Internal,
+                    "invalid directory continuation",
+                ));
+            }
+            listing.directory.entries.extend(page.directory.entries);
+            listing.directory.next = after.clone();
+            listing.directory.truncated = page.directory.truncated;
+        } else {
+            listing = Some(page);
+        }
+        if after.is_none() {
+            return Ok(listing.unwrap());
+        }
+        if cursors.contains(&after) {
+            return Err(sailry_protocol::Fault::new(
+                sailry_protocol::ErrorCode::Internal,
+                "repeated directory continuation",
+            ));
+        }
+        cursors.push(after.clone());
     }
 }

@@ -27,14 +27,16 @@ pub(super) fn resolve(
         )
     };
     match mode {
-        Mode::Directory => Some(Selection::Directory(
-            selected
-                .iter()
-                .filter_map(|index| listing.directory.entries.get(*index))
-                .find(|entry| entry.kind == EntryKind::Directory)
-                .map(|entry| join(&entry.name))
-                .unwrap_or_else(|| listing.directory.path.clone()),
-        )),
+        Mode::Directory if selected.is_empty() => {
+            Some(Selection::Directory(listing.directory.path.clone()))
+        }
+        Mode::Directory => {
+            if selected.len() != 1 {
+                return None;
+            }
+            let entry = listing.directory.entries.get(*selected.first()?)?;
+            (entry.kind == EntryKind::Directory).then(|| Selection::Directory(join(&entry.name)))
+        }
         Mode::Files { multiple } => {
             let files: Vec<_> = selected
                 .iter()
@@ -42,7 +44,7 @@ pub(super) fn resolve(
                 .filter(|entry| entry.kind == EntryKind::File)
                 .map(|entry| join(&entry.name))
                 .collect();
-            (!files.is_empty() && (*multiple || files.len() == 1))
+            (!files.is_empty() && (*multiple || (selected.len() == 1 && files.len() == 1)))
                 .then_some(Selection::Files(files))
         }
         Mode::Save { .. } => {

@@ -56,9 +56,26 @@ impl Picker {
                         .w_full()
                         .h(px(28.))
                         .justify_start()
-                        .icon(icon)
-                        .label(name.clone())
-                        .accessibility_label(name)
+                        .accessibility_label(name.clone())
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .min_w_0()
+                                .justify_start()
+                                .gap_2()
+                                .child(Icon::new(icon).size_3p5().flex_shrink_0())
+                                .child(
+                                    div()
+                                        .debug_selector(move || {
+                                            format!("directory-location-label-{index}")
+                                        })
+                                        .flex_1()
+                                        .min_w_0()
+                                        .text_xs()
+                                        .truncate()
+                                        .child(name),
+                                ),
+                        )
                         .disabled(self.busy)
                         .selected(
                             self.listing
