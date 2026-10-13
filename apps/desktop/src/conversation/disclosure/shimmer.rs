@@ -132,7 +132,7 @@ impl RenderOnce for Summary {
                     .map(|(run, position)| {
                         let mut run = run.clone();
                         let amount = (1. - ((*position - center).abs() / band)).max(0.);
-                        run.color = run.color.mix(highlight, amount * amount);
+                        run.color = highlight.mix(run.color, amount * amount);
                         run
                     })
                     .collect();
