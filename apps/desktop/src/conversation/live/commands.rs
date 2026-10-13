@@ -184,7 +184,7 @@ impl Panel {
         control::Header {
             id,
             panel: cx.entity().downgrade(),
-            open: self.output_text(id).is_some(),
+            open: *self.selected.borrow() == Some(id),
             disabled: !self.state.connected
                 || self.action.is_some()
                 || info.status == CommandStatus::Stopping,
@@ -336,7 +336,7 @@ impl Render for Panel {
             commands = commands.child(
                 Collapsible::new()
                     .child(title)
-                    .open(output.is_some())
+                    .open(*self.selected.borrow() == Some(info.id))
                     .bg(cx.theme().transparent)
                     .when_some(output, |item, text| {
                         item.content(

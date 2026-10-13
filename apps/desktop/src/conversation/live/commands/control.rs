@@ -99,7 +99,13 @@ impl RenderOnce for Header {
                             .debug_selector(move || {
                                 format!(
                                     "background-{}-{id}",
-                                    if stopping { "stop-icon" } else { "chevron" }
+                                    if stopping {
+                                        "stop-icon"
+                                    } else if self.open {
+                                        "expanded"
+                                    } else {
+                                        "collapsed"
+                                    }
                                 )
                             })
                             .child(

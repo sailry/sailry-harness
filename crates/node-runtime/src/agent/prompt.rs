@@ -174,6 +174,7 @@ mod tests {
             "Ordinary links within prose remain links and are not added to outputs",
             "No display or publish tool is needed; do not print internal content JSON",
             "with a local copy prepared first for remote files",
+            "Unsupported formats open in the system's default application",
         ] {
             assert!(recipient(false).contains(rule), "{rule}");
             assert!(!child.contains(rule), "{rule}");

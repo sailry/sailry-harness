@@ -183,6 +183,24 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
             assert!(output.stdout.text.is_empty() && output.stderr.text.is_empty());
         });
         assert!(visual.debug_bounds("background-output").is_none());
+        let expanded: &'static str =
+            Box::leak(format!("background-expanded-{silent}").into_boxed_str());
+        let collapsed: &'static str =
+            Box::leak(format!("background-collapsed-{silent}").into_boxed_str());
+        visual.update(|window, cx| window.blur(cx));
+        visual.simulate_mouse_move(point(px(0.), px(0.)), None, Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(expanded).is_some());
+        assert!(visual.debug_bounds(collapsed).is_none());
+        tap(visual, &silent_selector);
+        visual.update(|window, cx| window.blur(cx));
+        visual.simulate_mouse_move(point(px(0.), px(0.)), None, Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds(collapsed).is_some());
+        assert!(visual.debug_bounds(expanded).is_none());
+        tap(visual, &silent_selector);
         std::fs::write(
             fixture.directory.path().join("project/release.output"),
             "ready",
@@ -341,7 +359,7 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
         assert!(
             visual
                 .debug_bounds(Box::leak(
-                    format!("background-chevron-{}", info.id).into_boxed_str()
+                    format!("background-expanded-{}", info.id).into_boxed_str()
                 ))
                 .is_some()
         );
