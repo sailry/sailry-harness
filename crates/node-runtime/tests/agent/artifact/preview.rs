@@ -126,14 +126,21 @@ async fn retains_code_and_defaults_metadata() {
             .filter(|path| !before_backups.contains(path))
             .collect();
         assert_eq!(added.len(), 1);
-        let backup =
-            Connection::open_with_flags(added[0], OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        // The completed backup is immutable; inspection must not create WAL sidecars.
+        let mut uri = url::Url::from_file_path(added[0]).unwrap();
+        uri.query_pairs_mut().append_pair("immutable", "1");
+        let backup = Connection::open_with_flags(
+            uri.as_str(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+        )
+        .unwrap();
         assert_eq!(body(&backup, "artifacts", "id", document.id), before);
         assert_eq!(
             body(&backup, "artifact_revisions", "artifact", document.id),
             revision
         );
         drop(backup);
+        assert_eq!(backups(&profile), saved);
         let db = Connection::open(&path).unwrap();
         assert_eq!(
             records(&db, "SELECT body FROM agent_events ORDER BY rowid"),

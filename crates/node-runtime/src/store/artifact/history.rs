@@ -29,7 +29,7 @@ pub(super) fn published(
                 .content(&function_response.response)
                 .is_some_and(|content| {
                     content.blocks.iter().any(
-                        |block| matches!(block, tool::Block::Artifact(value) if value == artifact),
+                        |block| matches!(block, tool::Block::Artifact { artifact: value } if value == artifact),
                     )
                 })
             {

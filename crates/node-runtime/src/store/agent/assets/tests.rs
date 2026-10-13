@@ -355,8 +355,12 @@ fn pages_document_receipts_with_fork_scope() {
     let receipt = sailry_protocol::tool::Content {
         version: 1,
         blocks: vec![
-            sailry_protocol::tool::Block::Artifact(document.clone()),
-            sailry_protocol::tool::Block::Artifact(document.clone()),
+            sailry_protocol::tool::Block::Artifact {
+                artifact: document.clone(),
+            },
+            sailry_protocol::tool::Block::Artifact {
+                artifact: document.clone(),
+            },
         ],
     };
     let mut event = AdkEvent::new("document-receipt");

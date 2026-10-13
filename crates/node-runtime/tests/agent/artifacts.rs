@@ -133,7 +133,7 @@ fn cards(page: &Page) -> Vec<artifact::Summary> {
         })
         .flatten()
         .filter_map(|block| match block {
-            tool::Block::Artifact(value) => Some(value),
+            tool::Block::Artifact { artifact } => Some(artifact),
             _ => None,
         })
         .collect()

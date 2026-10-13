@@ -27,7 +27,9 @@ pub enum Block {
     },
     Diff(Diff),
     File(File),
-    Artifact(crate::artifact::Summary),
+    Artifact {
+        artifact: crate::artifact::Summary,
+    },
     /// A Node-stamped package controller; never an executable result payload.
     Card(crate::plugin::card::Summary),
 }
@@ -140,7 +142,7 @@ impl Content {
                 }
                 Block::Image { index } => images.insert(*index),
                 Block::File(file) => file.valid(),
-                Block::Artifact(artifact) => artifact.valid(),
+                Block::Artifact { artifact } => artifact.valid(),
                 Block::Card(card) => card.valid(),
                 Block::Diff(diff) => {
                     !diff.path.is_empty()

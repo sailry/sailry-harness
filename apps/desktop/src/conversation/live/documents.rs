@@ -30,7 +30,7 @@ impl View {
             call.turn == artifact.turn
                 && call.content.as_ref().is_some_and(|content| {
                     content.blocks.iter().any(|block| {
-                        matches!(block, sailry_protocol::tool::Block::Artifact(value) if value == artifact)
+                        matches!(block, sailry_protocol::tool::Block::Artifact { artifact: value } if value == artifact)
                     })
                 })
         })

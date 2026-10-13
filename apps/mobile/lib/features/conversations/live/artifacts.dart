@@ -18,16 +18,17 @@ List<Map<String, dynamic>> publishedArtifacts(
   final artifacts = <Map<String, dynamic>>[];
   for (final call in calls.where((call) => call['turn'] == turn)) {
     for (final block in objects(object(call['content'])['blocks'])) {
-      final id = text(block['id']);
-      final revision = block['revision'];
-      if (block['kind'] == 'artifact' &&
-          block['session'] == (origin ?? session) &&
-          block['turn'] == turn &&
+      if (block['kind'] != 'artifact') continue;
+      final artifact = object(block['artifact']);
+      final id = text(artifact['id']);
+      final revision = artifact['revision'];
+      if (artifact['session'] == (origin ?? session) &&
+          artifact['turn'] == turn &&
           id.isNotEmpty &&
           revision is int &&
           revision > 0 &&
           seen.add((id, revision))) {
-        artifacts.add(Map.unmodifiable(block));
+        artifacts.add(Map.unmodifiable(artifact));
       }
     }
   }

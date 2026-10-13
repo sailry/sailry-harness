@@ -21,7 +21,7 @@ impl View {
                     cards.push(self.interactive_card(card.clone(), cx));
                     continue;
                 }
-                if let Block::Artifact(artifact) = block {
+                if let Block::Artifact { artifact } = block {
                     if documents.insert(artifact.id) {
                         cards.push(self.document_card(artifact.clone(), cx));
                     }

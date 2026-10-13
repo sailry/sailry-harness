@@ -42,6 +42,59 @@ fn fixture() -> Page {
     page
 }
 
+mod artifacts {
+    use super::*;
+    use sailry_protocol::{artifact, tool};
+
+    #[test]
+    fn restores_both_kinds() {
+        for kind in [artifact::Kind::Document, artifact::Kind::Preview] {
+            for wrapped in [false, true] {
+                let mut page = fixture();
+                let artifact = artifact::Summary {
+                    id: sailry_protocol::ArtifactId::new(),
+                    kind,
+                    session: page.session,
+                    turn: page.runs[0].turn,
+                    package: sailry_protocol::plugin::Reference {
+                        name: "document-fixture".into(),
+                        digest: "a".repeat(64),
+                        settings_revision: 0,
+                    },
+                    title: "Options".into(),
+                    summary: "Compare the approaches".into(),
+                    revision: 1,
+                    size: 12,
+                    created_at: 10,
+                    updated_at: 10,
+                };
+                let content = tool::Content {
+                    version: 1,
+                    blocks: vec![tool::Block::Artifact { artifact }],
+                };
+                let native = json!({"sailry_content":content,"original":"retained"});
+                let original = if wrapped {
+                    json!({"output":native})
+                } else {
+                    native
+                };
+                if let Part::ToolResult { result, images, .. } = &mut page.entries[1].parts[0] {
+                    *result = original.clone();
+                    images.clear();
+                }
+                let calls = collect(&page);
+                assert_eq!(calls[0].state, State::Returned);
+                assert_eq!(calls[0].content, Some(content));
+                assert_eq!(calls[0].result(&page), Some(&original));
+                let restored: Page =
+                    serde_json::from_value(serde_json::to_value(&page).unwrap()).unwrap();
+                assert_eq!(collect(&restored), calls);
+                assert_eq!(calls[0].result(&restored), Some(&original));
+            }
+        }
+    }
+}
+
 mod cards {
     use super::*;
 

@@ -15,7 +15,7 @@ pub(super) fn items(entry: &Entry, root: Option<&str>) -> Vec<Target> {
                             sailry_protocol::tool::Block::File(file) => {
                                 push(&mut items, Target::File { path: file.path });
                             }
-                            sailry_protocol::tool::Block::Artifact(document) => {
+                            sailry_protocol::tool::Block::Artifact { artifact: document } => {
                                 push(&mut items, Target::Document(document));
                             }
                             _ => {}

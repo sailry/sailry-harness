@@ -17,8 +17,9 @@ import 'package:webview_flutter_platform_interface/webview_flutter_platform_inte
 import 'live_conversations_test.dart' as fixture;
 import 'support/webview.dart';
 
-Map<String, dynamic> summary(int revision) => {
+Map<String, dynamic> summary(int revision, {String kind = 'document'}) => {
   'id': 'artifact',
+  'kind': kind,
   'session': 'session',
   'turn': 'turn',
   'package': {'name': 'owner', 'digest': 'frozen', 'settings_revision': 0},
@@ -44,13 +45,13 @@ Map<String, dynamic> content(int revision, {int? latest}) => {
     'libraries': <String>[],
   },
 };
-Map<String, dynamic> publication(int revision) => {
+Map<String, dynamic> publication(int revision, {String kind = 'document'}) => {
   'turn': 'turn',
   'source': {'entry': 'tool-$revision', 'index': 0},
   'content': {
     'version': 1,
     'blocks': [
-      {'kind': 'artifact', ...summary(revision)},
+      {'kind': 'artifact', 'artifact': summary(revision, kind: kind)},
     ],
   },
 };
@@ -126,17 +127,14 @@ Future<void> mount(WidgetTester tester, Widget page) async {
 void main() {
   test('publications retain revisions and captured ownership', () {
     final other = publication(3);
-    other['content']['blocks'][0]['session'] = 'other';
+    other['content']['blocks'][0]['artifact']['session'] = 'other';
     expect(
       publishedArtifacts(
         [publication(1), publication(1), publication(2), other],
         'turn',
         'session',
       ),
-      [
-        {'kind': 'artifact', ...summary(1)},
-        {'kind': 'artifact', ...summary(2)},
-      ],
+      [summary(1), summary(2)],
     );
     expect(
       publishedArtifacts([publication(1)], 'other-turn', 'session'),
@@ -144,9 +142,7 @@ void main() {
     );
     expect(
       publishedArtifacts([publication(1)], 'turn', 'fork', origin: 'session'),
-      [
-        {'kind': 'artifact', ...summary(1)},
-      ],
+      [summary(1)],
     );
     expect(publishedArtifacts([publication(1)], 'turn', 'fork'), isEmpty);
     expect(
@@ -154,6 +150,49 @@ void main() {
       isEmpty,
     );
   });
+  test(
+    'publication kinds survive JSON restoration and reject invalid blocks',
+    () {
+      for (final kind in ['document', 'preview']) {
+        final restored =
+            jsonDecode(jsonEncode(publication(1, kind: kind)))
+                as Map<String, dynamic>;
+        expect(publishedArtifacts([restored], 'turn', 'session'), [
+          summary(1, kind: kind),
+        ]);
+        final duplicate =
+            jsonDecode(jsonEncode(restored)) as Map<String, dynamic>;
+        expect(publishedArtifacts([restored, duplicate], 'turn', 'session'), [
+          summary(1, kind: kind),
+        ]);
+        for (var change = 0; change < 7; change++) {
+          final invalid =
+              jsonDecode(jsonEncode(restored)) as Map<String, dynamic>;
+          final block = invalid['content']['blocks'][0];
+          final artifact = block['artifact'];
+          switch (change) {
+            case 0:
+              block['kind'] = 'file';
+            case 1:
+              block.remove('artifact');
+              block.addAll(artifact);
+              block['kind'] = 'artifact';
+            case 2:
+              artifact['session'] = 'other';
+            case 3:
+              artifact['turn'] = 'other';
+            case 4:
+              artifact['revision'] = 0;
+            case 5:
+              artifact['id'] = '';
+            case 6:
+              block.remove('artifact');
+          }
+          expect(publishedArtifacts([invalid], 'turn', 'session'), isEmpty);
+        }
+      }
+    },
+  );
   test('form answers include capture and original choice values', () {
     expect(
       artifactAnswers(submission(2), summary(2), 'Architecture v2 (artifact)'),

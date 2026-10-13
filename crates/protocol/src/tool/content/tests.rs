@@ -1,6 +1,97 @@
 use super::*;
 use serde_json::json;
 
+mod artifacts {
+    use super::*;
+    use crate::artifact;
+
+    fn summary(kind: artifact::Kind) -> artifact::Summary {
+        artifact::Summary {
+            id: crate::ArtifactId::new(),
+            kind,
+            session: crate::SessionId::new(),
+            turn: crate::TurnId::new(),
+            package: crate::plugin::Reference {
+                name: "document-fixture".into(),
+                digest: "a".repeat(64),
+                settings_revision: 0,
+            },
+            title: "Options".into(),
+            summary: "Compare the approaches".into(),
+            revision: 1,
+            size: 12,
+            created_at: 10,
+            updated_at: 10,
+        }
+    }
+
+    #[test]
+    fn round_trips_both_kinds() {
+        for kind in [artifact::Kind::Document, artifact::Kind::Preview] {
+            let artifact = summary(kind);
+            let content = Content {
+                version: 1,
+                blocks: vec![Block::Artifact {
+                    artifact: artifact.clone(),
+                }],
+            };
+            let encoded = serde_json::to_value(&content).unwrap();
+            assert_eq!(encoded["blocks"][0]["kind"], "artifact");
+            assert_eq!(
+                encoded["blocks"][0]["artifact"]["kind"],
+                serde_json::to_value(kind).unwrap()
+            );
+            assert_eq!(
+                serde_json::from_value::<Content>(encoded.clone()).unwrap(),
+                content
+            );
+            assert_eq!(
+                serde_json::from_str::<Content>(&serde_json::to_string(&content).unwrap()).unwrap(),
+                content
+            );
+            let native = json!({"sailry_content":encoded,"original":"retained"});
+            for result in [native.clone(), json!({"output":native.clone()})] {
+                assert_eq!(
+                    Presentation::Content.content(&result),
+                    Some(content.clone())
+                );
+            }
+            assert_eq!(native["original"], "retained");
+            assert_eq!(
+                serde_json::from_value::<artifact::Summary>(
+                    native["sailry_content"]["blocks"][0]["artifact"].clone()
+                )
+                .unwrap(),
+                artifact
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_kind() {
+        let content = json!(Content {
+            version: 1,
+            blocks: vec![Block::Artifact {
+                artifact: summary(artifact::Kind::Document),
+            }],
+        });
+        for change in 0..3 {
+            let mut invalid = content.clone();
+            match change {
+                0 => invalid["blocks"][0]["artifact"]["kind"] = json!("unknown"),
+                1 => invalid["blocks"][0]["kind"] = json!("document"),
+                2 => invalid["blocks"][0]["artifact"]["unknown"] = json!(true),
+                _ => unreachable!(),
+            }
+            assert!(
+                Presentation::Content
+                    .content(&json!({"sailry_content":invalid}))
+                    .is_none()
+            );
+        }
+    }
+}
+
 mod cards {
     use super::*;
 

@@ -116,7 +116,9 @@ pub(super) fn annotate(output: &sailry_protocol::Output, value: &mut Value) {
     if let sailry_protocol::Output::ArtifactWritten { artifact, .. } = output {
         value["data"]["sailry_content"] = json!(sailry_protocol::tool::Content {
             version: 1,
-            blocks: vec![sailry_protocol::tool::Block::Artifact(artifact.clone())]
+            blocks: vec![sailry_protocol::tool::Block::Artifact {
+                artifact: artifact.clone(),
+            }]
         });
     }
 }
