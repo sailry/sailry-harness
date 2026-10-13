@@ -1,11 +1,8 @@
-//! Kit ShimmerText accepts plain text only. This activity-specific adapter uses
-//! public StyledText runs and one Animation to preserve mixed fonts in one scan.
-//! GPUI remains responsible for layout, native ellipsis, glyphs and reduced motion.
+//! Kit ShimmerText accepts plain text only. This activity-specific adapter keeps
+//! mixed-font StyledText layout fixed and animates its public paint decorations.
+//! GPUI owns native ellipsis, shaping, glyph positions and reduced motion.
 use gpui_kit::{component::*, *};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    time::Duration,
-};
+use std::{collections::BTreeSet, time::Duration};
 
 #[derive(IntoElement)]
 pub(super) struct Summary {
@@ -33,131 +30,173 @@ impl Summary {
     }
 
     fn runs(&self, style: &TextStyle, mono: SharedString, secondary: Hsla) -> Vec<TextRun> {
-        self.text
-            .char_indices()
-            .map(|(index, character)| {
-                let mut run = style.to_run(character.len_utf8());
-                if index >= self.detail_start {
-                    if self.mono {
-                        run.font.family = mono.clone();
-                    }
-                    if self.secondary {
-                        run.color = secondary;
-                    }
-                }
-                run
-            })
-            .collect()
+        let mut runs = vec![style.to_run(self.detail_start)];
+        if self.detail_start < self.text.len() {
+            let mut detail = style.to_run(self.text.len() - self.detail_start);
+            if self.mono {
+                detail.font.family = mono;
+            }
+            if self.secondary {
+                detail.color = secondary;
+            }
+            runs.push(detail);
+        }
+        runs
     }
 }
 
 impl RenderOnce for Summary {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let style = window.text_style();
-        let runs = self.runs(
-            &style,
-            cx.theme().mono_font_family.clone(),
-            cx.theme().muted_foreground.opacity(0.65),
-        );
-        let text = StyledText::new(self.text.clone()).with_runs(runs.clone());
+        let secondary = cx.theme().muted_foreground.opacity(0.65);
+        let runs = self.runs(&style, cx.theme().mono_font_family.clone(), secondary);
+        let text = StyledText::new(self.text).with_runs(runs);
         if cx.reduce_motion() {
             return text.into_any_element();
         }
-        let width = window.use_keyed_state(
-            (ElementId::from(self.id.clone()), "width"),
-            cx,
-            |window, _| window.viewport_size().width,
-        );
-        let available = *width.read(cx);
-        let shaped = window.text_system().shape_text(
-            self.text.clone(),
-            style.font_size.to_pixels(window.rem_size()),
-            &runs,
-            None,
-            None,
-        );
-        let Ok(lines) = shaped else {
-            return text.into_any_element();
-        };
-        let mut positions = Vec::with_capacity(runs.len());
-        let mut offset = 0;
-        let styles: BTreeMap<_, _> = self
-            .text
-            .char_indices()
-            .map(|(index, _)| index)
-            .zip(runs)
-            .collect();
-        let mut runs = Vec::new();
-        let mut extent = px(0.);
-        for (line_index, line) in lines.iter().enumerate() {
-            let layout = &line.unwrapped_layout;
-            extent = extent.max(layout.width);
-            // Keep native shaping clusters together, including combining marks and ligatures.
-            let boundaries: BTreeSet<_> = [0, line.text.len()]
-                .into_iter()
-                .chain(
-                    layout
-                        .runs
-                        .iter()
-                        .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.index)),
-                )
-                .collect();
-            let boundaries: Vec<_> = boundaries.into_iter().collect();
-            for boundary in boundaries.windows(2) {
-                let mut run = styles[&(offset + boundary[0])].clone();
-                run.len = boundary[1] - boundary[0];
-                runs.push(run);
-                let left = layout.x_for_index(boundary[0]);
-                let right = layout.x_for_index(boundary[1]);
-                positions.push((left + right) * 0.5);
-            }
-            offset += line.text.len();
-            if line_index + 1 < lines.len() {
-                runs.push(styles[&offset].clone());
-                positions.push(layout.width);
-                offset += 1;
-            }
+        Glyphs {
+            text,
+            detail_start: self.detail_start,
+            color: style.color,
+            secondary: self.secondary.then_some(secondary),
+            highlight: cx.theme().foreground,
+            phase: 0.,
         }
-        let extent = extent.min(available).max(px(1.));
-        let band = (extent * 0.3).max(px(16.));
-        let highlight = cx.theme().foreground;
-        let animated = text.with_animation(
+        .with_animation(
             self.id,
             Animation::new(Duration::from_secs(2)).repeat_synced(),
-            move |text, phase| {
-                let center = (extent + band * 2.) * phase - band;
-                let runs = runs
-                    .iter()
-                    .zip(&positions)
-                    .map(|(run, position)| {
-                        let mut run = run.clone();
-                        let amount = (1. - ((*position - center).abs() / band)).max(0.);
-                        run.color = highlight.mix(run.color, amount * amount);
-                        run
-                    })
-                    .collect();
-                text.with_runs(runs)
+            |mut glyphs, phase| {
+                glyphs.phase = phase;
+                glyphs
             },
-        );
-        div()
-            .min_w_0()
-            .max_w_full()
-            .truncate()
-            .on_prepaint(move |bounds, window, cx| {
-                if (*width.read(cx) - bounds.size.width).abs() <= px(0.5) {
-                    return;
+        )
+        .into_any_element()
+    }
+}
+
+struct Glyphs {
+    text: StyledText,
+    detail_start: usize,
+    color: Hsla,
+    secondary: Option<Hsla>,
+    highlight: Hsla,
+    phase: f32,
+}
+
+impl Glyphs {
+    fn decorations(&self, line: &LineLayout, offset: usize, extent: Pixels) -> Vec<DecorationRun> {
+        // Native shaping clusters keep combining marks and ligatures together.
+        let boundaries: BTreeSet<_> = [0, line.len]
+            .into_iter()
+            .chain(
+                line.runs
+                    .iter()
+                    .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.index)),
+            )
+            .collect();
+        let boundaries: Vec<_> = boundaries.into_iter().collect();
+        let band = (extent * 0.3).max(px(16.));
+        let center = (extent + band * 2.) * self.phase - band;
+        boundaries
+            .windows(2)
+            .map(|boundary| {
+                let position =
+                    (line.x_for_index(boundary[0]) + line.x_for_index(boundary[1])) * 0.5;
+                let amount = (1. - ((position - center).abs() / band)).max(0.);
+                let base = if offset + boundary[0] >= self.detail_start {
+                    self.secondary.unwrap_or(self.color)
+                } else {
+                    self.color
+                };
+                DecorationRun {
+                    len: (boundary[1] - boundary[0]) as u32,
+                    color: self.highlight.mix(base, amount * amount),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
                 }
-                let width = width.clone();
-                window.defer(cx, move |window, cx| {
-                    width.update(cx, |width, cx| {
-                        *width = bounds.size.width;
-                        cx.notify();
-                    });
-                    window.refresh();
-                });
             })
-            .child(animated)
-            .into_any_element()
+            .collect()
+    }
+}
+
+impl IntoElement for Glyphs {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+impl Element for Glyphs {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, Self::RequestLayoutState) {
+        self.text.request_layout(id, inspector, window, cx)
+    }
+
+    fn prepaint(
+        &mut self,
+        id: Option<&GlobalElementId>,
+        inspector: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        state: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.text.prepaint(id, inspector, bounds, state, window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut Self::RequestLayoutState,
+        _: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let layout = self.text.layout();
+        let lines = layout.line_layouts();
+        let extent = lines
+            .iter()
+            .map(|line| line.unwrapped_layout.width)
+            .fold(px(0.), Pixels::max)
+            .min(bounds.size.width)
+            .max(px(1.));
+        let mut origin = bounds.origin;
+        let mut offset = 0;
+        for line in lines {
+            let line = &line.unwrapped_layout;
+            let decorations = self.decorations(line, offset, extent);
+            let _ = line.paint(
+                origin,
+                layout.line_height(),
+                window.text_style().text_align,
+                Some(bounds.size.width),
+                &decorations,
+                window,
+                cx,
+            );
+            origin.y += layout.line_height();
+            offset += line.len + 1;
+        }
     }
 }
 

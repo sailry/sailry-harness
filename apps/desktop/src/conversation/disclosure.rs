@@ -184,7 +184,7 @@ fn row(
         .min_w_0()
         .when(detail.wrap, |row| row.w_full().items_start())
         .gap_2()
-        .text_sm()
+        .text_size(cx.theme().typography_tokens().sm.size)
         .text_color(state_color)
         .group_hover(group.clone(), |style| {
             style.text_color(if detail.failed || detail.pending {
@@ -252,6 +252,10 @@ fn row(
         .when(!unified && !detail.text.is_empty(), |row| {
             row.child(
                 div()
+                    .debug_selector({
+                        let selector = format!("{id}-detail");
+                        move || selector.clone()
+                    })
                     .min_w_0()
                     .text_ellipsis()
                     .when(detail.secondary && !detail.failed, |text| {

@@ -35,6 +35,94 @@ fn preserves_unicode_and_mixed_fonts() {
     assert_eq!(detail.accessible(&"Create folder".into()), summary.text);
 }
 
+struct Scan {
+    phase: f32,
+    layout: std::rc::Rc<std::cell::RefCell<Option<TextLayout>>>,
+}
+
+impl Render for Scan {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let summary = Summary::new(
+            "fixed-scan".into(),
+            "AV office fi café".into(),
+            &super::super::Detail {
+                mono: true,
+                text: "inventory/中文/e\u{301}🙂.py".into(),
+                secondary: true,
+                ..Default::default()
+            },
+        );
+        let style = window.text_style();
+        let secondary = cx.theme().muted_foreground.opacity(0.65);
+        let runs = summary.runs(&style, cx.theme().mono_font_family.clone(), secondary);
+        let glyphs = Glyphs {
+            text: StyledText::new(summary.text).with_runs(runs),
+            detail_start: summary.detail_start,
+            color: style.color,
+            secondary: Some(secondary),
+            highlight: cx.theme().foreground,
+            phase: self.phase,
+        };
+        *self.layout.borrow_mut() = Some(glyphs.text.layout().clone());
+        div()
+            .debug_selector(|| "fixed-scan".into())
+            .w(px(520.))
+            .truncate()
+            .text_size(cx.theme().typography_tokens().sm.size)
+            .child(glyphs)
+    }
+}
+
+#[gpui::test]
+fn keeps_glyph_positions_across_scan_phases(cx: &mut TestAppContext) {
+    crate::conversation::live::tests::fixture::init(cx);
+    let layout = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut entity = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| Scan {
+            phase: 0.,
+            layout: layout.clone(),
+        });
+        entity = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let entity = entity.unwrap();
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        let mut resting = None;
+        for phase in [0., 0.125, 0.25, 0.5, 0.75, 1.] {
+            entity.update(visual, |view, cx| {
+                view.phase = phase;
+                cx.notify();
+            });
+            visual.update(|window, cx| {
+                Theme::change(mode, Some(window), cx);
+                window.draw(cx).clear(cx);
+            });
+            let layout = layout.borrow();
+            let layout = layout.as_ref().unwrap();
+            let positions: Vec<_> = layout
+                .line_layouts()
+                .iter()
+                .flat_map(|line| {
+                    line.unwrapped_layout.runs.iter().flat_map(|run| {
+                        run.glyphs
+                            .iter()
+                            .map(move |glyph| (run.font_id, glyph.id, glyph.index, glyph.position))
+                    })
+                })
+                .collect();
+            let current = (positions, layout.bounds(), layout.line_height());
+            assert!(!current.0.is_empty());
+            if let Some(resting) = &resting {
+                assert_eq!(&current, resting, "scan phase: {phase}");
+            } else {
+                resting = Some(current);
+            }
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+}
+
 struct Activity;
 
 impl Render for Activity {

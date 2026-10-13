@@ -158,6 +158,130 @@ fn long_details_fit_the_column(cx: &mut TestAppContext) {
     assert_eq!(trigger.size.height, px(24.));
 }
 
+struct Typography;
+
+impl Render for Typography {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .w(px(560.))
+            .text_size(px(30.))
+            .children([false, true].into_iter().map(|mono| {
+                trigger(
+                    format!("type-{mono}"),
+                    IconName::Search,
+                    "Search files".into(),
+                    Detail {
+                        text: "plan|TODO|implementation".into(),
+                        mono,
+                        ..Default::default()
+                    },
+                    false,
+                    cx,
+                )
+            }))
+            .child(trigger(
+                "type-running".into(),
+                IconName::Search,
+                "Search files".into(),
+                Detail {
+                    text: "plan|TODO|implementation".into(),
+                    mono: true,
+                    running: true,
+                    ..Default::default()
+                },
+                false,
+                cx,
+            ))
+            .child(summary(
+                "type-summary".into(),
+                IconName::Search,
+                "Search files".into(),
+                Detail::mono("plan|TODO|implementation"),
+                cx,
+            ))
+    }
+}
+
+#[gpui::test]
+fn uses_small_type_for_all_summary_text(cx: &mut TestAppContext) {
+    crate::conversation::live::tests::fixture::init(cx);
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| Typography);
+        Root::new(view, window, cx)
+    });
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        for rem in [16., 18.] {
+            let (label, plain, mono, combined) = visual.update(|window, cx| {
+                Theme::change(mode, Some(window), cx);
+                Theme::global_mut(cx).font_size = px(rem);
+                cx.set_reduce_motion(true);
+                window.draw(cx).clear(cx);
+                let size = cx.theme().typography_tokens().sm.size;
+                let style = TextStyle {
+                    font_family: cx.theme().font_family.clone(),
+                    ..Default::default()
+                };
+                let label: SharedString = "Search files".into();
+                let detail: SharedString = "plan|TODO|implementation".into();
+                let label_run = style.to_run(label.len());
+                let plain_run = style.to_run(detail.len());
+                let mut mono_run = plain_run.clone();
+                mono_run.font.family = cx.theme().mono_font_family.clone();
+                let width = |text, runs: &[TextRun]| {
+                    window
+                        .text_system()
+                        .shape_line(text, size, runs, None)
+                        .width
+                        .ceil()
+                };
+                (
+                    width(label.clone(), &[label_run]),
+                    width(detail.clone(), &[plain_run]),
+                    width(detail.clone(), &[mono_run.clone()]),
+                    width(
+                        format!("{label} {detail}").into(),
+                        &[style.to_run(label.len() + 1), mono_run],
+                    ),
+                )
+            });
+            for (label_id, detail_id, detail_width) in [
+                (
+                    "type-false-summary-label",
+                    "type-false-summary-detail",
+                    plain,
+                ),
+                ("type-true-summary-label", "type-true-summary-detail", mono),
+                (
+                    "type-summary-summary-label",
+                    "type-summary-summary-detail",
+                    mono,
+                ),
+            ] {
+                assert_eq!(
+                    visual.debug_bounds(label_id).unwrap().size.width,
+                    label,
+                    "label: {label_id}, rem: {rem}"
+                );
+                assert_eq!(
+                    visual.debug_bounds(detail_id).unwrap().size.width,
+                    detail_width,
+                    "detail: {detail_id}, rem: {rem}"
+                );
+            }
+            assert_eq!(
+                visual
+                    .debug_bounds("type-running-summary-shimmer")
+                    .unwrap()
+                    .size
+                    .width,
+                combined,
+                "running summary, rem: {rem}"
+            );
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+}
+
 #[gpui::test]
 fn failed_continuing_summary_stays_static(cx: &mut TestAppContext) {
     cx.update(|cx| {
