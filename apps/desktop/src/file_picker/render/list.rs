@@ -152,7 +152,7 @@ impl TableDelegate for Rows {
                                 }),
                         )
                     })
-                    .child(icon(entry, rems(1.)))
+                    .child(icon(entry, rems(1.), cx))
                     .child(div().min_w_0().truncate().child(entry.name.clone()))
             })
             .when(column == 1, |cell| {
@@ -186,13 +186,21 @@ impl TableDelegate for Rows {
             ))
     }
 }
-pub(super) fn icon(entry: &FileEntry, size: Rems) -> AnyElement {
-    let path = if entry.kind == EntryKind::Directory {
-        format!("{}/", entry.name)
-    } else {
-        entry.name.clone()
-    };
-    crate::ui::file_icon::render(&path, "", size)
+pub(super) fn icon(entry: &FileEntry, size: Rems, cx: &App) -> AnyElement {
+    if entry.kind == EntryKind::Directory {
+        return div()
+            .size(size)
+            .flex_shrink_0()
+            .debug_selector(|| "file-type-folder".into())
+            .child(
+                Icon::default()
+                    .data(include_bytes!("../../../../../assets/icons/folder.svg"))
+                    .size(size)
+                    .text_color(cx.theme().primary),
+            )
+            .into_any_element();
+    }
+    crate::ui::file_icon::render(&entry.name, "", size)
 }
 fn kind(entry: &FileEntry) -> SharedString {
     if entry.kind == EntryKind::Directory {

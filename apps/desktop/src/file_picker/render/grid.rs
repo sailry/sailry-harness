@@ -82,7 +82,7 @@ impl Picker {
                             .items_center()
                             .justify_center()
                             .gap_2()
-                            .child(super::list::icon(entry, rems(2.)))
+                            .child(super::list::icon(entry, rems(2.), cx))
                             .child(
                                 div()
                                     .w_full()
