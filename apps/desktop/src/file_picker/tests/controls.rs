@@ -479,15 +479,17 @@ fn name_input(visual: &mut VisualTestContext, value: &str) {
 
 fn go_to_field(window: &mut Window) -> gpui_kit::test::ElementSnapshot {
     let target = window.find("directory-go-to-target");
-    let list = window
-        .find_all_by_role(Role::List)
-        .into_iter()
-        .find(|list| target.path().starts_with(list.path()))
-        .expect("go-to target must belong to a native list");
+    let list: ElementId = "list-state".into();
+    let end = target
+        .path()
+        .iter()
+        .rposition(|item| item == &list)
+        .expect("go-to target must belong to a Kit list");
+    let scope = &target.path()[..=end];
     let mut fields: Vec<_> = window
         .find_all_by_role(Role::TextInput)
         .into_iter()
-        .filter(|field| field.path().starts_with(list.path()))
+        .filter(|field| field.path().starts_with(scope))
         .collect();
     assert_eq!(fields.len(), 1, "go-to list must expose one native input");
     fields.pop().unwrap()
