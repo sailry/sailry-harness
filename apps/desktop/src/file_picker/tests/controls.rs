@@ -645,6 +645,11 @@ fn go_to_preserves_navigation_until_success(cx: &mut TestAppContext) {
         let file = path.join("file.txt").to_str().unwrap().to_owned();
         visual.simulate_keystrokes("secondary-a");
         visual.simulate_input(&file);
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert_eq!(go_to_field(window).value(), Some(file.as_str()));
+        });
         visual.simulate_keystrokes("enter");
         settle(visual, |_, cx| {
             browses() >= initial + 2 && !picker.read(cx).busy
