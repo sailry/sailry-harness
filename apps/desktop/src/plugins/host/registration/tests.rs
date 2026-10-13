@@ -258,9 +258,47 @@ fn confirms_configured_replacement(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             starts(&issuer) == 1 && snapshot(&panel, cx).contains("Scan to create an app")
         });
+        let previous = panel.read_with(visual, |_, cx| script(&panel, cx));
+        let attempt = fixture
+            .transport
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|request| matches!(request.command, Command::BeginPluginRegistration { .. }))
+            .unwrap()
+            .id;
+        click(visual, "feishu-cancel");
+        wait(visual, |cx| {
+            let text = snapshot(&panel, cx);
+            !text.contains("Scan to create an app")
+                && text.lines().any(|line| {
+                    line.contains("feishu-register") && line.contains("(\"disabled\", Bool(false))")
+                })
+        });
+        assert!(matches!(state(&fixture, attempt), State::Cancelled));
+        click(visual, "feishu-register");
+        crate::prompts::tests::wait(visual);
+        assert_eq!(starts(&issuer), 1);
+        let Output::PluginSecret(secret) = fixture.execute(Command::ReadPluginSecret {
+            package: saved.package.clone(),
+            field: "app_secret".into(),
+        }) else {
+            panic!("private setting expected")
+        };
+        assert_eq!(secret.unwrap().expose(), "existing-private-marker");
+        crate::prompts::tests::answer(visual, "plugin_registration_replace");
+        wait(visual, |cx| {
+            starts(&issuer) == 2 && snapshot(&panel, cx).contains("Scan to create an app")
+        });
+        assert_eq!(
+            previous,
+            panel.read_with(visual, |_, cx| script(&panel, cx))
+        );
         let host = panel.read_with(visual, |panel, _| panel.mounted.as_ref().unwrap().host());
         host.close();
         visual.update(|window, _| window.remove_window());
+        drop(previous);
         drop(panel);
         fixture.close();
     }
@@ -294,6 +332,24 @@ fn refresh_and_close_cancel_owned_attempts(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             starts(&issuer) == 2 && snapshot(&panel, cx).contains("Scan to create an app")
         });
+        let previous = panel.read_with(visual, |_, cx| script(&panel, cx));
+        click(visual, "feishu-cancel");
+        wait(visual, |cx| {
+            let text = snapshot(&panel, cx);
+            !text.contains("Scan to create an app")
+                && text.lines().any(|line| {
+                    line.contains("feishu-register") && line.contains("(\"disabled\", Bool(false))")
+                })
+        });
+        assert_eq!(starts(&issuer), 2);
+        click(visual, "feishu-register");
+        wait(visual, |cx| {
+            starts(&issuer) == 3 && snapshot(&panel, cx).contains("Scan to create an app")
+        });
+        assert_eq!(
+            previous,
+            panel.read_with(visual, |_, cx| script(&panel, cx))
+        );
         let requests: Vec<_> = fixture
             .transport
             .requests
@@ -303,16 +359,19 @@ fn refresh_and_close_cancel_owned_attempts(cx: &mut TestAppContext) {
             .filter(|request| matches!(request.command, Command::BeginPluginRegistration { .. }))
             .cloned()
             .collect();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 3);
         assert_ne!(requests[0].id, requests[1].id);
+        assert_ne!(requests[1].id, requests[2].id);
         assert!(matches!(state(&fixture, first), State::Cancelled));
+        assert!(matches!(state(&fixture, requests[1].id), State::Cancelled));
         let host = panel.read_with(visual, |panel, _| panel.mounted.as_ref().unwrap().host());
         host.close();
         wait(visual, |_| {
-            matches!(state(&fixture, requests[1].id), State::Cancelled)
+            matches!(state(&fixture, requests[2].id), State::Cancelled)
         });
-        assert_eq!(starts(&issuer), 2);
+        assert_eq!(starts(&issuer), 3);
         visual.update(|window, _| window.remove_window());
+        drop(previous);
         drop(panel);
         fixture.close();
     }

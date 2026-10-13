@@ -219,6 +219,8 @@ impl Controller {
         if self.closed || self.pending || !self.host.context().controller_settings() {
             return;
         }
+        self.stop.cancel();
+        self.stop = self.host.stop.child_token();
         self.pending = true;
         let (host, stop) = (self.host.clone(), self.stop.clone());
         let job = self.host.runtime.spawn(async move {
