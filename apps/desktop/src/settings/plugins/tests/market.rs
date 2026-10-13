@@ -468,6 +468,7 @@ fn admitted_install_shows_disabled_progress(cx: &mut TestAppContext) {
         let server = Server::new();
         let fixture = Fixture::with_skill_source(remote, &server.endpoint);
         let (_, visual) = fixture.mount(cx);
+        visual.update(|window, _| window.activate_window());
         tap(visual, "plugins-market-tab");
         shown(visual, "market-install-files", true);
         tap(visual, "plugins-third-party");

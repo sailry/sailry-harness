@@ -1,8 +1,7 @@
 use super::*;
-use gpui_kit::component::{ActiveTheme as _, IndexPath, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme as _, IconName, IndexPath, Sizable as _, h_flex, v_flex};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
-    group_box::{GroupBox, GroupBoxVariants},
     list::{ListDelegate, ListItem},
     progress::Progress,
 };
@@ -165,72 +164,74 @@ impl ListDelegate for Rows {
             Location::Node(_) => "installation_node",
             Location::Controller => "installation_controller",
         });
+        let status = progress.map_or_else(
+            || format!("{phase} · {location}"),
+            |progress| format!("{phase} · {location} · {}", measurement(progress)),
+        );
         let retry = self.owner.clone();
         let remove = self.owner.clone();
         Some(
             ListItem::new(("installation", index.row))
-                .h(rems(7.))
-                .px_2()
+                .h(rems(3.5))
+                .px_0()
+                .py_0()
+                .hover_background(false)
                 .debug_selector(move || format!("installation-card-{}", key.1))
                 .child(
-                    GroupBox::new()
-                        .id(("installation-card", index.row))
-                        .outline()
-                        .content_style(StyleRefinement::default().p_3().gap_2())
+                    // Kit's content wrapper has an intrinsic minimum. Anchor the
+                    // columns to the row so long labels cannot push controls out.
+                    h_flex()
+                        .absolute()
+                        .inset_0()
+                        .min_w_0()
+                        .px_2()
+                        .gap_3()
+                        .debug_selector(move || format!("installation-{}", key.1))
                         .child(
                             v_flex()
-                                .w_full()
+                                .flex_1()
                                 .min_w_0()
-                                .gap_2()
-                                .debug_selector(move || format!("installation-{}", key.1))
+                                .gap_1()
                                 .child(
-                                    h_flex()
+                                    div()
+                                        .id(("installation-title", index.row))
+                                        .test_support()
+                                        .role(Role::Label)
+                                        .aria_label(title.clone())
                                         .w_full()
-                                        .gap_2()
-                                        .child(div().min_w_0().flex_1().truncate().child(title))
-                                        .when(row.actionable, |view| {
-                                            view.when(row.retryable, |view| {
-                                                view.child(
-                                                    Button::new(("installation-retry", index.row))
-                                                        .ghost()
-                                                        .small()
-                                                        .label(tr("installation_retry"))
-                                                        .debug_selector(move || {
-                                                            format!("installation-retry-{}", key.1)
-                                                        })
-                                                        .on_click(move |_, window, cx| {
-                                                            let _ =
-                                                                retry.update(cx, |queue, cx| {
-                                                                    queue.retry(key, window, cx)
-                                                                });
-                                                        }),
-                                                )
-                                            })
-                                            .child(
-                                                Button::new(("installation-remove", index.row))
-                                                    .ghost()
-                                                    .small()
-                                                    .label(tr("installation_remove"))
-                                                    .on_click(move |_, window, cx| {
-                                                        let _ = remove.update(cx, |queue, cx| {
-                                                            queue.remove(key, window, cx)
-                                                        });
-                                                    }),
-                                            )
-                                        }),
+                                        .min_w_0()
+                                        .truncate()
+                                        .debug_selector(move || {
+                                            format!("installation-title-{}", key.1)
+                                        })
+                                        .child(title),
                                 )
                                 .child(
-                                    h_flex()
+                                    div()
+                                        .id(("installation-status", index.row))
+                                        .test_support()
+                                        .role(Role::Label)
+                                        .aria_label(status.clone())
                                         .w_full()
-                                        .justify_between()
+                                        .min_w_0()
+                                        .truncate()
                                         .text_sm()
                                         .text_color(cx.theme().muted_foreground)
-                                        .child(phase.clone())
-                                        .child(location)
-                                        .children(progress.map(measurement)),
-                                )
-                                .when(!row.status.terminal(), |view| {
-                                    view.child(
+                                        .debug_selector(move || {
+                                            format!("installation-status-{}", key.1)
+                                        })
+                                        .child(status),
+                                ),
+                        )
+                        .when(!row.status.terminal(), |view| {
+                            view.child(
+                                div()
+                                    .w_24()
+                                    .flex_shrink_0()
+                                    .debug_selector(move || {
+                                        format!("installation-progress-{}", key.1)
+                                    })
+                                    .child(
                                         Progress::new(("installation-progress", index.row))
                                             .small()
                                             .loading(progress.is_none_or(|progress| {
@@ -241,9 +242,53 @@ impl ListDelegate for Rows {
                                             }))
                                             .value(progress.map_or(0., percentage))
                                             .accessibility_label(phase),
-                                    )
-                                }),
-                        ),
+                                    ),
+                            )
+                        })
+                        .when(row.actionable, |view| {
+                            view.child(
+                                h_flex()
+                                    .flex_shrink_0()
+                                    .gap_1()
+                                    .debug_selector(move || {
+                                        format!("installation-actions-{}", key.1)
+                                    })
+                                    .when(row.retryable, |view| {
+                                        view.child(
+                                            Button::new(("installation-retry", index.row))
+                                                .ghost()
+                                                .small()
+                                                .icon(IconName::Redo)
+                                                .tooltip(tr("installation_retry"))
+                                                .accessibility_label(tr("installation_retry"))
+                                                .debug_selector(move || {
+                                                    format!("installation-retry-{}", key.1)
+                                                })
+                                                .on_click(move |_, window, cx| {
+                                                    let _ = retry.update(cx, |queue, cx| {
+                                                        queue.retry(key, window, cx)
+                                                    });
+                                                }),
+                                        )
+                                    })
+                                    .child(
+                                        Button::new(("installation-remove", index.row))
+                                            .ghost()
+                                            .small()
+                                            .icon(IconName::Close)
+                                            .tooltip(tr("installation_remove"))
+                                            .accessibility_label(tr("installation_remove"))
+                                            .debug_selector(move || {
+                                                format!("installation-remove-{}", key.1)
+                                            })
+                                            .on_click(move |_, window, cx| {
+                                                let _ = remove.update(cx, |queue, cx| {
+                                                    queue.remove(key, window, cx)
+                                                });
+                                            }),
+                                    ),
+                            )
+                        }),
                 ),
         )
     }

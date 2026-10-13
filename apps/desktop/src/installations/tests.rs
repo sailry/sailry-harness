@@ -1,6 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::{Root, WindowExt as _};
+use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
 use sailry_protocol::installation::Task as Observed;
 
 fn key() -> Key {
@@ -237,6 +238,27 @@ impl Render for Frame {
     }
 }
 
+fn settled_bounds(visual: &mut VisualTestContext, selector: &'static str) -> Bounds<Pixels> {
+    visual.update(|window, cx| window.render_frame(cx));
+    let started = std::time::Instant::now();
+    let mut previous = None;
+    loop {
+        visual.run_until_parked();
+        visual.update(|window, cx| window.render_frame(cx));
+        let bounds = visual.debug_bounds(selector).unwrap();
+        let elapsed = started.elapsed();
+        if elapsed >= *gpui_kit::component::dialog::ANIMATION_DURATION && previous == Some(bounds) {
+            return bounds;
+        }
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "installation layout deadline"
+        );
+        previous = Some(bounds);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
 #[gpui::test]
 fn frames_each_resource_task(cx: &mut TestAppContext) {
     cx.update(|cx| {
@@ -271,6 +293,21 @@ fn frames_each_resource_task(cx: &mut TestAppContext) {
                     let mut entry = entry();
                     entry.order = order as u64;
                     entry.resource = resource;
+                    entry.status = if order == 0 {
+                        Presentation::Waiting
+                    } else {
+                        Presentation::Observed(Status::Running {
+                            phase: sailry_protocol::installation::Phase::Downloading,
+                            progress: (order == 1).then_some(
+                                sailry_protocol::installation::Progress::Counts {
+                                    completed: 3,
+                                    total: 4,
+                                    bytes_per_second: Some(1_048_576),
+                                },
+                            ),
+                        })
+                    };
+                    entry.connected = order != 2;
                     queue.entries.insert(key, entry);
                     key.1
                 })
@@ -280,21 +317,266 @@ fn frames_each_resource_task(cx: &mut TestAppContext) {
             tasks
         })
     });
-    visual.update(|window, cx| {
-        let _ = window.draw(cx);
-    });
-    let mut previous = None;
-    for request in tasks {
-        let card = Box::leak(format!("installation-card-{request}").into_boxed_str());
-        let content = Box::leak(format!("installation-{request}").into_boxed_str());
-        let card = visual.debug_bounds(card).unwrap();
-        let content = visual.debug_bounds(content).unwrap();
-        assert!(content.left() >= card.left() && content.right() <= card.right());
-        assert!(content.top() >= card.top() && content.bottom() <= card.bottom());
-        if let Some(previous) = previous {
-            assert!(previous <= card.top());
+    for width in [1000., 380.] {
+        visual.simulate_resize(size(px(width), px(800.)));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let list = visual.debug_bounds("installation-list").unwrap();
+        let rem = visual.update(|window, _| window.rem_size());
+        let mut previous = None;
+        for request in &tasks {
+            let mut bounds = |suffix| {
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("installation-{suffix}-{request}").into_boxed_str(),
+                    ))
+                    .unwrap()
+            };
+            let row = bounds("card");
+            let title = bounds("title");
+            let status = bounds("status");
+            let progress = bounds("progress");
+            assert_eq!(row.size.height, rem * 3.5);
+            assert!(row.left() >= list.left() && row.right() <= list.right());
+            assert!(title.left() >= row.left() && status.left() >= row.left());
+            assert!(title.bottom() <= status.top());
+            assert!(status.bottom() <= row.bottom());
+            assert!(title.right() < progress.left() && status.right() < progress.left());
+            assert!(progress.right() <= row.right());
+            assert_eq!(progress.size.height, px(6.));
+            assert!((progress.center().y - row.center().y).abs() <= px(1.));
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("installation-actions-{request}").into_boxed_str()
+                    ))
+                    .is_none()
+            );
+            if let Some(previous) = previous {
+                assert!(previous <= row.top());
+            }
+            previous = Some(row.bottom());
         }
-        previous = Some(card.bottom());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let title = window.find_by_label(&"a".repeat(64));
+            assert_eq!(title.role(), Some(Role::Label));
+            let status = format!(
+                "{} · {} · 3/4 · {}",
+                tr("installation_downloading"),
+                tr("installation_node"),
+                rust_i18n::t!("installation_speed", value = "1.0"),
+            );
+            assert_eq!(window.find_by_label(&status).role(), Some(Role::Label));
+            let offline = rust_i18n::t!(
+                "installation_offline",
+                phase = tr("installation_downloading"),
+            );
+            let status = format!("{offline} · {}", tr("installation_node"));
+            assert_eq!(window.find_by_label(&status).role(), Some(Role::Label));
+        });
+    }
+    visual.update(|window, _| window.remove_window());
+}
+
+#[gpui::test]
+fn icon_actions_preserve_completion_gates(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let frame = cx.new(|_| Frame);
+        Root::new(frame, window, cx)
+    });
+    visual.update(|window, _| window.activate_window());
+    let attempts = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let captured = key();
+    let queue = visual.update(|window, cx| {
+        let queue = registry(cx);
+        queue.update(cx, |queue, cx| {
+            let mut entry = entry();
+            entry.resource = Resource::Plugin {
+                name: "Preserve the complete captured installation title".repeat(5),
+            };
+            let attempts = attempts.clone();
+            entry.retry = Some(Rc::new(move |attempt, _, _| {
+                attempts.borrow_mut().push(attempt);
+            }));
+            queue.entries.insert(captured, entry);
+            queue.changed(cx);
+            queue.open(window, cx);
+        });
+        queue
+    });
+    let selector =
+        |action| Box::leak(format!("installation-{action}-{}", captured.1).into_boxed_str());
+    for width in [1000., 380.] {
+        visual.simulate_resize(size(px(width), px(800.)));
+        for (uncertain, finished, retryable, dismissing) in [
+            (false, false, true, false),
+            (false, true, true, true),
+            (false, true, false, false),
+            (false, true, true, false),
+            (true, true, true, false),
+        ] {
+            queue.update(visual, |queue, cx| {
+                let entry = queue.entries.get_mut(&captured).unwrap();
+                entry.status = Presentation::Observed(if uncertain {
+                    Status::Uncertain { error: failure() }
+                } else {
+                    Status::Failed { error: failure() }
+                });
+                entry.finished = finished;
+                entry.dismissing = dismissing;
+                let attempts = attempts.clone();
+                entry.retry = retryable.then(|| {
+                    Rc::new(move |attempt, _: &mut Window, _: &mut App| {
+                        attempts.borrow_mut().push(attempt);
+                    }) as Retry
+                });
+                queue.changed(cx);
+            });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(visual.debug_bounds(selector("progress")).is_none());
+            let actionable = finished && !dismissing;
+            assert_eq!(
+                visual.debug_bounds(selector("remove")).is_some(),
+                actionable
+            );
+            assert_eq!(
+                visual.debug_bounds(selector("retry")).is_some(),
+                actionable && retryable
+            );
+            if !actionable {
+                continue;
+            }
+            let row = settled_bounds(visual, selector("card"));
+            let title = visual.debug_bounds(selector("title")).unwrap();
+            let status = visual.debug_bounds(selector("status")).unwrap();
+            let remove = visual.debug_bounds(selector("remove")).unwrap();
+            assert!(title.right() < remove.left() && status.right() < remove.left());
+            assert!(remove.right() <= row.right());
+            assert!((remove.center().y - row.center().y).abs() <= px(1.));
+            visual.simulate_mouse_move(row.center(), None, Modifiers::default());
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(visual.debug_bounds(selector("card")), Some(row));
+            visual.update(|window, cx| {
+                window.render_frame(cx);
+                assert_eq!(
+                    window.find_by_label(&tr("installation_remove")).role(),
+                    Some(Role::Button)
+                );
+            });
+            if retryable {
+                let retry = visual.debug_bounds(selector("retry")).unwrap();
+                assert!(retry.right() <= remove.left());
+                assert!((retry.center().y - row.center().y).abs() <= px(1.));
+                visual.simulate_click(retry.center(), Modifiers::default());
+                visual.run_until_parked();
+                let count = attempts.borrow().len();
+                assert!(count > 0);
+                assert_eq!(
+                    matches!(attempts.borrow()[count - 1], Attempt::Recover),
+                    uncertain
+                );
+                visual.update(|window, cx| {
+                    window.focus_next(cx);
+                    window.render_frame(cx);
+                    for _ in 0..8 {
+                        window.press("tab", cx);
+                        if window.find_by_label(&tr("installation_retry")).focused() == Some(true) {
+                            break;
+                        }
+                    }
+                    assert_eq!(
+                        window.find_by_label(&tr("installation_retry")).focused(),
+                        Some(true),
+                    );
+                    window.press("space", cx);
+                });
+                visual.run_until_parked();
+                assert_eq!(attempts.borrow().len(), count + 1);
+                assert_eq!(
+                    matches!(attempts.borrow()[count], Attempt::Recover),
+                    uncertain
+                );
+            }
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+}
+
+#[gpui::test]
+fn remove_icon_dismisses_without_replaying(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    for remote in [false, true] {
+        let fixture = crate::plugins::fixture::Fixture::new(remote);
+        let client = fixture.binding.client.clone();
+        let request = client.prepare(Command::InstallBundledPlugin {
+            name: "missing-installation-fixture".into(),
+            expected_revision: 0,
+        });
+        let error = fixture
+            .runtime
+            .block_on(client.execute(request.clone()))
+            .unwrap_err();
+        let captured = (Location::Node(client.target()), request.id);
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let frame = cx.new(|_| Frame);
+            Root::new(frame, window, cx)
+        });
+        let queue = visual.update(|window, cx| {
+            let queue = registry(cx);
+            queue.update(cx, |queue, cx| {
+                queue.bind(client.clone(), fixture.runtime.clone(), cx);
+                queue.entries.insert(captured, entry());
+                queue.changed(cx);
+                queue.open(window, cx);
+            });
+            queue
+        });
+        visual.update(|_, cx| {
+            Ticket {
+                queue: queue.clone(),
+                key: captured,
+            }
+            .record(Err(error.clone()), cx);
+        });
+        visual.simulate_resize(size(px(380.), px(800.)));
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let selector = Box::leak(format!("installation-remove-{}", request.id).into_boxed_str());
+        let remove = visual.debug_bounds(selector).unwrap();
+        visual.simulate_click(remove.center(), Modifiers::default());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            visual.run_until_parked();
+            if !queue.read_with(visual, |queue, _| queue.entries.contains_key(&captured)) {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "installation dismissal deadline"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let output = fixture
+            .runtime
+            .block_on(client.execute(client.prepare(Command::ReadInstallations {
+                requests: vec![request.id],
+            })))
+            .unwrap();
+        assert_eq!(output, Output::Installations(Vec::new()));
+        assert_eq!(
+            fixture.runtime.block_on(client.outcome(&request)).unwrap(),
+            sailry_protocol::RequestOutcome::Completed(Box::new(Err(error))),
+        );
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
     }
 }
 
@@ -334,6 +616,7 @@ fn completion_preserves_a_stacked_dialog(cx: &mut TestAppContext) {
         let frame = cx.new(|_| Frame);
         Root::new(frame, window, cx)
     });
+    visual.update(|window, _| window.activate_window());
     let queue = visual.update(|window, cx| {
         let queue = registry(cx);
         queue.update(cx, |queue, cx| {
@@ -374,6 +657,7 @@ fn form_completion_preserves_the_task_dialog(cx: &mut TestAppContext) {
         let frame = cx.new(|_| Frame);
         Root::new(frame, window, cx)
     });
+    visual.update(|window, _| window.activate_window());
     let form = visual.update(|window, cx| {
         let form = cx.new(|_| Form {
             dialog: Default::default(),
