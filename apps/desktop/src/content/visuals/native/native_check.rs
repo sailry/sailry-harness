@@ -14,6 +14,8 @@ use wry::WebViewExtMacOS;
 const SOURCE: &str = r"```mermaid
 flowchart LR
 A[Alpha] --> B[Beta]
+B --> C{Choice}
+C --> D@{ shape: tri, label: Triangle }
 ```
 
 Inline \(f_X(x)=\frac{1}{\sigma\sqrt{2\pi}}\exp\left(-\frac{(x-\mu)^2}{2\sigma^2}\right)\) formula
@@ -223,6 +225,33 @@ fn verify(records: &[Record]) {
         match kind {
             Kind::Mermaid => {
                 assert!(svg.source.contains("Alpha") && svg.source.contains("Beta"));
+                assert!(svg.source.contains("Choice") && svg.source.contains("Triangle"));
+                for label in ["Choice", "Triangle"] {
+                    let node = document
+                        .descendants()
+                        .find(|node| {
+                            node.attribute("class").is_some_and(|classes| {
+                                classes.split_whitespace().any(|class| class == "node")
+                            }) && node.descendants().any(|child| {
+                                child.is_text()
+                                    && child.text().is_some_and(|text| text.contains(label))
+                            })
+                        })
+                        .expect("actual Mermaid node");
+                    let outlines: Vec<_> = node
+                        .descendants()
+                        .filter(|shape| shape.has_tag_name("path"))
+                        .collect();
+                    assert!(!outlines.is_empty(), "actual Mermaid outlines");
+                    assert!(
+                        outlines.iter().all(|shape| {
+                            shape
+                                .attribute("d")
+                                .is_some_and(|path| path.contains('Q') && path.ends_with('Z'))
+                        }),
+                        "straight node outlines must be rounded"
+                    );
+                }
                 assert!(document.descendants().any(|node| node.has_tag_name("path")));
                 assert!(svg.baseline.is_none());
             }

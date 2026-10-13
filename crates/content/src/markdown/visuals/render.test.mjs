@@ -12,7 +12,8 @@ function element(tag, attributes = {}, children = []) {
   const values = new Map(Object.entries(attributes));
   const properties = new Map();
   const node = {
-    tag, children, parent: null,
+    tag, tagName:tag, children, parent: null,
+    get attributes() { return [...values].map(([name,value]) => ({name,value})); },
     style: {
       setProperty(name, value, priority) { properties.set(name, {value, priority}); },
       getPropertyValue(name) { return properties.get(name)?.value ?? ''; },
@@ -23,6 +24,16 @@ function element(tag, attributes = {}, children = []) {
     removeAttribute(name) { values.delete(name); if (name === 'style') properties.clear(); },
     replaceChildren(...next) { this.children = next; for (const child of next) child.parent = this; },
     appendChild(child) { child.parent = this; this.children.push(child); },
+    replaceWith(next) {
+      const index = this.parent.children.indexOf(this);
+      this.parent.children[index] = next; next.parent = this.parent;
+    },
+    closest(selector) {
+      for (let node=this; node; node=node.parent) {
+        if (selector.split(',').some(part => matches(node,part.trim()))) return node;
+      }
+      return null;
+    },
     getBoundingClientRect() { return {width: 320, height: 96}; },
     querySelectorAll(selector) {
       const descendants = this.children.flatMap(child => [child, ...child.querySelectorAll('*')]);
@@ -60,16 +71,22 @@ function matches(node, selector) {
 function diagram() {
   const rect = element('rect', {fill: 'url(#gradient)', stroke: 'url(#gradient)', rx: '0', ry: '0'});
   const rounded = element('rect', {rx: '20', ry: '20'});
-  const diamond = element('polygon', {points: '0,10 10,0 20,10 10,20'});
+  const diamond = element('polygon', {id:'diamond', points: '0,10 10,0 20,10 10,20', transform:'translate(2,3)'});
+  const triangle = element('path', {id:'triangle', class:'outline', d:'M0 20 L10 0 L20 20 Z'});
+  const cubic = element('path', {id:'cubic', d:'M0 20 C3 14 7 6 10 0 C13 6 17 14 20 20 L0 20 Z'});
+  const curved = element('path', {id:'curved', d:'M0 20 C0 0 20 0 20 20 Z'});
+  const open = element('path', {id:'open', d:'M0 20 L10 0 L20 20'});
+  const degenerate = element('polygon', {id:'degenerate', points:'0,0 0,0 10,10'});
+  const invalid = element('polygon', {id:'invalid', points:'0,0 10,Infinity 20,0'});
   const circle = element('circle', {r: '10'});
   const ellipse = element('ellipse', {rx: '10', ry: '20'});
-  const edge = element('path', {class: 'flowchart-link', 'marker-end': 'url(#arrow)', stroke: 'url(#gradient)'});
-  const arrow = element('path');
+  const edge = element('path', {class: 'flowchart-link', d:'M0 0 L10 0 L10 10 Z', 'marker-end': 'url(#arrow)', stroke: 'url(#gradient)'});
+  const arrow = element('path', {d:'M0 0 L10 0 L5 10 Z'});
   const text = element('text', {fill: '#ff0000'}, [element('tspan')]);
   const label = element('rect', {class: 'labelBkg'});
   const svg = element('svg', {xmlns: 'http://www.w3.org/2000/svg', filter: 'url(#glow)'}, [
     element('defs', {}, [element('linearGradient', {id: 'gradient'}), element('filter', {id: 'glow'}), element('marker', {id: 'arrow'}, [arrow])]),
-    ...[rect, rounded, diamond, circle, ellipse].map(shape => element('g', {class: 'node'}, [shape])),
+    ...[rect, rounded, diamond, triangle, cubic, curved, open, degenerate, invalid, circle, ellipse].map(shape => element('g', {class: 'node'}, [shape])),
     edge, element('g', {class: 'label'}, [label, text]),
   ]);
   for (const node of [svg, ...svg.querySelectorAll('*')]) {
@@ -80,13 +97,13 @@ function diagram() {
   }
   rect.style.setProperty('stroke', 'url(#gradient)', 'important');
   rect.style.setProperty('fill', 'url(#gradient)', 'important');
-  return {svg, rect, rounded, diamond, circle, ellipse, edge, arrow, text, label};
+  return {svg, rect, rounded, diamond, triangle, cubic, curved, open, degenerate, invalid, circle, ellipse, edge, arrow, text, label};
 }
 
-function setup(source) {
+function setup(source, create = diagram) {
   const host = element('main');
   let current;
-  Object.defineProperty(host, 'innerHTML', {set() { current = diagram(); host.replaceChildren(current.svg); }});
+  Object.defineProperty(host, 'innerHTML', {set() { current = create(); host.replaceChildren(current.svg); }});
   const initialized = [], rendered = [], formulas = [];
   let cleared = 0;
   const MathJax = {
@@ -106,7 +123,10 @@ function setup(source) {
   const window = {MathJax};
   vm.runInNewContext(source, {
     window, MathJax, mermaid, TextEncoder,
-    document: {getElementById(id) { assert.equal(id, 'surface'); return host; }},
+    document: {
+      getElementById(id) { assert.equal(id, 'surface'); return host; },
+      createElementNS(namespace,tag) { assert.equal(namespace,'http://www.w3.org/2000/svg'); return element(tag); },
+    },
     XMLSerializer: class { serializeToString(svg) { return svg.serialize(); } },
   });
   return {render: window.sailryRender, host, initialized, rendered, formulas,
@@ -122,7 +142,8 @@ for (const [name, path] of scripts) {
     const view = setup(source);
     for (const dark of [false, true]) {
       const input = request(dark), result = await view.render(input);
-      const {svg, rect, rounded, diamond, circle, ellipse, edge, arrow, text, label} = view.current();
+      const {svg, rect, rounded, circle, ellipse, edge, arrow, text, label} = view.current();
+      const diamond = svg.querySelectorAll('*').find(node => node.getAttribute('id') === 'diamond');
       const config = view.initialized.at(-1);
       const outline = name === 'desktop' ? input.accent : input.foreground;
       assert.equal(config.themeVariables.primaryTextColor, input.foreground);
@@ -153,7 +174,12 @@ for (const [name, path] of scripts) {
       assert.equal(rect.getAttribute('rx'), rect.getAttribute('ry'));
       assert.equal(rounded.getAttribute('rx'), '20');
       assert.equal(rounded.getAttribute('ry'), '20');
-      assert.equal(diamond.getAttribute('points'), '0,10 10,0 20,10 10,20');
+      assert.equal(diamond.tag, name === 'desktop' ? 'path' : 'polygon');
+      assert.equal(diamond.getAttribute('transform'), 'translate(2,3)');
+      if (name === 'desktop') {
+        assert.equal(diamond.getAttribute('points'), null);
+        assert.equal((diamond.getAttribute('d').match(/Q/g) ?? []).length, 4);
+      } else assert.equal(diamond.getAttribute('points'), '0,10 10,0 20,10 10,20');
       assert.equal(diamond.getAttribute('rx'), null);
       assert.equal(circle.getAttribute('r'), '10');
       assert.equal(circle.getAttribute('rx'), null);
@@ -186,5 +212,69 @@ for (const [name, path] of scripts) {
     assert.equal(view.initialized.length, 0);
     assert.equal(view.rendered.length, 0);
     assert.equal(view.cleared(), 2);
+  });
+
+  test(`${name} preserves unsupported outlines and rounds straight nodes`, async () => {
+    const view = setup(source);
+    await view.render(request());
+    const {triangle,cubic,curved,open,degenerate,invalid,edge,arrow} = view.current();
+    if (name === 'desktop') {
+      for (const shape of [triangle,cubic]) {
+        assert.equal((shape.getAttribute('d').match(/Q/g) ?? []).length, 3);
+        assert(shape.getAttribute('d').endsWith('Z'));
+      }
+      assert.equal(triangle.getAttribute('d'),cubic.getAttribute('d'));
+      assert.equal(triangle.getAttribute('class'),'outline');
+    } else {
+      assert.equal(triangle.getAttribute('d'),'M0 20 L10 0 L20 20 Z');
+      assert.equal(cubic.getAttribute('d'),'M0 20 C3 14 7 6 10 0 C13 6 17 14 20 20 L0 20 Z');
+    }
+    assert.equal(curved.getAttribute('d'),'M0 20 C0 0 20 0 20 20 Z');
+    assert.equal(open.getAttribute('d'),'M0 20 L10 0 L20 20');
+    assert.equal(degenerate.getAttribute('points'),'0,0 0,0 10,10');
+    assert.equal(invalid.getAttribute('points'),'0,0 10,Infinity 20,0');
+    assert.equal(edge.getAttribute('d'),'M0 0 L10 0 L10 10 Z');
+    assert.equal(arrow.getAttribute('d'),'M0 0 L10 0 L5 10 Z');
+  });
+
+  test(`${name} rounds implicit and repeated closed outlines`, async () => {
+    for (const path of [
+      'M0 0 C3 0 7 0 10 0 C9 -2 7 -6 5 -10 C4 -8 1 -2 0 0',
+      'M0 0 C3 0 7 0 10 0 M0 0 C2 0 8 0 10 0 '
+        + 'M10 0 C9 -2 7 -6 5 -10 M10 0 C8 -4 6 -8 5 -10 '
+        + 'M5 -10 C4 -8 1 -2 0 0 M5 -10 C3 -6 2 -4 0 0',
+    ]) {
+      const view = setup(source, () => {
+        const value = diagram(); value.triangle.setAttribute('d',path); return value;
+      });
+      await view.render(request());
+      const actual = view.current().triangle.getAttribute('d');
+      if (name === 'desktop') {
+        assert.equal((actual.match(/Q/g) ?? []).length,3);
+        assert(actual.endsWith('Z'));
+        assert.equal(view.current().triangle.getAttribute('class'),'outline');
+      } else assert.equal(actual,path);
+    }
+  });
+
+  test(`${name} leaves bounded invalid geometry unchanged`, async () => {
+    for (const path of [
+      'M0 0 L10 10 L20 20 Z',
+      'M0 0 L10 0 L10 10 Z M20 20 L30 20 L30 30 Z',
+      'M0 0 L10 0 M10 0 L5 -10',
+      'M0 0 L10 0 L5 -10 L0 0 M10 0 L15 5',
+      'M0 0 L10 0 M5 -10 L0 0 M10 0 L5 -10',
+      'M0 0 L10 0 M20 20 L30 20 M30 20 L20 20',
+      'M0 0 L0 0 L10 0 L5 -10 Z',
+      'M0 0 A10 10 0 0 0 20 20 Z',
+      'M0 0 L1e308 0 L0 20 Z',
+      'M0 0 ' + 'L1 1 '.repeat(600) + 'Z',
+    ]) {
+      const view = setup(source, () => {
+        const value = diagram(); value.triangle.setAttribute('d',path); return value;
+      });
+      await view.render(request());
+      assert.equal(view.current().triangle.getAttribute('d'),path);
+    }
   });
 }
