@@ -119,6 +119,9 @@ async fn observes_shared_lifecycles_without_payloads() {
         logging::directory(),
         Some(directory.path().join("logs").as_path())
     );
+    let file = logging::current_file().unwrap().unwrap();
+    assert_eq!(file.parent().unwrap(), directory.path().join("logs/host"));
+    assert_eq!(file.extension().unwrap(), "log");
     let mut expected = Vec::new();
     for remote in [false, true] {
         for stop in [false, true] {

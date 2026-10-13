@@ -11,7 +11,7 @@ fn lines(directory: &Path) -> Vec<Value> {
         .unwrap()
         .flat_map(|entry| {
             let path = entry.unwrap().path();
-            if !path.is_file() || path.file_name().unwrap().to_string_lossy().len() != 10 {
+            if !path.is_file() || path.extension().is_none_or(|extension| extension != "log") {
                 return Vec::new();
             }
             std::fs::read_to_string(path)
@@ -121,10 +121,11 @@ fn flushes_concurrent_complete_lines() {
 fn prunes_only_owned_dates() {
     let directory = tempfile::tempdir().unwrap();
     for day in 1..=10 {
-        std::fs::write(directory.path().join(format!("2020-01-{day:02}")), "").unwrap();
+        std::fs::write(directory.path().join(format!("2020-01-{day:02}.log")), "").unwrap();
     }
     std::fs::write(directory.path().join("notes.txt"), "preserve").unwrap();
-    std::fs::create_dir(directory.path().join("2020-01-11")).unwrap();
+    std::fs::write(directory.path().join("2020-01-01"), "legacy").unwrap();
+    std::fs::create_dir(directory.path().join("2020-01-11.log")).unwrap();
     let (mut writer, worker) = writer(
         directory.path(),
         Rotation::DAILY,
@@ -138,12 +139,20 @@ fn prunes_only_owned_dates() {
         std::fs::read_to_string(directory.path().join("notes.txt")).unwrap(),
         "preserve"
     );
-    assert!(directory.path().join("2020-01-11").is_dir());
+    assert_eq!(
+        std::fs::read_to_string(directory.path().join("2020-01-01")).unwrap(),
+        "legacy"
+    );
+    assert!(directory.path().join("2020-01-11.log").is_dir());
     let owned = std::fs::read_dir(directory.path())
         .unwrap()
         .filter(|entry| {
             let entry = entry.as_ref().unwrap();
-            entry.file_type().unwrap().is_file() && entry.file_name().to_string_lossy().len() == 10
+            entry.file_type().unwrap().is_file()
+                && entry
+                    .path()
+                    .extension()
+                    .is_some_and(|extension| extension == "log")
         })
         .count();
     assert!(owned <= RETAINED_FILES);
@@ -170,7 +179,7 @@ fn rolls_at_a_calendar_boundary() {
         );
         std::thread::sleep(Duration::from_millis(5));
     };
-    while chrono::Utc::now().format("%Y-%m-%d-%H-%M").to_string() == before {
+    while chrono::Utc::now().format("%Y-%m-%d-%H-%M.log").to_string() == before {
         assert!(
             started.elapsed() < Duration::from_secs(65),
             "calendar rollover deadline"
@@ -187,6 +196,39 @@ fn rolls_at_a_calendar_boundary() {
     assert_eq!(contents.len(), 2);
     assert!(contents.iter().any(|text| text == "before\n"));
     assert!(contents.iter().any(|text| text == "after\n"));
+}
+
+#[test]
+fn resolves_latest_daily_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    drop(worker);
+    drop(writer);
+    let actual = latest_file(directory.path()).unwrap().unwrap();
+    assert_eq!(actual.extension().unwrap(), "log");
+    chrono::NaiveDate::parse_from_str(actual.file_stem().unwrap().to_str().unwrap(), "%Y-%m-%d")
+        .unwrap();
+    for name in ["2099-01-01", "2099-02-30.log", "notes.log"] {
+        std::fs::write(directory.path().join(name), "").unwrap();
+    }
+    std::fs::create_dir(directory.path().join("2099-01-01.log")).unwrap();
+    assert_eq!(latest_file(directory.path()).unwrap(), Some(actual));
+}
+
+#[test]
+fn ignores_other_application_files() {
+    let directory = tempfile::tempdir().unwrap();
+    let desktop = directory.path().join("desktop");
+    let host = directory.path().join("host");
+    std::fs::create_dir_all(&desktop).unwrap();
+    std::fs::create_dir_all(&host).unwrap();
+    std::fs::write(desktop.join("2020-01-01.log"), "").unwrap();
+    std::fs::write(desktop.join("2020-01-02.log"), "").unwrap();
+    std::fs::write(host.join("2099-01-01.log"), "").unwrap();
+    assert_eq!(
+        latest_file(&desktop).unwrap(),
+        Some(desktop.join("2020-01-02.log"))
+    );
 }
 
 struct Held {

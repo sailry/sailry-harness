@@ -4,6 +4,7 @@
 use crate::{preview::Page, settings::Section, shell::Shell};
 use gpui_kit::{component::input, prelude::*, *};
 
+mod logs;
 #[cfg(not(test))]
 mod native;
 #[cfg(feature = "workload-tests")]
@@ -69,8 +70,8 @@ pub(crate) fn init(cx: &mut App) {
     cx.on_action(|_: &Website, cx| cx.open_url("https://sailry.dev"));
     cx.on_action(|_: &Feedback, cx| cx.open_url("https://github.com/sailry/sailry-harness/issues"));
     cx.on_action(|_: &Logs, cx| {
-        if let Some(directory) = sailry_node_runtime::logging::directory() {
-            cx.open_with_system(directory);
+        if let Some(window) = cx.active_window() {
+            let _ = window.update(cx, |_, window, cx| logs::open(window, cx));
         }
     });
     cx.on_action(|_: &Hide, cx| cx.hide());

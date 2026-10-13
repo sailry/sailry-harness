@@ -49,7 +49,40 @@ pub struct Guard {
 }
 
 pub fn directory() -> Option<&'static Path> {
-    DIRECTORY.get().map(PathBuf::as_path)
+    DIRECTORY.get().and_then(|directory| directory.parent())
+}
+
+/// Resolve the newest daily file in this process's application log directory.
+/// An idle appender keeps its last file until the next record triggers rotation.
+pub fn current_file() -> std::io::Result<Option<PathBuf>> {
+    let Some(directory) = DIRECTORY.get() else {
+        return Ok(None);
+    };
+    latest_file(directory)
+}
+
+fn latest_file(directory: &Path) -> std::io::Result<Option<PathBuf>> {
+    let mut latest = None;
+    for entry in std::fs::read_dir(directory)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name();
+        let Some(date) = name.to_str().and_then(|name| name.strip_suffix(".log")) else {
+            continue;
+        };
+        if date.len() != 10 {
+            continue;
+        }
+        let Ok(date) = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d") else {
+            continue;
+        };
+        if latest.as_ref().is_none_or(|(previous, _)| date > *previous) {
+            latest = Some((date, entry.path()));
+        }
+    }
+    Ok(latest.map(|(_, path)| path))
 }
 
 pub fn install(profile: &Path, application: Application) -> Result<Guard, InitError> {
@@ -69,7 +102,7 @@ pub fn install(profile: &Path, application: Application) -> Result<Guard, InitEr
         entry.emit_warn();
         eprintln!("sailry logging: the existing log logger was preserved");
     }
-    let _ = DIRECTORY.set(profile.join("logs"));
+    let _ = DIRECTORY.set(directory);
     Ok(Guard {
         worker: Some(worker),
         counter,
@@ -94,10 +127,11 @@ fn writer(
     retained: usize,
     capacity: usize,
 ) -> Result<(tracing_appender::non_blocking::NonBlocking, WorkerGuard), InitError> {
-    // No prefix/suffix: retention only matches the appender's exact date format.
-    // The enclosing profile or preview TempDir already confines these records.
+    // Retention matches .log files in this application-owned directory.
+    // Existing extensionless diagnostics remain untouched.
     let appender = RollingFileAppender::builder()
         .rotation(rotation)
+        .filename_suffix("log")
         .max_log_files(retained)
         .build(directory)
         .map_err(|_| InitError)?;
