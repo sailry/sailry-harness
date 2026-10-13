@@ -8,6 +8,52 @@ use sailry_protocol::plugin::{
 };
 
 impl Host {
+    pub(super) async fn inspect_newer_source(
+        &self,
+        source: &Source,
+        current: &sailry_protocol::plugin::Summary,
+        stop: CancellationToken,
+    ) -> Result<Option<Selection>, Fault> {
+        let _permit = self
+            .reads
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Fault::new(ErrorCode::Busy, "plugin inspection is busy"))?;
+        let selected = source::Selection::parse(source)?;
+        let (bytes, resolved) = self.source_manifest(&selected, stop.clone()).await?;
+        let manifest = manifest::parse(&bytes)?;
+        if manifest.name != current.name {
+            return Err(Fault::invalid("plugin update has a different identity"));
+        }
+        if !updates::version(manifest.version.as_deref())?
+            .cmp_precedence(&updates::version(current.version.as_deref())?)
+            .is_gt()
+        {
+            return Ok(None);
+        }
+        let expected = manifest.version;
+        let (archive, resolved) = self
+            .source_archive(&selected, Some(&resolved.commit), stop.clone(), None)
+            .await?;
+        tokio::task::spawn_blocking(move || {
+            let (_temporary, root, links) = archive::unpack_source(archive, &stop, 10_000)?;
+            let info = inspect_root(&root, &selected.path, &links, stop)?;
+            if info.summary.version != expected {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "plugin version changed; check updates again",
+                ));
+            }
+            Ok(Some(Selection {
+                source: resolved,
+                path: selected.path,
+                info,
+            }))
+        })
+        .await
+        .map_err(|_| github::unavailable())?
+    }
+
     pub(crate) async fn inspect_source(
         &self,
         source: &Source,

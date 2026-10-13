@@ -10,12 +10,18 @@ use std::{
 // Git transfers include unrelated repository objects; package limits apply to the export below.
 const MAX_TRANSFER_BYTES: u64 = 512 * 1024 * 1024;
 
-pub(super) fn acquire(
+struct Fetched {
+    repository: Repository,
+    _directory: tempfile::TempDir,
+    source: Resolved,
+}
+
+fn fetch(
     selected: &source::Selection,
     commit: Option<&str>,
     stop: &CancellationToken,
     reporter: Option<crate::installation::Reporter>,
-) -> Result<(File, Resolved), Fault> {
+) -> Result<Fetched, Fault> {
     if stop.is_cancelled() {
         return Err(cancelled());
     }
@@ -61,6 +67,7 @@ pub(super) fn acquire(
         Some(&mut fetch),
         None,
     );
+    drop(remote);
     drop(fetch);
     if stop.is_cancelled() {
         return Err(cancelled());
@@ -77,32 +84,79 @@ pub(super) fn acquire(
     if let Some(reporter) = &reporter {
         reporter(sailry_protocol::installation::Phase::Inspecting, None);
     }
-    let object = if let Some(commit) = commit {
-        repository
-            .find_object(
-                git2::Oid::from_str(commit).map_err(failure)?,
-                Some(ObjectType::Commit),
-            )
-            .map_err(failure)?
-    } else {
-        repository
-            .revparse_single("refs/sailry/source")
-            .map_err(failure)?
+    let resolved = {
+        let object = if let Some(commit) = commit {
+            repository
+                .find_object(
+                    git2::Oid::from_str(commit).map_err(failure)?,
+                    Some(ObjectType::Commit),
+                )
+                .map_err(failure)?
+        } else {
+            repository
+                .revparse_single("refs/sailry/source")
+                .map_err(failure)?
+        };
+        let commit = object.peel_to_commit().map_err(failure)?;
+        Resolved {
+            repository: selected.repository.clone(),
+            git_ref: selected.git_ref.clone(),
+            commit: commit.id().to_string(),
+        }
     };
-    let commit = object.peel_to_commit().map_err(failure)?;
-    let resolved = Resolved {
-        repository: selected.repository.clone(),
-        git_ref: selected.git_ref.clone(),
-        commit: commit.id().to_string(),
-    };
+    Ok(Fetched {
+        _directory: temporary,
+        repository,
+        source: resolved,
+    })
+}
+
+pub(super) fn manifest(
+    selected: &source::Selection,
+    stop: &CancellationToken,
+) -> Result<(Vec<u8>, Resolved), Fault> {
+    let fetched = fetch(selected, None, stop, None)?;
+    if stop.is_cancelled() {
+        return Err(cancelled());
+    }
+    let commit = fetched
+        .repository
+        .find_commit(git2::Oid::from_str(&fetched.source.commit).map_err(failure)?)
+        .map_err(failure)?;
+    let tree = commit.tree().map_err(failure)?;
+    let path = std::path::Path::new(&selected.path).join("plugin.json");
+    let entry = tree.get_path(&path).map_err(failure)?;
+    if entry.kind() != Some(ObjectType::Blob) || !matches!(entry.filemode(), 0o100644 | 0o100755) {
+        return Err(Fault::invalid(
+            "selected plugin manifest must be a regular file",
+        ));
+    }
+    let blob = fetched.repository.find_blob(entry.id()).map_err(failure)?;
+    if blob.size() > 64 * 1024 {
+        return Err(Fault::invalid("plugin manifest exceeds its size limit"));
+    }
+    Ok((blob.content().to_vec(), fetched.source.clone()))
+}
+
+pub(super) fn acquire(
+    selected: &source::Selection,
+    commit: Option<&str>,
+    stop: &CancellationToken,
+    reporter: Option<crate::installation::Reporter>,
+) -> Result<(File, Resolved), Fault> {
+    let fetched = fetch(selected, commit, stop, reporter)?;
+    let repository = &fetched.repository;
     let mut zip = zip::ZipWriter::new(tempfile::tempfile().map_err(io_error)?);
     let mut state = Export {
-        repository: &repository,
+        repository,
         zip: &mut zip,
         count: 0,
         bytes: 0,
         stop,
     };
+    let commit = repository
+        .find_commit(git2::Oid::from_str(&fetched.source.commit).map_err(failure)?)
+        .map_err(failure)?;
     let tree = commit.tree().map_err(failure)?;
     let (selected_tree, prefix) = if selected.path.is_empty() {
         (tree.clone(), "source".to_owned())
@@ -127,7 +181,7 @@ pub(super) fn acquire(
     let file = zip
         .finish()
         .map_err(|_| sailry_protocol::Fault::invalid("Git tree could not be exported"))?;
-    Ok((file, resolved))
+    Ok((file, fetched.source.clone()))
 }
 
 struct Export<'a> {

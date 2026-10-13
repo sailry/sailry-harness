@@ -388,11 +388,110 @@ async fn settings(client: &Client) -> (code::Settings, search::Settings) {
 }
 
 #[tokio::test]
+async fn skips_same_and_older_bundled_versions() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let code = previous(directory.path(), &client, worktree, "code", "0.1.1").await;
+        let browser = previous(directory.path(), &client, worktree, "browser", "0.2.0").await;
+        let code = disable(&client, code).await;
+        let browser = disable(&client, browser).await;
+        let captures = [code.summary.reference(), browser.summary.reference()];
+        let mut captured = Vec::new();
+        for package in &captures {
+            captured.push(info(
+                execute(
+                    &client,
+                    Command::ReadPluginVersion {
+                        package: package.clone(),
+                    },
+                )
+                .await,
+            ));
+        }
+        let profile = directory.path().join("node");
+        let path = profile.join("storage/node.sqlite3");
+        node.shutdown().await.unwrap();
+        let previous = [bundled(&path, code), bundled(&path, browser)];
+        let retained = records(&path);
+        let assets: Vec<_> = previous
+            .iter()
+            .map(|info| {
+                fs::read(
+                    profile
+                        .join("plugins/packages")
+                        .join(&info.summary.digest)
+                        .join("plugin.json"),
+                )
+                .unwrap()
+            })
+            .collect();
+        let stored: std::collections::BTreeSet<_> = fs::read_dir(profile.join("plugins/packages"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        for ((previous, asset), captured) in previous.iter().zip(assets).zip(captured) {
+            assert_eq!(
+                info(
+                    execute(
+                        &client,
+                        Command::ReadPlugin {
+                            name: previous.summary.name.clone(),
+                        }
+                    )
+                    .await
+                ),
+                *previous
+            );
+            assert_eq!(
+                info(
+                    execute(
+                        &client,
+                        Command::ReadPluginVersion {
+                            package: captured.summary.reference(),
+                        }
+                    )
+                    .await
+                ),
+                captured
+            );
+            assert_eq!(
+                fs::read(
+                    profile
+                        .join("plugins/packages")
+                        .join(&previous.summary.digest)
+                        .join("plugin.json")
+                )
+                .unwrap(),
+                asset
+            );
+        }
+        assert_eq!(records(&path), retained);
+        assert_eq!(
+            fs::read_dir(profile.join("plugins/packages"))
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name())
+                .collect::<std::collections::BTreeSet<_>>(),
+            stored
+        );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn retains_disabled_configuration_on_each_path() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
         let code = previous(directory.path(), &client, worktree, "code", "0.1.0").await;
-        let search = previous(directory.path(), &client, worktree, "web-search", "0.2.0").await;
+        let search = previous(directory.path(), &client, worktree, "web-search", "0.1.0").await;
         let (session, turn) = capture(&client, worktree).await;
         let code = disable(&client, code).await;
         let search = disable(&client, search).await;
@@ -454,7 +553,7 @@ async fn retains_disabled_configuration_on_each_path() {
                 )
                 .await,
             );
-            assert_eq!(current.summary.version.as_deref(), Some("0.1.0"));
+            assert_eq!(current.summary.version.as_deref(), Some("0.1.1"));
             assert_eq!(current.origin, Some(plugin::Origin::Bundled));
             assert_eq!(current.summary.revision, previous.summary.revision + 1);
             assert_eq!(current.summary.settings_revision, 1);
@@ -605,7 +704,7 @@ async fn retains_browser_configuration_on_each_path() {
         );
         let version = current.summary.version.clone();
         let shipped_digest = current.summary.digest;
-        let previous = previous(directory.path(), &client, worktree, "browser", "0.1.1").await;
+        let previous = previous(directory.path(), &client, worktree, "browser", "0.1.0").await;
         let previous = disable(&client, previous).await;
         let profile = directory.path().join("node");
         let path = profile.join("storage/node.sqlite3");

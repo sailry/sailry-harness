@@ -55,6 +55,34 @@ pub(super) fn entries() -> Result<Vec<sailry_protocol::plugin::catalog::Entry>, 
 }
 
 impl Host {
+    pub(crate) fn bundled_version(name: &str) -> Result<Option<String>, Fault> {
+        let (_, files) = PACKAGES
+            .iter()
+            .find(|(id, _)| *id == name)
+            .ok_or_else(|| Fault::new(ErrorCode::NotFound, "bundled plugin is unavailable"))?;
+        let bytes = files
+            .iter()
+            .find(|(path, _)| *path == "plugin.json")
+            .unwrap()
+            .1;
+        let manifest = manifest::parse(bytes)?;
+        if manifest.name != name {
+            return Err(Fault::invalid("bundled plugin identity does not match"));
+        }
+        Ok(manifest.version)
+    }
+
+    pub(crate) fn bundled_newer(name: &str, current: Option<&str>) -> Result<bool, Fault> {
+        let Ok(current) = updates::version(current) else {
+            return Ok(false);
+        };
+        let available = Self::bundled_version(name)?;
+        Ok(updates::version(available.as_deref())?
+            .cmp_precedence(&current)
+            .is_gt())
+    }
+
+    #[cfg(test)]
     pub(crate) fn bundled_digest(name: &str) -> Result<String, Fault> {
         let (_, files) = PACKAGES
             .iter()

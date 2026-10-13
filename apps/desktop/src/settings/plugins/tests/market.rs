@@ -14,10 +14,13 @@ struct Server {
 }
 impl Server {
     fn new() -> Self {
-        Self::start(false)
+        Self::start(false, None)
     }
     fn official() -> Self {
-        Self::start(true)
+        Self::start(true, None)
+    }
+    fn with_version(version: &'static str) -> Self {
+        Self::start(true, Some(version))
     }
     fn checked(&self) {
         assert_eq!(
@@ -26,12 +29,10 @@ impl Server {
                 "/catalog.json".to_owned(),
                 "/repos/sailry/sailry-plugins/commits/main".to_owned(),
                 format!("/sailry/sailry-plugins/zip/{}", "a".repeat(40)),
-                "/repos/sailry/sailry-plugins/commits/main".to_owned(),
-                format!("/sailry/sailry-plugins/zip/{}", "a".repeat(40)),
             ]
         );
     }
-    fn start(official: bool) -> Self {
+    fn start(official: bool, version: Option<&'static str>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -58,15 +59,18 @@ impl Server {
             }
             let root =
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/reminders");
-            add_files(&root, &root, &mut zip);
+            add_files(&root, &root, &mut zip, version);
             zip.start_file(
                 "repo/reminders/fixture-update.txt",
                 zip::write::SimpleFileOptions::default(),
             )
             .unwrap();
             zip.write_all(b"Official repository update").unwrap();
-            let reminders: serde_json::Value =
+            let mut reminders: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(root.join("plugin.json")).unwrap()).unwrap();
+            if let Some(version) = version {
+                reminders["version"] = version.into();
+            }
             let official_archive = zip.finish().unwrap().into_inner();
             for stream in listener.incoming() {
                 if stopped.load(Ordering::SeqCst) {
@@ -140,6 +144,7 @@ fn add_files(
     root: &std::path::Path,
     directory: &std::path::Path,
     zip: &mut zip::ZipWriter<std::io::Cursor<Vec<u8>>>,
+    version: Option<&str>,
 ) {
     let mut entries = std::fs::read_dir(directory)
         .unwrap()
@@ -149,7 +154,7 @@ fn add_files(
     for entry in entries {
         let path = entry.path();
         if entry.file_type().unwrap().is_dir() {
-            add_files(root, &path, zip);
+            add_files(root, &path, zip, version);
         } else {
             assert!(entry.file_type().unwrap().is_file());
             let relative = path
@@ -163,7 +168,14 @@ fn add_files(
                 zip::write::SimpleFileOptions::default(),
             )
             .unwrap();
-            let bytes = std::fs::read(path).unwrap();
+            let mut bytes = std::fs::read(path).unwrap();
+            if relative == "plugin.json"
+                && let Some(version) = version
+            {
+                let mut manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                manifest["version"] = version.into();
+                bytes = serde_json::to_vec(&manifest).unwrap();
+            }
             zip.write_all(&bytes).unwrap();
         }
     }
@@ -362,7 +374,7 @@ fn update_control(
 fn preinstalled_updates(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
-        let server = Server::official();
+        let server = Server::with_version("0.1.1");
         let fixture = Fixture::with_skill_source(remote, &server.endpoint);
         fixture.execute(Command::SetPluginEnabled {
             name: "reminders".into(),
@@ -401,7 +413,11 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
                 .iter()
                 .any(|path| path.starts_with("/sailry/sailry-plugins/zip/"))
         );
-        tap(visual, "plugins-retry");
+        shown(visual, "installation-list", true);
+        tap(
+            visual,
+            Box::leak(format!("installation-retry-{request}").into_boxed_str()),
+        );
         wait(visual, |cx| !owner.read(cx).plugin_catalog.busy(cx));
         assert_eq!(
             *fixture.transport.requests.lock().unwrap(),
@@ -415,7 +431,7 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
             panic!("package expected");
         };
         assert!(!info.summary.enabled);
-        assert_eq!(info.summary.version.as_deref(), Some("0.1.0"));
+        assert_eq!(info.summary.version.as_deref(), Some("0.1.1"));
         let Some(sailry_protocol::plugin::Origin::Online { source, path }) = info.origin else {
             panic!("official source expected");
         };
@@ -434,7 +450,7 @@ fn preinstalled_updates(cx: &mut TestAppContext) {
 fn installs_captured_commit(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
-        let server = Server::official();
+        let server = Server::with_version("0.1.1");
         let fixture = Fixture::with_skill_source(remote, &server.endpoint);
         let (owner, visual) = fixture.mount(cx);
         updates::ready(&owner, visual, "reminders", 1);
@@ -454,7 +470,7 @@ fn installs_captured_commit(cx: &mut TestAppContext) {
             .into_iter()
             .find(|package| package.name == "reminders")
             .unwrap();
-        assert_eq!(current.version.as_deref(), Some("0.1.0"));
+        assert_eq!(current.version.as_deref(), Some("0.1.1"));
         assert_eq!(fixture.transport.requests.lock().unwrap().len(), 1);
         assert!(!visual.did_prompt_for_paths());
         fixture.close(visual);

@@ -14,9 +14,10 @@ fn fixture() -> (tempfile::TempDir, crate::plugins::Host, Connection) {
     (directory, host, db)
 }
 
-fn changed(db: &Connection, name: &str) -> Info {
+fn changed(db: &Connection, name: &str, version: &str) -> Info {
     let mut info = required(db, name).unwrap();
     info.extension.as_mut().unwrap().settings_page = None;
+    info.summary.version = Some(version.into());
     // Simulate a previous bundle and retain its immutable parsed metadata.
     let digest = blake3::hash(&encode(&info).unwrap()).to_hex().to_string();
     assert_ne!(digest, info.summary.digest);
@@ -114,7 +115,7 @@ fn adds_missing_defaults_without_reinstalling_records() {
 #[test]
 fn refresh_preserves_configuration_and_private_records() {
     let (_directory, host, mut db) = fixture();
-    let mut before = changed(&db, "code");
+    let mut before = changed(&db, "code", "0.0.1");
     before.summary.enabled = false;
     before.summary.settings_revision = 7;
     save(&db, &before, true).unwrap();
@@ -140,7 +141,10 @@ fn refresh_preserves_configuration_and_private_records() {
     assert_eq!(after.summary.settings_revision, 7);
     assert!(!after.summary.enabled);
     assert_eq!(after.origin, Some(plugin::Origin::Bundled));
-    assert_eq!(after.summary.version.as_deref(), Some("0.1.0"));
+    assert_eq!(
+        after.summary.version,
+        crate::plugins::Host::bundled_version("code").unwrap()
+    );
     assert_eq!(
         after.summary.digest,
         crate::plugins::Host::bundled_digest("code").unwrap()
@@ -189,7 +193,7 @@ fn skips_custom_unchanged_and_removed_packages() {
         "brief",
     ] {
         let original = required(&db, name).unwrap();
-        let previous = changed(&db, name);
+        let previous = changed(&db, name, "0.0.1");
         for origin in [
             None,
             Some(plugin::Origin::Directory),
@@ -223,7 +227,6 @@ fn skips_custom_unchanged_and_removed_packages() {
                 .map(|version| format!("{version}+retained")),
             Some("99.0.0".into()),
             Some("0.1.1".into()),
-            Some("0.0.1".into()),
             Some("not-semver".into()),
             None,
         ] {
@@ -234,7 +237,7 @@ fn skips_custom_unchanged_and_removed_packages() {
             install(&mut db, &host).unwrap();
             assert_eq!(required(&db, name).unwrap(), custom);
         }
-        let removed = changed(&db, name);
+        let removed = changed(&db, name, "0.0.1");
         save(&db, &removed, false).unwrap();
         install(&mut db, &host).unwrap();
         assert!(get(&db, name).unwrap().is_none());
@@ -249,45 +252,27 @@ fn skips_custom_unchanged_and_removed_packages() {
 }
 
 #[test]
-fn refreshes_changed_content_regardless_of_version() {
+fn skips_same_and_older_versions() {
     let (_directory, host, mut db) = fixture();
     let bundled = required(&db, "brief").unwrap();
-    assert_eq!(bundled.summary.version.as_deref(), Some("0.1.0"));
-    for version in ["0.1.0", "0.1.1"] {
-        let mut current = required(&db, "brief").unwrap();
-        current.summary.version = Some(version.into());
-        save(&db, &current, true).unwrap();
-        let previous = changed(&db, "brief");
+    for version in [
+        bundled.summary.version.clone().unwrap(),
+        format!("{}+retained", bundled.summary.version.as_ref().unwrap()),
+        "99.0.0".into(),
+    ] {
+        let previous = changed(&db, "brief", &version);
         let retained = captured(&db, &previous);
         let events: i64 = db
             .query_row("SELECT count(*) FROM events", [], |row| row.get(0))
             .unwrap();
         install(&mut db, &host).unwrap();
-        let refreshed = required(&db, "brief").unwrap();
-        assert_eq!(refreshed.summary.version, bundled.summary.version);
-        assert_eq!(refreshed.summary.digest, bundled.summary.digest);
-        assert_eq!(refreshed.summary.revision, previous.summary.revision + 1);
-        assert_eq!(refreshed.summary.enabled, previous.summary.enabled);
-        assert_eq!(
-            refreshed.summary.settings_revision,
-            previous.summary.settings_revision
-        );
-        assert_eq!(refreshed.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(required(&db, "brief").unwrap(), previous);
         assert_eq!(captured(&db, &previous), retained);
         assert_eq!(
             db.query_row("SELECT count(*) FROM events", [], |row| row
                 .get::<_, i64>(0))
                 .unwrap(),
-            events + 1
-        );
-        install(&mut db, &host).unwrap();
-        assert_eq!(required(&db, "brief").unwrap(), refreshed);
-        assert_eq!(captured(&db, &previous), retained);
-        assert_eq!(
-            db.query_row("SELECT count(*) FROM events", [], |row| row
-                .get::<_, i64>(0))
-                .unwrap(),
-            events + 1
+            events
         );
     }
 }
@@ -295,8 +280,8 @@ fn refreshes_changed_content_regardless_of_version() {
 #[test]
 fn refresh_rolls_back_and_remains_idempotent() {
     let (_directory, host, mut db) = fixture();
-    let code = changed(&db, "code");
-    let search = changed(&db, "web-search");
+    let code = changed(&db, "code", "0.0.1");
+    let search = changed(&db, "web-search", "0.0.1");
     let retained_code = captured(&db, &code);
     let retained_search = captured(&db, &search);
     let count = |db: &Connection| {

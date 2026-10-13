@@ -39,10 +39,13 @@ async fn checks_reject_stale_revisions_without_installing() {
         )
         .unwrap();
         let report = check(&client, &installed.summary).await;
+        assert!(!report.manual && report.available.is_none());
+        package(&directory.path().join("source/package"), "1.0.1");
+        let report = check(&client, &installed.summary).await;
         let plugin::updates::Candidate::Package(candidate) = report.available.unwrap() else {
             panic!("inspected package expected");
         };
-        assert_eq!(candidate.summary.version, installed.summary.version);
+        assert_eq!(candidate.summary.version.as_deref(), Some("1.0.1"));
         assert_ne!(candidate.summary.digest, installed.summary.digest);
         assert_eq!(candidate.origin, installed.origin);
         assert_eq!(packages(&node), stored);
@@ -120,6 +123,7 @@ async fn rejects_changed_worktree_content() {
         let path = directory
             .path()
             .join("source/package/skills/analysis/references/guide.md");
+        package(&directory.path().join("source/package"), "1.0.1");
         fs::write(&path, "Reviewed update").unwrap();
         let Some(plugin::updates::Candidate::Package(candidate)) =
             check(&client, &installed.summary).await.available

@@ -73,7 +73,7 @@ fn commit(
         ("unsafe/SKILL.md", "---\nname: unsafe\ndescription: A skill with an unavailable resource\n---\nRead references/secret\n".into(), 0o100644),
         ("CLAUDE.md", "AGENTS.md".into(), 0o120000),
         ("unsafe/references/secret", "../../../secret".into(), 0o120000),
-        ("plugin/plugin.json", serde_json::json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"generic-plugin","version":version}).to_string(), 0o100644),
+        ("plugin/plugin.json", serde_json::json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"generic-plugin","version":if parent.is_some() {"1.0.1"} else {"1.0.0"}}).to_string(), 0o100644),
         ("plugin/README.md", format!("Plugin {version}\n"), 0o100644),
         ("plugin/LICENSE", "Plugin fixture license".into(), 0o100644),
     ];

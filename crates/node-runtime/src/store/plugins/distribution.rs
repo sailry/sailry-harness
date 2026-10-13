@@ -60,12 +60,13 @@ fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
         if current.origin != Some(plugin::Origin::Bundled) {
             continue;
         }
-        let digest = match crate::plugins::Host::bundled_digest(name) {
-            Ok(digest) => digest,
-            Err(error) if error.code == ErrorCode::NotFound => continue,
-            Err(error) => return Err(error),
-        };
-        if current.summary.digest == digest {
+        let newer =
+            match crate::plugins::Host::bundled_newer(name, current.summary.version.as_deref()) {
+                Ok(newer) => newer,
+                Err(error) if error.code == ErrorCode::NotFound => continue,
+                Err(error) => return Err(error),
+            };
+        if !newer {
             continue;
         }
         let mut result = Ok(Output::Plugin(host.install_bundled(name)?));

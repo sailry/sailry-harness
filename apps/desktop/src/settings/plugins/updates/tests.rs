@@ -1,6 +1,8 @@
 use super::*;
 use crate::settings::plugins::test_support::{Fixture, draw, init, shown, tap, wait};
 use core::prelude::v1::test;
+use sailry_client::Client;
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 mod handoff;
@@ -43,6 +45,68 @@ fn package(fixture: &Fixture, name: &str, version: &str) {
         .to_string(),
     )
     .unwrap();
+}
+
+#[gpui::test]
+fn compares_manual_package_versions(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        fixture.package("1.0.0");
+        install(&fixture, "package", "example");
+        let current = fixture.plugins()[0].clone();
+        let binding = Binding {
+            client: Arc::new(Client::new(fixture.transport.clone())),
+            runtime: fixture.runtime.clone(),
+            label: "Fixture Node".into(),
+        };
+        let (_, visual) = fixture.mount(cx);
+        let requests = fixture.transport.requests.lock().unwrap().len();
+        for (version, newer) in [
+            ("1.0.0", false),
+            ("0.9.0", false),
+            ("1.0.0+changed", false),
+            ("1.0.1-rc.1", true),
+            ("1.0.1", true),
+        ] {
+            fixture.package(version);
+            let entry = fixture
+                .runtime
+                .block_on(inspect(
+                    &binding,
+                    checks::Report {
+                        current: current.clone(),
+                        available: None,
+                        manual: true,
+                    },
+                    Some(fixture.directory.path().join("project/package")),
+                    CancellationToken::new(),
+                ))
+                .unwrap();
+            assert_eq!(matches!(entry.candidate, Some(Candidate::Upload(_))), newer);
+            assert_eq!(fixture.plugins()[0], current);
+            assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
+        }
+        fixture.package("invalid");
+        let error = fixture
+            .runtime
+            .block_on(inspect(
+                &binding,
+                checks::Report {
+                    current: current.clone(),
+                    available: None,
+                    manual: true,
+                },
+                Some(fixture.directory.path().join("project/package")),
+                CancellationToken::new(),
+            ))
+            .err()
+            .expect("invalid package version must fail");
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(fixture.plugins()[0], current);
+        assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
+        fixture.close(visual);
+    }
 }
 
 #[gpui::test]

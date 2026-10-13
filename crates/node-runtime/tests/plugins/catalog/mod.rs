@@ -161,14 +161,7 @@ async fn updates_preinstalled() {
             panic!("official catalog entry expected");
         };
         assert_eq!(candidate.version.as_deref(), Some("0.2.0"));
-        assert_eq!(
-            *catalog.requests.lock().unwrap(),
-            [
-                "/catalog.json".to_owned(),
-                "/repos/sailry/sailry-plugins/commits/main".into(),
-                format!("/sailry/sailry-plugins/zip/{SECOND}"),
-            ]
-        );
+        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
         let Output::PluginSource(selected) = execute(
             &client,
             Command::InspectPluginSource {
@@ -229,14 +222,7 @@ async fn updates_preinstalled() {
             panic!("update report expected");
         };
         assert!(report.available.is_none());
-        assert_eq!(
-            *catalog.requests.lock().unwrap(),
-            [
-                "/catalog.json".to_owned(),
-                "/repos/sailry/sailry-plugins/commits/main".into(),
-                format!("/sailry/sailry-plugins/zip/{SECOND}"),
-            ]
-        );
+        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

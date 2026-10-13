@@ -48,7 +48,7 @@ impl Catalog {
         Self::with_versions(reminders, "0.2.0", mcp).await
     }
 
-    async fn with_versions(reminders: &str, updated_version: &str, mcp: bool) -> Self {
+    pub(super) async fn with_versions(reminders: &str, updated_version: &str, mcp: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/", listener.local_addr().unwrap());
         let updated = Arc::new(AtomicBool::new(false));

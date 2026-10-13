@@ -13,6 +13,7 @@ const MAX_ENTRIES: usize = 1024;
 const MAX_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_DEPTH: usize = 32;
 
+#[cfg(test)]
 pub(super) fn digest(files: &[(&str, &[u8])]) -> String {
     let mut entries = std::collections::BTreeMap::new();
     for &(path, bytes) in files {

@@ -65,7 +65,56 @@ async fn install_official(client: &Client, current: &Summary) -> Info {
 }
 
 #[tokio::test]
-async fn detects_content_without_version_bumps() {
+async fn selects_the_highest_newer_version() {
+    for remote in [false, true] {
+        for available in ["0.0.2", "0.1.0", "0.2.0"] {
+            let catalog = Catalog::with_versions("0.0.1", available, false).await;
+            let (_directory, node, controller, client) = connection(remote, &catalog).await;
+            let bundled = installed(&client)
+                .await
+                .into_iter()
+                .find(|package| package.name == "reminders")
+                .unwrap();
+            let current = install_official(&client, &bundled).await;
+            catalog.updated.store(true, Ordering::SeqCst);
+            *catalog.version.lock().unwrap() = Some(available.into());
+            catalog.requests.lock().unwrap().clear();
+            let before = stored(&node);
+            let batch = check(&client, std::slice::from_ref(&current.summary)).await;
+            assert!(batch.failures.is_empty());
+            match batch.reports[0].available.as_ref().unwrap() {
+                Candidate::Package(info) => {
+                    assert_eq!(available, "0.0.2");
+                    assert_eq!(info.summary.version, bundled.version);
+                    assert_eq!(info.origin, Some(plugin::Origin::Bundled));
+                }
+                Candidate::Official(entry) => {
+                    assert_ne!(available, "0.0.2");
+                    assert_eq!(entry.version.as_deref(), Some(available));
+                }
+            }
+            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            assert_eq!(stored(&node), before);
+            assert_eq!(
+                info(
+                    execute(
+                        &client,
+                        Command::ReadPlugin {
+                            name: "reminders".into()
+                        }
+                    )
+                    .await
+                ),
+                current
+            );
+            node.shutdown().await.unwrap();
+            controller.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn skips_same_and_older_content_versions() {
     for (remote, initial) in [
         (false, "0.1.0"),
         (true, "0.1.0"),
@@ -97,48 +146,44 @@ async fn detects_content_without_version_bumps() {
             )
             .await,
         );
+        let captured = info(
+            execute(
+                &client,
+                Command::ReadPluginVersion {
+                    package: current.summary.reference(),
+                },
+            )
+            .await,
+        );
         let before = stored(&node);
-        let unchanged = check(&client, std::slice::from_ref(&current.summary)).await;
-        assert!(unchanged.failures.is_empty());
-        let Some(Candidate::Package(candidate)) = &unchanged.reports[0].available else {
-            panic!("bundled content update expected");
-        };
-        assert_eq!(candidate.origin, Some(plugin::Origin::Bundled));
-        assert_eq!(candidate.summary.digest, bundled.digest);
+        for changed in [false, true] {
+            catalog.updated.store(changed, Ordering::SeqCst);
+            catalog.requests.lock().unwrap().clear();
+            let batch = check(&client, std::slice::from_ref(&current.summary)).await;
+            assert!(batch.failures.is_empty());
+            assert!(batch.reports[0].available.is_none());
+            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            assert_eq!(stored(&node), before);
+            assert_eq!(
+                info(
+                    execute(
+                        &client,
+                        Command::ReadPlugin {
+                            name: "reminders".into()
+                        }
+                    )
+                    .await
+                ),
+                current
+            );
+        }
         catalog.status.store(503, Ordering::SeqCst);
         let offline = check(&client, std::slice::from_ref(&current.summary)).await;
-        assert!(offline.failures.is_empty());
-        assert_eq!(offline.reports[0].available, unchanged.reports[0].available);
-        catalog.status.store(200, Ordering::SeqCst);
-        catalog.updated.store(true, Ordering::SeqCst);
-        catalog.requests.lock().unwrap().clear();
-        let changed = check(&client, std::slice::from_ref(&current.summary)).await;
-        assert!(changed.failures.is_empty());
-        let Some(Candidate::Official(candidate)) = &changed.reports[0].available else {
-            panic!("official content update expected");
-        };
-        assert_eq!(candidate.version.as_deref(), Some("0.1.0"));
-        assert_eq!(
-            *catalog.requests.lock().unwrap(),
-            [
-                "/catalog.json".to_owned(),
-                "/repos/sailry/sailry-plugins/commits/main".into(),
-                format!("/sailry/sailry-plugins/zip/{SECOND}"),
-            ]
-        );
+        assert!(offline.reports.is_empty());
+        assert_eq!(offline.failures[0].error.code, ErrorCode::Unavailable);
         assert_eq!(stored(&node), before);
-        assert_eq!(
-            info(
-                execute(
-                    &client,
-                    Command::ReadPlugin {
-                        name: "reminders".into()
-                    }
-                )
-                .await
-            ),
-            current
-        );
+        catalog.status.store(200, Ordering::SeqCst);
+        // Explicit reinstallation remains available; it is not update detection.
         let updated = install_official(&client, &current.summary).await;
         assert_eq!(updated.summary.version.as_deref(), Some("0.1.0"));
         assert_ne!(updated.summary.digest, current.summary.digest);
@@ -147,20 +192,28 @@ async fn detects_content_without_version_bumps() {
             updated.summary.settings_revision,
             current.summary.settings_revision
         );
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPluginVersion {
+                        package: current.summary.reference(),
+                    }
+                )
+                .await
+            ),
+            captured
+        );
         let latest = check(&client, std::slice::from_ref(&updated.summary)).await;
         assert!(latest.failures.is_empty());
-        let Some(Candidate::Package(candidate)) = &latest.reports[0].available else {
-            panic!("bundled content update expected");
-        };
-        assert_eq!(candidate.origin, Some(plugin::Origin::Bundled));
-        assert_eq!(candidate.summary.digest, bundled.digest);
+        assert!(latest.reports[0].available.is_none());
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
 }
 
 #[tokio::test]
-async fn offers_same_version_bundled_content() {
+async fn skips_same_version_bundled_content() {
     for remote in [false, true] {
         let catalog = Catalog::with_content_updates("0.1.0").await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
@@ -181,16 +234,16 @@ async fn offers_same_version_bundled_content() {
                 [serde_json::to_vec(&current).unwrap()],
             )
             .unwrap();
-        catalog.status.store(503, Ordering::SeqCst);
         let before = stored(&node);
+        catalog.requests.lock().unwrap().clear();
         let batch = check(&client, std::slice::from_ref(&current.summary)).await;
         assert!(batch.failures.is_empty());
-        let Some(Candidate::Package(candidate)) = &batch.reports[0].available else {
-            panic!("same-version bundled content update expected");
-        };
-        assert_eq!(candidate.origin, Some(plugin::Origin::Bundled));
-        assert_eq!(candidate.summary.version, current.summary.version);
-        assert_eq!(candidate.summary.digest, bundled.digest);
+        assert!(batch.reports[0].available.is_none());
+        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+        catalog.status.store(503, Ordering::SeqCst);
+        let offline = check(&client, std::slice::from_ref(&current.summary)).await;
+        assert!(offline.reports.is_empty());
+        assert_eq!(offline.failures[0].error.code, ErrorCode::Unavailable);
         assert_eq!(stored(&node), before);
         assert_eq!(
             info(
@@ -214,8 +267,8 @@ async fn offers_bundled_updates_on_catalog_failure() {
     for (remote, initial) in [
         (false, "0.0.1"),
         (true, "0.0.1"),
-        (false, "0.1.3"),
-        (true, "0.1.3"),
+        (false, "0.0.9"),
+        (true, "0.0.9"),
     ] {
         let catalog = Catalog::with_mcp_reminders(initial).await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
@@ -453,10 +506,7 @@ async fn offers_bundled_updates_on_catalog_failure() {
         catalog.updated.store(false, Ordering::SeqCst);
         let final_check = check(&client, std::slice::from_ref(&updated.summary)).await;
         assert!(final_check.failures.is_empty());
-        assert!(matches!(
-            final_check.reports[0].available,
-            Some(Candidate::Official(_))
-        ));
+        assert!(final_check.reports[0].available.is_none());
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
@@ -493,14 +543,7 @@ async fn checks_one_index_without_installing_packages() {
         let batch = check(&client, &packages).await;
         assert!(batch.failures.is_empty(), "{:?}", batch.failures);
         assert_eq!(batch.reports.len(), packages.len());
-        assert_eq!(
-            *catalog.requests.lock().unwrap(),
-            [
-                "/catalog.json".to_owned(),
-                "/repos/sailry/sailry-plugins/commits/main".into(),
-                format!("/sailry/sailry-plugins/zip/{SECOND}"),
-            ]
-        );
+        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
         for report in batch.reports {
             assert!(packages.contains(&report.current));
             assert!(!report.manual);
@@ -557,7 +600,7 @@ async fn reports_offline_and_invalid_indexes() {
 }
 
 #[tokio::test]
-async fn checks_content_with_valid_catalog_versions() {
+async fn checks_semantic_catalog_versions() {
     for remote in [false, true] {
         let catalog = Catalog::start().await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
@@ -567,10 +610,10 @@ async fn checks_content_with_valid_catalog_versions() {
             .find(|package| package.name == "reminders")
             .unwrap();
         for (version, expected) in [
-            ("0.1.0", Some(true)),
-            ("0.0.9", Some(true)),
-            ("0.1.0+build", Some(true)),
-            ("0.1.0-rc.1", Some(true)),
+            ("0.1.0", Some(false)),
+            ("0.0.9", Some(false)),
+            ("0.1.0+build", Some(false)),
+            ("0.1.0-rc.1", Some(false)),
             ("0.2.0", Some(true)),
             ("", None),
             ("invalid", None),
@@ -591,12 +634,7 @@ async fn checks_content_with_valid_catalog_versions() {
                     assert_eq!(batch.failures[0].error.code, ErrorCode::InvalidRequest);
                 }
             }
-            let mut requests = vec!["/catalog.json".to_owned()];
-            if expected == Some(true) {
-                requests.push("/repos/sailry/sailry-plugins/commits/main".into());
-                requests.push(format!("/sailry/sailry-plugins/zip/{FIRST}"));
-            }
-            assert_eq!(*catalog.requests.lock().unwrap(), requests);
+            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
         }
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
@@ -629,6 +667,7 @@ async fn keeps_local_checks_when_official_fetch_fails() {
             "Same version, new content",
         )
         .unwrap();
+        package(&root.join("package"), "1.0.1");
         catalog.status.store(503, Ordering::SeqCst);
         let batch = check(&client, &packages).await;
         assert_eq!(batch.failures.len(), 1);
@@ -640,7 +679,7 @@ async fn keeps_local_checks_when_official_fetch_fails() {
         let Some(Candidate::Package(candidate)) = &report.available else {
             panic!("inspected local package expected");
         };
-        assert_eq!(candidate.summary.version, current.summary.version);
+        assert_eq!(candidate.summary.version.as_deref(), Some("1.0.1"));
         assert_ne!(candidate.summary.digest, current.summary.digest);
         assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
         assert_eq!(

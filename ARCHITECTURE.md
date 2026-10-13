@@ -436,10 +436,15 @@ The application lives in `sailry-harness`; official plugin source lives only in
 `sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
 Builds embed that snapshot as ordinary package assets for offline use. Startup
 adds missing selected defaults without resurrecting removed packages.
-Startup refreshes already installed bundled packages when their shipped content
-digest changes, preserving their enable choices and settings. Before the first
-release, official package versions remain `0.1.0`; immutable content and captured
-Git commits distinguish changes.
+Startup refreshes already installed bundled packages only when their shipped
+semantic version has strictly newer precedence, preserving enable choices and
+settings. New official packages start at `0.1.0`; changed package content increments
+the version, ordinarily its patch component. Same-version content changes, build
+metadata alone and older versions do not offer updates. Digests and captured Git
+commits remain immutable resource identities and installation integrity checks,
+not plugin update detectors. Standalone imported skills retain their repository
+commit update identity. This package policy does not declare a product release or
+change Sailry's v1 contracts.
 Removed packages and packages from other sources are not changed by this refresh.
 The online official marketplace reads the plugin repository's `catalog.json`.
 The execution Node shares its validated index across listings, source lookup and
