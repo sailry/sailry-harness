@@ -44,46 +44,31 @@ impl Picker {
         let name_error = self.name_error;
         let cancel = cx.weak_entity();
         let content = list.clone();
-        let confirm = list.clone();
         window.open_dialog(cx, move |dialog, window, _| {
             let cancel = cancel.clone();
-            let confirm = confirm.clone();
-            // Pinned Kit does not translate searchable input Enter into List confirm.
-            let content = div()
-                .size_full()
-                .on_action(
-                    move |action: &gpui_kit::component::input::Enter, window, cx| {
-                        if action.shift {
-                            cx.propagate();
-                            return;
-                        }
-                        confirm.update(cx, |list, cx| {
-                            list.delegate_mut().confirm(action.secondary, window, cx)
-                        });
-                    },
-                )
-                .child(crate::command_picker::list(
-                    &content,
-                    tr("directory_address"),
-                    window,
-                ));
-            crate::command_picker::frame(dialog, "directory-go-to", content, window)
-                .on_ok(|_, _, _| false)
-                .overlay_closable(false)
-                .on_cancel(move |_, _, cx| {
-                    let _ = cancel.update(cx, |picker, cx| {
-                        picker.go_to = None;
-                        picker.error = error;
-                        picker.name_error = name_error;
-                        if let Some(stop) = picker.read_stop.take() {
-                            stop.cancel();
-                            picker.generation += 1;
-                            picker.busy = false;
-                        }
-                        cx.notify();
-                    });
-                    true
-                })
+            crate::command_picker::dialog(
+                dialog,
+                "directory-go-to",
+                &content,
+                tr("directory_address"),
+                window,
+            )
+            .on_ok(|_, _, _| false)
+            .overlay_closable(false)
+            .on_cancel(move |_, _, cx| {
+                let _ = cancel.update(cx, |picker, cx| {
+                    picker.go_to = None;
+                    picker.error = error;
+                    picker.name_error = name_error;
+                    if let Some(stop) = picker.read_stop.take() {
+                        stop.cancel();
+                        picker.generation += 1;
+                        picker.busy = false;
+                    }
+                    cx.notify();
+                });
+                true
+            })
         });
         window.defer(cx, move |window, cx| {
             list.update(cx, |list, cx| list.focus(window, cx));

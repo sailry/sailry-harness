@@ -17,6 +17,7 @@ use gpui_kit::component::{
     VirtualListScrollHandle,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
+    list::ListDelegate,
     notification::Notification,
     table::TableState,
     *,
@@ -149,6 +150,29 @@ pub(crate) fn open(
                 cx.notify();
             },
         ));
+        // Pinned Kit keeps a searchable List's input private and does not
+        // translate its Enter event into List confirm.
+        subscriptions.push(cx.observe_keystrokes(|picker, event, window, cx| {
+            let Some(enter) = event.action.as_ref().and_then(|action| {
+                action
+                    .as_any()
+                    .downcast_ref::<gpui_kit::component::input::Enter>()
+            }) else {
+                return;
+            };
+            if enter.shift {
+                return;
+            }
+            let Some(list) = picker.go_to.clone() else {
+                return;
+            };
+            if !list.read(cx).focus_handle(cx).is_focused(window) {
+                return;
+            }
+            list.update(cx, |list, cx| {
+                list.delegate_mut().confirm(enter.secondary, window, cx)
+            });
+        }));
         let preference = crate::preferences::data(cx).file_picker.unwrap_or_default();
         let table =
             cx.new(|cx| TableState::new(render::Rows::new(), window, cx).row_selectable(false));
