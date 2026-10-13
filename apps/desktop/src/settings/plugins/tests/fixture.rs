@@ -530,7 +530,18 @@ pub(in crate::settings) fn shown(
         }
         assert!(
             Instant::now() < deadline,
-            "plugin selector deadline: {selector}"
+            "plugin selector deadline: {selector}; surfaces={:?}; active={}; installation={}; notifications={}",
+            [
+                "dialog-0",
+                "dialog-1",
+                "plugin-live-details",
+                "plugin-download-submit",
+                "installation-list",
+            ]
+            .map(|surface| (surface, cx.debug_bounds(surface))),
+            cx.update(|window, _| window.is_window_active()),
+            cx.update(|_, cx| crate::installations::visible(cx)),
+            cx.update(|window, cx| window.notifications(cx).len()),
         );
         std::thread::sleep(Duration::from_millis(10));
     }

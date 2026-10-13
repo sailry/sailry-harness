@@ -8,6 +8,7 @@ use gpui_kit::{FocusHandle, Modifiers};
 struct Frame {
     alert: bool,
     refined: bool,
+    cancel_allowed: Rc<Cell<bool>>,
     accepted: Rc<Cell<usize>>,
     cancelled: Rc<Cell<usize>>,
 }
@@ -47,14 +48,19 @@ impl Render for Frame {
         let refined = self.refined;
         let accepted = self.accepted.clone();
         let cancelled = self.cancelled.clone();
+        let cancel_allowed = self.cancel_allowed.clone();
         div().size_full().child(
             Button::new("overlay-dialog-trigger")
                 .label("Open")
                 .on_click(move |_, window, cx| {
                     if alert {
                         let accepted = accepted.clone();
+                        let cancelled = cancelled.clone();
+                        let cancel_allowed = cancel_allowed.clone();
                         window.open_alert_dialog(cx, move |dialog, _, _| {
                             let accepted = accepted.clone();
+                            let cancelled = cancelled.clone();
+                            let cancel_allowed = cancel_allowed.clone();
                             dialog
                                 .width(px(320.))
                                 .when(refined, |dialog| {
@@ -67,13 +73,19 @@ impl Render for Frame {
                                     accepted.set(accepted.get() + 1);
                                     true
                                 })
+                                .on_cancel(move |_, _, _| {
+                                    cancelled.set(cancelled.get() + 1);
+                                    cancel_allowed.get()
+                                })
                         });
                     } else {
                         let accepted = accepted.clone();
                         let cancelled = cancelled.clone();
+                        let cancel_allowed = cancel_allowed.clone();
                         window.open_dialog(cx, move |dialog, _, _| {
                             let accepted = accepted.clone();
                             let cancelled = cancelled.clone();
+                            let cancel_allowed = cancel_allowed.clone();
                             dialog
                                 .width(px(320.))
                                 .when(refined, |dialog| {
@@ -88,7 +100,7 @@ impl Render for Frame {
                                 })
                                 .on_cancel(move |_, _, _| {
                                     cancelled.set(cancelled.get() + 1);
-                                    true
+                                    cancel_allowed.get()
                                 })
                         });
                     }
@@ -109,6 +121,7 @@ fn open(cx: &mut VisualTestContext) -> FocusHandle {
     trigger
 }
 
+#[track_caller]
 fn finish_close(cx: &mut VisualTestContext, trigger: &FocusHandle) {
     cx.run_until_parked();
     cx.executor().advance_clock(*ANIMATION_DURATION);
@@ -120,19 +133,24 @@ fn finish_close(cx: &mut VisualTestContext, trigger: &FocusHandle) {
 }
 
 #[gpui::test]
-fn footer_actions_share_available_space(cx: &mut TestAppContext) {
+fn footer_close_keeps_intrinsic_width(cx: &mut TestAppContext) {
     setup(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     for alert in [false, true] {
         let accepted = Rc::new(Cell::new(0));
+        let cancelled = Rc::new(Cell::new(0));
+        let cancel_allowed = Rc::new(Cell::new(true));
         let (_, visual) = cx.add_window_view({
             let accepted = accepted.clone();
+            let cancelled = cancelled.clone();
+            let cancel_allowed = cancel_allowed.clone();
             move |window, cx| {
                 let frame = cx.new(|_| Frame {
                     alert,
                     refined: false,
+                    cancel_allowed,
                     accepted,
-                    cancelled: Rc::new(Cell::new(0)),
+                    cancelled,
                 });
                 Root::new(frame, window, cx)
             }
@@ -144,15 +162,14 @@ fn footer_actions_share_available_space(cx: &mut TestAppContext) {
         let confirm = visual.debug_bounds("overlay-dialog-confirm").unwrap();
         assert_eq!(cancel.center().y, confirm.center().y);
         assert_eq!(cancel.left(), footer.left());
-        // Upstream full-size wrappers share the footer; Button children keep their sizing.
-        assert_eq!(
-            confirm.left(),
-            footer.left() + (footer.size.width + px(8.)) / 2.
-        );
-        assert!(cancel.right() < confirm.left());
+        assert_eq!(confirm.left() - cancel.right(), px(8.));
         let slot = (footer.size.width - px(8.)) / 2.;
-        assert!(cancel.size.width <= slot);
-        assert!(confirm.size.width <= slot);
+        assert!(cancel.size.width < slot);
+        assert_eq!(
+            confirm.size.width,
+            footer.size.width - cancel.size.width - px(8.)
+        );
+        assert_eq!(confirm.right(), footer.right());
         visual.simulate_click(cancel.center(), Modifiers::default());
         finish_close(visual, &trigger);
         assert_eq!(accepted.get(), 0);
@@ -163,6 +180,34 @@ fn footer_actions_share_available_space(cx: &mut TestAppContext) {
         visual.simulate_click(confirm.center(), Modifiers::default());
         finish_close(visual, &trigger);
         assert_eq!(accepted.get(), 1);
+
+        let trigger = open(visual);
+        visual.update(|window, cx| window.press("tab", cx));
+        cancel_allowed.set(false);
+        activate(visual);
+        assert!(visual.debug_bounds("dialog-layer").is_some());
+        assert_eq!(accepted.get(), 1);
+        assert_eq!(cancelled.get(), 2);
+        cancel_allowed.set(true);
+        activate(visual);
+        finish_close(visual, &trigger);
+        assert_eq!(accepted.get(), 1);
+        assert_eq!(cancelled.get(), 3);
+
+        let trigger = open(visual);
+        visual.update(|window, cx| {
+            window.press("tab", cx);
+            window.press("space", cx);
+        });
+        finish_close(visual, &trigger);
+        assert_eq!(accepted.get(), 1);
+        assert_eq!(cancelled.get(), 4);
+
+        let trigger = open(visual);
+        activate(visual);
+        finish_close(visual, &trigger);
+        assert_eq!(accepted.get(), 2);
+        assert_eq!(cancelled.get(), 4);
         visual.update(|window, _| window.remove_window());
     }
 }
@@ -176,6 +221,7 @@ fn default_surface_radius(cx: &mut TestAppContext) {
             let frame = cx.new(|_| Frame {
                 alert: false,
                 refined: false,
+                cancel_allowed: Rc::new(Cell::new(true)),
                 accepted: Rc::new(Cell::new(0)),
                 cancelled: Rc::new(Cell::new(0)),
             });
@@ -201,6 +247,7 @@ fn motion_and_escape_focus(cx: &mut TestAppContext) {
             let frame = cx.new(|_| Frame {
                 alert: false,
                 refined: true,
+                cancel_allowed: Rc::new(Cell::new(true)),
                 accepted: Rc::new(Cell::new(0)),
                 cancelled,
             });
@@ -248,6 +295,7 @@ fn alert_focus(cx: &mut TestAppContext) {
             let frame = cx.new(|_| Frame {
                 alert: true,
                 refined: true,
+                cancel_allowed: Rc::new(Cell::new(true)),
                 accepted,
                 cancelled: Rc::new(Cell::new(0)),
             });

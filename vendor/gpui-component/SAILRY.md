@@ -31,6 +31,7 @@ animations remain owned by the original Kit components.
 | Candlestick label gutter and shared value scale | Retained; value labels, candles and hover use the same native plot bounds and scale |
 | GroupBox surface without an empty footer wrapper | Retained; the upstream wrapper still prevents relative full-height surfaces. Existing footer composition is unchanged. Reusable upstream candidate |
 | Dialog full-screen content and outer text-selection scope | Retained inside the native dialog lifecycle for immersive approved surfaces. Reusable upstream candidate |
+| DialogClose intrinsic footer width | The upstream Component full-size wrapper stretches Base's close trigger across the footer. Rendering Base directly retains its intrinsic width, cancel dispatch, focus and accessible activation. DialogAction is unchanged. Reusable upstream candidate |
 | Attachment native preview Button, accessibility label and transparent highlight option | Retained; preserves keyboard activation and accessible image-card names. Reusable upstream candidate |
 | Attachment retry-slot identities | Retained; media and description retries keep independent pointer and focus state. Reusable upstream candidate |
 | Direct Scrollable helper viewport anchoring | Retained; child scrollbar overlays use the handle's viewport, while stationary sibling helpers use layout bounds. Reusable upstream candidate |
@@ -63,7 +64,7 @@ upstream publication is part of the vendored refresh.
 | `List::search_divider` and Select search-header separation | Restored upstream search dividers and List padding |
 | `PopupMenuLayout` and Select row insets/gaps | Removed application-wide presentation geometry; restored upstream menu rows, item radii and Select spacing. Clickable-row traversal remains |
 | Segmented outer-inset override | Restored upstream TabBar padding; opt-in equal-width sizing remains |
-| Intrinsic DialogClose and DialogAction wrappers | Restored upstream full-size footer wrappers. Child controls retain their native sizing and activation |
+| Intrinsic DialogAction wrapper | Restored the upstream full-size action wrapper. Child controls retain their native sizing and activation |
 | Candlestick `chart_grid` color substitution | Restored upstream `border` grid color locally. Grid columns, value labels, plot gutter and hover opt-ins remain; shared PointAxes styling is unchanged |
 
 The previous standalone lockfile described the old snapshot. Product builds use

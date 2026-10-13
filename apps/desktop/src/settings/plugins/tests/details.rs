@@ -45,7 +45,10 @@ fn scrolls_long_skill_details(cx: &mut TestAppContext) {
             assert!(button.right() <= dialog.right());
             assert!(button.top() >= dialog.top());
             assert!(button.bottom() <= dialog.bottom());
+            assert!(button.size.width < dialog.size.width / 3.);
         }
+        assert_eq!(footer[0].center().y, footer[1].center().y);
+        assert_eq!(footer[1].left() - footer[0].right(), px(8.));
         let before = visual.debug_bounds("plugin-info-version").unwrap();
         assert!(before.bottom() > dialog.bottom());
         visual.simulate_event(ScrollWheelEvent {
@@ -65,6 +68,12 @@ fn scrolls_long_skill_details(cx: &mut TestAppContext) {
             footer
         );
         tap(visual, "plugin-details-cancel");
+        shown(visual, "plugin-live-details", false);
+        assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+        assert!(!visual.has_pending_prompt());
+        tap(visual, "plugin-details-example");
+        shown(visual, "plugin-details-cancel", true);
+        visual.simulate_keystrokes("escape");
         shown(visual, "plugin-live-details", false);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert!(!visual.has_pending_prompt());

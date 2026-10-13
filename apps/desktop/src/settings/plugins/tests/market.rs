@@ -184,6 +184,9 @@ fn official_install_and_details(cx: &mut TestAppContext) {
         let fixture = Fixture::with_skill_source(remote, &server.endpoint);
         let before = fixture.public_packages(false);
         let (owner, visual) = fixture.mount(cx);
+        visual.update(|window, _| window.activate_window());
+        draw(visual);
+        assert!(visual.update(|window, _| window.is_window_active()));
         tap(visual, "plugins-market-tab");
         shown(visual, "market-details-portable", true);
         tap(visual, "market-details-portable");

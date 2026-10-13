@@ -96,7 +96,7 @@ impl ParentElement for DialogClose {
 
 impl RenderOnce for DialogClose {
     fn render(self, _: &mut Window, _: &mut App) -> impl IntoElement {
-        div().size_full().child(self.base)
+        self.base
     }
 }
 

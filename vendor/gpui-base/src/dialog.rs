@@ -6,9 +6,9 @@ use std::{
 
 use gpui::{
     AnyElement, App, ClickEvent, FocusHandle, InteractiveElement as _, IntoElement, KeyBinding,
-    MouseButton, ParentElement, Pixels, RenderOnce, Role, StatefulInteractiveElement as _,
-    StyleRefinement, Styled, Window, anchored, deferred, div, point, prelude::FluentBuilder as _,
-    px,
+    MouseButton, NoAction, ParentElement, Pixels, RenderOnce, Role,
+    StatefulInteractiveElement as _, StyleRefinement, Styled, Window, anchored, deferred, div,
+    point, prelude::FluentBuilder as _, px,
 };
 use smallvec::SmallVec;
 
@@ -16,6 +16,7 @@ use crate::actions::{Cancel, Confirm};
 use crate::{FocusTrapElement as _, StyledExt as _};
 
 const CONTEXT: &str = "Dialog";
+const CLOSE_CONTEXT: &str = "DialogClose";
 type Decision = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) -> bool>;
 type Closed = Rc<dyn Fn(&ClickEvent, &mut Window, &mut App)>;
 type CloseRequest = Rc<dyn Fn(bool, &mut Window, &mut App)>;
@@ -90,6 +91,7 @@ pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("escape", Cancel, Some(CONTEXT)),
         KeyBinding::new("enter", Confirm { secondary: false }, Some(CONTEXT)),
+        KeyBinding::new("enter", NoAction, Some(CLOSE_CONTEXT)),
     ]);
 }
 
@@ -363,6 +365,7 @@ impl DialogClose {
         let anchor = self.anchor.clone();
         let button = crate::Button::new("close")
             .accessibility_label("Close")
+            .key_context(CLOSE_CONTEXT)
             .on_click(move |_, window, cx| Self::activate(&anchor, window, cx));
         self.trigger = Some(build(button).into_any_element());
         self

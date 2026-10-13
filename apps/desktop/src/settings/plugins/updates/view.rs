@@ -187,6 +187,7 @@ impl Render for State {
             .is_some_and(|selection| selection.locked);
         v_flex()
             .id("plugins-update-list")
+            .text_sm()
             .w_full()
             .min_w_0()
             .gap_3()
@@ -279,6 +280,12 @@ impl Render for State {
                                                 div()
                                                     .truncate()
                                                     .font_medium()
+                                                    .debug_selector({
+                                                        let name = name.clone();
+                                                        move || {
+                                                            format!("plugin-update-title-{name}")
+                                                        }
+                                                    })
                                                     .child(metadata::title(&row.info)),
                                             )
                                             .child(
@@ -286,6 +293,12 @@ impl Render for State {
                                                     .truncate()
                                                     .text_sm()
                                                     .text_color(cx.theme().muted_foreground)
+                                                    .debug_selector({
+                                                        let name = name.clone();
+                                                        move || {
+                                                            format!("plugin-update-version-{name}")
+                                                        }
+                                                    })
                                                     .child(row.version()),
                                             ),
                                     )
