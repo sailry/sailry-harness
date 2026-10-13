@@ -330,6 +330,7 @@ fn sends_during_execution(cx: &mut TestAppContext) {
         for (index, text) in ["queued first", "send this now"].iter().enumerate() {
             click(visual, "live-chat-input");
             visual.simulate_input(text);
+            assert!(visual.debug_bounds("live-enqueue").is_none());
             visual.simulate_keystrokes("enter");
             if index == 0 {
                 // The pending row appears in this frame, before Node admission.

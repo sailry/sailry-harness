@@ -15,6 +15,9 @@ mod tests;
 impl View {
     pub(super) fn composer(&self, cx: &mut Context<Self>) -> AnyElement {
         let active = self.active().is_some();
+        let stopping = self
+            .active_run()
+            .is_some_and(|run| run.status == Status::Stopping);
         let text = !self.input.read(cx).value().trim().is_empty() || self.has_attachments();
         let busy = self.busy();
         let dictating = self.dictation.phase != super::dictation::Phase::Idle;
@@ -100,28 +103,13 @@ impl View {
                         ))
                     })
                     .when(self.sidebar, |bar| bar.child(div().flex_1()))
-                    .when(active && text && !dictating, |bar| {
-                        bar.child(
-                            Button::new("live-enqueue")
-                                .ghost()
-                                .rounded_full()
-                                .icon(IconName::Inbox)
-                                .disabled(busy || !self.connected() || !self.attachments.ready())
-                                .when(saving && self.attachments.ready(), |button| {
-                                    button.text_color(cx.theme().foreground)
-                                })
-                                .tooltip(tr("chat_enqueue"))
-                                .accessibility_label(tr("chat_enqueue"))
-                                .on_click(cx.listener(|view, _, window, cx| view.send(window, cx))),
-                        )
-                    })
                     .child(self.dictation_controls(cx))
                     // An executing turn keeps its Stop action during dictation.
                     .when(active || !dictating, |bar| {
                         bar.child(
                             crate::theme::send_button(
                                 Button::new("live-send").primary(),
-                                busy || send_blocked,
+                                busy || send_blocked || stopping,
                                 active,
                                 cx,
                             )

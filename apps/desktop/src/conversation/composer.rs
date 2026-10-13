@@ -68,23 +68,6 @@ impl Shell {
             .child(self.composer_model(cx))
             .child(self.composer_effort(cx))
             .child(super::usage::context_progress(cx))
-            .when(
-                active && (!value.trim().is_empty() || attachment || has_references),
-                |bar| {
-                    bar.child(
-                        Button::new("composer-enqueue")
-                            .ghost()
-                            .rounded_full()
-                            .icon(IconName::Inbox)
-                            .debug_selector(|| "composer-enqueue".into())
-                            .tooltip(tr("queue_add"))
-                            .accessibility_label(tr("queue_add"))
-                            .on_click(cx.listener(move |shell, _, window, cx| {
-                                shell.send_preview(key, window, cx)
-                            })),
-                    )
-                },
-            )
             .child(
                 crate::theme::send_button(
                     Button::new("send").primary(),

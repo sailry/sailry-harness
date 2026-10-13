@@ -374,7 +374,9 @@ fn empty_entry_actions(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
     waiting(&shell, &mut cx);
     draft(&shell, &mut cx, "Only message");
-    click(&mut cx, "composer-enqueue");
+    assert!(cx.debug_bounds("composer-enqueue").is_none());
+    cx.simulate_keystrokes("enter");
+    frame(&mut cx, 0);
     click(&mut cx, "composer-queue");
     click(&mut cx, "queue-edit-0");
     cx.simulate_keystrokes("secondary-a backspace");

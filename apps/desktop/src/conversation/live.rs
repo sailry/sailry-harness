@@ -532,7 +532,7 @@ impl View {
             })
     }
 
-    fn active(&self) -> Option<TurnId> {
+    fn active_run(&self) -> Option<&sailry_protocol::conversation::Run> {
         self.history
             .snapshot
             .as_ref()?
@@ -540,7 +540,10 @@ impl View {
             .runs
             .iter()
             .find(|run| matches!(run.status, Status::Running | Status::Stopping))
-            .map(|run| run.turn)
+    }
+
+    fn active(&self) -> Option<TurnId> {
+        self.active_run().map(|run| run.turn)
     }
 
     fn expand(&mut self, turn: TurnId, key: String, open: bool, cx: &mut Context<Self>) {

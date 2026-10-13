@@ -191,7 +191,11 @@ impl View {
         if self.pending || !self.connected() {
             return;
         }
-        if let Some(turn) = self.active() {
+        if let Some(run) = self
+            .active_run()
+            .filter(|run| run.status != Status::Stopping)
+        {
+            let turn = run.turn;
             self.execute(Command::StopTurn { turn }, Action::Stop, window, cx);
         }
     }

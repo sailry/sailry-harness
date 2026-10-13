@@ -1,4 +1,8 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
+use sailry_link::{Admission, Pending, Subscription};
+use sailry_protocol::{Fault, Topic, Update};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[gpui::test]
 fn renders_partial_deltas(cx: &mut TestAppContext) {
@@ -261,7 +265,15 @@ fn preserves_output_after_stopping(cx: &mut TestAppContext) {
         let fixture = fixture::Fixture::with_server(remote, |runtime| {
             runtime.block_on(support::Server::staged(gates.clone()))
         });
-        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        let observer = Arc::new(StopObserver {
+            inner: fixture.transport.clone(),
+            requests: AtomicUsize::new(0),
+            observed: CancellationToken::new(),
+            release: CancellationToken::new(),
+        });
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(observer.clone()));
+        let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
         fixture.start();
         wait(visual, |cx| {
             view.read(cx)
@@ -275,7 +287,46 @@ fn preserves_output_after_stopping(cx: &mut TestAppContext) {
                         .any(|draft| draft.parts == [Part::Text("First".into())])
                 })
         });
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let button = window.find("live-send");
+            assert_eq!(button.role(), Some(Role::Button));
+            assert!(button.focused().is_some());
+        });
         click(visual, "live-chat-send");
+        wait(visual, |cx| {
+            observer.observed.is_cancelled()
+                && !view.read(cx).pending
+                && view
+                    .read(cx)
+                    .active_run()
+                    .is_some_and(|run| run.status == Status::Stopping)
+        });
+        assert_eq!(observer.requests.load(Ordering::SeqCst), 1);
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let button = window.find("live-send");
+            assert_eq!(button.role(), Some(Role::Button));
+            assert_eq!(button.focused(), None);
+            for _ in 0..8 {
+                window.press("tab", cx);
+                assert_eq!(window.find("live-send").focused(), None);
+            }
+        });
+        click(visual, "live-chat-input");
+        visual.simulate_input("Preserve this editable draft while stopping");
+        click(visual, "live-chat-send");
+        visual.update(|window, cx| {
+            assert!(view.read(cx).input.focus_handle(cx).is_focused(window));
+            view.update(cx, |view, cx| view.stop(window, cx));
+        });
+        assert!(!view.read_with(visual, |view, _| view.pending));
+        assert_eq!(observer.requests.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            "Preserve this editable draft while stopping",
+        );
+        observer.release.cancel();
         wait(visual, |cx| {
             view.read(cx)
                 .history
@@ -336,5 +387,68 @@ fn preserves_output_after_stopping(cx: &mut TestAppContext) {
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
         visual.update(|window, _| window.remove_window());
         fixture.close();
+    }
+}
+
+struct StopObserver {
+    inner: Arc<dyn Transport>,
+    requests: AtomicUsize,
+    observed: CancellationToken,
+    release: CancellationToken,
+}
+
+impl Transport for StopObserver {
+    fn target(&self) -> NodeId {
+        self.inner.target()
+    }
+
+    fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
+        if matches!(request.command, Command::StopTurn { .. }) {
+            self.requests.fetch_add(1, Ordering::SeqCst);
+        }
+        self.inner.dispatch(request)
+    }
+
+    fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
+        Box::pin(async move {
+            let conversation = matches!(topic, Topic::Conversation(_));
+            let inner = self.inner.subscribe(topic).await?;
+            if !conversation {
+                return Ok(inner);
+            }
+            Ok(Box::new(Held {
+                inner,
+                observed: self.observed.clone(),
+                release: self.release.clone(),
+                hold: false,
+            }) as Box<dyn Subscription>)
+        })
+    }
+}
+
+struct Held {
+    inner: Box<dyn Subscription>,
+    observed: CancellationToken,
+    release: CancellationToken,
+    hold: bool,
+}
+
+impl Subscription for Held {
+    fn next(&mut self) -> Pending<'_, Result<Update, Fault>> {
+        Box::pin(async move {
+            if self.hold {
+                self.release.cancelled().await;
+            }
+            let update = self.inner.next().await?;
+            if matches!(&update, Update::ConversationFrame(frame)
+                if matches!(&frame.change, sailry_protocol::conversation::Change::Run(run)
+                    if run.status == Status::Stopping))
+            {
+                self.hold = true;
+                self.observed.cancel();
+            }
+            // Forward the native stopping frame before holding later terminal frames.
+            Ok(update)
+        })
     }
 }
