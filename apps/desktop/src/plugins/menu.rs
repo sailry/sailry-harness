@@ -42,9 +42,9 @@ struct Props {
     primary: Option<Item>,
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-struct Item {
+pub(super) struct Item {
     #[serde(default)]
     id: String,
     #[serde(default)]
@@ -61,6 +61,8 @@ struct Item {
     value: Option<serde_json::Value>,
 }
 
+pub(super) type Selection = Rc<dyn Fn(String, Option<serde_json::Value>)>;
+
 pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule {
     let (sender, receiver) = tokio::sync::mpsc::channel::<serde_json::Value>(16);
     let receiver = Arc::new(tokio::sync::Mutex::new(receiver));
@@ -70,13 +72,12 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
         module.declared().unwrap_or_default()
     );
     module
-        .component("Menu", move |args, _, _| {
+        .component("Menu", move |args, window, cx| {
             let props = super::host::sdk::values::decode(args.props())
                 .ok()
                 .and_then(|value| serde_json::from_value::<Props>(value).ok());
             let Some(props) = props.filter(|props| {
-                props.items.len() <= 256
-                    && !props.label.trim().is_empty()
+                !props.label.trim().is_empty()
                     && valid(&props.items)
             }) else {
                 return div().into_any_element();
@@ -87,9 +88,28 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
             let medium = !props.small && props.size == Some(TriggerSize::Medium);
             // Kit's form Button fills its parent, but DropdownMenu has no trigger-width API.
             // Measure only form triggers and retain Kit's menu, focus and viewport positioning.
-            let width = Rc::new(Cell::new(None::<Pixels>));
+            // The popup builds before prepaint; retain the preceding frame's measurement.
+            let width = if props.form {
+                window
+                    .use_keyed_state(
+                        (ElementId::from(SharedString::from(id.clone())), "form-menu-width"),
+                        cx,
+                        |_, _| Rc::new(Cell::new(None::<Pixels>)),
+                    )
+                    .read(cx)
+                    .clone()
+            } else {
+                Rc::new(Cell::new(None::<Pixels>))
+            };
+            let selection: Selection = {
+                let sender = sender.clone();
+                let id = id.clone();
+                Rc::new(move |event, value| {
+                    let _ = sender.try_send(serde_json::json!({"menu":id,"id":event,"value":value}));
+                })
+            };
             let build = {
-                let sender=sender.clone(); let id=id.clone(); let items=props.items;
+                let items=props.items;
                 let width = width.clone();
                 move |menu:PopupMenu,window:&mut Window,cx:&mut Context<PopupMenu>| {
                     let menu = if props.form {
@@ -101,7 +121,7 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
                     } else {
                         menu
                     };
-                    entries(menu,&items,&id,&sender,window,cx)
+                    entries(menu,&items,&selection,window,cx)
                 }
             };
             if let Some(primary)=props.primary {
@@ -157,20 +177,23 @@ fn resolve_icon(value: &str) -> Icon {
     })
 }
 
-fn valid(items: &[Item]) -> bool {
+pub(super) fn valid(items: &[Item]) -> bool {
+    items.len() <= 256 && valid_items(items)
+}
+
+fn valid_items(items: &[Item]) -> bool {
     items.iter().all(|item| {
         item.separator
             || (!item.label.trim().is_empty()
-                && ((!item.children.is_empty() && valid(&item.children))
+                && ((!item.children.is_empty() && valid_items(&item.children))
                     || (!item.id.is_empty() && item.id.len() <= 256)))
     })
 }
 
-fn entries(
+pub(super) fn entries(
     mut menu: PopupMenu,
     items: &[Item],
-    id: &str,
-    sender: &tokio::sync::mpsc::Sender<serde_json::Value>,
+    selection: &Selection,
     window: &mut Window,
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
@@ -181,18 +204,16 @@ fn entries(
         }
         if !item.children.is_empty() {
             let children = item.children.clone();
-            let sender = sender.clone();
-            let id = id.to_owned();
+            let selection = selection.clone();
             menu = menu.submenu_with_icon(
                 item.icon.as_deref().map(resolve_icon),
                 item.label.clone(),
                 window,
                 cx,
-                move |menu, window, cx| entries(menu, &children, &id, &sender, window, cx),
+                move |menu, window, cx| entries(menu, &children, &selection, window, cx),
             );
         } else {
-            let sender = sender.clone();
-            let id = id.to_owned();
+            let selection = selection.clone();
             let event = item.id.clone();
             let value = item.value.clone();
             menu = menu.item(
@@ -203,8 +224,7 @@ fn entries(
                     .disabled(!item.enabled)
                     .checked(item.checked)
                     .on_click(move |_, _, _| {
-                        let _ = sender
-                            .try_send(serde_json::json!({"menu":id,"id":event,"value":value}));
+                        selection(event.clone(), value.clone());
                     }),
             );
         }

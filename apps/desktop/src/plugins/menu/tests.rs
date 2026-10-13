@@ -23,15 +23,15 @@ import {Menu,Marker,nextMenuEvent} from 'sailry/test';
 const items = [
   {id:'short',label:'Short',enabled:true,checked:true},
   {id:'blocked',label:'Unavailable',enabled:false},
-  {id:'long',label:'Preserve full option 中文 🙂 with a long label that must not expand a form menu',enabled:true},
+  {id:'long',label:'Preserve full option 中文 🙂 with a long label that must not expand a form menu',enabled:true,value:{format:'png'}},
 ];
 export default class Fields extends View {
   init(_props,cx) {
-    this.picked = ''; this.count = 0;
+    this.picked = ''; this.count = 0; this.event = '';
     cx.spawn(async cx => {
       try { while (true) {
         const event = await nextMenuEvent();
-        this.picked = `${event.menu}-${event.id}-${++this.count}`; cx.notify();
+        this.picked = `${event.menu}-${event.id}-${++this.count}`; this.event = JSON.stringify(event); cx.notify();
       } } catch (_) { /* The fixture owns its menu subscription. */ }
     });
   }
@@ -40,7 +40,7 @@ export default class Fields extends View {
       div().w(220).child(Menu.new('narrow-form',{label:'Short',form:true,items})),
       div().w(460).child(Menu.new('wide-form',{label:'Short',form:true,items})),
       div().w(460).child(Menu.new('action-menu',{label:'Action',items:[items[0]]})),
-      Marker.new('selection',{label:this.picked}),
+      Marker.new('selection',{label:this.picked,event:this.event}),
     ]);
   }
 }
@@ -48,17 +48,22 @@ export default class Fields extends View {
     let stop = CancellationToken::new();
     let observed = Rc::new(RefCell::new(String::new()));
     let values = observed.clone();
-    let module = module(HostModule::new("sailry/test"), stop.clone()).component(
-        "Marker",
-        move |args, _, _| {
-            let value = super::super::host::sdk::values::decode(args.props()).unwrap();
-            let label = value["label"].as_str().unwrap().to_owned();
-            *values.borrow_mut() = label.clone();
-            div()
-                .debug_selector(move || label.clone())
-                .into_any_element()
-        },
+    let payload = Rc::new(RefCell::new(None::<serde_json::Value>));
+    let recorded = payload.clone();
+    let host = HostModule::new("sailry/test").declarations(
+        "export const Marker = new (id, props label:string,event:string): import(gpui-kit).Element;",
     );
+    let module = module(host, stop.clone()).component("Marker", move |args, _, _| {
+        let value = super::super::host::sdk::values::decode(args.props()).unwrap();
+        let label = value["label"].as_str().unwrap().to_owned();
+        if let Some(event) = value["event"].as_str().filter(|event| !event.is_empty()) {
+            *recorded.borrow_mut() = Some(serde_json::from_str(event).unwrap());
+        }
+        *values.borrow_mut() = label.clone();
+        div()
+            .debug_selector(move || label.clone())
+            .into_any_element()
+    });
     let granted = Policy::new()
         .with_capabilities(
             gpui_shell::Capabilities::new().read_roots([directory.path().to_path_buf()]),
@@ -108,6 +113,10 @@ export default class Fields extends View {
         visual.run_until_parked();
         let picked = Box::leak(format!("{selector}-long-{}", index + 1).into_boxed_str());
         wait(visual, |_| observed.borrow().as_str() == picked);
+        assert_eq!(
+            *payload.borrow(),
+            Some(serde_json::json!({"menu":selector,"id":"long","value":{"format":"png"}}))
+        );
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds(picked).is_some());
         assert!(visual.debug_bounds("popup-menu").is_none());

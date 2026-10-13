@@ -559,7 +559,23 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
         let host = panel.read_with(visual, |panel, _| panel.mounted.as_ref().unwrap().host());
         assert_eq!(resource.session, fork_id);
         assert_eq!(host.context().session, Some(fork_id));
-        assert!(captured(&Some(resource), first.id, &host).is_ok());
+        assert!(captured(&Some(resource.clone()), first.id, &host).is_ok());
+        let native = visual
+            .update(|_, cx| {
+                export::read_card(
+                    &resource,
+                    &export::Options {
+                        artifact: first.id,
+                        revision: 1,
+                        format: export::Format::Html,
+                    },
+                    cx,
+                )
+            })
+            .unwrap();
+        let native = fixture.runtime.block_on(native).unwrap();
+        assert_eq!(native.artifact, first);
+        assert_eq!(native.latest_revision, 1);
         let content = fixture
             .runtime
             .block_on(host.read_artifact(first.id, None, first.session).unwrap())
@@ -689,6 +705,22 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
             .unwrap();
         assert_eq!(frozen.html, content.html);
         assert_eq!(frozen.view, content.view);
+        let native = visual
+            .update(|_, cx| {
+                export::read_card(
+                    &resource,
+                    &export::Options {
+                        artifact: first.id,
+                        revision: 1,
+                        format: export::Format::Html,
+                    },
+                    cx,
+                )
+            })
+            .unwrap();
+        let native = fixture.runtime.block_on(native).unwrap();
+        assert_eq!(native.html, frozen.html);
+        assert_eq!(native.view, frozen.view);
         let session = source.read_with(visual, |source, _| source.summary().unwrap().clone());
         visual.update(|window, _| window.remove_window());
         drop(panel);
@@ -779,4 +811,354 @@ fn includes_raw_choices_and_document_identity() {
         .unwrap()
         .push(event["fields"][0].clone());
     assert!(surface::form_message(&content, &invalid).is_err());
+}
+
+mod cards {
+    use super::*;
+    use sailry_link::CancellationToken;
+    use sailry_protocol::artifact::Kind;
+    use std::cell::{Cell, RefCell};
+    use std::sync::atomic::AtomicUsize;
+
+    struct Reads {
+        inner: Arc<dyn Transport>,
+        target: NodeId,
+        mode: AtomicUsize,
+        hold: AtomicBool,
+        entered: CancellationToken,
+        release: CancellationToken,
+        requests: Mutex<Vec<Request>>,
+    }
+
+    impl Transport for Reads {
+        fn target(&self) -> NodeId {
+            self.target
+        }
+        fn open(&self, id: StreamId) -> Pending<'_, Result<Stream, Fault>> {
+            self.inner.open(id)
+        }
+        fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
+            self.inner.subscribe(topic)
+        }
+        fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
+            Box::pin(async move {
+                let read = matches!(request.command, Command::ReadArtifact { .. });
+                if read {
+                    self.requests.lock().unwrap().push(request.clone());
+                }
+                let admitted = self.inner.dispatch(request).await?;
+                if read && self.hold.load(Ordering::SeqCst) {
+                    self.entered.cancel();
+                    self.release.cancelled().await;
+                }
+                let mode = self.mode.load(Ordering::SeqCst);
+                if !read || mode == 0 {
+                    return Ok(admitted);
+                }
+                let mut output = admitted.completion.await.unwrap()?;
+                let Output::Artifact(content) = &mut output else {
+                    panic!("artifact expected");
+                };
+                match mode {
+                    1 => content.artifact.session = sailry_protocol::SessionId::new(),
+                    2 => {
+                        content.artifact.kind = if content.artifact.kind == Kind::Document {
+                            Kind::Preview
+                        } else {
+                            Kind::Document
+                        }
+                    }
+                    3 => content.artifact.package.digest = "0".repeat(64),
+                    4 => content.artifact.id = ArtifactId::new(),
+                    5 => {
+                        content.artifact.revision += 1;
+                        content.latest_revision = content.artifact.revision;
+                    }
+                    _ => unreachable!(),
+                }
+                let (sender, completion) = tokio::sync::oneshot::channel();
+                sender.send(Ok(output)).unwrap();
+                Ok(Admission {
+                    receipt: admitted.receipt,
+                    completion,
+                })
+            })
+        }
+    }
+
+    fn fixture(remote: bool, kind: Kind) -> (chat::Fixture, Arc<Reads>) {
+        let mut draft = write(None, None);
+        draft["kind"] = json!(kind);
+        if kind == Kind::Preview {
+            draft["html"] = json!(
+                "<!doctype html><html><head></head><body><h1>Native preview</h1></body></html>"
+            );
+        }
+        let mut fixture = chat::Fixture::with_server(remote, |runtime| {
+            runtime.block_on(crate::agent_fixture::Server::scripted_tools(vec![(
+                crate::agent_fixture::plugin_tool(PACKAGE, "write_brief"),
+                draft,
+            )]))
+        });
+        install(&fixture);
+        fixture.start();
+        let observed = Arc::new(Reads {
+            inner: fixture.transport.clone(),
+            target: fixture.transport.target(),
+            mode: AtomicUsize::new(0),
+            hold: AtomicBool::new(false),
+            entered: CancellationToken::new(),
+            release: CancellationToken::new(),
+            requests: Mutex::new(Vec::new()),
+        });
+        fixture.binding.client = Arc::new(sailry_client::Client::new(observed.clone()));
+        (fixture, observed)
+    }
+
+    fn resource(source: &Entity<Chat>, artifact: &Summary, cx: &App) -> Resource {
+        Resource {
+            binding: source.read(cx).binding(),
+            session: source.read(cx).session().unwrap(),
+            artifact: artifact.clone(),
+            source: source.downgrade(),
+        }
+    }
+
+    fn options(artifact: &Summary) -> export::Options {
+        export::Options {
+            artifact: artifact.id,
+            revision: artifact.revision,
+            format: export::Format::Html,
+        }
+    }
+
+    fn choose(
+        resource: Resource,
+        visual: &mut VisualTestContext,
+    ) -> tokio::sync::oneshot::Receiver<bool> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        visual.update(|window, cx| {
+            export::choose_card(resource, export::Format::Html, sender, window, cx)
+        });
+        let platform = visual.cx.clone();
+        wait(visual, |_| platform.did_prompt_for_new_path());
+        receiver
+    }
+
+    fn result(reply: tokio::sync::oneshot::Receiver<bool>, visual: &mut VisualTestContext) -> bool {
+        let reply = RefCell::new(reply);
+        let value = Cell::new(None);
+        wait(visual, |_| {
+            if let Ok(result) = reply.borrow_mut().try_recv() {
+                value.set(Some(result));
+            }
+            value.get().is_some()
+        });
+        value.get().unwrap()
+    }
+
+    #[gpui_kit::test]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn exports_captured_preview_and_cancels(cx: &mut TestAppContext) {
+        init(cx);
+        for remote in [false, true] {
+            let (fixture, reads) = fixture(remote, Kind::Preview);
+            let first = published(&fixture, 1);
+            let (source, visual) = chat::open(cx, fixture.binding.clone(), fixture.session.clone());
+            wait(visual, |cx| source.read(cx).document_visible(&first));
+            visual.update(|window, cx| source.update(cx, |source, cx| source.focus(window, cx)));
+            visual.simulate_input("Keep the existing draft");
+            let captured = visual.update(|_, cx| resource(&source, &first, cx));
+            let model_requests = fixture.server.requests.lock().unwrap().len();
+            let cancelled = choose(captured.clone(), visual);
+            visual.simulate_new_path_selection(|_| None);
+            assert!(!result(cancelled, visual));
+            assert!(reads.requests.lock().unwrap().is_empty());
+
+            let destination = fixture.directory.path().join("native-preview.html");
+            let saved = choose(captured.clone(), visual);
+            visual.simulate_new_path_selection(|_| Some(destination.clone()));
+            assert!(result(saved, visual));
+            let html = std::fs::read_to_string(&destination).unwrap();
+            assert!(html.contains("Native preview"));
+            assert!(html.contains("sandbox=\"allow-scripts\""));
+            assert!(!html.contains("window.sailryDocument"));
+            assert_eq!(reads.requests.lock().unwrap().len(), 1);
+
+            reads.mode.store(1, Ordering::SeqCst);
+            let rejected_path = fixture.directory.path().join("foreign-preview.html");
+            let rejected = choose(captured.clone(), visual);
+            visual.simulate_new_path_selection(|_| Some(rejected_path.clone()));
+            assert!(!result(rejected, visual));
+            assert!(!rejected_path.exists());
+            assert_eq!(reads.requests.lock().unwrap().len(), 2);
+            assert_eq!(
+                fixture.server.requests.lock().unwrap().len(),
+                model_requests
+            );
+            assert_eq!(
+                source.read_with(visual, |source, cx| source.draft(cx).to_string()),
+                "Keep the existing draft"
+            );
+            assert_eq!(
+                source.read_with(visual, |source, _| source.session()),
+                Some(first.session)
+            );
+            reads.mode.store(0, Ordering::SeqCst);
+
+            reads.hold.store(true, Ordering::SeqCst);
+            let held_path = fixture.directory.path().join("held-source.html");
+            let held = choose(captured, visual);
+            visual.simulate_new_path_selection(|_| Some(held_path.clone()));
+            wait(visual, |_| reads.entered.is_cancelled());
+            visual.update(|window, cx| {
+                source.update(cx, |source, cx| {
+                    *source = Chat::new(fixture.binding.clone(), None, window, cx);
+                    cx.notify();
+                })
+            });
+            reads.release.cancel();
+            assert!(!result(held, visual));
+            assert!(!held_path.exists());
+            assert_eq!(reads.requests.lock().unwrap().len(), 3);
+            reads.hold.store(false, Ordering::SeqCst);
+            visual.update(|window, cx| {
+                source.update(cx, |source, cx| {
+                    *source = Chat::new(
+                        fixture.binding.clone(),
+                        Some(fixture.session.clone()),
+                        window,
+                        cx,
+                    );
+                    cx.notify();
+                })
+            });
+            wait(visual, |cx| source.read(cx).document_visible(&first));
+            let captured = visual.update(|_, cx| resource(&source, &first, cx));
+
+            let changed_path = fixture.directory.path().join("changed-source.html");
+            let changed = choose(captured, visual);
+            visual.update(|window, cx| {
+                source.update(cx, |source, cx| {
+                    *source = Chat::new(fixture.binding.clone(), None, window, cx);
+                    cx.notify();
+                })
+            });
+            visual.simulate_new_path_selection(|_| Some(changed_path.clone()));
+            assert!(!result(changed, visual));
+            assert!(!changed_path.exists());
+            assert_eq!(reads.requests.lock().unwrap().len(), 3);
+            visual.update(|window, _| window.remove_window());
+            drop(source);
+            fixture.close();
+        }
+    }
+
+    #[gpui_kit::test]
+    fn rejects_changed_scope_before_reading(cx: &mut TestAppContext) {
+        init(cx);
+        for remote in [false, true] {
+            let (fixture, reads) = fixture(remote, Kind::Document);
+            let first = published(&fixture, 1);
+            let (source, visual) = chat::open(cx, fixture.binding.clone(), fixture.session.clone());
+            wait(visual, |cx| source.read(cx).document_visible(&first));
+            let captured = visual.update(|_, cx| resource(&source, &first, cx));
+            let mut changed = Vec::new();
+            let mut foreign = captured.clone();
+            foreign.session = sailry_protocol::SessionId::new();
+            changed.push(foreign);
+            let mut foreign = captured.clone();
+            foreign.binding.worktree = Some(sailry_protocol::WorktreeId::new());
+            changed.push(foreign);
+            let mut foreign = captured.clone();
+            foreign.binding.project = Some(sailry_protocol::ProjectId::new());
+            changed.push(foreign);
+            let mut foreign = captured.clone();
+            foreign.artifact.title = "Unpublished receipt".into();
+            changed.push(foreign);
+            let mut foreign = captured.clone();
+            let mut target = fixture.node.id();
+            target.0[0] ^= 1;
+            foreign.binding.client = Arc::new(sailry_client::Client::new(Arc::new(Reads {
+                inner: fixture.transport.clone(),
+                target,
+                mode: AtomicUsize::new(0),
+                hold: AtomicBool::new(false),
+                entered: CancellationToken::new(),
+                release: CancellationToken::new(),
+                requests: Mutex::new(Vec::new()),
+            })));
+            changed.push(foreign);
+            for changed in changed {
+                assert!(
+                    visual
+                        .update(|_, cx| export::read_card(&changed, &options(&first), cx))
+                        .is_err()
+                );
+            }
+            for (id, revision) in [(ArtifactId::new(), 1), (first.id, 0), (first.id, 2)] {
+                let options = export::Options {
+                    artifact: id,
+                    revision,
+                    format: export::Format::Html,
+                };
+                assert!(
+                    visual
+                        .update(|_, cx| export::read_card(&captured, &options, cx))
+                        .is_err()
+                );
+            }
+            assert!(reads.requests.lock().unwrap().is_empty());
+            visual.update(|window, _| window.remove_window());
+            drop(source);
+            cx.update(|cx| assert!(export::read_card(&captured, &options(&first), cx).is_err()));
+            assert!(reads.requests.lock().unwrap().is_empty());
+            fixture.close();
+        }
+    }
+
+    #[gpui_kit::test]
+    fn rejects_foreign_response_identity(cx: &mut TestAppContext) {
+        init(cx);
+        for remote in [false, true] {
+            for kind in [Kind::Document, Kind::Preview] {
+                let (fixture, reads) = fixture(remote, kind);
+                let first = published(&fixture, 1);
+                let (source, visual) =
+                    chat::open(cx, fixture.binding.clone(), fixture.session.clone());
+                wait(visual, |cx| source.read(cx).document_visible(&first));
+                let captured = visual.update(|_, cx| resource(&source, &first, cx));
+                for mode in 1..=5 {
+                    reads.mode.store(mode, Ordering::SeqCst);
+                    let read = visual
+                        .update(|_, cx| export::read_card(&captured, &options(&first), cx))
+                        .unwrap();
+                    assert_eq!(
+                        fixture.runtime.block_on(read).unwrap_err(),
+                        "artifact_export_failed"
+                    );
+                }
+                reads.mode.store(0, Ordering::SeqCst);
+                let read = visual
+                    .update(|_, cx| export::read_card(&captured, &options(&first), cx))
+                    .unwrap();
+                assert_eq!(fixture.runtime.block_on(read).unwrap().artifact, first);
+                let requests = reads.requests.lock().unwrap();
+                assert_eq!(requests.len(), 6);
+                assert!(requests.iter().all(|request| matches!(request.command,
+                    Command::ReadArtifact { id, revision: Some(1), session: Some(session) }
+                    if id == first.id && session == fixture.session.id)));
+                assert!(
+                    requests
+                        .iter()
+                        .all(|request| request.target == fixture.node.id()
+                            && request.plugin.is_none())
+                );
+                drop(requests);
+                visual.update(|window, _| window.remove_window());
+                drop(source);
+                fixture.close();
+            }
+        }
+    }
 }

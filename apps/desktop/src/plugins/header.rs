@@ -4,6 +4,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
+        menu::DropdownMenu as _,
         *,
     },
     *,
@@ -12,6 +13,9 @@ use gpui_shell::{HostError, HostModule, HostValue};
 use serde::Deserialize;
 use std::sync::Arc;
 mod filters;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Default, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -55,6 +59,7 @@ struct Action {
     icon: String,
     #[serde(default)]
     disabled: bool,
+    menu: Option<Vec<super::menu::Item>>,
 }
 
 pub(crate) struct Header {
@@ -87,6 +92,10 @@ pub(super) fn create(
                     && let Ok(content) = serde_json::from_str::<Content>(source)
                     && content.items.len() <= 4
                     && content.actions.len() <= 3
+                    && content
+                        .actions
+                        .iter()
+                        .all(|action| action.menu.as_deref().is_none_or(super::menu::valid))
                     && content.filters.len() <= 8
                     && content.filters.iter().all(filters::Filter::valid)
                     && content.min_content_width.is_finite()
@@ -200,7 +209,7 @@ impl Render for Header {
             .children(self.content.actions.iter().map(|action| {
                 let sender = self.actions.clone();
                 let id = action.id.clone();
-                Button::new(SharedString::from(action.id.clone()))
+                let button = Button::new(SharedString::from(action.id.clone()))
                     .debug_selector({
                         let id = action.id.clone();
                         move || id.clone()
@@ -210,10 +219,24 @@ impl Render for Header {
                     .small()
                     .icon(Icon::empty().path(action.icon.clone()))
                     .tooltip(action.label.clone())
-                    .accessibility_label(action.label.clone())
-                    .on_click(move |_, _, _| {
-                        let _ = sender.try_send(id.clone());
-                    })
+                    .accessibility_label(action.label.clone());
+                if let Some(items) = &action.menu {
+                    let items = items.clone();
+                    let selection: super::menu::Selection = std::rc::Rc::new(move |id, _| {
+                        let _ = sender.try_send(id);
+                    });
+                    button
+                        .dropdown_menu(move |menu, window, cx| {
+                            super::menu::entries(menu, &items, &selection, window, cx)
+                        })
+                        .into_any_element()
+                } else {
+                    button
+                        .on_click(move |_, _, _| {
+                            let _ = sender.try_send(id.clone());
+                        })
+                        .into_any_element()
+                }
             }))
     }
 }

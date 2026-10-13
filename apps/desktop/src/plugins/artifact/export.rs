@@ -37,10 +37,92 @@ pub(super) struct Options {
 }
 
 struct Source {
-    host: Arc<Host>,
-    owner: sailry_protocol::SessionId,
+    reader: Reader,
     options: Options,
     live: Option<WeakEntity<surface::View>>,
+}
+
+enum Reader {
+    Host {
+        host: Arc<Host>,
+        owner: sailry_protocol::SessionId,
+    },
+    Card(Resource),
+}
+
+impl Reader {
+    fn check(&self, options: &Options, cx: &App) -> Result<(), &'static str> {
+        match self {
+            Self::Host { .. } => Ok(()),
+            Self::Card(resource) => check_card(resource, options, cx),
+        }
+    }
+
+    fn read(
+        &self,
+        options: &Options,
+        cx: &App,
+    ) -> Result<sailry_link::Pending<'static, Result<Content, &'static str>>, &'static str> {
+        match self {
+            Self::Host { host, owner } => {
+                let read = host
+                    .read_artifact(options.artifact, Some(options.revision), *owner)
+                    .map_err(|_| "artifact_export_failed")?;
+                Ok(Box::pin(async move {
+                    read.await.map_err(|_| "artifact_export_failed")
+                }))
+            }
+            Self::Card(resource) => read_card(resource, options, cx),
+        }
+    }
+}
+
+fn check_card(resource: &Resource, options: &Options, cx: &App) -> Result<(), &'static str> {
+    let valid = resource.source.upgrade().is_some_and(|source| {
+        let source = source.read(cx);
+        let current = source.binding();
+        options.artifact == resource.artifact.id
+            && options.revision != 0
+            && options.revision == resource.artifact.revision
+            && source.connected()
+            && source.session() == Some(resource.session)
+            && current.client.target() == resource.binding.client.target()
+            && current.project == resource.binding.project
+            && current.worktree == resource.binding.worktree
+            && (source.document_visible(&resource.artifact)
+                || source.document_listed(&resource.artifact, cx))
+    });
+    valid.then_some(()).ok_or("artifact_export_failed")
+}
+
+pub(super) fn read_card(
+    resource: &Resource,
+    options: &Options,
+    cx: &App,
+) -> Result<sailry_link::Pending<'static, Result<Content, &'static str>>, &'static str> {
+    check_card(resource, options, cx)?;
+    let client = resource.binding.client.clone();
+    let runtime = resource.binding.runtime.clone();
+    let session = resource.session;
+    let captured = resource.artifact.clone();
+    let id = captured.id;
+    let revision = captured.revision;
+    Ok(Box::pin(async move {
+        let content = runtime
+            .spawn(async move { client.read_artifact_in(session, id, Some(revision)).await })
+            .await
+            .map_err(|_| "artifact_export_failed")?
+            .map_err(|_| "artifact_export_failed")?;
+        if content.artifact.id != captured.id
+            || content.artifact.session != captured.session
+            || content.artifact.kind != captured.kind
+            || content.artifact.package != captured.package
+            || content.artifact.revision != captured.revision
+        {
+            return Err("artifact_export_failed");
+        }
+        Ok(content)
+    }))
 }
 
 pub(super) fn choose(
@@ -57,6 +139,49 @@ pub(super) fn choose(
         let _ = reply.send(false);
         return;
     }
+    let source = Source {
+        reader: Reader::Host {
+            host,
+            owner: resource.artifact.session,
+        },
+        options,
+        live,
+    };
+    select(resource, source, reply, window, cx);
+}
+
+pub(super) fn choose_card(
+    resource: Resource,
+    format: Format,
+    reply: oneshot::Sender<bool>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let source = Source {
+        options: Options {
+            artifact: resource.artifact.id,
+            revision: resource.artifact.revision,
+            format,
+        },
+        reader: Reader::Card(resource.clone()),
+        live: None,
+    };
+    if source.reader.check(&source.options, cx).is_err() {
+        crate::feedback::error("", &crate::tr("artifact_export_failed"), window, cx);
+        let _ = reply.send(false);
+        return;
+    }
+    select(resource, source, reply, window, cx);
+}
+
+fn select(
+    resource: Resource,
+    source: Source,
+    reply: oneshot::Sender<bool>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let options = &source.options;
     let name: String = resource
         .artifact
         .title
@@ -78,12 +203,6 @@ pub(super) fn choose(
     );
     let selected =
         cx.prompt_for_new_path(&std::env::home_dir().unwrap_or_default(), Some(&filename));
-    let source = Source {
-        host,
-        owner: resource.artifact.session,
-        options,
-        live,
-    };
     window
         .spawn(cx, async move |cx| {
             let selected = selected.await;
@@ -191,20 +310,21 @@ async fn run(
     cx: &mut AsyncWindowContext,
 ) -> Result<(), &'static str> {
     let Source {
-        host,
-        owner,
+        reader,
         options,
         live,
     } = source;
+    cx.update(|_, cx| reader.check(&options, cx))
+        .map_err(|_| "artifact_export_failed")??;
     let image = options.format == Format::Png;
     let staging = runtime.spawn_blocking(move || prepare(path, image));
     let prepared = tokio::select! {
         _ = cancel.cancelled() => return Err("files_download_cancelled"),
         result = staging => result.map_err(|_| "files_download_destination")??,
     };
-    let read = host
-        .read_artifact(options.artifact, Some(options.revision), owner)
-        .map_err(|_| "artifact_export_failed")?;
+    let read = cx
+        .update(|_, cx| reader.read(&options, cx))
+        .map_err(|_| "artifact_export_failed")??;
     let content = tokio::select! {
         _ = cancel.cancelled() => return Err("files_download_cancelled"),
         result = read => result.map_err(|_| "artifact_export_failed")?,
@@ -213,11 +333,16 @@ async fn run(
         return Err("artifact_export_unsupported");
     }
     let task = cx
-        .update(|window, cx| match live.and_then(|view| view.upgrade()) {
-            Some(view) => view.update(cx, |view, cx| view.capture(options.revision, window, cx)),
-            None => page::capture(content, window, cx),
+        .update(|window, cx| {
+            reader.check(&options, cx)?;
+            Ok::<_, &'static str>(match live.and_then(|view| view.upgrade()) {
+                Some(view) => {
+                    view.update(cx, |view, cx| view.capture(options.revision, window, cx))
+                }
+                None => page::capture(content, window, cx),
+            })
         })
-        .map_err(|_| "artifact_export_failed")?;
+        .map_err(|_| "artifact_export_failed")??;
     let html = tokio::select! {
         _ = cancel.cancelled() => return Err("files_download_cancelled"),
         result = task => result.map_err(|_| "artifact_export_failed")?,
@@ -241,6 +366,8 @@ async fn run(
     } else {
         html.into_bytes()
     };
+    cx.update(|_, cx| reader.check(&options, cx))
+        .map_err(|_| "artifact_export_failed")??;
     runtime
         .spawn(publish(prepared, bytes, cancel))
         .await

@@ -71,6 +71,12 @@ Use `errorCode(error.message)` for model and configuration failures. It accounts
 Keep `id` while a request is unresolved. `completeRequest` observes the original durable receipt after a missing response; an unresolved receipt rejects with `unconfirmed`. A retry uses that same ID. A completed business fault is returned as `{Err: {code, message}}`; success is `{Ok: {kind, data}}`. Forget only confirmed requests, or drafts intentionally abandoned when a view or game closes. Closing a view does not cancel work already admitted by the Node.
 
 Header actions accept an optional `disabled` boolean; the host applies it to the native Kit button.
+An optional `menu` array uses the existing Menu item fields: `id`, `label`,
+`icon`, `enabled`, `checked`, `separator`, `children` and `value`. The action
+opens a Kit dropdown instead of emitting its trigger ID. Selecting an enabled
+leaf emits that leaf's ID through `header_action()`; Header selections do not
+emit Menu events or values. Without `menu`, flat actions remain unchanged.
+Menus reuse the existing declaration validation and 256 top-level item limit.
 
 ## Storage
 

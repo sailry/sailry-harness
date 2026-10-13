@@ -32,6 +32,37 @@ pub(super) struct Resource {
 }
 
 impl Panel {
+    pub(crate) fn export_document(
+        source: Entity<Chat>,
+        artifact: Summary,
+        image: bool,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let Some(session) = source.read(cx).session() else {
+            crate::feedback::error("", &crate::tr("artifact_export_failed"), window, cx);
+            return;
+        };
+        let resource = Resource {
+            binding: source.read(cx).binding(),
+            session,
+            artifact,
+            source: source.downgrade(),
+        };
+        let (reply, _) = tokio::sync::oneshot::channel();
+        export::choose_card(
+            resource,
+            if image {
+                export::Format::Png
+            } else {
+                export::Format::Html
+            },
+            reply,
+            window,
+            cx,
+        );
+    }
+
     pub(crate) fn document(
         source: Entity<Chat>,
         artifact: Summary,
