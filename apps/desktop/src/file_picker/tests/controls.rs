@@ -649,6 +649,9 @@ fn go_to_preserves_navigation_until_success(cx: &mut TestAppContext) {
         visual.update(|window, cx| {
             window.render_frame(cx);
             assert_eq!(go_to_field(window).value(), Some(file.as_str()));
+            let list = picker.read(cx).go_to.clone().unwrap();
+            assert_eq!(list.read(cx).selected_index(), Some(IndexPath::default()));
+            assert!(list.read(cx).focus_handle(cx).is_focused(window));
         });
         visual.simulate_keystrokes("enter");
         settle(visual, |_, cx| {
