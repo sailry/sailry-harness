@@ -127,7 +127,7 @@ fn bounds_groups_and_routes_nested_scrolling(cx: &mut TestAppContext) {
                 assert_eq!(output.right(), card.right() - px(1.));
                 assert_eq!(output.top(), header.bottom());
                 assert_eq!(semantic_bounds(visual, "diff-header-output"), header);
-                assert!(output.bottom() < card.bottom());
+                assert_eq!(output.bottom(), card.bottom() - px(1.));
                 // Exhaust the diff first; only the next wheel reaches the group.
                 wheel(
                     visual,
@@ -199,6 +199,66 @@ fn diff_line(cx: &mut VisualTestContext) -> Option<Bounds<Pixels>> {
             .find(|line| line.label() == Some("line 1"))
             .map(|line| line.bounds())
     })
+}
+
+#[gpui::test]
+fn preserves_blank_lines_without_footer(cx: &mut TestAppContext) {
+    struct FileHarness {
+        source: &'static str,
+        added: bool,
+    }
+    impl Render for FileHarness {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().child(super::super::diff::file_rows(
+                "output",
+                self.source,
+                "fixture.txt",
+                self.added,
+                Vec::new(),
+            ))
+        }
+    }
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    for (source, added, copied, rows) in [
+        ("line\n", true, "line\n", 1),
+        ("line", true, "line", 1),
+        ("line\n\n\n", true, "line\n\n\n", 3),
+        ("@@ -0,0 +40,3 @@\n+line\n+\n+\n", false, "line\n\n\n", 3),
+    ] {
+        let (_, visual) = cx.add_window_view(|_, _| FileHarness { source, added });
+        let handle = visual.update(|window, _| window.window_handle());
+        visual.simulate_window_resize(handle, size(px(480.), px(600.)));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            draw(visual);
+            if visual.update(|window, _| window.find_all("source").len() == rows) {
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "diff rows deadline");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let body = semantic_bounds(visual, "diff-body-output");
+        let card = semantic_bounds(visual, "conversation-diff-output");
+        assert_eq!(body.bottom(), card.bottom() - px(1.));
+        visual.update(|window, cx| {
+            let lines = window.find_all("source");
+            assert_eq!(
+                lines.iter().filter(|line| line.label() == Some("")).count(),
+                rows - 1
+            );
+            window.within(("new", 0usize)).click(("line", rows - 1), cx);
+            window.press("secondary-a", cx);
+            window.press("secondary-c", cx);
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().as_deref(),
+                Some(copied)
+            );
+            window.remove_window();
+        });
+    }
 }
 
 #[gpui::test]

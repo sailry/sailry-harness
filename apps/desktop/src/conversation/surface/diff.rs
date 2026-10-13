@@ -1,4 +1,5 @@
 //! Conversation entry points for the shared selectable diff surface.
+use gpui_kit::base::RoundedFrameCover;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{
     group_box::{GroupBox, GroupBoxVariants as _},
@@ -92,6 +93,7 @@ impl RenderOnce for FileRows {
                     .outline()
                     .content_style(
                         StyleRefinement::default()
+                            .relative()
                             .p_0()
                             .gap_0()
                             .overflow_hidden()
@@ -131,21 +133,20 @@ impl RenderOnce for FileRows {
                             })
                             .child(badge(added, removed, cx)),
                     )
-                    // GPUI clips rectangular viewports. Keep only a bottom inset for
-                    // the rounded frame; the diff itself spans its full inner width.
                     .child(
-                        div().pb(cx.theme().radius_2xl()).child(
-                            div()
-                                .id(format!("diff-body-{id}"))
-                                .test_support()
-                                .w_full()
-                                .h(window.rem_size()
-                                    * (f32::from(cx.theme().mono_font_size) / 16.)
-                                    * 1.6
-                                    * rows as f32)
-                                .child(state),
-                        ),
-                    ),
+                        div()
+                            .id(format!("diff-body-{id}"))
+                            .test_support()
+                            .w_full()
+                            .h(window.rem_size()
+                                * (f32::from(cx.theme().mono_font_size) / 16.)
+                                * 1.6
+                                * rows as f32)
+                            .child(state),
+                    )
+                    // Kit covers GPUI's rectangular clip corners without adding
+                    // space below the source rows or intercepting input.
+                    .child(RoundedFrameCover::uniform(cx.theme().radius).frame_border(px(1.))),
             )
             .into_any_element()
     }
