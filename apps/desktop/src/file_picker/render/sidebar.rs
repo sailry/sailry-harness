@@ -71,7 +71,7 @@ impl Picker {
                                         })
                                         .flex_1()
                                         .min_w_0()
-                                        .text_xs()
+                                        .text_size(cx.theme().typography_tokens().sm.size)
                                         .truncate()
                                         .child(name),
                                 ),
