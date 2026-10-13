@@ -410,6 +410,9 @@ impl Picker {
     fn fail(&mut self, key: &'static str, window: &mut Window, cx: &mut Context<Self>) {
         self.error = Some(key);
         self.name_error = false;
+        if let Some(list) = self.go_to.clone() {
+            list.update(cx, |list, cx| list.focus(window, cx));
+        }
         crate::feedback::toast(
             window,
             tr(key),
