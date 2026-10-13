@@ -280,6 +280,13 @@ successful save opens the containing directory.
 
 ## Tool message content
 
+`display.input.summary` can declare `result_path`, a JSON Pointer into the matched
+native result. A nonblank string at that path replaces the displayed argument
+after the result arrives, before applying the field's existing format. Missing,
+blank or non-string values keep the original summary, including attachment IDs.
+This display-only hint is captured with the call; it changes neither tool
+arguments nor resource identity. Other input fields cannot declare it.
+
 A tool declaration can set `presentation: "content"`. Return `sailry_content` in the native result or in MCP `structuredContent`; ADK preserves the latter under the result's `output` field. The declaration is captured by the execution Node with the tool call. Model arguments and output alone cannot select this presentation.
 
 ```json

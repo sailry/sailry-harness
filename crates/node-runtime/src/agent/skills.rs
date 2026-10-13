@@ -67,6 +67,7 @@ impl Skills {
                         code: false,
                         omit: Vec::new(),
                         format: None,
+                        result_path: None,
                     }),
                     context: None,
                     target: None,

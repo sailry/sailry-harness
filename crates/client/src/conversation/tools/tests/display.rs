@@ -1,5 +1,138 @@
 use super::*;
 
+mod result_summary {
+    use super::*;
+
+    const ID: &str = "11111111-2222-4333-8444-555555555555";
+
+    fn fixture(name: Option<Value>, hint: bool) -> Page {
+        let mut page = page();
+        let mut summary = json!({"path": "/source/value", "code": true});
+        if hint {
+            summary["result_path"] = json!("/data/path");
+        }
+        page.entries[0].parts[0] = Part::ToolCall {
+            id: Some("call".into()),
+            name: "package_read".into(),
+            presentation: Default::default(),
+            grouping: Default::default(),
+            arguments: json!({"source": {"kind": "attachment", "value": ID}}),
+            display: Some(
+                serde_json::from_value(json!({
+                    "label": "Read document", "input": {"summary": summary}
+                }))
+                .unwrap(),
+            ),
+        };
+        let mut result = json!({"data": {}});
+        if let Some(name) = name {
+            result["data"]["path"] = name;
+        }
+        let mut response = entry(2, page.runs[0].turn, "", true);
+        response.parts[0] = Part::ToolResult {
+            id: Some("call".into()),
+            name: "package_read".into(),
+            result,
+            images: Vec::new(),
+        };
+        page.entries.push(response);
+        page
+    }
+
+    fn summary(page: &Page) -> String {
+        collect(page)[0]
+            .resolved
+            .as_ref()
+            .unwrap()
+            .input
+            .summary
+            .as_ref()
+            .unwrap()
+            .text
+            .clone()
+    }
+
+    #[test]
+    fn preserves_names_and_execution_identity() {
+        let name = "  计划 🙂.docx  ";
+        let page = fixture(Some(json!(name)), true);
+        let restored: Page = serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
+        assert_eq!(summary(&restored), name);
+        let call = collect(&restored).pop().unwrap();
+        assert!(
+            call.resolved
+                .as_ref()
+                .unwrap()
+                .input
+                .summary
+                .as_ref()
+                .unwrap()
+                .code
+        );
+        assert_eq!(call.id.as_deref(), Some("call"));
+        assert_eq!(call.name, "package_read");
+        assert_eq!(
+            call.arguments(&restored),
+            Some(&json!({"source": {"kind": "attachment", "value": ID}}))
+        );
+        assert_eq!(call.result(&restored).unwrap()["data"]["path"], name);
+        assert_eq!(restored, page);
+    }
+
+    #[test]
+    fn falls_back_without_a_name() {
+        for name in [
+            None,
+            Some(Value::Null),
+            Some(json!("")),
+            Some(json!(" \n ")),
+            Some(json!(7)),
+            Some(json!({"name": "ignored"})),
+        ] {
+            assert_eq!(summary(&fixture(name, true)), ID);
+        }
+        let mut page = fixture(Some(json!("report.docx")), true);
+        page.entries.pop();
+        assert_eq!(summary(&page), ID);
+    }
+
+    #[test]
+    fn preserves_captured_recipes_without_a_hint() {
+        let page = fixture(Some(json!("report.docx")), false);
+        let captured = serde_json::to_value(&page).unwrap();
+        assert!(
+            captured["entries"][0]["parts"][0]["data"]["display"]["input"]["summary"]
+                .get("result_path")
+                .is_none()
+        );
+        let restored: Page = serde_json::from_value(captured.clone()).unwrap();
+        assert_eq!(summary(&restored), ID);
+        assert_eq!(serde_json::to_value(restored).unwrap(), captured);
+    }
+
+    #[test]
+    fn retains_existing_formats() {
+        let mut page = fixture(Some(json!("/remote/home/report.docx")), true);
+        let Part::ToolCall { display, .. } = &mut page.entries[0].parts[0] else {
+            unreachable!();
+        };
+        let display = display.as_mut().unwrap();
+        display
+            .input
+            .as_mut()
+            .unwrap()
+            .summary
+            .as_mut()
+            .unwrap()
+            .format = Some(sailry_protocol::tool::InputFormat::Command);
+        display.aliases.push(sailry_protocol::tool::Alias {
+            path: "/remote/home".into(),
+            kind: sailry_protocol::tool::AliasKind::Home,
+        });
+        assert_eq!(summary(&page), "~/report.docx");
+    }
+}
+
 mod session_summary {
     use super::*;
     use sailry_protocol::{Delegation, conversation::Child};

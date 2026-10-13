@@ -190,7 +190,17 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
         input: Input {
             summary: field(input.and_then(|input| input.summary.as_ref()), arguments).and_then(
                 |mut text| {
-                    match input.and_then(|input| input.summary.as_ref())?.format {
+                    let field = input.and_then(|input| input.summary.as_ref())?;
+                    if let Some(name) = field
+                        .result_path
+                        .as_ref()
+                        .and_then(|path| result.pointer(path))
+                        .and_then(Value::as_str)
+                        .filter(|name| !name.trim().is_empty())
+                    {
+                        text.text = name.to_owned();
+                    }
+                    match field.format {
                         Some(sailry_protocol::tool::InputFormat::Command) => {
                             text.text = command::format(&text.text, &display.unwrap().aliases);
                         }

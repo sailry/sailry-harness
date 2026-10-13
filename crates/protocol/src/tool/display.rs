@@ -1,4 +1,4 @@
-//! Captured argument fields are data references, never scripts or mutable package lookups.
+//! Captured fields are data references, never scripts or mutable package lookups.
 use crate::plugin::desktop::{Icon, Navigation};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -79,7 +79,11 @@ impl Input {
             .all(|field| field.as_ref().is_none_or(Field::valid))
             && [&self.context, &self.target, &self.content]
                 .into_iter()
-                .all(|field| field.as_ref().is_none_or(|field| field.format.is_none()))
+                .all(|field| {
+                    field
+                        .as_ref()
+                        .is_none_or(|field| field.format.is_none() && field.result_path.is_none())
+                })
     }
 }
 
@@ -94,6 +98,9 @@ pub struct Field {
     pub omit: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<InputFormat>,
+    /// Optional result name for the summary, falling back to the original argument.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_path: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -136,6 +143,7 @@ impl Field {
         valid_pointer(&self.path)
             && self.omit.len() <= 16
             && self.omit.iter().all(|value| value.len() <= 256)
+            && self.result_path.as_deref().is_none_or(valid_pointer)
     }
 
     pub fn read<'a>(&self, arguments: &'a Value) -> Option<&'a str> {
@@ -218,6 +226,29 @@ mod tests {
     }
 
     #[test]
+    fn reserves_result_paths_for_summaries() {
+        let input: Input = serde_json::from_value(json!({
+            "summary": {"path": "/source/value", "result_path": "/data/path"}
+        }))
+        .unwrap();
+        assert!(input.valid());
+        for field in ["content", "context", "target"] {
+            let input: Input = serde_json::from_value(json!({
+                field: {"path": "/source/value", "result_path": "/data/path"}
+            }))
+            .unwrap();
+            assert!(!input.valid());
+        }
+        for path in ["", "data/path", "/~", "/~2", "/bad\npath"] {
+            let input: Input = serde_json::from_value(json!({
+                "summary": {"path": "/source/value", "result_path": path}
+            }))
+            .unwrap();
+            assert!(!input.valid());
+        }
+    }
+
+    #[test]
     fn rejects_invalid_selectors() {
         for path in ["", "command", "/~", "/~2", "/bad\npath"] {
             let field = Field {
@@ -225,6 +256,7 @@ mod tests {
                 code: false,
                 omit: vec![],
                 format: None,
+                result_path: None,
             };
             assert!(!field.valid(), "{path:?}");
         }
@@ -233,6 +265,7 @@ mod tests {
             code: false,
             omit: vec![],
             format: None,
+            result_path: None,
         };
         assert!(
             field
