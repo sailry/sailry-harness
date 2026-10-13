@@ -1,6 +1,9 @@
 //! A native offline surface; all document layout and controls come from its package.
 use super::*;
-use gpui_kit::component::input::{Editor, EditorState};
+use gpui_kit::component::{
+    ActiveTheme,
+    input::{Editor, EditorState},
+};
 use sailry_link::CancellationToken;
 use serde_json::{Value, json};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -523,7 +526,14 @@ impl View {
                 self.report("invalid_form", "artifact_form_invalid", window, cx);
             }
             Some("render_error") => {
-                self.report("render_error", "artifact_render_failed", window, cx);
+                let mut entry = sailry_node_runtime::logging::Entry::new(
+                    sailry_node_runtime::logging::Area::Artifact,
+                    sailry_node_runtime::logging::Phase::Failed,
+                );
+                entry.context.artifact = Some(content.artifact.id);
+                entry.revision = Some(content.artifact.revision.into());
+                entry.reason = Some("render");
+                entry.emit_debug();
             }
             _ => (),
         }
@@ -590,7 +600,10 @@ impl View {
             let capture = self.capture_id;
             if native
                 .page
-                .evaluate_script(&page::serialize_capture(Some(capture)))
+                .evaluate_script(&page::serialize_capture(
+                    Some(capture),
+                    cx.theme().foreground,
+                ))
                 .is_err()
             {
                 return Task::ready(Err(HostError::new("artifact export failed")));

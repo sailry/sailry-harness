@@ -177,7 +177,7 @@ pub(super) fn capture(
         Ok(html) => html,
         Err(error) => return Task::ready(Err(error)),
     };
-    let script = serialize_script();
+    let script = serialize_script(cx.theme().foreground);
     let html = match inject(&html, "", &format!("<script>{script}</script>")) {
         Ok(html) => html,
         Err(error) => return Task::ready(Err(error)),
@@ -229,11 +229,11 @@ pub(super) fn capture(
     })
 }
 
-pub(super) fn serialize_script() -> String {
-    serialize_capture(None)
+pub(super) fn serialize_script(foreground: Hsla) -> String {
+    serialize_capture(None, foreground)
 }
 
-pub(super) fn serialize_capture(capture: Option<u64>) -> String {
+pub(super) fn serialize_capture(capture: Option<u64>, foreground: Hsla) -> String {
     // readonlyExport supplies a fragment, so the clone must not retain template columns.
     // Inline priority also fixes documents whose frozen styles declare an important grid.
     use base64::Engine as _;
@@ -243,8 +243,9 @@ pub(super) fn serialize_capture(capture: Option<u64>) -> String {
     let qr = base64::engine::general_purpose::STANDARD.encode(include_bytes!(
         "../../../../../assets/branding/sailry-site-qr.svg"
     ));
+    let foreground = super::super::theme::rgba(foreground);
     let footer = format!(
-        "<footer style=\"margin-top:40px;padding:24px;display:flex;gap:16px;align-items:center\"><img width=48 height=48 alt=Sailry src=\"data:image/svg+xml;base64,{logo}\"><div style=\"flex:1\"><strong>Sailry</strong><br><a href=\"https://sailry.dev\">sailry.dev</a></div><img width=96 height=96 alt=\"https://sailry.dev\" src=\"data:image/svg+xml;base64,{qr}\"></footer>"
+        "<footer data-sailry-branding style=\"margin-top:16px;padding:16px;display:flex;gap:12px;align-items:center;color:{foreground}\"><img width=32 height=32 alt=Sailry src=\"data:image/svg+xml;base64,{logo}\"><div style=\"flex:1\"><strong>Sailry</strong><br><a style=\"color:{foreground}\" href=\"https://sailry.dev\">sailry.dev</a></div><img data-sailry-qr width=80 height=80 style=\"padding:8px;background:#fff;box-sizing:content-box\" alt=\"https://sailry.dev\" src=\"data:image/svg+xml;base64,{qr}\"></footer>"
     );
     let footer = serde_json::to_string(&footer)
         .unwrap()

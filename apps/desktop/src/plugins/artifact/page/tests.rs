@@ -150,12 +150,18 @@ fn exports_fragments_without_template_columns() {
     assert!(!embedded.contains("setProperty('display','block'"));
     assert_eq!(content, original);
 
-    let script = serialize_capture(Some(7));
+    let script = serialize_capture(Some(7), gpui_kit::black());
     assert!(script.contains("document.documentElement.cloneNode(true)"));
     assert!(script.contains("const output=clone.querySelector('body')"));
     assert!(script.contains("output.innerHTML=body+"));
     assert!(script.contains("output.style.setProperty('display','block','important')"));
-    assert!(script.contains("\\u003cfooter style="));
+    assert!(script.contains("\\u003cfooter data-sailry-branding style="));
+    assert!(script.contains("margin-top:16px;padding:16px"));
+    assert!(script.contains("gap:12px"));
+    assert!(script.contains("width=32 height=32"));
+    assert!(script.contains("width=80 height=80"));
+    assert!(script.contains("padding:8px;background:#fff;box-sizing:content-box"));
+    assert!(script.contains(&super::super::super::theme::rgba(gpui_kit::black())));
     assert!(!script.contains("document.body.style"));
     assert!(!script.contains("document.body.innerHTML"));
 }
@@ -168,6 +174,8 @@ fn keeps_semantic_colors_in_both_modes(cx: &mut TestAppContext) {
             Theme::change(mode, None, cx);
             let value = theme(cx);
             let tokens = cx.theme();
+            let script = serialize_capture(Some(8), tokens.foreground);
+            assert!(script.contains(&super::super::super::theme::rgba(tokens.foreground)));
             assert_eq!(
                 value["background"],
                 json!(super::super::super::theme::rgba(tokens.background))

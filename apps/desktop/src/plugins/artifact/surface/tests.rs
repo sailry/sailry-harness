@@ -191,8 +191,13 @@ impl Draft {
             let custom_count = visual
                 .update(|window, cx| crate::feedback::tests::count(window, VISUAL_FEEDBACK, cx));
             for expected in 1..=2 {
+                visual.update(|window, cx| window.clear_notifications(cx));
+                crate::feedback::tests::settle(visual);
                 visual.update(|window, cx| {
-                    window.clear_notifications(cx);
+                    assert!(
+                        window.notifications(cx).is_empty(),
+                        "previous feedback must finish closing"
+                    );
                     self.surface.update(cx, |view, cx| {
                         if kind == "render_error" {
                             view.labels.remove("render_error");
@@ -216,21 +221,27 @@ impl Draft {
                 visual.update(|window, cx| {
                     assert_eq!(
                         crate::feedback::tests::count(window, &message, cx),
-                        initial + expected,
-                        "each failed attempt must show feedback"
+                        initial + if kind == "render_error" { 0 } else { expected },
+                        "only operation failures show feedback"
                     );
-                    assert_eq!(crate::feedback::tests::summary(window, cx), message);
-                    if label.is_some() {
+                    if kind == "render_error" {
+                        assert!(window.notifications(cx).is_empty());
                         assert_eq!(
                             crate::feedback::tests::count(window, &fallback, cx),
                             fallback_count,
-                            "the package label must take priority over core feedback"
+                            "visual fallback must not publish a core toast"
                         );
-                    } else if kind == "render_error" {
                         assert_eq!(
                             crate::feedback::tests::count(window, VISUAL_FEEDBACK, cx),
                             custom_count,
-                            "an absent package label must use only core feedback"
+                            "captured package labels must not publish a visual toast"
+                        );
+                    } else {
+                        assert_eq!(crate::feedback::tests::summary(window, cx), message);
+                        assert_eq!(
+                            crate::feedback::tests::count(window, &fallback, cx),
+                            fallback_count,
+                            "operation feedback must not publish a visual fallback"
                         );
                     }
                     assert_eq!(

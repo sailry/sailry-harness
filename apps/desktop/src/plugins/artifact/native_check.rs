@@ -1,6 +1,6 @@
 //! Real offline package rendering and controls in a native WebKit event loop.
 use super::*;
-use gpui_kit::component::{Root, Theme, ThemeMode};
+use gpui_kit::component::{ActiveTheme, Root, Theme, ThemeMode};
 use sailry_protocol::{SessionId, TurnId, artifact, plugin};
 use serde_json::{Value, json};
 use std::{
@@ -122,12 +122,19 @@ pub(in crate::plugins) fn run(output: &Path) {
             let view=mounted.borrow_mut().take().unwrap();
             let task=window.update(cx,|_,window,cx|window.spawn(cx,async move|cx| {
                 let _ = crate::workload::check(async {
+                if std::env::var("SAILRY_WORKLOAD_DOCUMENT_CHECK").is_ok_and(|value|value=="footer") {
+                    footer(&view,&content,cx).await;
+                    println!("Document footer: semantic foreground, QR quiet zone and compact native bounds verified in both themes");
+                    cx.update(|window,_|window.remove_window()).unwrap();
+                    return;
+                }
                 verify(&view,&content,cx).await;
                 let page = cx.update(|_, cx| view.read(cx).native.page.handle()).unwrap();
                 crate::workload::native_overlays::verify("html-brief", page, &output, cx).await;
                 let fallback=cx.update(|window,cx|page::capture(content.clone(),window,cx)).unwrap().await.unwrap();
                 assert!(fallback.contains("<svg"));
-                evaluate(&view,&page::serialize_capture(Some(1)),cx).await;
+                let script=cx.update(|_,cx|page::serialize_capture(Some(1),cx.theme().foreground)).unwrap();
+                evaluate(&view,&script,cx).await;
                 let deadline=Instant::now()+Duration::from_secs(60);
                 let export=loop {
                     if let Some(event)=events(&view,cx).into_iter().find(|event|event["kind"]=="export" && event["capture"]==1) {
@@ -160,7 +167,53 @@ pub(in crate::plugins) fn run(output: &Path) {
     });
 }
 
-async fn verify(view: &Entity<Harness>, content: &Content, cx: &mut AsyncWindowContext) {
+async fn footer(view: &Entity<Harness>, content: &Content, cx: &mut AsyncWindowContext) {
+    loaded(view, cx).await;
+    until(view, "typeof window.sailryDocumentReady!=='undefined'", cx).await;
+    evaluate(view, "window.fixtureReady=false;window.sailryDocumentReady.then(()=>window.fixtureReady=true);true", cx).await;
+    until(view, "window.fixtureReady", cx).await;
+    for (index, mode) in [ThemeMode::Light, ThemeMode::Dark].into_iter().enumerate() {
+        let (theme, foreground, script) = cx
+            .update(|window, cx| {
+                Theme::change(mode, Some(window), cx);
+                (
+                    page::theme(cx),
+                    super::super::theme::rgba(cx.theme().foreground),
+                    page::serialize_capture(Some(index as u64 + 10), cx.theme().foreground),
+                )
+            })
+            .unwrap();
+        evaluate(view, &format!("window.fixtureRetheme=false;window.sailryDocument.retheme({theme}).then(()=>window.fixtureRetheme=true);true"), cx).await;
+        until(view, "window.fixtureRetheme", cx).await;
+        evaluate(view, &script, cx).await;
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let live = loop {
+            if let Some(event) = events(view, cx)
+                .into_iter()
+                .find(|event| event["kind"] == "export" && event["capture"] == index as u64 + 10)
+            {
+                break event["html"].as_str().unwrap().to_owned();
+            }
+            assert!(Instant::now() < deadline, "footer capture deadline");
+            pause(cx).await;
+        };
+        let fallback = cx
+            .update(|window, cx| page::capture(content.clone(), window, cx))
+            .unwrap()
+            .await
+            .unwrap();
+        for html in [live, fallback] {
+            assert!(html.contains("Captured resources"));
+            assert!(!html.contains("<script"));
+            let html = serde_json::to_string(&html).unwrap();
+            let color = serde_json::to_string(&foreground).unwrap();
+            let result = evaluate(view, &format!(r#"(()=>{{const parsed=new DOMParser().parseFromString({html},'text/html');const root=document.createElement('div');root.style.cssText=parsed.body.style.cssText;root.style.position='absolute';root.style.left='-10000px';root.style.width='960px';root.innerHTML=parsed.body.innerHTML;document.body.append(root);const footer=root.querySelector('footer[data-sailry-branding]'),qr=footer.querySelector('[data-sailry-qr]'),logo=footer.querySelector('img'),style=getComputedStyle(footer),quiet=getComputedStyle(qr),expected=document.createElement('span');expected.style.color={color};root.append(expected);const box=footer.getBoundingClientRect(),matrix=qr.getBoundingClientRect();const valid=style.color===getComputedStyle(expected).color&&getComputedStyle(footer.querySelector('a')).color===style.color&&quiet.backgroundColor==='rgb(255, 255, 255)'&&quiet.padding==='8px'&&matrix.width===96&&matrix.height===96&&logo.width===32&&logo.height===32&&style.marginTop==='16px'&&style.padding==='16px'&&box.height===128&&root.querySelector('h1').textContent==='Captured resources';root.remove();return valid;}})()"#), cx).await;
+            assert_eq!(result, "true", "footer geometry and contrast in {mode:?}");
+        }
+    }
+}
+
+async fn loaded(view: &Entity<Harness>, cx: &mut AsyncWindowContext) {
     let deadline = Instant::now() + Duration::from_secs(60);
     while !events(view, cx)
         .iter()
@@ -169,6 +222,10 @@ async fn verify(view: &Entity<Harness>, content: &Content, cx: &mut AsyncWindowC
         assert!(Instant::now() < deadline, "native document load deadline");
         pause(cx).await;
     }
+}
+
+async fn verify(view: &Entity<Harness>, content: &Content, cx: &mut AsyncWindowContext) {
+    loaded(view, cx).await;
     until(view,"document.querySelectorAll('.document-chart svg').length===7 && !!document.querySelector('.document-diagram svg') && !!document.querySelector('.document-math svg')",cx).await;
     assert_eq!(
         evaluate(view,"getComputedStyle(document.body).fontFamily.includes('system-ui') && getComputedStyle(document.body).fontFamily.includes('sans-serif') && CSS.supports('font-family',getComputedStyle(document.documentElement).getPropertyValue('--document-mono-font-family'))",cx).await,
