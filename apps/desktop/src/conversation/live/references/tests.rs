@@ -16,69 +16,85 @@ use core::prelude::v1::test;
 #[gpui::test]
 fn command_menu(cx: &mut TestAppContext) {
     init(cx);
-    let fixture = Fixture::with_tools(false, vec![]);
-    let (view, visual) = fixture::open_session(cx, fixture.binding.clone(), None);
-    wait(visual, |cx| view.read(cx).connected());
-    tap(visual, "live-chat-input");
-    visual.simulate_input("/");
-    wait(visual, |cx| view.read(cx).references.open);
-    visual.update(|window, cx| {
-        let _ = window.draw(cx);
-    });
-    let popup = visual.debug_bounds("live-reference-picker").unwrap();
-    let composer = visual.debug_bounds("composer-surface").unwrap();
-    assert_eq!(popup.left(), composer.left());
-    assert_eq!(popup.size.width, composer.size.width);
-    assert!(popup.bottom() < composer.top());
-    visual.simulate_input("review");
-    visual.simulate_keystrokes("enter");
-    assert_eq!(
-        view.read_with(visual, |view, cx| view.input.read(cx).value()),
-        tr("composer_prompt_review")
-    );
-    assert!(view.read_with(visual, |view, _| view.session.is_none()));
-    assert!(fixture.server.requests.lock().unwrap().is_empty());
-    visual.simulate_keystrokes("cmd-a");
-    visual.simulate_input("/explain");
-    tap(visual, "live-reference-row-0");
-    assert_eq!(
-        view.read_with(visual, |view, cx| view.input.read(cx).value()),
-        tr("composer_prompt_explain")
-    );
-    visual.simulate_keystrokes("cmd-a");
-    visual.simulate_input("/model");
-    visual.simulate_keystrokes("enter");
-    wait(visual, |cx| view.read(cx).references.page == Page::Models);
-    visual.simulate_keystrokes("enter");
-    wait(visual, |cx| view.read(cx).config.is_some());
-    assert!(
-        view.read_with(visual, |view, cx| view.input.read(cx).value().is_empty()
-            && view.session.is_none())
-    );
-    visual.simulate_input("/");
-    visual.simulate_keystrokes("backspace");
-    assert!(view.read_with(visual, |view, cx| view.input.read(cx).value().is_empty()));
-    visual.simulate_input("/tmp/file");
-    assert!(!view.read_with(visual, |view, _| view.references.open));
-    visual.simulate_keystrokes("cmd-a");
-    visual.simulate_input("@");
-    wait(visual, |cx| view.read(cx).references.open);
-    visual.update(|window, cx| {
-        let _ = window.draw(cx);
-    });
-    let popup = visual.debug_bounds("live-reference-picker").unwrap();
-    let composer = visual.debug_bounds("composer-surface").unwrap();
-    assert_eq!(popup.left(), composer.left());
-    assert_eq!(popup.size.width, composer.size.width);
-    assert!(popup.bottom() < composer.top());
-    visual.simulate_keystrokes("escape");
-    assert_eq!(
-        view.read_with(visual, |view, cx| view.input.read(cx).value()),
-        "@"
-    );
-    visual.update(|window, _| window.remove_window());
-    drop(view);
-    fixture.close();
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let (view, visual) = fixture::open_session(cx, fixture.binding.clone(), None);
+        wait(visual, |cx| view.read(cx).connected());
+        tap(visual, "live-chat-input");
+        visual.simulate_input("/");
+        wait(visual, |cx| view.read(cx).references.open);
+        visual.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let popup = visual.debug_bounds("live-reference-picker").unwrap();
+        let composer = visual.debug_bounds("composer-surface").unwrap();
+        assert_eq!(popup.left(), composer.left());
+        assert_eq!(popup.size.width, composer.size.width);
+        assert!(popup.bottom() < composer.top());
+        assert!(visual.debug_bounds("live-reference-group-0").is_some());
+        assert!(visual.debug_bounds("live-reference-title").is_none());
+        visual.simulate_input("review");
+        visual.simulate_keystrokes("enter");
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            tr("composer_prompt_review")
+        );
+        assert!(view.read_with(visual, |view, _| view.session.is_none()));
+        assert!(fixture.server.requests.lock().unwrap().is_empty());
+        visual.simulate_keystrokes("cmd-a");
+        visual.simulate_input("/explain");
+        tap(visual, "live-reference-row-0");
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            tr("composer_prompt_explain")
+        );
+        visual.simulate_keystrokes("cmd-a");
+        visual.simulate_input("/model");
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| view.read(cx).references.page == Page::Models);
+        wait(visual, |cx| {
+            !view
+                .read(cx)
+                .references
+                .list
+                .read(cx)
+                .delegate()
+                .rows
+                .is_empty()
+        });
+        assert!(visual.debug_bounds("live-reference-title").is_some());
+        assert!(visual.debug_bounds("live-reference-group-0").is_none());
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| view.read(cx).config.is_some());
+        assert!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value().is_empty()
+                && view.session.is_none())
+        );
+        visual.simulate_input("/");
+        visual.simulate_keystrokes("backspace");
+        assert!(view.read_with(visual, |view, cx| view.input.read(cx).value().is_empty()));
+        visual.simulate_input("/tmp/file");
+        assert!(!view.read_with(visual, |view, _| view.references.open));
+        visual.simulate_keystrokes("cmd-a");
+        visual.simulate_input("@");
+        wait(visual, |cx| view.read(cx).references.open);
+        visual.update(|window, cx| {
+            let _ = window.draw(cx);
+        });
+        let popup = visual.debug_bounds("live-reference-picker").unwrap();
+        let composer = visual.debug_bounds("composer-surface").unwrap();
+        assert_eq!(popup.left(), composer.left());
+        assert_eq!(popup.size.width, composer.size.width);
+        assert!(popup.bottom() < composer.top());
+        visual.simulate_keystrokes("escape");
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.input.read(cx).value()),
+            "@"
+        );
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
 }
 
 #[gpui::test]

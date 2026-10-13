@@ -210,6 +210,7 @@ impl View {
     }
 
     fn reference_rows(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let nested = self.references.page != self.reference_root();
         let query = self
             .references
             .trigger
@@ -228,6 +229,7 @@ impl View {
             let selected = (!rows.is_empty()).then_some(IndexPath::default());
             list.delegate_mut().rows = rows;
             list.delegate_mut().generation = generation;
+            list.delegate_mut().nested = nested;
             list.set_selected_index(selected, window, cx);
             list.scroll_to_selected_item(window, cx);
             cx.notify();

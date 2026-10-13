@@ -10,6 +10,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 pub(super) struct Items {
     pub rows: Vec<Item>,
     pub generation: u64,
+    pub nested: bool,
     selected: Option<IndexPath>,
     owner: WeakEntity<View>,
 }
@@ -45,6 +46,7 @@ impl Items {
         Self {
             rows: vec![],
             generation: 0,
+            nested: false,
             selected: None,
             owner,
         }
@@ -59,6 +61,10 @@ impl Items {
             }
         }
         sections
+    }
+    fn headers_count(&self) -> usize {
+        let count = self.sections().len();
+        if self.nested && count == 1 { 0 } else { count }
     }
     pub fn flat_index(&self, index: IndexPath) -> Option<usize> {
         let range = self.sections().get(index.section)?.clone();
@@ -95,9 +101,13 @@ impl ListDelegate for Items {
         _: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) -> Option<impl IntoElement> {
+        if self.headers_count() == 0 {
+            return None;
+        }
         let range = self.sections().get(section)?.clone();
         Some(
             div()
+                .debug_selector(move || format!("live-reference-group-{section}"))
                 .h_7()
                 .px_2()
                 .flex()
@@ -262,7 +272,7 @@ impl View {
         let nested = state.page != self.reference_root();
         let commands = matches!(state.page, Page::Commands | Page::Root);
         let height = ((state.list.read(cx).delegate().rows.len().max(1) as f32 * 32.
-            + state.list.read(cx).delegate().sections().len() as f32 * 28.)
+            + state.list.read(cx).delegate().headers_count() as f32 * 28.)
             .min(320.))
         .min((f32::from(bounds.top()) - 100.).max(32.));
         let content = v_flex()
@@ -281,6 +291,7 @@ impl View {
                 body.child(
                     h_flex().min_w_0().gap_1().child(
                         div()
+                            .debug_selector(|| "live-reference-title".into())
                             .flex_1()
                             .min_w_0()
                             .text_sm()
