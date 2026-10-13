@@ -121,6 +121,9 @@ impl Metrics {
     pub fn line_height(self) -> f32 {
         self.size * self.leading
     }
+    pub fn with_leading(self, leading: f32) -> Self {
+        Self { leading, ..self }
+    }
     pub fn scaled(self, factor: f32) -> Self {
         Self {
             size: self.size * factor,

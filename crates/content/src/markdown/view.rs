@@ -35,6 +35,7 @@ pub struct State {
     on_file: Option<OnFile>,
     on_selection: Option<OnSelection>,
     hover_links: bool,
+    underline_links: bool,
     hovered_link: Option<Cursor>,
     scroll: Option<Viewport>,
     pub(super) typography: Option<super::typography::Typography>,
@@ -114,6 +115,7 @@ impl State {
             on_file: None,
             on_selection: None,
             hover_links: false,
+            underline_links: true,
             hovered_link: None,
             scroll: None,
             typography: None,
@@ -387,6 +389,7 @@ impl Render for State {
                     layouts: Some(&self.layouts),
                     on_link: Some(on_link),
                     hovered_link: self.hovered_link,
+                    underline_links: self.underline_links,
                     on_link_hover: self.hover_links.then(|| {
                         let owner = cx.weak_entity();
                         Rc::new(
@@ -438,6 +441,7 @@ pub struct View {
     typography: Option<super::typography::Typography>,
     foreground: Option<gpui_kit::Hsla>,
     hover_links: bool,
+    underline_links: bool,
 }
 
 impl View {
@@ -453,6 +457,7 @@ impl View {
             typography: None,
             foreground: None,
             hover_links: false,
+            underline_links: true,
         }
     }
     /// Retain selection and parsed content at this element's stable identity.
@@ -468,6 +473,7 @@ impl View {
             typography: None,
             foreground: None,
             hover_links: false,
+            underline_links: true,
         }
     }
     pub fn on_link_click(
@@ -508,6 +514,11 @@ impl View {
 
     pub fn link_hover_underline(mut self, enabled: bool) -> Self {
         self.hover_links = enabled;
+        self
+    }
+
+    pub fn link_underline(mut self, enabled: bool) -> Self {
+        self.underline_links = enabled;
         self
     }
 
@@ -552,6 +563,10 @@ impl RenderOnce for View {
             state.on_link = self.on_link;
             state.on_selection = self.on_selection;
             state.scroll = self.scroll;
+            if state.underline_links != self.underline_links {
+                state.underline_links = self.underline_links;
+                cx.notify();
+            }
             if state.hover_links != self.hover_links {
                 state.hover_links = self.hover_links;
                 state.hovered_link = None;
@@ -606,66 +621,79 @@ mod tests {
     #[gpui::test]
     fn hover_preserves_selection_and_navigation(cx: &mut TestAppContext) {
         use std::cell::Cell;
-        struct Fixture {
-            state: Entity<State>,
-            clicks: Rc<Cell<usize>>,
-        }
-        impl Render for Fixture {
-            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-                let clicks = self.clicks.clone();
-                View::new(&self.state)
-                    .link_hover_underline(true)
-                    .on_link_click(move |url, _, _| {
-                        assert_eq!(url.as_ref(), "https://example.com/one");
-                        clicks.set(clicks.get() + 1);
-                    })
+        for underline in [true, false] {
+            struct Fixture {
+                state: Entity<State>,
+                clicks: Rc<Cell<usize>>,
+                underline: bool,
             }
-        }
-        cx.update(|cx| {
-            gpui_kit::init(cx);
-            crate::tests::init(cx);
-        });
-        let state = cx.new(|cx| State::new("Read [first](https://example.com/one) here", cx));
-        let clicks = Rc::new(Cell::new(0));
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let fixture = cx.new(|_| Fixture {
-                state: state.clone(),
-                clicks: clicks.clone(),
+            impl Render for Fixture {
+                fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                    let clicks = self.clicks.clone();
+                    View::new(&self.state)
+                        .link_hover_underline(true)
+                        .link_underline(self.underline)
+                        .on_link_click(move |url, _, _| {
+                            assert_eq!(url.as_ref(), "https://example.com/one");
+                            clicks.set(clicks.get() + 1);
+                        })
+                }
+            }
+            cx.update(|cx| {
+                gpui_kit::init(cx);
+                crate::tests::init(cx);
             });
-            Root::new(fixture, window, cx)
-        });
-        draw(visual);
-        state.update(visual, |state, cx| state.select_all(cx));
-        draw(visual);
-        let selected = state.read_with(visual, |state, _| state.selected_text());
-        let link = state.read_with(visual, |state, _| {
-            state
-                .layouts
-                .position(Cursor::new(0, Part::Body, 6))
-                .unwrap()
-                .0
-                + point(px(1.), px(2.))
-        });
-        visual.simulate_mouse_move(link, MouseButton::Left, gpui_kit::Modifiers::none());
-        draw(visual);
-        state.read_with(visual, |state, _| {
-            assert!(
+            let state = cx.new(|cx| State::new("Read [first](https://example.com/one) here", cx));
+            let clicks = Rc::new(Cell::new(0));
+            let (_, visual) = cx.add_window_view(|window, cx| {
+                let fixture = cx.new(|_| Fixture {
+                    state: state.clone(),
+                    clicks: clicks.clone(),
+                    underline,
+                });
+                Root::new(fixture, window, cx)
+            });
+            draw(visual);
+            state.update(visual, |state, cx| state.select_all(cx));
+            draw(visual);
+            let selected = state.read_with(visual, |state, _| state.selected_text());
+            let link = state.read_with(visual, |state, _| {
                 state
-                    .hovered_link
-                    .is_some_and(|cursor| (5..10).contains(&cursor.offset))
+                    .layouts
+                    .position(Cursor::new(0, Part::Body, 6))
+                    .unwrap()
+                    .0
+                    + point(px(1.), px(2.))
+            });
+            visual.simulate_mouse_move(link, MouseButton::Left, gpui_kit::Modifiers::none());
+            draw(visual);
+            state.read_with(visual, |state, _| {
+                assert!(
+                    state
+                        .hovered_link
+                        .is_some_and(|cursor| (5..10).contains(&cursor.offset))
+                );
+                assert_eq!(state.selected_text(), selected);
+            });
+            visual.simulate_click(link, gpui_kit::Modifiers::none());
+            draw(visual);
+            assert_eq!(clicks.get(), 1);
+            visual.simulate_mouse_move(
+                point(px(500.), px(300.)),
+                MouseButton::Left,
+                gpui_kit::Modifiers::none(),
             );
-            assert_eq!(state.selected_text(), selected);
-        });
-        visual.simulate_click(link, gpui_kit::Modifiers::none());
-        draw(visual);
-        assert_eq!(clicks.get(), 1);
-        visual.simulate_mouse_move(
-            point(px(500.), px(300.)),
-            MouseButton::Left,
-            gpui_kit::Modifiers::none(),
-        );
-        draw(visual);
-        assert!(state.read_with(visual, |state, _| state.hovered_link.is_none()));
+            draw(visual);
+            assert!(state.read_with(visual, |state, _| state.hovered_link.is_none()));
+            visual.simulate_click(point(px(500.), px(300.)), Modifiers::none());
+            draw(visual);
+            assert_eq!(clicks.get(), 1);
+            assert_eq!(
+                state.read_with(visual, |state, _| state.underline_links),
+                underline
+            );
+            visual.update(|window, _| window.remove_window());
+        }
     }
 
     #[gpui::test]
@@ -731,6 +759,75 @@ mod tests {
             // At the final offset, refresh the endpoint using the last layout.
             assert_eq!(list.scroll_px_offset_for_scrollbar(), before);
         });
+    }
+
+    #[gpui::test]
+    fn leading_changes_only_body(cx: &mut TestAppContext) {
+        struct Fixture {
+            state: Entity<State>,
+            typography: super::super::typography::Typography,
+        }
+        impl Render for Fixture {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+                    .w(px(300.))
+                    .child(View::new(&self.state).typography(self.typography))
+            }
+        }
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::tests::init(cx);
+        });
+        let source = format!(
+            "{}\n\n# Heading\n\n```text\nFirst line\nSecond line\n```",
+            "Wrapped body content keeps its original font and words ".repeat(8)
+        );
+        let state = cx.new(|cx| State::new(source, cx));
+        let typography = cx.update(|cx| super::super::typography::Typography::of(cx));
+        let mut owner = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let fixture = cx.new(|_| Fixture {
+                state: state.clone(),
+                typography,
+            });
+            owner = Some(fixture.clone());
+            Root::new(fixture, window, cx)
+        });
+        draw(visual);
+        state.update(visual, |state, cx| state.select_all(cx));
+        let selected = state.read_with(visual, |state, _| state.selected_text());
+        let document = state.read_with(visual, |state, _| state.document.clone());
+        let before = [0, 1, 2].map(|index| {
+            visual
+                .debug_bounds(Box::leak(
+                    format!("markdown-editor-block-{index}").into_boxed_str(),
+                ))
+                .unwrap()
+        });
+        assert!(before[0].size.height >= px(3. * typography.body.line_height()));
+        owner.unwrap().update(visual, |fixture, cx| {
+            fixture.typography.body = fixture.typography.body.with_leading(24. / 14.);
+            assert_eq!(fixture.typography.caption, typography.caption);
+            assert_eq!(fixture.typography.code, typography.code);
+            assert_eq!(fixture.typography.h1, typography.h1);
+            cx.notify();
+        });
+        draw(visual);
+        let after = [0, 1, 2].map(|index| {
+            visual
+                .debug_bounds(Box::leak(
+                    format!("markdown-editor-block-{index}").into_boxed_str(),
+                ))
+                .unwrap()
+        });
+        assert!((after[0].size.height - before[0].size.height * 24. / 22.).abs() < px(1.));
+        assert_eq!(after[1].size, before[1].size);
+        assert_eq!(after[2].size, before[2].size);
+        state.read_with(visual, |state, _| {
+            assert_eq!(state.selected_text(), selected);
+            assert!(Rc::ptr_eq(&state.document, &document));
+        });
+        visual.update(|window, _| window.remove_window());
     }
 
     #[gpui::test]

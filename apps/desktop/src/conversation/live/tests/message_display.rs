@@ -123,6 +123,60 @@ fn resizes_without_resetting_view(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn body_leading_preserves_other_roles(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    for remote in [false, true] {
+        let paragraph = "Wrapped body text keeps the requested spacing and font ".repeat(12);
+        let fixture = fixture::Fixture::with_server(remote, |runtime| {
+            runtime.block_on(support::Server::markdown(format!(
+                "{paragraph}\n\n# Heading\n\n```text\nFirst line\nSecond line\n```"
+            )))
+        });
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        let handle = visual.update(|window, _| window.window_handle());
+        visual.simulate_window_resize(handle, size(px(760.), px(1200.)));
+        fixture.start();
+        wait(visual, |cx| completed(view.read(cx)));
+        let snapshot = view.read_with(visual, |view, _| view.history.snapshot.clone().unwrap());
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.input.update(cx, |input, cx| {
+                    input.set_value("Keep this draft", window, cx)
+                })
+            })
+        });
+        for size in crate::preferences::Data::MESSAGE_TEXT_SIZES {
+            visual.update(|_, cx| {
+                crate::preferences::update(cx, |data| data.message_text_size = Some(size))
+            });
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let body = visual.debug_bounds("markdown-editor-block-0").unwrap();
+            let heading = visual.debug_bounds("markdown-editor-block-1").unwrap();
+            let typography = visual.update(|_, cx| {
+                let value = crate::content::markdown::typography::Typography::of(cx);
+                value.scaled(f32::from(size) / value.body.size())
+            });
+            let leading = visual
+                .update(|window, _| f32::from(window.pixel_snap(px(f32::from(size) * 24. / 14.))));
+            let lines = f32::from(body.size.height) / leading;
+            assert!(lines >= 3.);
+            assert!((lines - lines.round()).abs() < 0.05);
+            assert!((heading.size.height - px(typography.h1.line_height())).abs() < px(1.));
+            view.read_with(visual, |view, cx| {
+                assert_eq!(view.input.read(cx).value().as_ref(), "Keep this draft");
+                assert!(Arc::ptr_eq(
+                    view.history.snapshot.as_ref().unwrap(),
+                    &snapshot
+                ));
+            });
+        }
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn switches_without_changing_history(cx: &mut TestAppContext) {
     fixture::init(cx);
     for remote in [false, true] {

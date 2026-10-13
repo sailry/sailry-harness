@@ -1,5 +1,4 @@
 use super::*;
-#[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::resources::SideResource;
 use crate::{backend::Services, shell::Shell};
 use sailry_protocol::conversation::assets;
@@ -32,12 +31,17 @@ fn cards(cx: &mut TestAppContext, remote: bool) {
     ] {
         let fixture = fixture::Fixture::with_server(remote, |runtime| {
             runtime.block_on(support::Server::markdown(format!(
-                "Before\n\n[{label}]({path})\n\nAfter"
+                "Before\n\n[{label}]({path})\n\n{}",
+                if path == "stats.py" {
+                    format!("After [Line 2]({path}:2)")
+                } else {
+                    "After".into()
+                }
             )))
         });
         std::fs::write(
             fixture.directory.path().join("project").join(path),
-            "file content fixture",
+            "First line\nSecond line\nThird line\n",
         )
         .unwrap();
         cx.update(|cx| {
@@ -119,6 +123,93 @@ fn cards(cx: &mut TestAppContext, remote: bool) {
                 .any(|tool| tool["function"]["name"] == "publish_file")
         );
         drop(requests);
+        if path == "stats.py" {
+            let linked = std::rc::Rc::new(std::cell::RefCell::new(None));
+            let capture = linked.clone();
+            let _subscription = visual.update(|_, cx| {
+                cx.subscribe(&chat, move |_, event, _| {
+                    if let Event::Link(link) = event {
+                        *capture.borrow_mut() = Some(link.clone());
+                    }
+                })
+            });
+            let selections = visual.update(|window, cx| {
+                chat.update(cx, |chat, cx| {
+                    chat.input.update(cx, |input, cx| {
+                        input.set_value("Keep the inline-link draft", window, cx)
+                    });
+                    chat.texts
+                        .borrow()
+                        .values()
+                        .map(|state| {
+                            state.update(cx, |state, cx| state.select_all(cx));
+                            (state.clone(), state.read(cx).selected_text())
+                        })
+                        .collect::<Vec<_>>()
+                })
+            });
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let bounds = visual.debug_bounds("markdown-editor-block-2").unwrap();
+            let pointer = visual.update(|window, cx| {
+                let style = TextStyle {
+                    font_family: cx.theme().font_family.clone(),
+                    ..Default::default()
+                };
+                let size = px(f32::from(chat.read(cx).message_text_size));
+                let prefix = "After \u{2001}\u{2060}";
+                let width = window
+                    .text_system()
+                    .shape_line(prefix.into(), size, &[style.to_run(prefix.len())], None)
+                    .width;
+                let glyph = window
+                    .text_system()
+                    .shape_line("L".into(), size, &[style.to_run(1)], None)
+                    .width;
+                point(bounds.left() + width + glyph / 2., bounds.center().y)
+            });
+            visual.simulate_mouse_move(pointer, None, Modifiers::default());
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            assert_eq!(
+                visual.debug_bounds("markdown-editor-block-2").unwrap(),
+                bounds
+            );
+            for (state, selected) in &selections {
+                assert_eq!(
+                    state.read_with(visual, |state, _| state.selected_text()),
+                    *selected
+                );
+            }
+            visual.simulate_click(pointer, Modifiers::default());
+            wait(visual, |cx| {
+                let shell = shell.read(cx);
+                let Some(SideResource::Plugin(panel)) = &shell.side_resource else {
+                    return false;
+                };
+                panel.read(cx).documents.as_ref().is_some_and(|documents| {
+                    documents.read(cx).snapshot(cx)["documents"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|entry| entry["path"] == path && entry["position"]["line"] == 2)
+                })
+            });
+            assert_eq!(linked.borrow().as_deref(), Some("stats.py:2"));
+            shell.read_with(visual, |shell, cx| {
+                let Some(SideResource::Plugin(panel)) = &shell.side_resource else {
+                    panic!("document resource expected");
+                };
+                assert_eq!(
+                    panel.read(cx).document_scope(cx),
+                    Some((fixture.node.id(), fixture.session.worktree))
+                );
+                assert_eq!(
+                    chat.read(cx).input.read(cx).value().as_ref(),
+                    "Keep the inline-link draft"
+                );
+            });
+        }
         let received = std::rc::Rc::new(std::cell::RefCell::new(None));
         let observed = received.clone();
         let subscription = visual.update(|_, cx| {
@@ -154,10 +245,12 @@ fn cards(cx: &mut TestAppContext, remote: bool) {
         }
         fixture::tap(visual, "live-chat-input");
         visual.simulate_input("Keep this draft");
+        let retained = chat.read_with(visual, |chat, cx| chat.input.read(cx).value());
+        assert!(retained.contains("Keep this draft"));
         fixture::tap(visual, "artifact-file-more");
         visual.simulate_keystrokes("down down down down enter");
         chat.read_with(visual, |chat, cx| {
-                assert!(chat.input.read(cx).value().starts_with("Keep this draft"));
+                assert!(chat.input.read(cx).value().starts_with(retained.as_ref()));
                 assert!(chat.input.read(cx).value().contains(path));
                 assert!(chat.active_references(cx).iter().any(|reference| matches!(&reference.target, sailry_protocol::conversation::reference::Target::File(found) if found == path)));
                 #[cfg(any(target_os = "macos", target_os = "windows"))]

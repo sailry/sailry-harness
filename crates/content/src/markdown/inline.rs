@@ -356,6 +356,24 @@ mod tests {
             let theme = Theme::of(cx);
             for hovered in [None, Some(2), Some(8), None] {
                 let mut flat = flatten(&text, FontWeight::NORMAL, &theme);
+                let original = flatten(&text, FontWeight::NORMAL, &theme);
+                let mut undecorated = flatten(&text, FontWeight::NORMAL, &theme);
+                undecorated.hover_link(None);
+                assert_eq!(undecorated.links, original.links);
+                assert_eq!(undecorated.text, original.text);
+                for (run, original) in undecorated.runs.iter().zip(&original.runs) {
+                    assert!(run.underline.is_none());
+                    assert_eq!(run.color, original.color);
+                    assert_eq!(run.len, original.len);
+                }
+                for index in 0..=text.text.len() {
+                    assert_eq!(
+                        undecorated
+                            .offsets
+                            .source(undecorated.offsets.display(index)),
+                        index
+                    );
+                }
                 flat.hover_link(hovered.map(|index| flat.offsets.display(index)));
                 let mut start = 0;
                 for run in &flat.runs {

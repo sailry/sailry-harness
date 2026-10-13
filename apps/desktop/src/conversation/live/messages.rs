@@ -95,7 +95,7 @@ impl View {
         text: String,
         cx: &mut Context<Self>,
     ) -> crate::content::markdown::View {
-        self.markdown_at(id, text, self.binding.worktree, cx)
+        self.markdown_at(id, text, self.binding.worktree, false, cx)
     }
 
     fn markdown_at(
@@ -103,6 +103,7 @@ impl View {
         id: String,
         text: String,
         worktree: Option<WorktreeId>,
+        answer: bool,
         cx: &mut Context<Self>,
     ) -> crate::content::markdown::View {
         let owner = cx.entity().downgrade();
@@ -141,8 +142,12 @@ impl View {
         state.update(cx, |state, cx| state.set_source(text, cx));
         let mut typography = crate::content::markdown::typography::Typography::of(cx);
         typography.caption = typography.body;
+        if answer {
+            typography.body = typography.body.with_leading(24. / 14.);
+        }
         crate::content::markdown::View::new(&state)
             .link_hover_underline(true)
+            .link_underline(false)
             .foreground(crate::theme::messages::foreground("assistant", cx))
             .typography(
                 typography.scaled(f32::from(self.message_text_size) / typography.body.size()),
@@ -374,6 +379,7 @@ impl View {
                         format!("{turn}-{key}"),
                         citations::presentation(&text).into_owned().into(),
                         self.turn_worktree(turn),
+                        true,
                         cx,
                     ))
                     .into_any_element(),

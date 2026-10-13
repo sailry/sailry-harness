@@ -112,6 +112,7 @@ pub struct Editing<'a> {
     pub foreground: Option<Hsla>,
     pub on_link: Option<OnLink>,
     pub hovered_link: Option<Cursor>,
+    pub underline_links: bool,
     pub on_link_hover: Option<OnLinkHover>,
     pub on_image: Option<OnImage>,
     pub on_file: Option<OnFile>,
@@ -133,6 +134,7 @@ impl Default for Editing<'_> {
             foreground: None,
             on_link: None,
             hovered_link: None,
+            underline_links: true,
             on_link_hover: None,
             on_image: None,
             on_file: None,
@@ -411,6 +413,7 @@ struct Overlay<'a> {
     placeholder: Option<&'a SharedString>,
     on_link: Option<&'a OnLink>,
     hovered_link: Option<Cursor>,
+    underline_links: bool,
     on_link_hover: Option<&'a OnLinkHover>,
     on_image: Option<&'a OnImage>,
     image_urls: &'a [&'a str],
@@ -521,6 +524,7 @@ pub fn with_block(
         foreground,
         on_link,
         hovered_link,
+        underline_links,
         on_link_hover,
         on_image,
         on_file,
@@ -586,6 +590,7 @@ pub fn with_block(
             placeholder: placeholder.as_ref(),
             on_link: on_link.as_ref(),
             hovered_link,
+            underline_links,
             on_link_hover: on_link_hover.as_ref(),
             on_image: on_image.as_ref(),
             image_urls: &image_urls,
@@ -1119,7 +1124,9 @@ fn painted_text(
     theme: &Theme,
 ) -> AnyElement {
     let (ix, part) = (overlay.block, overlay.part);
-    if overlay.on_link_hover.is_some() {
+    if !overlay.underline_links {
+        flat.hover_link(None);
+    } else if overlay.on_link_hover.is_some() {
         let hovered = overlay
             .hovered_link
             .filter(|cursor| cursor.block == ix && cursor.part == part)
