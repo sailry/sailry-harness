@@ -141,7 +141,9 @@ fn start(
             .action(move |_, _, cx| {
                 let cancel = stopping.clone();
                 Button::new("conversation-export-cancel")
-                    .label(tr("settings_cancel"))
+                    .icon(IconName::Close)
+                    .tooltip(tr("settings_cancel"))
+                    .accessibility_label(tr("settings_cancel"))
                     .debug_selector(|| "conversation-export-cancel".to_owned())
                     .ghost()
                     .on_click(cx.listener(move |toast, _, window, cx| {

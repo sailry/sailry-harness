@@ -464,6 +464,11 @@ fn cancels_without_publishing_files(cx: &mut TestAppContext) {
             !entries(output.path()).is_empty(),
             "prepared export staging expected"
         );
+        visual.update(|window, _| {
+            let button = window.find("conversation-export-cancel");
+            assert_eq!(button.label(), Some(crate::tr("settings_cancel").as_ref()));
+            assert!(button.bounds().size.width <= px(32.));
+        });
         crate::live::file_tests::click(visual, "conversation-export-cancel");
         wait(visual, |window, cx| {
             !loading(window) && !window.has_active_dialog(cx)
