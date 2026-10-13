@@ -2,6 +2,7 @@
 use gpui_kit::{AssetSource, Result, SharedString};
 use std::borrow::Cow;
 
+pub(crate) mod file_types;
 pub(crate) mod icons;
 
 pub(crate) struct Assets;
@@ -385,6 +386,9 @@ impl AssetSource for Assets {
         if let Some((_, bytes)) = ICONS.iter().find(|(name, _)| *name == path) {
             return Ok(Some(Cow::Borrowed(bytes)));
         }
+        if let Some(bytes) = file_types::load(path) {
+            return Ok(Some(Cow::Owned(bytes)));
+        }
         if let Some(bytes) = icons::load(path) {
             return Ok(Some(Cow::Owned(bytes)));
         }
@@ -416,6 +420,7 @@ impl AssetSource for Assets {
                 .map(|(name, _)| (*name).into()),
         );
         names.extend(icons::list(path));
+        names.extend(file_types::list(path));
         Ok(names)
     }
 }

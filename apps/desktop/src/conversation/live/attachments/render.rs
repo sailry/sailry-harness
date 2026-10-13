@@ -67,9 +67,7 @@ impl View {
                                         AttachmentMedia::new()
                                             .child(crate::ui::file_icon::render(
                                                 &item.name,
-                                                mime_guess::from_path(&item.name)
-                                                    .first_or_octet_stream()
-                                                    .essence_str(),
+                                                &source.mime(),
                                                 rems(1.25),
                                             ))
                                             .overlay(media_bounds(key)),

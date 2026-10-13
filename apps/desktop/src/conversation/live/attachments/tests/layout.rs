@@ -66,6 +66,8 @@ fn separates_files_images_and_text(cx: &mut TestAppContext) {
                 choose(visual, &[image, file]);
                 let attachments = ready(visual, &view, 2);
                 visual.update(|window, cx| window.draw(cx).clear(cx));
+                assert!(visual.debug_bounds("file-type-txt").is_some());
+                assert!(visual.debug_bounds("file-type-png").is_none());
                 let surface = visual.debug_bounds("composer-surface").unwrap();
                 for key in [0, 1] {
                     let card = visual
@@ -139,6 +141,8 @@ fn separates_files_images_and_text(cx: &mut TestAppContext) {
                     entry.turn
                 });
                 visual.update(|window, cx| window.draw(cx).clear(cx));
+                assert!(visual.debug_bounds("file-type-txt").is_some());
+                assert!(visual.debug_bounds("file-type-png").is_none());
                 let file = visual
                     .debug_bounds(Box::leak(
                         format!("file-card-{}", attachments[1].id).into_boxed_str(),

@@ -376,8 +376,11 @@ impl Shell {
                                                                 .gap_2()
                                                                 .text_xs()
                                                                 .child(
-                                                                    Icon::new(IconName::File)
-                                                                        .size_4(),
+                                                                    crate::ui::file_icon::render(
+                                                                        "README.md",
+                                                                        "text/markdown",
+                                                                        rems(1.),
+                                                                    ),
                                                                 )
                                                                 .child(tr("composer_example_file")),
                                                         )

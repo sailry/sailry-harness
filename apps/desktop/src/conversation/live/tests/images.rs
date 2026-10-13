@@ -107,10 +107,18 @@ fn check(cx: &mut TestAppContext, remote: bool, path: &str, bytes: Option<&[u8]>
         Shows::ImageCard => {
             assert!(visual.debug_bounds(card).is_some());
             assert!(visual.debug_bounds("artifact-file-title").is_none());
+            assert!(visual.debug_bounds("file-type-svg").is_none());
         }
         Shows::FileCard => {
             assert!(visual.debug_bounds(card).is_none());
             assert!(visual.debug_bounds("artifact-file-title").is_some());
+            let kind = std::path::Path::new(path)
+                .extension()
+                .unwrap()
+                .to_str()
+                .unwrap();
+            let selector = Box::leak(format!("file-type-{kind}").into_boxed_str());
+            assert!(visual.debug_bounds(selector).is_some());
         }
     }
 }
@@ -127,7 +135,9 @@ fn svg_renders_image_card_remotely(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn unsupported_format_shows_file_card(cx: &mut TestAppContext) {
-    check(cx, false, "output/a.pdf", Some(b"%PDF"), Shows::FileCard);
+    for remote in [false, true] {
+        check(cx, remote, "output/a.pdf", Some(b"%PDF"), Shows::FileCard);
+    }
 }
 
 #[gpui::test]

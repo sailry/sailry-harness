@@ -57,6 +57,12 @@ impl ImageSource {
         }
     }
 
+    pub(crate) fn mime(&self) -> String {
+        self.attachment()
+            .map(|attachment| attachment.spec.media_type.clone())
+            .unwrap_or_else(|| crate::content::files::mime(&self.name()))
+    }
+
     pub(crate) fn description(&self) -> SharedString {
         let name = self.name();
         let kind = std::path::Path::new(&name)

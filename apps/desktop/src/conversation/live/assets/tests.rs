@@ -263,6 +263,15 @@ fn browsing_preserves_drafts(cx: &mut TestAppContext) {
         ] {
             assert!(visual.debug_bounds(selector).is_some());
         }
+        let icon = visual.debug_bounds("file-type-md").unwrap();
+        assert!(
+            visual
+                .debug_bounds("asset-panel")
+                .unwrap()
+                .contains(&icon.center())
+        );
+        let rem = visual.update(|window, _| window.rem_size());
+        assert_eq!(icon.size, size(rem, rem));
         assert!(visual.debug_bounds("asset-tab-0").is_none());
         assert!(visual.debug_bounds("asset-refresh").is_none());
         assert_eq!(

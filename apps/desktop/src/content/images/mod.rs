@@ -103,7 +103,11 @@ impl Images {
                 .get(&source.key())
                 .is_some_and(|entry| matches!(entry.result, Some(Err(_))))
         {
-            return AttachmentMedia::new().child(Icon::new(IconName::File).size_4());
+            return AttachmentMedia::new().child(crate::ui::file_icon::render(
+                &source.name(),
+                &source.mime(),
+                rems(1.),
+            ));
         }
         let images = images.downgrade();
         // Load through GPUI's image source callback, never during history reduction.

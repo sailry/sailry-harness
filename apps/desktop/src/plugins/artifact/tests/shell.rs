@@ -45,6 +45,10 @@ fn mounts_captured_header(cx: &mut TestAppContext) {
                 .current_chat()
                 .is_some_and(|source| source.read(cx).document_visible(&first))
         });
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        let icon = visual.debug_bounds("file-type-html").unwrap();
+        let side = visual.update(|window, _| window.rem_size() * 1.25);
+        assert_eq!(icon.size, size(side, side));
         chat::tap(
             visual,
             &format!("artifact-document-open-{}-{}", first.id, first.revision),

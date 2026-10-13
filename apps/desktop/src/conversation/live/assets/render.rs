@@ -274,6 +274,12 @@ impl Assets {
             Target::Document(value) => value.title.clone(),
             Target::File { path } => path.clone(),
         };
+        let mime = match target {
+            Target::Attachment(value) => value.spec.media_type.clone(),
+            Target::Image(value) => value.attachment.spec.media_type.clone(),
+            Target::Document(_) => "text/html".into(),
+            Target::File { path } => crate::content::files::mime(path),
+        };
         let source = match target {
             Target::Attachment(value) => Some(ImageSource::Attachment(value.clone())),
             Target::Image(value) => self.session.map(|session| ImageSource::Image {
@@ -298,11 +304,7 @@ impl Assets {
         if let Some(source) = source.filter(|source| source.kind().is_some()) {
             row = row.child(Images::media(&self.images, source, cx).size_8());
         } else {
-            row = row.child(
-                Icon::new(IconName::File)
-                    .size_4()
-                    .text_color(cx.theme().muted_foreground),
-            );
+            row = row.child(crate::ui::file_icon::render(&name, &mime, rems(1.)));
         }
         Button::new(key)
             .debug_selector(move || selector.clone())

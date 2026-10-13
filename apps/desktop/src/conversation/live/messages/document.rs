@@ -21,11 +21,11 @@ impl View {
             .border_color(cx.theme().border)
             .bg(cx.theme().group_box.opacity(0.8))
             .debug_selector(move || format!("artifact-document-{id}-{revision}"))
-            .child(
-                Icon::new(IconName::FileText)
-                    .size_5()
-                    .text_color(cx.theme().primary),
-            )
+            .child(crate::ui::file_icon::render(
+                &artifact.title,
+                "text/html",
+                rems(1.25),
+            ))
             .child(
                 v_flex()
                     .min_w_0()
