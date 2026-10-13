@@ -28,6 +28,7 @@ impl Controller {
                         let Ok(sailry_protocol::Update::CodeServers {
                             node,
                             worktree: tree,
+                            editor_enabled,
                             servers,
                             installations,
                         }) = update
@@ -40,7 +41,7 @@ impl Controller {
                         tokio::select! {
                             biased;
                             _ = stop.cancelled() => return,
-                            result = send.send((servers, installations)) => {
+                            result = send.send((editor_enabled, servers, installations)) => {
                                 if result.is_err() {
                                     return;
                                 }
@@ -57,7 +58,7 @@ impl Controller {
         });
         self.code_watch = Some(cx.spawn(async move |controller, cx| {
             let mut previous = None;
-            while let Some((servers, installations)) = receive.recv().await {
+            while let Some((editor_enabled, servers, installations)) = receive.recv().await {
                 let servers = servers
                     .iter()
                     .map(|server| {
@@ -82,13 +83,14 @@ impl Controller {
                         )
                     })
                     .collect::<BTreeMap<_, _>>();
-                let current = (servers, installations);
+                let current = (editor_enabled, servers, installations);
                 if previous.as_ref() == Some(&current) {
                     continue;
                 }
                 previous = Some(current);
                 if controller
                     .update(cx, |controller, cx| {
+                        controller.configure_code(editor_enabled, cx);
                         for document in controller
                             .documents
                             .values()

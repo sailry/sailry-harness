@@ -76,6 +76,15 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
         "code_settings.body",
         "SELECT body FROM code_settings",
     )?;
+    if db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM code_settings WHERE json_type(CAST(body AS TEXT),'$.editor_enabled') IS NULL)",
+        [],
+        |row| row.get::<_, bool>(0),
+    )? {
+        return Err(Error::Worker(
+            "stored editor language setting is missing; existing data was not changed".into(),
+        ));
+    }
     records::<sailry_protocol::code::Startup>(
         db,
         "code_startups.body",

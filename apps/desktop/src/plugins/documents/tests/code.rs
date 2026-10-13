@@ -11,6 +11,10 @@ mod lifecycle;
 mod observed;
 
 fn fixture(remote: bool, permission: Permission) -> Fixture {
+    configured(remote, permission, true)
+}
+
+fn configured(remote: bool, permission: Permission, editor_enabled: bool) -> Fixture {
     let fixture = Fixture::with_environment(remote, |directory| {
         let bin = directory.canonicalize().unwrap().join("bin");
         std::fs::create_dir(&bin).unwrap();
@@ -55,7 +59,29 @@ fn fixture(remote: bool, permission: Permission) -> Fixture {
         expected_revision: 0,
         config,
     });
+    let Output::CodeSettings(mut settings) = fixture.execute(Command::ReadCodeSettings) else {
+        panic!("language settings expected")
+    };
+    assert!(!settings.editor_enabled);
+    if editor_enabled {
+        settings.editor_enabled = true;
+        fixture.execute(Command::SaveCodeSettings {
+            expected_revision: settings.revision,
+            settings,
+        });
+    }
     fixture
+}
+
+fn editor_enabled(fixture: &Fixture, enabled: bool) {
+    let Output::CodeSettings(mut settings) = fixture.execute(Command::ReadCodeSettings) else {
+        panic!("language settings expected")
+    };
+    settings.editor_enabled = enabled;
+    fixture.execute(Command::SaveCodeSettings {
+        expected_revision: settings.revision,
+        settings,
+    });
 }
 
 fn open(
@@ -98,6 +124,12 @@ fn ready(input: &Entity<EditorState>, visual: &mut VisualTestContext) {
             .read(cx)
             .diagnostics()
             .is_some_and(|diagnostics| !diagnostics.is_empty())
+    });
+    visual.update(|window, cx| {
+        assert_eq!(
+            crate::feedback::tests::count(window, &crate::tr("editor_code_started"), cx),
+            0
+        );
     });
 }
 
@@ -182,6 +214,102 @@ fn asks_before_starting_and_uses_native_markers(cx: &mut TestAppContext) {
         drop(panel);
         drop(controller);
         drop(input);
+        fixture.close();
+    }
+}
+
+#[gpui_kit::test]
+fn editor_switch_detaches_without_stopping_shared_servers(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let mut fixture = configured(remote, Permission::Full, false);
+        let observed = Arc::new(observed::Observed::new(fixture.transport.clone()));
+        fixture.binding.client = Arc::new(sailry_client::Client::new(observed.clone()));
+        let (panel, visual) = publication::mount(&fixture, cx);
+        let (controller, id, input) = open(&panel, visual, "resource-file-main.rs");
+        wait(visual, |_| {
+            observed
+                .subscriptions
+                .load(std::sync::atomic::Ordering::SeqCst)
+                > 0
+        });
+        publication::replace(&panel, visual, "🙂 broken symbol changed\n");
+        visual.run_until_parked();
+        input.read_with(visual, |input, _| {
+            assert!(input.lsp().hover_provider.is_none());
+            assert!(input.lsp().definition_provider.is_none());
+            assert!(input.lsp().completion_provider.is_none());
+            assert!(input.lsp().show_document.is_none());
+        });
+        assert!(observed.requests.lock().unwrap().is_empty());
+        assert!(!fixture.directory.path().join("project/pid").exists());
+        editor_enabled(&fixture, true);
+        ready(&input, visual);
+        let provider = controller.read_with(visual, |controller, _| {
+            controller.documents[&id].code.clone().unwrap()
+        });
+        let pid = std::fs::read_to_string(fixture.directory.path().join("project/pid")).unwrap();
+        std::fs::write(
+            fixture.directory.path().join("project/control"),
+            "{\"hang\":true}",
+        )
+        .unwrap();
+        let text = input.read_with(visual, |input, _| input.text().clone());
+        let querying =
+            visual.update(|window, cx| provider.hover(&text, "🙂 broken ".len(), window, cx));
+        wait(visual, |_| calls(&fixture, "textDocument/hover") > 0);
+        editor_enabled(&fixture, false);
+        wait(visual, |cx| {
+            controller.read(cx).documents[&id].code.is_none()
+        });
+        assert!(provider.stopped());
+        assert!(visual.foreground_executor().block_test(querying).is_err());
+        wait(visual, |_| {
+            observed
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| matches!(request.command, Command::CancelCodeQuery { .. }))
+        });
+        std::fs::write(fixture.directory.path().join("project/control"), "{}").unwrap();
+        input.read_with(visual, |input, _| {
+            assert!(input.lsp().hover_provider.is_none());
+            assert!(input.lsp().definition_provider.is_none());
+            assert!(input.lsp().completion_provider.is_none());
+            assert!(input.lsp().show_document.is_none());
+            assert!(input.diagnostics().is_none_or(|items| items.is_empty()));
+            assert_eq!(input.value().as_ref(), "🙂 broken symbol changed\n");
+        });
+        let requests = observed.requests.lock().unwrap().len();
+        publication::replace(&panel, visual, "🙂 broken symbol retained\n");
+        visual.run_until_parked();
+        assert_eq!(observed.requests.lock().unwrap().len(), requests);
+        let Output::Code(result) = fixture.execute(Command::ReadCode {
+            worktree: fixture.session.worktree,
+            query: code::Query::Hover {
+                path: "main.rs".into(),
+                line: 1,
+                symbol: "symbol".into(),
+            },
+            overlay: None,
+        }) else {
+            panic!("shared language result expected")
+        };
+        assert!(matches!(result.content, code::Content::Hover(_)));
+        assert_eq!(
+            std::fs::read_to_string(fixture.directory.path().join("project/pid")).unwrap(),
+            pid
+        );
+        assert_eq!(calls(&fixture, "initialize"), 1);
+        editor_enabled(&fixture, true);
+        ready(&input, visual);
+        assert_eq!(calls(&fixture, "initialize"), 1);
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
+        drop(controller);
+        drop(input);
+        drop(provider);
         fixture.close();
     }
 }
@@ -484,12 +612,30 @@ fn retains_an_uncertain_start_across_closing(cx: &mut TestAppContext) {
                     .is_some_and(|provider| provider.pending() && !*provider.starting.borrow())
             });
             let original = observed.starts().last().unwrap().clone();
+            crate::feedback::tests::shown(visual);
+            visual.update(|window, cx| {
+                assert!(!crate::feedback::tests::summary(window, cx).is_empty());
+            });
             assert!(fixture.directory.path().join("project/pid").exists());
+            editor_enabled(&fixture, false);
+            wait(visual, |cx| {
+                controller.read(cx).documents[&id].code.is_none()
+            });
+            assert!(controller.read_with(visual, |controller, _| controller.pending_code()));
+            assert_eq!(observed.starts(), vec![original.clone()]);
             click(visual, "document-discard");
             wait(visual, |cx| controller.read(cx).documents[&id].dismissed);
             let (_, reopened, retained) = open(&panel, visual, "resource-file-main.rs");
             assert_eq!(reopened, id);
             assert_eq!(retained.entity_id(), input.entity_id());
+            assert!(controller.read_with(visual, |controller, _| {
+                controller.documents[&id].code.is_none()
+            }));
+            editor_enabled(&fixture, true);
+            wait(visual, |cx| {
+                controller.read(cx).documents[&id].code.is_some()
+            });
+            assert_eq!(observed.starts(), vec![original.clone()]);
             observed
                 .lose
                 .store(false, std::sync::atomic::Ordering::SeqCst);

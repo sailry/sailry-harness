@@ -367,6 +367,127 @@ mod artifacts {
     }
 }
 
+mod code {
+    use super::*;
+
+    #[test]
+    fn fills_only_missing_editor_switch() {
+        let fixture = Fixture::new();
+        let mut old = serde_json::to_value(sailry_protocol::code::Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("editor_enabled");
+        old["revision"] = json!(8);
+        old["after_edit"] = json!(false);
+        fixture.insert("code_settings", &bytes(&old));
+        assert!(reconcile(&fixture.db).unwrap());
+        let after = fixture.body("code_settings");
+        let mut retained: Value = serde_json::from_slice(&after).unwrap();
+        assert_eq!(
+            retained.as_object_mut().unwrap().remove("editor_enabled"),
+            Some(json!(false))
+        );
+        assert_eq!(retained, old);
+        assert!(!reconcile(&fixture.db).unwrap());
+        assert_eq!(fixture.body("code_settings"), after);
+        for value in [json!(true), json!(false), json!("invalid")] {
+            let fixture = Fixture::new();
+            old["editor_enabled"] = value;
+            let before = bytes(&old);
+            fixture.insert("code_settings", &before);
+            assert!(!reconcile(&fixture.db).unwrap());
+            assert_eq!(fixture.body("code_settings"), before);
+        }
+    }
+
+    #[test]
+    fn backs_up_defaults_and_rejects_invalid_settings() {
+        use crate::store::database::Database;
+        for invalid in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory
+                .path()
+                .canonicalize()
+                .unwrap()
+                .join("node.sqlite3");
+            let node = NodeId([26; 32]);
+            Database::open(&path, node, None).unwrap().close().unwrap();
+            let mut old = serde_json::to_value(sailry_protocol::code::Settings::default()).unwrap();
+            old.as_object_mut().unwrap().remove("editor_enabled");
+            old["revision"] = json!(8);
+            if invalid {
+                old["editor_enabled"] = json!("invalid");
+            }
+            let before = bytes(&old);
+            let db = Connection::open(&path).unwrap();
+            db.execute(
+                "INSERT INTO code_settings(singleton,body) VALUES(1,?1)",
+                [&before],
+            )
+            .unwrap();
+            drop(db);
+            if invalid {
+                assert!(Database::open(&path, node, None).is_err());
+                assert!(!directory.path().join("backups").exists());
+                let db = Connection::open(&path).unwrap();
+                let retained: Vec<u8> = db
+                    .query_row("SELECT body FROM code_settings", [], |row| row.get(0))
+                    .unwrap();
+                assert_eq!(retained, before);
+            } else {
+                let database = Database::open(&path, node, None).unwrap();
+                let settings = crate::store::code::settings(&database.connection).unwrap();
+                assert!(!settings.editor_enabled);
+                assert_eq!(settings.revision, 8);
+                database.close().unwrap();
+                let backups = std::fs::read_dir(directory.path().join("backups"))
+                    .unwrap()
+                    .collect::<Result<Vec<_>, _>>()
+                    .unwrap();
+                assert_eq!(backups.len(), 1);
+                let mut saved = url::Url::from_file_path(backups[0].path()).unwrap();
+                saved.query_pairs_mut().append_pair("immutable", "1");
+                let db = Connection::open_with_flags(
+                    saved.as_str(),
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                        | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+                )
+                .unwrap();
+                let retained: Vec<u8> = db
+                    .query_row("SELECT body FROM code_settings", [], |row| row.get(0))
+                    .unwrap();
+                assert_eq!(retained, before);
+                drop(db);
+                assert_eq!(
+                    std::fs::read_dir(directory.path().join("backups"))
+                        .unwrap()
+                        .count(),
+                    1
+                );
+                Database::open(&path, node, None).unwrap().close().unwrap();
+                assert_eq!(
+                    std::fs::read_dir(directory.path().join("backups"))
+                        .unwrap()
+                        .count(),
+                    1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rolls_back_failed_defaults() {
+        let mut fixture = Fixture::new();
+        let mut old = serde_json::to_value(sailry_protocol::code::Settings::default()).unwrap();
+        old.as_object_mut().unwrap().remove("editor_enabled");
+        let before = bytes(&old);
+        fixture.insert("code_settings", &before);
+        fixture.db.execute_batch("CREATE TRIGGER reject_editor BEFORE UPDATE ON code_settings BEGIN SELECT RAISE(ABORT,'fixture editor default failure'); END").unwrap();
+        let transaction = fixture.db.transaction().unwrap();
+        assert!(reconcile(&transaction).is_err());
+        transaction.rollback().unwrap();
+        assert_eq!(fixture.body("code_settings"), before);
+    }
+}
+
 mod catalog {
     use super::*;
     use sailry_client::Client;
@@ -697,6 +818,7 @@ impl Fixture {
              CREATE TABLE plugin_packages(body BLOB NOT NULL);
              CREATE TABLE artifacts(body BLOB NOT NULL);
              CREATE TABLE artifact_revisions(body BLOB NOT NULL);
+             CREATE TABLE code_settings(body BLOB NOT NULL);
              CREATE TABLE requests(body BLOB NOT NULL,result TEXT);",
         )
         .unwrap();

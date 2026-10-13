@@ -163,13 +163,19 @@ impl Controller {
                             uncertain: false,
                             error: None,
                             stop: controller.stop.child_token(),
+                            code_capture: super::code::Capture {
+                                context: context.clone(),
+                                window: window.window_handle(),
+                                attempt: Default::default(),
+                                starting: Default::default(),
+                            },
                             code: None,
                             _observers: observers,
                         },
                     );
                     id
                 };
-                controller.attach_code(id, context, window, cx);
+                controller.attach_code(id, cx);
                 if let Some(intent) = intent {
                     controller.reveal(id, intent, line, window, cx);
                 } else {

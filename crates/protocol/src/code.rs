@@ -180,6 +180,8 @@ pub struct Settings {
     pub revision: u64,
     #[serde(default = "enabled")]
     pub enabled: bool,
+    #[serde(default)]
+    pub editor_enabled: bool,
     pub after_edit: bool,
     pub servers: std::collections::BTreeMap<String, Override>,
     pub languages: std::collections::BTreeMap<String, Vec<String>>,
@@ -189,6 +191,7 @@ impl Default for Settings {
         Self {
             revision: 0,
             enabled: true,
+            editor_enabled: false,
             after_edit: true,
             servers: Default::default(),
             languages: Default::default(),

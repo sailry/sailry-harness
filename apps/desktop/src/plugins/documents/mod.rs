@@ -89,6 +89,7 @@ pub(crate) struct Controller {
     reveal: Option<(RequestId, u64)>,
     stop: CancellationToken,
     code_watch: Option<Task<()>>,
+    editor_enabled: bool,
 }
 
 enum Operation {
@@ -247,6 +248,7 @@ impl Controller {
             reveal: None,
             stop: CancellationToken::new(),
             code_watch: None,
+            editor_enabled: false,
         }
     }
 
@@ -435,10 +437,7 @@ impl Controller {
         }
         if document.uncertain
             || (document.saving && document.staging.is_none())
-            || document
-                .code
-                .as_ref()
-                .is_some_and(|provider| provider.pending())
+            || document.code_capture.attempt.borrow().is_some()
         {
             self.documents.get_mut(&id).unwrap().dismissed = true;
         } else {

@@ -134,11 +134,15 @@ impl Provider {
         let request = self.request(Kind::Diagnostics, &Rope::from(text.as_str()), 0, cx);
         let input = self.input.clone();
         let id = self.document;
+        let stop = self.stop.clone();
         let task = cx.spawn(async move |controller, cx| {
             let Ok(result) = request.await else {
                 return;
             };
             let _ = controller.update(cx, |controller, cx| {
+                if stop.is_cancelled() {
+                    return;
+                }
                 let Some(document) = controller.documents.get(&id) else {
                     return;
                 };

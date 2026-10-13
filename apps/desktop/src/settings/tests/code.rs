@@ -19,6 +19,19 @@ fn configures_captured_nodes(cx: &mut TestAppContext) {
             true,
         );
         let panel = visual.update(|_, cx| selected(&owner, cx));
+        assert!(!fixture.settings().editor_enabled);
+        wait(visual, |cx| ready(&owner, cx, "code-editor-enabled"));
+        visual.update(|window, cx| {
+            use gpui_kit::test::TestWindowExt as _;
+            window.render_frame(cx);
+            let control = window.find("code-editor-enabled");
+            assert_eq!(control.role(), Some(gpui_kit::Role::Switch));
+            assert_eq!(control.label(), Some("Editor language services"));
+            assert_eq!(control.checked(), Some(false));
+        });
+        tap(visual, "code-editor-enabled");
+        wait(visual, |_| fixture.settings().editor_enabled);
+        assert!(fixture.settings().enabled);
         tap(visual, "code-tabs-item-installed");
         wait(visual, |cx| ready(&owner, cx, "code-enabled-rust-analyzer"));
         tap(visual, "code-enabled-rust-analyzer");

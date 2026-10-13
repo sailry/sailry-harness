@@ -41,6 +41,10 @@ impl Subscription for Events {
                     Some(worktree) => Update::CodeServers {
                         node: self.node,
                         worktree,
+                        editor_enabled: {
+                            let settings = self.pool.settings();
+                            settings.enabled && settings.editor_enabled
+                        },
                         servers: self.pool.list(worktree).await?,
                         installations,
                     },

@@ -2026,6 +2026,7 @@ pub enum Update {
     CodeServers {
         node: NodeId,
         worktree: WorktreeId,
+        editor_enabled: bool,
         servers: Vec<crate::code::Server>,
         installations: Vec<crate::code::Installation>,
     },

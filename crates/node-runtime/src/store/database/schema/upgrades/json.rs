@@ -16,6 +16,7 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
         ("requests", "result"),
         ("artifacts", "body"),
         ("artifact_revisions", "body"),
+        ("code_settings", "body"),
     ] {
         let exists: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
@@ -43,6 +44,7 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
                 "agent_approvals" => approval(&mut value),
                 "requests" => receipt(&mut value),
                 "artifacts" | "artifact_revisions" => artifact(&mut value),
+                "code_settings" => code(&mut value),
                 _ => package(&mut value),
             };
             if !updated {
@@ -63,6 +65,17 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
         }
     }
     Ok(changed)
+}
+
+fn code(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else {
+        return false;
+    };
+    if object.contains_key("editor_enabled") {
+        return false;
+    }
+    object.insert("editor_enabled".into(), Value::Bool(false));
+    true
 }
 
 fn artifact(value: &mut Value) -> bool {

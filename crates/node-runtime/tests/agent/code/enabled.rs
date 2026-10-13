@@ -55,6 +55,109 @@ fn running(pid: &str) -> bool {
 }
 
 #[tokio::test]
+async fn editor_switch_preserves_shared_servers() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![]).await;
+        let mut fixture = Fixture::new(remote, &server).await;
+        fixture.settings(Vec::new(), false).await;
+        let mut events = fixture
+            .client
+            .subscribe_code_servers(fixture.session.worktree)
+            .await
+            .unwrap();
+        let initial = settings(&fixture.client).await;
+        assert!(initial.enabled);
+        assert!(!initial.editor_enabled);
+        assert!(matches!(
+            events.next().await.unwrap(),
+            sailry_protocol::Update::CodeServers {
+                editor_enabled: false,
+                ..
+            }
+        ));
+        let query = Query::Hover {
+            path: "main.rs".into(),
+            line: 1,
+            symbol: "symbol".into(),
+        };
+        start(&fixture, &query).await;
+        let pid = std::fs::read_to_string(fixture.root.join("pid")).unwrap();
+        let mut enabled = initial;
+        enabled.editor_enabled = true;
+        let (_, enabled) = save(&fixture.client, enabled).await;
+        let update = tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let update = events.next().await.unwrap();
+                if matches!(
+                    update,
+                    sailry_protocol::Update::CodeServers {
+                        editor_enabled: true,
+                        ..
+                    }
+                ) {
+                    break update;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let wire = serde_json::to_value(&update).unwrap();
+        assert_eq!(wire["kind"], json!("code_servers"));
+        assert_eq!(wire["data"]["editor_enabled"], json!(true));
+        assert!(wire["data"].get("settings").is_none());
+        assert!(wire["data"].get("environment").is_none());
+        let mut disabled = enabled;
+        disabled.editor_enabled = false;
+        let (request, disabled) = save(&fixture.client, disabled).await;
+        assert!(matches!(
+            events.next().await.unwrap(),
+            sailry_protocol::Update::CodeServers {
+                editor_enabled: false,
+                ..
+            }
+        ));
+        assert!(running(&pid));
+        assert!(matches!(
+            fixture.read(query.clone(), None).await.content,
+            Content::Hover(_)
+        ));
+        assert_eq!(
+            fixture.client.execute(request).await.unwrap(),
+            Output::CodeSettings(disabled.clone())
+        );
+        assert_eq!(settings(&fixture.client).await, disabled);
+        drop(events);
+        let profile = fixture.node.profile().to_owned();
+        fixture.node.shutdown().await.unwrap();
+        fixture.node = Node::start_with_environment(
+            profile,
+            environment(fixture.directory.path(), &fixture.bin),
+        )
+        .await
+        .unwrap();
+        let address = fixture
+            .controller
+            .handle()
+            .pair(fixture.node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        fixture.client = Client::new(if remote {
+            fixture.controller.handle().remote(address)
+        } else {
+            fixture.node.local()
+        });
+        assert_eq!(settings(&fixture.client).await, disabled);
+        start(&fixture, &query).await;
+        assert!(matches!(
+            fixture.read(query, None).await.content,
+            Content::Hover(_)
+        ));
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn stops_servers_and_preserves_management() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
@@ -267,6 +370,7 @@ async fn mounts_queries_only_for_enabled_turns() {
         for enabled in [true, false, true] {
             let mut value = settings(&fixture.client).await;
             value.enabled = enabled;
+            assert!(!value.editor_enabled);
             save(&fixture.client, value).await;
             let turn = fixture.submit().await;
             let page = fixture.finish(turn).await;

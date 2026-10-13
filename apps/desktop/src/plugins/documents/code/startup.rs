@@ -16,12 +16,9 @@ impl Controller {
     }
 
     pub(in crate::plugins::documents) fn pending_code(&self) -> bool {
-        self.documents.values().any(|document| {
-            document
-                .code
-                .as_ref()
-                .is_some_and(|provider| provider.pending())
-        })
+        self.documents
+            .values()
+            .any(|document| document.code_capture.attempt.borrow().is_some())
     }
 
     pub(in crate::plugins::documents) fn auto_code(
@@ -59,7 +56,10 @@ impl Controller {
                     .documents
                     .get(&id)
                     .and_then(|document| document.code.as_ref())
-                    .is_some_and(|provider| provider.startup.borrow().as_ref() == Some(&startup))
+                    .is_some_and(|current| {
+                        Rc::ptr_eq(current, &provider)
+                            && current.startup.borrow().as_ref() == Some(&startup)
+                    })
                 {
                     controller.begin_code(id, cx);
                 }
@@ -110,7 +110,9 @@ impl Controller {
                 else {
                     return;
                 };
-                if provider.startup.borrow().as_ref() != Some(&startup) {
+                if !Rc::ptr_eq(provider, &confirming)
+                    || provider.startup.borrow().as_ref() != Some(&startup)
+                {
                     return;
                 }
                 let Ok(Ok(Output::Snapshot(snapshot))) = result else {
@@ -225,14 +227,17 @@ impl Controller {
             let feedback = controller
                 .update(cx, |controller, cx| {
                     let document = controller.documents.get(&id)?;
-                    let provider = document.code.as_ref()?;
+                    let current = document.code.as_ref();
+                    let attached = current.is_some_and(|current| Rc::ptr_eq(current, &provider));
                     *provider.starting.borrow_mut() = false;
                     let feedback = match result {
                         Ok(Ok(Ok(Output::CodeServer(_)))) => {
                             provider.attempt.borrow_mut().take();
-                            provider.startup.borrow_mut().take();
-                            provider.observed.borrow_mut().take();
-                            provider.automatic.borrow_mut().take();
+                            if attached {
+                                provider.startup.borrow_mut().take();
+                                provider.observed.borrow_mut().take();
+                                provider.automatic.borrow_mut().take();
+                            }
                             Ok(())
                         }
                         Ok(Ok(Err(error))) => {
@@ -252,19 +257,9 @@ impl Controller {
                 })
                 .ok()
                 .flatten();
-            if let Some(feedback) = feedback {
-                let _ = cx.update_window(window, |_, window, cx| match feedback {
-                    Ok(()) => crate::feedback::toast(
-                        window,
-                        tr("editor_code_started"),
-                        gpui_kit::component::notification::Notification::success(tr(
-                            "editor_code_started",
-                        )),
-                        cx,
-                    ),
-                    Err(error) => {
-                        crate::feedback::error("editor_code_failed", &error.to_string(), window, cx)
-                    }
+            if let Some(Err(error)) = feedback {
+                let _ = cx.update_window(window, |_, window, cx| {
+                    crate::feedback::error("editor_code_failed", &error.to_string(), window, cx);
                 });
             }
         })
