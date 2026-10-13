@@ -51,14 +51,14 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
                 json!({"error":Fault::new(ErrorCode::NotFound, "File diagnostic"), "isError":true,
                     "sailry_result":{"version":1,"diagnostics":[],"expected":"file_not_found"}}),
                 false,
-                Some("tool_file_missing"),
+                None,
             ),
             (
                 "list_directory",
                 json!({"error":Fault::new(ErrorCode::NotFound, "Directory diagnostic"), "isError":true,
                     "sailry_result":{"version":1,"diagnostics":[],"expected":"directory_not_found"}}),
                 false,
-                Some("tool_directory_missing"),
+                None,
             ),
             (
                 "list_directory",
@@ -101,7 +101,7 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
                 "computer_input",
                 json!({"sailry_result":{"version":1,"diagnostics":[{"text":"Unmet condition","error":false}],"status":{"label":tr("tool_condition_unmet")}}}),
                 false,
-                Some("tool_condition_unmet"),
+                None,
             ),
             (
                 "computer_input",

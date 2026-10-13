@@ -91,14 +91,6 @@ pub(super) fn expected(value: Option<&Value>) -> Option<&'static str> {
     })
 }
 
-pub(super) fn status(name: &str, value: Option<&Value>) -> Option<String> {
-    if fault(value).is_some() || is_error(name, value) {
-        return None;
-    }
-    let status = ResultDisplay::from_value(value?)?.status?;
-    Some(status.label(&rust_i18n::locale()).to_owned())
-}
-
 pub(super) fn tool_preview(
     name: &str,
     presentation: sailry_protocol::tool::Presentation,

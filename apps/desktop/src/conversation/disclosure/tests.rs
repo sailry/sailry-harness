@@ -18,15 +18,25 @@ fn preserves_full_wrapped_accessible_labels() {
 }
 
 #[gpui::test]
-fn keeps_failure_text_subdued(cx: &mut TestAppContext) {
+fn colors_failure_text_semantically(cx: &mut TestAppContext) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         crate::theme::init(cx);
         for mode in [ThemeMode::Light, ThemeMode::Dark] {
             Theme::change(mode, None, cx);
             let detail = Detail::mono("missing.txt").state(Some("Read failed".into()), true);
-            assert_eq!(tone(&detail, cx), cx.theme().muted_foreground);
-            assert_ne!(tone(&detail, cx), cx.theme().danger);
+            assert_eq!(tone(&detail, cx), cx.theme().danger);
+            assert_ne!(tone(&Detail::default(), cx), cx.theme().danger);
+            assert_ne!(
+                tone(
+                    &Detail {
+                        pending: true,
+                        ..Default::default()
+                    },
+                    cx
+                ),
+                cx.theme().danger
+            );
             assert_eq!(
                 detail.accessible(&"Read".into()),
                 "Read missing.txt Read failed"
@@ -39,7 +49,7 @@ fn keeps_failure_text_subdued(cx: &mut TestAppContext) {
                     },
                     cx
                 ),
-                cx.theme().muted_foreground
+                cx.theme().danger
             );
         }
     });
@@ -48,6 +58,8 @@ fn keeps_failure_text_subdued(cx: &mut TestAppContext) {
 struct Harness {
     open: bool,
     detail: SharedString,
+    failed: bool,
+    running: bool,
 }
 
 impl Render for Harness {
@@ -61,7 +73,12 @@ impl Render for Harness {
                         "activity".into(),
                         IconName::BookOpen,
                         "Read".into(),
-                        self.detail.clone(),
+                        Detail {
+                            text: self.detail.clone(),
+                            failed: self.failed,
+                            running: self.running,
+                            ..Default::default()
+                        },
                         self.open,
                         cx,
                     )
@@ -85,6 +102,8 @@ fn preserves_inline_alignment(cx: &mut TestAppContext) {
         let view = cx.new(|_| Harness {
             open: false,
             detail: "source.txt".into(),
+            failed: false,
+            running: false,
         });
         Root::new(view, window, cx)
     });
@@ -120,6 +139,8 @@ fn long_details_fit_the_column(cx: &mut TestAppContext) {
         let view = cx.new(|_| Harness {
             open: false,
             detail: "A long command with arguments ".repeat(100).into(),
+            failed: false,
+            running: false,
         });
         Root::new(view, window, cx)
     });
@@ -135,6 +156,42 @@ fn long_details_fit_the_column(cx: &mut TestAppContext) {
         "summary exceeds column: {summary:?}"
     );
     assert_eq!(trigger.size.height, px(24.));
+}
+
+#[gpui::test]
+fn failed_continuing_summary_stays_static(cx: &mut TestAppContext) {
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| Harness {
+            open: false,
+            detail: "missing.txt".into(),
+            failed: true,
+            running: true,
+        });
+        Root::new(view, window, cx)
+    });
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        visual.update(|window, cx| {
+            Theme::change(mode, Some(window), cx);
+            window.draw(cx).clear(cx);
+        });
+        assert!(visual.debug_bounds("activity-summary-shimmer").is_none());
+        let bounds = visual.debug_bounds("activity-summary").unwrap();
+        visual.simulate_mouse_move(bounds.center(), None, Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert_eq!(visual.debug_bounds("activity-summary").unwrap(), bounds);
+        visual.simulate_click(bounds.center(), Modifiers::default());
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("output").is_some());
+        visual.simulate_click(bounds.center(), Modifiers::default());
+        visual.run_until_parked();
+    }
+    visual.update(|window, _| window.remove_window());
 }
 
 struct AgentIcon {

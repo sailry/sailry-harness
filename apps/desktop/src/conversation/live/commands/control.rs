@@ -57,7 +57,11 @@ impl RenderOnce for Header {
             .child(
                 Button::new(SharedString::from(format!("background-toggle-{id}")))
                     .debug_selector(move || format!("background-toggle-{id}"))
-                    .ghost()
+                    .custom(
+                        gpui_kit::component::button::ButtonCustomVariant::new(cx)
+                            .foreground(cx.theme().muted_foreground)
+                            .active(*cx.theme().tokens.button_active),
+                    )
                     .small()
                     .flex_1()
                     .min_w_0()

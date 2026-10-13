@@ -438,8 +438,6 @@ fn summary(call: &Call, page: &Page) -> Summary {
     let failed = output::is_error(&call.name, call.result(page));
     let state = if denied {
         Some(approvals::label(ApprovalState::Denied))
-    } else if let Some(expected) = output::expected(call.result(page)) {
-        Some(expected)
     } else if let Some(fault) = output::fault(call.result(page))
         && matches!(
             fault.code,
@@ -482,12 +480,7 @@ fn summary(call: &Call, page: &Page) -> Summary {
         });
     let mut detail = declared.unwrap_or_else(|| Detail::plain(target));
     detail.state = if call.state == State::Returned && !denied {
-        let declared = if state.is_none() && !failed {
-            output::status(&call.name, call.result(page)).map(SharedString::from)
-        } else {
-            None
-        };
-        declared.or(detail.state).or_else(|| state.map(tr))
+        detail.state.or_else(|| state.map(tr))
     } else {
         state.map(tr)
     };

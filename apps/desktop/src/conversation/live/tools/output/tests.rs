@@ -34,8 +34,12 @@ fn declared_diagnostics_keep_their_tone_and_text() {
         assert!(!is_error(name, Some(&result)));
         assert_eq!(failure(name, Some(&result)).as_deref(), Some(diagnostic));
         assert_eq!(
-            status(name, Some(&result)).as_deref(),
-            Some("Condition not met")
+            ResultDisplay::from_value(&result)
+                .unwrap()
+                .status
+                .unwrap()
+                .label,
+            "Condition not met"
         );
         for presentation in [Presentation::Summary, Presentation::Details] {
             let body = tool_preview(name, presentation, &result);
@@ -57,7 +61,17 @@ fn declared_status_cannot_hide_errors() {
     ] {
         result["sailry_result"] = marker.clone();
         assert!(is_error("external_step", Some(&result)));
-        assert!(status("external_step", Some(&result)).is_none());
+        let diagnostic = if fault(Some(&result)).is_some() {
+            "Worker disconnected"
+        } else {
+            "Condition diagnostic"
+        };
+        for presentation in [Presentation::Summary, Presentation::Details] {
+            let body = tool_preview("external_step", presentation, &result);
+            assert_eq!(body.text, diagnostic);
+            assert_eq!(body.copy_text(), diagnostic);
+            assert!(body.notices.is_empty());
+        }
         if fault(Some(&result)).is_some() {
             assert_eq!(
                 failure("external_step", Some(&result)).as_deref(),
@@ -69,7 +83,10 @@ fn declared_status_cannot_hide_errors() {
         {"text":"Condition diagnostic","error":false},{"text":"Worker disconnected","error":true}],
         "status":{"label":"Condition not met"}}});
     assert!(is_error("external_step", Some(&result)));
-    assert!(status("external_step", Some(&result)).is_none());
+    assert_eq!(
+        tool_preview("external_step", Presentation::Details, &result).copy_text(),
+        "Condition diagnostic\nWorker disconnected"
+    );
     assert_eq!(
         failure("external_step", Some(&result)).as_deref(),
         Some("Condition diagnostic\nWorker disconnected")
@@ -94,7 +111,12 @@ fn cancellation_and_uncertainty_are_not_execution_errors() {
             failure("external_tool", Some(&result)).as_deref(),
             Some("Diagnostic retained")
         );
-        assert!(status("external_tool", Some(&result)).is_none());
+        for presentation in [Presentation::Summary, Presentation::Details] {
+            let body = tool_preview("external_tool", presentation, &result);
+            assert_eq!(body.text, "Diagnostic retained");
+            assert_eq!(body.copy_text(), "Diagnostic retained");
+            assert!(body.notices.is_empty());
+        }
     }
 }
 
@@ -193,7 +215,10 @@ fn invalid_markers_preserve_user_data() {
         let result = json!({"error":"literal field","sailry_result":marker});
         assert!(!is_error("external_step", Some(&result)));
         assert!(failure("external_step", Some(&result)).is_none());
-        assert!(status("external_step", Some(&result)).is_none());
+        assert!(ResultDisplay::from_value(&result).is_none());
+        let body = tool_preview("external_step", Presentation::Details, &result);
+        assert!(body.copy_text().contains("literal field"));
+        assert!(body.copy_text().contains("user data"));
     }
 }
 

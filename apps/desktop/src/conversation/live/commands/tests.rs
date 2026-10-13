@@ -25,7 +25,7 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
                 ),
                 (
                     crate::agent_fixture::plugin_tool("commands", "run_command"),
-                    json!({"background": true, "command": "printf 'second service ready'; while :; do sleep 1; done"}),
+                    json!({"background": true, "command": "while [ ! -e release.output ]; do sleep 0.05; done; printf 'second service ready'; printf 'second service diagnostic' >&2; while :; do sleep 1; done"}),
                 ),
                 (
                     crate::agent_fixture::plugin_tool("commands", "read_command"),
@@ -154,6 +154,54 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
         tap(visual, "composer-background");
         assert!(visual.debug_bounds("background-output").is_none());
         assert!(visual.debug_bounds("background-list").unwrap().size.width <= px(PANEL_WIDTH));
+        let silent = view.read_with(visual, |view, cx| {
+            view.commands
+                .read(cx)
+                .state
+                .items
+                .iter()
+                .find(|item| item.id != info.id)
+                .unwrap()
+                .id
+        });
+        let silent_selector = format!("background-command-{silent}");
+        tap(visual, &silent_selector);
+        wait(visual, |cx| {
+            view.read(cx)
+                .commands
+                .read(cx)
+                .state
+                .output
+                .as_ref()
+                .is_some_and(|output| output.info.id == silent)
+        });
+        view.read_with(visual, |view, cx| {
+            let panel = view.commands.read(cx);
+            assert_eq!(*panel.selected.borrow(), Some(silent));
+            assert!(panel.output_text(silent).is_none());
+            let output = panel.state.output.as_ref().unwrap();
+            assert!(output.stdout.text.is_empty() && output.stderr.text.is_empty());
+        });
+        assert!(visual.debug_bounds("background-output").is_none());
+        std::fs::write(
+            fixture.directory.path().join("project/release.output"),
+            "ready",
+        )
+        .unwrap();
+        wait(visual, |cx| {
+            view.read(cx)
+                .commands
+                .read(cx)
+                .output_text(silent)
+                .is_some_and(|text| text == "second service ready\nsecond service diagnostic")
+        });
+        assert!(visual.debug_bounds("background-output").is_some());
+        assert_eq!(
+            view.read_with(visual, |view, cx| *view.commands.read(cx).selected.borrow()),
+            Some(silent)
+        );
+        tap(visual, &silent_selector);
+        assert!(visual.debug_bounds("background-output").is_none());
         let command = Box::leak(format!("background-command-{}", info.id).into_boxed_str());
         let title = visual.debug_bounds(command).unwrap();
         assert!(
@@ -259,6 +307,26 @@ fn dev_server_lifecycle(cx: &mut TestAppContext) {
         visual.simulate_mouse_move(title.center(), None, Modifiers::default());
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert_eq!(visual.debug_bounds(command).unwrap(), title);
+        let toggle = visual
+            .debug_bounds(Box::leak(
+                format!("background-toggle-{}", info.id).into_boxed_str(),
+            ))
+            .unwrap();
+        visual.update(|window, cx| {
+            let bounds = toggle.scale(window.scale_factor());
+            let hover: Background = cx.theme().tokens.accent.into();
+            let hover = if cx.theme().is_dark() {
+                hover.opacity(0.5)
+            } else {
+                hover
+            };
+            assert!(
+                !window
+                    .painted_quads()
+                    .iter()
+                    .any(|quad| quad.bounds == bounds && quad.background == hover)
+            );
+        });
         assert!(
             visual
                 .debug_bounds(Box::leak(

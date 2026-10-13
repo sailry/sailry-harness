@@ -45,14 +45,16 @@ fn keeps_diagnostics_expandable(cx: &mut TestAppContext) {
                 history.calls[0].source.key()
             ),
         );
-        for (call, key) in history
+        for (call, target) in history
             .calls
             .iter()
-            .zip(["tool_directory_missing", "tool_file_missing"])
+            .zip(["missing-directory", "missing-file.txt"])
         {
             let row = summary(call, page);
             assert!(!row.detail.failed);
-            assert_eq!(row.detail.state, Some(tr(key)));
+            assert!(row.detail.state.is_none());
+            assert_eq!(row.detail.text.as_ref(), target);
+            assert!(!row.label.is_empty());
             assert!(!row.detail.text.contains("filesystem operation failed"));
             let diagnostic = output::failure(&call.name, call.result(page)).unwrap();
             assert!(diagnostic.contains("worktree filesystem operation failed"));

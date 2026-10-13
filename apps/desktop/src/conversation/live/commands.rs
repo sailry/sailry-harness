@@ -157,6 +157,21 @@ impl Panel {
         cx.notify();
     }
 
+    fn output_text(&self, id: RequestId) -> Option<String> {
+        let output = self
+            .state
+            .output
+            .as_ref()
+            .filter(|output| *self.selected.borrow() == Some(id) && output.info.id == id)?;
+        let text = [&output.stdout.text, &output.stderr.text]
+            .into_iter()
+            .filter(|text| !text.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n");
+        (!text.is_empty()).then_some(text)
+    }
+
     fn row(&self, info: &Info, cx: &mut Context<Self>) -> AnyElement {
         let id = info.id;
         let status = match &info.status {
@@ -169,7 +184,7 @@ impl Panel {
         control::Header {
             id,
             panel: cx.entity().downgrade(),
-            open: *self.selected.borrow() == Some(id),
+            open: self.output_text(id).is_some(),
             disabled: !self.state.connected
                 || self.action.is_some()
                 || info.status == CommandStatus::Stopping,
@@ -314,27 +329,16 @@ impl View {
 
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let selected = *self.selected.borrow();
         let mut commands = v_flex().w_full().h_auto().flex_shrink_0();
         for info in self.state.items.iter().filter(|info| active(info)) {
             let title = self.row(info, cx);
-            let output = self
-                .state
-                .output
-                .as_ref()
-                .filter(|output| Some(info.id) == selected && output.info.id == info.id);
+            let output = self.output_text(info.id);
             commands = commands.child(
                 Collapsible::new()
                     .child(title)
-                    .open(selected == Some(info.id))
+                    .open(output.is_some())
                     .bg(cx.theme().transparent)
-                    .when_some(output, |item, output| {
-                        let text = [&output.stdout.text, &output.stderr.text]
-                            .into_iter()
-                            .filter(|text| !text.is_empty())
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join("\n");
+                    .when_some(output, |item, text| {
                         item.content(
                             div().rounded_md().bg(cx.theme().background).child(
                                 crate::conversation::surface::scroll(

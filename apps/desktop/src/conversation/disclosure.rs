@@ -9,7 +9,7 @@ use gpui_kit::{
 
 mod shimmer;
 
-/// Activity details; failures accent only the icon and retain accessible diagnostics.
+/// Activity details retain semantic failure ink and accessible diagnostics.
 #[derive(Clone, Default)]
 pub(crate) struct Detail {
     pub text: SharedString,
@@ -150,7 +150,9 @@ pub(crate) fn summary(
 }
 
 fn tone(detail: &Detail, cx: &App) -> Hsla {
-    if detail.running && !detail.pending && !detail.failed {
+    if detail.failed {
+        cx.theme().danger
+    } else if detail.running && !detail.pending {
         cx.theme().muted_foreground.mix(cx.theme().foreground, 0.35)
     } else {
         cx.theme().muted_foreground
@@ -175,7 +177,7 @@ fn row(
         state_color
     };
     let selector = id.clone();
-    let unified = detail.running && !detail.pending && !detail.wrap;
+    let unified = detail.running && !detail.pending && !detail.failed && !detail.wrap;
     h_flex()
         .id(id.clone())
         .debug_selector(move || selector.clone())
@@ -233,7 +235,7 @@ fn row(
                     .when(!detail.wrap && !detail.secondary, |label| {
                         label.flex_shrink_0()
                     })
-                    .child(if detail.running && !detail.pending {
+                    .child(if detail.running && !detail.pending && !detail.failed {
                         let selector = format!("{id}-shimmer");
                         div()
                             .debug_selector(move || selector.clone())
@@ -259,7 +261,7 @@ fn row(
                         text.max_w(px(480.))
                             .font_family(cx.theme().mono_font_family.clone())
                     })
-                    .child(if detail.running && !detail.pending {
+                    .child(if detail.running && !detail.pending && !detail.failed {
                         gpui_kit::component::shimmer::ShimmerText::new(detail.text.clone())
                             .id(format!("{id}-detail-shimmer"))
                             .into_any_element()
