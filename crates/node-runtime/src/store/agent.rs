@@ -214,6 +214,7 @@ pub(super) enum Operation {
         status: Status,
         error: Option<Fault>,
         owner: Option<sailry_link::CancellationToken>,
+        review: Option<AdkEvent>,
         reply: oneshot::Sender<Result<Status, Fault>>,
     },
 }
@@ -375,12 +376,24 @@ impl Ingress {
         response.await.map_err(|_| super::unavailable())?
     }
 
+    #[cfg(test)]
     pub(crate) async fn finish_run(
         &self,
         turn: TurnId,
         status: Status,
         error: Option<Fault>,
         owner: Option<sailry_link::CancellationToken>,
+    ) -> Result<Status, Fault> {
+        self.finish_run_with(turn, status, error, owner, None).await
+    }
+
+    pub(crate) async fn finish_run_with(
+        &self,
+        turn: TurnId,
+        status: Status,
+        error: Option<Fault>,
+        owner: Option<sailry_link::CancellationToken>,
+        review: Option<AdkEvent>,
     ) -> Result<Status, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
@@ -389,6 +402,7 @@ impl Ingress {
                 status,
                 error,
                 owner,
+                review,
                 reply,
             })))
             .await
@@ -746,6 +760,7 @@ pub(super) fn execute(
             status,
             error,
             owner,
+            review,
             reply,
         } => {
             let result = (|| {
@@ -779,7 +794,7 @@ pub(super) fn execute(
                 } else {
                     error
                 };
-                runs::finish(database, turn, status, error, events)
+                runs::finish_with(database, turn, status, error, review, events)
             })();
             let _ = reply.send(result);
         }

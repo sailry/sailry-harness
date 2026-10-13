@@ -712,6 +712,7 @@ impl Database {
         transaction
             .execute_batch("SAVEPOINT command")
             .map_err(storage_error)?;
+        let mut review_changes = super::agent::review::Changes::new();
         let outcome = if matches!(request.command, Command::PluginTransaction { .. }) {
             super::plugins::transaction::execute(
                 &transaction,
@@ -755,11 +756,17 @@ impl Database {
             if super::providers::quota::affected(&request.command) {
                 changes.extend(super::providers::quota::reconcile(&transaction, self.node)?);
             }
+            review_changes.extend(super::agent::review::command(
+                &transaction,
+                request,
+                &output,
+            )?);
             Ok((output, changes))
         });
         let (mut result, changes) = match outcome {
             Ok((output, changes)) => (Ok(output), changes),
             Err(error) => {
+                review_changes.clear();
                 transaction
                     .execute_batch("ROLLBACK TO command")
                     .map_err(storage_error)?;
@@ -803,6 +810,9 @@ impl Database {
             let _ = events.send(event);
         }
         if let Ok(output) = &result {
+            for (session, change) in review_changes {
+                self.feeds.publish(self.node, session, change);
+            }
             super::agent::publish_command(self, output);
         }
         result

@@ -256,6 +256,53 @@ fn projects_automatic_reviews() {
 }
 
 #[test]
+fn recovers_completed_pending_review() {
+    let (mut projection, snapshot, mut run, _) = fixture();
+    let mut question = question(&run);
+    let mut entry = review_entry(
+        &question,
+        Spec {
+            prompt: String::new(),
+            input: Input::Plan,
+        },
+    );
+    entry.author = "plan_review".into();
+    projection
+        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .unwrap();
+    run.status = Status::Completed;
+    run.finished_ms = Some(2000);
+    for (sequence, change) in [
+        (11, Change::Run(run)),
+        (12, Change::Entry(entry)),
+        (13, Change::Question(question.clone())),
+    ] {
+        let update = frame(&snapshot, sequence, change);
+        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
+        assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
+    }
+    let recovered = projection.snapshot().unwrap().clone();
+    let calls = crate::conversation::tools::collect(&recovered.page);
+    assert_eq!(calls[0].question_pending(&recovered.page), Some(&question));
+    assert_eq!(recovered.page.runs[0].status, Status::Completed);
+    projection.reconnect(2).unwrap();
+    projection
+        .apply(2, Update::ConversationSnapshot(recovered.clone()))
+        .unwrap();
+    assert_eq!(projection.snapshot().unwrap(), &recovered);
+    question.state = State::Cancelled;
+    let update = frame(&recovered, 14, Change::Question(question));
+    assert_eq!(projection.apply(2, update.clone()).unwrap(), Apply::Applied);
+    assert_eq!(projection.apply(2, update).unwrap(), Apply::Ignored);
+    let page = &projection.snapshot().unwrap().page;
+    assert!(
+        crate::conversation::tools::collect(page)[0]
+            .question_pending(page)
+            .is_none()
+    );
+}
+
+#[test]
 fn rejects_invalid_review_sources() {
     for spec in [
         Spec {

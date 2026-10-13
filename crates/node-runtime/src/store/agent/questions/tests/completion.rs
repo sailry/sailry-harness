@@ -1,5 +1,7 @@
 use super::*;
 
+mod deferred;
+
 fn source() -> AdkEvent {
     let mut event = AdkEvent::new("fixture");
     event.author = "assistant".into();

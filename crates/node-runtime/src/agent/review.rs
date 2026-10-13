@@ -1,8 +1,6 @@
 //! The Node offers review after a plain planning answer without another model call.
 use super::*;
 use crate::store::agent::review;
-use adk_core::ToolConfirmationRequest;
-use adk_session::SessionService;
 use sailry_protocol::conversation::question::{Input, Spec};
 
 pub(super) fn requested(event: &adk_core::Event) -> bool {
@@ -18,42 +16,8 @@ pub(super) fn requested(event: &adk_core::Event) -> bool {
         })
 }
 
-pub(super) async fn wait(
-    ingress: &Arc<Ingress>,
-    invocation: &Invocation,
-    stop: &CancellationToken,
-    source: String,
-) -> Result<(), Fault> {
-    let turn = invocation.turn.id;
-    let session = invocation.turn.session.to_string();
-    let sessions = ingress.sessions(turn);
-    let event = review::event(turn, source);
-    let call = event.id.clone();
-    let work = async {
-        sessions
-            .append_event(&session, event)
-            .await
-            .map_err(model::error)?;
-        let response = ingress
-            .ask(
-                turn,
-                ToolConfirmationRequest {
-                    tool_name: review::TOOL.into(),
-                    function_call_id: Some(call.clone()),
-                    args: serde_json::json!({"prompt": "", "input": {"kind": "plan"}}),
-                },
-            )
-            .await?;
-        sessions
-            .append_event(&session, review::result(turn, call, response))
-            .await
-            .map_err(model::error)
-    };
-    tokio::select! {
-        biased;
-        _ = stop.cancelled() => Ok(()),
-        result = work => result,
-    }
+pub(super) fn completion(turn: TurnId, source: String) -> adk_core::Event {
+    review::event(turn, source)
 }
 
 #[cfg(test)]

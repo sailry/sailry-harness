@@ -101,6 +101,7 @@ async fn run(
     let main = invocation.child.is_none();
     let callbacks = plugins::callbacks::capture(&invocation);
     let hooks = crate::hooks::Binding::capture(ingress, &invocation, token.clone());
+    let mut completion_review = None;
     let mut result = execute(
         ingress,
         tasks,
@@ -108,6 +109,7 @@ async fn run(
         token.clone(),
         hooks.clone(),
         &diagnostics,
+        &mut completion_review,
     )
     .await;
     if owner.as_ref().is_some_and(CancellationToken::is_cancelled) {
@@ -173,7 +175,9 @@ async fn run(
     };
     let persisted = {
         let _persistence = diagnostics.span(Phase::FinishRun, None);
-        ingress.finish_run(turn, status, error.clone(), owner).await
+        ingress
+            .finish_run_with(turn, status, error.clone(), owner, completion_review)
+            .await
     };
     if let Err(error) = &persisted {
         let mut entry =
@@ -244,6 +248,7 @@ async fn execute(
     stop: CancellationToken,
     hooks: Option<Arc<crate::hooks::Binding>>,
     diagnostics: &Diagnostics,
+    completion_review: &mut Option<adk_core::Event>,
 ) -> Result<Option<String>, Fault> {
     let session = invocation.turn.session;
     let mut connections = ingress.agents.mcp.take(session);
@@ -255,6 +260,7 @@ async fn execute(
         &mut connections,
         hooks,
         diagnostics,
+        completion_review,
     )
     .await;
     // Computer observations belong to the conversation's trusted SDK handle,
@@ -304,6 +310,7 @@ async fn execute_with(
     connections: &mut mcp::Connections,
     hooks: Option<Arc<crate::hooks::Binding>>,
     diagnostics: &Diagnostics,
+    completion_review: &mut Option<adk_core::Event>,
 ) -> Result<Option<String>, Fault> {
     if stop.is_cancelled() {
         return Ok(None);
@@ -601,7 +608,7 @@ async fn execute_with(
                     && let Some(source) = proposal
                 {
                     let _review = diagnostics.span(Phase::PlanReview, None);
-                    review::wait(ingress, &invocation, &stop, source).await?;
+                    *completion_review = Some(review::completion(turn, source));
                 }
                 return Ok(output);
             }

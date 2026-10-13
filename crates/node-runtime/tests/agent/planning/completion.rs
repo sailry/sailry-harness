@@ -3,6 +3,9 @@ use question::{Answer, Response, State};
 
 const EXECUTE: &str = "Implement the accepted plan";
 
+#[path = "completion/deferred.rs"]
+mod deferred;
+
 async fn submit(fixture: &Fixture) -> QueuedTurn {
     let Output::QueuedTurn(turn) = fixture
         .client
@@ -20,7 +23,7 @@ async fn submit(fixture: &Fixture) -> QueuedTurn {
 }
 
 #[tokio::test]
-async fn waits_for_choice_and_recovers() {
+async fn completes_before_choice_and_recovers() {
     for remote in [false, true] {
         for execute in [false, true] {
             let server = Server::prompt_tools(EXECUTE.into(), vec![(
@@ -57,7 +60,7 @@ async fn waits_for_choice_and_recovers() {
             let plan = submit(&fixture).await;
             let session = fixture.session.id;
             let (page, question) = questions::pending(&fixture.client, session).await;
-            assert_eq!(page.runs[0].status, Status::Running);
+            assert_eq!(page.runs[0].status, Status::Completed);
             assert_eq!(page.questions.len(), 1);
             assert_eq!(question.turn, plan.id);
             assert!(page.approvals.is_empty());
@@ -221,7 +224,7 @@ async fn waits_for_choice_and_recovers() {
 }
 
 #[tokio::test]
-async fn closes_unselected_review() {
+async fn keeps_review_across_stop_and_restart() {
     let content = "## Plan\n\nPreserve this complete plan 中文 🙂\n".repeat(800);
     assert!(content.len() > 16 * 1024);
     for remote in [false, true] {
@@ -256,38 +259,34 @@ async fn closes_unselected_review() {
             });
             let page = history(&resumed, session).await;
             assert_eq!(page.runs.len(), 1);
-            assert_eq!(
-                page.runs[0].status,
-                if stop {
-                    Status::Cancelled
-                } else {
-                    Status::Interrupted
-                }
-            );
+            assert_eq!(page.runs[0].status, Status::Completed);
             assert_eq!(page.questions.len(), 1);
+            assert_eq!(page.questions[0], question);
+            assert_eq!(page.questions[0].state, State::Pending);
+            let Output::Snapshot(snapshot) = resumed
+                .execute(resumed.prepare(Command::Snapshot))
+                .await
+                .unwrap()
+            else {
+                panic!("snapshot expected")
+            };
+            assert!(snapshot.sessions[0].activity.waiting.is_none());
+            resumed
+                .execute(resumed.prepare(Command::ResolveQuestion {
+                    session,
+                    question: question.id,
+                    response: Response::Answer(Answer::Text(String::new())),
+                }))
+                .await
+                .unwrap();
+            let resolved = history(&resumed, session).await;
             assert_eq!(
-                page.questions[0].state,
-                if stop {
-                    State::Cancelled
-                } else {
-                    State::Interrupted
-                }
+                resolved.questions[0].state,
+                State::Answered(Answer::Text(String::new()))
             );
-            assert_eq!(
-                resumed
-                    .execute(resumed.prepare(Command::ResolveQuestion {
-                        session,
-                        question: question.id,
-                        response: Response::StartCoding {
-                            expected_revision: fixture.session.revision,
-                            message: EXECUTE.into(),
-                        },
-                    }))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::Conflict
-            );
+            assert!(resolved.entries.iter().any(|entry| entry.parts.iter().any(|part| {
+                matches!(part,Part::ToolResult{name,result,..} if name == "plan_review" && result["status"] == "answered")
+            })));
             assert!(
                 page.entries
                     .iter()

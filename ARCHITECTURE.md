@@ -404,9 +404,10 @@ Natural completion advances the queue automatically. Explicit
 Stop and restart preserve unconsumed input, references and attachments in a paused
 queue without automatic replay.
 
-Main-session planning completion requires review even when the model returns a
-plain answer instead of requesting review itself. Node records this question in
-the same durable history. Executing the plan atomically admits one coding turn
+Successful main-session planning completion ends execution and retains a pending
+review in the same durable history, even after a plain answer; a new user input
+closes that review without changing mode. Ordinary model questions still wait for
+their answers. Explicitly executing the plan atomically admits one coding turn
 and changes the session mode while preserving its permission. Continuing planning
 keeps Plan mode and does not itself admit another turn; subsequent user input or
 an already admitted queue supplies further work.

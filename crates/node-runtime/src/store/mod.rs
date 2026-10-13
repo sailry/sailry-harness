@@ -1132,6 +1132,13 @@ impl Store {
                                 request.command,
                                 sailry_protocol::Command::SubmitTurn { .. }
                                     | sailry_protocol::Command::SubmitTask { .. }
+                                    | sailry_protocol::Command::ResolveQuestion {
+                                        response:
+                                            sailry_protocol::conversation::question::Response::StartCoding {
+                                                ..
+                                            },
+                                        ..
+                                    }
                                     | sailry_protocol::Command::ContinueTurn { .. }
                                     | sailry_protocol::Command::PluginTransaction { .. }
                                     | sailry_protocol::Command::StartSession(_)

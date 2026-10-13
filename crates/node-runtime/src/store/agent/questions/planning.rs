@@ -41,7 +41,9 @@ pub(in crate::store) fn accept(
     if question.state != State::Pending {
         return Err(Fault::new(ErrorCode::Conflict, "plan has already closed"));
     }
-    calls::active(db, question.turn)?;
+    if !super::super::review::completed(db, &question)? {
+        calls::active(db, question.turn)?;
+    }
     if !matches!(spec(db, &question)?.input, Input::Plan) {
         return Err(sailry_protocol::Fault::invalid(
             "question does not contain a plan",

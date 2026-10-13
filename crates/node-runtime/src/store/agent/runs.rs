@@ -372,6 +372,12 @@ fn claim_with(
             None
         },
     };
+    let review_changes =
+        if invocation.child.is_none() && !invocation.automatic && run.kind == RunKind::Task {
+            super::review::supersede(&transaction, run.session)?
+        } else {
+            Vec::new()
+        };
     run.status = Status::Running;
     run.started_ms = Some(chrono::Utc::now().timestamp_millis());
     capture(
@@ -387,6 +393,9 @@ fn claim_with(
     let child = super::children::get(&transaction, &run)?;
     transaction.commit().map_err(storage_error)?;
     let _ = events.send(envelope);
+    for (session, change) in review_changes {
+        database.feeds.publish(database.node, session, change);
+    }
     database
         .feeds
         .publish(database.node, run.session, Change::Queue(queue));
@@ -410,11 +419,23 @@ fn claim_with(
     Ok(Some(invocation))
 }
 
+#[cfg(test)]
 pub(super) fn finish(
     database: &mut Database,
     turn: TurnId,
     status: Status,
     error: Option<Fault>,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<Status, Fault> {
+    finish_with(database, turn, status, error, None, events)
+}
+
+pub(super) fn finish_with(
+    database: &mut Database,
+    turn: TurnId,
+    status: Status,
+    error: Option<Fault>,
+    review: Option<AdkEvent>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Status, Fault> {
     let mut run = get(&database.connection, turn)?;
@@ -459,6 +480,14 @@ pub(super) fn finish(
             question::State::Cancelled
         },
     )?;
+    let review_changes = if run.status == Status::Completed {
+        review
+            .map(|event| super::review::publish(&transaction, &run, event))
+            .transpose()?
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let queue = super::queue::read(&transaction, run.session)?;
     let envelope = changed(&transaction, database.node, run.session)?;
     let child = super::children::get(&transaction, &run)?;
@@ -491,6 +520,11 @@ pub(super) fn finish(
     let _ = events.send(envelope);
     database.approvals.retain(|_, (owner, _)| *owner != turn);
     database.questions.retain(|_, (owner, _)| *owner != turn);
+    // The question is pending consent, never a Running or Waiting execution.
+    super::feed::run(database, run.clone());
+    for (session, change) in review_changes {
+        database.feeds.publish(database.node, session, change);
+    }
     for question in questions {
         database
             .feeds
@@ -504,7 +538,6 @@ pub(super) fn finish(
     database
         .feeds
         .publish(database.node, run.session, Change::Queue(queue));
-    super::feed::run(database, run);
     if let Some(child) = child {
         database
             .feeds

@@ -69,6 +69,7 @@ fn finish(
             status,
             error,
             owner,
+            review: None,
             reply,
         },
         &fixture.events,

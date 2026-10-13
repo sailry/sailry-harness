@@ -8,6 +8,7 @@ use serde_json::json;
 mod content;
 mod display;
 mod progress;
+mod questions;
 
 #[test]
 fn projects_closing_interactions_for_controllers() {

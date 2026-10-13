@@ -13,89 +13,14 @@ pub(super) fn append(
     database: &mut Database,
     session: SessionId,
     turn: TurnId,
-    mut event: AdkEvent,
+    event: AdkEvent,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> adk_core::Result<()> {
-    if event.llm_response.partial {
-        return Err(AdkError::session("partial output is not durable history"));
-    }
-    if event.id.is_empty() || event.id.len() > 256 {
-        return Err(AdkError::session("event identifier is invalid"));
-    }
-    event
-        .actions
-        .state_delta
-        .retain(|key, _| !key.starts_with(adk_session::KEY_PREFIX_TEMP));
-    // The canonical event keeps response metadata, not a second copy of model requests.
-    event.llm_request = None;
-    event
-        .provider_metadata
-        .remove("gcp.vertex.agent.llm_request");
-    event
-        .provider_metadata
-        .remove("gcp.vertex.agent.llm_response");
-    if event.llm_response.error_code.is_some() || event.llm_response.error_message.is_some() {
-        event.llm_response.error_code = Some("provider_error".into());
-        event.llm_response.error_message = Some("model response reported an error".into());
-    }
-    super::approvals::results::append(&database.connection, turn, &mut event).map_err(adk_error)?;
-    let body = encode(&event).map_err(adk_error)?;
-    if body.len() > MAX_FRAME_BYTES {
-        return Err(AdkError::session("event exceeds the history frame limit"));
-    }
-    let mut write = || -> Result<(), Fault> {
+    let write = || -> Result<(), Fault> {
         let transaction = database.connection.transaction().map_err(storage_error)?;
-        let owns: bool = transaction
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM turns WHERE id=?1 AND session=?2)",
-                params![turn.to_string(), session.to_string()],
-                |row| row.get(0),
-            )
-            .map_err(storage_error)?;
-        if !owns {
-            return Err(sailry_protocol::Fault::invalid(
-                "event turn belongs to another session",
-            ));
-        }
-        let previous: Option<(String, Vec<u8>)> = transaction
-            .query_row(
-                "SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2",
-                params![session.to_string(), event.id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .map_err(storage_error)?;
-        if let Some((previous_turn, previous)) = previous {
-            // JSON maps need not retain insertion order across a process restart.
-            if previous_turn != turn.to_string()
-                || serde_json::from_slice::<Value>(&previous).map_err(storage_error)?
-                    != serde_json::from_slice::<Value>(&body).map_err(storage_error)?
-            {
-                return Err(Fault::new(
-                    ErrorCode::Conflict,
-                    "event identifier already has different content",
-                ));
-            }
+        let Some(entry) = insert(&transaction, session, turn, event)? else {
             return Ok(());
-        }
-        super::compaction::validate(&transaction, session, turn, &event)?;
-        super::elicitation::validate(&transaction, turn, &event)?;
-        super::review::validate(&transaction, turn, &event)?;
-        transaction
-            .execute(
-                "INSERT INTO agent_events(session,id,turn,body) VALUES(?1,?2,?3,?4)",
-                params![session.to_string(), event.id, turn.to_string(), body],
-            )
-            .map_err(storage_error)?;
-        let sequence = transaction.last_insert_rowid() as u64;
-        transaction
-            .execute(
-                "INSERT INTO conversation_events(session,sequence) VALUES(?1,?2)",
-                params![session.to_string(), sequence as i64],
-            )
-            .map_err(storage_error)?;
-        apply_state(&transaction, session, &event)?;
-        let entry = project(&transaction, sequence, turn, &event)?;
+        };
         let statistics = super::statistics::read(&transaction, session)?;
         let parents = super::statistics::parents(&transaction, turn)?
             .into_iter()
@@ -120,6 +45,85 @@ pub(super) fn append(
         Ok(())
     };
     write().map_err(adk_error)
+}
+
+/// Insert into the caller's existing transaction; this is the same history owner.
+pub(super) fn insert(
+    db: &Connection,
+    session: SessionId,
+    turn: TurnId,
+    mut event: AdkEvent,
+) -> Result<Option<Entry>, Fault> {
+    if event.llm_response.partial {
+        return Err(Fault::invalid("partial output is not durable history"));
+    }
+    if event.id.is_empty() || event.id.len() > 256 {
+        return Err(Fault::invalid("event identifier is invalid"));
+    }
+    event
+        .actions
+        .state_delta
+        .retain(|key, _| !key.starts_with(adk_session::KEY_PREFIX_TEMP));
+    // The canonical event keeps response metadata, not a second copy of model requests.
+    event.llm_request = None;
+    event
+        .provider_metadata
+        .remove("gcp.vertex.agent.llm_request");
+    event
+        .provider_metadata
+        .remove("gcp.vertex.agent.llm_response");
+    if event.llm_response.error_code.is_some() || event.llm_response.error_message.is_some() {
+        event.llm_response.error_code = Some("provider_error".into());
+        event.llm_response.error_message = Some("model response reported an error".into());
+    }
+    super::approvals::results::append(db, turn, &mut event)?;
+    let body = encode(&event)?;
+    if body.len() > MAX_FRAME_BYTES {
+        return Err(Fault::invalid("event exceeds the history frame limit"));
+    }
+    let owns: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM turns WHERE id=?1 AND session=?2)",
+            params![turn.to_string(), session.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    if !owns {
+        return Err(Fault::invalid("event turn belongs to another session"));
+    }
+    let previous: Option<(String, Vec<u8>)> = db.query_row(
+        "SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2",
+        params![session.to_string(),event.id],|row| Ok((row.get(0)?,row.get(1)?)),
+    ).optional().map_err(storage_error)?;
+    if let Some((previous_turn, previous)) = previous {
+        // JSON maps need not retain insertion order across a process restart.
+        if previous_turn != turn.to_string()
+            || serde_json::from_slice::<Value>(&previous).map_err(storage_error)?
+                != serde_json::from_slice::<Value>(&body).map_err(storage_error)?
+        {
+            return Err(Fault::new(
+                ErrorCode::Conflict,
+                "event identifier already has different content",
+            ));
+        }
+        return Ok(None);
+    }
+    super::compaction::validate(db, session, turn, &event)?;
+    super::elicitation::validate(db, turn, &event)?;
+    super::review::validate(db, turn, &event)?;
+    db.execute(
+        "INSERT INTO agent_events(session,id,turn,body) VALUES(?1,?2,?3,?4)",
+        params![session.to_string(), event.id, turn.to_string(), body],
+    )
+    .map_err(storage_error)?;
+    let sequence = db.last_insert_rowid() as u64;
+    db.execute(
+        "INSERT INTO conversation_events(session,sequence) VALUES(?1,?2)",
+        params![session.to_string(), sequence as i64],
+    )
+    .map_err(storage_error)?;
+    apply_state(db, session, &event)?;
+    Ok(Some(project(db, sequence, turn, &event)?))
 }
 
 fn apply_state(db: &Connection, session: SessionId, event: &AdkEvent) -> Result<(), Fault> {

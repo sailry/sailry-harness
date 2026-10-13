@@ -70,7 +70,27 @@ pub(super) fn begin(
         calls::locate(&transaction, turn, request)?
     };
     let call = calls::id(request)?;
-    let exists: bool = transaction
+    let question = create(&transaction, &run, call, entry, index)?;
+    let envelope = changed(&transaction, database.node, run.session)?;
+    transaction.commit().map_err(storage_error)?;
+    let _ = events.send(envelope);
+    database.feeds.publish(
+        database.node,
+        run.session,
+        Change::Question(question.clone()),
+    );
+    Ok(question)
+}
+
+pub(super) fn create(
+    db: &Connection,
+    run: &Run,
+    call: &str,
+    entry: String,
+    index: usize,
+) -> Result<Question, Fault> {
+    let turn = run.turn;
+    let exists: bool = db
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM agent_questions WHERE turn=?1 AND call=?2)",
             params![turn.to_string(), call],
@@ -91,25 +111,16 @@ pub(super) fn begin(
         index,
         state: State::Pending,
     };
-    transaction
-        .execute(
-            "INSERT INTO agent_questions(id,turn,call,body) VALUES(?1,?2,?3,?4)",
-            params![
-                question.id.to_string(),
-                turn.to_string(),
-                call,
-                encode(&question)?
-            ],
-        )
-        .map_err(storage_error)?;
-    let envelope = changed(&transaction, database.node, run.session)?;
-    transaction.commit().map_err(storage_error)?;
-    let _ = events.send(envelope);
-    database.feeds.publish(
-        database.node,
-        run.session,
-        Change::Question(question.clone()),
-    );
+    db.execute(
+        "INSERT INTO agent_questions(id,turn,call,body) VALUES(?1,?2,?3,?4)",
+        params![
+            question.id.to_string(),
+            turn.to_string(),
+            call,
+            encode(&question)?
+        ],
+    )
+    .map_err(storage_error)?;
     Ok(question)
 }
 
@@ -155,7 +166,9 @@ pub(in crate::store) fn resolve(
             "question has already closed",
         ));
     }
-    calls::active(db, question.turn)?;
+    if !review::completed(db, &question)? {
+        calls::active(db, question.turn)?;
+    }
     if let Response::Answer(answer) = response {
         spec(db, &question)?.validate_answer(answer)?;
         elicitation::validate_answer(db, &question, answer)?;
@@ -256,7 +269,7 @@ fn get(db: &Connection, id: QuestionId) -> Result<Question, Fault> {
     .map_err(storage_error)
 }
 
-fn put(db: &Connection, question: &Question) -> Result<(), Fault> {
+pub(super) fn put(db: &Connection, question: &Question) -> Result<(), Fault> {
     db.execute(
         "UPDATE agent_questions SET body=?2 WHERE id=?1",
         params![question.id.to_string(), encode(question)?],

@@ -61,6 +61,65 @@ pub struct Call {
 }
 
 impl Call {
+    /// Completed synthetic plan review is consent, not a running tool request.
+    pub fn question_pending<'a>(
+        &self,
+        page: &'a Page,
+    ) -> Option<&'a sailry_protocol::conversation::question::Question> {
+        if self.response.is_some() {
+            return None;
+        }
+        use sailry_protocol::conversation::{RunKind, question::State};
+        let question = page.questions.iter().find(|question| {
+            self.question
+                .as_ref()
+                .is_some_and(|owned| owned.id == question.id)
+                && question.turn == self.turn
+                && question.entry == self.source.entry
+                && question.index == self.source.index
+                && question.session == page.session
+                && question.state == State::Pending
+        })?;
+        let run = page.runs.iter().find(|run| run.turn == question.turn)?;
+        if run.session != page.session || run.origin.is_some() || run.kind != RunKind::Task {
+            return None;
+        }
+        if run.status == Status::Running {
+            return Some(question);
+        }
+        if self.completion_review(page) {
+            Some(question)
+        } else {
+            None
+        }
+    }
+
+    fn completion_review(&self, page: &Page) -> bool {
+        use sailry_protocol::conversation::{
+            RunKind,
+            question::{Input, State},
+        };
+        self.name == "plan_review"
+            && self.response.is_none()
+            && self
+                .question
+                .as_ref()
+                .is_some_and(|question| question.state == State::Pending)
+            && page.runs.iter().any(|run| {
+                run.turn == self.turn
+                    && run.kind == RunKind::Task
+                    && run.status == Status::Completed
+                    && run.error.is_none()
+            })
+            && page
+                .entries
+                .iter()
+                .any(|entry| entry.id == self.source.entry && entry.author == "plan_review")
+            && self
+                .question_spec(page)
+                .is_some_and(|spec| spec.prompt.is_empty() && matches!(spec.input, Input::Plan))
+    }
+
     pub fn display<'a>(&self, page: &'a Page) -> Option<&'a sailry_protocol::tool::Display> {
         match self.source.part(page)? {
             Part::ToolCall { display, .. } => display.as_deref().filter(|display| display.valid()),
@@ -213,6 +272,7 @@ pub(super) fn collect(page: &Page) -> Vec<Call> {
                 .map(|run| run.status)
             {
                 Some(Status::Running | Status::Stopping | Status::Queued) => call.state,
+                Some(Status::Completed) if call.completion_review(page) => State::Waiting,
                 Some(Status::Cancelled)
                     if call.approval.as_ref().is_none_or(|approval| {
                         approval.state != sailry_protocol::conversation::ApprovalState::Approved

@@ -70,6 +70,9 @@ fn executes_completed_plan(cx: &mut TestAppContext) {
             let page = &view.history.snapshot.as_ref().unwrap().page;
             assert_eq!(page.runs.len(), 1);
             assert_eq!(page.questions.len(), 1);
+            assert_eq!(page.runs[0].status, Status::Completed);
+            assert!(view.active().is_none());
+            assert_eq!(page.questions[0].state, State::Pending);
             assert!(matches!(
                 view.questions.editing.as_ref().unwrap().spec.input,
                 Input::Plan
@@ -134,6 +137,58 @@ fn continues_completed_plan(cx: &mut TestAppContext) {
                 page.questions[0].state,
                 State::Answered(Answer::Text(String::new()))
             );
+        });
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn new_controller_input_closes_completed_review(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = fixture(remote, vec![]);
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        let id = ready(&view, visual, None);
+        assert!(view.read_with(visual, |view, _| view.active().is_none()));
+        tap(visual, "live-chat-input");
+        visual.simulate_input("Retained composer draft 中文 🙂");
+        fixture.execute(Command::QueueTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Further planning input".into(),
+        });
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .questions
+                        .iter()
+                        .any(|question| question.id == id && question.state == State::Cancelled)
+                })
+        });
+        view.read_with(visual, |view, cx| {
+            assert_eq!(
+                view.input.read(cx).value(),
+                "Retained composer draft 中文 🙂"
+            );
+            assert!(view.active().is_none());
+            assert_eq!(view.session.as_ref().unwrap().config.mode, WorkMode::Plan);
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            assert_eq!(page.runs[0].status, Status::Completed);
+            assert_eq!(page.queue.items.len(), 1);
+            assert!(
+                view.history
+                    .calls
+                    .iter()
+                    .all(|call| call.question_pending(page).is_none())
+            );
+            assert!(view.questions.editing.is_none());
         });
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
         visual.update(|window, _| window.remove_window());

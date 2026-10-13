@@ -4,6 +4,10 @@ use adk_core::ToolConfirmationRequest;
 use question::{Answer, Response, Spec};
 use serde::{Deserialize, Serialize};
 
+mod deferred;
+pub(in crate::store) use deferred::{Changes, command};
+pub(super) use deferred::{completed, publish, supersede};
+
 const SOURCE: &str = "sailry.plan.review";
 const RESULT: &str = "sailry.plan.review_result";
 pub(crate) const TOOL: &str = "plan_review";
@@ -42,16 +46,24 @@ pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Resul
     let Some(source) = event.provider_metadata.get(SOURCE) else {
         return Ok(());
     };
-    let run = calls::active(db, turn)?;
+    let run = runs::get(db, turn)?;
     if event.content().is_some()
         || event.author != TOOL
+        || run.kind != RunKind::Task
+        || !matches!(run.status, Status::Running | Status::Completed)
         || permissions::config(db, turn)?.mode != WorkMode::Plan
     {
         return Err(sailry_protocol::Fault::invalid(
             "plan review requires a planning completion",
         ));
     }
-    crate::store::sessions::writable(&crate::store::commands::session(db, run.session)?)?;
+    let session = crate::store::commands::session(db, run.session)?;
+    crate::store::sessions::writable(&session)?;
+    if session.delegation.is_some() {
+        return Err(sailry_protocol::Fault::invalid(
+            "child plans do not require review",
+        ));
+    }
     let body: Vec<u8> = db
         .query_row(
             "SELECT body FROM agent_events WHERE turn=?1 AND id=?2",
@@ -61,6 +73,8 @@ pub(super) fn validate(db: &Connection, turn: TurnId, event: &AdkEvent) -> Resul
         .map_err(storage_error)?;
     let source: AdkEvent = serde_json::from_slice(&body).map_err(storage_error)?;
     if source.llm_response.partial
+        || source.llm_response.error_code.is_some()
+        || source.llm_response.error_message.is_some()
         || !source.is_final_response()
         || source
             .content()

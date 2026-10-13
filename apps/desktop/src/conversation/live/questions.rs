@@ -74,14 +74,9 @@ impl Form {
 impl View {
     fn question_pending(&self, id: QuestionId) -> Option<&Question> {
         let page = &self.history.snapshot.as_ref()?.page;
-        page.questions.iter().find(|question| {
-            question.id == id
-                && question.state == State::Pending
-                && self.session() == Some(question.session)
-                && page
-                    .runs
-                    .iter()
-                    .any(|run| run.turn == question.turn && run.status == Status::Running)
+        self.history.calls.iter().find_map(|call| {
+            call.question_pending(page)
+                .filter(|question| question.id == id && self.session() == Some(question.session))
         })
     }
 
