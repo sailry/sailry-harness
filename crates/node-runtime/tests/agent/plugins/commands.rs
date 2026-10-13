@@ -197,6 +197,8 @@ async fn retains_background_processes_and_scopes_public_actions() {
                 json!({"access":"unrestricted","command":"printf ready; sleep 60", "background":true}),
             ),
             (name("read_command"), json!({})),
+            (name("read_command"), json!({"id":null})),
+            (name("read_command"), json!({"id":"bogus"})),
         ])
         .await;
         let mut fixture = Fixture::new(remote, &server).await;
@@ -232,6 +234,13 @@ async fn retains_background_processes_and_scopes_public_actions() {
         let id: RequestId = serde_json::from_value(result[0]["data"]["id"].clone()).unwrap();
         assert_eq!(result[1]["kind"], "commands");
         assert_eq!(result[1]["data"][0]["id"], json!(id));
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[1]["data"].as_array().unwrap().len(), 1);
+        assert_eq!(result[2]["kind"], "commands");
+        assert_eq!(result[2]["data"].as_array().unwrap().len(), 1);
+        assert_eq!(result[2]["data"][0]["id"], json!(id));
+        assert_eq!(result[3]["isError"], true);
+        assert_eq!(result[3]["error"]["code"], "invalid_request");
         let context = scope(&fixture, &info);
         let read = fixture
             .client
@@ -321,9 +330,9 @@ async fn retains_background_processes_and_scopes_public_actions() {
         };
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         let result = results(&page);
-        assert_eq!(result[2]["kind"], "command_output", "{page:?}");
-        assert_eq!(result[2]["data"]["info"]["id"], json!(id));
-        assert_eq!(result[3]["kind"], "command_output");
+        assert_eq!(result[4]["kind"], "command_output", "{page:?}");
+        assert_eq!(result[4]["data"]["info"]["id"], json!(id));
+        assert_eq!(result[5]["kind"], "command_output");
         assert_eq!(page.approvals.len(), 2);
         assert!(page.approvals.iter().all(|approval| {
             approval.state == ApprovalState::Approved && approval.source == ApprovalSource::Full
