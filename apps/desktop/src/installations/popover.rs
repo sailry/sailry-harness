@@ -85,7 +85,11 @@ pub(crate) fn button(window: &mut Window, offset: Point<Pixels>, cx: &mut App) -
                                     .loading(measured.is_empty())
                                     .value(value)
                                     .color(cx.theme().foreground)
-                                    .accessibility_label(tr("installation_title")),
+                                    .accessibility_label(format!(
+                                        "{} · {}",
+                                        tr("installation_title"),
+                                        tr("installation_installing")
+                                    )),
                             )
                         })
                         .size_8()

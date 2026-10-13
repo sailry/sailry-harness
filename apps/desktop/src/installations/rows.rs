@@ -1,5 +1,6 @@
 use super::*;
 use gpui_kit::assets::IconName;
+use gpui_kit::base::actions::Confirm;
 use gpui_kit::component::{
     ActiveTheme as _, Icon, IndexPath, Sizable as _, h_flex, tooltip::Tooltip, v_flex,
 };
@@ -172,7 +173,9 @@ impl ListDelegate for Rows {
             |progress| format!("{phase} · {location} · {}", measurement(progress)),
         );
         let retry = self.owner.clone();
+        let retry_action = retry.clone();
         let remove = self.owner.clone();
+        let remove_action = remove.clone();
         let spacing = cx.theme().spacing_tokens();
         let height = window.rem_size() * 2.75;
         let running = matches!(
@@ -217,11 +220,10 @@ impl ListDelegate for Rows {
                 .tooltip(move |window, cx| Tooltip::new(detail.clone()).build(window, cx))
                 .debug_selector(move || format!("installation-{}", key.1))
                 .child(
-                    // Kit's content wrapper has an intrinsic minimum. Anchor the
-                    // columns to the row so long labels cannot push controls out.
+                    // Fill Kit's content wrapper and let the title column shrink
+                    // so long labels cannot push the controls out.
                     h_flex()
-                        .absolute()
-                        .inset_0()
+                        .w_full()
                         .h(height)
                         .min_w_0()
                         .px(spacing.sm)
@@ -326,6 +328,8 @@ impl ListDelegate for Rows {
                             },
                         )
                         .when(row.actionable, |view| {
+                            // Popover maps Enter and Space to Confirm before a
+                            // Button can observe their raw key-down events.
                             view.child(
                                 h_flex()
                                     .flex_shrink_0()
@@ -344,6 +348,11 @@ impl ListDelegate for Rows {
                                                 .accessibility_label(tr("installation_retry"))
                                                 .debug_selector(move || {
                                                     format!("installation-retry-{}", key.1)
+                                                })
+                                                .on_action(move |_: &Confirm, window, cx| {
+                                                    let _ = retry_action.update(cx, |queue, cx| {
+                                                        queue.retry(key, window, cx)
+                                                    });
                                                 })
                                                 .on_click(move |_, window, cx| {
                                                     let _ = retry.update(cx, |queue, cx| {
@@ -366,6 +375,11 @@ impl ListDelegate for Rows {
                                             .accessibility_label(tr("installation_remove"))
                                             .debug_selector(move || {
                                                 format!("installation-remove-{}", key.1)
+                                            })
+                                            .on_action(move |_: &Confirm, window, cx| {
+                                                let _ = remove_action.update(cx, |queue, cx| {
+                                                    queue.remove(key, window, cx)
+                                                });
                                             })
                                             .on_click(move |_, window, cx| {
                                                 let _ = remove.update(cx, |queue, cx| {
