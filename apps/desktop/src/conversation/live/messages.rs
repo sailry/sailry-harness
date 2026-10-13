@@ -265,6 +265,11 @@ impl View {
             .outgoing
             .as_ref()
             .is_some_and(|message| message.row == turn)
+            && self.history.snapshot.as_ref().is_none_or(|snapshot| {
+                !snapshot.page.runs.iter().any(|run| {
+                    run.turn == turn && run.status != Status::Queued && run.input.is_some()
+                })
+            })
         {
             return self.outgoing_message(cx);
         }

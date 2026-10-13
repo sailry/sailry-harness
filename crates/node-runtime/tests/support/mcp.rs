@@ -119,6 +119,19 @@ fn stdio_peer() {
         let result = match request["method"].as_str().unwrap_or("") {
             "initialize" if mode == "slow_handshake" => continue,
             "initialize" => {
+                if mode == "child_handshake" {
+                    let launches = fs::read(data.join("launches")).unwrap().len();
+                    assert!(
+                        matches!(launches, 1 | 2),
+                        "one parent and one child are expected"
+                    );
+                    if launches == 2 {
+                        fs::write(data.join("child.ready"), "ready").unwrap();
+                        while !data.join("child.release").exists() {
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                        }
+                    }
+                }
                 if mode.starts_with("elicitation") {
                     assert!(request["params"]["capabilities"]["elicitation"]["form"].is_object());
                     assert!(request["params"]["capabilities"]["elicitation"]["url"].is_object());

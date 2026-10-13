@@ -42,10 +42,7 @@ impl Overview {
             .collect();
         Self {
             turn: Some(turn),
-            children: view
-                .child_activity_turn()
-                .map(|turn| view.child_rows(turn))
-                .unwrap_or_default(),
+            children: view.activity_rows(),
             progress,
             sources,
         }

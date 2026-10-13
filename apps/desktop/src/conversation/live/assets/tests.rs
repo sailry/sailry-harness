@@ -39,7 +39,7 @@ impl Render for Harness {
     }
 }
 
-fn open(
+pub(in crate::conversation::live) fn open(
     cx: &mut TestAppContext,
     binding: Binding,
     session: Session,
@@ -708,9 +708,22 @@ fn opens_child_without_discarding_draft(cx: &mut TestAppContext) {
             for child in &mut page.children {
                 child.run.status = Status::Completed;
             }
-            assert!(view.child_activity_turn().is_none());
+            assert!(view.activity_rows().is_empty());
             assert!(overview::Overview::new(view).children.is_empty());
-            assert_eq!(view.child_rows(turn).len(), 2);
+            assert_eq!(
+                super::super::subagents::latest(
+                    view.history
+                        .snapshot
+                        .as_ref()
+                        .unwrap()
+                        .page
+                        .children
+                        .iter()
+                        .filter(|child| child.origin.turn == turn)
+                )
+                .len(),
+                2
+            );
             cx.notify();
         });
         wait(visual, |_| true);
@@ -722,7 +735,7 @@ fn opens_child_without_discarding_draft(cx: &mut TestAppContext) {
                     .is_none()
             );
         }
-        // A terminal parent must not repopulate activity from its historical children.
+        // Owned running children remain visible independently of parent status.
         for status in [
             Status::Completed,
             Status::Cancelled,
@@ -740,18 +753,31 @@ fn opens_child_without_discarding_draft(cx: &mut TestAppContext) {
                     .unwrap()
                     .status = status;
                 assert!(view.active().is_none());
-                assert!(view.child_activity_turn().is_none());
-                assert!(overview::Overview::new(view).children.is_empty());
-                assert_eq!(view.child_rows(turn).len(), 2);
+                assert_eq!(view.activity_rows().len(), 2);
+                assert_eq!(overview::Overview::new(view).children.len(), 2);
+                assert_eq!(
+                    super::super::subagents::latest(
+                        view.history
+                            .snapshot
+                            .as_ref()
+                            .unwrap()
+                            .page
+                            .children
+                            .iter()
+                            .filter(|child| child.origin.turn == turn)
+                    )
+                    .len(),
+                    2
+                );
                 cx.notify();
             });
             wait(visual, |_| true);
-            assert!(visual.debug_bounds("live-composer-subagents").is_none());
+            assert!(visual.debug_bounds("live-composer-subagents").is_some());
             for child in &children {
                 assert!(
                     visual
                         .debug_bounds(Box::leak(format!("asset-child-{child}").into_boxed_str()))
-                        .is_none()
+                        .is_some()
                 );
             }
             assert!(panel.read_with(visual, |panel, _| panel.open));

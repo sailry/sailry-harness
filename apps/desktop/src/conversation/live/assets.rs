@@ -5,7 +5,7 @@ use sailry_protocol::conversation::assets::{Group, Kind, Query, Target};
 mod overview;
 mod render;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;
 
 impl View {
     pub(crate) fn open_file_image(

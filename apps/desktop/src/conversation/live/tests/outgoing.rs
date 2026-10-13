@@ -283,6 +283,155 @@ fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn guidance_handoff_precedes_canonical_history(cx: &mut TestAppContext) {
+    const MESSAGE: &str = "Use the settled tool result and finish briefly 中文 🙂";
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_tools(
+            remote,
+            vec![(
+                crate::agent_fixture::plugin_tool("commands", "run_command"),
+                serde_json::json!({"access":"unrestricted","command":"printf ready"}),
+            )],
+        );
+        fixture.start();
+        let delayed = Arc::new(Delayed {
+            inner: fixture.transport.clone(),
+            dispatch: CancellationToken::new(),
+            reply: CancellationToken::new(),
+            history: CancellationToken::new(),
+            identity: CancellationToken::new(),
+            held_input: Some(MESSAGE),
+        });
+        delayed.dispatch.cancel();
+        delayed.reply.cancel();
+        delayed.identity.cancel();
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(delayed.clone()));
+        let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).history.calls.first().is_some_and(|call| {
+                call.approval.as_ref().is_some_and(|approval| {
+                    approval.state == sailry_protocol::conversation::ApprovalState::Pending
+                })
+            })
+        });
+        let (active, approval) = view.read_with(visual, |view, _| {
+            let call = &view.history.calls[0];
+            (call.turn, call.approval.as_ref().unwrap().id)
+        });
+        fixture::tap(visual, "live-chat-input");
+        visual.simulate_input(MESSAGE);
+        visual.simulate_keystrokes("enter");
+        wait(visual, |cx| {
+            view.read(cx).sent.len() == 1 && !view.read(cx).pending
+        });
+        let turn = view.read_with(visual, |view, _| {
+            view.sent.values().next().unwrap().turn.unwrap()
+        });
+        let guide: &'static str = Box::leak(format!("live-queue-guide-{turn}").into_boxed_str());
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .page
+                        .queue
+                        .items
+                        .iter()
+                        .any(|item| item.turn == turn)
+                })
+        });
+        fixture::tap(visual, guide);
+        wait(visual, |cx| {
+            view.read(cx)
+                .outgoing
+                .as_ref()
+                .is_some_and(|message| message.turn == Some(turn) && message.guidance.is_some())
+        });
+        view.read_with(visual, |view, _| {
+            let snapshot = view.history.snapshot.as_ref().unwrap();
+            assert!(
+                snapshot
+                    .page
+                    .runs
+                    .iter()
+                    .any(|run| { run.turn == active && run.status == Status::Running })
+            );
+            let queued = snapshot
+                .page
+                .runs
+                .iter()
+                .find(|run| run.turn == turn)
+                .unwrap();
+            assert_eq!(queued.status, Status::Queued);
+            assert!(queued.input.is_none());
+        });
+        let phase: &'static str =
+            Box::leak(format!("live-turn-phase-{turn}-turn_awaiting_response").into_boxed_str());
+        assert!(visual.debug_bounds("live-outgoing-message").is_some());
+        assert!(visual.debug_bounds(phase).is_none());
+        fixture.execute(Command::ResolveApproval {
+            session: fixture.session.id,
+            approval,
+            decision: sailry_protocol::conversation::Decision::Approve,
+        });
+        wait(visual, |cx| {
+            view.read(cx)
+                .history
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot.page.runs.iter().any(|run| {
+                        run.turn == turn && run.status == Status::Running && run.input.is_some()
+                    })
+                })
+        });
+        view.read_with(visual, |view, _| {
+            let snapshot = view.history.snapshot.as_ref().unwrap();
+            assert!(
+                snapshot
+                    .page
+                    .runs
+                    .iter()
+                    .any(|run| { run.turn == active && run.status == Status::Continued })
+            );
+            assert!(!snapshot.page.entries.iter().any(|entry| entry.turn == turn));
+            let message = view.outgoing.as_ref().unwrap();
+            assert_eq!(message.turn, Some(turn));
+            assert_eq!(message.input.text, MESSAGE);
+            assert!(message.guidance.is_some());
+        });
+        let user: &'static str = Box::leak(format!("live-user-text-{turn}").into_boxed_str());
+        let user_bounds = visual.debug_bounds(user).unwrap();
+        let phase_bounds = visual.debug_bounds(phase).unwrap();
+        assert!(user_bounds.bottom() <= phase_bounds.top());
+        assert!(visual.debug_bounds("live-outgoing-message").is_none());
+        delayed.history.cancel();
+        wait(visual, |cx| view.read(cx).outgoing.is_none());
+        view.read_with(visual, |view, _| {
+            assert_eq!(
+                view.history
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .page
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.turn == turn && entry.author == "user")
+                    .count(),
+                1,
+            );
+        });
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn queued_prompt_survives_until_canonical_history(cx: &mut TestAppContext) {
     const MESSAGE: &str = concat!(
         "Run this queued message and preserve its full input while execution starts. ",

@@ -94,9 +94,10 @@ Saving issued application credentials uses the captured package revision and
 the existing settings transaction, preserving unrelated values and credentials.
 Registration does not establish publication, document access or MCP entitlement.
 
-Claiming an ordinary main turn freezes its effective input on the existing run
-record. Conversation projections include that input only until canonical user
-history exists, with attachment metadata but no bytes or execution configuration.
+Beginning an ordinary task, including delegated work, freezes its user-facing
+input on the existing run record. Conversation projections include that input
+only until canonical user history exists, with attachment metadata but no bytes,
+role instructions or execution configuration.
 Activity summaries remain metadata-only. Logical history pages preserve full
 inputs using turn cursors rather than truncation or synthetic history events.
 

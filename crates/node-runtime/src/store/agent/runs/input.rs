@@ -1,14 +1,19 @@
-//! One immutable claim capture, projected without creating canonical history.
+//! One immutable execution capture, projected without creating canonical history.
 use super::*;
 use sailry_protocol::conversation::{Input, SentInput};
 
-pub(super) fn capture(db: &Connection, invocation: &Invocation) -> Result<(), Fault> {
-    if invocation.turn.kind != RunKind::Task || invocation.automatic || invocation.child.is_some() {
+pub(in crate::store::agent) fn capture(
+    db: &Connection,
+    turn: &QueuedTurn,
+    automatic: bool,
+    message: &Input,
+) -> Result<(), Fault> {
+    if turn.kind != RunKind::Task || automatic {
         return Ok(());
     }
     db.execute(
         "UPDATE agent_runs SET input=?2 WHERE turn=?1 AND input IS NULL",
-        params![invocation.turn.id.to_string(), encode(&invocation.message)?],
+        params![turn.id.to_string(), encode(message)?],
     )
     .map_err(storage_error)?;
     Ok(())

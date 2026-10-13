@@ -304,6 +304,7 @@ pub(super) fn admit(
     // Child work already has a supervisor slot; it must not wait behind its parent in the root queue.
     super::super::attachments::turns::bind(&tx, turn.id, &message.attachments)?;
     runs::record(&tx, &turn, Status::Running, false)?;
+    runs::capture(&tx, &turn, false, &message)?;
     let provider: Option<Vec<u8>> = tx
         .query_row(
             "SELECT provider FROM agent_runs WHERE turn=?1",

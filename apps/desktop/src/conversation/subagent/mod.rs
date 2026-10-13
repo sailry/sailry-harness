@@ -1,6 +1,6 @@
 mod picker;
 mod view;
-pub(in crate::conversation) use picker::{Choice, Row, live as live_picker};
+pub(in crate::conversation) use picker::{Choice, Row, activity as activity_picker};
 
 use std::collections::BTreeMap;
 

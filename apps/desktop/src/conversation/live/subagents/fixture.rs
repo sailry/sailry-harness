@@ -27,14 +27,30 @@ impl Fixture {
     }
 
     pub fn with_children(remote: bool, count: usize) -> Self {
-        Self::build(remote, count, false)
+        Self::build(remote, count, false, None, false)
     }
 
     pub fn with_worktrees(remote: bool) -> Self {
-        Self::build(remote, 2, true)
+        Self::build(remote, 2, true, None, false)
     }
 
-    fn build(remote: bool, count: usize, isolated: bool) -> Self {
+    pub fn with_held_child(remote: bool, release: sailry_link::CancellationToken) -> Self {
+        let fixture = Self::build(remote, 1, false, Some(release), false);
+        fixture.hold_startup();
+        fixture
+    }
+
+    pub fn with_background(remote: bool, release: sailry_link::CancellationToken) -> Self {
+        Self::build(remote, 1, true, Some(release), true)
+    }
+
+    fn build(
+        remote: bool,
+        count: usize,
+        isolated: bool,
+        release: Option<sailry_link::CancellationToken>,
+        background: bool,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let runtime = Arc::new(tokio::runtime::Runtime::new().unwrap());
         let local = runtime
@@ -98,17 +114,30 @@ impl Fixture {
                 targets.push(tree.id);
             }
         }
-        let parent = runtime.block_on(support::Server::parallel(vec![
+        let calls = vec![
             (crate::agent_fixture::plugin_tool("progress", "update_plan"), serde_json::json!({"title": "Review", "steps": [{"description": "Inspect files", "state": "in_progress"}]})),
             (crate::agent_support::plugin_tool("delegation", "spawn_agent"), serde_json::json!({"role": "review", "title": "Inspect files", "task": "Inspect Unicode paths 中文 🙂 and preserve the original content"})),
             (crate::agent_support::plugin_tool("delegation", "spawn_agent"), serde_json::json!({"role": "review", "title": "Check lifecycle", "task": "Check the independent child lifecycle and cancellation"})),
         ].into_iter().take(count + 1).enumerate().map(|(index, (name, mut args))| {
             if isolated && index > 0 { args["worktree"] = serde_json::json!(targets[index - 1]); }
+            if background && index > 0 { args["background"] = serde_json::json!(true); }
             (name, args)
-        }).collect()));
-        let child = runtime.block_on(support::Server::tools(vec![(crate::agent_fixture::plugin_tool("files", "write_file"), serde_json::json!({
+        }).collect();
+        let parent = if background {
+            runtime.block_on(support::Server::turn_parallel(calls))
+        } else {
+            runtime.block_on(support::Server::parallel(calls))
+        };
+        let child = if let Some(release) = release {
+            runtime.block_on(support::Server::markdown_held(
+                "The delegated inspection is complete".into(),
+                release,
+            ))
+        } else {
+            runtime.block_on(support::Server::tools(vec![(crate::agent_fixture::plugin_tool("files", "write_file"), serde_json::json!({
             "path": "child.txt", "text": "Delegated Unicode content 中文 🙂", "expected_revision": null
-        }))]));
+            }))]))
+        };
         let execute = |command| {
             runtime
                 .block_on(client.execute(client.prepare(command)))
@@ -217,6 +246,43 @@ impl Fixture {
         }
     }
 
+    fn hold_startup(&self) {
+        let path = self.directory.path().join("project/startup-package");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(
+            path.join("plugin.json"),
+            serde_json::json!({
+                "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                "name":"child-startup","version":"0.1.0",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(path.join("mcp.json"), serde_json::json!({
+            "$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+            "mcpServers":{"startup":crate::mcp_peer::config("mcp_peer::stdio_peer","child_handshake")},
+        }).to_string()).unwrap();
+        let Output::Plugin(package) = self.execute(Command::InstallPlugin {
+            worktree: self.session.worktree,
+            path: "startup-package".into(),
+            name: "child-startup".into(),
+            expected_revision: 0,
+            expected_digest: None,
+        }) else {
+            panic!("startup package expected")
+        };
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
+    }
+
+    pub fn startup(&self) -> std::path::PathBuf {
+        let node = if self.client.target() == self.remote.id() {
+            &self.remote
+        } else {
+            &self.local
+        };
+        node.profile().join("plugins/data/child-startup")
+    }
+
     pub fn execute(&self, command: Command) -> Output {
         self.runtime
             .block_on(self.client.execute(self.client.prepare(command)))
@@ -246,4 +312,10 @@ impl Fixture {
         self.runtime.block_on(self.local.shutdown()).unwrap();
         self.runtime.block_on(self.remote.shutdown()).unwrap();
     }
+}
+
+pub(crate) fn observed(
+    view: &super::super::View,
+) -> (Option<Arc<sailry_protocol::conversation::Snapshot>>, usize) {
+    (view.history.snapshot.clone(), view.rows.len())
 }

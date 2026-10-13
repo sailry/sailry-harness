@@ -1,6 +1,6 @@
 use super::super::tests::{click, wait};
 use super::*;
-use crate::conversation::live::subagents::fixture::Fixture;
+use crate::conversation::live::subagents::fixture::{Fixture, observed};
 use core::prelude::v1::test;
 use sailry_protocol::conversation::{ApprovalState, Status};
 
@@ -243,6 +243,233 @@ fn opens_inherited_child(cx: &mut TestAppContext) {
         visual.update(|window, _| window.remove_window());
         drop(source);
         drop(other);
+        drop(shell);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn shows_prompt_before_connection_response(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+    cx.executor().allow_parking();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+        crate::shell::init(cx);
+    });
+    for remote in [false, true] {
+        let release = sailry_link::CancellationToken::new();
+        let fixture = Fixture::with_held_child(remote, release.clone());
+        cx.update(|cx| cx.set_global(fixture.services()));
+        let mut entity = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let shell = cx.new(|cx| Shell::new(window, cx));
+            entity = Some(shell.clone());
+            Root::new(shell, window, cx)
+        });
+        let shell = entity.unwrap();
+        let target = fixture.client.target();
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .live
+                .as_ref()
+                .unwrap()
+                .hosts
+                .contains_key(&target)
+        });
+        visual.update(|_, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.live.as_mut().unwrap().select(target, cx)
+            })
+        });
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .live
+                .as_ref()
+                .unwrap()
+                .view
+                .snapshot
+                .as_ref()
+                .is_some_and(|snapshot| {
+                    snapshot
+                        .sessions
+                        .iter()
+                        .any(|session| session.id == fixture.session.id)
+                })
+        });
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.reveal_session(fixture.session.clone(), window, cx)
+            })
+        });
+        fixture.start();
+        wait(visual, |cx| {
+            fixture.startup().join("child.ready").is_file()
+                && shell.read(cx).current_chat().is_some_and(|source| {
+                    fixture
+                        .page(fixture.session.id)
+                        .children
+                        .first()
+                        .is_some_and(|child| {
+                            source.read(cx).child_session(child.run.session).is_some()
+                        })
+                })
+        });
+        let parent = fixture.page(fixture.session.id);
+        assert_eq!(
+            std::fs::read(fixture.startup().join("launches")).unwrap(),
+            b"xx".to_vec()
+        );
+        assert!(fixture.child.requests.lock().unwrap().is_empty());
+        let child = parent.children[0].clone();
+        assert!(
+            child.run.input.is_none(),
+            "parent summaries retain only metadata"
+        );
+        let page = fixture.page(child.run.session);
+        assert!(page.entries.is_empty());
+        let turn = page.runs[0].turn;
+        assert_eq!(page.runs[0].status, Status::Running);
+        let text = page.runs[0].input.as_ref().unwrap().message.text.clone();
+        assert_eq!(
+            text,
+            "Inspect Unicode paths 中文 🙂 and preserve the original content"
+        );
+        let source = shell.read_with(visual, |shell, _| shell.current_chat().unwrap().clone());
+        click(visual, "live-chat-input");
+        visual.simulate_input("Keep the parent draft");
+        let draft = source.read_with(visual, |source, cx| source.draft(cx));
+        assert_eq!(draft.as_ref(), "Keep the parent draft");
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.open_live_child(source.clone(), child.run.session, window, cx)
+            })
+        });
+        wait(visual, |cx| {
+            matches!(&shell.read(cx).side_resource, Some(SideResource::Child(panel))
+                if panel.selected == child.run.session && panel.child().read(cx).connected())
+        });
+        shell.read_with(visual, |shell, cx| {
+            let Some(SideResource::Child(panel)) = &shell.side_resource else {
+                panic!("child panel expected")
+            };
+            let (snapshot, rows) = observed(panel.child().read(cx));
+            let snapshot = snapshot.unwrap();
+            assert!(snapshot.page.entries.is_empty());
+            assert_eq!(
+                snapshot.page.runs[0].input.as_ref().unwrap().message.text,
+                text
+            );
+            assert_eq!(rows, 1);
+        });
+        let user: &'static str = Box::leak(format!("live-user-text-{turn}").into_boxed_str());
+        let phase: &'static str =
+            Box::leak(format!("live-turn-phase-{turn}-turn_awaiting_response").into_boxed_str());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            wait(visual, |_| true);
+            if visual.debug_bounds(user).is_some() && visual.debug_bounds(phase).is_some() {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "child prompt layout deadline"
+            );
+        }
+        assert!(
+            visual.debug_bounds(user).unwrap().bottom()
+                <= visual.debug_bounds(phase).unwrap().top()
+        );
+        let child_view = shell.read_with(visual, |shell, _| {
+            let Some(SideResource::Child(panel)) = &shell.side_resource else {
+                panic!("child panel expected")
+            };
+            panel.child().clone()
+        });
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let parent = window.within(ElementId::View(source.entity_id()));
+            assert_eq!(parent.find_all_by_role(Role::MultilineTextInput).len(), 1);
+            assert!(parent.try_find("live-send").is_some());
+            let child = window.within(ElementId::View(child_view.entity_id()));
+            assert!(child.find_all_by_role(Role::MultilineTextInput).is_empty());
+            assert!(child.find_all_by_role(Role::TextInput).is_empty());
+            assert!(child.try_find("live-send").is_none());
+        });
+        assert_eq!(
+            source.read_with(visual, |source, cx| source.draft(cx)),
+            draft
+        );
+        click(
+            visual,
+            Box::leak(format!("live-user-copy-{turn}").into_boxed_str()),
+        );
+        visual.update(|_, cx| {
+            assert_eq!(cx.read_from_clipboard().unwrap().text().unwrap(), text);
+        });
+        std::fs::write(fixture.startup().join("child.release"), "ready").unwrap();
+        wait(visual, |cx| {
+            !fixture.child.requests.lock().unwrap().is_empty()
+                && matches!(&shell.read(cx).side_resource, Some(SideResource::Child(panel))
+                if observed(panel.child().read(cx)).0.is_some_and(|snapshot| {
+                    snapshot.page.entries.iter().any(|entry| entry.turn == turn && entry.author == "user")
+                        && snapshot.page.runs[0].input.is_none()
+                }))
+        });
+        shell.read_with(visual, |shell, cx| {
+            let Some(SideResource::Child(panel)) = &shell.side_resource else {
+                panic!("child panel expected")
+            };
+            let (snapshot, rows) = observed(panel.child().read(cx));
+            let snapshot = snapshot.unwrap();
+            assert_eq!(snapshot.page.runs[0].status, Status::Running);
+            assert_eq!(
+                snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.turn == turn && entry.author == "user")
+                    .count(),
+                1
+            );
+            assert_eq!(
+                sailry_client::conversation::turns::input(&snapshot.page, turn)
+                    .unwrap()
+                    .message
+                    .text,
+                text
+            );
+            assert_eq!(rows, 1);
+        });
+        wait(visual, |_| true);
+        assert!(visual.debug_bounds(user).is_some());
+        release.cancel();
+        wait(visual, |_| {
+            fixture.page(child.run.session).runs[0].status == Status::Completed
+        });
+        let page = fixture.page(child.run.session);
+        assert!(page.runs[0].input.is_none());
+        assert_eq!(
+            page.entries
+                .iter()
+                .filter(|entry| entry.turn == turn && entry.author == "user")
+                .count(),
+            1
+        );
+        assert_eq!(
+            sailry_client::conversation::turns::input(&page, turn)
+                .unwrap()
+                .message
+                .text,
+            text
+        );
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        wait(visual, |_| true);
+        assert!(visual.debug_bounds(user).is_some());
+        visual.update(|window, _| window.remove_window());
+        drop(source);
         drop(shell);
         fixture.close();
     }

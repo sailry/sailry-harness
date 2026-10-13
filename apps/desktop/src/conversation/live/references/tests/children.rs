@@ -45,7 +45,7 @@ fn keeps_child_read_only(cx: &mut TestAppContext) {
                 parent.child(child.run.session).unwrap().run.turn,
                 child.run.turn
             );
-            assert_eq!(parent.child_rows(child.origin.turn).len(), 1);
+            assert_eq!(parent.activity_rows().len(), 1);
             let page =
                 Arc::make_mut(&mut Arc::make_mut(parent.history.snapshot.as_mut().unwrap()).page);
             page.children.last_mut().unwrap().run.status = Status::Running;
@@ -53,7 +53,7 @@ fn keeps_child_read_only(cx: &mut TestAppContext) {
                 parent.child(child.run.session).unwrap().run.turn,
                 pending.run.turn
             );
-            assert_eq!(parent.child_rows(child.origin.turn).len(), 1);
+            assert_eq!(parent.activity_rows().len(), 1);
             cx.notify();
         });
         let session = parent.read_with(visual, |parent, _| {

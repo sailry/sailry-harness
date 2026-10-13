@@ -1,5 +1,5 @@
 use super::*;
-use crate::conversation::subagent::{Choice, Row, live_picker};
+use crate::conversation::subagent::{Choice, Row, activity_picker};
 use gpui_kit::component::{button::Button, collapsible::Collapsible};
 
 impl View {
@@ -13,13 +13,6 @@ impl View {
         )
         .map(|title| SharedString::from(title.into_owned()))
         .unwrap_or_else(|| tr("chat_child"))
-    }
-
-    pub(in crate::conversation) fn child_rows(&self, turn: TurnId) -> Vec<Row> {
-        self.current_children(turn)
-            .into_iter()
-            .map(|child| self.row(child))
-            .collect()
     }
 
     fn row(&self, child: &Child) -> Row {
@@ -39,6 +32,13 @@ impl View {
             },
             order: child.run.sequence,
         }
+    }
+
+    pub(in crate::conversation) fn activity_rows(&self) -> Vec<Row> {
+        self.activity_children()
+            .into_iter()
+            .map(|child| self.row(child))
+            .collect()
     }
 
     pub(super) fn child_label(completed: usize, total: usize) -> String {
@@ -158,8 +158,11 @@ impl View {
         &self,
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
-        let turn = self.child_activity_turn()?;
-        let (_, _, _, total) = self.child_counts(turn)?;
+        let session = self.session()?;
+        let total = self.activity_children().len();
+        if total == 0 {
+            return None;
+        }
         let id = "live-composer-subagents";
         let button = Button::new(id)
             .outline()
@@ -172,7 +175,12 @@ impl View {
             .label(rust_i18n::t!("composer_subagent_count", count = total).to_string());
         Some(
             h_flex()
-                .child(live_picker(cx.entity().downgrade(), turn, None, id, button))
+                .child(activity_picker(
+                    cx.entity().downgrade(),
+                    session,
+                    id,
+                    button,
+                ))
                 .into_any_element(),
         )
     }

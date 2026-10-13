@@ -9,6 +9,158 @@ fn status(page: &Page, turn: TurnId) -> Status {
         .status
 }
 
+#[tokio::test]
+async fn shows_input_before_child_response() {
+    const MESSAGE: &str = "Inspect the assigned Unicode paths 中文 🙂 without changing files";
+    for remote in [false, true] {
+        let release = sailry_link::CancellationToken::new();
+        let parent = Server::turn_tools(vec![(
+            plugin_tool("delegation", "spawn_agent"),
+            json!({"role":"review","task":MESSAGE}),
+        )])
+        .await;
+        let child = Server::markdown_held(
+            "The delegated inspection is complete".into(),
+            release.clone(),
+        )
+        .await;
+        let fixture = Fixture::start(remote, parent, child).await;
+        let startup = fixture.hold_startup().await;
+        let parent = fixture.push("Parent-only private context").await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !startup.join("child.ready").is_file() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            std::fs::read(startup.join("launches")).unwrap(),
+            b"xx".to_vec()
+        );
+        assert!(fixture.child.requests.lock().unwrap().is_empty());
+        let child = children(&fixture.client, fixture.session.id, 1)
+            .await
+            .remove(0);
+        let mut stream = fixture
+            .client
+            .subscribe_conversation(child.id)
+            .await
+            .unwrap();
+        let mut projection =
+            sailry_client::conversation::Projection::new(fixture.client.target(), child.id, 0);
+        projection.apply(0, stream.next().await.unwrap()).unwrap();
+        let before = projection.snapshot().unwrap();
+        let turn = before.page.runs[0].turn;
+        assert_eq!(before.page.runs[0].status, Status::Running);
+        assert!(before.page.entries.is_empty());
+        let input = sailry_client::conversation::turns::input(&before.page, turn).unwrap();
+        assert_eq!(input.message.text, MESSAGE);
+        assert!(input.message.references.is_empty());
+        assert!(input.attachments.is_empty());
+        assert!(
+            !serde_json::to_string(&input)
+                .unwrap()
+                .contains(&fixture.role.instructions)
+        );
+        assert!(fixture.snapshot().await.sessions.iter().all(|session| {
+            session
+                .activity
+                .run
+                .as_ref()
+                .is_none_or(|run| run.input.is_none())
+        }));
+        assert!(
+            history(&fixture.client, fixture.session.id)
+                .await
+                .children
+                .iter()
+                .all(|child| child.run.input.is_none())
+        );
+        std::fs::write(startup.join("child.release"), "ready").unwrap();
+        fixture.child.wait_count(1).await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                projection.apply(0, stream.next().await.unwrap()).unwrap();
+                let snapshot = projection.snapshot().unwrap();
+                if snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .any(|entry| entry.turn == turn && entry.author == "user")
+                {
+                    assert!(snapshot.page.runs[0].input.is_none());
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let canonical = projection.snapshot().unwrap();
+        assert_eq!(canonical.page.runs[0].status, Status::Running);
+        assert_eq!(
+            canonical
+                .page
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == turn && entry.author == "user")
+                .count(),
+            1
+        );
+        assert_eq!(
+            sailry_client::conversation::turns::input(&canonical.page, turn)
+                .unwrap()
+                .message
+                .text,
+            MESSAGE
+        );
+        release.cancel();
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                projection.apply(0, stream.next().await.unwrap()).unwrap();
+                if projection.snapshot().unwrap().page.runs[0].status == Status::Completed {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let after = projection.snapshot().unwrap();
+        assert!(after.page.runs[0].input.is_none());
+        assert_eq!(
+            after
+                .page
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == turn && entry.author == "user")
+                .count(),
+            1
+        );
+        assert_eq!(
+            sailry_client::conversation::turns::input(&after.page, turn)
+                .unwrap()
+                .message
+                .text,
+            MESSAGE
+        );
+        let page = after.page.clone();
+        drop(stream);
+        finished(&fixture.client, fixture.session.id, parent.id).await;
+        let fixture = fixture.restart().await;
+        let recovered = history(&fixture.client, child.id).await;
+        assert_eq!(recovered.entries, page.entries);
+        assert_eq!(recovered.runs[0].input, None);
+        assert_eq!(
+            sailry_client::conversation::turns::input(&recovered, turn)
+                .unwrap()
+                .message
+                .text,
+            MESSAGE
+        );
+        fixture.close().await;
+    }
+}
+
 async fn active(fixture: &Fixture) -> (Session, Run) {
     let child = children(&fixture.client, fixture.session.id, 1)
         .await

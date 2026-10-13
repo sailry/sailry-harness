@@ -52,6 +52,40 @@ impl Fixture {
         self.directory.path().join("project")
     }
 
+    pub async fn hold_startup(&self) -> std::path::PathBuf {
+        let path = self.root().join("startup-package");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::write(
+            path.join("plugin.json"),
+            json!({
+                "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+                "name":"child-startup","version":"0.1.0",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(path.join("mcp.json"), json!({
+            "$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+            "mcpServers":{"startup":crate::mcp::peer::config("mcp::peer::stdio_peer","child_handshake")},
+        }).to_string()).unwrap();
+        let Output::Plugin(package) = self
+            .client
+            .execute(self.client.prepare(Command::InstallPlugin {
+                worktree: self.session.worktree,
+                path: "startup-package".into(),
+                name: "child-startup".into(),
+                expected_revision: 0,
+                expected_digest: None,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("startup package expected")
+        };
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
+        self.node.profile().join("plugins/data/child-startup")
+    }
+
     pub async fn push(&self, message: &str) -> QueuedTurn {
         let Output::QueuedTurn(turn) = self
             .client

@@ -1,7 +1,7 @@
 use super::*;
 
 mod input;
-pub(super) use input::hydrate;
+pub(super) use input::{capture, hydrate};
 
 pub(in crate::store) fn admit(
     db: &Connection,
@@ -374,7 +374,12 @@ fn claim_with(
     };
     run.status = Status::Running;
     run.started_ms = Some(chrono::Utc::now().timestamp_millis());
-    input::capture(&transaction, &invocation)?;
+    capture(
+        &transaction,
+        &invocation.turn,
+        invocation.automatic,
+        &invocation.message,
+    )?;
     put(&transaction, &run)?;
     super::queue::remove(&transaction, run.turn, run.session)?;
     let queue = super::queue::read(&transaction, run.session)?;

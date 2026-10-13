@@ -84,6 +84,14 @@ fn canonical_admission_and_recovery() {
     assert_eq!(child.turn.config.effort, Effort::Low);
     assert_eq!(child.turn.config.permission, Permission::Ask);
     assert!(child.child.unwrap().role.is_none());
+    let captured =
+        history::pages::read(&fixture.database.connection, child.turn.session, None, 20).unwrap();
+    assert!(captured.page.entries.is_empty());
+    assert_eq!(captured.page.runs[0].status, Status::Running);
+    assert_eq!(
+        captured.page.runs[0].input.as_ref().unwrap().message.text,
+        "Independent task"
+    );
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
             .unwrap()
@@ -117,6 +125,9 @@ fn canonical_admission_and_recovery() {
             .status,
         Status::Interrupted
     );
+    let recovered =
+        history::pages::read(&fixture.database.connection, child.turn.session, None, 20).unwrap();
+    assert_eq!(recovered.page.runs[0].input, captured.page.runs[0].input);
     assert_eq!(
         runs::get(&fixture.database.connection, child.turn.id)
             .unwrap()

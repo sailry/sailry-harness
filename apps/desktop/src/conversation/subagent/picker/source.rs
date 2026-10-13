@@ -1,6 +1,6 @@
 use super::*;
 use crate::conversation::live::View;
-use sailry_protocol::{SessionId, TurnId};
+use sailry_protocol::SessionId;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(in crate::conversation) enum Choice {
@@ -41,9 +41,9 @@ pub(super) enum Source {
         owner: WeakEntity<Shell>,
         location: Location,
     },
-    Live {
+    Activity {
         owner: WeakEntity<View>,
-        turn: TurnId,
+        session: SessionId,
     },
 }
 
@@ -54,7 +54,7 @@ impl Source {
                 "subagent-picker-{}-{}-{}",
                 location.session.0, location.session.1, location.turn
             ),
-            Self::Live { turn, .. } => format!("live-subagent-picker-{turn}"),
+            Self::Activity { session, .. } => format!("live-subagent-activity-{session}"),
         }
     }
 
@@ -63,9 +63,10 @@ impl Source {
             Self::Preview { owner, location } => owner
                 .upgrade()
                 .map(|owner| owner.read(cx).subagent_rows(*location)),
-            Self::Live { owner, turn } => owner
+            Self::Activity { owner, session } => owner
                 .upgrade()
-                .map(|owner| owner.read(cx).child_rows(*turn)),
+                .filter(|owner| owner.read(cx).session() == Some(*session))
+                .map(|owner| owner.read(cx).activity_rows()),
         }
         .unwrap_or_default()
     }
@@ -78,7 +79,7 @@ impl Source {
                         .detach();
                 }
             }
-            Self::Live { owner, .. } => {
+            Self::Activity { owner, .. } => {
                 if let Some(owner) = owner.upgrade() {
                     cx.observe(&owner, |picker, _, cx| picker.refresh(cx))
                         .detach();
@@ -103,7 +104,7 @@ impl Source {
                     )
                 });
             }
-            (Self::Live { owner, .. }, Choice::Live(id)) => {
+            (Self::Activity { owner, .. }, Choice::Live(id)) => {
                 _ = owner.update(cx, |view, cx| view.open_child(id, cx));
             }
             _ => {}

@@ -74,6 +74,7 @@ fn keeps_active_children_after_handoff(cx: &mut TestAppContext) {
         let child = view.read_with(visual, |view, _| {
             view.history.snapshot.as_ref().unwrap().page.children[0].clone()
         });
+        let removed_turn = TurnId::new();
         view.update(visual, |view, cx| {
             let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
             let page = Arc::make_mut(&mut snapshot.page);
@@ -89,17 +90,14 @@ fn keeps_active_children_after_handoff(cx: &mut TestAppContext) {
             next.status = Status::Running;
             page.runs.push(next);
             let mut removed = child.clone();
-            removed.run.turn = TurnId::new();
+            removed.run.turn = removed_turn;
             removed.run.sequence += 1;
             removed.run.status = Status::Cancelled;
             page.children.push(removed);
             assert_eq!(view.active(), Some(continued));
-            assert_eq!(view.child_counts(continued), Some((1, 0, 0, 1)));
-            assert_eq!(view.child_rows(continued).len(), 1);
-            assert_eq!(
-                view.current_children(child.origin.turn)[0].origin,
-                child.origin
-            );
+            assert_eq!(view.activity_rows().len(), 1);
+            assert!(view.activity_rows()[0].running);
+            assert_eq!(view.activity_children()[0].origin, child.origin);
             cx.notify();
         });
         wait(visual, |_| true);
@@ -119,11 +117,38 @@ fn keeps_active_children_after_handoff(cx: &mut TestAppContext) {
         view.update(visual, |view, cx| {
             let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
             let page = Arc::make_mut(&mut snapshot.page);
+            page.children.retain(|child| child.run.turn != removed_turn);
             page.children[0].run.status = Status::Completed;
             cx.notify();
         });
         wait(visual, |_| true);
-        assert!(visual.debug_bounds(status).is_some());
+        assert!(visual.debug_bounds(status).is_none());
+        assert!(visual.debug_bounds("live-composer-subagents").is_none());
+        assert!(visual.debug_bounds("subagent-picker").is_none());
+        let label = view.read_with(visual, |view, _| {
+            let completed = view.child(child.run.session).unwrap();
+            assert_eq!(completed.run.status, Status::Completed);
+            assert!(view.activity_rows().is_empty());
+            format!(
+                "{}: {}",
+                view.child_name(completed),
+                tr(status_key(Status::Completed))
+            )
+        });
+        tap(visual, &format!("live-turn-work-{}", child.origin.turn));
+        wait(visual, |_| true);
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert_eq!(
+                window
+                    .find(SharedString::from(format!(
+                        "live-subagent-row-{}",
+                        key(&child)
+                    )))
+                    .label(),
+                Some(label.as_str())
+            );
+        });
         view.update(visual, |view, cx| {
             view.history = original;
             cx.notify();
@@ -210,12 +235,17 @@ fn single_child_opens_directly(cx: &mut TestAppContext) {
                     .unwrap();
                 current.run.status = status;
                 current.run.error = Some(sailry_protocol::Fault::invalid("Fixture diagnostic"));
-                let rows = view.child_rows(child.origin.turn);
-                assert_eq!(rows.len(), 1);
-                assert_eq!(
-                    rows[0].running,
-                    matches!(status, Status::Running | Status::Stopping)
-                );
+                assert_eq!(view.child(child.run.session).unwrap().run.status, status);
+                let rows = view.activity_rows();
+                if matches!(status, Status::Queued | Status::Running | Status::Stopping) {
+                    assert_eq!(rows.len(), 1);
+                    assert_eq!(
+                        rows[0].running,
+                        matches!(status, Status::Running | Status::Stopping)
+                    );
+                } else {
+                    assert!(rows.is_empty());
+                }
             }
             let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
             *Arc::make_mut(&mut snapshot.page)
@@ -247,11 +277,7 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         };
         let (parent, visual) = open(cx, binding.clone(), fixture.session.clone());
         wait(visual, |cx| {
-            parent
-                .read(cx)
-                .child_rows(fixture.page(fixture.session.id).runs[0].turn)
-                .len()
-                == 2
+            parent.read(cx).activity_rows().len() == 2
                 && fixture
                     .page(fixture.session.id)
                     .children
@@ -313,12 +339,12 @@ fn readonly_approvals(cx: &mut TestAppContext) {
         assert!((children_button.center().y - todo.center().y).abs() < px(1.));
         parent.read_with(visual, |view, _| {
             let names: Vec<_> = view
-                .child_rows(turn)
+                .activity_rows()
                 .into_iter()
                 .map(|row| row.name)
                 .collect();
-            assert!(names.iter().any(|name| name == "Inspect files"));
-            assert!(names.iter().any(|name| name == "Check lifecycle"));
+            assert!(names.iter().any(|name| name == "Review Inspect files"));
+            assert!(names.iter().any(|name| name == "Review Check lifecycle"));
         });
         let sessions = parent.read_with(visual, |parent, _| {
             children
@@ -505,7 +531,23 @@ fn readonly_approvals(cx: &mut TestAppContext) {
                 .is_some_and(|snapshot| snapshot.page.runs[0].status == Status::Completed)
         });
         parent.read_with(visual, |view, _| {
-            assert_eq!(view.child_counts(turn), Some((0, 2, 0, 2)));
+            let children = latest(
+                view.history
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .page
+                    .children
+                    .iter()
+                    .filter(|child| child.origin.turn == turn),
+            );
+            assert_eq!(children.len(), 2);
+            assert!(
+                children
+                    .iter()
+                    .all(|child| child.run.status == Status::Completed)
+            );
+            assert!(view.activity_rows().is_empty());
             assert!(View::child_label(2, 2).starts_with("2/2"));
         });
         assert!(visual.debug_bounds("composer-todo").is_none());
@@ -522,6 +564,7 @@ fn readonly_approvals(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn picker_spaces_rows_and_preserves_keyboard(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
     init(cx);
     for remote in [false, true] {
         let fixture = fixture::Fixture::with_children(remote, 2);
@@ -590,10 +633,305 @@ fn picker_spaces_rows_and_preserves_keyboard(cx: &mut TestAppContext) {
         assert_eq!(rows[0].1.size.height, px(26.));
         assert_eq!(rows[1].1.size.height, px(26.));
         assert!(rows[1].1.top() - rows[0].1.bottom() >= px(1.));
-        visual.simulate_keystrokes("down enter");
+        visual.update(|window, cx| {
+            let entries = window
+                .find_all(0usize)
+                .into_iter()
+                .filter(|entry| entry.role() == Some(Role::TreeItem))
+                .collect::<Vec<_>>();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].selected(), Some(true));
+            let bounds = rows[0].1.scale(window.scale_factor());
+            assert!(
+                !window
+                    .painted_quads()
+                    .iter()
+                    .any(|quad| quad.bounds == bounds
+                        && (quad.background == cx.theme().list_active.into()
+                            || quad.background == cx.theme().accent.into()))
+            );
+        });
+        visual.simulate_mouse_move(rows[0].1.center(), None, Modifiers::default());
+        wait(visual, |_| true);
+        visual.update(|window, cx| {
+            let bounds = rows[0].1.scale(window.scale_factor());
+            assert!(
+                window
+                    .painted_quads()
+                    .iter()
+                    .any(|quad| quad.bounds == bounds
+                        && quad.background == cx.theme().tokens.list_hover.into())
+            );
+        });
+        visual.simulate_keystrokes("down");
+        wait(visual, |_| true);
+        visual.update(|window, cx| {
+            let entries = window
+                .find_all(1usize)
+                .into_iter()
+                .filter(|entry| entry.role() == Some(Role::TreeItem))
+                .collect::<Vec<_>>();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].selected(), Some(true));
+            let bounds = rows[1].1.scale(window.scale_factor());
+            assert!(
+                window
+                    .painted_quads()
+                    .iter()
+                    .any(|quad| quad.bounds == bounds && quad.border_color == cx.theme().selection)
+            );
+        });
+        visual.simulate_keystrokes("enter");
         wait(visual, |_| true);
         assert_eq!(selected.get(), Some(rows[1].0));
         visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn background_activity_outlives_parent(cx: &mut TestAppContext) {
+    use crate::{backend::Services, resources::SideResource, shell::Shell};
+    init(cx);
+    cx.update(crate::shell::init);
+    for remote in [false, true] {
+        let release = CancellationToken::new();
+        let fixture = fixture::Fixture::with_background(remote, release.clone());
+        cx.update(|cx| {
+            cx.set_global::<Services>(fixture.services());
+            cx.set_global(crate::preferences::Preferences::default());
+        });
+        let mut owner = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let shell = cx.new(|cx| Shell::new(window, cx));
+            owner = Some(shell.clone());
+            Root::new(shell, window, cx)
+        });
+        let shell = owner.unwrap();
+        let handle = visual.update(|window, _| window.window_handle());
+        visual.simulate_window_resize(handle, size(px(1440.), px(900.)));
+        let target = fixture.client.target();
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .live
+                .as_ref()
+                .unwrap()
+                .hosts
+                .contains_key(&target)
+        });
+        visual.update(|_, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.live.as_mut().unwrap().select(target, cx)
+            });
+        });
+        wait(visual, |cx| {
+            let live = shell.read(cx).live.as_ref().unwrap();
+            live.selected == target
+                && live.view.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot
+                        .sessions
+                        .iter()
+                        .any(|session| session.id == fixture.session.id)
+                })
+        });
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell.reveal_session(fixture.session.clone(), window, cx)
+            });
+        });
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .current_chat()
+                .is_some_and(|source| source.read(cx).connected())
+        });
+        let source = shell.read_with(visual, |shell, _| shell.current_chat().unwrap().clone());
+        source.read_with(visual, |view, _| {
+            assert_eq!(view.binding().client.target(), target);
+            assert_eq!(view.session(), Some(fixture.session.id));
+            assert!(view.connected());
+        });
+        fixture.start();
+        wait(visual, |cx| {
+            let view = source.read(cx);
+            view.history.snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot
+                    .page
+                    .runs
+                    .iter()
+                    .any(|run| run.status == Status::Completed)
+                    && snapshot.page.children.len() == 1
+                    && snapshot.page.children[0].run.status == Status::Running
+                    && view
+                        .child_session(snapshot.page.children[0].run.session)
+                        .is_some()
+            })
+        });
+        fixture.runtime.block_on(fixture.child.wait_count(1));
+        assert!(source.read_with(visual, |view, _| view.active().is_none()));
+        assert!(visual.debug_bounds("live-composer-subagents").is_some());
+        let first = source.read_with(visual, |view, _| view.activity_children()[0].clone());
+        visual.update(|window, cx| {
+            source.update(cx, |view, cx| {
+                view.input.update(cx, |input, cx| {
+                    input.set_value("Keep my parent draft", window, cx)
+                })
+            })
+        });
+        fixture.start();
+        wait(visual, |cx| {
+            let view = source.read(cx);
+            view.history.snapshot.as_ref().is_some_and(|snapshot| {
+                snapshot
+                    .page
+                    .runs
+                    .iter()
+                    .filter(|run| run.status == Status::Completed)
+                    .count()
+                    == 2
+                    && view.activity_children().len() == 2
+                    && view
+                        .activity_children()
+                        .iter()
+                        .all(|child| child.run.status == Status::Running)
+                    && view
+                        .activity_children()
+                        .iter()
+                        .all(|child| view.child_session(child.run.session).is_some())
+            })
+        });
+        fixture.runtime.block_on(fixture.child.wait_count(2));
+        let children = source.read_with(visual, |view, _| {
+            let children = view
+                .activity_children()
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_ne!(children[0].origin.turn, children[1].origin.turn);
+            assert!(
+                children
+                    .iter()
+                    .any(|child| child.run.session == first.run.session)
+            );
+            assert!(
+                children
+                    .iter()
+                    .all(|child| child.origin.session == fixture.session.id)
+            );
+            assert!(
+                children
+                    .iter()
+                    .all(|child| child.run.worktree != fixture.session.worktree)
+            );
+            children
+        });
+        tap(visual, "live-assets");
+        wait(visual, |_| true);
+        for child in &children {
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("asset-child-{}", child.run.session).into_boxed_str()
+                    ))
+                    .is_some()
+            );
+        }
+        tap(visual, "live-assets");
+        tap(visual, "live-composer-subagents");
+        wait(visual, |_| true);
+        let selected = &children[0];
+        tap(visual, &format!("subagent-row-{}", selected.run.session));
+        wait(visual, |cx| {
+            matches!(&shell.read(cx).side_resource,
+            Some(SideResource::Child(panel)) if panel.selected == selected.run.session)
+        });
+        shell.read_with(visual, |shell, cx| {
+            let Some(SideResource::Child(panel)) = &shell.side_resource else {
+                panic!("child panel expected");
+            };
+            assert_eq!(
+                panel.child().read(cx).binding().worktree,
+                Some(selected.run.worktree)
+            );
+            assert_eq!(
+                source.read(cx).input.read(cx).value().as_ref(),
+                "Keep my parent draft"
+            );
+        });
+        visual.update(|window, _| window.remove_window());
+        drop(shell);
+        drop(source);
+        let binding = Binding {
+            client: fixture.client.clone(),
+            defaults: fixture.client.clone(),
+            runtime: fixture.runtime.clone(),
+            project: fixture.session.project,
+            worktree: Some(fixture.session.worktree),
+            host: "Fixture".into(),
+            project_name: "Background children".into(),
+            branch: "main".into(),
+        };
+        let (view, visual) =
+            super::super::assets::tests::open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| view.read(cx).activity_children().len() == 2);
+        assert!(view.read_with(visual, |view, _| view.active().is_none()));
+        assert!(visual.debug_bounds("live-composer-subagents").is_some());
+        // A foreign origin is a pure projection scope check, not service evidence.
+        let canonical = view.read_with(visual, |view, _| view.history.clone());
+        view.update(visual, |view, _| {
+            let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+            let mut foreign = children[0].clone();
+            foreign.origin.session = SessionId::new();
+            foreign.run.session = SessionId::new();
+            Arc::make_mut(&mut snapshot.page).children.push(foreign);
+            assert_eq!(view.activity_children().len(), 2);
+            view.history = canonical;
+        });
+        release.cancel();
+        wait(visual, |cx| {
+            let view = view.read(cx);
+            view.activity_rows().is_empty()
+                && view.history.snapshot.as_ref().is_some_and(|snapshot| {
+                    snapshot.page.children.len() == 2
+                        && snapshot
+                            .page
+                            .children
+                            .iter()
+                            .all(|child| child.run.status == Status::Completed)
+                })
+        });
+        assert!(visual.debug_bounds("live-composer-subagents").is_none());
+        assert!(visual.debug_bounds("subagent-picker").is_none());
+        view.read_with(visual, |view, _| {
+            assert!(view.activity_children().is_empty());
+            assert!(view.activity_rows().is_empty());
+            let page = &view.history.snapshot.as_ref().unwrap().page;
+            assert_eq!(
+                page.runs
+                    .iter()
+                    .filter(|run| run.status == Status::Completed)
+                    .count(),
+                2
+            );
+            assert_eq!(latest(page.children.iter()).len(), 2);
+        });
+        tap(visual, "live-assets");
+        wait(visual, |_| true);
+        assert!(visual.debug_bounds("asset-panel").is_some());
+        assert!(visual.debug_bounds("asset-activity-heading").is_some());
+        for child in &children {
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("asset-child-{}", child.run.session).into_boxed_str()
+                    ))
+                    .is_none()
+            );
+        }
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        cx.update(|cx| cx.remove_global::<Services>());
         fixture.close();
     }
 }

@@ -3,7 +3,8 @@ use gpui_kit::component::{
     button::Button,
     list::ListItem,
     popover::{Popover, PopoverState},
-    tree::{TreeItem, TreeState, tree},
+    scroll::ScrollableElement as _,
+    tree::{TreeItem, TreeState},
     *,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -11,21 +12,6 @@ use std::collections::BTreeSet;
 mod source;
 use source::Source;
 pub(in crate::conversation) use source::{Choice, Row};
-
-pub(in crate::conversation) fn live(
-    owner: WeakEntity<super::super::live::View>,
-    turn: sailry_protocol::TurnId,
-    selected: Option<sailry_protocol::SessionId>,
-    id: &'static str,
-    button: Button,
-) -> Popover {
-    popover(
-        Source::Live { owner, turn },
-        selected.map(Choice::Live),
-        id,
-        button,
-    )
-}
 
 impl Shell {
     pub(super) fn subagent_picker(
@@ -43,6 +29,15 @@ impl Shell {
         let owner = cx.entity().downgrade();
         popover(Source::Preview { location, owner }, selected, id, button)
     }
+}
+
+pub(in crate::conversation) fn activity(
+    owner: WeakEntity<super::super::live::View>,
+    session: sailry_protocol::SessionId,
+    id: &'static str,
+    button: Button,
+) -> Popover {
+    popover(Source::Activity { owner, session }, None, id, button)
 }
 
 fn popover(source: Source, selected: Option<Choice>, id: &'static str, button: Button) -> Popover {
@@ -75,6 +70,7 @@ struct Picker {
     source: Source,
     rows: Vec<Row>,
     tree: Entity<TreeState>,
+    focus: Option<FocusHandle>,
     dismiss: WeakEntity<PopoverState>,
 }
 
@@ -89,13 +85,14 @@ impl Picker {
         let rows = source.rows(cx);
         let items = tree_items(&rows);
         let tree = cx.new(|cx| TreeState::new(cx).items(items));
-        tree.update(cx, |state, cx| {
+        let focus = tree.update(cx, |state, cx| {
             if let Some(selected) = selected {
                 state.set_selected_item(Some(&TreeItem::new(selected.tree_id(), "")), cx);
             } else {
                 state.set_selected_index(Some(0), cx);
             }
             state.focus(window, cx);
+            window.focused(cx)
         });
         cx.observe(&tree, |_, _, cx| cx.notify()).detach();
         source.observe(cx);
@@ -103,6 +100,7 @@ impl Picker {
             source,
             rows,
             tree,
+            focus,
             dismiss,
         }
     }
@@ -158,6 +156,12 @@ impl Render for Picker {
             .take_while(|&index| state.entry(index).is_some())
             .count()
             .max(1);
+        let keyboard = self
+            .focus
+            .as_ref()
+            .is_some_and(|focus| focus.is_focused(window))
+            && window.last_input_was_keyboard();
+        let scroll = state.scroll_handle().clone();
         v_flex()
             .debug_selector(|| "subagent-picker".into())
             .w(px(360.).min(window.viewport_size().width - px(48.)))
@@ -178,79 +182,86 @@ impl Render for Picker {
                 },
             ))
             .child(
-                tree(&self.tree, move |index, entry, selected, _, cx| {
-                    let row = rows
-                        .iter()
-                        .find(|row| row.key.tree_id() == entry.item().id)
-                        .expect("tree item belongs to inventory")
-                        .clone();
-                    let key = row.key;
-                    let owner = owner.clone();
-                    let folder = entry.is_folder();
-                    ListItem::new(index)
-                        .selected(selected)
-                        .rounded(cx.theme().radius)
-                        .h(px(26.))
-                        .mb_0p5()
-                        .px_2()
-                        .pl(px(16.) * entry.depth() + px(8.))
-                        .debug_selector(move || format!("subagent-row-{}", key.debug_id()))
-                        .tooltip(move |window, cx| {
-                            gpui_kit::component::tooltip::Tooltip::new(crate::tr(row.status))
-                                .build(window, cx)
-                        })
-                        .child(
-                            h_flex()
-                                .w_full()
-                                .min_w_0()
-                                .gap_2()
-                                .when(has_folders, |this| {
-                                    this.child(if folder {
-                                        Icon::new(if entry.is_expanded() {
-                                            IconName::ChevronDown
-                                        } else {
-                                            IconName::ChevronRight
-                                        })
-                                        .size_4()
-                                        .into_any_element()
-                                    } else {
-                                        div().w_4().into_any_element()
-                                    })
-                                })
-                                .child(crate::ui::identicon::animated(
-                                    crate::ui::identicon::agent(&key.debug_id(), cx),
-                                    row.running,
-                                ))
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_sm()
-                                        .debug_selector(move || {
-                                            format!("subagent-name-{}", key.debug_id())
-                                        })
-                                        .child(row.name.clone()),
-                                )
-                                .when(!row.running, |this| {
-                                    this.child(
-                                        div()
-                                            .debug_selector(move || {
-                                                format!("subagent-status-{}", key.debug_id())
+                // Kit Tree forces active fill on its cursor; Base retains native
+                // navigation/ARIA while Kit rows show only transient keyboard focus.
+                gpui_kit::base::Tree::new(&self.tree)
+                    .item(move |index, entry, state, _, cx| {
+                        let row = rows
+                            .iter()
+                            .find(|row| row.key.tree_id() == entry.item().id)
+                            .expect("tree item belongs to inventory")
+                            .clone();
+                        let key = row.key;
+                        let owner = owner.clone();
+                        let folder = entry.is_folder();
+                        ListItem::new(index)
+                            .secondary_selected(state.is_selected() && keyboard)
+                            .disabled(entry.is_disabled())
+                            .rounded(cx.theme().radius)
+                            .h(px(26.))
+                            .mb_0p5()
+                            .px_2()
+                            .pl(px(16.) * entry.depth() + px(8.))
+                            .debug_selector(move || format!("subagent-row-{}", key.debug_id()))
+                            .tooltip(move |window, cx| {
+                                gpui_kit::component::tooltip::Tooltip::new(crate::tr(row.status))
+                                    .build(window, cx)
+                            })
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .gap_2()
+                                    .when(has_folders, |this| {
+                                        this.child(if folder {
+                                            Icon::new(if entry.is_expanded() {
+                                                IconName::ChevronDown
+                                            } else {
+                                                IconName::ChevronRight
                                             })
-                                            .flex_shrink_0()
-                                            .child(super::status_icon(&row)),
+                                            .size_4()
+                                            .into_any_element()
+                                        } else {
+                                            div().w_4().into_any_element()
+                                        })
+                                    })
+                                    .child(crate::ui::identicon::animated(
+                                        crate::ui::identicon::agent(&key.debug_id(), cx),
+                                        row.running,
+                                    ))
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .text_sm()
+                                            .debug_selector(move || {
+                                                format!("subagent-name-{}", key.debug_id())
+                                            })
+                                            .child(row.name.clone()),
                                     )
-                                }),
-                        )
-                        .on_click(move |event, window, cx| {
-                            if !folder || event.click_count() == 2 {
-                                _ = owner.update(cx, |picker, cx| picker.open(key, window, cx));
-                            }
-                        })
-                })
-                .h(px((visible * 28) as f32)),
+                                    .when(!row.running, |this| {
+                                        this.child(
+                                            div()
+                                                .debug_selector(move || {
+                                                    format!("subagent-status-{}", key.debug_id())
+                                                })
+                                                .flex_shrink_0()
+                                                .child(super::status_icon(&row)),
+                                        )
+                                    }),
+                            )
+                            .on_click(move |event, window, cx| {
+                                if !folder || event.click_count() == 2 {
+                                    _ = owner.update(cx, |picker, cx| picker.open(key, window, cx));
+                                }
+                            })
+                            .into_any_element()
+                    })
+                    .list_style(StyleRefinement::default().flex_grow_1().size_full())
+                    .h(px((visible * 28) as f32)),
             )
+            .vertical_scrollbar(&scroll)
     }
 }
 

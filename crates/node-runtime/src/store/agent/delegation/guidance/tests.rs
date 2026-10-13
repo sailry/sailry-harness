@@ -60,6 +60,18 @@ fn captures_input_and_call_ancestry() {
     )
     .unwrap();
     let message = input(&fixture, &child);
+    let captured =
+        history::pages::read(&fixture.database.connection, child.turn.session, None, 20).unwrap();
+    assert_eq!(
+        captured.page.runs[0].input.as_ref().unwrap().message,
+        child.message
+    );
+    assert!(
+        !serde_json::to_value(captured.page.runs[0].input.as_ref().unwrap())
+            .unwrap()
+            .to_string()
+            .contains(&role.instructions)
+    );
     let request = prepare(&fixture, &child, message.clone());
     let Output::QueuedTurn(source) = execute(&mut fixture, request.clone()).unwrap() else {
         panic!("turn expected")
@@ -72,6 +84,16 @@ fn captures_input_and_call_ancestry() {
     assert_eq!(source.config, child.turn.config);
     assert_eq!(source.plugins, child.turn.plugins);
     assert_eq!(source.roles, child.turn.roles);
+    let queued =
+        history::pages::read(&fixture.database.connection, child.turn.session, None, 20).unwrap();
+    let queued = queued
+        .page
+        .runs
+        .iter()
+        .find(|run| run.turn == source.id)
+        .unwrap();
+    assert_eq!(queued.status, Status::Queued);
+    assert!(queued.input.is_none());
     assert!(queued_guidance(&fixture.database.connection, source.id).unwrap());
     assert_eq!(
         origin(&fixture.database.connection, source.id).unwrap(),
@@ -116,6 +138,26 @@ fn captures_input_and_call_ancestry() {
         .unwrap();
     assert_eq!(next.turn.id, source.id);
     assert_eq!(next.message, message);
+    let claimed =
+        history::pages::read(&fixture.database.connection, child.turn.session, None, 20).unwrap();
+    let claimed = claimed
+        .page
+        .runs
+        .iter()
+        .find(|run| run.turn == source.id)
+        .unwrap();
+    assert_eq!(claimed.status, Status::Running);
+    assert_eq!(claimed.input.as_ref().unwrap().message, message);
+    assert_eq!(
+        claimed.input.as_ref().unwrap().attachments[0].id,
+        message.attachments[0]
+    );
+    assert!(
+        !serde_json::to_value(claimed.input.as_ref().unwrap())
+            .unwrap()
+            .to_string()
+            .contains(&role.instructions)
+    );
     assert_eq!(next.child.unwrap().role, Some(role));
     let summaries = fixture.read(None, 20).page.children;
     assert_eq!(summaries.len(), 2);

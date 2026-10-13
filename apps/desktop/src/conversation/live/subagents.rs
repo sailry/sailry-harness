@@ -52,37 +52,6 @@ pub(super) fn key(child: &Child) -> String {
 }
 
 impl View {
-    fn current_children(&self, turn: TurnId) -> Vec<&Child> {
-        let Some(snapshot) = &self.history.snapshot else {
-            return Vec::new();
-        };
-        let mut origins = std::collections::BTreeSet::from([turn]);
-        if self.active() == Some(turn) {
-            // Background children keep their original call owner across handoff.
-            origins.extend(
-                snapshot
-                    .page
-                    .children
-                    .iter()
-                    .filter(|child| {
-                        Some(child.origin.session) == self.session()
-                            && matches!(
-                                child.run.status,
-                                Status::Queued | Status::Running | Status::Stopping
-                            )
-                    })
-                    .map(|child| child.origin.turn),
-            );
-        }
-        latest(
-            snapshot
-                .page
-                .children
-                .iter()
-                .filter(|child| origins.contains(&child.origin.turn)),
-        )
-    }
-
     pub(crate) fn child(&self, id: SessionId) -> Option<&Child> {
         self.history
             .snapshot
@@ -130,31 +99,31 @@ impl View {
         }
     }
 
-    /// Counts the turn's children as (active, complete, failed, total).
-    pub(super) fn child_counts(&self, turn: TurnId) -> Option<(usize, usize, usize, usize)> {
-        let children = self.current_children(turn);
-        if children.is_empty() {
-            return None;
-        }
-        let count = |predicate: fn(Status) -> bool| {
-            children
-                .iter()
-                .filter(|child| predicate(child.run.status))
-                .count()
+    fn activity_children(&self) -> Vec<&Child> {
+        let Some(snapshot) = &self.history.snapshot else {
+            return Vec::new();
         };
-        Some((
-            count(|status| matches!(status, Status::Queued | Status::Running | Status::Stopping)),
-            count(|status| status == Status::Completed),
-            count(|status| status == Status::Failed),
-            children.len(),
-        ))
-    }
-
-    pub(super) fn child_activity_turn(&self) -> Option<TurnId> {
-        self.active().filter(|turn| {
-            self.child_counts(*turn)
-                .is_some_and(|(active, _, _, _)| active > 0)
-        })
+        let children = latest(
+            snapshot
+                .page
+                .children
+                .iter()
+                .filter(|child| Some(child.origin.session) == self.session()),
+        );
+        let origins = children
+            .iter()
+            .filter(|child| {
+                matches!(
+                    child.run.status,
+                    Status::Queued | Status::Running | Status::Stopping
+                )
+            })
+            .map(|child| child.origin.turn)
+            .collect::<std::collections::BTreeSet<_>>();
+        children
+            .into_iter()
+            .filter(|child| origins.contains(&child.origin.turn))
+            .collect()
     }
 
     pub(super) fn child_summary(
