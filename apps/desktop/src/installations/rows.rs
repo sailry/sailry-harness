@@ -139,7 +139,7 @@ impl ListDelegate for Rows {
     fn render_item(
         &mut self,
         index: IndexPath,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) -> Option<ListItem> {
         let row = self.entries.get(index.row)?;
@@ -170,23 +170,29 @@ impl ListDelegate for Rows {
         );
         let retry = self.owner.clone();
         let remove = self.owner.clone();
+        let spacing = cx.theme().spacing_tokens();
+        let height = window.rem_size() * 3.5;
         Some(
             ListItem::new(("installation", index.row))
-                .h(rems(3.5))
+                .h(height + spacing.sm)
                 .px_0()
                 .py_0()
                 .hover_background(false)
-                .debug_selector(move || format!("installation-card-{}", key.1))
+                .debug_selector(move || format!("installation-{}", key.1))
                 .child(
                     // Kit's content wrapper has an intrinsic minimum. Anchor the
                     // columns to the row so long labels cannot push controls out.
                     h_flex()
                         .absolute()
                         .inset_0()
+                        .h(height)
                         .min_w_0()
-                        .px_2()
-                        .gap_3()
-                        .debug_selector(move || format!("installation-{}", key.1))
+                        .px(spacing.md)
+                        .gap(spacing.md)
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .rounded(cx.theme().radius)
+                        .debug_selector(move || format!("installation-card-{}", key.1))
                         .child(
                             v_flex()
                                 .flex_1()

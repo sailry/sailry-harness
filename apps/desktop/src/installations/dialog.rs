@@ -1,6 +1,6 @@
 use super::*;
 use crate::theme::DialogStyle as _;
-use gpui_kit::component::{WindowExt as _, button::Button, dialog::DialogFooter};
+use gpui_kit::component::{ActiveTheme as _, WindowExt as _, button::Button, dialog::DialogFooter};
 
 impl Queue {
     pub(super) fn open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -37,6 +37,7 @@ impl Queue {
                 .clone();
             dialog
                 .form_title(tr("installation_title"))
+                .bg(cx.theme().title_bar)
                 .w((window.viewport_size().width - px(48.)).min(px(600.)))
                 .overlay_closable(false)
                 .on_close(move |_, _, cx| {
@@ -46,12 +47,9 @@ impl Queue {
                         cx.notify();
                     })
                 })
-                .child(
-                    div()
-                        .debug_selector(|| "installation-list".into())
-                        .h((window.viewport_size().height * 0.55).min(px(420.)))
-                        .child(List::new(&list).h_full()),
-                )
+                .child(div().debug_selector(|| "installation-list".into()).child(
+                    List::new(&list).max_h((window.viewport_size().height * 0.55).min(px(420.))),
+                ))
                 .footer(
                     DialogFooter::new().child(
                         Button::new("installation-hide")
