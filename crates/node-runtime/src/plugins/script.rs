@@ -80,6 +80,58 @@ fn evaluate(
     timeout: Duration,
     execution: Option<std::sync::Arc<std::sync::Mutex<execution::State>>>,
 ) -> Result<serde_json::Value, Fault> {
+    let context = &environment.context;
+    let mut entry =
+        crate::logging::Entry::new(crate::logging::Area::Plugin, crate::logging::Phase::Begin);
+    entry.context = crate::logging::Context {
+        node: Some(environment.target),
+        package: Some(context.package.clone()),
+        session: context.session,
+        turn: context.turn,
+        worktree: context.worktree,
+        invocation: context.invocation,
+        handler: Some(handler.into()),
+        call: execution
+            .as_ref()
+            .and_then(|state| state.lock().ok().and_then(|state| state.call_id)),
+        ..Default::default()
+    };
+    let mut span = crate::logging::Span::new(entry).cancel_when(environment.stop.clone());
+    let result = evaluate_with(
+        bundle,
+        handler,
+        input,
+        environment,
+        dispatch,
+        timeout,
+        execution,
+    );
+    match &result {
+        Ok(_) => span.finish(crate::logging::Phase::Completed, None),
+        Err(fault) => {
+            span.entry.reason = Some("callback");
+            span.finish(
+                if fault.code == ErrorCode::Cancelled {
+                    crate::logging::Phase::Cancelled
+                } else {
+                    crate::logging::Phase::Failed
+                },
+                Some(fault.code),
+            );
+        }
+    }
+    result
+}
+
+fn evaluate_with(
+    bundle: Bundle,
+    handler: &str,
+    input: serde_json::Value,
+    environment: Environment,
+    dispatch: impl FnMut(sailry_protocol::Request) -> sailry_link::Response + 'static,
+    timeout: Duration,
+    execution: Option<std::sync::Arc<std::sync::Mutex<execution::State>>>,
+) -> Result<serde_json::Value, Fault> {
     let Environment {
         context,
         target,

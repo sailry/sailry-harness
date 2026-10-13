@@ -61,6 +61,7 @@ pub(super) struct Model {
     pub(super) api: Option<ModelApi>,
     pub(super) tools: bool,
     pub(super) stop: CancellationToken,
+    pub(super) identity: crate::logging::Context,
 }
 
 impl Model {
@@ -181,7 +182,14 @@ impl Llm for Model {
         self.hydrate(&mut request).await.map_err(|fault| {
             adk_core::AdkError::model("attachment input failed").with_source(fault)
         })?;
-        model::timing::generate(&self.inner, request, stream).await
+        model::timing::generate(
+            &self.inner,
+            request,
+            stream,
+            &self.identity,
+            self.stop.clone(),
+        )
+        .await
     }
 }
 

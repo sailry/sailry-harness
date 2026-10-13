@@ -65,6 +65,15 @@ pub(super) async fn build(
             .then_some(opencode::api(provider.api, &config.model)?),
         tools: metadata.is_none_or(|model| model.tools),
         stop: stop.clone(),
+        identity: crate::logging::Context {
+            node: Some(ingress.node),
+            session: Some(invocation.turn.session),
+            turn: Some(invocation.turn.id),
+            provider: Some(provider.id),
+            provider_name: Some(provider.name.clone()),
+            model: Some(config.model.clone()),
+            ..Default::default()
+        },
     }))
 }
 

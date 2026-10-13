@@ -21,6 +21,7 @@ mod git;
 mod host;
 mod installation;
 mod knowledge;
+pub mod logging;
 mod models;
 mod ocr;
 mod office;
@@ -398,88 +399,112 @@ impl Node {
         computer: Option<ComputerWorker>,
         environment: process::environment::Source,
     ) -> Result<Self, Error> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let (profile, identity) = tokio::task::spawn_blocking(move || {
-            let profile = Profile::acquire(&path)?;
-            let identity = sailry_link::Identity::open(&profile.path)?;
-            Ok::<_, Error>((profile, identity))
-        })
-        .await
-        .map_err(|error| Error::Worker(error.to_string()))??;
-        let path = profile.path.clone();
-        let identity = std::sync::Arc::new(identity);
-        let store = Store::open(
-            path.clone(),
-            identity.id(),
-            catalog,
-            authorization,
-            skills,
-            environment,
-        )
-        .await?;
-        let ingress = store.ingress.clone();
-        ingress.computer.configure_worker(computer).await;
-        let network = match sailry_link::Link::bind(
-            &identity,
-            network_scope,
-            ingress.clone(),
-            ingress.clone(),
-        )
-        .await
-        {
-            Ok(network) => network,
-            Err(error) => {
-                store.shutdown().await?;
-                return Err(error.into());
+        let mut entry = logging::Entry::new(logging::Area::Node, logging::Phase::Begin);
+        entry.reason = Some("startup");
+        let mut diagnostic = logging::Span::new(entry);
+        let result = async {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            let (profile, identity) = tokio::task::spawn_blocking(move || {
+                let profile = Profile::acquire(&path)?;
+                let identity = sailry_link::Identity::open(&profile.path)?;
+                Ok::<_, Error>((profile, identity))
+            })
+            .await
+            .map_err(|error| Error::Worker(error.to_string()))??;
+            let path = profile.path.clone();
+            let identity = std::sync::Arc::new(identity);
+            let node = identity.id();
+            diagnostic.entry.context.node = Some(node);
+            let store = Store::open(
+                path.clone(),
+                identity.id(),
+                catalog,
+                authorization,
+                skills,
+                environment,
+            )
+            .await?;
+            let ingress = store.ingress.clone();
+            ingress.computer.configure_worker(computer).await;
+            let network = match sailry_link::Link::bind(
+                &identity,
+                network_scope,
+                ingress.clone(),
+                ingress.clone(),
+            )
+            .await
+            {
+                Ok(network) => network,
+                Err(error) => {
+                    store.shutdown().await?;
+                    return Err(error.into());
+                }
+            };
+            let link = network.handle();
+            if let Err(error) = store.bind_link(link.clone()).await {
+                let _ = network.close().await;
+                let _ = store.shutdown().await;
+                return Err(error);
             }
-        };
-        let link = network.handle();
-        if let Err(error) = store.bind_link(link.clone()).await {
-            let _ = network.close().await;
-            let _ = store.shutdown().await;
-            return Err(error);
+            let supervisor = Supervisor::start(TASK_CAPACITY);
+            if let Err(error) = agent::start(ingress.clone(), &supervisor.tasks)
+                .and_then(|()| dispatch::start(ingress.clone(), &supervisor.tasks))
+            {
+                ingress.agents.stop();
+                ingress.dispatch.stop.cancel();
+                let _ = supervisor.shutdown(SHUTDOWN_GRACE).await;
+                let _ = ingress.agents.close().await;
+                let _ = network.close().await;
+                let _ = store.shutdown().await;
+                return Err(error);
+            }
+            let (state, receiver) = watch::channel(State::Running);
+            let observer = Observer {
+                state: receiver,
+                tasks: supervisor.tasks.clone(),
+            };
+            let (stop, stopping) = oneshot::channel();
+            let agents = ingress.agents.clone();
+            let worker = tokio::spawn(async move {
+                let _ = stopping.await;
+                let mut entry = logging::Entry::new(logging::Area::Node, logging::Phase::Begin);
+                entry.context.node = Some(node);
+                entry.reason = Some("shutdown");
+                let mut diagnostic = logging::Span::new(entry);
+                state.send_replace(State::Stopping);
+                store.stop_admission();
+                agents.stop();
+                let result = supervisor.shutdown(SHUTDOWN_GRACE).await;
+                let connections = agents.close().await.map_err(Error::Link);
+                let network = network.close().await.map_err(Error::Link);
+                let storage = store.shutdown().await;
+                drop(profile);
+                state.send_replace(State::Stopped);
+                let result = result.and(connections).and(network).and(storage);
+                match &result {
+                    Ok(()) => diagnostic.finish(logging::Phase::Completed, None),
+                    Err(error) => {
+                        diagnostic.finish(logging::Phase::Failed, Some(logging::fault(error)))
+                    }
+                }
+                result
+            });
+            Ok(Self {
+                path,
+                observer,
+                stop: Some(stop),
+                worker,
+                identity,
+                ingress,
+                link,
+            })
         }
-        let supervisor = Supervisor::start(TASK_CAPACITY);
-        if let Err(error) = agent::start(ingress.clone(), &supervisor.tasks)
-            .and_then(|()| dispatch::start(ingress.clone(), &supervisor.tasks))
-        {
-            ingress.agents.stop();
-            ingress.dispatch.stop.cancel();
-            let _ = supervisor.shutdown(SHUTDOWN_GRACE).await;
-            let _ = ingress.agents.close().await;
-            let _ = network.close().await;
-            let _ = store.shutdown().await;
-            return Err(error);
+        .await;
+        match &result {
+            Ok(_) => diagnostic.finish(logging::Phase::Completed, None),
+            Err(error) => diagnostic.finish(logging::Phase::Failed, Some(logging::fault(error))),
         }
-        let (state, receiver) = watch::channel(State::Running);
-        let observer = Observer {
-            state: receiver,
-            tasks: supervisor.tasks.clone(),
-        };
-        let (stop, stopping) = oneshot::channel();
-        let agents = ingress.agents.clone();
-        let worker = tokio::spawn(async move {
-            let _ = stopping.await;
-            state.send_replace(State::Stopping);
-            store.stop_admission();
-            agents.stop();
-            let result = supervisor.shutdown(SHUTDOWN_GRACE).await;
-            let connections = agents.close().await.map_err(Error::Link);
-            let network = network.close().await.map_err(Error::Link);
-            let storage = store.shutdown().await;
-            drop(profile);
-            state.send_replace(State::Stopped);
-            result.and(connections).and(network).and(storage)
-        });
-        Ok(Self {
-            path,
-            observer,
-            stop: Some(stop),
-            worker,
-            identity,
-            ingress,
-            link,
-        })
+        result
     }
 
     pub fn profile(&self) -> &Path {

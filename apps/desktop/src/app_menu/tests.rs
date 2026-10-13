@@ -55,7 +55,7 @@ fn localizes_every_entry() {
             .iter()
             .map(|menu| menu.name.as_ref())
             .collect::<Vec<_>>(),
-        ["Sailry", "File", "Edit", "View", "Window"]
+        ["Sailry", "File", "Edit", "View", "Window", "Help"]
     );
     let english = labels(&english);
     let chinese = labels(&menus("zh-CN", &[]));
@@ -66,6 +66,30 @@ fn localizes_every_entry() {
         assert!(!english.starts_with("menu_"));
         assert!(!chinese.starts_with("menu_"));
     }
+}
+
+#[test]
+fn registers_help_actions() {
+    let menus = menus("en", &[]);
+    let help = &menus[5];
+    assert_eq!(help.items.len(), 3);
+    for (item, expected) in help.items.iter().zip([
+        Website.boxed_clone(),
+        Feedback.boxed_clone(),
+        Logs.boxed_clone(),
+    ]) {
+        let MenuItem::Action { action, .. } = item else {
+            panic!("help action expected")
+        };
+        assert_eq!(action.as_any().type_id(), expected.as_any().type_id());
+    }
+    let MenuItem::Action { disabled, .. } = &help.items[2] else {
+        panic!("logs action expected")
+    };
+    assert_eq!(
+        *disabled,
+        sailry_node_runtime::logging::directory().is_none()
+    );
 }
 
 #[test]
@@ -288,7 +312,7 @@ fn refreshes_after_shortcut_changes(cx: &mut TestAppContext) {
         }
         cx.set_menus([Menu::new("Stale")]);
         crate::shortcuts::save("app.search", Some("cmd-alt-shift-j"), cx).unwrap();
-        assert_eq!(cx.get_menus().unwrap().len(), 5);
+        assert_eq!(cx.get_menus().unwrap().len(), 6);
         let bindings = cx.key_bindings();
         let bindings = bindings.borrow();
         let keys = bindings

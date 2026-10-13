@@ -43,11 +43,17 @@ impl Llm for Model {
 #[tokio::test]
 async fn preserves_usage_timing() {
     let model: Arc<dyn Llm> = Arc::new(Model);
-    let responses = generate(&model, LlmRequest::new(model.name(), vec![]), true)
-        .await
-        .unwrap()
-        .collect::<Vec<_>>()
-        .await;
+    let responses = generate(
+        &model,
+        LlmRequest::new(model.name(), vec![]),
+        true,
+        &crate::logging::Context::default(),
+        sailry_link::CancellationToken::new(),
+    )
+    .await
+    .unwrap()
+    .collect::<Vec<_>>()
+    .await;
     for (index, response) in responses.into_iter().enumerate() {
         let metadata = response.unwrap().provider_metadata.unwrap();
         assert_eq!(metadata["citation"], "preserved");
@@ -66,11 +72,17 @@ async fn preserves_usage_timing() {
 #[tokio::test]
 async fn omits_nonstreaming_first_token() {
     let model: Arc<dyn Llm> = Arc::new(Model);
-    let responses = generate(&model, LlmRequest::new(model.name(), vec![]), false)
-        .await
-        .unwrap()
-        .collect::<Vec<_>>()
-        .await;
+    let responses = generate(
+        &model,
+        LlmRequest::new(model.name(), vec![]),
+        false,
+        &crate::logging::Context::default(),
+        sailry_link::CancellationToken::new(),
+    )
+    .await
+    .unwrap()
+    .collect::<Vec<_>>()
+    .await;
     let metadata = responses[1]
         .as_ref()
         .unwrap()

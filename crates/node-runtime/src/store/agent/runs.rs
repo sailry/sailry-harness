@@ -385,6 +385,17 @@ fn claim_with(
     database
         .feeds
         .publish(database.node, run.session, Change::Queue(queue));
+    let mut diagnostic =
+        crate::logging::Entry::new(crate::logging::Area::Run, crate::logging::Phase::Begin);
+    diagnostic.context = crate::logging::Context {
+        node: Some(database.node),
+        session: Some(run.session),
+        turn: Some(run.turn),
+        worktree: Some(run.worktree),
+        ..Default::default()
+    };
+    diagnostic.status = Some(run.status);
+    diagnostic.emit();
     super::feed::run(database, run);
     if let Some(child) = child {
         database
@@ -448,6 +459,30 @@ pub(super) fn finish(
     let child = super::children::get(&transaction, &run)?;
     let status = run.status;
     transaction.commit().map_err(storage_error)?;
+    let mut diagnostic = crate::logging::Entry::new(
+        crate::logging::Area::Run,
+        match status {
+            Status::Completed => crate::logging::Phase::Completed,
+            Status::Continued => crate::logging::Phase::Continued,
+            Status::Cancelled => crate::logging::Phase::Cancelled,
+            Status::Failed => crate::logging::Phase::Failed,
+            _ => crate::logging::Phase::Interrupted,
+        },
+    );
+    diagnostic.context = crate::logging::Context {
+        node: Some(database.node),
+        session: Some(run.session),
+        turn: Some(run.turn),
+        worktree: Some(run.worktree),
+        ..Default::default()
+    };
+    diagnostic.status = Some(status);
+    diagnostic.code = run.error.as_ref().map(|fault| fault.code);
+    diagnostic.duration_us = run
+        .started_ms
+        .zip(run.finished_ms)
+        .map(|(start, end)| end.saturating_sub(start).max(0) as u64 * 1000);
+    diagnostic.emit();
     let _ = events.send(envelope);
     database.approvals.retain(|_, (owner, _)| *owner != turn);
     database.questions.retain(|_, (owner, _)| *owner != turn);

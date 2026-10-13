@@ -26,6 +26,11 @@ menu_toggle_sidebar: Toggle Sidebar
 menu_toggle_details: Toggle Details
 menu_full_screen: Toggle Full Screen
 menu_window: Window
+menu_help: Help
+menu_website: Website
+menu_feedback: Feedback
+menu_logs: Logs
+logs_unavailable: Logging unavailable
 menu_minimize: Minimize
 menu_zoom: Zoom
 menu_bring_all_to_front: Bring All to Front

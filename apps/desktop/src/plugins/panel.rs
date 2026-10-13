@@ -659,11 +659,21 @@ impl Panel {
                             read_files,
                             panel.contributions.clone(),
                         );
-                        let install_models = panel.metadata.read(cx).entries.get(&package.name)
+                        let install_models = panel
+                            .metadata
+                            .read(cx)
+                            .entries
+                            .get(&package.name)
                             .filter(|info| info.summary.reference() == package)
                             .and_then(|info| info.extension.as_ref())
-                            .is_some_and(|extension| extension.actions.contains(&sailry_protocol::plugin::Action::InstallModels));
-                        let manager = install_models.then(|| crate::dictation::Service::models(cx).ok()).flatten();
+                            .is_some_and(|extension| {
+                                extension
+                                    .actions
+                                    .contains(&sailry_protocol::plugin::Action::InstallModels)
+                            });
+                        let manager = install_models
+                            .then(|| crate::dictation::Service::models(cx).ok())
+                            .flatten();
                         host.model_services(manager, panel.binding.runtime.clone(), install_models);
                         host.observe(
                             panel
@@ -773,54 +783,57 @@ impl Panel {
                             host.clone(),
                             &package.name,
                             super::runtime::Scopes {
-                            owner: cx.weak_entity(),
-                            conversation,
-                            composer: super::composer::Scope {
-                                source: panel.composer.clone(),
-                                read: actions
-                                    .contains(&sailry_protocol::plugin::Action::ReadConversation),
-                                control: actions.contains(
-                                    &sailry_protocol::plugin::Action::ControlConversation,
-                                ),
-                            },
-                            location: super::location::Scope {
-                                binding: panel.binding.clone(),
-                                source: panel.location_source(),
-                                snapshot: panel.snapshot.borrow().clone(),
-                                connected: panel.connected,
-                                read: actions
-                                    .contains(&sailry_protocol::plugin::Action::ReadWorktrees),
-                                write: actions
-                                    .contains(&sailry_protocol::plugin::Action::WriteWorktrees),
-                                session_control: actions.contains(
-                                    &sailry_protocol::plugin::Action::ControlConversation,
-                                ),
-                            },
-                            terminal,
-                            browser,
-                            pane: super::panes::Scope {
-                                resource: panel.pane,
-                                events: panel.pane_events.clone(),
-                            },
-                            workspace: panel.workspace.clone(),
-                            resource: panel.resource.clone(),
-                            documents: super::documents::Scope {
-                                controller: panel.documents.clone(),
-                                read: actions.contains(&sailry_protocol::plugin::Action::ReadFiles),
-                                write: actions
-                                    .contains(&sailry_protocol::plugin::Action::WriteFiles),
-                            },
-                            artifact: panel.artifact.clone(),
-                            document: panel.document.clone(),
-                            usage_sources: panel.usage_sources.clone(),
-                            activity_sources: panel.activity_sources.clone(),
-                            file_transfers: super::file_transfers::Scope {
-                                binding: panel.binding.clone(),
-                                documents: panel.documents.clone(),
-                                read: actions.contains(&sailry_protocol::plugin::Action::ReadFiles),
-                                write: actions
-                                    .contains(&sailry_protocol::plugin::Action::WriteFiles),
-                            },
+                                owner: cx.weak_entity(),
+                                conversation,
+                                composer: super::composer::Scope {
+                                    source: panel.composer.clone(),
+                                    read: actions.contains(
+                                        &sailry_protocol::plugin::Action::ReadConversation,
+                                    ),
+                                    control: actions.contains(
+                                        &sailry_protocol::plugin::Action::ControlConversation,
+                                    ),
+                                },
+                                location: super::location::Scope {
+                                    binding: panel.binding.clone(),
+                                    source: panel.location_source(),
+                                    snapshot: panel.snapshot.borrow().clone(),
+                                    connected: panel.connected,
+                                    read: actions
+                                        .contains(&sailry_protocol::plugin::Action::ReadWorktrees),
+                                    write: actions
+                                        .contains(&sailry_protocol::plugin::Action::WriteWorktrees),
+                                    session_control: actions.contains(
+                                        &sailry_protocol::plugin::Action::ControlConversation,
+                                    ),
+                                },
+                                terminal,
+                                browser,
+                                pane: super::panes::Scope {
+                                    resource: panel.pane,
+                                    events: panel.pane_events.clone(),
+                                },
+                                workspace: panel.workspace.clone(),
+                                resource: panel.resource.clone(),
+                                documents: super::documents::Scope {
+                                    controller: panel.documents.clone(),
+                                    read: actions
+                                        .contains(&sailry_protocol::plugin::Action::ReadFiles),
+                                    write: actions
+                                        .contains(&sailry_protocol::plugin::Action::WriteFiles),
+                                },
+                                artifact: panel.artifact.clone(),
+                                document: panel.document.clone(),
+                                usage_sources: panel.usage_sources.clone(),
+                                activity_sources: panel.activity_sources.clone(),
+                                file_transfers: super::file_transfers::Scope {
+                                    binding: panel.binding.clone(),
+                                    documents: panel.documents.clone(),
+                                    read: actions
+                                        .contains(&sailry_protocol::plugin::Action::ReadFiles),
+                                    write: actions
+                                        .contains(&sailry_protocol::plugin::Action::WriteFiles),
+                                },
                             },
                             window,
                             cx,
@@ -836,12 +849,16 @@ impl Panel {
                                     Some(cx.observe(&mounted.header, |_, _, cx| cx.notify()));
                                 panel.mounted = Some(mounted);
                             }
-                            Err(error) => {
+                            Err(_) => {
                                 host.close();
-                                eprintln!(
-                                    "sailry-desktop: plugin {} view initialization failed: {error:#}",
-                                    package.name
+                                let mut entry = sailry_node_runtime::logging::Entry::new(
+                                    sailry_node_runtime::logging::Area::Plugin,
+                                    sailry_node_runtime::logging::Phase::Failed,
                                 );
+                                entry.context.package = Some(package.clone());
+                                entry.reason = Some("view_initialize");
+                                entry.code = Some(sailry_protocol::ErrorCode::Internal);
+                                entry.emit();
                                 panel.error = Some("plugins_view_load_failed");
                             }
                         }

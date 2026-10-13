@@ -41,6 +41,10 @@ pub(super) fn register_system_menus() {
         .itemWithTitle(&NSString::from_str(&crate::tr("menu_window")))
         .and_then(|item| item.submenu());
     app.setWindowsMenu(menu.as_deref());
+    let help = bar
+        .itemWithTitle(&NSString::from_str(&crate::tr("menu_help")))
+        .and_then(|item| item.submenu());
+    app.setHelpMenu(help.as_deref());
     // The same pinned backend passes the Services item instead of its submenu.
     // Keep Kit's menus and delegate, correcting only AppKit's system registration.
     let item = bar

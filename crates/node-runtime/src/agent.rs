@@ -67,7 +67,14 @@ async fn serve(ingress: Arc<Ingress>, tasks: Tasks) {
                 continue;
             }
             Err(error) => {
-                eprintln!("Agent admission failed: {error}");
+                let mut entry = crate::logging::Entry::new(
+                    crate::logging::Area::Run,
+                    crate::logging::Phase::Failed,
+                );
+                entry.context.node = Some(ingress.node);
+                entry.reason = Some("claim");
+                entry.code = Some(error.code);
+                entry.emit();
                 tokio::select! { _ = controls.stopped.cancelled() => break, _ = tokio::time::sleep(Duration::from_secs(1)) => {} }
                 continue;
             }
@@ -166,7 +173,17 @@ async fn run(
         ingress.finish_run(turn, status, error.clone(), owner).await
     };
     if let Err(error) = &persisted {
-        eprintln!("Agent completion persistence failed: {error}");
+        let mut entry =
+            crate::logging::Entry::new(crate::logging::Area::Run, crate::logging::Phase::Failed);
+        entry.context = crate::logging::Context {
+            node: Some(ingress.node),
+            session: Some(session),
+            turn: Some(turn),
+            ..Default::default()
+        };
+        entry.reason = Some("finish");
+        entry.code = Some(error.code);
+        entry.emit();
     }
     controls.finish(turn);
     let status = persisted?;

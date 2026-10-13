@@ -27,9 +27,10 @@ pub(super) async fn generate(
     )
     .await?;
     let request = request(media.model.provider.api, &config.model, output, prompt);
-    let mut responses = model::timing::generate(&model, request, false)
-        .await
-        .map_err(|error| Failure::model(error, true))?;
+    let mut responses =
+        model::timing::generate(&model, request, false, &media.identity, media.stop.clone())
+            .await
+            .map_err(|error| Failure::model(error, true))?;
     let mut image = None;
     let mut completed = false;
     let mut usage = None;

@@ -67,6 +67,16 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     let Some(options) = options::parse(arguments.into_iter())? else {
         return Ok(0);
     };
+    let _logging = match sailry_node_runtime::logging::install(
+        &options.data_dir,
+        sailry_node_runtime::logging::Application::Host,
+    ) {
+        Ok(guard) => Some(guard),
+        Err(_) => {
+            eprintln!("sailry-host: logging is unavailable");
+            None
+        }
+    };
     // Install handlers before opening a profile or announcing readiness.
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;

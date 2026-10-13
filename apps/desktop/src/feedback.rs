@@ -77,6 +77,12 @@ pub(crate) fn info(title: &str, detail: &str, window: &mut Window, cx: &mut App)
 struct Info;
 
 pub(crate) fn error(title: &str, detail: &str, window: &mut Window, cx: &mut App) {
+    let mut entry = sailry_node_runtime::logging::Entry::new(
+        sailry_node_runtime::logging::Area::Desktop,
+        sailry_node_runtime::logging::Phase::Failed,
+    );
+    entry.reason = Some("operation_feedback");
+    entry.emit();
     deliver(
         window,
         diagnostic(detail.to_owned().into()).when(!title.trim().is_empty(), |note| {
@@ -136,7 +142,15 @@ pub(crate) fn observe_with<T: 'static, Errors>(
         if !added.is_empty() || !cleared.is_empty() {
             let messages: Vec<_> = added
                 .into_iter()
-                .map(|key| (tr(key), build(view, key, cx).id1::<Errors>((key, owner))))
+                .map(|key| {
+                    let mut diagnostic = sailry_node_runtime::logging::Entry::new(
+                        sailry_node_runtime::logging::Area::Desktop,
+                        sailry_node_runtime::logging::Phase::Failed,
+                    );
+                    diagnostic.reason = Some(key);
+                    diagnostic.emit();
+                    (tr(key), build(view, key, cx).id1::<Errors>((key, owner)))
+                })
                 .collect();
             _ = window.update(cx, |_, window, cx| {
                 for key in cleared {

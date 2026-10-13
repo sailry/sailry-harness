@@ -15,6 +15,14 @@ name = "agent"
 path = "tests/agent.rs"
 
 [[test]]
+name = "logging"
+path = "tests/logging.rs"
+
+[[test]]
+name = "logging_logger"
+path = "tests/logging/logger.rs"
+
+[[test]]
 name = "databases"
 path = "tests/databases.rs"
 
@@ -51,6 +59,10 @@ test-support = []
 computer-worker = ["dep:cua-platform-macos"]
 
 [dependencies]
+tracing.workspace = true
+tracing-log.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
 age.workspace = true
 opendal.workspace = true
 cua-driver-sdk.workspace = true

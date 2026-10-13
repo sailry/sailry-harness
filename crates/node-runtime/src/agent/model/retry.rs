@@ -118,8 +118,25 @@ impl Llm for Model {
             let published = &published;
             let model = inner.as_ref();
             let sender = output.clone();
+            let mut index = 0;
             let mut operation = || {
-                attempt(
+                index += 1;
+                let mut entry = crate::logging::Entry::new(
+                    crate::logging::Area::Model,
+                    crate::logging::Phase::Begin,
+                );
+                entry.reason = Some("attempt");
+                entry.count = Some(index);
+                entry.context = crate::logging::Context {
+                    node: Some(ingress.node),
+                    turn: Some(turn),
+                    session: Some(session),
+                    model: Some(model.name().into()),
+                    ..Default::default()
+                };
+                let mut span = crate::logging::Span::new(entry).cancel_when(stop.clone());
+                let stopped = stop.clone();
+                let attempt = attempt(
                     model,
                     request.clone(),
                     stream,
@@ -127,7 +144,26 @@ impl Llm for Model {
                     committed,
                     published,
                     sender.clone(),
-                )
+                );
+                async move {
+                    let result = attempt.await;
+                    match &result {
+                        Ok(()) => span.finish(crate::logging::Phase::Completed, None),
+                        Err(_) => span.finish(
+                            if stopped.is_cancelled() {
+                                crate::logging::Phase::Cancelled
+                            } else {
+                                crate::logging::Phase::Failed
+                            },
+                            Some(if stopped.is_cancelled() {
+                                ErrorCode::Cancelled
+                            } else {
+                                ErrorCode::Unavailable
+                            }),
+                        ),
+                    }
+                    result
+                }
             };
             let policy = RetryConfig::default().with_max_retries(5);
             let result = tokio::select! {

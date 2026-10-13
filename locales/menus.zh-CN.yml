@@ -26,6 +26,11 @@ menu_toggle_sidebar: 展开或折叠导航
 menu_toggle_details: 展开或折叠详情
 menu_full_screen: 切换全屏
 menu_window: 窗口
+menu_help: 帮助
+menu_website: 官网
+menu_feedback: 反馈
+menu_logs: 日志
+logs_unavailable: 日志不可用
 menu_minimize: 最小化
 menu_zoom: 缩放
 menu_bring_all_to_front: 全部置于前台

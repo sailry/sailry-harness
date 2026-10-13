@@ -122,7 +122,7 @@ impl Connections {
                             let mut registration = Registration::new(Arc::new(Bound {
                                 name: alias(&config.plugin, &config.name, &descriptor.name),
                                 description: format!("MCP {}/{}/{}\n{}", config.plugin, config.name, descriptor.name, descriptor.description.as_deref().unwrap_or("")),
-                                descriptor, toolset: connection.toolset.clone(), ingress: ingress.clone(), handler: connection.handler.clone(), poisoned: self.poisoned.clone(),
+                                descriptor, package: connection.reference.clone(), toolset: connection.toolset.clone(), ingress: ingress.clone(), handler: connection.handler.clone(), poisoned: self.poisoned.clone(),
                                 turn: invocation.turn.id, session: invocation.turn.session.to_string(), stop: stop.clone(),
                                 github: connection.github.clone(),
                                 python: connection.python.clone(),
@@ -255,6 +255,7 @@ pub(super) fn alias(plugin: &str, server: &str, tool: &str) -> String {
 }
 
 struct Bound {
+    package: sailry_protocol::plugin::Reference,
     name: String,
     description: String,
     descriptor: Descriptor,
@@ -298,6 +299,53 @@ impl Tool for Bound {
     }
 
     async fn execute(
+        &self,
+        context: Arc<dyn ToolContext>,
+        arguments: Value,
+    ) -> adk_core::Result<Value> {
+        let mut entry =
+            crate::logging::Entry::new(crate::logging::Area::Plugin, crate::logging::Phase::Begin);
+        entry.reason = Some("mcp_call");
+        entry.context = crate::logging::Context {
+            node: Some(self.ingress.node),
+            turn: Some(self.turn),
+            session: self.session.parse().ok(),
+            package: Some(self.package.clone()),
+            handler: Some(self.descriptor.name.to_string()),
+            ..Default::default()
+        };
+        let mut span = crate::logging::Span::new(entry).cancel_when(self.stop.clone());
+        let result = self.call(context, arguments).await;
+        match &result {
+            Ok(value)
+                if value.pointer("/error/code").and_then(Value::as_str)
+                    == Some("outcome_unknown") =>
+            {
+                span.finish(
+                    crate::logging::Phase::Failed,
+                    Some(ErrorCode::OutcomeUnknown),
+                )
+            }
+            Ok(_) => span.finish(crate::logging::Phase::Completed, None),
+            Err(_) => span.finish(
+                if self.stop.is_cancelled() {
+                    crate::logging::Phase::Cancelled
+                } else {
+                    crate::logging::Phase::Failed
+                },
+                Some(if self.stop.is_cancelled() {
+                    ErrorCode::Cancelled
+                } else {
+                    ErrorCode::Unavailable
+                }),
+            ),
+        }
+        result
+    }
+}
+
+impl Bound {
+    async fn call(
         &self,
         context: Arc<dyn ToolContext>,
         arguments: Value,

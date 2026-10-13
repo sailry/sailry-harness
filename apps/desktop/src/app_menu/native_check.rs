@@ -137,6 +137,8 @@ fn verify_menus(locale: &str) {
 }
 
 fn verify_system_menus() {
+    let help = submenu("menu_help");
+    assert!(std::ptr::eq(&*application().helpMenu().unwrap(), &*help));
     let windows = submenu("menu_window");
     assert!(std::ptr::eq(
         &*application().windowsMenu().unwrap(),

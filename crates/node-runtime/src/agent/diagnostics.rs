@@ -89,7 +89,7 @@ impl Diagnostics {
             last_content: None,
         };
         if let Some(started) = span.started {
-            eprintln!("{}", span.line(State::Begin, started));
+            span.record(State::Begin, started);
         }
         span
     }
@@ -102,6 +102,32 @@ impl Span {
         }
     }
 
+    fn record(&self, state: State, now: Instant) {
+        let mut entry = crate::logging::Entry::new(
+            crate::logging::Area::Turn,
+            match state {
+                State::Begin => crate::logging::Phase::Begin,
+                State::End => crate::logging::Phase::Completed,
+            },
+        );
+        entry.context.turn = Some(self.turn);
+        entry.reason = Some(self.phase.label());
+        entry.elapsed_us = self
+            .origin
+            .map(|origin| now.duration_since(origin).as_micros() as u64);
+        entry.duration_us = self
+            .started
+            .map(|started| now.duration_since(started).as_micros() as u64);
+        entry.count = self.operations.map(|operations| operations as u64);
+        if matches!(state, State::End) {
+            entry.last_content_us = self
+                .last_content
+                .map(|duration| duration.as_micros() as u64);
+        }
+        entry.emit();
+    }
+
+    #[cfg(test)]
     fn line(&self, state: State, now: Instant) -> String {
         let elapsed = self
             .origin
@@ -133,7 +159,7 @@ impl Span {
 impl Drop for Span {
     fn drop(&mut self) {
         if self.started.is_some() {
-            eprintln!("{}", self.line(State::End, Instant::now()));
+            self.record(State::End, Instant::now());
         }
     }
 }

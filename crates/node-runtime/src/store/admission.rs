@@ -139,6 +139,26 @@ impl Ingress {
         internal: bool,
     ) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
+            let mut span = crate::logging::commands::begin(self.node, caller, &request);
+            let result = self.route_request(caller, request, internal).await;
+            match (span.as_mut(), &result) {
+                (Some(span), Err(fault)) => crate::logging::commands::rejected(span, fault),
+                _ => {}
+            }
+            result.map(|admission| match span {
+                Some(span) => crate::logging::commands::admitted(span, admission),
+                None => admission,
+            })
+        })
+    }
+
+    fn route_request(
+        &self,
+        caller: NodeId,
+        request: Request,
+        internal: bool,
+    ) -> Pending<'_, Result<Admission, Fault>> {
+        Box::pin(async move {
             if !self.accepting.load(Ordering::Acquire) {
                 return Err(unavailable());
             }

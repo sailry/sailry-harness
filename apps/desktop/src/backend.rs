@@ -42,7 +42,15 @@ impl Lifecycle {
     pub(crate) async fn stop(&self) -> Result<(), String> {
         let mut owner = self.owner.lock().await;
         if let Some(node) = owner.take() {
-            node.shutdown().await.map_err(|error| error.to_string())?;
+            node.shutdown().await.map_err(|error| {
+                let mut diagnostic = sailry_node_runtime::logging::Entry::new(
+                    sailry_node_runtime::logging::Area::Desktop,
+                    sailry_node_runtime::logging::Phase::Failed,
+                );
+                diagnostic.reason = Some("node_shutdown");
+                diagnostic.emit();
+                error.to_string()
+            })?;
         }
         Ok(())
     }

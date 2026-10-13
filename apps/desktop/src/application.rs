@@ -58,6 +58,20 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
     )
     .unwrap()
     .unwrap();
+    let logging = match &launch {
+        startup::Launch::Node(options) => sailry_node_runtime::logging::install(
+            &options.data_dir,
+            sailry_node_runtime::logging::Application::Desktop,
+        )
+        .map(Some),
+        startup::Launch::Preview => sailry_node_runtime::logging::preview().map(Some),
+        startup::Launch::CheckTheme(_) => Ok(None),
+    };
+    let logging_failed = logging.is_err();
+    if logging_failed {
+        eprintln!("sailry-desktop: logging is unavailable");
+    }
+    let _logging = logging.ok().flatten();
     let backend = match launch {
         startup::Launch::CheckTheme(path) => {
             match theme::check::run(&path) {
@@ -102,21 +116,27 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
         let options = window_options(cx);
         cx.spawn(async move |cx| {
             let opening = async {
-                cx.open_window(options, |window, cx| {
-                    #[cfg(target_os = "macos")]
-                    macos::configure_backdrop(window);
-                    let live = cx.try_global::<backend::Services>().is_some();
-                    window.set_window_title(&if live {
-                        tr("app").to_string()
-                    } else {
-                        format!("{} - {}", tr("app"), tr("preview"))
+                let window = cx
+                    .open_window(options, |window, cx| {
+                        #[cfg(target_os = "macos")]
+                        macos::configure_backdrop(window);
+                        let live = cx.try_global::<backend::Services>().is_some();
+                        window.set_window_title(&if live {
+                            tr("app").to_string()
+                        } else {
+                            format!("{} - {}", tr("app"), tr("preview"))
+                        });
+                        let view = cx.new(|cx| shell::Shell::new(window, cx));
+                        #[cfg(feature = "workload-tests")]
+                        workload::attach(workload, view.clone(), window, cx);
+                        cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
+                    })
+                    .expect("failed to open desktop window");
+                if logging_failed {
+                    _ = window.update(cx, |_, window, cx| {
+                        crate::feedback::error("", &crate::tr("logs_unavailable"), window, cx);
                     });
-                    let view = cx.new(|cx| shell::Shell::new(window, cx));
-                    #[cfg(feature = "workload-tests")]
-                    workload::attach(workload, view.clone(), window, cx);
-                    cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
-                })
-                .expect("failed to open desktop window");
+                }
                 cx.update(|cx| cx.activate(true));
                 cx.update(|cx| {
                     if cx.try_global::<backend::Services>().is_some() {
