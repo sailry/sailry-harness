@@ -789,12 +789,7 @@ async fn inspect(
                 if package.info.summary.name != current.name {
                     return Err(Fault::invalid("plugin update has a different identity"));
                 }
-                let installed = semantic(current.version.as_deref())?;
-                let available = semantic(package.info.summary.version.as_deref())?;
-                available
-                    .cmp_precedence(&installed)
-                    .is_gt()
-                    .then_some(Candidate::Upload(package))
+                changed(current, &package.info.summary).then_some(Candidate::Upload(package))
             }
         }
     } else {
@@ -833,10 +828,15 @@ async fn inspect(
     })
 }
 
-fn semantic(value: Option<&str>) -> Result<semver::Version, Fault> {
-    value
-        .and_then(|value| semver::Version::parse(value).ok())
-        .ok_or_else(|| Fault::invalid("plugin semantic version is unavailable"))
+fn changed(current: &Summary, candidate: &Summary) -> bool {
+    let semantic = |value: Option<&str>| value.and_then(|value| semver::Version::parse(value).ok());
+    match (
+        semantic(current.version.as_deref()),
+        semantic(candidate.version.as_deref()),
+    ) {
+        (Some(installed), Some(available)) => available.cmp_precedence(&installed).is_gt(),
+        _ => candidate.digest != current.digest,
+    }
 }
 
 fn notify(window: &mut Window, message: SharedString, error: bool, cx: &mut App) {

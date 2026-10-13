@@ -33,18 +33,17 @@ fn install(fixture: &Fixture, path: &str, name: &str) {
     });
 }
 
-fn package(fixture: &Fixture, name: &str, version: &str) {
+fn package(fixture: &Fixture, name: &str, version: Option<&str>) {
     let directory = fixture.directory.path().join("project").join(name);
     std::fs::create_dir_all(&directory).unwrap();
-    std::fs::write(
-        directory.join("plugin.json"),
-        serde_json::json!({
-            "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-            "name": name, "version": version,
-        })
-        .to_string(),
-    )
-    .unwrap();
+    let mut manifest = serde_json::json!({
+        "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+        "name": name,
+    });
+    if let Some(version) = version {
+        manifest["version"] = version.into();
+    }
+    std::fs::write(directory.join("plugin.json"), manifest.to_string()).unwrap();
 }
 
 #[gpui::test]
@@ -68,6 +67,7 @@ fn compares_manual_package_versions(cx: &mut TestAppContext) {
             ("1.0.0+changed", false),
             ("1.0.1-rc.1", true),
             ("1.0.1", true),
+            ("invalid", true),
         ] {
             fixture.package(version);
             let entry = fixture
@@ -87,25 +87,70 @@ fn compares_manual_package_versions(cx: &mut TestAppContext) {
             assert_eq!(fixture.plugins()[0], current);
             assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
         }
-        fixture.package("invalid");
-        let error = fixture
-            .runtime
-            .block_on(inspect(
-                &binding,
-                checks::Report {
-                    current: current.clone(),
-                    available: None,
-                    manual: true,
-                },
-                Some(fixture.directory.path().join("project/package")),
-                CancellationToken::new(),
-            ))
-            .err()
-            .expect("invalid package version must fail");
-        assert_eq!(error.code, ErrorCode::InvalidRequest);
-        assert_eq!(fixture.plugins()[0], current);
-        assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
         fixture.close(visual);
+    }
+}
+
+#[gpui::test]
+fn accepts_unversioned_manual_changes(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        for installed in [None, Some("invalid")] {
+            let fixture = Fixture::new(remote);
+            package(&fixture, "example", installed);
+            install(&fixture, "example", "example");
+            let current = fixture.plugins()[0].clone();
+            let Output::PluginUpdate(report) = fixture.execute(Command::CheckPluginUpdate {
+                name: current.name.clone(),
+                expected_revision: current.revision,
+                force: false,
+            }) else {
+                panic!("plugin update report expected")
+            };
+            assert!(report.manual && report.available.is_none());
+            let binding = Binding {
+                client: Arc::new(Client::new(fixture.transport.clone())),
+                runtime: fixture.runtime.clone(),
+                label: "Fixture Node".into(),
+            };
+            let (_, visual) = fixture.mount(cx);
+            let directory = fixture.directory.path().join("project/example");
+            let unchanged = fixture
+                .runtime
+                .block_on(inspect(
+                    &binding,
+                    report.clone(),
+                    Some(directory.clone()),
+                    CancellationToken::new(),
+                ))
+                .unwrap();
+            assert!(unchanged.candidate.is_none() && unchanged.manual);
+            std::fs::write(directory.join("README.md"), "Updated package\n").unwrap();
+            for version in [Some("1.0.1"), None, Some("invalid")] {
+                package(&fixture, "example", version);
+                let entry = fixture
+                    .runtime
+                    .block_on(inspect(
+                        &binding,
+                        report.clone(),
+                        Some(directory.clone()),
+                        CancellationToken::new(),
+                    ))
+                    .unwrap();
+                assert!(!entry.manual && entry.previous.is_some());
+                assert!(matches!(entry.candidate, Some(Candidate::Upload(_))));
+                assert_eq!(fixture.plugins()[0], current);
+                if version == Some("invalid") {
+                    let command = entry.candidate.as_ref().unwrap().command(&current).unwrap();
+                    let Output::Plugin(updated) = fixture.execute(command) else {
+                        panic!("updated plugin expected")
+                    };
+                    assert_eq!(updated.summary.version.as_deref(), version);
+                    assert_eq!(updated.summary.revision, current.revision + 1);
+                }
+            }
+            fixture.close(visual);
+        }
     }
 }
 
@@ -195,9 +240,9 @@ fn scrolls_all_candidates(cx: &mut TestAppContext) {
             "candidate-i",
         ];
         for name in names {
-            package(&fixture, name, "1.0.0");
+            package(&fixture, name, Some("1.0.0"));
             install(&fixture, name, name);
-            package(&fixture, name, "2.0.0");
+            package(&fixture, name, Some("2.0.0"));
         }
         let skill = fixture
             .directory
@@ -421,9 +466,9 @@ fn keeps_unselected_candidates(cx: &mut TestAppContext) {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         for name in ["example", "second", "third"] {
-            package(&fixture, name, "1.0.0");
+            package(&fixture, name, Some("1.0.0"));
             install(&fixture, name, name);
-            package(&fixture, name, "2.0.0");
+            package(&fixture, name, Some("2.0.0"));
         }
         let (owner, visual) = fixture.mount(cx);
         start(&fixture, &owner, visual);
@@ -431,7 +476,7 @@ fn keeps_unselected_candidates(cx: &mut TestAppContext) {
             owner.plugin_catalog.updates.clone().unwrap()
         });
         tap(visual, "plugin-update-select-third");
-        package(&fixture, "example", "3.0.0");
+        package(&fixture, "example", Some("3.0.0"));
         tap(visual, "plugins-updates-apply");
         wait(visual, |cx| !state.read(cx).busy());
         assert!(state.read_with(visual, |state, _| {
@@ -442,7 +487,7 @@ fn keeps_unselected_candidates(cx: &mut TestAppContext) {
         }));
         assert_eq!(fixture.transport.requests.lock().unwrap().len(), 2);
         let failed = fixture.transport.requests.lock().unwrap()[0];
-        package(&fixture, "example", "2.0.0");
+        package(&fixture, "example", Some("2.0.0"));
         visual.update(|window, cx| {
             state.update(cx, |state, cx| state.apply(Some("third"), window, cx));
         });
