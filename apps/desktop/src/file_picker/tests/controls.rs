@@ -561,3 +561,129 @@ fn name_forms_preserve_drafts_and_cancel(cx: &mut TestAppContext) {
         fixture.close();
     }
 }
+
+#[gpui::test]
+fn go_to_preserves_navigation_until_success(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = crate::plugins::fixture::Fixture::directory(remote);
+        cx.update(|cx| cx.set_global(fixture.services(remote)));
+        let path = fixture.directory.path().join("chooser");
+        std::fs::create_dir(&path).unwrap();
+        std::fs::create_dir(path.join("folder")).unwrap();
+        std::fs::write(path.join("file.txt"), "contents").unwrap();
+        let path = path.canonicalize().unwrap();
+        let (picker, confirmations, visual) = show(
+            cx,
+            Arc::new(Client::new(fixture.transport.clone())),
+            path.to_str().unwrap().into(),
+            Mode::Directory,
+            false,
+        );
+        wait(visual, &picker);
+        let folder = visual.update(|_, cx| index(&picker, "folder", cx));
+        click_row(visual, &picker, folder, Modifiers::default());
+        let browses = || {
+            fixture
+                .transport
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| matches!(request.command, Command::BrowseFiles { .. }))
+                .count()
+        };
+        let initial = browses();
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            window.click("directory_go_to", cx);
+        });
+        settle(visual, |window, _| {
+            window.try_find("directory-go-to-target").is_some()
+        });
+        let missing = path.join("missing").to_str().unwrap().to_owned();
+        visual.simulate_keystrokes("secondary-a");
+        visual.simulate_input(&missing);
+        visual.run_until_parked();
+        assert_eq!(browses(), initial, "typing must not browse the Node");
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert_eq!(picker.read(cx).selected, BTreeSet::from([folder]));
+            window.click("directory-go-to-target", cx);
+        });
+        settle(visual, |_, cx| {
+            picker.read(cx).error == Some("files_directory_failed") && !picker.read(cx).busy
+        });
+        visual.update(|window, cx| {
+            let fields = window
+                .within("directory-go-to")
+                .find_all_by_role(Role::TextInput);
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].value(), Some(missing.as_str()));
+            assert_eq!(
+                picker.read(cx).listing.as_ref().unwrap().directory.path,
+                path.to_str().unwrap()
+            );
+            assert_eq!(picker.read(cx).selected, BTreeSet::from([folder]));
+            assert_eq!(picker.read(cx).history.len(), 1);
+            assert_eq!(confirmations.load(Ordering::SeqCst), 0);
+        });
+        let file = path.join("file.txt").to_str().unwrap().to_owned();
+        visual.simulate_keystrokes("secondary-a");
+        visual.simulate_input(&file);
+        visual.simulate_keystrokes("enter");
+        settle(visual, |_, cx| {
+            browses() >= initial + 2 && !picker.read(cx).busy
+        });
+        visual.update(|window, cx| {
+            assert!(picker.read(cx).go_to.is_some());
+            assert_eq!(picker.read(cx).selected, BTreeSet::from([folder]));
+            assert_eq!(
+                picker.read(cx).listing.as_ref().unwrap().directory.path,
+                path.to_str().unwrap()
+            );
+            let fields = window
+                .within("directory-go-to")
+                .find_all_by_role(Role::TextInput);
+            assert_eq!(fields[0].value(), Some(file.as_str()));
+        });
+        visual.simulate_keystrokes("escape");
+        settle(visual, |window, cx| {
+            picker.read(cx).go_to.is_none() && picker.read(cx).focus.is_focused(window)
+        });
+        visual.update(|window, cx| {
+            assert!(!picker.read(cx).closed);
+            assert_eq!(picker.read(cx).history.len(), 1);
+            assert!(picker.read(cx).error.is_none());
+            assert_eq!(picker.read(cx).selected, BTreeSet::from([folder]));
+            window.render_frame(cx);
+            window.click("directory-confirm", cx);
+            assert_eq!(confirmations.load(Ordering::SeqCst), 1);
+            window.click("directory_go_to", cx);
+        });
+        settle(visual, |window, _| {
+            window.try_find("directory-go-to-target").is_some()
+        });
+        let destination = path.join("folder").to_str().unwrap().to_owned();
+        visual.simulate_keystrokes("secondary-a");
+        visual.simulate_input(&destination);
+        visual.simulate_keystrokes("enter");
+        settle(visual, |_, cx| {
+            picker.read(cx).go_to.is_none()
+                && picker.read(cx).listing.as_ref().unwrap().directory.path == destination
+        });
+        visual.update(|window, cx| {
+            assert!(!picker.read(cx).closed);
+            assert!(picker.read(cx).selected.is_empty());
+            assert_eq!(picker.read(cx).history.len(), 2);
+            assert!(picker.read(cx).focus.is_focused(window));
+            assert!(picker.read(cx).error.is_none());
+            assert_eq!(confirmations.load(Ordering::SeqCst), 1);
+            assert!(window.try_find("directory-go-to-target").is_none());
+            assert!(window.try_find("directory-confirm").is_some());
+        });
+        assert!(browses() >= initial + 3);
+        dismiss(visual, &picker);
+        fixture.close();
+    }
+}

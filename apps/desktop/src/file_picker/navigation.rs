@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone, Copy)]
 pub(crate) enum Visit {
     Push,
+    GoTo,
     History(usize),
     Refresh,
 }
@@ -63,7 +64,7 @@ impl Picker {
     ) {
         let path = &listing.directory.path;
         match visit {
-            Visit::Push if self.history.get(self.cursor) != Some(path) => {
+            Visit::Push | Visit::GoTo if self.history.get(self.cursor) != Some(path) => {
                 self.history.truncate(self.cursor + 1);
                 self.history.push(path.clone());
                 self.cursor = self.history.len() - 1;
@@ -115,6 +116,9 @@ impl Picker {
         self.rebuild(cx);
         self.menu_directory = None;
         self.error = None;
+        if matches!(visit, Visit::GoTo) && self.go_to.take().is_some() {
+            window.close_dialog(cx);
+        }
         if changed {
             self.scroll.scroll_to_item(0, ScrollStrategy::Top);
         }

@@ -5,6 +5,7 @@
 pub(crate) mod actions;
 mod breadcrumbs;
 mod catalog;
+mod go_to;
 mod navigation;
 mod render;
 mod selection;
@@ -160,6 +161,7 @@ pub(crate) fn open(
             filter,
             filename,
             editing_address: false,
+            go_to: None,
             grid: preference.grid,
             hidden: preference.hidden,
             visible: Vec::new(),
@@ -236,6 +238,7 @@ pub(crate) struct Picker {
     filter: Entity<InputState>,
     filename: Entity<InputState>,
     editing_address: bool,
+    go_to: Option<Entity<gpui_kit::component::list::ListState<go_to::Items>>>,
     grid: bool,
     hidden: bool,
     visible: Vec<usize>,

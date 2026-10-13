@@ -192,11 +192,18 @@ impl Picker {
                 cx,
                 |picker, window, cx| picker.refresh(window, cx),
             ))
+            .child(self.nav(
+                "directory_go_to",
+                gpui_kit::assets::IconName::FolderInput,
+                self.listing.is_none(),
+                cx,
+                |picker, window, cx| picker.go_to(window, cx),
+            ))
     }
     fn nav(
         &self,
         id: &'static str,
-        icon: IconName,
+        icon: impl Into<Icon>,
         disabled: bool,
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,

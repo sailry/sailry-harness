@@ -1786,6 +1786,7 @@ directory_documents: 文档
 directory_downloads: 下载
 directory_volume: 磁盘
 directory_refresh: 刷新
+directory_go_to: 前往文件夹
 directory_open: 打开
 directory_create: 新建文件夹
 directory_name: 名称
