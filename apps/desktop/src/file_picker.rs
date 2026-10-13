@@ -32,8 +32,26 @@ use std::{collections::BTreeSet, sync::Arc};
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Mode {
     Directory,
-    Files { multiple: bool },
-    Save { suggested_name: String },
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Reusable file selection mode has local and remote tests but no production caller"
+        )
+    )]
+    Files {
+        multiple: bool,
+    },
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Reusable save mode has local and remote tests but no production caller"
+        )
+    )]
+    Save {
+        suggested_name: String,
+    },
 }
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Selection {

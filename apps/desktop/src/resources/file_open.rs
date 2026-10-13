@@ -29,6 +29,7 @@ impl Shell {
         );
     }
 
+    #[cfg(test)]
     pub(crate) fn reveal_file_in_system(
         &mut self,
         scope: (NodeId, WorktreeId),

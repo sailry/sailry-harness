@@ -34,7 +34,6 @@ impl Rows {
                 index.is_some_and(|index| self.selected.contains(&index)),
                 |row| row.bg(cx.theme().list_active),
             )
-            .hover(|row| row.bg(cx.theme().list_hover))
             .on_mouse_down(MouseButton::Right, move |event, window, cx| {
                 cx.stop_propagation();
                 if let Some(owner) = &owner {

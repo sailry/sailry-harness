@@ -254,24 +254,21 @@ fn modes_keep_host_paths(cx: &mut TestAppContext) {
                 visual.update(|window, cx| {
                     picker.update(cx, |picker, cx| {
                         assert_eq!(picker.error, Some("directory_action_failed"));
-                        picker.filename.update(cx, |input, cx| {
-                            input.set_value("retry.md", window, cx);
-                            input.set_value("saved.md", window, cx);
-                        });
+                        picker
+                            .filename
+                            .update(cx, |input, cx| input.focus(window, cx));
                     })
                 });
+                visual.simulate_keystrokes("secondary-a");
+                visual.simulate_input("retry.md");
+                visual.simulate_keystrokes("secondary-a");
+                visual.simulate_input("saved.md");
                 visual.run_until_parked();
                 visual.update(|_, cx| {
-                    picker.update(cx, |picker, cx| {
-                        assert!(picker.error.is_none());
-                        picker.filename.update(cx, |_, cx| {
-                            cx.emit(InputEvent::PressEnter {
-                                secondary: false,
-                                shift: false,
-                            })
-                        });
-                    })
+                    assert!(picker.read(cx).error.is_none());
+                    assert_eq!(picker.read(cx).filename.read(cx).value(), "saved.md");
                 });
+                visual.simulate_keystrokes("enter");
                 visual.run_until_parked();
             }
             let expected = match mode {

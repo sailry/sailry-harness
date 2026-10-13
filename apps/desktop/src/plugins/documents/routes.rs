@@ -95,23 +95,6 @@ impl Panel {
         }
     }
 
-    pub(crate) fn reveal_system_file(
-        &self,
-        path: String,
-        cx: &mut App,
-    ) -> Option<tokio::sync::oneshot::Receiver<Result<Value, Fault>>> {
-        if !self.resource_active() {
-            return None;
-        }
-        Some(crate::plugins::file_transfers::open_captured(
-            &self.binding,
-            &self.mounted.as_ref()?.host(),
-            path,
-            crate::plugins::file_transfers::system::Action::Reveal,
-            cx,
-        ))
-    }
-
     pub(crate) fn open_system_file(
         &self,
         path: String,

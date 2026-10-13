@@ -1,6 +1,7 @@
 use super::*;
 use crate::file_picker::actions;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use std::time::{Duration, Instant};
 
 fn wait(cx: &mut VisualTestContext, picker: &Entity<Picker>) {
@@ -27,6 +28,92 @@ fn click(cx: &mut VisualTestContext, selector: &'static str) {
         .unwrap_or_else(|| panic!("missing {selector}"));
     cx.simulate_click(bounds.center(), Modifiers::default());
     cx.run_until_parked();
+}
+
+fn view(cx: &mut VisualTestContext, picker: &Entity<Picker>, grid: bool) {
+    let id = if grid {
+        "directory-view-grid"
+    } else {
+        "directory-view-list"
+    };
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        window.click(id, cx);
+    });
+    wait(cx, picker);
+    cx.update(|window, cx| {
+        window.render_frame(cx);
+        assert_eq!(window.find(id).checked(), Some(true));
+        assert_eq!(
+            window
+                .find(if grid {
+                    "directory-view-list"
+                } else {
+                    "directory-view-grid"
+                })
+                .checked(),
+            Some(false)
+        );
+    });
+}
+
+fn roundtrip(cx: &mut VisualTestContext, picker: &Entity<Picker>) {
+    view(cx, picker, false);
+    assert!(cx.debug_bounds("directory-row-0").is_some());
+    cx.update(|window, cx| window.hover(("directory-table-row", 0usize), cx));
+    view(cx, picker, true);
+    assert!(cx.debug_bounds("directory-row-0").is_some());
+    cx.update(|window, cx| window.hover(("directory-entry", 0usize), cx));
+    view(cx, picker, false);
+    assert!(cx.debug_bounds("directory-row-0").is_some());
+}
+
+#[gpui::test]
+fn draws_project_lists(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+        crate::shell::init(cx);
+    });
+    let mut shell = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let entity = cx.new(|cx| Shell::new(window, cx));
+        shell = Some(entity.clone());
+        Root::new(entity, window, cx)
+    });
+    let shell = shell.unwrap();
+    let picker = visual.update(|window, cx| {
+        shell.update(cx, |shell, cx| {
+            let editor = shell
+                .build_project_editor(0, None, None, window, cx)
+                .unwrap();
+            assert!(editor.read(cx).live.is_none());
+            open_project(editor, window, cx)
+        })
+    });
+    wait(visual, &picker);
+    assert!(!picker.read_with(visual, |picker, _| picker.entries().is_empty()));
+    assert!(visual.debug_bounds("directory-picker").is_some());
+    assert!(visual.debug_bounds("project-editor").is_none());
+    roundtrip(visual, &picker);
+    visual.update(|window, cx| {
+        picker.update(cx, |picker, cx| {
+            picker.navigate(Some("/preview/empty".into()), Visit::Push, window, cx)
+        });
+    });
+    wait(visual, &picker);
+    assert!(picker.read_with(visual, |picker, _| picker.entries().is_empty()));
+    assert!(visual.debug_bounds("directory-empty").is_some());
+    view(visual, &picker, true);
+    assert!(visual.debug_bounds("directory-empty").is_some());
+    click(visual, "directory_root");
+    wait(visual, &picker);
+    assert!(!picker.read_with(visual, |picker, _| picker.entries().is_empty()));
+    roundtrip(visual, &picker);
+    click(visual, "directory-cancel");
+    assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+    visual.update(|window, _| window.remove_window());
 }
 
 #[gpui::test]
@@ -71,6 +158,9 @@ fn opens_folders(cx: &mut TestAppContext) {
                 });
             });
             wait(visual, &picker);
+            if attempt == 0 {
+                roundtrip(visual, &picker);
+            }
             visual.update(|window, cx| window.draw(cx).clear(cx));
             assert!(visual.debug_bounds("directory-picker").is_some());
             assert!(visual.debug_bounds("project-editor").is_none());
