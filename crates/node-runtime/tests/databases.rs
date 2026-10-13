@@ -508,6 +508,193 @@ async fn sqlite_ownership() {
 }
 
 #[tokio::test]
+async fn sqlite_initializes_explicit_schema_writes() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let path = directory.path().join("created.db");
+        let Output::DatabaseProfile(profile) = execute(
+            &client,
+            Command::SaveDatabase {
+                profile: Profile {
+                    id: DatabaseId::new(),
+                    revision: 0,
+                    sharing: None,
+                    name: "Created SQLite fixture".into(),
+                    connection: Connection::Sqlite {
+                        path: path.to_str().unwrap().into(),
+                    },
+                    read_only: false,
+                },
+                expected_revision: 0,
+                password: None,
+            },
+        )
+        .await
+        else {
+            panic!("database profile expected")
+        };
+        assert!(!path.exists());
+        let mut stale = client.prepare(query(&profile, "CREATE TABLE stale(value INTEGER)"));
+        if let Command::QueryDatabase {
+            expected_revision, ..
+        } = &mut stale.command
+        {
+            *expected_revision = 0;
+        }
+        assert_eq!(
+            client.execute(stale).await.unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        assert!(!path.exists());
+        let request = client.prepare(query(&profile, "CREATE TABLE items(value INTEGER)"));
+        let created = client.execute(request.clone()).await.unwrap();
+        assert!(path.is_file());
+        assert_eq!(client.execute(request).await.unwrap(), created);
+        execute(&client, query(&profile, "INSERT INTO items VALUES (42)")).await;
+        assert_eq!(
+            rows(execute(&client, query(&profile, "SELECT value FROM items")).await).rows,
+            vec![vec![Value::Integer(42)]]
+        );
+        execute(
+            &client,
+            query(&profile, "CREATE TABLE other(value INTEGER)"),
+        )
+        .await;
+        assert_eq!(
+            rows(execute(&client, query(&profile, "SELECT value FROM items")).await).rows,
+            vec![vec![Value::Integer(42)]]
+        );
+        let invalid = directory.path().join("invalid.db");
+        let contents = b"Not a SQLite database";
+        std::fs::write(&invalid, contents).unwrap();
+        let Output::DatabaseProfile(invalid_profile) = execute(
+            &client,
+            Command::SaveDatabase {
+                profile: Profile {
+                    id: DatabaseId::new(),
+                    revision: 0,
+                    connection: Connection::Sqlite {
+                        path: invalid.to_str().unwrap().into(),
+                    },
+                    ..profile.clone()
+                },
+                expected_revision: 0,
+                password: None,
+            },
+        )
+        .await
+        else {
+            panic!("database profile expected")
+        };
+        assert_eq!(
+            client
+                .execute(
+                    client.prepare(query(&invalid_profile, "CREATE TABLE items(value INTEGER)"))
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+        assert_eq!(std::fs::read(&invalid).unwrap(), contents.to_vec());
+        for (target, code) in [
+            (
+                directory.path().join("absent/created.db"),
+                ErrorCode::NotFound,
+            ),
+            (
+                node.profile().join("created.db"),
+                ErrorCode::PermissionDenied,
+            ),
+        ] {
+            let Output::DatabaseProfile(profile) = execute(
+                &client,
+                Command::SaveDatabase {
+                    profile: Profile {
+                        id: DatabaseId::new(),
+                        revision: 0,
+                        connection: Connection::Sqlite {
+                            path: target.to_str().unwrap().into(),
+                        },
+                        ..profile.clone()
+                    },
+                    expected_revision: 0,
+                    password: None,
+                },
+            )
+            .await
+            else {
+                panic!("database profile expected")
+            };
+            assert_eq!(
+                client
+                    .execute(client.prepare(query(&profile, "CREATE TABLE items(value INTEGER)")))
+                    .await
+                    .unwrap_err()
+                    .code,
+                code
+            );
+            assert!(!target.exists());
+            if code == ErrorCode::NotFound {
+                assert!(!target.parent().unwrap().exists());
+            }
+        }
+        #[cfg(unix)]
+        {
+            let target = directory.path().join("unintended.db");
+            let link = directory.path().join("dangling.db");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            let Output::DatabaseProfile(profile) = execute(
+                &client,
+                Command::SaveDatabase {
+                    profile: Profile {
+                        id: DatabaseId::new(),
+                        revision: 0,
+                        connection: Connection::Sqlite {
+                            path: link.to_str().unwrap().into(),
+                        },
+                        ..profile.clone()
+                    },
+                    expected_revision: 0,
+                    password: None,
+                },
+            )
+            .await
+            else {
+                panic!("database profile expected")
+            };
+            assert_eq!(
+                client
+                    .execute(client.prepare(query(&profile, "CREATE TABLE items(value INTEGER)")))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidRequest
+            );
+            assert!(!target.exists());
+            assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        }
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn sqlite_catalog_reports_missing_without_creation() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
@@ -556,11 +743,49 @@ async fn sqlite_catalog_reports_missing_without_creation() {
                     database: None,
                 },
                 query(&profile, "SELECT 1"),
+                query(&profile, "EXPLAIN CREATE TABLE items(value INTEGER)"),
+                query(&profile, "PRAGMA user_version = 7"),
+                query(&profile, "EXPLAIN PRAGMA user_version = 7"),
+                Command::CheckDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                },
+                Command::TestDatabase {
+                    profile: profile.clone(),
+                    expected_revision: profile.revision,
+                    password: None,
+                },
+                Command::QueryDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                    database: None,
+                    sql: "CREATE TABLE items(value INTEGER)".into(),
+                    row_limit: 2,
+                    timeout_ms: 5000,
+                    read_only: true,
+                },
             ] {
                 let fault = client.execute(client.prepare(command)).await.unwrap_err();
                 assert_eq!(fault.code, ErrorCode::NotFound);
                 assert_eq!(fault.message, "Database file does not exist");
                 assert!(!missing.exists());
+            }
+            if read_only {
+                let fault = client
+                    .execute(client.prepare(query(&profile, "CREATE TABLE items(value INTEGER)")))
+                    .await
+                    .unwrap_err();
+                assert_eq!(fault.code, ErrorCode::NotFound);
+                assert!(!missing.exists());
+            } else {
+                for sql in ["not SQL", "CREATE TABLE items(value INTEGER); SELECT 1"] {
+                    let fault = client
+                        .execute(client.prepare(query(&profile, sql)))
+                        .await
+                        .unwrap_err();
+                    assert_eq!(fault.code, ErrorCode::InvalidRequest);
+                    assert!(!missing.exists());
+                }
             }
         }
         let empty = directory.path().join("empty.db");

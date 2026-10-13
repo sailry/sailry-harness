@@ -499,6 +499,100 @@ async fn bundled_tools_keep_saved_id() {
 }
 
 #[tokio::test]
+async fn bundled_writes_initialize_only_after_approval() {
+    for remote in [false, true] {
+        for approve in [false, true] {
+            let server = Server::result_tools(vec![
+                (
+                    agent_support::plugin_tool("databases", "database_save_connection"),
+                    json!({"name":"New SQLite","engine":"sqlite","path":"created.db","read_only":false}),
+                ),
+                (
+                    agent_support::plugin_tool("databases", "database_execute"),
+                    json!({"connection":"$connection","sql":"CREATE TABLE items(value INTEGER)"}),
+                ),
+                (
+                    agent_support::plugin_tool("databases", "database_query"),
+                    json!({"connection":"$connection","sql":"SELECT COUNT(*) FROM items"}),
+                ),
+            ])
+            .await;
+            let mut fixture = process::Fixture::new(remote, &server).await;
+            configure(&mut fixture, Permission::Ask).await;
+            let path = fixture.root.join("created.db");
+            assert!(!path.exists());
+            let turn = submit(&fixture).await;
+            let (_, save) = approvals::pending(&fixture.client, fixture.session.id).await;
+            assert!(databases(&fixture.client).await.is_empty());
+            assert!(!path.exists());
+            process::decide(&fixture.client, &save, Decision::Approve).await;
+            let (page, write) = approvals::pending(&fixture.client, fixture.session.id).await;
+            let profiles = databases(&fixture.client).await;
+            assert_eq!(profiles.len(), 1);
+            let profile = &profiles[0];
+            assert!(!profile.read_only);
+            assert_eq!(results(&page)[0]["data"]["id"], profile.id.to_string());
+            assert_eq!(
+                profile.connection,
+                database::Connection::Sqlite {
+                    path: fixture
+                        .root
+                        .canonicalize()
+                        .unwrap()
+                        .join("created.db")
+                        .to_str()
+                        .unwrap()
+                        .into(),
+                }
+            );
+            assert!(!path.exists());
+            process::decide(
+                &fixture.client,
+                &write,
+                if approve {
+                    Decision::Approve
+                } else {
+                    Decision::Deny
+                },
+            )
+            .await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(
+                page.runs[0].status,
+                Status::Completed,
+                "{:?}",
+                page.runs[0].error
+            );
+            let output = results(&page);
+            assert_eq!(output.len(), 3, "{output:?}");
+            assert_eq!(output[0]["data"]["id"], profile.id.to_string());
+            if approve {
+                assert!(path.is_file());
+                assert_eq!(output[1]["kind"], "database_outcome", "{output:?}");
+                assert_eq!(
+                    output[2]["data"]["data"]["rows"][0][0]["value"], 0,
+                    "{output:?}"
+                );
+            } else {
+                assert!(!path.exists());
+                assert_eq!(
+                    output[1]["error"],
+                    format!(
+                        "Tool '{}' execution denied by confirmation policy",
+                        agent_support::plugin_tool("databases", "database_execute")
+                    ),
+                    "{output:?}"
+                );
+                assert_eq!(output[2]["error"]["code"], "not_found", "{output:?}");
+            }
+            assert_eq!(databases(&fixture.client).await, profiles);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn creates_and_queries_in_one_turn() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;

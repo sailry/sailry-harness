@@ -1,6 +1,10 @@
 use super::*;
 use rusqlite::fallible_iterator::FallibleIterator;
-use rusqlite::{Batch, Connection as Sqlite, OpenFlags, types::ValueRef};
+use rusqlite::{
+    Batch, Connection as Sqlite, OpenFlags,
+    hooks::{AuthAction, AuthContext, Authorization},
+    types::ValueRef,
+};
 use std::{path::Path, time::Instant};
 
 pub(super) fn run(
@@ -12,13 +16,25 @@ pub(super) fn run(
     let Connection::Sqlite { path } = &operation.profile.connection else {
         unreachable!()
     };
-    let path = Path::new(path).canonicalize().map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            Fault::new(ErrorCode::NotFound, "Database file does not exist")
-        } else {
-            crate::files::io_error(error)
+    let requested = Path::new(path);
+    let (path, create) = match requested.canonicalize() {
+        Ok(path) => (path, false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if operation.profile.read_only || operation.query.is_none() || !initializes(query)? {
+                return Err(missing());
+            }
+            let parent = requested
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            let parent = parent.canonicalize().map_err(crate::files::io_error)?;
+            let name = requested
+                .file_name()
+                .ok_or_else(|| Fault::invalid("Database filename is missing"))?;
+            (parent.join(name), true)
         }
-    })?;
+        Err(error) => return Err(crate::files::io_error(error)),
+    };
     if operation
         .storage
         .as_ref()
@@ -29,11 +45,17 @@ pub(super) fn run(
             "Node storage cannot be opened as a query database",
         ));
     }
-    let flags = if operation.profile.read_only {
+    let mut flags = if operation.profile.read_only {
         OpenFlags::SQLITE_OPEN_READ_ONLY
     } else {
         OpenFlags::SQLITE_OPEN_READ_WRITE
     } | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    if create {
+        flags |= OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_NOFOLLOW;
+    }
+    if stop.is_cancelled() || closed.is_cancelled() {
+        return Err(unknown());
+    }
     let connection = Sqlite::open_with_flags(path, flags).map_err(query_error)?;
     connection
         .busy_timeout(Duration::from_millis(query.timeout_ms.min(2000)))
@@ -83,6 +105,40 @@ pub(super) fn run(
         }
     }
     Ok(result.result)
+}
+fn initializes(query: &Query) -> Result<bool, Fault> {
+    let connection = Sqlite::open_in_memory().map_err(query_error)?;
+    // Some PRAGMAs act during preparation, even under EXPLAIN. This guard belongs
+    // only to the isolated classifier, not the actual execution connection.
+    connection
+        .authorizer(Some(|context: AuthContext<'_>| {
+            if matches!(context.action, AuthAction::Pragma { .. }) {
+                Authorization::Deny
+            } else {
+                Authorization::Allow
+            }
+        }))
+        .map_err(query_error)?;
+    let mut batch = Batch::new(&connection, &query.sql);
+    let statement = batch
+        .next()
+        .map_err(preflight_error)?
+        .ok_or_else(|| query_error("SQL statement is empty"))?;
+    let write = !statement.readonly() && statement.is_explain() == 0;
+    if batch.next().map_err(preflight_error)?.is_some() {
+        return Err(query_error("Run one SQL statement at a time"));
+    }
+    Ok(write)
+}
+fn preflight_error(error: rusqlite::Error) -> Fault {
+    if error.sqlite_error_code() == Some(rusqlite::ErrorCode::AuthorizationForStatementDenied) {
+        missing()
+    } else {
+        query_error(error)
+    }
+}
+fn missing() -> Fault {
+    Fault::new(ErrorCode::NotFound, "Database file does not exist")
 }
 fn value(value: ValueRef<'_>) -> Value {
     match value {
