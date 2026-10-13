@@ -70,6 +70,12 @@ async fn explains_sandbox_failures_to_the_agent() {
                 .unwrap()
                 .contains("access=\"unrestricted\"")
         );
+        assert!(
+            results[0]["data"]["sandbox_notice"]
+                .as_str()
+                .unwrap()
+                .contains("Git writes, including git init, git add and git commit")
+        );
         assert!(results[1]["data"].get("sandbox_notice").is_none());
         assert!(!fixture.directory.path().join("denied.txt").exists());
         fixture.node.shutdown().await.unwrap();

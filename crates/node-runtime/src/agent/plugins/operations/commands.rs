@@ -4,7 +4,7 @@ use sailry_protocol::{
 };
 use serde_json::{Value, json};
 
-const NOTICE: &str = "This command ran in the workspace sandbox: network access is disabled and writes are limited to the worktree and temporary directories. If these restrictions caused the failure, retry with access=\"unrestricted\" under the current permission policy.";
+const NOTICE: &str = "This command ran in the workspace sandbox: network access is disabled, writes are limited to the worktree and temporary directories, and existing Git metadata and managed child worktrees are protected. macOS also blocks new .git paths. Git writes, including git init, git add and git commit, require access=\"unrestricted\" under the current permission policy. If sandbox restrictions caused the failure, inspect any partial changes before requesting unrestricted access to retry. Unrestricted access does not override operating-system permissions.";
 
 pub(super) fn annotate(output: &Output, value: &mut Value, workspace: bool) {
     let (failed, stdout, stderr) = match output {
@@ -72,6 +72,8 @@ mod tests {
             let mut value = serde_json::to_value(&output).unwrap();
             annotate(&output, &mut value, true);
             assert_eq!(value["data"]["sandbox_notice"], NOTICE);
+            assert!(NOTICE.contains("Git writes, including git init, git add and git commit"));
+            assert!(NOTICE.contains("macOS also blocks new .git paths"));
             assert_eq!(value["data"]["stderr"]["text"], text);
             assert_eq!(serde_json::from_value::<Output>(value).unwrap(), output);
         }
