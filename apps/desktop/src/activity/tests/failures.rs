@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_client::activity::{Id, Notice};
 use sailry_protocol::{ErrorCode, Fault};
 
@@ -49,11 +50,15 @@ fn toasts_show_the_reason_and_keep_details(cx: &mut TestAppContext) {
             })
             .unwrap()
         });
+        visual.run_until_parked();
+        let delivered = visual.delivered_system_notifications().len();
         visual.update(|window, cx| {
+            assert!(!window.is_window_active());
             shell.update(cx, |shell, cx| {
                 shell.receive_notices(node, std::slice::from_ref(&notice), window, cx)
             });
         });
+        assert_eq!(visual.delivered_system_notifications().len(), delivered + 1);
         assert_eq!(
             visual
                 .delivered_system_notifications()
@@ -69,14 +74,29 @@ fn toasts_show_the_reason_and_keep_details(cx: &mut TestAppContext) {
 
         let mut active = notice.clone();
         active.id.cursor += 1;
+        visual.update(|window, _| window.activate_window());
+        visual.run_until_parked();
         visual.update(|window, cx| {
-            window.activate_window();
+            window.render_frame(cx);
+            assert!(window.is_window_active());
             window.clear_notifications(cx);
             shell.update(cx, |shell, cx| {
                 shell.receive_notices(node, std::slice::from_ref(&active), window, cx)
             });
         });
-        click(visual, "notification-details");
+        crate::feedback::tests::settle(visual);
+        let presented = visual
+            .update(|window, cx| crate::feedback::tests::count(window, &error.to_string(), cx));
+        visual.update(|window, cx| {
+            let action = window.find("notification-details");
+            assert_eq!(action.role(), Some(Role::Button));
+            assert!(action.visible());
+            window.click("notification-details", cx);
+            assert_eq!(
+                crate::feedback::tests::count(window, &error.to_string(), cx),
+                presented + 1,
+            );
+        });
         crate::feedback::tests::settle(visual);
         assert_eq!(
             visual.update(crate::feedback::tests::summary).as_ref(),

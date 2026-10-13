@@ -1,5 +1,6 @@
 use super::*;
 use crate::preferences::Preferences;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::terminal::Status;
 
 struct Background;
@@ -84,13 +85,18 @@ fn persists_and_updates_shortcuts(cx: &mut TestAppContext) {
         visual.update(|window, cx| window.notifications(cx).len()),
         1
     );
-    assert!(visual.debug_bounds("notification-open").is_some());
-    assert!(visual.debug_bounds("notification-open").unwrap().size.width <= px(32.));
+    assert!(visual.debug_bounds("notification-open").is_none());
+    crate::feedback::tests::settle(visual);
     let card = visual.debug_bounds("notification-card").unwrap();
-    let open = visual.debug_bounds("notification-open").unwrap();
+    visual.simulate_mouse_move(card.center(), None, Modifiers::default());
+    visual.update(|window, cx| window.render_frame(cx));
+    visual.update(|window, cx| {
+        window.hover("close", cx);
+        window.render_frame(cx);
+    });
+    let card = visual.debug_bounds("notification-card").unwrap();
     let close = visual.debug_bounds("notification-close").unwrap();
-    assert!(close.left() >= open.right() + px(4.));
-    assert_eq!(card.right() - close.right(), px(12.));
+    assert_eq!(card.right() - close.right(), px(5.));
     visual.executor().advance_clock(Duration::from_secs(4));
     visual.run_until_parked();
     visual.executor().advance_clock(Duration::from_millis(500));

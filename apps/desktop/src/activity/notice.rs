@@ -1,6 +1,7 @@
 use super::*;
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::notification::{Notification, NotificationDelivery, NotificationType};
+use gpui_kit::prelude::FluentBuilder as _;
 use sailry_client::activity::{Kind, Notice};
 use std::time::Duration;
 
@@ -115,13 +116,6 @@ impl Shell {
                 format!("{}\n{}", notice.title, notice.message).into()
             }
         };
-        let owner = cx.weak_entity();
-        let error = notice.error.clone();
-        let action = match id.target {
-            Target::Notification(_) => "notification_open",
-            Target::Session(_) => "workspace_open_session",
-            Target::Terminal(_) => "workspace_open_terminal",
-        };
         window.push_notification(
             Notification::new()
                 .id1::<NoticeView>(key.clone())
@@ -132,10 +126,10 @@ impl Shell {
                 .with_type(kind)
                 .delivery(delivery)
                 .autohide(false)
-                .action(move |_, _, _| {
-                    // Kit exposes one action; the toast itself still opens the target.
-                    if let Some(error) = error.clone() {
-                        return Button::new("notification-details")
+                .when_some(notice.error.clone(), |notification, error| {
+                    notification.action(move |_, _, _| {
+                        let error = error.clone();
+                        Button::new("notification-details")
                             .ghost()
                             .icon(IconName::Info)
                             .tooltip(tr("notification_details"))
@@ -149,23 +143,8 @@ impl Shell {
                                     window,
                                     cx,
                                 );
-                            });
-                    }
-                    let owner = owner.clone();
-                    Button::new("notification-open")
-                        .ghost()
-                        .icon(IconName::ArrowRight)
-                        .tooltip(tr(action))
-                        .accessibility_label(tr(action))
-                        .debug_selector(|| "notification-open".into())
-                        .on_click(move |_, window, cx| {
-                            cx.stop_propagation();
-                            let _ = owner.update(cx, |shell, cx| {
-                                shell.read_notice(id, window, cx);
-                                shell.open_activity(id.node, id.target, window, cx);
-                            });
-                            window.remove_notification1::<NoticeView>(format!("{id:?}"), cx);
-                        })
+                            })
+                    })
                 })
                 .on_click(cx.listener(move |shell, _, window, cx| {
                     shell.read_notice(id, window, cx);

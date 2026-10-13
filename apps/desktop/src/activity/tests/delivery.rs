@@ -147,7 +147,8 @@ fn persistent_notices_open_the_publishing_panel(cx: &mut TestAppContext) {
             visual.update(|window, cx| window.notifications(cx).len()),
             1
         );
-        click(visual, "notification-open");
+        assert!(visual.debug_bounds("notification-open").is_none());
+        click(visual, "notification-card");
         wait(visual, |cx| {
             shell.read(cx).page == Page::Plugin
                 && shell
