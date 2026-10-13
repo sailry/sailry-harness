@@ -6,8 +6,8 @@ use gpui_kit::component::progress::ProgressCircle;
 pub(super) fn group(turns: usize) -> Group {
     Group {
         metrics: [
-            ("composer_tokens", Some(IconName::ChartPie), "—".to_owned()),
-            ("composer_speed", Some(IconName::Gauge), "—".to_owned()),
+            ("composer_tokens", Some(IconName::ChartPie), "0".to_owned()),
+            ("composer_speed", Some(IconName::Gauge), "0".to_owned()),
             (
                 "composer_cost",
                 Some(IconName::DollarSign),
@@ -16,7 +16,7 @@ pub(super) fn group(turns: usize) -> Group {
             (
                 "composer_cache",
                 Some(IconName::MemoryStick),
-                "—".to_owned(),
+                "0".to_owned(),
             ),
             (
                 "composer_turns",

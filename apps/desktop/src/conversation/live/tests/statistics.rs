@@ -169,7 +169,7 @@ fn restores_totals_and_keeps_focus(cx: &mut TestAppContext) {
                     .is_none()
             );
             details(metric("composer_tokens"), "16", "0");
-            details(metric("composer_cost"), "—", "$0.00");
+            details(metric("composer_cost"), "$0.00", "$0.00");
             let first = &metric("composer_speed").state.details[2];
             assert_eq!(first.label.label(&rust_i18n::locale()), "First token time");
             assert_ne!(first.value, "—");
@@ -390,7 +390,7 @@ fn counts_turns_instead_of_responses(cx: &mut TestAppContext) {
                 })
                 .unwrap();
             assert_eq!(entry.state.value.as_str(), Some("0.00"));
-            details(&entry, "—", "$0.00");
+            details(&entry, "$0.00", "$0.00");
         });
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 2);
         visual.update(|window, _| window.remove_window());
