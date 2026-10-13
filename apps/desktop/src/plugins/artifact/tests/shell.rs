@@ -247,6 +247,173 @@ fn mounts_captured_header(cx: &mut TestAppContext) {
     }
 }
 
+#[gpui_kit::test]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn opens_new_card_without_restoring_older_draft(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = chat::Fixture::with_server(remote, |runtime| {
+            runtime.block_on(crate::agent_fixture::Server::scripted_tools(vec![(
+                crate::agent_fixture::plugin_tool(PACKAGE, "write_brief"),
+                write(None, None),
+            )]))
+        });
+        install(&fixture);
+        fixture.start();
+        let first = published(&fixture, 1);
+        cx.update(|cx| {
+            cx.set_global(Services {
+                profile: fixture.node.profile().to_path_buf(),
+                runtime: fixture.runtime.clone(),
+                local: fixture.node.local(),
+                link: fixture.node.link(),
+                relay_enabled: false,
+            });
+            cx.set_global(crate::preferences::Preferences::default());
+        });
+        cx.update(|cx| cx.set_global(surface::tests::Mounted::default()));
+        let mut owner = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let shell = cx.new(|cx| Shell::new(window, cx));
+            shell.update(cx, |shell, cx| {
+                let live = shell.live.as_mut().unwrap();
+                live.override_transport(fixture.transport.clone());
+                live.select(fixture.node.id(), cx);
+                shell.reveal_session(fixture.session.clone(), window, cx);
+            });
+            owner = Some(shell.clone());
+            Root::new(shell, window, cx)
+        });
+        let shell = owner.unwrap();
+        let handle = visual.update(|window, _| window.window_handle());
+        visual.simulate_window_resize(handle, size(px(1440.), px(900.)));
+        wait(visual, |cx| {
+            shell
+                .read(cx)
+                .current_chat()
+                .is_some_and(|source| source.read(cx).document_visible(&first))
+        });
+        let source = shell.read_with(visual, |shell, _| shell.current_chat().unwrap().clone());
+        chat::tap(visual, &format!("artifact-document-open-{}-1", first.id));
+        let original = shell.read_with(visual, |shell, _| {
+            let Some(SideResource::Plugin(panel)) = &shell.side_resource else {
+                panic!("document card must open the Shell resource pane");
+            };
+            panel.clone()
+        });
+        version(&original, visual, 1);
+        let (resource, host) = original.read_with(visual, |panel, _| {
+            (
+                panel.document.clone().unwrap(),
+                panel.mounted.as_ref().unwrap().host(),
+            )
+        });
+        let cache = surface::tests::Draft::new(resource, host, visual).close();
+
+        fixture.server.replace_tools(vec![(
+            crate::agent_fixture::plugin_tool(PACKAGE, "write_brief"),
+            write(Some(first.id), Some(1)),
+        )]);
+        wait(visual, |cx| {
+            source.read(cx).document_writable(first.session)
+        });
+        let (sender, status) = tokio::sync::watch::channel(None);
+        assert!(visual.update(|window, cx| source.update(cx, |source, cx| {
+            source.send_document(
+                first.session,
+                "Revise the document".into(),
+                sender,
+                window,
+                cx,
+            )
+        })));
+        wait(visual, |_| *status.borrow() == Some(true));
+        let second = published(&fixture, 2);
+        wait(visual, |cx| source.read(cx).document_visible(&second));
+        visual.update(|window, cx| window.clear_notifications(cx));
+        crate::feedback::tests::settle(visual);
+        chat::tap(visual, &format!("artifact-document-open-{}-2", second.id));
+        let panel = shell.read_with(visual, |shell, _| {
+            let Some(SideResource::Plugin(panel)) = &shell.side_resource else {
+                panic!("revised card must open the Shell resource pane");
+            };
+            panel.clone()
+        });
+        assert_ne!(panel.entity_id(), original.entity_id());
+        assert_eq!(
+            panel.read_with(visual, |panel, _| panel
+                .document
+                .as_ref()
+                .unwrap()
+                .artifact
+                .clone()),
+            second
+        );
+        wait(visual, |cx| {
+            surface::tests::mounted_revision(fixture.binding.client.target(), second.id, cx)
+                == Some((2, 2))
+        });
+        version(&panel, visual, 2);
+        visual.update(|_, cx| {
+            let node = fixture.binding.client.target();
+            assert_eq!(
+                crate::preferences::artifacts::drafts(node, first.id, 1, cx).len(),
+                1
+            );
+            assert!(crate::preferences::artifacts::drafts(node, first.id, 2, cx).is_empty());
+        });
+
+        visual.update(|window, cx| {
+            window.clear_notifications(cx);
+            window.render_frame(cx);
+            let header = panel.read(cx).header().unwrap();
+            let id = header.read(cx).filter_id("brief-version").unwrap();
+            window.within(id).click("input", cx);
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.press("down", cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.press("enter", cx));
+        version(&panel, visual, 1);
+        wait(visual, |cx| {
+            surface::tests::mounted_revision(fixture.binding.client.target(), first.id, cx)
+                == Some((1, 2))
+        });
+        fixture.server.replace_tools(vec![(
+            crate::agent_fixture::plugin_tool(PACKAGE, "write_brief"),
+            write(Some(first.id), Some(2)),
+        )]);
+        wait(visual, |cx| {
+            source.read(cx).document_writable(first.session)
+        });
+        let (sender, status) = tokio::sync::watch::channel(None);
+        assert!(visual.update(|window, cx| source.update(cx, |source, cx| {
+            source.send_document(
+                first.session,
+                "Revise the document again".into(),
+                sender,
+                window,
+                cx,
+            )
+        })));
+        wait(visual, |_| *status.borrow() == Some(true));
+        published(&fixture, 3);
+        wait(visual, |cx| {
+            surface::tests::mounted_revision(fixture.binding.client.target(), first.id, cx)
+                == Some((1, 3))
+        });
+        version(&panel, visual, 1);
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
+        drop(original);
+        drop(source);
+        drop(shell);
+        drop(cache);
+        cx.update(|cx| cx.remove_global::<Services>());
+        fixture.close();
+    }
+}
+
 fn card(visual: &mut VisualTestContext, artifact: &Summary) -> Pixels {
     let id = artifact.id;
     let revision = artifact.revision;

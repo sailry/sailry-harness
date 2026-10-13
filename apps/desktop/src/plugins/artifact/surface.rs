@@ -53,9 +53,12 @@ impl View {
         cx: &mut Context<Self>,
     ) -> Self {
         let node = resource.binding.client.target();
-        let revision = props
-            .revision
-            .or_else(|| crate::preferences::artifacts::revision(node, resource.artifact.id, cx));
+        let revision = props.revision.or_else(|| {
+            // A newly published card must not reopen an older draft. Keep that
+            // draft stored for explicit historical browsing instead.
+            crate::preferences::artifacts::revision(node, resource.artifact.id, cx)
+                .filter(|revision| *revision >= resource.artifact.revision)
+        });
         let dirty = revision.is_some_and(|revision| {
             !crate::preferences::artifacts::drafts(node, resource.artifact.id, revision, cx)
                 .is_empty()
@@ -64,6 +67,10 @@ impl View {
             let _ = events.try_send(json!({
                 "kind":"edited","artifact":resource.artifact.id,"revision":revision.unwrap()
             }));
+        }
+        #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
+        if cx.has_global::<tests::Mounted>() {
+            tests::capture(node, resource.artifact.id, cx.entity().downgrade(), cx);
         }
         #[cfg(all(target_os = "macos", feature = "workload-tests"))]
         {

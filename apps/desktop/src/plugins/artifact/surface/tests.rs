@@ -4,6 +4,34 @@ use gpui_kit::component::WindowExt;
 
 const VISUAL_FEEDBACK: &str = "Package visual feedback";
 
+#[derive(Default)]
+pub(in crate::plugins::artifact) struct Mounted(
+    std::collections::BTreeMap<(sailry_protocol::NodeId, ArtifactId), WeakEntity<View>>,
+);
+
+impl Global for Mounted {}
+
+pub(super) fn capture(
+    node: sailry_protocol::NodeId,
+    artifact: ArtifactId,
+    owner: WeakEntity<View>,
+    cx: &mut App,
+) {
+    cx.global_mut::<Mounted>().0.insert((node, artifact), owner);
+}
+
+pub(in crate::plugins::artifact) fn mounted_revision(
+    node: sailry_protocol::NodeId,
+    artifact: ArtifactId,
+    cx: &App,
+) -> Option<(u32, u32)> {
+    let owner = cx.global::<Mounted>().0.get(&(node, artifact))?.upgrade()?;
+    let view = owner.read(cx);
+    (!view.loading).then_some(())?;
+    let content = view.content.as_ref()?;
+    Some((content.artifact.revision, content.latest_revision))
+}
+
 #[cfg(all(target_os = "macos", feature = "workload-tests"))]
 #[track_caller]
 pub(in crate::plugins::artifact) fn settle_mount(
