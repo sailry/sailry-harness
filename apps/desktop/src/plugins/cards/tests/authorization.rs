@@ -202,10 +202,9 @@ fn install(fixture: &fixture::Fixture, endpoint: &str) {
             "type":"object",
             "additionalProperties":false,
             "properties":{
-                "client_id":{"type":"string","default":""},
-                "client_secret":{"type":"string","x-sailry-secret":{"server":"input","oauth":{"client_id":"client_id"}}}
+                "label":{"type":"string","default":""}
             },
-            "required":["client_id","client_secret"]
+            "required":[]
         })
         .to_string(),
     )
