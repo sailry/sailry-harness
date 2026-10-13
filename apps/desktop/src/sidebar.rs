@@ -223,7 +223,6 @@ impl Shell {
                                                 !shell.sidebar.hosts_closed;
                                             cx.notify();
                                         }))
-                                        .child(group_icon("hosts", IconName::Cpu, cx))
                                         .child(
                                             div()
                                                 .flex_shrink_0()
@@ -339,7 +338,6 @@ impl Shell {
                                                 !shell.sidebar.projects_closed;
                                             cx.notify();
                                         }))
-                                        .child(group_icon("projects", IconName::Folder, cx))
                                         .child(
                                             div()
                                                 .flex_shrink_0()

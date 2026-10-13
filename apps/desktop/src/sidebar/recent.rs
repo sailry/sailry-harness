@@ -93,7 +93,6 @@ impl Shell {
                         }
                         cx.notify();
                     }))
-                    .child(group_icon("recent", IconName::Calendar, cx))
                     .child(div().flex_1().child(tr("recent_sessions")))
                     .child(
                         Icon::new(if open {

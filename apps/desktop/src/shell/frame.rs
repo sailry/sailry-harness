@@ -309,41 +309,8 @@ pub struct Frame {
     pub on_workspace_resize: ResizeHandler,
 }
 
-fn divider(visible: bool) -> gpui_kit::base::ResizeHandleRenderer {
-    Rc::new(move |handle, _, cx| {
-        if !visible {
-            return Some(div().into_any_element());
-        }
-        let color = if handle.is_active() {
-            cx.theme().primary
-        } else {
-            cx.theme().sidebar_border
-        };
-        Some(
-            div()
-                .relative()
-                .size_full()
-                .child(
-                    div()
-                        .absolute()
-                        .top_3()
-                        .left_0()
-                        .w(px(1.))
-                        .h(px(HEADER_HEIGHT - 24.))
-                        .bg(color),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .top(px(HEADER_HEIGHT))
-                        .bottom_0()
-                        .left_0()
-                        .w(px(1.))
-                        .bg(color),
-                )
-                .into_any_element(),
-        )
-    })
+fn hidden_divider() -> gpui_kit::base::ResizeHandleRenderer {
+    Rc::new(|_, _, _| Some(div().into_any_element()))
 }
 
 impl RenderOnce for Frame {
@@ -445,7 +412,9 @@ impl RenderOnce for Frame {
             );
         let panels = h_resizable("shell-panels")
             .with_state(&self.state)
-            .with_handle_appearance(divider(mounted))
+            .when(!mounted, |panels| {
+                panels.with_handle_appearance(hidden_divider())
+            })
             .on_resize(self.on_resize)
             .child(
                 resizable_panel()

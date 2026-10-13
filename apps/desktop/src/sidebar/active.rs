@@ -40,7 +40,6 @@ impl Shell {
                         }
                         cx.notify();
                     }))
-                    .child(group_icon("activity", IconName::LayoutDashboard, cx))
                     .child(div().flex_1().child(tr("active_sessions")))
                     .child(
                         Icon::new(if open {

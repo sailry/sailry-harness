@@ -83,6 +83,47 @@ fn routes_pages_and_preserves_core_tabs(cx: &mut TestAppContext) {
             snapshot(&panel, cx).contains("browser-new-tab")
         });
         let browser = panel.read_with(visual, |panel, _| panel.browser_view().unwrap());
+        for mode in [ThemeMode::Light, ThemeMode::Dark, ThemeMode::Light] {
+            visual.update(|window, cx| Theme::change(mode, Some(window), cx));
+            wait(visual, |_| true);
+            let main = visual.debug_bounds("shell-module-header").unwrap();
+            let header = visual.debug_bounds("browser-header").unwrap();
+            let tab = visual.debug_bounds("browser-tab-0").unwrap();
+            assert_eq!(main.size.height, px(crate::preview::HEADER_HEIGHT));
+            assert_eq!(header.size.height, main.size.height);
+            assert_eq!(header.top(), main.top());
+            visual.update(|window, cx| {
+                for bounds in [main, header] {
+                    let bounds = bounds.scale(window.scale_factor());
+                    let fills = window
+                        .painted_quads()
+                        .into_iter()
+                        .filter(|quad| {
+                            quad.bounds.size.height == bounds.size.height
+                                && quad.bounds.contains(&bounds.origin)
+                                && quad.bounds.right() >= bounds.right()
+                                && !quad.background.is_transparent()
+                        })
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        fills.len(),
+                        1,
+                        "each header has only its common material tint"
+                    );
+                    assert_eq!(
+                        fills[0].background,
+                        crate::theme::sidebar_background(cx).into()
+                    );
+                }
+                assert!(
+                    window
+                        .painted_quads()
+                        .into_iter()
+                        .any(|quad| quad.bounds == tab.scale(window.scale_factor())
+                            && quad.background == cx.theme().tab_active.into())
+                );
+            });
+        }
         assert_eq!(
             panel.read_with(visual, |panel, _| panel
                 .selected

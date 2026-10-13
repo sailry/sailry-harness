@@ -76,8 +76,21 @@ fn group_icons_and_window_background(cx: &mut TestAppContext) {
             settle(visual);
             for key in ["hosts", "activity", "unassigned", "projects", "recent"] {
                 let selector = Box::leak(format!("sidebar-group-{key}").into_boxed_str());
-                let bounds = visual.debug_bounds(selector).unwrap();
-                assert_eq!(bounds.size, size(px(16.), px(16.)));
+                let trigger = match key {
+                    "hosts" => "hosts-toggle",
+                    "activity" => "active-toggle",
+                    "projects" => "projects-toggle",
+                    "recent" => "recent-toggle",
+                    _ => selector,
+                };
+                if key == "unassigned" {
+                    assert_eq!(
+                        visual.debug_bounds(selector).unwrap().size,
+                        size(px(16.), px(16.))
+                    );
+                } else {
+                    assert!(visual.debug_bounds(selector).is_none());
+                }
                 let before = shell.read_with(visual, |shell, _| match key {
                     "hosts" => shell.sidebar.hosts_closed,
                     "activity" => shell.sidebar.active_closed,
@@ -86,7 +99,7 @@ fn group_icons_and_window_background(cx: &mut TestAppContext) {
                     _ => shell.sidebar.recent_open,
                 });
                 for expected in [!before, before] {
-                    let bounds = visual.debug_bounds(selector).unwrap();
+                    let bounds = visual.debug_bounds(trigger).unwrap();
                     visual.simulate_click(bounds.center(), Modifiers::default());
                     settle(visual);
                     let actual = shell.read_with(visual, |shell, _| match key {
@@ -96,7 +109,7 @@ fn group_icons_and_window_background(cx: &mut TestAppContext) {
                         "projects" => shell.sidebar.projects_closed,
                         _ => shell.sidebar.recent_open,
                     });
-                    assert_eq!(actual, expected, "group icon blocked disclosure");
+                    assert_eq!(actual, expected, "group trigger must preserve disclosure");
                 }
             }
             visual.update(|window, cx| {
@@ -114,10 +127,14 @@ fn group_icons_and_window_background(cx: &mut TestAppContext) {
             }
             for key in ["hosts", "activity", "unassigned", "projects", "recent"] {
                 let selector = Box::leak(format!("theme-icon.group.{key}").into_boxed_str());
-                assert_eq!(
-                    visual.debug_bounds(selector).unwrap().size,
-                    size(px(16.), px(16.))
-                );
+                if key == "unassigned" {
+                    assert_eq!(
+                        visual.debug_bounds(selector).unwrap().size,
+                        size(px(16.), px(16.))
+                    );
+                } else {
+                    assert!(visual.debug_bounds(selector).is_none());
+                }
             }
         }
     }

@@ -404,6 +404,36 @@ fn native_resize_handles(cx: &mut TestAppContext) {
     let (shell, mut cx) = setup(cx);
     let handle = cx.update(|window, _| window.window_handle());
     cx.simulate_window_resize(handle, size(px(1600.), px(820.)));
+    frame(&mut cx);
+    let before = cx.debug_bounds("shell-navigation").unwrap();
+    drag_divider(&mut cx, point(before.right(), before.center().y), 60.);
+    let after = cx.debug_bounds("shell-navigation").unwrap();
+    assert!(after.size.width > before.size.width + px(20.));
+    let saved = cx.update(|_, cx| shell.read(cx).layout.sidebar_width);
+    assert!((px(saved) - after.size.width).abs() < px(2.));
+    for (delta, expected) in [
+        (-1000., crate::sidebar::WIDTH_RANGE.start),
+        (1000., crate::sidebar::WIDTH_RANGE.end),
+    ] {
+        let before = cx.debug_bounds("shell-navigation").unwrap();
+        drag_divider(&mut cx, point(before.right(), before.center().y), delta);
+        let width = cx.debug_bounds("shell-navigation").unwrap().size.width;
+        assert!((width - px(expected)).abs() < px(2.));
+        assert!(
+            (px(cx.update(|_, cx| shell.read(cx).layout.sidebar_width)) - width).abs() < px(2.)
+        );
+    }
+    super::workspace::click(&mut cx, "header-sidebar-toggle");
+    frame(&mut cx);
+    assert!(cx.debug_bounds("shell-navigation").is_none());
+    let saved = cx.update(|_, cx| shell.read(cx).layout.sidebar_width);
+    drag_divider(&mut cx, point(px(RAIL_WIDTH), px(400.)), 80.);
+    assert_eq!(
+        cx.update(|_, cx| shell.read(cx).layout.sidebar_width),
+        saved
+    );
+    super::workspace::click(&mut cx, "header-sidebar-toggle");
+    frame(&mut cx);
     for page in [Page::Files, Page::Git] {
         cx.update(|window, cx| {
             shell.update(cx, |shell, cx| {
