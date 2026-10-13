@@ -21,6 +21,7 @@ pub(crate) struct Panel {
     pub(super) pane: Option<super::panes::Resource>,
     pub(super) pane_events: super::panes::Events,
     pub(super) pane_focus: bool,
+    entry_pending: Option<Reference>,
     composer: Option<WeakEntity<Chat>>,
     contributions: Option<std::sync::Arc<super::contributions::bridge::Bridge>>,
     pub(super) content_sized: bool,
@@ -276,6 +277,7 @@ impl Panel {
             pane: None,
             pane_events: Default::default(),
             pane_focus: false,
+            entry_pending: None,
             contributions: None,
             content_sized: false,
             composer: None,
@@ -323,7 +325,7 @@ impl Panel {
             // Retained views must stop before a removed worktree reaches observers.
             if self.snapshot.borrow().is_some() {
                 self.close(cx);
-            } else {
+            } else if self.selected.is_some() || self.loading || self.mounted.is_some() {
                 self.release();
             }
             self.reload = false;
@@ -453,12 +455,42 @@ impl Panel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.stop.is_cancelled() {
+            return;
+        }
         self.metadata
             .update(cx, |metadata, cx| metadata.refresh(cx));
-        if let Some(mounted) = &self.mounted {
+        if (self
+            .mounted
+            .as_ref()
+            .is_none_or(|mounted| !mounted.active())
+            || self.selected.as_ref() != Some(&package))
+            && (!self.loading || self.selected.as_ref() != Some(&package))
+            && self.connected
+            && self.available(&package)
+        {
+            self.open(package.clone(), window, cx);
+        }
+        if self.selected.as_ref() == Some(&package)
+            || (self.selected.is_none() && self.target.as_deref() == Some(package.name.as_str()))
+        {
+            self.request_entry(package);
+        }
+    }
+
+    fn request_entry(&mut self, package: Reference) {
+        if self.stop.is_cancelled() {
+            return;
+        }
+        if let Some(mounted) = &self.mounted
+            && mounted.active()
+            && self.selected.as_ref() == Some(&package)
+            && self.available(&package)
+        {
             mounted.host().enter();
-        } else if !self.loading && self.connected && self.available(&package) {
-            self.open(package, window, cx);
+            self.entry_pending = None;
+        } else {
+            self.entry_pending = Some(package);
         }
     }
 
@@ -504,6 +536,7 @@ impl Panel {
     }
 
     fn release(&mut self) {
+        self.entry_pending = None;
         self.pane_events = Default::default();
         self._header = None;
         self.load_stop.cancel();
@@ -540,6 +573,10 @@ impl Panel {
         if !self.connected || !self.available(&package) {
             return;
         }
+        let entry_pending = self
+            .entry_pending
+            .take()
+            .filter(|pending| pending == &package);
         if self.reload
             && let Some(mounted) = self.mounted.as_ref()
             && self.selected.as_ref().is_some_and(|selected| {
@@ -552,6 +589,7 @@ impl Panel {
         } else {
             self.release();
         }
+        self.entry_pending = entry_pending;
         self.reload = false;
         self.selected = Some(package.clone());
         self.target = Some(package.name.clone());
@@ -636,6 +674,9 @@ impl Panel {
                             panel.connected,
                         );
                         host.observe_settings(&panel.summaries, panel.connected);
+                        if panel.entry_pending.take().as_ref() == Some(&package) {
+                            host.enter();
+                        }
                         let conversation = panel
                             .metadata
                             .read(cx)

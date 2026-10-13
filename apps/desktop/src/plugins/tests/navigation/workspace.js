@@ -2,7 +2,7 @@ import { View, div } from "gpui-kit";
 import { Workspace, PanelHeader, IconButton, nextControlEvent } from "sailry/ui";
 import { Anchor } from "sailry/test";
 import { Header, context } from "sailry";
-import { prepareRequest, completeRequest, forgetRequest } from "sailry/sdk";
+import { prepareRequest, completeRequest, forgetRequest, nextChange } from "sailry/sdk";
 
 export default class Example extends View {
   init(_props, cx) {
@@ -14,6 +14,14 @@ export default class Example extends View {
     this.sideCount = 0;
     this.minimum = 480;
     this.text = "loading";
+    this.entry = "0";
+    cx.spawn(async cx => {
+      let cursor = "";
+      try { while (true) {
+        const change = await nextChange(cursor); cursor = change.cursor;
+        this.entry = change.entry; cx.notify();
+      } } catch (_) { /* View release ends the fixture subscription. */ }
+    });
     cx.spawn(async cx => {
       const request = prepareRequest({kind: "read_file", data: {worktree: this.scope.worktree, path: "notes.txt"}});
       try {
@@ -47,6 +55,7 @@ export default class Example extends View {
         .child(IconButton.new("workspace-minimum", {icon: "panel-right", label: "Toggle minimum width"}))
         .child(div().id(`main-count-${this.count}`).child(this.text))
         .child(div().id(`scope-${this.scope.worktree}`).child(this.scope.worktree))
+        .child(div().id(`entry-count-${this.entry}`).child(this.entry))
         .child(div().id(`availability-${this.available}`).child(String(this.available)))
         .child(IconButton.new("workspace-availability", {icon: "panel-right", label: "Toggle availability"}))
         .child(div().id(`navigation-${this.navigation}`).child(this.navigation))

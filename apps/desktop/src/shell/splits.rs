@@ -86,9 +86,23 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.focus_pane_content(target, window, cx);
+        if matches!(target, Target::Terminal(..)) {
+            self.enter_plugin_pane(target, window, cx);
+        }
+    }
+
+    pub(crate) fn focus_pane_content(
+        &mut self,
+        target: Target,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.focus_pane(target, window, cx);
         match target {
-            Target::Terminal(node, _, id) => self.focus_terminal_pane(node, id, window, cx),
+            Target::Terminal(node, _, id) => {
+                self.focus_terminal_pane(node, id, window, cx);
+            }
             _ => {
                 if let Some(view) = self.current_chat() {
                     view.update(cx, |view, cx| view.focus(window, cx));
@@ -225,7 +239,7 @@ impl Shell {
         }
         if active {
             if let Some(next) = self.splits.read(cx).active {
-                self.activate_pane(next, window, cx);
+                self.focus_pane_content(next, window, cx);
             } else {
                 self.session_scope.active = Key::Draft;
                 self.page = Page::Conversation;

@@ -267,6 +267,7 @@ fn entry_refresh_preserves_view_state(cx: &mut TestAppContext) {
         });
         let panel = open(&shell, entry.clone(), visual);
         wait(visual, |cx| snapshot(&panel, cx).contains("entry-reads-1"));
+        assert!(visual.update(|_, cx| snapshot(&panel, cx).contains("entry-count-1")));
         let retained = panel.downgrade();
         let (root, script) = panel.read_with(visual, |panel, cx| {
             let root = &panel.mounted.as_ref().unwrap().root;

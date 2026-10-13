@@ -140,11 +140,12 @@ impl Render for Panel {
                                 .debug_selector(|| "plugin-view-retry".into())
                                 .disabled(!retryable)
                                 .on_click(cx.listener(move |panel, _, window, cx| {
-                                    panel
-                                        .metadata
-                                        .update(cx, |metadata, cx| metadata.refresh(cx));
                                     if let Some(package) = &package {
-                                        panel.open(package.clone(), window, cx);
+                                        panel.enter(package.clone(), window, cx);
+                                    } else {
+                                        panel
+                                            .metadata
+                                            .update(cx, |metadata, cx| metadata.refresh(cx));
                                     }
                                 })),
                         )
@@ -233,7 +234,7 @@ impl Render for Panel {
                                         .w_full()
                                         .disabled(!self.connected)
                                         .on_click(cx.listener(move |panel, _, window, cx| {
-                                            panel.open(package.clone(), window, cx)
+                                            panel.enter(package.clone(), window, cx)
                                         }))
                                 }),
                             )

@@ -23,6 +23,22 @@ pub(crate) struct Observed {
     pub release: CancellationToken,
 }
 
+impl Observed {
+    pub(crate) fn new(inner: Arc<dyn Transport>) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            terminal_failure: Mutex::new(None),
+            mode: AtomicU8::new(0),
+            requests: Mutex::new(Vec::new()),
+            view_target: Mutex::new(None),
+            views: Mutex::new(Vec::new()),
+            files: Arc::new(AtomicUsize::new(0)),
+            entered: CancellationToken::new(),
+            release: CancellationToken::new(),
+        })
+    }
+}
+
 impl Transport for Observed {
     fn open(
         &self,
@@ -341,17 +357,7 @@ impl Fixture {
         } else {
             node.local()
         };
-        let transport = Arc::new(Observed {
-            inner,
-            terminal_failure: Mutex::new(None),
-            mode: AtomicU8::new(0),
-            requests: Mutex::new(Vec::new()),
-            view_target: Mutex::new(None),
-            views: Mutex::new(Vec::new()),
-            files: Arc::new(AtomicUsize::new(0)),
-            entered: CancellationToken::new(),
-            release: CancellationToken::new(),
-        });
+        let transport = Observed::new(inner);
         let client = Arc::new(Client::new(transport.clone()));
         let execute = |command| {
             runtime

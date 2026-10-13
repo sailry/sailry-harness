@@ -15,6 +15,13 @@ fn mount_shell<'a>(
     let mut owner = None;
     let (_, visual) = cx.add_window_view(|window, cx| {
         let shell = cx.new(|cx| Shell::new(window, cx));
+        shell.update(cx, |shell, _| {
+            shell
+                .live
+                .as_mut()
+                .unwrap()
+                .override_transport(fixture.transport.clone());
+        });
         owner = Some(shell.clone());
         Root::new(shell, window, cx)
     });
@@ -568,7 +575,7 @@ fn disabling_releases_view(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
+fn restores_on_explicit_activation(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
         let fixture = fixture(remote);
@@ -577,6 +584,14 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
         let (terminal, panel) = create(&fixture, &shell, visual);
         let session = Target::Session(fixture.node.id(), fixture.session.id);
         split(&shell, session, terminal, visual);
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                shell
+                    .splits
+                    .update(cx, |splits, cx| splits.focus(session, cx));
+                shell.activate_pane(session, window, cx);
+            })
+        });
         let encoded = shell.read_with(visual, |shell, cx| {
             let saved = shell.splits.read(cx).saved(cx);
             saved.validate().unwrap();
@@ -584,7 +599,7 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
         });
         let saved: crate::panes::Saved = serde_json::from_str(&encoded).unwrap();
         saved.validate().unwrap();
-        assert_eq!(saved.active, Some(terminal));
+        assert_eq!(saved.active, Some(session));
         assert_eq!(saved.extensions.len(), 1);
         assert_eq!(saved.extensions[0].0, terminal);
         assert_eq!(saved.extensions[0].1.package, "commands");
@@ -599,7 +614,7 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
             runtime,
             node,
             controller,
-            transport,
+            transport: _,
             mut binding,
             session: record,
         } = fixture;
@@ -621,7 +636,8 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
         } else {
             node.local()
         };
-        binding.client = std::sync::Arc::new(sailry_client::Client::new(connection));
+        let transport = crate::plugins::fixture::Observed::new(connection);
+        binding.client = std::sync::Arc::new(sailry_client::Client::new(transport.clone()));
         binding.defaults = std::sync::Arc::new(sailry_client::Client::new(if remote {
             controller.local()
         } else {
@@ -654,17 +670,8 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
                 .panels
                 .get(&terminal)
                 .is_some_and(|panel| {
-                    snapshot(panel, cx).contains("terminal-content-running")
-                        && panel
-                            .read(cx)
-                            .mounted
-                            .as_ref()
-                            .and_then(|mounted| mounted.terminals.first())
-                            .is_some_and(|view| {
-                                view.read(cx).info().is_some_and(|info| {
-                                    info.id == id(terminal) && info.status == Status::Running
-                                })
-                            })
+                    panel.read(cx).resource_active()
+                        && snapshot(panel, cx).contains("terminal-content-stopped")
                 })
                 && shell
                     .chats
@@ -674,7 +681,7 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
         });
         let panel = restored.read_with(visual, |shell, cx| {
             let splits = shell.splits.read(cx);
-            assert_eq!(splits.active, Some(terminal));
+            assert_eq!(splits.active, Some(session));
             assert_eq!(
                 splits.workspace(terminal, cx),
                 splits.workspace(session, cx)
@@ -690,12 +697,60 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
                 state.pane,
                 Some(crate::plugins::panes::Resource::Terminal(id(terminal)))
             );
+            panel
+        });
+        click(visual, close_button(session));
+        wait(visual, |cx| {
+            let splits = restored.read(cx).splits.read(cx);
+            splits.active == Some(terminal)
+                && splits.workspace(session, cx) != splits.workspace(terminal, cx)
+                && snapshot(&panel, cx).contains("terminal-content-stopped")
+        });
+        assert!(!restored.read_with(visual, |shell, cx| {
+            shell
+                .splits
+                .read(cx)
+                .pane(terminal)
+                .unwrap()
+                .read(cx)
+                .closing
+        }));
+        assert!(
+            terminals(&fixture)
+                .iter()
+                .any(|info| { info.id == id(terminal) && info.status == Status::Stopped })
+        );
+        assert!(
+            !fixture
+                .transport
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| { matches!(request.command, Command::OpenTerminal { .. }) })
+        );
+        visual.update(|window, cx| {
+            restored.update(cx, |shell, cx| shell.activate_pane(terminal, window, cx))
+        });
+        wait(visual, |cx| {
+            snapshot(&panel, cx).contains("terminal-content-running")
+                && panel
+                    .read(cx)
+                    .mounted
+                    .as_ref()
+                    .and_then(|mounted| mounted.terminals.first())
+                    .is_some_and(|view| {
+                        view.read(cx).info().is_some_and(|info| {
+                            info.id == id(terminal) && info.status == Status::Running
+                        })
+                    })
+        });
+        panel.read_with(visual, |state, cx| {
             let native = state.mounted.as_ref().unwrap().terminals.first().unwrap();
             let info = native.read(cx).info().unwrap();
             assert_eq!(info.id, id(terminal));
             assert_eq!(info.worktree, Some(fixture.session.worktree));
             assert_eq!(info.status, Status::Running);
-            panel
         });
         assert!(
             terminals(&fixture)
@@ -704,6 +759,16 @@ fn restores_package_binding_and_shell_process(cx: &mut TestAppContext) {
         );
         assert!(visual.debug_bounds("terminal-resume").is_none());
         assert_eq!(terminals(&fixture).len(), 1);
+        let requests = fixture.transport.requests.lock().unwrap();
+        let opens: Vec<_> = requests.iter().filter(|request| {
+            matches!(request.command, Command::OpenTerminal { terminal: current, .. } if current == id(terminal))
+        }).collect();
+        assert_eq!(opens.len(), 1);
+        let context = opens[0].plugin.as_ref().expect("scoped open expected");
+        assert_eq!(context.package, package.summary.reference());
+        assert_eq!(context.worktree, Some(fixture.session.worktree));
+        assert_eq!(context.session, None);
+        drop(requests);
         visual.update(|window, _| window.remove_window());
         drop(panel);
         drop(restored);

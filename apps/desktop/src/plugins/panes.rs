@@ -397,6 +397,27 @@ impl Shell {
         }
     }
 
+    pub(crate) fn enter_plugin_pane(&self, target: Target, window: &mut Window, cx: &mut App) {
+        let extension = self
+            .splits
+            .read(cx)
+            .pane(target)
+            .and_then(|pane| pane.read(cx).extension.clone());
+        if let Some(panel) = self.plugin_panes.panels.get(&target) {
+            panel.update(cx, |panel, cx| {
+                let package = panel.selected.clone().or_else(|| {
+                    let metadata = panel.metadata.read(cx);
+                    let info = metadata.entries.get(&extension.as_ref()?.package)?;
+                    let package = info.summary.reference();
+                    panel.available(&package).then_some(package)
+                });
+                if let Some(package) = package {
+                    panel.enter(package, window, cx);
+                }
+            });
+        }
+    }
+
     pub(crate) fn clear_plugin_focus(&self, active: Option<Target>, cx: &mut App) {
         for (target, panel) in &self.plugin_panes.panels {
             if Some(*target) != active {

@@ -176,6 +176,65 @@ fn failed_read_recovers_on_entry(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn pending_entry_keeps_its_reference(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        fixture.package();
+        std::fs::write(
+            fixture
+                .directory
+                .path()
+                .join("project/package/dev.sailry.platform/desktop/main.js"),
+            include_str!("navigation/entry.js"),
+        )
+        .unwrap();
+        let package = fixture.install(0);
+        let mut owner = None;
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let source = cx.new(|cx| {
+                crate::conversation::live::View::new(
+                    fixture.binding.clone(),
+                    Some(fixture.session.clone()),
+                    window,
+                    cx,
+                )
+            });
+            let panel =
+                cx.new(|cx| Panel::new(source, cx).with_target(package.summary.name.clone()));
+            panel.update(cx, |panel, cx| {
+                assert!(!panel.connected);
+                assert!(panel.selected.is_none());
+                panel.enter(package.summary.reference(), window, cx);
+            });
+            owner = Some(panel.clone());
+            Root::new(panel, window, cx)
+        });
+        let panel = owner.unwrap();
+        let updated = fixture.configure(&package, false);
+        assert_ne!(updated.summary.reference(), package.summary.reference());
+        wait(visual, |cx| {
+            panel.read(cx).ready_for(&updated.summary.reference(), cx)
+        });
+        visual.update(|window, cx| {
+            panel.update(cx, |panel, cx| {
+                panel.open(updated.summary.reference(), window, cx)
+            })
+        });
+        wait(visual, |cx| snapshot(&panel, cx).contains("entry-count-0"));
+        visual.update(|window, cx| {
+            panel.update(cx, |panel, cx| {
+                panel.enter(updated.summary.reference(), window, cx)
+            })
+        });
+        wait(visual, |cx| snapshot(&panel, cx).contains("entry-count-1"));
+        visual.update(|window, _| window.remove_window());
+        drop(panel);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn waits_for_read_capacity(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

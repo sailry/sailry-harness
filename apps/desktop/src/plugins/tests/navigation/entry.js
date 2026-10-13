@@ -6,10 +6,12 @@ export default class Cached extends View {
   init(_props, cx) {
     this.reads = 0;
     this.draft = 0;
+    this.entry = '0';
     cx.spawn(async cx => {
       let cursor = "";
       try { while (true) {
         const change = await nextChange(cursor); cursor = change.cursor;
+        this.entry = change.entry;
         if (change.connected) { await readSettings(); this.reads++; cx.notify(); }
       } } catch (_) { /* The fixture releases its subscriptions with the view. */ }
     });
@@ -23,6 +25,7 @@ export default class Cached extends View {
     return div().v_flex().size_full()
       .child(div().id(`entry-reads-${this.reads}`).child(String(this.reads)))
       .child(div().id(`entry-draft-${this.draft}`).child(String(this.draft)))
+      .child(div().id(`entry-count-${this.entry}`).child(this.entry))
       .child(IconButton.new("entry-edit", {icon:"plus", label:"Edit"}));
   }
 }

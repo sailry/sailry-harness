@@ -22,7 +22,7 @@ impl Shell {
                 splits.detach(target, window, cx);
                 splits.focus(next, cx);
             });
-            self.activate_pane(next, window, cx);
+            self.focus_pane_content(next, window, cx);
         } else if let Target::Terminal(node, tree, terminal) = target {
             self.close_terminal_pane(node, tree, terminal, window, cx);
         } else {

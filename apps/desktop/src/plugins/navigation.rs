@@ -508,7 +508,7 @@ impl Shell {
         if released && self.page == Page::Plugin {
             self.navigate(Page::Host, window, cx);
         } else if let Some(entry) = replacement {
-            self.open_extension(entry, window, cx);
+            self.present_extension(entry, false, window, cx);
         }
     }
 
@@ -698,6 +698,16 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.present_extension(entry, true, window, cx);
+    }
+
+    fn present_extension(
+        &mut self,
+        entry: Entry,
+        explicit: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(live) = &self.live else {
             return;
         };
@@ -771,7 +781,7 @@ impl Shell {
         let sources = self.usage_sources();
         if self.guard_file_navigation(window, cx, {
             let entry = entry.clone();
-            move |shell, window, cx| shell.open_extension(entry.clone(), window, cx)
+            move |shell, window, cx| shell.present_extension(entry.clone(), explicit, window, cx)
         }) {
             return;
         }
@@ -799,7 +809,11 @@ impl Shell {
             state.selected = Some(entry.clone());
             if loadable {
                 panel.update(cx, |panel, cx| {
-                    panel.enter(entry.package.clone(), window, cx)
+                    if explicit {
+                        panel.enter(entry.package.clone(), window, cx);
+                    } else {
+                        panel.restore(window, cx);
+                    }
                 });
             }
         }
@@ -827,6 +841,11 @@ impl Shell {
                 panel
             });
             Self::observe_plugin_conversations(&panel, window, cx);
+            if loadable && explicit {
+                panel.update(cx, |panel, cx| {
+                    panel.enter(entry.package.clone(), window, cx)
+                });
+            }
             // Wait for the normal Node inventory subscription before loading the
             // selected immutable package. No hard-coded bundled game route.
             let expected = entry.package.clone();

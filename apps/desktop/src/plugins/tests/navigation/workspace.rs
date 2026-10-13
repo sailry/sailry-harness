@@ -35,6 +35,22 @@ fn open(shell: &Entity<Shell>, visual: &mut VisualTestContext) -> Entity<Panel> 
     })
 }
 
+fn select_worktree(shell: &Entity<Shell>, visual: &mut VisualTestContext, project: ProjectId) {
+    visual.update(|_, cx| {
+        shell.update(cx, |shell, cx| {
+            assert!(matches!(shell.page, Page::Plugin));
+            let live = shell.live.as_mut().unwrap();
+            let tree = live.project_worktree(project).unwrap().id;
+            live.select_project_worktree(project, tree);
+            cx.notify();
+        });
+    });
+    wait(visual, |cx| {
+        shell.read(cx).live.as_ref().unwrap().project == Some(project)
+    });
+}
+
+#[track_caller]
 fn loaded(panel: &Entity<Panel>, visual: &mut VisualTestContext, tree: WorktreeId, text: &str) {
     wait(visual, |cx| {
         let description = snapshot(panel, cx);
@@ -170,6 +186,7 @@ fn shares_controller_and_preserves_captured_worktrees(cx: &mut TestAppContext) {
             fixture.binding.worktree.unwrap(),
             "Complete",
         );
+        wait(visual, |cx| snapshot(&first, cx).contains("entry-count-1"));
         assert_eq!(
             first.read_with(visual, |panel, _| panel.binding.project),
             fixture.binding.project
@@ -424,12 +441,20 @@ fn shares_controller_and_preserves_captured_worktrees(cx: &mut TestAppContext) {
         click(visual, "workspace-add-ten");
         wait(visual, |cx| snapshot(&first, cx).contains("main-count-22"));
 
-        select(&shell, visual, second.id);
+        select_worktree(&shell, visual, second.id);
         let second_tree = shell.read_with(visual, |shell, _| {
             shell.live.as_ref().unwrap().selected_worktree().unwrap().id
         });
+        let passive = shell.read_with(visual, |shell, _| {
+            shell.extensions.as_ref().unwrap().panel.clone().unwrap()
+        });
+        loaded(&passive, visual, second_tree, "Second workspace");
+        assert!(visual.update(|_, cx| snapshot(&passive, cx).contains("entry-count-0")));
         let other = open(&shell, visual);
+        assert_eq!(other, passive);
         loaded(&other, visual, second_tree, "Second workspace");
+        wait(visual, |cx| snapshot(&other, cx).contains("entry-count-1"));
+        drop(passive);
         assert_ne!(first.entity_id(), other.entity_id());
         assert_eq!(
             first.read_with(visual, |panel, _| panel.binding.worktree),
@@ -440,8 +465,12 @@ fn shares_controller_and_preserves_captured_worktrees(cx: &mut TestAppContext) {
                 .update(|_, cx| snapshot(&other, cx))
                 .contains("main-count-0")
         );
-        select(&shell, visual, fixture.binding.project.unwrap());
+        select_worktree(&shell, visual, fixture.binding.project.unwrap());
+        assert!(visual.update(|_, cx| snapshot(&first, cx).contains("entry-count-1")));
         let restored = open(&shell, visual);
+        wait(visual, |cx| {
+            snapshot(&restored, cx).contains("entry-count-2")
+        });
         assert_eq!(restored.entity_id(), first.entity_id());
         assert_eq!(
             restored.read_with(visual, |panel, _| panel
