@@ -31,6 +31,34 @@ fn shown(visual: &mut VisualTestContext, selector: &'static str) {
     }
 }
 
+#[track_caller]
+fn action(visual: &mut VisualTestContext, label: &'static str) -> Bounds<Pixels> {
+    use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        visual.executor().advance_clock(Duration::from_millis(10));
+        visual.run_until_parked();
+        let action = visual.update(|window, cx| {
+            window.render_frame(cx);
+            window
+                .try_find_by_label(label)
+                .filter(|action| {
+                    // Native accessibility reports the disabled flag only when set.
+                    action.role() == Some(Role::Button)
+                        && action.visible()
+                        && action.disabled() != Some(true)
+                })
+                .map(|action| action.bounds())
+        });
+        if let Some(action) = action {
+            return action;
+        }
+        assert!(Instant::now() < deadline, "missing enabled action {label}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
 fn preserves_uncertain_requests_without_replay() {
     for code in [
@@ -74,6 +102,28 @@ fn completed_faults_are_definitive() {
     ] {
         assert!(!super::super::authorization::inspected(Ok(outcome)).1);
     }
+}
+
+#[test]
+fn retains_only_live_callback_flows() {
+    let mut login = super::super::authorization::Login::default();
+    assert!(!login.keeps_alive());
+    login.state = host::LoginState::Pending;
+    login.url = Some((
+        "https://example.test/authorize?state=isolated".into(),
+        u64::MAX,
+    ));
+    assert!(!login.keeps_alive());
+    let callback = sailry_client::oauth::Callback::bind("/callback").unwrap();
+    login.redirect = Some(callback.redirect.clone());
+    login.callback = Some(callback);
+    assert!(login.can_open());
+    assert!(login.keeps_alive());
+    login.url.as_mut().unwrap().1 = 0;
+    assert!(!login.can_open());
+    assert!(!login.keeps_alive());
+    login.suspend();
+    assert!(!login.keeps_alive());
 }
 
 struct Loss {
@@ -270,6 +320,140 @@ fn public(card: &Card, cx: &App) -> String {
         .unwrap_or_default()
 }
 
+fn build_error(card: &Card, cx: &App) -> Option<String> {
+    card.mounted
+        .as_ref()
+        .and_then(|mounted| {
+            mounted
+                .root
+                .read(cx)
+                .content()
+                .clone()
+                .downcast::<gpui_shell::ScriptView>()
+                .ok()
+        })
+        .and_then(|view| view.read(cx).build_error().map(str::to_owned))
+}
+
+fn install_connector(fixture: &fixture::Fixture, endpoint: &str) {
+    let root = fixture.directory.path().join("project/card-package");
+    for (path, source) in [
+        (
+            "dev.sailry.platform/host/connection.js",
+            include_str!("../../../../../../plugins/notion/dev.sailry.platform/host/connection.js"),
+        ),
+        (
+            "dev.sailry.platform/desktop/connection.js",
+            include_str!(
+                "../../../../../../plugins/notion/dev.sailry.platform/desktop/connection.js"
+            ),
+        ),
+        (
+            "dev.sailry.platform/desktop/locales.js",
+            include_str!("../../../../../../plugins/notion/dev.sailry.platform/desktop/locales.js"),
+        ),
+    ] {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, source).unwrap();
+    }
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../../plugins/notion/plugin.json")).unwrap();
+    manifest["name"] = json!("card-fixture");
+    std::fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
+    let mut mcp: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../../plugins/notion/mcp.json")).unwrap();
+    mcp["mcpServers"]["notion"]["url"] = json!(endpoint);
+    std::fs::write(root.join("mcp.json"), mcp.to_string()).unwrap();
+    let Output::Plugin(package) = fixture.execute(Command::InstallPlugin {
+        worktree: fixture.session.worktree,
+        path: "card-package".into(),
+        name: "card-fixture".into(),
+        expected_revision: 0,
+        expected_digest: None,
+    }) else {
+        panic!("connection package expected")
+    };
+    assert!(package.issues.is_empty(), "{:?}", package.issues);
+}
+
+#[gpui::test]
+fn mounts_neutral_icon_cards(cx: &mut TestAppContext) {
+    use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_tools(
+            remote,
+            vec![(
+                crate::agent_fixture::plugin_tool("card-fixture", "connection"),
+                json!({}),
+            )],
+        );
+        let input = fixture
+            .runtime
+            .block_on(input::Server::with_transport(input::form_schema(), false));
+        let issuer = fixture
+            .runtime
+            .block_on(issuer::Server::start(&input.endpoint));
+        install_connector(&fixture, &issuer.endpoint);
+        fixtures::submit(&fixture);
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx)
+                .card_instances()
+                .first()
+                .is_some_and(|card| card.read(cx).active(cx))
+        });
+        let card = view.read_with(visual, |view, _| view.card_instances()[0].clone());
+        assert_eq!(
+            card.read_with(visual, |card, cx| build_error(card, cx)),
+            None
+        );
+        action(visual, "Log in");
+        action(visual, "Log in externally");
+        let canonical = card.read_with(visual, |card, _| card.summary.clone());
+        view.read_with(visual, |view, _| {
+            let history = view.tool_history();
+            let snapshot = history.snapshot.as_ref().unwrap();
+            let call = history
+                .calls
+                .iter()
+                .find(|call| call.content.is_some())
+                .unwrap();
+            let result = call.result(&snapshot.page).unwrap();
+            let output = result.get("output").unwrap_or(result);
+            assert_eq!(output["configured"], json!(false));
+            assert_ne!(output["isError"], json!(true));
+            assert!(output.get("error").is_none());
+        });
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let actions = window.find_all_by_role(Role::Button);
+            assert!(
+                actions
+                    .iter()
+                    .any(|action| action.label() == Some("Log in"))
+            );
+            assert!(
+                actions
+                    .iter()
+                    .any(|action| action.label() == Some("Log in externally"))
+            );
+        });
+        let models = fixture.task_requests();
+        let refresh = action(visual, "Refresh");
+        fixture::press(visual, refresh.center());
+        action(visual, "Log in");
+        assert_eq!(fixture.task_requests(), models);
+        assert_eq!(issuer.registrations.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            card.read_with(visual, |card, _| card.summary.clone()),
+            canonical
+        );
+        fixture.close();
+    }
+}
+
 #[gpui::test]
 fn recovers_and_completes_through_native_actions(cx: &mut TestAppContext) {
     fixture::init(cx);
@@ -415,6 +599,15 @@ fn recovers_and_completes_through_native_actions(cx: &mut TestAppContext) {
             card.authorization.attempt.as_ref().unwrap().id
         });
         let registrations = issuer.registrations.load(Ordering::SeqCst);
+        card.update_in(visual, |card, _, cx| {
+            card.refresh_mount(false, cx);
+            cx.notify();
+        });
+        assert!(card.read_with(visual, |card, cx| card.active(cx)
+            && card.authorization.can_open()
+            && card.authorization.attempt.as_ref().unwrap().id == attempt
+            && card.authorization.url.as_ref().unwrap().0 == url));
+        assert_eq!(loss.begins(), 2, "scrolling cannot restart login");
         assert!(
             !card
                 .read_with(visual, |card, cx| public(card, cx))

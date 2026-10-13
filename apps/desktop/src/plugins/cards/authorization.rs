@@ -10,7 +10,7 @@ use sailry_protocol::{
 pub(super) struct Login {
     pub attempt: Option<Attempt>,
     request: Option<Request>,
-    callback: Option<Callback>,
+    pub(super) callback: Option<Callback>,
     pub url: Option<(String, u64)>,
     pub redirect: Option<String>,
     pub(super) state: LoginState,
@@ -53,6 +53,10 @@ impl Login {
             && self.url.as_ref().is_some_and(|(_, expiry)| {
                 *expiry > chrono::Utc::now().timestamp_millis().max(0) as u64
             })
+    }
+
+    pub(super) fn keeps_alive(&self) -> bool {
+        self.pending || self.can_open()
     }
 
     pub(super) fn suspend(&mut self) {

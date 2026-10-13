@@ -395,8 +395,10 @@ Capabilities are independent and optional:
 gesture. Intents are `connect` (optionally a declared target and mode), `cancel`,
 `refresh`, or `browser` with a declared target and mode. There is no callable
 JavaScript connect/browser function. A mount may read status but cannot start
-login. OAuth uses the existing Client observer and Node MCP authorization
-engine, including original durable request IDs and outcome inspection. URLs,
+login. An optional `icon` asset path uses a compact icon button while retaining
+`label` as its accessible name and tooltip. OAuth uses the existing Client
+observer and Node MCP authorization engine, including original durable request
+IDs and outcome inspection. URLs,
 PKCE, callbacks and tokens are never exposed to scripts, history or models.
 Remote login still uses the controller's private loopback callback and the
 ordinary remote command path, not a Node HTTP relay.
@@ -411,9 +413,12 @@ request, not proof that the browser or account flow succeeded.
 
 Only a visible, connected, latest own main-session receipt can mount or act.
 Historical turns, forks, child sessions, rewinds, disabled/replaced packages and
-disconnection retain localized static fallback. Hidden mounts stop subscriptions
-and clear private pending URLs. Every service action rechecks canonical history,
-current package settings and scope at Node admission. A login may advance
+disconnection retain localized static fallback. Hidden conversations stop
+subscriptions and clear private pending URLs. Scrolling within the current
+conversation retains an already user-started pending login so its private callback
+and reopening actions remain available; reopening does not begin another attempt.
+Every service action rechecks canonical history, current package settings and scope
+at Node admission. A login may advance
 settings while immutable captured code remains available under the same digest.
 Uncertain side effects retain their original request and require outcome
 inspection, never automatic replay. These contracts do not establish real

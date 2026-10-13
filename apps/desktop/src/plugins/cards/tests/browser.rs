@@ -37,3 +37,29 @@ fn confines_navigation_without_agent_access() {
         Some("http://127.0.0.1:43191/callback")
     ));
 }
+
+#[test]
+fn follows_declared_sign_in_redirects() {
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../../plugins/notion/plugin.json")).unwrap();
+    let target: card::Target = serde_json::from_value(
+        manifest["extensions"]["dev.sailry.platform"]["cards"][0]["capabilities"]["browser"][0]
+            .clone(),
+    )
+    .unwrap();
+    for url in [
+        "https://mcp.notion.com/authorize",
+        "https://www.notion.so/login",
+        "https://notion.so/login",
+        "https://app.notion.com/login",
+    ] {
+        assert!(super::super::browser::allowed(url, &target, None));
+    }
+    for url in [
+        "https://app.notion.com.outside.test/login",
+        "https://outside.test/login",
+        "http://app.notion.com/login",
+    ] {
+        assert!(!super::super::browser::allowed(url, &target, None));
+    }
+}

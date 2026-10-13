@@ -21,6 +21,6 @@ export function nextChange(cursor:string): Promise<State>;
 export function publishProps(props:PublicProps):void;
 export function toast(message:string,error?:boolean):void;
 /** Kit Button with a native, user-click-only capability binding. */
-export const Action:{new(id:string,props:{action:ActionIntent;label:string;disabled?:boolean;primary?:boolean}):import('gpui-kit').Element};
+export const Action:{new(id:string,props:{action:ActionIntent;label:string;icon?:string;disabled?:boolean;primary?:boolean}):import('gpui-kit').Element};
 /** Reads only the declared bounded QR property and expiry from this instance. */
 export const Qr:{new(id:string,props?:{}):import('gpui-kit').Element};

@@ -279,13 +279,18 @@ impl Host {
                 let label = args.props().get("label").and_then(HostValue::as_str).unwrap_or_default().to_owned();
                 let disabled = args.props().get("disabled").and_then(HostValue::as_bool).unwrap_or(false) || !buttons.active();
                 let primary = args.props().get("primary").and_then(HostValue::as_bool).unwrap_or(false);
+                let icon = args.props().get("icon").and_then(HostValue::as_str).map(str::to_owned);
                 let id = args.id().to_owned();
                 let selector = id.clone();
                 let host = buttons.clone();
                 let owner = owner.clone();
                 Button::new(SharedString::from(id.clone())).debug_selector(move || selector.clone())
                     .map(|button| if primary { button.primary() } else { button.ghost() })
-                    .small().label(label.clone()).accessibility_label(label).disabled(disabled)
+                    .map(|button| match icon {
+                        Some(icon) => button.xsmall().icon(Icon::empty().path(icon)).tooltip(label.clone()),
+                        None => button.small().label(label.clone()),
+                    })
+                    .accessibility_label(label).disabled(disabled)
                     .on_click(move |_, window, cx| {
                         let host = host.clone(); let action = action.clone(); let id = id.clone();
                         let _ = owner.update(cx, |card, cx| card.action(host, action, id, window, cx));

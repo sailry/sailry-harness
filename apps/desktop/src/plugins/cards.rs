@@ -204,19 +204,10 @@ impl Card {
                 }
                 if owner
                     .update(cx, |card, cx| {
-                        if !painted.swap(false, std::sync::atomic::Ordering::AcqRel) {
-                            card.suspend();
-                        } else if let Some(mounted) = &card.mounted {
-                            if let Ok(view) = mounted
-                                .root
-                                .read(cx)
-                                .content()
-                                .clone()
-                                .downcast::<gpui_shell::ScriptView>()
-                            {
-                                view.update(cx, |view, cx| view.refresh(cx));
-                            }
-                        }
+                        card.refresh_mount(
+                            painted.swap(false, std::sync::atomic::Ordering::AcqRel),
+                            cx,
+                        );
                         cx.notify();
                     })
                     .is_err()
@@ -225,6 +216,24 @@ impl Card {
                 }
             }
         }));
+    }
+
+    fn refresh_mount(&mut self, painted: bool, cx: &mut Context<Self>) {
+        // Scrolling must not destroy a user-started callback or its private URL.
+        // Session changes still release cards through the explicit suspend path.
+        if !painted && !self.authorization.keeps_alive() {
+            self.suspend();
+        } else if let Some(mounted) = &self.mounted {
+            if let Ok(view) = mounted
+                .root
+                .read(cx)
+                .content()
+                .clone()
+                .downcast::<gpui_shell::ScriptView>()
+            {
+                view.update(cx, |view, cx| view.refresh(cx));
+            }
+        }
     }
 
     fn toast(&mut self, message: String, error: bool, window: &mut Window, cx: &mut Context<Self>) {
