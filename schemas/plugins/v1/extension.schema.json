@@ -225,6 +225,10 @@
         "refresh": {
           "default": false,
           "type": "boolean"
+        },
+        "settings": {
+          "default": false,
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -236,7 +240,8 @@
           "$ref": "#/$defs/CardCapabilities",
           "default": {
             "browser": [],
-            "refresh": false
+            "refresh": false,
+            "settings": false
           }
         },
         "entry": {
@@ -254,6 +259,13 @@
         },
         "props_schema": {
           "description": "Closed, bounded scalar properties. Credentials are never presentation data."
+        },
+        "tool": {
+          "description": "A declared read-only content handler that can produce this card.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [

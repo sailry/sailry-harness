@@ -4,3 +4,13 @@ export interface CardDraft { kind: "card"; key: string; props: PublicProps; fall
 export function card(key: string, props: PublicProps, fallback: Fallback): CardDraft;
 /** Reads only this captured package's declared HTTP MCP connection state. */
 export function status(server: string): Promise<{configured: boolean}>;
+export type ConnectionStatus = {
+  package: {name: string; digest: string; settings_revision: number};
+  card: string;
+  server: string;
+  configuration: "ready" | "missing" | "changed" | "unsupported";
+  authorization: "not_declared" | "missing" | "configured";
+  credential: "not_declared" | "absent" | "present";
+};
+/** Reads declaration and stored-presence metadata without probing the provider. */
+export function connectionStatus(card: string): Promise<ConnectionStatus>;

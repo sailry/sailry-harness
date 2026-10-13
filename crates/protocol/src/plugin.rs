@@ -6,6 +6,7 @@ pub use action::Action;
 pub mod authorization;
 pub mod card;
 pub mod catalog;
+pub mod connection;
 pub mod conversation;
 pub mod desktop;
 pub mod github;

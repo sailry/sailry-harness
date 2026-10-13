@@ -441,6 +441,10 @@ pub enum Command {
         package: crate::plugin::Reference,
         server: String,
     },
+    ReadPluginConnection {
+        package: crate::plugin::Reference,
+        card: String,
+    },
     ReadPluginAuthorization {
         package: crate::plugin::Reference,
     },
@@ -1444,6 +1448,7 @@ impl Command {
                 | Self::ListPluginModels
                 | Self::ResolvePluginModel { .. }
                 | Self::ReadMcpAuthorization { .. }
+                | Self::ReadPluginConnection { .. }
                 | Self::ReadPluginAuthorization { .. }
                 | Self::ReadPluginView { .. }
                 | Self::ListRoles
@@ -1704,6 +1709,7 @@ pub enum Output {
         request: RequestId,
     },
     McpAuthorization(crate::plugin::authorization::Status),
+    PluginConnection(crate::plugin::connection::Status),
     McpLogin(crate::plugin::authorization::Attempt),
     PluginAuthorization(crate::plugin::oauth::Status),
     PluginLogin(crate::plugin::oauth::Attempt),

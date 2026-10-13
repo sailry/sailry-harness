@@ -7,6 +7,7 @@ use std::sync::{
     Mutex,
     atomic::{AtomicBool, Ordering},
 };
+use std::time::{Duration, Instant};
 
 #[path = "../../../../../../crates/node-runtime/tests/support/mcp_input.rs"]
 mod input;
@@ -14,6 +15,21 @@ mod input;
 mod issuer;
 #[path = "../../../../../../crates/node-runtime/tests/support/mcp.rs"]
 mod mcp_peer;
+
+#[track_caller]
+fn shown(visual: &mut VisualTestContext, selector: &'static str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        visual.executor().advance_clock(Duration::from_millis(10));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        if visual.debug_bounds(selector).is_some() {
+            return;
+        }
+        assert!(Instant::now() < deadline, "missing {selector}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
 
 #[test]
 fn preserves_uncertain_requests_without_replay() {
@@ -179,6 +195,21 @@ fn install(fixture: &fixture::Fixture, endpoint: &str) {
     let root = fixture.directory.path().join("project/card-package");
     std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
     std::fs::create_dir_all(root.join("dev.sailry.platform/desktop")).unwrap();
+    std::fs::write(
+        root.join("dev.sailry.platform/settings.json"),
+        json!({
+            "$schema":plugin::settings::SCHEMA,
+            "type":"object",
+            "additionalProperties":false,
+            "properties":{
+                "client_id":{"type":"string","default":""},
+                "client_secret":{"type":"string","x-sailry-secret":{"server":"input","oauth":{"client_id":"client_id"}}}
+            },
+            "required":["client_id","client_secret"]
+        })
+        .to_string(),
+    )
+    .unwrap();
     std::fs::write(root.join("dev.sailry.platform/host/main.js"), r#"
 import {card,status} from 'sailry/cards';
 export async function connection(){const props=await status('input');return {isError:!props.configured,error:{code:'not_configured',message:'Connect'},sailry_content:{version:1,blocks:[card('connection',props,{label:'Connect'})]}};}
@@ -189,6 +220,7 @@ export default class Card extends View {
   init(_,cx){this.state=state();cx.spawn(async cx=>{let cursor=this.state.cursor;try{while(true){this.state=await nextChange(cursor);cursor=this.state.cursor;cx.notify();}}catch(_){}});}
   render(){const s=this.state;return div().v_flex().child(`${s.login}|${s.can_open}|${s.can_cancel}|${s.configured}`).child(JSON.stringify(s))
     .child(Action.new('fixture-connect',{label:s.login==='unconfirmed'||s.can_cancel?'Check':'Connect',action:{kind:'connect'}}))
+    .child(Action.new('fixture-settings',{label:'Settings',action:{kind:'settings'}}))
     .children(s.can_cancel?[Action.new('fixture-cancel',{label:'Cancel',action:{kind:'cancel'}})]:[]);}
 }
 "#).unwrap();
@@ -199,11 +231,13 @@ export default class Card extends View {
     .unwrap();
     std::fs::write(root.join("plugin.json"), json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"card-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{
         "api_version":"v1","actions":[],
+        "settings_schema":"dev.sailry.platform/settings.json",
         "host":{"entry":"dev.sailry.platform/host/main.js","resources":["dev.sailry.platform/host/main.js"],"handlers":["connection"]},
         "desktop":{"resources":["dev.sailry.platform/desktop/card.js"]},
         "tools":[{"name":"connection","description":"Read connection","contexts":["workspace"],"presentation":"content","handler":{"name":"connection","read_only":true,"parameters":{"type":"object","properties":{},"additionalProperties":false}}}],
-        "cards":[{"key":"connection","entry":"dev.sailry.platform/desktop/card.js","mcp_server":"input",
-            "props_schema":{"type":"object","additionalProperties":false,"properties":{"configured":{"type":"boolean"}},"required":["configured"]}}]
+        "cards":[{"key":"connection","entry":"dev.sailry.platform/desktop/card.js","tool":"connection","mcp_server":"input",
+            "props_schema":{"type":"object","additionalProperties":false,"properties":{"configured":{"type":"boolean"}},"required":["configured"]},
+            "capabilities":{"settings":true,"browser":[{"name":"login","origins":["https://example.test"],"source":{"kind":"mcp_authorization"},"modes":["external"]}]}}]
     }}}).to_string()).unwrap();
     let Output::Plugin(package) = fixture.execute(Command::InstallPlugin {
         worktree: fixture.session.worktree,
@@ -293,6 +327,9 @@ fn recovers_and_completes_through_native_actions(cx: &mut TestAppContext) {
         let models = fixture.task_requests();
         assert_eq!(loss.begins(), 0);
         assert_eq!(issuer.registrations.load(Ordering::SeqCst), 0);
+        fixture::tap(visual, "fixture-settings");
+        shown(visual, "plugin-settings-form");
+        fixture::tap(visual, "plugin-settings-cancel");
         fixture::tap(visual, "fixture-connect");
         wait(visual, |_| {
             loss.begin.admitted.load(Ordering::SeqCst)

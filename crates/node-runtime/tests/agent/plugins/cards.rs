@@ -33,8 +33,9 @@ export async function connection(){
             "host":{"entry":"dev.sailry.platform/host/main.js","resources":["dev.sailry.platform/host/main.js"],"handlers":["connection"]},
             "desktop":{"resources":["dev.sailry.platform/desktop/card.js"]},
             "tools":[{"name":"connection","description":"Read connection","contexts":["workspace"],"presentation":"content","handler":{"name":"connection","read_only":true,"parameters":{"type":"object","properties":{},"additionalProperties":false}}}],
-            "cards":[{"key":"connection","entry":"dev.sailry.platform/desktop/card.js","mcp_server":"input",
-                "props_schema":{"type":"object","additionalProperties":false,"properties":{"configured":{"type":"boolean"}},"required":["configured"]}}]
+            "cards":[{"key":"connection","entry":"dev.sailry.platform/desktop/card.js","tool":"connection","mcp_server":"input",
+                "props_schema":{"type":"object","additionalProperties":false,"properties":{"configured":{"type":"boolean"}},"required":["configured"]},
+                "capabilities":{"browser":[{"name":"login","origins":["https://example.test"],"source":{"kind":"mcp_authorization"},"modes":["external"]}]}}]
         }}
     }).to_string()).unwrap();
     let Output::Plugin(info) = fixture
@@ -122,6 +123,9 @@ async fn keeps_login_private_and_does_not_replay() {
         assert_eq!(card.node, fixture.node.id());
         assert_eq!(card.package, package.summary.reference());
         assert_eq!(card.props, json!({"configured":false}));
+        let alias = plugin_tool("card-fixture", "connection");
+        let prompt = model.requests.lock().unwrap()[0]["messages"].to_string();
+        assert!(prompt.contains(&format!("- {alias}: MCP authorization")));
         assert_eq!(
             issuer.registrations.load(Ordering::SeqCst),
             0,
@@ -149,6 +153,22 @@ async fn keeps_login_private_and_does_not_replay() {
         };
         assert_eq!(view.entry, "dev.sailry.platform/desktop/card.js");
         let scope = context(&card, card.package.clone());
+        let status = fixture
+            .client
+            .prepare(Command::ReadPluginConnection {
+                package: card.package.clone(),
+                card: "connection".into(),
+            })
+            .with_plugin(scope.clone());
+        assert!(matches!(
+            fixture.client.execute(status).await.unwrap(),
+            Output::PluginConnection(plugin::connection::Status {
+                configuration: plugin::connection::Configuration::Ready,
+                authorization: plugin::connection::Authorization::Missing,
+                credential: plugin::connection::Credential::NotDeclared,
+                ..
+            })
+        ));
         let request = fixture
             .client
             .prepare(Command::BeginMcpLogin {
@@ -197,11 +217,25 @@ async fn keeps_login_private_and_does_not_replay() {
                 package: current.clone(),
                 server: "input".into(),
             })
-            .with_plugin(context(&card, current));
+            .with_plugin(context(&card, current.clone()));
         assert!(matches!(
             fixture.client.execute(status).await.unwrap(),
             Output::McpAuthorization(authorization::Status {
                 configured: true,
+                ..
+            })
+        ));
+        let status = fixture
+            .client
+            .prepare(Command::ReadPluginConnection {
+                package: current.clone(),
+                card: "connection".into(),
+            })
+            .with_plugin(context(&card, current));
+        assert!(matches!(
+            fixture.client.execute(status).await.unwrap(),
+            Output::PluginConnection(plugin::connection::Status {
+                authorization: plugin::connection::Authorization::Configured,
                 ..
             })
         ));

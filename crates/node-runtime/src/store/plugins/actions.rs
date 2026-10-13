@@ -654,6 +654,30 @@ impl Database {
                     }
                     (None, None, None)
                 }
+                Command::ReadPluginConnection { package, card }
+                    if *package == context.package
+                        && (context.turn.is_some() || context.invocation.is_some()) =>
+                {
+                    let package = self.plugin_package(caller, request)?;
+                    let declaration = package
+                        .extension
+                        .as_ref()
+                        .and_then(|extension| {
+                            extension.cards.iter().find(|entry| entry.key == *card)
+                        })
+                        .ok_or_else(|| denied("connection status requires an owned card"))?;
+                    let server = declaration
+                        .mcp_server
+                        .as_deref()
+                        .ok_or_else(|| denied("connection status requires an owned HTTP server"))?;
+                    if !package.mcp.iter().any(|entry| {
+                        entry.name == server
+                            && entry.transport != sailry_protocol::plugin::McpTransport::Stdio
+                    }) {
+                        return Err(denied("connection status requires an owned HTTP server"));
+                    }
+                    (None, None, None)
+                }
                 Command::SavePluginSettings { package, .. }
                     if *package == context.package
                         && context.surface

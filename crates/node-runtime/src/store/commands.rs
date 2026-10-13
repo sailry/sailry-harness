@@ -318,8 +318,28 @@ pub(super) fn execute(
                 None,
             ))
         }
+        Command::ReadPluginConnection { card, .. }
+            if request
+                .plugin
+                .as_ref()
+                .is_some_and(|context| context.invocation.is_some() || context.turn.is_some()) =>
+        {
+            let context = request.plugin.as_ref().expect("checked plugin context");
+            let info = if context.invocation.is_some() {
+                super::plugins::invocations::package(db, caller, context)?
+            } else {
+                super::agent::plugin_package(db, context)?
+            };
+            Ok((
+                Output::PluginConnection(super::plugins::connection::read_admitted(
+                    db, &info, card,
+                )?),
+                None,
+            ))
+        }
         Command::ListPlugins
         | Command::ReadMcpAuthorization { .. }
+        | Command::ReadPluginConnection { .. }
         | Command::ReadPluginAuthorization { .. }
         | Command::RevokePluginAuthorization { .. }
         | Command::RevokeMcpAuthorization { .. }

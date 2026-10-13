@@ -43,6 +43,9 @@ pub struct Declaration {
     pub entry: String,
     /// Closed, bounded scalar properties. Credentials are never presentation data.
     pub props_schema: Value,
+    /// A declared read-only content handler that can produce this card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mcp_server: Option<String>,
     #[serde(default)]
@@ -57,6 +60,8 @@ pub struct Capabilities {
     pub qr: Option<Qr>,
     #[serde(default)]
     pub refresh: bool,
+    #[serde(default)]
+    pub settings: bool,
     #[serde(default)]
     pub browser: Vec<Target>,
 }
@@ -138,6 +143,13 @@ impl Summary {
 }
 
 impl Declaration {
+    pub fn mcp_authorization(&self) -> bool {
+        self.capabilities
+            .browser
+            .iter()
+            .any(|target| matches!(&target.source, Source::McpAuthorization))
+    }
+
     pub fn accepts(&self, value: &Value) -> bool {
         let Some(object) = value.as_object().filter(|_| public_props(value)) else {
             return false;
@@ -190,10 +202,35 @@ impl Declaration {
             && (self.entry.ends_with(".js") || self.entry.ends_with(".mjs"))
             && desktop.resources.contains(&self.entry)
             && schema(&self.props_schema)
+            && self.tool.as_ref().is_none_or(|name| {
+                super::ui::identifier(name)
+                    && extension.tools.iter().any(|tool| {
+                        tool.name == *name
+                            && tool.server.is_none()
+                            && tool.presentation == crate::tool::Presentation::Content
+                            && tool.handler.as_ref().is_some_and(|handler| {
+                                handler.read_only
+                                    && handler
+                                        .operation
+                                        .is_none_or(crate::tool::Operation::read_only)
+                                    && handler.flow.as_ref().is_none_or(|flow| {
+                                        flow.operations
+                                            .iter()
+                                            .all(|operation| operation.read_only())
+                                    })
+                            })
+                    })
+            })
             && self
                 .mcp_server
                 .as_ref()
                 .is_none_or(|name| super::ui::identifier(name))
+            && (!self.capabilities.settings
+                || extension.settings_schema.is_some()
+                || extension
+                    .settings_page
+                    .as_ref()
+                    .is_some_and(|page| page.entry.is_some()))
             && self.capabilities.qr.as_ref().is_none_or(|qr| {
                 self.property(&qr.payload, "string")
                     && qr

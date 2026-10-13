@@ -6,11 +6,16 @@ export interface State {
 }
 export type Mode = 'embedded' | 'external';
 export type ActionIntent = {kind:'connect';target?:string;mode?:Mode} | {kind:'cancel'}
-  | {kind:'refresh'} | {kind:'browser';target:string;mode:Mode};
+  | {kind:'refresh'} | {kind:'settings'} | {kind:'browser';target:string;mode:Mode};
 export function state(): State;
 export function theme(): {is_dark:boolean;colors:Record<string,string>};
-/** Own declared MCP status only; no URLs, credentials or token contents. */
-export function status(): Promise<{configured:boolean}>;
+/** Own declared connector metadata only; no URLs, credentials or token contents. */
+export function status(): Promise<{
+  package:{name:string;digest:string;settings_revision:number}; card:string; server:string;
+  configuration:'ready'|'missing'|'changed'|'unsupported';
+  authorization:'not_declared'|'missing'|'configured';
+  credential:'not_declared'|'absent'|'present'; configured:boolean;
+}>;
 export function nextChange(cursor:string): Promise<State>;
 /** Ephemeral display state; never updates the receipt or canonical history. */
 export function publishProps(props:PublicProps):void;

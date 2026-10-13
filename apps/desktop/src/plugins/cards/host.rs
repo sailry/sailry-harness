@@ -21,6 +21,7 @@ pub(super) enum Action {
     },
     Cancel,
     Refresh,
+    Settings,
     Browser {
         target: String,
         mode: card::Mode,
@@ -170,6 +171,7 @@ impl Host {
         match action {
             Action::Connect { target, mode } => {
                 self.declaration.mcp_server.is_some()
+                    && self.declaration.mcp_authorization()
                     && match (target, mode) {
                         (None, None) => true,
                         (Some(target), Some(mode)) => {
@@ -180,8 +182,11 @@ impl Host {
                         _ => false,
                     }
             }
-            Action::Cancel => self.declaration.mcp_server.is_some(),
+            Action::Cancel => {
+                self.declaration.mcp_server.is_some() && self.declaration.mcp_authorization()
+            }
             Action::Refresh => self.declaration.capabilities.refresh,
+            Action::Settings => self.declaration.capabilities.settings,
             Action::Browser { target, mode } => self.target(target, *mode).is_ok(),
         }
     }
@@ -213,8 +218,10 @@ impl Host {
             })
             .async_function("status", move |_| {
                 status.check()?;
-                let server = status.declaration.mcp_server.clone().ok_or_else(|| HostError::new("card has no MCP binding"))?;
-                let request = status.request(Command::ReadMcpAuthorization { package: status.package()?, server })?;
+                let request = status.request(Command::ReadPluginConnection {
+                    package: status.package()?,
+                    card: status.declaration.key.clone(),
+                })?;
                 let host = status.clone();
                 Ok(async move {
                     let client = host.binding.client.clone();
@@ -223,9 +230,12 @@ impl Host {
                         _ = host.stop.cancelled() => return Err(HostError::new("card is closed")),
                         output = job => output.map_err(|_| HostError::new("card status worker failed"))?,
                     }.map_err(|_| HostError::new("MCP status could not be read"))?;
-                    let Output::McpAuthorization(status) = output else { return Err(HostError::new("MCP status response expected")) };
-                    host.change(|state| state.configured = status.configured);
-                    encode(json!({"configured":status.configured}))
+                    let Output::PluginConnection(status) = output else { return Err(HostError::new("connection status response expected")) };
+                    let configured = status.authorization == plugin::connection::Authorization::Configured;
+                    host.change(|state| state.configured = configured);
+                    let mut value = serde_json::to_value(status).map_err(|error| HostError::new(error.to_string()))?;
+                    value["configured"] = json!(configured);
+                    encode(value)
                 })
             })
             .async_function("nextChange", move |args| {

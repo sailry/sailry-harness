@@ -5,6 +5,7 @@ pub(in crate::store) mod cards;
 mod catalog;
 pub(super) mod collection;
 pub(in crate::store) mod command;
+pub(in crate::store) mod connection;
 pub(in crate::store) mod connections;
 pub(super) mod distribution;
 pub(in crate::store) mod github;
@@ -383,6 +384,10 @@ pub(super) fn execute(
         )),
         Command::ReadMcpAuthorization { package, server } => Ok((
             Output::McpAuthorization(authorization::read(db, package, server)?),
+            None,
+        )),
+        Command::ReadPluginConnection { package, card } => Ok((
+            Output::PluginConnection(connection::read(db, package, card)?),
             None,
         )),
         Command::RevokeMcpAuthorization { package, server } => {

@@ -106,6 +106,11 @@ pub(super) async fn bind(
             .tools
             .retain(|registration| registration.managed || registration.tool.is_read_only());
     }
+    if invocation.child.is_none() {
+        bound
+            .instruction
+            .push_str(&connection_instructions(invocation, &bound.tools));
+    }
     for package in &invocation.plugins {
         if bound
             .tools
@@ -137,5 +142,40 @@ pub(super) async fn bind(
             .push((-10, super::delegation::selection(invocation, name)?));
     }
     Ok(bound)
+}
+
+fn connection_instructions(invocation: &Invocation, tools: &[ToolRegistration]) -> String {
+    let selected: BTreeSet<_> = tools
+        .iter()
+        .map(|registration| registration.tool.name())
+        .collect();
+    let mut cards = BTreeSet::new();
+    for package in &invocation.plugins {
+        let Some(extension) = &package.extension else {
+            continue;
+        };
+        for card in &extension.cards {
+            let Some(tool) = &card.tool else { continue };
+            let alias = operations::alias(&package.summary.name, tool);
+            if selected.contains(alias.as_str()) {
+                cards.insert((alias, card.capabilities.settings, card.mcp_authorization()));
+            }
+        }
+    }
+    if cards.is_empty() {
+        return String::new();
+    }
+    let mut instruction = String::from("\n\nDeclared connection cards in this tool catalog:");
+    for (alias, settings, authorization) in cards {
+        let actions = match (settings, authorization) {
+            (true, true) => "settings and MCP authorization",
+            (true, false) => "settings",
+            (false, true) => "MCP authorization",
+            (false, false) => "no setup action",
+        };
+        instruction.push_str(&format!("\n- {alias}: {actions}"));
+    }
+    instruction.push_str("\nThese tools only read and present current state. Settings and authorization require explicit controller actions. Do not start them, replay a blocked operation, or treat access denial, throttling, timeouts, or unknown failures as authorization evidence.");
+    instruction
 }
 pub(super) mod callbacks;

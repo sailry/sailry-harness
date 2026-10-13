@@ -165,16 +165,23 @@ pub(in crate::store) fn check(
         return Err(denied());
     }
     match &request.command {
+        Command::ReadPluginConnection { package, card }
+            if *package == context.package && card == &declaration.key =>
+        {
+            Ok(())
+        }
         Command::ReadMcpAuthorization {
             package,
             server: named,
-        }
-        | Command::BeginMcpLogin {
+        } if *package == context.package && named == server => Ok(()),
+        Command::BeginMcpLogin {
             package,
             server: named,
             client_id: None,
             ..
-        } if *package == context.package && named == server => Ok(()),
+        } if *package == context.package && named == server && declaration.mcp_authorization() => {
+            Ok(())
+        }
         Command::CompleteMcpLogin { attempt, .. } | Command::CancelMcpLogin { attempt } => {
             let body: Option<Vec<u8>> = db
                 .query_row(

@@ -93,6 +93,7 @@ impl Card {
             host::Action::Connect { target, mode } => self.begin(target.zip(mode), window, cx),
             host::Action::Cancel => self.cancel(window, cx),
             host::Action::Refresh => host.refresh(id),
+            host::Action::Settings => self.open_settings(host, window, cx),
             host::Action::Browser { target, mode } => self.open_browser(target, mode, window, cx),
         }
     }

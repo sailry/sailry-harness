@@ -53,6 +53,24 @@ pub(crate) fn open_plugin_configuration(
     );
 }
 
+pub(crate) fn open_plugin_settings(
+    binding: crate::conversation::live::Binding,
+    info: sailry_protocol::plugin::Info,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    extensions::modal::open(
+        providers::Binding {
+            client: binding.client,
+            runtime: binding.runtime,
+            label: binding.host,
+        },
+        info,
+        window,
+        cx,
+    );
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Section {
     #[default]

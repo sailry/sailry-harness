@@ -4,6 +4,7 @@ pub(crate) mod browser;
 mod host;
 pub(crate) mod qr;
 mod runtime;
+mod settings;
 #[cfg(test)]
 mod tests;
 
@@ -32,6 +33,7 @@ pub(crate) struct Card {
     load: Option<Task<()>>,
     clock: Option<Task<()>>,
     browser_task: Option<Task<()>>,
+    settings_task: Option<Task<()>>,
     observed: bool,
     pending_toast: Option<(String, bool)>,
     painted: Arc<std::sync::atomic::AtomicBool>,
@@ -67,6 +69,7 @@ impl Card {
             load: None,
             clock: None,
             browser_task: None,
+            settings_task: None,
             observed: false,
             pending_toast: None,
             painted: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -108,6 +111,7 @@ impl Card {
         self.clock = None;
         self.mounted = None;
         self.browser_task = None;
+        self.settings_task = None;
         self.authorization.suspend();
         self.attempted = false;
         self.visible
