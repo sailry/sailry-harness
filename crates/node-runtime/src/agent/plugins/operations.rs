@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 mod artifacts;
 mod commands;
-mod connections;
+pub(super) mod connections;
 mod files;
 mod knowledge;
 mod models;
@@ -108,10 +108,12 @@ pub(super) fn bind(
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
-            registration.display = declaration
-                .display
-                .clone()
-                .map(|display| (registration.tool.name().into(), display));
+            registration.display = declaration.display.clone().map(|display| {
+                (
+                    registration.tool.name().into(),
+                    connections::display(operation, display, &invocation.connections),
+                )
+            });
             tools.push(registration);
         }
     }

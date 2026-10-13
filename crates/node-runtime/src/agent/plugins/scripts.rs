@@ -228,10 +228,17 @@ pub(super) async fn bind(
             registration.presentation = declaration.presentation;
             registration.grouping = declaration.grouping;
             registration.plugin = Some(package.summary.name.clone());
-            registration.display = declaration
-                .display
-                .clone()
-                .map(|display| (registration.tool.name().into(), display));
+            registration.display = declaration.display.clone().map(|display| {
+                let display = match operation {
+                    Some(operation) => operations::connections::display(
+                        operation,
+                        display,
+                        &invocation.connections,
+                    ),
+                    None => display,
+                };
+                (registration.tool.name().into(), display)
+            });
             registration
         })
         .collect();

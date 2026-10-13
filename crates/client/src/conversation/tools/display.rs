@@ -191,6 +191,12 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
             summary: field(input.and_then(|input| input.summary.as_ref()), arguments).and_then(
                 |mut text| {
                     let field = input.and_then(|input| input.summary.as_ref())?;
+                    if field.format == Some(sailry_protocol::tool::InputFormat::Connection)
+                        && let Some(name) = field.names.get(&text.text)
+                        && !name.trim().is_empty()
+                    {
+                        text.text = name.clone();
+                    }
                     if let Some(name) = field
                         .result_path
                         .as_ref()
@@ -207,7 +213,7 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
                         Some(sailry_protocol::tool::InputFormat::Session) => {
                             text.text = session_title(&text.text, page)?.into_owned();
                         }
-                        None => {}
+                        Some(sailry_protocol::tool::InputFormat::Connection) | None => {}
                     }
                     Some(text)
                 },

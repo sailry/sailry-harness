@@ -68,6 +68,7 @@ impl Skills {
                         omit: Vec::new(),
                         format: None,
                         result_path: None,
+                        names: BTreeMap::new(),
                     }),
                     context: None,
                     target: None,

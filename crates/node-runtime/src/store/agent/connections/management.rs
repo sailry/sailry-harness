@@ -71,7 +71,7 @@ pub(super) fn database(
     let mut profile = previous.clone().unwrap_or(database::Profile {
         id: DatabaseId::new(),
         revision: 0,
-        sharing: None,
+        sharing: sharing(db, turn)?,
         name: String::new(),
         connection: database::Connection::Sqlite {
             path: String::new(),
@@ -303,7 +303,10 @@ pub(super) fn ssh(
     let profile = ssh::Profile {
         id: previous.as_ref().map_or_else(SshId::new, |p| p.id),
         revision: 0,
-        sharing: previous.as_ref().and_then(|p| p.sharing.clone()),
+        sharing: match &previous {
+            Some(profile) => profile.sharing.clone(),
+            None => sharing(db, turn)?,
+        },
         name: required(
             input
                 .name
@@ -355,4 +358,15 @@ fn creation(db: &Connection, turn: TurnId) -> Result<(), Fault> {
         ));
     }
     Ok(())
+}
+
+fn sharing(
+    db: &Connection,
+    turn: TurnId,
+) -> Result<Option<sailry_protocol::connection::Sharing>, Fault> {
+    let run = super::super::calls::active(db, turn)?;
+    let session = super::super::super::commands::session(db, run.session)?;
+    Ok(session
+        .project
+        .map(|project| sailry_protocol::connection::Sharing::Projects(vec![project])))
 }

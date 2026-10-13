@@ -280,6 +280,11 @@ successful save opens the containing directory.
 
 ## Tool message content
 
+`display.input.summary` can use `format: "connection"` to show a saved connection's
+public name. The execution Node captures names only from the connections admitted
+to that turn; packages cannot supply the captured `names` map. Unknown or blank
+names keep the original ID. Captured names remain stable after configuration changes.
+
 `display.input.summary` can declare `result_path`, a JSON Pointer into the matched
 native result. A nonblank string at that path replaces the displayed argument
 after the result arrives, before applying the field's existing format. Missing,

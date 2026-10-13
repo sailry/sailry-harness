@@ -4,6 +4,9 @@ use serde_json::Value;
 
 const PACKAGE: &str = "connection-services";
 
+#[path = "management/sharing.rs"]
+mod sharing;
+
 fn tool(name: &str) -> String {
     agent_support::plugin_tool(PACKAGE, name)
 }
@@ -22,7 +25,13 @@ async fn install_named(fixture: &process::Fixture, package: &str) -> plugin::Inf
         ("ssh_connections", Operation::ListSshConnections),
         ("ssh_save_connection", Operation::SaveSshConnection),
         ("ssh_run", Operation::RunSsh),
-    ].into_iter().map(|(name, operation)| json!({"name":name,"operation":operation,"description":"Exercise the captured connection service"})).collect();
+    ].into_iter().map(|(name, operation)| {
+        let mut tool = json!({"name":name,"operation":operation,"description":"Exercise the captured connection service"});
+        if matches!(operation, Operation::QueryDatabase | Operation::RunSsh) {
+            tool["display"] = json!({"label":"Connection operation","input":{"summary":{"path":"/connection","format":"connection"}}});
+        }
+        tool
+    }).collect();
     std::fs::write(path.join("plugin.json"), serde_json::to_vec(&json!({
         "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
         "name":package,"version":"0.1.0","description":"Isolated connection service fixture",

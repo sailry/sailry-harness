@@ -488,10 +488,16 @@ impl Declaration {
                         && !description.trim().is_empty()
                         && description.len() <= 4096
                 })
-            && self
-                .display
-                .as_ref()
-                .is_none_or(|display| display.valid() && display.aliases.is_empty())
+            && self.display.as_ref().is_none_or(|display| {
+                display.valid()
+                    && display.aliases.is_empty()
+                    && display.input.as_ref().is_none_or(|input| {
+                        input
+                            .summary
+                            .as_ref()
+                            .is_none_or(|field| field.names.is_empty())
+                    })
+            })
             && !self.name.is_empty()
             && self.name.len() <= 512
             && !self.name.chars().any(char::is_control)

@@ -4,6 +4,41 @@ use crate::store::agent::connections::Action;
 use sailry_protocol::connection::Resource;
 use serde::Deserialize;
 
+pub(in crate::agent::plugins) fn display(
+    operation: Operation,
+    mut display: sailry_protocol::tool::Display,
+    catalog: &crate::store::agent::connections::Catalog,
+) -> sailry_protocol::tool::Display {
+    if let Some(field) = display
+        .input
+        .as_mut()
+        .and_then(|input| input.summary.as_mut())
+        && field.format == Some(sailry_protocol::tool::InputFormat::Connection)
+    {
+        field.names = match operation {
+            Operation::RunSsh | Operation::TransferSsh => catalog
+                .ssh
+                .iter()
+                .filter(|profile| !profile.name.trim().is_empty())
+                .map(|profile| (profile.id.to_string(), profile.name.clone()))
+                .collect(),
+            Operation::BrowseDatabase | Operation::QueryDatabase | Operation::ExecuteDatabase => {
+                catalog
+                    .databases
+                    .iter()
+                    .filter(|profile| !profile.name.trim().is_empty())
+                    .map(|profile| (profile.id.to_string(), profile.name.clone()))
+                    .collect()
+            }
+            _ => Default::default(),
+        };
+    }
+    display
+}
+
+#[cfg(test)]
+mod tests;
+
 pub(super) fn handles(operation: Operation) -> bool {
     matches!(
         operation,

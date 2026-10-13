@@ -80,9 +80,11 @@ impl Input {
             && [&self.context, &self.target, &self.content]
                 .into_iter()
                 .all(|field| {
-                    field
-                        .as_ref()
-                        .is_none_or(|field| field.format.is_none() && field.result_path.is_none())
+                    field.as_ref().is_none_or(|field| {
+                        field.format.is_none()
+                            && field.result_path.is_none()
+                            && field.names.is_empty()
+                    })
                 })
     }
 }
@@ -101,6 +103,10 @@ pub struct Field {
     /// Optional result name for the summary, falling back to the original argument.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_path: Option<String>,
+    /// Public resource names captured by the execution Node, never package-authored.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[schemars(skip)]
+    pub names: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -108,6 +114,7 @@ pub struct Field {
 pub enum InputFormat {
     Command,
     Session,
+    Connection,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -144,6 +151,12 @@ impl Field {
             && self.omit.len() <= 16
             && self.omit.iter().all(|value| value.len() <= 256)
             && self.result_path.as_deref().is_none_or(valid_pointer)
+            && (self.names.is_empty() || self.format == Some(InputFormat::Connection))
+            && self.names.iter().all(|(id, name)| {
+                !id.is_empty()
+                    && !id.chars().any(char::is_control)
+                    && (name.trim().is_empty() || !name.chars().any(char::is_control))
+            })
     }
 
     pub fn read<'a>(&self, arguments: &'a Value) -> Option<&'a str> {
@@ -249,6 +262,44 @@ mod tests {
     }
 
     #[test]
+    fn reserves_names_for_captured_summaries() {
+        let mut declaration: super::super::Declaration = serde_json::from_value(json!({
+            "name": "run", "display": {"label": "Run", "input": {
+                "summary": {"path": "/connection", "format": "connection"}
+            }}
+        }))
+        .unwrap();
+        assert!(declaration.valid());
+        let captured = serde_json::to_value(&declaration).unwrap();
+        assert!(
+            captured["display"]["input"]["summary"]
+                .get("names")
+                .is_none()
+        );
+        declaration
+            .display
+            .as_mut()
+            .unwrap()
+            .input
+            .as_mut()
+            .unwrap()
+            .summary
+            .as_mut()
+            .unwrap()
+            .names
+            .insert("connection-id".into(), "Build host".into());
+        assert!(declaration.display.as_ref().unwrap().valid());
+        assert!(!declaration.valid());
+        for field in ["context", "target", "content"] {
+            let input: Input = serde_json::from_value(json!({field: {
+                "path": "/connection", "names": {"connection-id": "Build host"}
+            }}))
+            .unwrap();
+            assert!(!input.valid());
+        }
+    }
+
+    #[test]
     fn rejects_invalid_selectors() {
         for path in ["", "command", "/~", "/~2", "/bad\npath"] {
             let field = Field {
@@ -257,6 +308,7 @@ mod tests {
                 omit: vec![],
                 format: None,
                 result_path: None,
+                names: BTreeMap::new(),
             };
             assert!(!field.valid(), "{path:?}");
         }
@@ -266,6 +318,7 @@ mod tests {
             omit: vec![],
             format: None,
             result_path: None,
+            names: BTreeMap::new(),
         };
         assert!(
             field

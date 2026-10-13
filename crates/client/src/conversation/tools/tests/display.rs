@@ -133,6 +133,113 @@ mod result_summary {
     }
 }
 
+mod connection_summary {
+    use super::*;
+
+    const ID: &str = "11111111-2222-4333-8444-555555555555";
+
+    fn fixture() -> Page {
+        let mut page = page();
+        page.entries[0].parts[0] = Part::ToolCall {
+            id: Some("call".into()),
+            name: "package_run".into(),
+            presentation: Default::default(),
+            grouping: Default::default(),
+            arguments: json!({"connection": ID, "command": "uname -a"}),
+            display: Some(
+                serde_json::from_value(json!({
+                    "label": "Run", "input": {"summary": {
+                        "path": "/connection", "format": "connection",
+                        "result_path": "/connection_name", "names": {ID: "Build host"}
+                    }}
+                }))
+                .unwrap(),
+            ),
+        };
+        page
+    }
+
+    fn summary(page: &Page) -> String {
+        collect(page)[0]
+            .resolved
+            .as_ref()
+            .unwrap()
+            .input
+            .summary
+            .as_ref()
+            .unwrap()
+            .text
+            .clone()
+    }
+
+    #[test]
+    fn retains_admitted_names_in_every_state() {
+        let mut page = fixture();
+        assert_eq!(summary(&page), "Build host");
+        assert_eq!(
+            collect(&page)[0].arguments(&page).unwrap()["connection"],
+            ID
+        );
+        for result in [
+            json!({"isError":true,"error":{"code":"unavailable","message":"Unavailable"}}),
+            json!({"kind":"ssh_outcome","data":{"kind":"command","stdout":"ready"}}),
+        ] {
+            let mut response = entry(2, page.runs[0].turn, "", true);
+            response.parts[0] = Part::ToolResult {
+                id: Some("call".into()),
+                name: "package_run".into(),
+                result,
+                images: Vec::new(),
+            };
+            page.entries.truncate(1);
+            page.entries.push(response);
+            let restored: Page =
+                serde_json::from_slice(&serde_json::to_vec(&page).unwrap()).unwrap();
+            assert_eq!(summary(&restored), "Build host");
+            assert_eq!(
+                collect(&restored)[0].arguments(&restored).unwrap()["connection"],
+                ID
+            );
+            assert_eq!(restored, page);
+        }
+    }
+
+    #[test]
+    fn falls_back_and_accepts_result_names() {
+        for names in [
+            json!({}),
+            json!({"unknown":"Other host"}),
+            json!({ID:" \n "}),
+        ] {
+            let mut page = fixture();
+            let Part::ToolCall { display, .. } = &mut page.entries[0].parts[0] else {
+                unreachable!()
+            };
+            display
+                .as_mut()
+                .unwrap()
+                .input
+                .as_mut()
+                .unwrap()
+                .summary
+                .as_mut()
+                .unwrap()
+                .names = serde_json::from_value(names).unwrap();
+            assert_eq!(summary(&page), ID);
+        }
+        let mut page = fixture();
+        let mut response = entry(2, page.runs[0].turn, "", true);
+        response.parts[0] = Part::ToolResult {
+            id: Some("call".into()),
+            name: "package_run".into(),
+            result: json!({"connection_name":"Saved host"}),
+            images: Vec::new(),
+        };
+        page.entries.push(response);
+        assert_eq!(summary(&page), "Saved host");
+    }
+}
+
 mod session_summary {
     use super::*;
     use sailry_protocol::{Delegation, conversation::Child};
