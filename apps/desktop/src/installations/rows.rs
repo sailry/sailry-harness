@@ -1,5 +1,8 @@
 use super::*;
-use gpui_kit::component::{ActiveTheme as _, IconName, IndexPath, Sizable as _, h_flex, v_flex};
+use gpui_kit::assets::IconName;
+use gpui_kit::component::{
+    ActiveTheme as _, Icon, IndexPath, Sizable as _, Tooltip, h_flex, v_flex,
+};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
     list::{ListDelegate, ListItem},
@@ -84,7 +87,7 @@ fn label(status: &Presentation) -> &'static str {
     }
 }
 
-fn percentage(progress: &Measurement) -> f32 {
+pub(super) fn percentage(progress: &Measurement) -> f32 {
     match progress {
         Measurement::Percent { percent, .. } => f32::from(*percent),
         Measurement::Counts {
@@ -171,13 +174,47 @@ impl ListDelegate for Rows {
         let retry = self.owner.clone();
         let remove = self.owner.clone();
         let spacing = cx.theme().spacing_tokens();
-        let height = window.rem_size() * 3.5;
+        let height = window.rem_size() * 2.75;
+        let running = matches!(
+            row.status,
+            Presentation::Starting | Presentation::Observed(Status::Running { .. })
+        );
+        let (icon, tone, tile) = match &row.status {
+            Presentation::Observed(Status::Failed { .. }) => (
+                IconName::CircleAlert,
+                cx.theme().danger,
+                cx.theme().danger.opacity(0.1),
+            ),
+            Presentation::Observed(Status::Uncertain { .. }) => (
+                IconName::CircleHelp,
+                cx.theme().warning,
+                cx.theme().warning.opacity(0.1),
+            ),
+            _ => (
+                match row.resource {
+                    Resource::Plugin { .. } => IconName::Package,
+                    Resource::Model { .. } => IconName::Cpu,
+                    Resource::Language { .. } => IconName::Code,
+                },
+                cx.theme().foreground,
+                cx.theme().muted,
+            ),
+        };
+        let detail = match &row.status {
+            Presentation::Observed(Status::Failed { error } | Status::Uncertain { error }) => {
+                format!("{title}\n{status}\n{}", error.message)
+            }
+            _ => format!("{title}\n{status}"),
+        };
         Some(
             ListItem::new(("installation", index.row))
-                .h(height + spacing.sm)
+                .h(height)
                 .px_0()
                 .py_0()
-                .hover_background(false)
+                .group("installation-row")
+                .rounded(cx.theme().radius)
+                .accessibility_label(detail.clone())
+                .tooltip(move |window, cx| Tooltip::new(detail.clone()).build(window, cx))
                 .debug_selector(move || format!("installation-{}", key.1))
                 .child(
                     // Kit's content wrapper has an intrinsic minimum. Anchor the
@@ -187,12 +224,21 @@ impl ListDelegate for Rows {
                         .inset_0()
                         .h(height)
                         .min_w_0()
-                        .px(spacing.md)
-                        .gap(spacing.md)
-                        .border_1()
-                        .border_color(cx.theme().border)
-                        .rounded(cx.theme().radius)
-                        .debug_selector(move || format!("installation-card-{}", key.1))
+                        .px(spacing.sm)
+                        .gap(spacing.sm)
+                        .debug_selector(move || format!("installation-row-{}", key.1))
+                        .child(
+                            div()
+                                .size_7()
+                                .flex_shrink_0()
+                                .rounded(cx.theme().radius)
+                                .bg(tile)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .debug_selector(move || format!("installation-icon-{}", key.1))
+                                .child(Icon::new(icon).size_4().text_color(tone)),
+                        )
                         .child(
                             v_flex()
                                 .flex_1()
@@ -212,45 +258,73 @@ impl ListDelegate for Rows {
                                         })
                                         .child(title),
                                 )
-                                .child(
-                                    div()
-                                        .id(("installation-status", index.row))
-                                        .test_support()
-                                        .role(Role::Label)
-                                        .aria_label(status.clone())
-                                        .w_full()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .debug_selector(move || {
-                                            format!("installation-status-{}", key.1)
-                                        })
-                                        .child(status),
-                                ),
+                                .when(running, |view| {
+                                    view.child(
+                                        div()
+                                            .w_full()
+                                            .debug_selector(move || {
+                                                format!("installation-progress-{}", key.1)
+                                            })
+                                            .child(
+                                                Progress::new(("installation-progress", index.row))
+                                                    .with_size(px(2.))
+                                                    .color(cx.theme().foreground)
+                                                    .loading(progress.is_none_or(|progress| {
+                                                        matches!(
+                                                            progress,
+                                                            Measurement::Counts { total: 0, .. }
+                                                        )
+                                                    }))
+                                                    .value(progress.map_or(0., percentage))
+                                                    .accessibility_label(status.clone()),
+                                            ),
+                                    )
+                                }),
                         )
-                        .when(!row.status.terminal(), |view| {
+                        .when_some(progress, |view, progress| {
                             view.child(
                                 div()
-                                    .w_24()
+                                    .id(("installation-measurement", index.row))
+                                    .test_support()
+                                    .role(Role::Label)
+                                    .aria_label(measurement(progress))
                                     .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
                                     .debug_selector(move || {
-                                        format!("installation-progress-{}", key.1)
+                                        format!("installation-measurement-{}", key.1)
                                     })
-                                    .child(
-                                        Progress::new(("installation-progress", index.row))
-                                            .small()
-                                            .loading(progress.is_none_or(|progress| {
-                                                matches!(
-                                                    progress,
-                                                    Measurement::Counts { total: 0, .. }
-                                                )
-                                            }))
-                                            .value(progress.map_or(0., percentage))
-                                            .accessibility_label(phase),
-                                    ),
+                                    .child(match progress {
+                                        Measurement::Percent { percent, .. } => {
+                                            format!("{percent}%")
+                                        }
+                                        Measurement::Counts {
+                                            completed, total, ..
+                                        } => format!("{completed}/{total}"),
+                                    }),
                             )
                         })
+                        .when(
+                            matches!(
+                                row.status,
+                                Presentation::Waiting | Presentation::Observed(Status::Queued)
+                            ),
+                            |view| {
+                                view.child(
+                                    div()
+                                        .flex_shrink_0()
+                                        .px_1()
+                                        .debug_selector(move || {
+                                            format!("installation-queued-{}", key.1)
+                                        })
+                                        .child(
+                                            Icon::new(IconName::Clock)
+                                                .size_4()
+                                                .text_color(cx.theme().muted_foreground),
+                                        ),
+                                )
+                            },
+                        )
                         .when(row.actionable, |view| {
                             view.child(
                                 h_flex()
@@ -263,8 +337,9 @@ impl ListDelegate for Rows {
                                         view.child(
                                             Button::new(("installation-retry", index.row))
                                                 .ghost()
-                                                .small()
+                                                .xsmall()
                                                 .icon(IconName::Redo)
+                                                .text_color(tone)
                                                 .tooltip(tr("installation_retry"))
                                                 .accessibility_label(tr("installation_retry"))
                                                 .debug_selector(move || {
@@ -280,8 +355,13 @@ impl ListDelegate for Rows {
                                     .child(
                                         Button::new(("installation-remove", index.row))
                                             .ghost()
-                                            .small()
+                                            .xsmall()
                                             .icon(IconName::Close)
+                                            .opacity(0.)
+                                            .group_hover("installation-row", |style| {
+                                                style.opacity(1.)
+                                            })
+                                            .focus(|style| style.opacity(1.))
                                             .tooltip(tr("installation_remove"))
                                             .accessibility_label(tr("installation_remove"))
                                             .debug_selector(move || {

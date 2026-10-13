@@ -8,7 +8,8 @@ use sailry_protocol::installation::{Resource, State as Status};
 use sailry_protocol::{Command, ErrorCode, Fault, NodeId, Output, Request, RequestId};
 use std::{collections::BTreeMap, rc::Rc, sync::Arc};
 
-mod dialog;
+mod popover;
+pub(crate) use popover::button;
 pub(crate) mod language;
 mod models;
 mod speech;
@@ -73,7 +74,6 @@ struct Queue {
     sources: BTreeMap<NodeId, Source>,
     controller: Option<speech::Source>,
     list: Option<Entity<ListState<rows::Rows>>>,
-    focus: Option<FocusHandle>,
     window: Option<WindowId>,
 }
 
@@ -125,13 +125,6 @@ pub(crate) fn visible(cx: &App) -> bool {
     cx.has_global::<Badge>() && cx.global::<Badge>().count > 0
 }
 
-pub(crate) fn open(window: &mut Window, cx: &mut App) {
-    if cx.has_global::<Registry>() {
-        let queue = cx.global::<Registry>().0.clone();
-        queue.update(cx, |queue, cx| queue.open(window, cx));
-    }
-}
-
 fn registry(cx: &mut App) -> Entity<Queue> {
     init(cx);
     if !cx.has_global::<Registry>() {
@@ -141,7 +134,6 @@ fn registry(cx: &mut App) -> Entity<Queue> {
             sources: BTreeMap::new(),
             controller: None,
             list: None,
-            focus: None,
             window: None,
         });
         cx.set_global(Registry(queue));
