@@ -99,6 +99,11 @@ fn closes_popup_before_decision_completion(cx: &mut TestAppContext) {
         let next = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
         tap(visual, &format!("live-approval-reject-{next}"));
         wait(visual, |cx| view.read(cx).active().is_none());
+        visual.update(|window, cx| {
+            for key in ["approval_approved", "approval_rejected"] {
+                assert_eq!(crate::feedback::tests::count(window, &tr(key), cx), 0);
+            }
+        });
         visual.update(|window, _| window.remove_window());
         fixture.close();
     }
@@ -167,6 +172,12 @@ fn retries_original_decision(cx: &mut TestAppContext) {
         wait(visual, |cx| {
             view.read(cx).approvals.error.is_some()
                 && pending(&view, cx).is_some_and(|next| next != id)
+        });
+        visual.update(|window, cx| {
+            assert_eq!(
+                crate::feedback::tests::count(window, &tr("chat_action_unknown"), cx),
+                1
+            );
         });
         if let Decision::DenyWithReason(reason) = &decision {
             assert_eq!(

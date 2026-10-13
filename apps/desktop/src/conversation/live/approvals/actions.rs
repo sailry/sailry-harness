@@ -265,7 +265,7 @@ impl View {
             .spawn(async move { client.execute(request).await });
         self.approvals.task = Some(cx.spawn_in(window, async move |view, cx| {
             let result = job.await;
-            let _ = view.update_in(cx, |view, window, cx| {
+            let _ = view.update_in(cx, |view, _window, cx| {
                 view.approvals.pending = false;
                 match result {
                     Ok(Ok(Output::Approval(value)))
@@ -277,17 +277,6 @@ impl View {
                         view.approvals.attempt = None;
                         view.approvals.drafts.remove(&approval);
                         view.approvals.observe(&view.history);
-                        let message = tr(if value.state == ApprovalState::Denied {
-                            "approval_rejected"
-                        } else {
-                            "approval_approved"
-                        });
-                        crate::feedback::toast(
-                            window,
-                            message.clone(),
-                            gpui_kit::component::notification::Notification::success(message),
-                            cx,
-                        );
                     }
                     Ok(Err(error)) => {
                         view.approvals.error = Some(match error.code {
