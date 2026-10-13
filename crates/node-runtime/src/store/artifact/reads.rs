@@ -19,6 +19,7 @@ impl Ingress {
         }
         let (reply, response) = oneshot::channel();
         let job = Job::Request {
+            access: crate::files::Access::Restricted,
             caller,
             request: Box::new(request.clone()),
             reply,

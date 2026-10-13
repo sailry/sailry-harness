@@ -31,6 +31,7 @@ impl Ingress {
         request: Request,
         internal: bool,
     ) -> Result<Admission, Fault> {
+        let access = crate::files::Access::request(&request, internal);
         if request.target != self.node || request.version != VERSION {
             return Err(Fault::new(
                 ErrorCode::WrongTarget,
@@ -153,7 +154,7 @@ impl Ingress {
                 .await?
         } else {
             self.files
-                .inspect(root, request.command, self.closed.clone())
+                .inspect_with(root, request.command, self.closed.clone(), access)
                 .await?
         };
         if self.closed.is_cancelled() {

@@ -195,6 +195,7 @@ fn bounds_tree_depth() {
     let staging = TempDir::new_in(&source).unwrap();
     assert!(
         contents::Copier {
+            access: crate::files::Access::Restricted,
             count: 100_000,
             moving: false
         }

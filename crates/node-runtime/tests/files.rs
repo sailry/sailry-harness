@@ -3,6 +3,9 @@ use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
 
+#[path = "files/managed.rs"]
+mod managed;
+
 async fn worktree(client: &Client, path: &std::path::Path) -> WorktreeId {
     client
         .execute(client.prepare(Command::RegisterProject {

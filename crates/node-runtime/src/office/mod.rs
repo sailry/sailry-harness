@@ -1,10 +1,9 @@
 //! Native Office inspection on the execution Node.
 use sailry_protocol::knowledge::Position;
 use sailry_protocol::{Fault, office::*};
-use std::{
-    io::{Cursor, Read as _},
-    path::Path,
-};
+use std::io::{Cursor, Read as _};
+#[cfg(test)]
+use std::path::Path;
 
 mod package;
 pub(crate) mod pdf;
@@ -33,10 +32,14 @@ fn extension(path: &str) -> Result<&'static str, Fault> {
         .ok_or_else(|| invalid("supported extensions are .docx, .xlsx, .pptx and .pdf"))
 }
 
-pub(crate) fn bytes(root: &Path, path: &str) -> Result<Vec<u8>, Fault> {
-    let parts = crate::files::path::components(path, false)?;
+pub(crate) fn bytes<'a>(
+    root: impl Into<crate::files::Scope<'a>>,
+    path: &str,
+) -> Result<Vec<u8>, Fault> {
+    let root = root.into();
+    let parts = root.components(path, false)?;
     let (name, parents) = parts.split_last().unwrap();
-    let dir = crate::files::path::descend(crate::files::path::root(root)?, parents)?;
+    let dir = crate::files::path::descend(crate::files::path::root(root.path())?, parents)?;
     let file = crate::files::open_regular(&dir, name)?;
     let mut bytes = Vec::new();
     file.take(LIMIT as u64 + 1)
@@ -53,8 +56,8 @@ pub(crate) fn read(root: &Path, options: &Read) -> Result<Inspection, Fault> {
     read_with(root, options, None, &sailry_link::CancellationToken::new())
 }
 
-pub(crate) fn read_with(
-    root: &Path,
+pub(crate) fn read_with<'a>(
+    root: impl Into<crate::files::Scope<'a>>,
     options: &Read,
     ocr: Option<&crate::ocr::Service>,
     cancel: &sailry_link::CancellationToken,

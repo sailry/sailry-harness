@@ -3,21 +3,23 @@
 use std::{
     collections::{BTreeMap, hash_map::DefaultHasher},
     hash::{Hash, Hasher},
-    path::Path,
 };
 
 use cap_std::fs::Dir;
 use sailry_protocol::*;
+use std::path::Path;
 
 use super::{Control, io_error, path};
 
-pub(super) fn list(
-    root: &Path,
+pub(super) fn list<'a>(
+    root: impl Into<super::Scope<'a>>,
     path: String,
     after: Option<&DirectoryCursor>,
     control: &Control,
 ) -> Result<Directory, Fault> {
-    let parts = path::components(&path, true)?;
+    let scope = root.into();
+    let root = scope.path();
+    let parts = scope.components(&path, true)?;
     if let Some(after) = after
         && (path::components(&after.name, false)?.len() != 1
             || after.revision.len() != 16

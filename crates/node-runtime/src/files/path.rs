@@ -13,7 +13,11 @@ use super::io_error;
 pub(crate) mod identity;
 
 pub(crate) fn entry_components(value: &str) -> Result<Vec<&str>, Fault> {
-    let parts = components(value, false)?;
+    entries_with(value, super::Access::Restricted)
+}
+
+pub(crate) fn entries_with(value: &str, access: super::Access) -> Result<Vec<&str>, Fault> {
+    let parts = components_with(value, false, access)?;
     if parts.iter().any(|part| part.eq_ignore_ascii_case(".git")) {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
@@ -24,6 +28,14 @@ pub(crate) fn entry_components(value: &str) -> Result<Vec<&str>, Fault> {
 }
 
 pub(crate) fn components(path: &str, allow_root: bool) -> Result<Vec<&str>, Fault> {
+    components_with(path, allow_root, super::Access::Restricted)
+}
+
+pub(crate) fn components_with(
+    path: &str,
+    allow_root: bool,
+    access: super::Access,
+) -> Result<Vec<&str>, Fault> {
     if allow_root && path.is_empty() {
         return Ok(Vec::new());
     }
@@ -41,7 +53,7 @@ pub(crate) fn components(path: &str, allow_root: bool) -> Result<Vec<&str>, Faul
     if parts.iter().any(|part| !windows_component(part)) {
         return Err(invalid());
     }
-    if parts.len() >= 2 && worktrees(parts[0], parts[1]) {
+    if access == super::Access::Restricted && parts.len() >= 2 && worktrees(parts[0], parts[1]) {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "managed worktrees require their own file scope",
@@ -99,9 +111,13 @@ pub(crate) fn sync(dir: &Dir) -> std::io::Result<()> {
 
 /// Prepare missing parent directories for an admitted file creation.
 /// Existing entries are opened without following symlinks on every step.
-pub(crate) fn create_parents(base: &Path, relative: &str) -> Result<(), Fault> {
-    let parts = components(relative, false)?;
-    let mut dir = root(base)?;
+pub(crate) fn create_parents<'a>(
+    base: impl Into<super::Scope<'a>>,
+    relative: &str,
+) -> Result<(), Fault> {
+    let scope = base.into();
+    let parts = scope.components(relative, false)?;
+    let mut dir = root(scope.path())?;
     for name in &parts[..parts.len() - 1] {
         match dir.create_dir(name) {
             Ok(()) => {}

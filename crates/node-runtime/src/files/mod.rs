@@ -1,3 +1,5 @@
+mod access;
+pub(crate) use access::{Access, Scope};
 pub(crate) mod artifacts;
 pub(crate) mod attachments;
 pub(crate) mod browser;
@@ -67,6 +69,17 @@ impl Files {
         command: Command,
         closed: CancellationToken,
     ) -> Result<Output, Fault> {
+        self.inspect_with(root, command, closed, Access::Restricted)
+            .await
+    }
+
+    pub(crate) async fn inspect_with(
+        &self,
+        root: PathBuf,
+        command: Command,
+        closed: CancellationToken,
+        access: Access,
+    ) -> Result<Output, Fault> {
         let permit = self
             .capacity
             .clone()
@@ -87,30 +100,31 @@ impl Files {
                 deadline: Instant::now() + budget,
             };
             control.check()?;
+            let scope = access.scope(&root);
             match command {
                 Command::BrowseFiles { directory, after } => {
                     browser::list(directory.as_deref(), after.as_ref(), &control)
                         .map(Output::FileListing)
                 }
                 Command::ListDirectory { path, after, .. } => {
-                    directory::list(&root, path, after.as_ref(), &control).map(Output::Directory)
+                    directory::list(scope, path, after.as_ref(), &control).map(Output::Directory)
                 }
                 Command::ReadOffice { options, .. } => {
-                    crate::office::read_with(&root, &options, ocr.as_deref(), &control.cancelled)
+                    crate::office::read_with(scope, &options, ocr.as_deref(), &control.cancelled)
                         .map(Output::OfficeContent)
                 }
                 Command::ReadNotebook { options, .. } => {
-                    notebook::read(&root, &options, &control).map(Output::NotebookPage)
+                    notebook::read(scope, &options, &control).map(Output::NotebookPage)
                 }
                 Command::ReadFile { path, .. } => {
-                    read(root, path, &control).map(Output::FileContent)
+                    read(scope, path, &control).map(Output::FileContent)
                 }
                 Command::ReadFileLines {
                     path,
                     offset,
                     limit,
                     ..
-                } => lines::read(&root, path, offset, limit, &control).map(Output::FileLines),
+                } => lines::read(scope, path, offset, limit, &control).map(Output::FileLines),
                 Command::FindFiles {
                     globs,
                     path,
@@ -118,10 +132,10 @@ impl Files {
                     offset,
                     ..
                 } => {
-                    walk::find(&root, &globs, &path, limit, offset, &control).map(Output::FileNames)
+                    walk::find(scope, &globs, &path, limit, offset, &control).map(Output::FileNames)
                 }
                 Command::SearchFiles { options, .. } => {
-                    search::search(&root, &options, &control).map(Output::SearchResults)
+                    search::search(scope, &options, &control).map(Output::SearchResults)
                 }
                 _ => Err(Fault::new(
                     ErrorCode::Internal,
@@ -258,9 +272,9 @@ impl Control {
     }
 }
 
-fn read(root: PathBuf, path: String, control: &Control) -> Result<FileContent, Fault> {
-    let parts = path::components(&path, false)?;
-    let dir = path::descend(path::root(&root)?, &parts[..parts.len() - 1])?;
+fn read(root: Scope<'_>, path: String, control: &Control) -> Result<FileContent, Fault> {
+    let parts = root.components(&path, false)?;
+    let dir = path::descend(path::root(root.path())?, &parts[..parts.len() - 1])?;
     let name = parts[parts.len() - 1];
     let mut file = open_regular(&dir, name)?;
     let metadata = file.metadata().map_err(io_error)?;

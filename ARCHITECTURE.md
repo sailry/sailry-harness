@@ -335,9 +335,11 @@ metadata and common directories. Git writes use complete access. macOS also deni
 creating new `.git` paths. Linux protects existing metadata through read-only mounts;
 new metadata paths and replacement of symbolic Git pointers remain outside that
 mount-based protection.
-Repository workspace commands also protect their root's `.sailry/worktrees`
-subtree, which file operations and discovery exclude. Each child retains its own
-checkout scope.
+Repository workspace commands and Agent/headless file operations and discovery
+protect their root's `.sailry/worktrees` subtree. Authenticated manual controller
+file workflows can access its descendants through the same registered-root
+services, preserving Git metadata, managed checkout root and Node-storage
+ownership safeguards. Each child retains its own Agent checkout scope.
 
 File discovery and content searches run inside Node with confined paths,
 ignore rules and bounded result pages, without requiring a system ripgrep.

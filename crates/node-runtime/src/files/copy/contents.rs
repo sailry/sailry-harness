@@ -8,6 +8,7 @@ const MAX_ENTRIES: usize = 100_000;
 const MAX_DEPTH: usize = 64;
 
 pub(super) struct Copier {
+    pub access: crate::files::Access,
     pub count: usize,
     pub moving: bool,
 }
@@ -50,7 +51,9 @@ impl Copier {
                 if !self.moving && name.eq_ignore_ascii_case(".git") {
                     continue;
                 }
-                if path::worktrees(relative, &name) {
+                if self.access == crate::files::Access::Restricted
+                    && path::worktrees(relative, &name)
+                {
                     if self.moving {
                         return Err(Fault::new(
                             ErrorCode::PermissionDenied,

@@ -2,10 +2,9 @@ use super::{Control, io_error, open_regular, path, read_bytes};
 use sailry_protocol::{
     ErrorCode, Fault, FileLine, FileLines, MAX_EDIT_BYTES, MAX_FILE_BYTES, MAX_FILE_LINES,
 };
-use std::path::Path;
 
-pub(super) fn read(
-    root: &Path,
+pub(super) fn read<'a>(
+    root: impl Into<super::Scope<'a>>,
     path: String,
     offset: usize,
     limit: usize,
@@ -49,11 +48,16 @@ pub(super) fn read(
     })
 }
 
-pub(super) fn complete(root: &Path, relative: &str, control: &Control) -> Result<String, Fault> {
+pub(super) fn complete<'a>(
+    root: impl Into<super::Scope<'a>>,
+    relative: &str,
+    control: &Control,
+) -> Result<String, Fault> {
+    let scope = root.into();
     control.check()?;
-    let parts = path::components(relative, false)?;
+    let parts = scope.components(relative, false)?;
     let (name, parents) = parts.split_last().unwrap();
-    let directory = path::descend(path::root(root)?, parents)?;
+    let directory = path::descend(path::root(scope.path())?, parents)?;
     let mut file = open_regular(&directory, name)?;
     let before = file.metadata().map_err(io_error)?;
     if before.len() > MAX_EDIT_BYTES as u64 {

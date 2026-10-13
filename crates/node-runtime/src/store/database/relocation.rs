@@ -8,8 +8,9 @@ impl Database {
         caller: NodeId,
         id: RequestId,
         paths: &[(PathBuf, String)],
+        access: crate::files::Access,
     ) -> Result<(), Fault> {
-        let paths = self.validate_relocation(paths)?;
+        let paths = self.validate_with(paths, access)?;
         // The existing admission lifecycle releases these paths on completion.
         // Registrations cannot enter a subtree while relocation is queued/running.
         self.relocations.insert((caller, id), paths);
@@ -20,8 +21,16 @@ impl Database {
         &self,
         paths: &[(PathBuf, String)],
     ) -> Result<Vec<PathBuf>, Fault> {
+        self.validate_with(paths, crate::files::Access::Restricted)
+    }
+
+    pub(in crate::store) fn validate_with(
+        &self,
+        paths: &[(PathBuf, String)],
+        access: crate::files::Access,
+    ) -> Result<Vec<PathBuf>, Fault> {
         for (_, path) in paths {
-            crate::files::path::entry_components(path)?;
+            crate::files::path::entries_with(path, access)?;
         }
         let trees = super::super::worktrees::list(&self.connection)?;
         let database = self.connection.path().map(PathBuf::from);

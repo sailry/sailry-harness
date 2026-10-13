@@ -254,12 +254,30 @@ impl Database {
             .map_err(|(_, error)| Error::Database(error))
     }
 
+    #[cfg(test)]
     pub(super) fn dispatch(
         &mut self,
         caller: NodeId,
         request: Request,
         reply: oneshot::Sender<Result<Admission, Fault>>,
         events: &broadcast::Sender<EventEnvelope>,
+    ) -> Option<Work> {
+        self.dispatch_with(
+            caller,
+            request,
+            reply,
+            events,
+            crate::files::Access::Restricted,
+        )
+    }
+
+    pub(super) fn dispatch_with(
+        &mut self,
+        caller: NodeId,
+        request: Request,
+        reply: oneshot::Sender<Result<Admission, Fault>>,
+        events: &broadcast::Sender<EventEnvelope>,
+        access: crate::files::Access,
     ) -> Option<Work> {
         if request.target != self.node || request.version != VERSION {
             let _ = reply.send(Err(Fault::new(
@@ -469,7 +487,7 @@ impl Database {
                         ) {
                             let parent = path.parent().unwrap().to_owned();
                             let name = path.file_name().unwrap().to_str().unwrap().to_owned();
-                            self.begin_relocation(caller, request.id, &[(parent, name)])?;
+                            self.begin_relocation(caller, request.id, &[(parent, name)], access)?;
                         }
                         Ok((path.clone(), path))
                     })
@@ -484,8 +502,9 @@ impl Database {
                 }
                 mutations::Target::Host => {
                     let validation = if let Command::ManageFiles(action) = &request.command {
-                        crate::files::browser::targets(action)
-                            .and_then(|paths| self.begin_relocation(caller, request.id, &paths))
+                        crate::files::browser::targets(action).and_then(|paths| {
+                            self.begin_relocation(caller, request.id, &paths, access)
+                        })
                     } else if let Command::RemoveProject { expected } = &request.command {
                         self.begin_project_removal(caller, &request, expected)
                     } else {
@@ -508,7 +527,11 @@ impl Database {
                     .and_then(|source| self.worktree_root(target).map(|target| (source, target))),
             };
             let roots = roots.and_then(|(source, target)| {
-                let roots = mutations::Roots { source, target };
+                let roots = mutations::Roots {
+                    source,
+                    target,
+                    access,
+                };
                 if let Command::InstallPlugin {
                     name,
                     expected_revision,
@@ -572,7 +595,7 @@ impl Database {
                     paths.push((roots.target.clone(), content.file.path));
                 }
                 if !paths.is_empty() {
-                    self.begin_relocation(caller, request.id, &paths)?;
+                    self.begin_relocation(caller, request.id, &paths, access)?;
                 }
                 Ok(roots)
             });

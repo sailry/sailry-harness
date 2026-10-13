@@ -21,6 +21,7 @@ pub(super) struct Mutation {
 pub(super) struct Roots {
     pub source: PathBuf,
     pub target: PathBuf,
+    pub access: crate::files::Access,
 }
 
 impl Roots {
@@ -34,6 +35,16 @@ impl Roots {
                 (self.source.clone(), from.clone()),
                 (self.target.clone(), to.clone()),
             ],
+            Command::CreateDirectory { path, .. }
+                if self.access == crate::files::Access::Manual
+                    && crate::files::path::components_with(path, false, self.access).is_ok_and(
+                        |parts| {
+                            parts.len() >= 2 && crate::files::path::worktrees(parts[0], parts[1])
+                        },
+                    ) =>
+            {
+                vec![(self.target.clone(), path.clone())]
+            }
             Command::TrashEntry { path, .. }
             | Command::DeleteFile { path, .. }
             | Command::TrashFile { path, .. }
@@ -202,6 +213,8 @@ pub(super) fn target(command: &Command) -> Option<Target> {
 
 pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
     let root = &roots.target;
+    let scope = roots.access.scope(root);
+    let source = roots.access.scope(&roots.source);
     match &request.command {
         Command::StopHostProcess {
             pid,
@@ -332,37 +345,35 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
         Command::CreateGitBranch { name, commit, .. } => {
             crate::git::branches::create(root, name, commit).map(Output::GitBranchCreated)
         }
-        Command::CreateDirectory { path, .. } => crate::files::directory(root, path)
+        Command::CreateDirectory { path, .. } => crate::files::directory(scope, path)
             .map(|()| Output::DirectoryCreated { path: path.clone() }),
         Command::RenameEntry { from, to, .. } => {
-            crate::files::rename(root, from, to).map(|()| Output::EntryRenamed {
+            crate::files::rename(scope, from, to).map(|()| Output::EntryRenamed {
                 from: from.clone(),
                 to: to.clone(),
             })
         }
         Command::MoveEntryTo { from, to, .. } => {
-            crate::files::rename::between(&roots.source, root, from, to).map(|()| {
-                Output::EntryMoved {
-                    from: from.clone(),
-                    to: to.clone(),
-                }
+            crate::files::rename::between(source, scope, from, to).map(|()| Output::EntryMoved {
+                from: from.clone(),
+                to: to.clone(),
             })
         }
         Command::TrashEntry { path, .. } => {
-            crate::files::trash(root, path).map(|()| Output::EntryTrashed { path: path.clone() })
+            crate::files::trash(scope, path).map(|()| Output::EntryTrashed { path: path.clone() })
         }
         Command::DeleteFile {
             path,
             expected_revision,
             ..
-        } => crate::files::mutations::delete(root, path, expected_revision)
+        } => crate::files::mutations::delete(scope, path, expected_revision)
             .map(|()| Output::EntryTrashed { path: path.clone() }),
         Command::MoveFile {
             from,
             to,
             expected_revision,
             ..
-        } => crate::files::mutations::move_file(root, from, to, expected_revision).map(|()| {
+        } => crate::files::mutations::move_file(scope, from, to, expected_revision).map(|()| {
             Output::EntryRenamed {
                 from: from.clone(),
                 to: to.clone(),
@@ -373,20 +384,18 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             expected_revision,
             expected_stamp,
             ..
-        } => crate::files::remove_verified(root, path, expected_revision, expected_stamp)
+        } => crate::files::remove_verified(scope, path, expected_revision, expected_stamp)
             .map(|()| Output::EntryTrashed { path: path.clone() }),
         Command::CopyEntry { from, to, .. } => {
-            crate::files::copy::entry(root, from, to).map(|()| Output::EntryCopied {
+            crate::files::copy::entry(scope, from, to).map(|()| Output::EntryCopied {
                 from: from.clone(),
                 to: to.clone(),
             })
         }
         Command::CopyEntryTo { from, to, .. } => {
-            crate::files::copy::between(&roots.source, root, from, to).map(|()| {
-                Output::EntryCopied {
-                    from: from.clone(),
-                    to: to.clone(),
-                }
+            crate::files::copy::between(source, scope, from, to).map(|()| Output::EntryCopied {
+                from: from.clone(),
+                to: to.clone(),
             })
         }
         Command::WriteFile {
@@ -394,7 +403,7 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
             text,
             expected_revision,
             ..
-        } => crate::files::save(root, path, text, expected_revision.as_deref())
+        } => crate::files::save(scope, path, text, expected_revision.as_deref())
             .map(Output::FileWritten),
         Command::EditFile {
             path,
@@ -411,10 +420,10 @@ pub(super) fn execute(roots: &Roots, request: &Request) -> Response {
                 *replace_all,
                 edits.as_deref(),
             )?;
-            crate::files::edit(root, path, &changes, expected_revision).map(Output::FileWritten)
+            crate::files::edit(scope, path, &changes, expected_revision).map(Output::FileWritten)
         }
         Command::EditNotebook { edit, .. } => {
-            crate::files::notebook::edit(root, edit).map(Output::FileWritten)
+            crate::files::notebook::edit(scope, edit).map(Output::FileWritten)
         }
         Command::UpdateGitIndex {
             paths,

@@ -69,8 +69,8 @@ pub(super) fn globs(patterns: &[String]) -> Result<GlobSet, Fault> {
         .map_err(|_| Fault::invalid("invalid file glob pattern"))
 }
 
-pub(super) fn find(
-    root: &Path,
+pub(super) fn find<'a>(
+    root: impl Into<super::Scope<'a>>,
     patterns: &[String],
     scope: &str,
     limit: usize,
@@ -119,7 +119,11 @@ pub(super) fn find(
     })
 }
 
-pub(super) fn collect(root: &Path, scope: &str, control: &Control) -> Result<Listing, Fault> {
+pub(super) fn collect<'a>(
+    root: impl Into<super::Scope<'a>>,
+    scope: &str,
+    control: &Control,
+) -> Result<Listing, Fault> {
     let mut entries = Vec::new();
     let report = traverse(
         root,
@@ -154,24 +158,25 @@ pub(crate) fn visit(
     )
 }
 
-fn traverse(
-    root: &Path,
+fn traverse<'a>(
+    root: impl Into<super::Scope<'a>>,
     scope: &str,
     respect_ignores: bool,
     control: &Control,
     visitor: &mut impl FnMut(&Dir, &str, &str, &Metadata) -> Result<bool, Fault>,
     enter: &mut impl FnMut(&Dir, &str) -> Result<(), Fault>,
 ) -> Result<Report, Fault> {
+    let root = root.into();
     control.check()?;
     let scope = if scope == "." { "" } else { scope };
-    let parts = path::components(scope, true)?;
+    let parts = root.components(scope, true)?;
     if parts.iter().any(|part| part.eq_ignore_ascii_case(".git")) {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "Git metadata cannot be searched",
         ));
     }
-    let mut directory = path::root(root)?;
+    let mut directory = path::root(root.path())?;
     let mut report = Report::default();
     let mut layers = Vec::new();
     let mut prefix = String::new();
@@ -207,6 +212,7 @@ fn traverse(
         prefix = relative;
     }
     let result = Walker {
+        access: root.access,
         respect_ignores,
         layers,
         control,
@@ -231,6 +237,7 @@ fn traverse(
 }
 
 struct Walker<'a, F, D> {
+    access: super::Access,
     respect_ignores: bool,
     layers: Vec<Gitignore>,
     control: &'a Control,
@@ -280,7 +287,9 @@ where
                     continue;
                 }
             };
-            if name.eq_ignore_ascii_case(".git") || path::worktrees(prefix, &name) {
+            if name.eq_ignore_ascii_case(".git")
+                || self.access == super::Access::Restricted && path::worktrees(prefix, &name)
+            {
                 continue;
             }
             if path::components(&name, false).is_err() {
@@ -307,7 +316,7 @@ where
                 {
                     return Ok(true);
                 }
-                if path::components(&relative, false).is_err() {
+                if path::components_with(&relative, false, self.access).is_err() {
                     self.report.diagnostic(&relative, "unsupported entry path");
                     return Ok(true);
                 }

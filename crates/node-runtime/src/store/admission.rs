@@ -488,6 +488,7 @@ impl Ingress {
                     | sailry_protocol::Command::RegisterOcrModel { .. }
             );
             let job = Job::Request {
+                access: crate::files::Access::request(&request, internal),
                 caller,
                 request: Box::new(request),
                 reply,

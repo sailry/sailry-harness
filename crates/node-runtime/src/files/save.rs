@@ -11,7 +11,7 @@ use path::identity;
 use sailry_protocol::{ErrorCode, Fault, FileWritten, MAX_EDIT_BYTES, MAX_FILE_BYTES};
 use std::{
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
 
 #[path = "save/content.rs"]
@@ -23,8 +23,8 @@ pub(super) use target::Target;
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn save(
-    root: &Path,
+pub(crate) fn save<'a>(
+    root: impl Into<super::Scope<'a>>,
     path: &str,
     text: &str,
     expected: Option<&str>,
@@ -47,8 +47,8 @@ pub(crate) fn save(
     )
 }
 
-pub(crate) fn restore(
-    root: &Path,
+pub(crate) fn restore<'a>(
+    root: impl Into<super::Scope<'a>>,
     path: &str,
     text: &str,
     expected: &str,
@@ -76,13 +76,14 @@ pub(super) enum Phase {
     Published,
 }
 
-fn publish(
-    root: &Path,
+fn publish<'a>(
+    root: impl Into<super::Scope<'a>>,
     relative: &str,
     text: &str,
     expected: Option<&str>,
     #[cfg(test)] hook: &dyn Fn(Phase),
 ) -> Result<FileWritten, Fault> {
+    let root = root.into();
     if expected.is_none() {
         path::create_parents(root, relative)?;
     }

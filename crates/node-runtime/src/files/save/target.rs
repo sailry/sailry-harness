@@ -4,6 +4,7 @@ use sailry_link::CancellationToken;
 /// One retained publication target shared by editor saves and staged uploads.
 pub(in crate::files) struct Target {
     root: PathBuf,
+    access: crate::files::Access,
     relative: String,
     dir: Dir,
     parent: identity::Identity,
@@ -18,16 +19,17 @@ struct Original {
 }
 
 impl Target {
-    pub(in crate::files) fn prepare(
-        root: &Path,
+    pub(in crate::files) fn prepare<'a>(
+        root: impl Into<crate::files::Scope<'a>>,
         relative: &str,
         expected: Option<&str>,
         limit: u64,
         cancel: Option<&CancellationToken>,
     ) -> Result<Self, Fault> {
-        let parts = path::components(relative, false)?;
+        let root = root.into();
+        let parts = root.components(relative, false)?;
         let (name, parents) = parts.split_last().unwrap();
-        let dir = path::descend(path::root(root)?, parents)?;
+        let dir = path::descend(path::root(root.path())?, parents)?;
         let parent = identity::directory(&dir)?;
         let original = if let Some(expected) = expected {
             let (file, revision) = current(&dir, name, limit, cancel)?;
@@ -52,7 +54,8 @@ impl Target {
             None
         };
         Ok(Self {
-            root: root.into(),
+            root: root.path().into(),
+            access: root.access,
             relative: relative.into(),
             dir,
             parent,
@@ -132,7 +135,10 @@ impl Target {
     }
 
     fn validate_parent(&self) -> Result<(), Fault> {
-        let parts = path::components(&self.relative, false)?;
+        let parts = self
+            .access
+            .scope(&self.root)
+            .components(&self.relative, false)?;
         let current = path::descend(path::root(&self.root)?, &parts[..parts.len() - 1])?;
         if identity::directory(&current)? == self.parent {
             Ok(())

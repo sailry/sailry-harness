@@ -3,7 +3,7 @@ use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault, FileEdit, FileWritten, MAX_EDIT_BYTES, MAX_FILE_BYTES, MAX_FILE_EDITS,
 };
-use std::{borrow::Cow, cmp::Reverse, collections::BinaryHeap, path::Path};
+use std::{borrow::Cow, cmp::Reverse, collections::BinaryHeap};
 mod text;
 
 pub(crate) fn changes<'a>(
@@ -40,12 +40,13 @@ pub(crate) fn changes<'a>(
     Ok(changes)
 }
 
-pub(crate) fn edit(
-    root: &Path,
+pub(crate) fn edit<'a>(
+    root: impl Into<super::Scope<'a>>,
     path: &str,
     edits: &[FileEdit],
     expected: &str,
 ) -> Result<FileWritten, Fault> {
+    let root = root.into();
     let control = Control::new(CancellationToken::new());
     let before = lines::complete(root, path, &control)?;
     let text = prepare(&before, edits, expected)?;

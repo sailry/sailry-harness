@@ -2,6 +2,9 @@ use super::*;
 use sailry_link::CancellationToken;
 use sailry_protocol::office;
 
+#[path = "files/managed.rs"]
+mod managed;
+
 async fn other_worktree(client: &Client, root: &Path) -> WorktreeId {
     fs::create_dir(root).unwrap();
     let Output::Project(project) = execute(

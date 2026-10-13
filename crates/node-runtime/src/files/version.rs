@@ -2,14 +2,17 @@
 //! They are not authorization tokens or isolation from external writers.
 use cap_std::fs::{Dir, File};
 use sailry_protocol::{ErrorCode, Fault};
-use std::path::Path;
 
 use super::{io_error, open_regular, path, save::content};
 
-pub(super) fn current(root: &Path, relative: &str) -> Result<String, Fault> {
-    let parts = path::components(relative, false)?;
+pub(super) fn current<'a>(
+    root: impl Into<super::Scope<'a>>,
+    relative: &str,
+) -> Result<String, Fault> {
+    let root = root.into();
+    let parts = root.components(relative, false)?;
     let (name, parents) = parts.split_last().unwrap();
-    let root = path::root(root)?;
+    let root = path::root(root.path())?;
     let dir = path::descend(root.try_clone().map_err(io_error)?, parents)?;
     retained(&root, &dir, &open_regular(&dir, name)?, relative)
 }
@@ -52,15 +55,16 @@ pub(super) fn retained(
     Ok(hasher.finalize().to_hex().to_string())
 }
 
-pub(super) fn verify(
-    root_path: &Path,
+pub(super) fn verify<'a>(
+    root_path: impl Into<super::Scope<'a>>,
     relative: &str,
     revision: &str,
     stamp: &str,
 ) -> Result<(), Fault> {
-    let parts = path::entry_components(relative)?;
+    let root_path = root_path.into();
+    let parts = root_path.entries(relative)?;
     let (name, parents) = parts.split_last().unwrap();
-    let root = path::root(root_path)?;
+    let root = path::root(root_path.path())?;
     let parent = path::descend(root.try_clone().map_err(io_error)?, parents)?;
     let mut file = open_regular(&parent, name)?;
     if retained(&root, &parent, &file, relative)? != stamp {

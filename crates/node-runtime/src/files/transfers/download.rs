@@ -11,25 +11,30 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-pub(super) fn prepare(
-    root: &Path,
+pub(super) fn prepare<'a>(
+    root: impl Into<crate::files::Scope<'a>>,
     relative: &str,
     profile: Option<&Path>,
     cancel: CancellationToken,
     permit: OwnedSemaphorePermit,
 ) -> Result<Prepared, Fault> {
+    let root = root.into();
     let control = Control {
         cancelled: cancel,
         deadline: Instant::now() + PREPARE_TIMEOUT,
     };
     control.check()?;
-    let parts = path::components(relative, false)?;
+    let parts = root.components(relative, false)?;
     let (name, parents) = parts.split_last().unwrap();
-    let root_dir = path::root(root)?;
+    let root_dir = path::root(root.path())?;
     let dir = path::descend(root_dir.try_clone().map_err(io_error)?, parents)?;
     // Business file access cannot expose the execution Node's protected storage.
     if let Some(profile) = profile {
-        let source = root.join(relative).canonicalize().map_err(io_error)?;
+        let source = root
+            .path()
+            .join(relative)
+            .canonicalize()
+            .map_err(io_error)?;
         if source.starts_with(profile) {
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,

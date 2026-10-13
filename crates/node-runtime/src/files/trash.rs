@@ -10,12 +10,12 @@ use std::{io::ErrorKind, path::Path};
 #[path = "trash/windows.rs"]
 mod windows;
 
-pub(crate) fn trash(root: &Path, relative: &str) -> Result<(), Fault> {
+pub(crate) fn trash<'a>(root: impl Into<super::Scope<'a>>, relative: &str) -> Result<(), Fault> {
     relocate(root, relative, native)
 }
 
-pub(crate) fn remove_verified(
-    root: &Path,
+pub(crate) fn remove_verified<'a>(
+    root: impl Into<super::Scope<'a>>,
     relative: &str,
     revision: &str,
     stamp: &str,
@@ -23,13 +23,14 @@ pub(crate) fn remove_verified(
     checked(root, relative, revision, stamp, native)
 }
 
-fn checked(
-    root: &Path,
+fn checked<'a>(
+    root: impl Into<super::Scope<'a>>,
     relative: &str,
     revision: &str,
     stamp: &str,
     operation: impl FnOnce(&Path) -> Result<(), Fault>,
 ) -> Result<(), Fault> {
+    let root = root.into();
     if blake3::Hash::from_hex(revision).is_err() || blake3::Hash::from_hex(stamp).is_err() {
         return Err(Fault::invalid("invalid file source revision"));
     }
@@ -57,12 +58,14 @@ fn native(target: &Path) -> Result<(), Fault> {
     context.delete(target).map_err(|_| unknown())
 }
 
-fn relocate(
-    root: &Path,
+fn relocate<'a>(
+    scope: impl Into<super::Scope<'a>>,
     relative: &str,
     operation: impl FnOnce(&Path) -> Result<(), Fault>,
 ) -> Result<(), Fault> {
-    let parts = path::entry_components(relative)?;
+    let scope = scope.into();
+    let parts = scope.entries(relative)?;
+    let root = scope.path();
     let (name, parents) = parts.split_last().unwrap();
     let dir = path::descend(path::root(root)?, parents)?;
     let parent_id = path::identity::directory(&dir)?;

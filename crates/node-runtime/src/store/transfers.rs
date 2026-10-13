@@ -10,6 +10,7 @@ impl Ingress {
         request: Request,
         internal: bool,
     ) -> Result<Admission, Fault> {
+        let access = crate::files::Access::request(&request, internal);
         if request.target != self.node || request.version != VERSION {
             return Err(Fault::new(
                 ErrorCode::WrongTarget,
@@ -125,7 +126,14 @@ impl Ingress {
                 let root = self.worktree_root_with(worktree, internal).await?;
                 let prepared = self
                     .transfers
-                    .download(caller, worktree, root.clone(), path, self.closed.clone())
+                    .download_with(
+                        caller,
+                        worktree,
+                        root.clone(),
+                        path,
+                        self.closed.clone(),
+                        access,
+                    )
                     .await?;
                 // Removal may have started between lookup and registering the transfer.
                 if self.worktree_root_with(worktree, internal).await.as_ref() != Ok(&root) {
@@ -142,7 +150,7 @@ impl Ingress {
                 let root = self.worktree_root_with(spec.worktree, internal).await?;
                 let prepared = self
                     .transfers
-                    .upload(caller, root.clone(), spec, self.closed.clone())
+                    .upload_with(caller, root.clone(), spec, self.closed.clone(), access)
                     .await?;
                 if self
                     .worktree_root_with(prepared.spec.worktree, internal)

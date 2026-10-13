@@ -2,12 +2,15 @@
 //! Reuse the shared capability traversal rather than ambient child paths.
 use super::{io_error, path};
 use sailry_protocol::{ErrorCode, Fault};
-use std::path::Path;
 
-pub(crate) fn directory(root: &Path, relative: &str) -> Result<(), Fault> {
-    let parts = path::entry_components(relative)?;
+pub(crate) fn directory<'a>(
+    root: impl Into<super::Scope<'a>>,
+    relative: &str,
+) -> Result<(), Fault> {
+    let root = root.into();
+    let parts = root.entries(relative)?;
     let (name, parents) = parts.split_last().unwrap();
-    let parent = path::descend(path::root(root)?, parents)?;
+    let parent = path::descend(path::root(root.path())?, parents)?;
     match parent.create_dir(name) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {

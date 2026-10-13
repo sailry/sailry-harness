@@ -94,6 +94,7 @@ impl Transfers {
         })
     }
 
+    #[cfg(test)]
     pub(crate) async fn download(
         self: &Arc<Self>,
         caller: NodeId,
@@ -102,6 +103,26 @@ impl Transfers {
         path: String,
         closed: CancellationToken,
     ) -> Result<FileDownload, Fault> {
+        self.download_with(
+            caller,
+            worktree,
+            root,
+            path,
+            closed,
+            crate::files::Access::Restricted,
+        )
+        .await
+    }
+
+    pub(crate) async fn download_with(
+        self: &Arc<Self>,
+        caller: NodeId,
+        worktree: WorktreeId,
+        root: PathBuf,
+        path: String,
+        closed: CancellationToken,
+        access: crate::files::Access,
+    ) -> Result<FileDownload, Fault> {
         let (mut lease, permit, cancel) = self.reserve(caller, root.clone(), closed)?;
         let stream = lease.stream;
         let source = path.clone();
@@ -109,7 +130,13 @@ impl Transfers {
         let stopping = cancel.clone();
         // A cancelled blocking read keeps its permit until the worker really exits.
         let worker = tokio::task::spawn_blocking(move || {
-            download::prepare(&root, &source, profile.as_deref(), stopping, permit)
+            download::prepare(
+                access.scope(&root),
+                &source,
+                profile.as_deref(),
+                stopping,
+                permit,
+            )
         });
         let prepared = tokio::select! {
             biased;

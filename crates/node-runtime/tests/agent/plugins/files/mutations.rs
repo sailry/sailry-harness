@@ -1,6 +1,55 @@
 use super::*;
 
 #[tokio::test]
+async fn excludes_managed_paths_from_captured_tools() {
+    for remote in [false, true] {
+        let base = ".sailry/worktrees/fixture";
+        let path = format!("{base}/note.txt");
+        let revision = blake3::hash(b"Preserve managed file").to_hex().to_string();
+        let server = Server::tools(vec![
+            (name("list_directory"), json!({"path":base})),
+            (name("read_file"), json!({"path":path})),
+            (name("write_file"), json!({"path":format!("{base}/new.txt"),"text":"Forbidden","expected_revision":null})),
+            (name("create_directory"), json!({"path":format!("{base}/new")})),
+            (name("move_file"), json!({"path":path,"destination":format!("{base}/moved.txt"),"expected_revision":revision})),
+            (name("delete_file"), json!({"path":path,"expected_revision":revision})),
+            (name("find_files"), json!({"path":base,"globs":["**/*.txt"]})),
+            (name("search_files"), json!({"path":base,"query":"Preserve"})),
+            (name("find_files"), json!({"globs":["**/note.txt"]})),
+            (name("search_files"), json!({"query":"Preserve","mode":"files"})),
+        ]).await;
+        let mut fixture = process::Fixture::new(remote, &server).await;
+        install(&fixture).await;
+        std::fs::create_dir_all(fixture.root.join(base)).unwrap();
+        std::fs::write(fixture.root.join(&path), "Preserve managed file").unwrap();
+        configure(&mut fixture, Permission::Project, WorkMode::Code).await;
+        let turn = submit(&fixture).await;
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{page:?}"
+        );
+        let output = results(&page);
+        assert_eq!(output.len(), 10, "{output:?}");
+        for result in &output[..8] {
+            assert_eq!(result["error"]["code"], "permission_denied", "{result:?}");
+        }
+        for result in &output[8..] {
+            assert_eq!(result["data"]["paths"], json!([]), "{result:?}");
+        }
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join(&path)).unwrap(),
+            "Preserve managed file"
+        );
+        assert!(!fixture.root.join(base).join("new.txt").exists());
+        assert!(!fixture.root.join(base).join("new").exists());
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn uses_dedicated_revision_checked_actions() {
     for remote in [false, true] {
         let revision = blake3::hash(b"Keep content").to_hex().to_string();

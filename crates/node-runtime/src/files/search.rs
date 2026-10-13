@@ -8,7 +8,6 @@ use sailry_protocol::*;
 use std::{
     io,
     ops::Range,
-    path::Path,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -32,11 +31,12 @@ struct RowSink<'a> {
     rows: Vec<SearchMatch>,
 }
 
-pub(super) fn search(
-    root: &Path,
+pub(super) fn search<'a>(
+    root: impl Into<super::Scope<'a>>,
     options: &FileSearch,
     control: &Control,
 ) -> Result<SearchResults, Fault> {
+    let root = root.into();
     control.check()?;
     if options.query.is_empty()
         || options.query.len() > 4096
@@ -238,9 +238,14 @@ fn engine(options: &FileSearch) -> Searcher {
         .build()
 }
 
-fn bytes(root: &Path, relative: &str, control: &Control) -> Result<Vec<u8>, Fault> {
-    let parts = path::components(relative, false)?;
-    let directory = path::descend(path::root(root)?, &parts[..parts.len() - 1])?;
+fn bytes<'a>(
+    root: impl Into<super::Scope<'a>>,
+    relative: &str,
+    control: &Control,
+) -> Result<Vec<u8>, Fault> {
+    let root = root.into();
+    let parts = root.components(relative, false)?;
+    let directory = path::descend(path::root(root.path())?, &parts[..parts.len() - 1])?;
     let mut file = open_regular(&directory, parts[parts.len() - 1])?;
     if file.metadata().map_err(super::io_error)?.len() > MAX_BYTES as u64 {
         return Err(Fault::invalid(
@@ -254,8 +259,8 @@ fn bytes(root: &Path, relative: &str, control: &Control) -> Result<Vec<u8>, Faul
     Ok(bytes)
 }
 
-fn inspect(
-    root: &Path,
+fn inspect<'a>(
+    root: impl Into<super::Scope<'a>>,
     relative: &str,
     mode: SearchMode,
     retained: usize,
@@ -293,8 +298,8 @@ fn inspect(
     }))
 }
 
-fn read_page(
-    root: &Path,
+fn read_page<'a>(
+    root: impl Into<super::Scope<'a>>,
     scan: &FileScan,
     range: Range<usize>,
     matcher: &RegexMatcher,

@@ -70,6 +70,17 @@ async fn install(fixture: &process::Fixture) -> plugin::Info {
             })
             .collect::<Vec<_>>(),
         [
+            ("list_ocr_models", "ocr_models", None),
+            (
+                "install_ocr_model",
+                "ocr_install",
+                Some(Operation::InstallModel)
+            ),
+            (
+                "uninstall_ocr_model",
+                "ocr_remove",
+                Some(Operation::RemoveModel)
+            ),
             ("list_directory", "list", Some(Operation::ListDirectory)),
             ("read_file", "read", Some(Operation::ReadFile)),
             ("write_file", "write", Some(Operation::WriteFile)),

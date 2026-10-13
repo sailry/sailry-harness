@@ -75,12 +75,25 @@ impl Transfers {
         Ok(output)
     }
 
+    #[cfg(test)]
     pub(crate) async fn upload(
+        self: &Arc<Self>,
+        caller: NodeId,
+        root: PathBuf,
+        spec: FileUploadSpec,
+        closed: CancellationToken,
+    ) -> Result<FileUpload, Fault> {
+        self.upload_with(caller, root, spec, closed, crate::files::Access::Restricted)
+            .await
+    }
+
+    pub(crate) async fn upload_with(
         self: &Arc<Self>,
         caller: NodeId,
         root: PathBuf,
         mut spec: FileUploadSpec,
         closed: CancellationToken,
+        access: crate::files::Access,
     ) -> Result<FileUpload, Fault> {
         spec.revision = revision(&spec.revision)?;
         spec.expected_revision = spec
@@ -88,13 +101,19 @@ impl Transfers {
             .as_deref()
             .map(revision)
             .transpose()?;
-        path::entry_components(&spec.path)?;
+        access.scope(&root).entries(&spec.path)?;
         let (mut lease, permit, cancel) = self.reserve(caller, root.clone(), closed)?;
         let profile = self.profile.clone();
         let upload = spec.clone();
         let stopping = cancel.clone();
         let worker = tokio::task::spawn_blocking(move || {
-            prepare(&root, profile.as_deref(), upload, &stopping, permit)
+            prepare(
+                access.scope(&root),
+                profile.as_deref(),
+                upload,
+                &stopping,
+                permit,
+            )
         });
         let prepared = tokio::select! {
             biased;
@@ -219,17 +238,18 @@ impl Transfers {
     }
 }
 
-fn prepare(
-    root: &Path,
+fn prepare<'a>(
+    root: impl Into<crate::files::Scope<'a>>,
     profile: Option<&Path>,
     spec: FileUploadSpec,
     cancel: &CancellationToken,
     permit: OwnedSemaphorePermit,
 ) -> Result<Prepared, Fault> {
+    let root = root.into();
     if cancel.is_cancelled() {
         return Err(cancelled());
     }
-    let absolute = root.join(&spec.path);
+    let absolute = root.path().join(&spec.path);
     let parent = absolute
         .parent()
         .unwrap()

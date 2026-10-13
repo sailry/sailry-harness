@@ -182,6 +182,7 @@ enum Job {
         reply: oneshot::Sender<Result<(), Fault>>,
     },
     Request {
+        access: crate::files::Access,
         caller: NodeId,
         request: Box<Request>,
         reply: oneshot::Sender<Result<Admission, Fault>>,
@@ -209,6 +210,7 @@ enum Job {
         reply: std::sync::mpsc::Sender<Result<(), Fault>>,
     },
     ValidateRelocation {
+        access: crate::files::Access,
         paths: Vec<(PathBuf, String)>,
         reply: std::sync::mpsc::Sender<Result<(), Fault>>,
     },
@@ -692,7 +694,7 @@ impl Store {
                         if !paths.is_empty() {
                             let (reply, response) = std::sync::mpsc::channel();
                             validation
-                                .blocking_send(Job::ValidateRelocation { paths, reply })
+                                .blocking_send(Job::ValidateRelocation { paths, reply, access: roots.access })
                                 .map_err(|_| unavailable())?;
                             response.recv().map_err(|_| unavailable())??;
                         }
@@ -1033,8 +1035,8 @@ impl Store {
                         Job::ValidateRemoval { id, root, reply } => {
                             let _ = reply.send(database.validate_removal(id, &root));
                         }
-                        Job::ValidateRelocation { paths, reply } => {
-                            let _ = reply.send(database.validate_relocation(&paths).map(|_| ()));
+                        Job::ValidateRelocation { paths, reply, access } => {
+                            let _ = reply.send(database.validate_with(&paths, access).map(|_| ()));
                         }
                         Job::RestoreCheckpoint {
                             session,
@@ -1107,6 +1109,7 @@ impl Store {
                                 reply.send(dispatch::finish(&mut database, id, result, &events));
                         }
                         Job::Request {
+                            access,
                             caller,
                             request,
                             reply,
@@ -1168,7 +1171,7 @@ impl Store {
                             if !accepting.load(Ordering::Acquire) {
                                 let _ = reply.send(Err(unavailable()));
                             } else if let Some(work) =
-                                database.dispatch(caller, *request, reply, &events)
+                                database.dispatch_with(caller, *request, reply, &events, access)
                             {
                                 let rejected = match work {
                                     external::Work::PluginExecution(execution) => {

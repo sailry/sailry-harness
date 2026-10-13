@@ -1,7 +1,7 @@
 use super::*;
 
-pub(in crate::files) fn read(
-    root: &Path,
+pub(in crate::files) fn read<'a>(
+    root: impl Into<crate::files::Scope<'a>>,
     input: &notebook::Read,
     control: &Control,
 ) -> Result<notebook::Page, Fault> {

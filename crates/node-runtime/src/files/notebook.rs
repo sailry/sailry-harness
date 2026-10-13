@@ -16,7 +16,11 @@ mod validation;
 pub(crate) use creation::prepare as prepare_creation;
 pub(super) use read::read;
 
-pub(crate) fn edit(root: &Path, input: &notebook::Edit) -> Result<FileWritten, Fault> {
+pub(crate) fn edit<'a>(
+    root: impl Into<super::Scope<'a>>,
+    input: &notebook::Edit,
+) -> Result<FileWritten, Fault> {
+    let root = root.into();
     let control = Control::new(CancellationToken::new());
     let before = lines::complete(root, &input.path, &control)?;
     let after = prepare(&before, input)?;
