@@ -151,27 +151,34 @@ pub(crate) fn open(
             },
         ));
         // Pinned Kit keeps a searchable List's input private and does not
-        // translate its Enter event into List confirm.
-        subscriptions.push(cx.observe_keystrokes(|picker, event, window, cx| {
-            let Some(enter) = event.action.as_ref().and_then(|action| {
-                action
-                    .as_any()
-                    .downcast_ref::<gpui_kit::component::input::Enter>()
-            }) else {
-                return;
-            };
-            if enter.shift {
+        // translate its Enter action into List confirm. Intercept only this
+        // focused Go To field before the input consumes the keystroke.
+        let owner = cx.weak_entity();
+        subscriptions.push(cx.intercept_keystrokes(move |event, window, cx| {
+            if event.keystroke.key != "enter" || event.keystroke.modifiers.shift {
                 return;
             }
-            let Some(list) = picker.go_to.clone() else {
-                return;
-            };
-            if !list.read(cx).focus_handle(cx).is_focused(window) {
-                return;
+            let handled = owner
+                .update(cx, |picker, cx| {
+                    let Some(list) = picker.go_to.clone() else {
+                        return false;
+                    };
+                    if !list.read(cx).focus_handle(cx).is_focused(window) {
+                        return false;
+                    }
+                    list.update(cx, |list, cx| {
+                        list.delegate_mut().confirm(
+                            event.keystroke.modifiers.secondary(),
+                            window,
+                            cx,
+                        )
+                    });
+                    true
+                })
+                .unwrap_or(false);
+            if handled {
+                cx.stop_propagation();
             }
-            list.update(cx, |list, cx| {
-                list.delegate_mut().confirm(enter.secondary, window, cx)
-            });
         }));
         let preference = crate::preferences::data(cx).file_picker.unwrap_or_default();
         let table =

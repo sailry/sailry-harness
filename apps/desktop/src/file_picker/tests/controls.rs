@@ -591,9 +591,11 @@ fn go_to_preserves_navigation_until_success(cx: &mut TestAppContext) {
         std::fs::create_dir(path.join("folder")).unwrap();
         std::fs::write(path.join("file.txt"), "contents").unwrap();
         let path = path.canonicalize().unwrap();
+        let observed = Paused::new(fixture.transport.clone());
+        observed.hold.store(false, Ordering::SeqCst);
         let (picker, confirmations, visual) = show(
             cx,
-            Arc::new(Client::new(fixture.transport.clone())),
+            Arc::new(Client::new(observed.clone())),
             path.to_str().unwrap().into(),
             Mode::Directory,
             false,
@@ -602,13 +604,12 @@ fn go_to_preserves_navigation_until_success(cx: &mut TestAppContext) {
         let folder = visual.update(|_, cx| index(&picker, "folder", cx));
         click_row(visual, &picker, folder, Modifiers::default());
         let browses = || {
-            fixture
-                .transport
-                .requests
+            observed
+                .browses
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|request| matches!(request.command, Command::BrowseFiles { .. }))
+                .filter(|command| matches!(command, Command::BrowseFiles { .. }))
                 .count()
         };
         let initial = browses();
