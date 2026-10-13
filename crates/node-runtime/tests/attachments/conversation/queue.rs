@@ -12,15 +12,15 @@ async fn freezes_native_input_support() {
             ModelApi::ChatCompletions,
         )
         .await;
-        let pdf = upload(
+        let image = upload(
             &client,
             fixture.worktree,
-            "report.txt",
-            "text/plain",
-            &pdf(),
+            "preview.png",
+            "image/png",
+            &png(),
         )
         .await;
-        let turn = queue(&client, &session, input("Read the PDF", &[&pdf])).await;
+        let turn = queue(&client, &session, input("Describe the image", &[&image])).await;
         provider.models[0]
             .capabilities
             .get_or_insert_with(Default::default)
@@ -43,9 +43,9 @@ async fn freezes_native_input_support() {
     let requests = server.requests.lock().unwrap().clone();
     assert_eq!(requests.len(), 4);
     for pair in requests.as_chunks::<2>().0 {
-        assert!(pair[0].to_string().contains("data:application/pdf;base64,"));
+        assert!(pair[0].to_string().contains("data:image/png;base64,"));
         assert!(!pair[0].to_string().contains("Contents not included"));
-        assert!(!pair[1].to_string().contains("data:application/pdf;base64,"));
+        assert!(!pair[1].to_string().contains("data:image/png;base64,"));
         assert!(
             pair[1]
                 .to_string()

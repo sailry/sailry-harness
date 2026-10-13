@@ -3,13 +3,65 @@ use super::*;
 use base64::Engine;
 
 #[tokio::test]
+async fn preserves_unsupported_pdf_history() {
+    for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
+        let fixture = Fixture::start().await;
+        let server = server::Server::start(false).await;
+        for client in fixture.clients() {
+            let (session, _) = session(&client, fixture.worktree, &server.endpoint, api).await;
+            let bytes = pdf();
+            let document = upload(
+                &client,
+                fixture.worktree,
+                "report.pdf",
+                "application/pdf",
+                &bytes,
+            )
+            .await;
+            let turn = queue(&client, &session, input("Read the PDF", &[&document])).await;
+            let failed = run(&client, &turn).await;
+            assert_eq!(failed.runs[0].status, Status::Failed);
+            let error = failed.runs[0].error.as_ref().unwrap();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert_eq!(
+                error.message,
+                "attachment requires tools or a supported native model input"
+            );
+            let original = failed
+                .entries
+                .iter()
+                .find(|entry| entry.author == "user")
+                .unwrap()
+                .clone();
+            assert!(original.parts.contains(&Part::Attachment(document.clone())));
+            let next = queue(&client, &session, "Continue without reading the PDF".into()).await;
+            let continued = run(&client, &next).await;
+            assert_eq!(continued.runs.last().unwrap().status, Status::Completed);
+            assert!(continued.entries.contains(&original));
+            assert_eq!(download(&client, &document).await, bytes);
+        }
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        for request in requests {
+            let serialized = request.to_string();
+            assert!(serialized.contains("Continue without reading the PDF"));
+            assert!(serialized.contains("report.pdf"));
+            assert!(
+                serialized.contains(
+                    "Contents not included; the current model cannot read this attachment"
+                )
+            );
+            assert!(!serialized.contains("data:application/pdf;base64,"));
+            assert!(!serialized.contains("sailry-attachment://"));
+        }
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn materializes_inputs() {
     let bytes = png();
     let pdf_bytes = pdf();
-    let pdf_url = format!(
-        "data:application/pdf;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(&pdf_bytes)
-    );
     let data_url = format!(
         "data:image/png;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(&bytes)
@@ -20,7 +72,16 @@ async fn materializes_inputs() {
         let mut records = Vec::new();
         let text = "完整内容 🙂\n".repeat(400);
         for client in fixture.clients() {
-            let (session, _) = session(&client, fixture.worktree, &server.endpoint, api).await;
+            let (session, mut provider) =
+                session(&client, fixture.worktree, &server.endpoint, api).await;
+            provider.models[0].capabilities.as_mut().unwrap().tools = Some(true);
+            client
+                .execute(client.prepare(Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                }))
+                .await
+                .unwrap();
             let image = upload(
                 &client,
                 fixture.worktree,
@@ -177,20 +238,23 @@ async fn materializes_inputs() {
                 &content[0]["image_url"]["url"]
             };
             assert_eq!(url, &data_url);
-            let file = users
+            let parts = users
                 .iter()
                 .filter_map(|message| message["content"].as_array())
                 .flatten()
-                .find(|part| part["type"] == "input_file" || part["type"] == "file")
-                .expect("PDF input expected");
-            let file = if api == ModelApi::Responses {
-                file
-            } else {
-                &file["file"]
-            };
-            assert_eq!(file["filename"], "document.pdf");
-            assert_eq!(file["file_data"], pdf_url);
-            assert!(file["file_id"].is_null());
+                .collect::<Vec<_>>();
+            assert!(
+                !parts
+                    .iter()
+                    .any(|part| { part["type"] == "input_file" || part["type"] == "file" })
+            );
+            assert!(
+                request
+                    .to_string()
+                    .contains("Contents not included; use read_office")
+            );
+            assert!(request.to_string().contains("报告.bin"));
+            assert!(!request.to_string().contains("data:application/pdf;base64,"));
             let expected = format!("Attachment: 内容.txt\n{text}");
             assert!(users.iter().any(|message| {
                 message["content"] == expected

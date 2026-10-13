@@ -1,6 +1,36 @@
 use super::*;
 
 #[test]
+fn detects_pdf_before_filename_extension() {
+    let bytes = include_bytes!("fixtures/report.pdf");
+    for name in ["report.pdf", "报告.bin", "report.txt", "report"] {
+        let inspection =
+            inspect(name, bytes, 0, None, &sailry_link::CancellationToken::new()).unwrap();
+        assert_eq!(inspection.path, name);
+        assert_eq!(
+            inspection.revision,
+            blake3::hash(bytes).to_hex().to_string()
+        );
+        assert!(
+            inspection
+                .sections
+                .iter()
+                .any(|section| section.text.contains("PDF acceptance"))
+        );
+    }
+    assert!(
+        inspect(
+            "report.bin",
+            b"not a PDF",
+            0,
+            None,
+            &sailry_link::CancellationToken::new()
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn reads_four_formats() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();

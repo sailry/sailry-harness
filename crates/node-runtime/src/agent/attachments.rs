@@ -2,13 +2,37 @@
 use super::*;
 use adk_core::{Content, Llm, LlmRequest, LlmResponseStream, Part, SchemaAdapter};
 use async_trait::async_trait;
-use sailry_protocol::{AttachmentId, attachment::Attachment, conversation::ModelApi};
+use sailry_protocol::{
+    AttachmentId, Authentication,
+    attachment::Attachment,
+    conversation::{ModelApi, Provider},
+};
 
 mod media;
 use media::inline;
 
 const PREFIX: &str = "sailry-attachment://";
 const REQUEST_BYTES: u64 = 64 * 1024 * 1024;
+const READ_NOTE: &str = "Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files";
+const UNAVAILABLE_NOTE: &str =
+    "Contents not included; the current model cannot read this attachment";
+
+pub(super) fn api(provider: &Provider, effective: ModelApi) -> Option<ModelApi> {
+    if provider.authentication != Authentication::ApiKey {
+        return None;
+    }
+    // Image support does not establish inline document support. Compatible
+    // OpenAI endpoints may accept only uploaded file IDs or public URLs, so
+    // private documents use the existing attachment-reading tools instead.
+    // https://developers.openai.com/api/docs/guides/file-inputs
+    // https://docs.x.ai/developers/model-capabilities/files/chat-with-files
+    if matches!(effective, ModelApi::ChatCompletions | ModelApi::Responses)
+        && provider.endpoint.trim_end_matches('/') != "https://api.openai.com/v1"
+    {
+        return None;
+    }
+    Some(effective)
+}
 
 pub(crate) fn is_reference(uri: &str) -> bool {
     uri.starts_with(PREFIX)
@@ -57,6 +81,7 @@ pub(super) struct Model {
     pub(super) inner: Arc<dyn Llm>,
     pub(super) ingress: Arc<Ingress>,
     pub(super) turn: TurnId,
+    pub(super) current: Vec<AttachmentId>,
     pub(super) vision: bool,
     pub(super) api: Option<ModelApi>,
     pub(super) tools: bool,
@@ -84,7 +109,8 @@ impl Model {
                 if !is_reference(file_uri) {
                     continue;
                 }
-                let attachment = self.ingress.attachment(self.turn, id(file_uri)?).await?;
+                let reference = id(file_uri)?;
+                let attachment = self.ingress.attachment(self.turn, reference).await?;
                 if attachment.spec.media_type != *mime_type {
                     return Err(sailry_protocol::Fault::invalid(
                         "attachment media type mismatch",
@@ -105,11 +131,17 @@ impl Model {
                     Some(native) => {
                         remaining -= attachment.spec.size;
                         if self.tools {
-                            references.push(file(&attachment, true));
+                            references.push(file(&attachment, None));
                         }
                         native
                     }
-                    None if self.tools => file(&attachment, false),
+                    None if self.tools => file(&attachment, Some(READ_NOTE)),
+                    // A previous unsupported input must not make every later
+                    // plain-text turn fail. Keep its identity and state the
+                    // missing contents without pretending they were read.
+                    None if !self.current.contains(&reference) => {
+                        file(&attachment, Some(UNAVAILABLE_NOTE))
+                    }
                     None => {
                         return Err(sailry_protocol::Fault::invalid(
                             "attachment requires tools or a supported native model input",
@@ -144,20 +176,18 @@ fn filter_images(contents: &mut [Content]) {
     }
 }
 
-fn file(attachment: &Attachment, included: bool) -> Part {
+fn file(attachment: &Attachment, note: Option<&str>) -> Part {
     let metadata = serde_json::json!({
         "id": attachment.id,
         "name": attachment.spec.name,
         "media_type": attachment.spec.media_type,
         "size": attachment.spec.size,
     });
-    let note = if included {
-        ""
-    } else {
-        "\nContents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"
-    };
     Part::Text {
-        text: format!("Attachment file: {metadata}{note}"),
+        text: match note {
+            Some(note) => format!("Attachment file: {metadata}\n{note}"),
+            None => format!("Attachment file: {metadata}"),
+        },
     }
 }
 

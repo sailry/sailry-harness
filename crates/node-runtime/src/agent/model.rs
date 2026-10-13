@@ -60,9 +60,9 @@ pub(super) async fn build(
         }),
         ingress: ingress.clone(),
         turn: invocation.turn.id,
+        current: invocation.message.attachments.clone(),
         vision: metadata.is_none_or(|model| model.vision),
-        api: (provider.authentication == Authentication::ApiKey)
-            .then_some(opencode::api(provider.api, &config.model)?),
+        api: attachments::api(provider, opencode::api(provider.api, &config.model)?),
         tools: metadata.is_none_or(|model| model.tools),
         stop: stop.clone(),
         identity: crate::logging::Context {

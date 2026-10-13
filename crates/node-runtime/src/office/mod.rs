@@ -32,6 +32,15 @@ fn extension(path: &str) -> Result<&'static str, Fault> {
         .ok_or_else(|| invalid("supported extensions are .docx, .xlsx, .pptx and .pdf"))
 }
 
+fn format(path: &str, bytes: &[u8]) -> Result<&'static str, Fault> {
+    if file_format::FileFormat::from_bytes(bytes) == file_format::FileFormat::PortableDocumentFormat
+    {
+        Ok("pdf")
+    } else {
+        extension(path)
+    }
+}
+
 pub(crate) fn bytes<'a>(
     root: impl Into<crate::files::Scope<'a>>,
     path: &str,
@@ -118,7 +127,7 @@ pub(crate) fn parts(path: &str, bytes: &[u8]) -> Result<Vec<Part>, Fault> {
     if bytes.len() > LIMIT {
         return Err(invalid("file exceeds 32 MiB"));
     }
-    match extension(path)? {
+    match format(path, bytes)? {
         "pdf" => pdf::parts(bytes),
         "xlsx" => workbook::parts(bytes),
         ext => package::parts(bytes, ext),
@@ -147,10 +156,7 @@ pub(crate) fn parts_with(
         );
     }
     let parts = parts(path, bytes)?;
-    if path
-        .rsplit('.')
-        .next()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+    if format(path, bytes)? == "pdf"
         && let Some(ocr) = ocr
     {
         crate::ocr::document::pdf(ocr, bytes, parts, cancel)

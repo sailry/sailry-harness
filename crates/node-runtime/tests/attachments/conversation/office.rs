@@ -2,6 +2,133 @@ use super::*;
 use serde_json::json;
 
 #[tokio::test]
+async fn keeps_compatible_pdf_turns_usable() {
+    for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
+        let fixture = Fixture::start().await;
+        for (index, client) in fixture.clients().into_iter().enumerate() {
+            let bytes = include_bytes!("../../../src/office/fixtures/report.pdf");
+            let name = if index == 0 {
+                "report.pdf"
+            } else {
+                "报告.bin"
+            };
+            let pdf = upload(
+                &client,
+                fixture.worktree,
+                name,
+                if index == 0 {
+                    "application/pdf"
+                } else {
+                    "application/octet-stream"
+                },
+                bytes,
+            )
+            .await;
+            let tool = server::plugin_tool("files", "read_office");
+            let arguments = json!({"source":{"kind":"attachment","value":pdf.id}});
+            let server = if api == ModelApi::Responses {
+                server::Server::phases_with_tool(&tool, arguments).await
+            } else {
+                server::Server::tools(vec![(tool.clone(), arguments)]).await
+            };
+            let (session, mut provider) =
+                session(&client, fixture.worktree, &server.endpoint, api).await;
+            assert!(provider.models[0].vision);
+            provider.models[0].capabilities.as_mut().unwrap().tools = Some(true);
+            client
+                .execute(client.prepare(Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                }))
+                .await
+                .unwrap();
+            let turn = queue(&client, &session, input("Summarize the PDF", &[&pdf])).await;
+            let capture = |turn: TurnId| {
+                let db = rusqlite::Connection::open_with_flags(
+                    fixture.node.profile().join("storage/node.sqlite3"),
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )
+                .unwrap();
+                db.query_row(
+                    "SELECT r.body FROM requests r JOIN turns t ON t.request=r.id AND t.caller=r.caller WHERE t.id=?1",
+                    [turn.to_string()],
+                    |row| row.get::<_, Vec<u8>>(0),
+                )
+                .unwrap()
+            };
+            let sent = capture(turn.id);
+            let original = run(&client, &turn).await;
+            assert_eq!(
+                original.runs[0].status,
+                Status::Completed,
+                "{:?}",
+                original.runs
+            );
+            assert!(
+                original
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .any(|part| {
+                        matches!(part, Part::ToolResult { name, result, .. }
+                        if name == &tool && result["kind"] == "office_content"
+                        && result["data"]["sections"].as_array().unwrap().iter().any(|section| {
+                            section["text"].as_str().unwrap().contains("PDF acceptance")
+                        }))
+                    })
+            );
+            let next = queue(
+                &client,
+                &session,
+                "Continue without another attachment".into(),
+            )
+            .await;
+            let continued = run(&client, &next).await;
+            assert_eq!(continued.runs.last().unwrap().status, Status::Completed);
+            assert!(
+                continued
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .any(|part| { *part == Part::Attachment(pdf.clone()) })
+            );
+            assert_eq!(capture(turn.id), sent);
+            assert_eq!(download(&client, &pdf).await, bytes);
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), 3);
+            for request in &requests {
+                let messages = &request[if api == ModelApi::Responses {
+                    "input"
+                } else {
+                    "messages"
+                }];
+                let has_file = messages
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|message| message["content"].as_array())
+                    .flatten()
+                    .any(|part| part["type"] == "input_file" || part["type"] == "file");
+                assert!(!has_file);
+                let serialized = request.to_string();
+                assert!(serialized.contains(name));
+                assert!(serialized.contains(&pdf.id.to_string()));
+                assert!(serialized.contains("Contents not included; use read_office"));
+                assert!(!serialized.contains("data:application/pdf;base64,"));
+                assert!(!serialized.contains("sailry-attachment://"));
+            }
+            assert!(requests[2].to_string().contains("PDF acceptance"));
+            assert!(
+                requests[2]
+                    .to_string()
+                    .contains("Continue without another attachment")
+            );
+        }
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn reads_visible_document_attachments() {
     let fixture = Fixture::start().await;
     let server = server::Server::scripted_tools(vec![]).await;

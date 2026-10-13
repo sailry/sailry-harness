@@ -54,6 +54,59 @@ fn detects_pdf_content() {
 }
 
 #[test]
+fn separates_inline_documents_from_vision() {
+    let mut provider: Provider = serde_json::from_value(serde_json::json!({
+        "id": sailry_protocol::ProviderId::new(),
+        "revision": 1,
+        "name": "Document fixture",
+        "api": "responses",
+        "authentication": "api_key",
+        "endpoint": "https://api.openai.com/v1/",
+        "enabled": true,
+        "default_model": "fixture",
+        "credential": null
+    }))
+    .unwrap();
+    let metadata = attachment("application/pdf");
+    let bytes = b"%PDF-1.7".to_vec();
+    for effective in [ModelApi::Responses, ModelApi::ChatCompletions] {
+        assert_eq!(api(&provider, effective), Some(effective));
+        assert!(matches!(
+            inline(&metadata, bytes.clone(), true, api(&provider, effective)),
+            Some(Part::InlineData { .. })
+        ));
+        for endpoint in [
+            "https://compatible.example/v1",
+            "https://api.x.ai/v1",
+            "https://api.openai.com/v1/compatible",
+        ] {
+            provider.endpoint = endpoint.into();
+            assert_eq!(api(&provider, effective), None);
+            assert!(inline(&metadata, bytes.clone(), true, api(&provider, effective)).is_none());
+            assert!(matches!(
+                inline(
+                    &metadata,
+                    b"\x89PNG\r\n\x1a\n".to_vec(),
+                    true,
+                    api(&provider, effective)
+                ),
+                Some(Part::InlineData { .. })
+            ));
+        }
+        provider.endpoint = "https://api.openai.com/v1/".into();
+    }
+    for effective in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::AzureOpenAi] {
+        assert_eq!(api(&provider, effective), Some(effective));
+        assert!(matches!(
+            inline(&metadata, bytes.clone(), true, api(&provider, effective)),
+            Some(Part::InlineData { .. })
+        ));
+    }
+    provider.authentication = Authentication::ChatGpt;
+    assert_eq!(api(&provider, ModelApi::Responses), None);
+}
+
+#[test]
 fn detects_audio_and_video_content() {
     let metadata = attachment("text/plain");
     let fixtures: &[(&[u8], &str, bool)] = &[
@@ -139,7 +192,7 @@ fn preserves_text_and_defers_attachments() {
     ] {
         assert!(inline(&attachment, bytes, true, Some(ModelApi::Gemini)).is_none());
     }
-    let Part::Text { text } = file(&attachment, false) else {
+    let Part::Text { text } = file(&attachment, Some(READ_NOTE)) else {
         panic!("file metadata expected")
     };
     assert!(text.contains(&attachment.id.to_string()));
@@ -147,6 +200,12 @@ fn preserves_text_and_defers_attachments() {
     assert!(text.contains("read_office"));
     assert!(text.contains("\"kind\":\"attachment\""));
     assert!(!text.contains(PREFIX));
+    let Part::Text { text } = file(&attachment, Some(UNAVAILABLE_NOTE)) else {
+        panic!("file metadata expected")
+    };
+    assert!(text.contains(&attachment.id.to_string()));
+    assert!(text.contains("Contents not included"));
+    assert!(!text.contains("read_office"));
 }
 
 #[test]
