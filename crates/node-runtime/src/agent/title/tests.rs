@@ -3,10 +3,23 @@ use super::*;
 #[test]
 fn names_an_unassigned_session() {
     let instruction = instruction(None, true, false).unwrap();
-    assert!(instruction.contains("Once the user's task is clear, call set_session_title"));
-    assert!(instruction.contains("Do not wait for the task to finish"));
+    assert!(
+        instruction.contains("You must call set_session_title as soon as the user's task is clear")
+    );
+    assert!(instruction.contains("before your first substantive reply or any other task tool"));
+    assert!(instruction.contains("Do not ask the user for a title or permission"));
+    assert!(instruction.contains("do not wait for the task to finish"));
     assert!(instruction.contains("short, recognizable title in the user's language"));
     assert!(instruction.contains("rename it again only when the user explicitly requests it"));
+    let tool = SetTitle {
+        session: "fixture".into(),
+        stop: CancellationToken::new(),
+    };
+    let description = tool.description();
+    assert!(description.contains("If no title is assigned, you must call this"));
+    assert!(description.contains("before your first substantive reply or any other task tool"));
+    assert!(description.contains("Do not ask the user for a title or permission"));
+    assert!(description.contains("Preserve an assigned title across follow-up messages"));
 }
 
 #[test]
@@ -23,6 +36,7 @@ fn preserves_assigned_titles_as_data() {
         );
         assert!(instruction.contains("only when the user explicitly requests a rename"));
         assert!(!instruction.contains("Do not wait for the task to finish"));
+        assert!(!instruction.contains("before your first substantive reply"));
     }
 }
 
