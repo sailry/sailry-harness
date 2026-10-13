@@ -14,6 +14,56 @@ use super::*;
 use core::prelude::v1::test;
 
 #[gpui::test]
+fn paste_requires_typed_marker(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| view.read(cx).connected());
+        tap(visual, "live-chat-input");
+        let pasted = "检查路径 @files";
+        visual.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string(pasted.into())));
+        visual.simulate_keystrokes("cmd-v");
+        visual.run_until_parked();
+        view.read_with(visual, |view, cx| {
+            let input = view.input.read(cx);
+            assert_eq!(input.value(), pasted);
+            assert_eq!(input.selected_range(), pasted.len()..pasted.len());
+            assert!(!view.references.open);
+            assert!(view.active_references(cx).is_empty());
+        });
+        visual.simulate_input("x");
+        visual.simulate_keystrokes("backspace");
+        assert!(!view.read_with(visual, |view, _| view.references.open));
+
+        visual.simulate_keystrokes("cmd-a backspace");
+        visual.simulate_input("@");
+        wait(visual, |cx| view.read(cx).references.open);
+        visual.simulate_input("files");
+        wait(visual, |cx| {
+            !view
+                .read(cx)
+                .references
+                .list
+                .read(cx)
+                .delegate()
+                .rows
+                .is_empty()
+        });
+
+        visual.simulate_keystrokes("cmd-a backspace");
+        visual.simulate_input("@definitely-no-match");
+        wait(visual, |cx| {
+            !view.read(cx).references.loading && !view.read(cx).references.open
+        });
+        assert!(fixture.server.requests.lock().unwrap().is_empty());
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn command_menu(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

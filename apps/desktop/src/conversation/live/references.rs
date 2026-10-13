@@ -25,6 +25,7 @@ pub(super) struct State {
     open: bool,
     trigger: Option<Trigger>,
     dismissed: Option<Trigger>,
+    suppressed: Option<(usize, u8)>,
     page: Page,
     rows: Vec<Item>,
     list: Entity<ListState<Items>>,
@@ -60,6 +61,7 @@ impl State {
             open: false,
             trigger: None,
             dismissed: None,
+            suppressed: None,
             page: Page::Root,
             rows: vec![],
             list: cx.new(|cx| ListState::new(Items::new(owner), window, cx).searchable(false)),
@@ -99,8 +101,17 @@ impl View {
                     })
                 })
         });
-        if self.references.trigger == trigger {
+        if self.references.trigger == trigger && self.references.suppressed.is_none() {
             return;
+        }
+        let marker = trigger.as_ref().map(|trigger| {
+            (
+                trigger.range.start,
+                trigger.text.as_bytes()[trigger.range.start],
+            )
+        });
+        if self.references.suppressed != marker {
+            self.references.suppressed = None;
         }
         let fresh = !self.references.open
             || self
@@ -117,6 +128,7 @@ impl View {
         self.references.trigger = trigger;
         self.references.open = self.references.trigger.is_some()
             && self.references.trigger != self.references.dismissed
+            && marker != self.references.suppressed
             && !self.pending
             && self.retry.is_none();
         if self.references.open {
@@ -129,6 +141,26 @@ impl View {
             self.references.stop.cancel();
         }
         cx.notify();
+    }
+
+    pub(super) fn suppress_pasted_trigger(&mut self, pasted: &str, cx: &App) {
+        let input = self.input.read(cx);
+        let selection = input.selected_range();
+        let mut value = input.value().to_string();
+        value.replace_range(selection.clone(), pasted);
+        let end = selection.start + pasted.len();
+        let trigger = Trigger::parse(value.clone().into(), end..end)
+            .or_else(|| Trigger::command(value.into(), end..end));
+        self.references.suppressed = trigger.and_then(|trigger| {
+            (selection.start..end)
+                .contains(&trigger.range.start)
+                .then(|| {
+                    (
+                        trigger.range.start,
+                        trigger.text.as_bytes()[trigger.range.start],
+                    )
+                })
+        });
     }
 
     fn reference_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
@@ -224,6 +256,14 @@ impl View {
             .filter(|row| row.matches(&query))
             .cloned()
             .collect::<Vec<_>>();
+        if rows.is_empty()
+            && !self.references.loading
+            && !self.references.error
+            && self.references.next.is_none()
+        {
+            self.references.open = false;
+            self.references.stop.cancel();
+        }
         let generation = self.references.generation;
         self.references.list.update(cx, |list, cx| {
             let selected = (!rows.is_empty()).then_some(IndexPath::default());

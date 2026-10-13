@@ -378,6 +378,7 @@ impl View {
         let Some(clipboard) = cx.read_from_clipboard() else {
             return;
         };
+        let text = clipboard.text();
         let mut sources = Vec::new();
         for entry in clipboard.into_entries() {
             match entry {
@@ -409,6 +410,8 @@ impl View {
         if !sources.is_empty() {
             cx.stop_propagation();
             self.attach_sources(sources, window, cx);
+        } else if let Some(text) = text {
+            self.suppress_pasted_trigger(&text, cx);
         }
     }
 
