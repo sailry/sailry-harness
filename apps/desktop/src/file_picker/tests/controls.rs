@@ -477,6 +477,22 @@ fn name_input(visual: &mut VisualTestContext, value: &str) {
     visual.run_until_parked();
 }
 
+fn go_to_field(window: &mut Window) -> gpui_kit::test::ElementSnapshot {
+    let target = window.find("directory-go-to-target");
+    let list = window
+        .find_all_by_role(Role::List)
+        .into_iter()
+        .find(|list| target.path().starts_with(list.path()))
+        .expect("go-to target must belong to a native list");
+    let mut fields: Vec<_> = window
+        .find_all_by_role(Role::TextInput)
+        .into_iter()
+        .filter(|field| field.path().starts_with(list.path()))
+        .collect();
+    assert_eq!(fields.len(), 1, "go-to list must expose one native input");
+    fields.pop().unwrap()
+}
+
 #[gpui::test]
 fn name_forms_preserve_drafts_and_cancel(cx: &mut TestAppContext) {
     init(cx);
@@ -615,11 +631,7 @@ fn go_to_preserves_navigation_until_success(cx: &mut TestAppContext) {
             picker.read(cx).error == Some("files_directory_failed") && !picker.read(cx).busy
         });
         visual.update(|window, cx| {
-            let fields = window
-                .within("directory-go-to")
-                .find_all_by_role(Role::TextInput);
-            assert_eq!(fields.len(), 1);
-            assert_eq!(fields[0].value(), Some(missing.as_str()));
+            assert_eq!(go_to_field(window).value(), Some(missing.as_str()));
             assert_eq!(
                 picker.read(cx).listing.as_ref().unwrap().directory.path,
                 path.to_str().unwrap()
@@ -642,10 +654,7 @@ fn go_to_preserves_navigation_until_success(cx: &mut TestAppContext) {
                 picker.read(cx).listing.as_ref().unwrap().directory.path,
                 path.to_str().unwrap()
             );
-            let fields = window
-                .within("directory-go-to")
-                .find_all_by_role(Role::TextInput);
-            assert_eq!(fields[0].value(), Some(file.as_str()));
+            assert_eq!(go_to_field(window).value(), Some(file.as_str()));
         });
         visual.simulate_keystrokes("escape");
         settle(visual, |window, cx| {
