@@ -231,6 +231,7 @@ impl View {
             Popover::new("live-approval-popover")
                 .anchor(Anchor::BottomRight)
                 .bottom_2()
+                .overlay_closable(false)
                 .open(self.approvals.open)
                 .on_open_change(cx.listener(|view, open: &bool, _, cx| {
                     view.approvals.open = *open;

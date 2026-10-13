@@ -91,6 +91,98 @@ fn remembers_session(cx: &mut TestAppContext) {
     }
 }
 
+#[gpui::test]
+fn allows_session_with_pointer(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(
+            remote,
+            ["inventory", "notes"]
+                .into_iter()
+                .map(|path| {
+                    (
+                        crate::agent_fixture::plugin_tool("files", "create_directory"),
+                        json!({"path": path}),
+                    )
+                })
+                .collect(),
+        );
+        fixture.start();
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && pending(&view, cx).is_some()
+        });
+        let id = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
+        let selector = Box::leak(format!("live-approval-approve-options-{id}").into_boxed_str());
+        let bounds = visual
+            .debug_bounds(selector)
+            .expect("approval split control");
+        let caret = point(bounds.right() - px(8.), bounds.center().y);
+        visual.simulate_mouse_move(caret, None, Modifiers::default());
+        visual.run_until_parked();
+        press(visual, caret);
+        visual.run_until_parked();
+        visual.update(|window, cx| window.render_frame(cx));
+
+        let menu = visual
+            .debug_bounds("popup-menu")
+            .expect("approval options menu");
+        let panel = visual
+            .debug_bounds("pending-approvals")
+            .expect("pending approval panel");
+        let item = menu.center();
+        assert!(
+            !panel.contains(&item),
+            "menu item must extend outside the panel"
+        );
+        visual.simulate_mouse_move(item, None, Modifiers::default());
+        visual.run_until_parked();
+        visual.simulate_mouse_down(item, MouseButton::Left, Modifiers::default());
+        visual.update(|window, cx| window.render_frame(cx));
+        assert!(visual.debug_bounds("popup-menu").is_some());
+        assert!(visual.debug_bounds("pending-approvals").is_some());
+        assert_eq!(view.read_with(visual, |_, cx| pending(&view, cx)), Some(id));
+        visual.simulate_mouse_up(item, MouseButton::Left, Modifiers::default());
+        visual.update(|window, cx| window.render_frame(cx));
+
+        wait(visual, |cx| {
+            view.read(cx).active().is_none()
+                && !view.read(cx).approvals.pending
+                && pending(&view, cx).is_none()
+        });
+        let restored = super::lifecycle::restored(&fixture);
+        assert_eq!(restored.page.approvals.len(), 2);
+        for (approval, source) in restored
+            .page
+            .approvals
+            .iter()
+            .zip([ApprovalSource::User, ApprovalSource::SessionRule])
+        {
+            assert_eq!(approval.state, ApprovalState::Approved);
+            assert_eq!(approval.source, source);
+            assert_eq!(approval.choice, Some(ApprovalChoice::Session));
+        }
+        assert_eq!(restored.page.approvals[0].id, id);
+        assert!(
+            restored
+                .page
+                .runs
+                .iter()
+                .all(|run| run.status == Status::Completed)
+        );
+        for path in ["inventory", "notes"] {
+            assert!(fixture.directory.path().join("project").join(path).is_dir());
+        }
+        assert!(visual.debug_bounds("pending-approvals").is_none());
+        assert!(visual.debug_bounds("live-approval-trigger").is_none());
+        assert_eq!(fixture.server.requests.lock().unwrap().len(), 3);
+        visual.update(|window, _| window.remove_window());
+        fixture.close();
+    }
+}
+
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[gpui::test]
 fn admits_workspace_without_remembered_rules(cx: &mut TestAppContext) {
