@@ -82,8 +82,10 @@ fn remembers_session(cx: &mut TestAppContext) {
             "never"
         );
         assert_eq!(
-            visual.update(|window, cx| crate::feedback::tests::count(window, "Allowed", cx)),
-            1
+            visual.update(|window, cx| {
+                crate::feedback::tests::count(window, &tr("approval_approved"), cx)
+            }),
+            0
         );
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 3);
         visual.update(|window, _| window.remove_window());
@@ -319,8 +321,10 @@ fn preserves_reason_draft(cx: &mut TestAppContext) {
             );
         });
         assert_eq!(
-            visual.update(|window, cx| crate::feedback::tests::count(window, "Denied", cx)),
-            1
+            visual.update(|window, cx| {
+                crate::feedback::tests::count(window, &tr("approval_rejected"), cx)
+            }),
+            0
         );
         let next = view.read_with(visual, |_, cx| pending(&view, cx).unwrap());
         tap(visual, &format!("live-approval-reject-{next}"));
