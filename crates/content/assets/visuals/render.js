@@ -165,8 +165,15 @@
     svg.style.color = request.foreground;
     svg.setAttribute('color', request.foreground);
     const bounds = svg.getBoundingClientRect();
-    const width = bounds.width;
-    const height = bounds.height;
+    // Mermaid's CSS can fit a large diagram into the hidden renderer viewport.
+    // Its viewBox retains the engine's native geometry and readable text scale.
+    const viewBox = request.kind === 'mermaid' ? svg.getAttribute('viewBox') : null;
+    const intrinsic = viewBox === null ? null : numbers(viewBox);
+    if (viewBox !== null && (!intrinsic || intrinsic.length !== 4)) {
+      throw new Error('Rendered visual exceeds the supported size');
+    }
+    const width = intrinsic ? intrinsic[2] : bounds.width;
+    const height = intrinsic ? intrinsic[3] : bounds.height;
     if (![width, height].every(value => value > 0 && value <= 4096)) {
       throw new Error('Rendered visual exceeds the supported size');
     }

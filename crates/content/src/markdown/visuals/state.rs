@@ -94,14 +94,14 @@ fn requests(doc: &Doc, theme: &Theme, dark: bool, font_size: f32) -> Vec<Request
             source: source.into(),
             dark,
             foreground: color(if kind == Kind::Mermaid {
-                theme.surface.blend(theme.text_muted)
+                theme.surface.blend(theme.text)
             } else {
                 theme.text
             }),
             background: color(theme.surface),
             accent: color(if kind == Kind::Mermaid {
-                // Opaque visual colors retain the theme's translucent outlines.
-                theme.surface.blend(theme.border)
+                // Diagram edges carry information, not a control's faint hairline.
+                theme.surface.blend(theme.text_muted)
             } else {
                 theme.accent
             }),
