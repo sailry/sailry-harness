@@ -169,3 +169,75 @@ fn ignores_other_projects_and_unrelated_ancestry() {
     let sessions = [parent.clone(), stranger, misplaced, cyclic];
     assert_eq!(aggregate_lane(&parent, &sessions), Lane::Idle);
 }
+
+mod order {
+    use super::*;
+    use sailry_protocol::TerminalId;
+
+    fn finished(status: Status, unread: bool, at: Option<i64>) -> Session {
+        let mut session = session(Some(status));
+        session.activity.attention.unread = unread;
+        session.activity.run.as_mut().unwrap().finished_ms = at;
+        session
+    }
+
+    #[test]
+    fn attention_precedes_running_and_idle() {
+        let idle = session(None);
+        let running = session(Some(Status::Running));
+        let completed = finished(Status::Completed, true, Some(10));
+        let mut waiting = session(Some(Status::Running));
+        waiting.activity.waiting = Some(Waiting::Approval);
+        let terminal = TerminalId::new();
+        let sessions = [
+            idle.clone(),
+            running.clone(),
+            completed.clone(),
+            waiting.clone(),
+        ];
+        assert_eq!(
+            order(&sessions, &[(terminal, Lane::Running)]),
+            [
+                Target::Session(waiting.id),
+                Target::Session(completed.id),
+                Target::Session(running.id),
+                Target::Terminal(terminal),
+                Target::Session(idle.id),
+            ]
+        );
+    }
+
+    #[test]
+    fn results_put_latest_activity_first() {
+        let older = finished(Status::Completed, true, Some(10));
+        let failed = finished(Status::Failed, true, Some(30));
+        let unknown = finished(Status::Completed, true, None);
+        let mut started = finished(Status::Completed, true, None);
+        started.activity.run.as_mut().unwrap().started_ms = Some(20);
+        let sessions = [
+            unknown.clone(),
+            older.clone(),
+            started.clone(),
+            failed.clone(),
+        ];
+        assert_eq!(
+            order(&sessions, &[]),
+            [failed.id, started.id, older.id, unknown.id].map(Target::Session)
+        );
+    }
+
+    #[test]
+    fn work_keeps_creation_order() {
+        let mut newest = session(Some(Status::Running));
+        newest.activity.run.as_mut().unwrap().started_ms = Some(10);
+        let mut oldest = session(Some(Status::Running));
+        oldest.activity.run.as_mut().unwrap().started_ms = Some(20);
+        let read = finished(Status::Completed, false, Some(30));
+        let idle = session(None);
+        let sessions = [newest.clone(), oldest.clone(), read.clone(), idle.clone()];
+        assert_eq!(
+            order(&sessions, &[]),
+            [newest.id, oldest.id, read.id, idle.id].map(Target::Session)
+        );
+    }
+}

@@ -5,7 +5,7 @@ mod tests;
 pub(crate) use notifications::Feed;
 pub use notifications::{Id, Inbox, Kind, Notice, Target};
 
-use sailry_protocol::{Session, activity::Waiting, conversation::Status};
+use sailry_protocol::{Session, TerminalId, activity::Waiting, conversation::Status};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Lane {
@@ -68,6 +68,56 @@ pub fn aggregate_lane(session: &Session, sessions: &[Session]) -> Lane {
         }
     }
     result
+}
+
+/// Display precedence shared by activity surfaces: waiting work, unread
+/// results, running work, then idle items.
+pub fn precedence(lane: Lane) -> u8 {
+    match lane {
+        Lane::Waiting => 0,
+        Lane::Completed | Lane::Failed => 1,
+        Lane::Running => 2,
+        Lane::Idle => 3,
+    }
+}
+
+/// One display order for every activity surface. Waiting and unread items put
+/// the latest run activity first; running and idle items keep the supplied
+/// newest-first creation order. Sessions must belong to one execution Node, and
+/// terminal lanes must already apply the controller's read state. Terminals
+/// carry no timestamps, so they follow sessions of equal precedence.
+pub fn order(sessions: &[Session], terminals: &[(TerminalId, Lane)]) -> Vec<Target> {
+    let mut items: Vec<_> = sessions
+        .iter()
+        .map(|session| {
+            let recent = session
+                .activity
+                .run
+                .as_ref()
+                .and_then(|run| run.finished_ms.or(run.started_ms));
+            (
+                precedence(aggregate_lane(session, sessions)),
+                recent,
+                Target::Session(session.id),
+            )
+        })
+        .chain(
+            terminals
+                .iter()
+                .map(|(id, lane)| (precedence(*lane), None, Target::Terminal(*id))),
+        )
+        .collect();
+    // The sort is stable, so equal keys keep the supplied creation order.
+    items.sort_by(|left, right| {
+        left.0.cmp(&right.0).then_with(|| {
+            if left.0 <= precedence(Lane::Completed) {
+                right.1.cmp(&left.1)
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+    });
+    items.into_iter().map(|(_, _, target)| target).collect()
 }
 
 fn attention(waiting: Waiting) -> Kind {

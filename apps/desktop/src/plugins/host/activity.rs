@@ -112,6 +112,7 @@ impl Host {
                                 .map(|state| (terminal.id.to_string(), lane(state)))
                         }).collect::<BTreeMap<_, _>>());
                         let hosts = host_values(&sources.0.borrow(), catalog.node);
+                        value["activity_order"] = display_order(&catalog, &sources.get());
                         value["hosts"] = hosts["hosts"].clone();
                         value["unread_terminals"] = hosts["unread_terminals"].clone();
                         sdk::values::encode(value)
@@ -221,6 +222,38 @@ impl Host {
         };
         Ok(catalog)
     }
+}
+
+/// Activity packages sort cards by this shared Client order. Completed and
+/// failed terminals the controller has read rank as idle, as packages show them.
+fn display_order(catalog: &Catalog, sources: &[Source]) -> Value {
+    use sailry_client::activity::{Lane, Target, order, terminal_activity};
+    let unread = sources
+        .iter()
+        .find(|source| source.node == catalog.node)
+        .map(|source| source.unread_terminals.as_slice())
+        .unwrap_or_default();
+    let terminals: Vec<_> = catalog
+        .terminals
+        .iter()
+        .filter_map(|terminal| {
+            let lane = match terminal_activity(terminal)? {
+                Lane::Completed | Lane::Failed if !unread.contains(&terminal.id) => Lane::Idle,
+                lane => lane,
+            };
+            Some((terminal.id, lane))
+        })
+        .collect();
+    json!(
+        order(&catalog.sessions, &terminals)
+            .into_iter()
+            .filter_map(|target| match target {
+                Target::Session(id) => Some(format!("session:{id}")),
+                Target::Terminal(id) => Some(format!("terminal:{id}")),
+                Target::Notification(_) => None,
+            })
+            .collect::<Vec<_>>()
+    )
 }
 
 fn lane(value: sailry_client::activity::Lane) -> &'static str {

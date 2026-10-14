@@ -4,6 +4,8 @@ export type ActivityCatalog = {
   node: string; cursor: string; projects: unknown[]; worktrees: unknown[];
   sessions: unknown[]; terminals: unknown[]; session_lanes: Record<string,string>;
   terminal_lanes: Record<string,string>; hosts: ActivityHost[]; unread_terminals: string[];
+  /** Shared display order of `session:<id>` and `terminal:<id>` keys. */
+  activity_order: string[];
 };
 /** Read the captured Node's canonical activity resources through its declared activity.read action. */
 export function readActivityCatalog(): Promise<ActivityCatalog>;

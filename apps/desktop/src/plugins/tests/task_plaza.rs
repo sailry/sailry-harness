@@ -104,16 +104,18 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
         }
         let next = selector(format!("plaza-room-next-{project}"));
         wait(visual, |cx| snapshot(&panel, cx).contains(next));
+        // The shared activity order seats idle sessions newest first.
+        let latest = sessions.last().unwrap();
+        let last = selector(format!("plaza-{}", latest.id));
         let handle = visual.update(|window, _| window.window_handle());
         for width in [1440., 900.] {
             visual.simulate_window_resize(handle, size(px(width), px(1000.)));
             visual.update(|window, cx| window.draw(cx).clear(cx));
             let world = visual.debug_bounds("plaza-world").unwrap();
             let plaza = visual.debug_bounds("plaza-atrium").unwrap();
-            assert!((world.size.width / world.size.height - 1120. / 860.).abs() < 0.01);
+            assert!((world.size.width / world.size.height - 1120. / 900.).abs() < 0.01);
             assert!(
-                (visual.debug_bounds(initial).unwrap().size.width
-                    - world.size.width * (60. / 1120.))
+                (visual.debug_bounds(last).unwrap().size.width - world.size.width * (60. / 1120.))
                     .abs()
                     < px(1.)
             );
@@ -155,8 +157,8 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
                 assert!((pair[0].size.width - pair[1].size.width).abs() < px(1.));
                 assert!(pair[0].right() <= pair[1].left() + px(1.));
             }
-            // The board sits on the room's top edge; the pager shares the
-            // room's center below its bottom edge, clear of the next row.
+            // The board sits on the room's top edge; the pager sits centered in
+            // an opening of its bottom edge, clear of the next row.
             let outline = visual.debug_bounds("plaza-room-outline-0").unwrap();
             assert!(board.top() < outline.top() && outline.top() < board.bottom());
             assert!((board.center().x - outline.center().x).abs() < px(1.));
@@ -164,13 +166,14 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
                 .debug_bounds(selector(format!("plaza-room-pages-{project}")))
                 .unwrap();
             assert!((pager.center().x - outline.center().x).abs() < px(1.));
-            assert!(pager.top() >= outline.bottom());
+            assert!((pager.center().y - outline.bottom()).abs() < px(1.));
             let below = visual.debug_bounds("plaza-room-3-board").unwrap();
             assert!(pager.bottom() <= below.top());
+            // Idle seats carry no status ring.
             assert!(
                 visual
-                    .debug_bounds(selector(format!("plaza-{}-status", fixture.session.id)))
-                    .is_some()
+                    .debug_bounds(selector(format!("plaza-{}-status", latest.id)))
+                    .is_none()
             );
             assert!(visual.debug_bounds("shell-feature-rail").is_some());
             assert!(visual.debug_bounds("plaza-host-filter").is_none());
@@ -178,12 +181,10 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
         }
         visual.simulate_window_resize(handle, size(px(1440.), px(1000.)));
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        let latest = sessions.last().unwrap();
-        let last = selector(format!("plaza-{}", latest.id));
-        assert!(visual.debug_bounds(last).is_none());
-        click(visual, next);
-        assert!(visual.debug_bounds(last).is_some());
         assert!(visual.debug_bounds(initial).is_none());
+        click(visual, next);
+        assert!(visual.debug_bounds(initial).is_some());
+        assert!(visual.debug_bounds(last).is_none());
         click(visual, room);
         wait(visual, |cx| {
             snapshot(&panel, cx).contains("plaza-detail-list")
@@ -251,7 +252,6 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("plaza-detail-panel").is_some());
         assert!(visual.debug_bounds("plaza-dialog").is_none());
         // Selecting another worker uses a fresh captured chat and releases the prior one.
-        click(visual, selector(format!("plaza-room-prev-{project}")));
         click(visual, initial);
         wait(visual, |cx| {
             chat(&panel, cx).is_some_and(|chat| chat.read(cx).session() == Some(fixture.session.id))

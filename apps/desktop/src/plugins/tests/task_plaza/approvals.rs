@@ -1,4 +1,5 @@
 use super::*;
+use sailry_client::activity::Lane;
 use sailry_protocol::{
     ApprovalId,
     conversation::{ApprovalState, Status},
@@ -136,6 +137,37 @@ fn plaza_resolves_through_shared_controls(cx: &mut TestAppContext) {
             chat(&panel, cx).is_none() && !snapshot(&panel, cx).contains("Approvals 1")
         });
         assert_eq!(visual.debug_bounds(position).unwrap(), seated);
+        // An unread result keeps its ring until opened. Opening reads it on the
+        // Node, so the plaza and the conversation sidebar both show it idle.
+        let ring = format!("plaza-{}-status", fixture.session.id);
+        let unread = || {
+            let Output::Session(session) = fixture.execute(Command::ReadSession {
+                session: fixture.session.id,
+            }) else {
+                panic!("session expected");
+            };
+            session.activity.attention.unread
+        };
+        let lane = |cx: &App| {
+            let shell = shell.read(cx);
+            shell
+                .activity_snapshot(fixture.node.id())
+                .and_then(|state| {
+                    state
+                        .sessions
+                        .iter()
+                        .find(|session| session.id == fixture.session.id)
+                        .map(|session| shell.session_lane(fixture.node.id(), session))
+                })
+        };
+        wait(visual, |cx| {
+            unread() && lane(cx) == Some(Lane::Completed) && snapshot(&panel, cx).contains(&ring)
+        });
+        click(visual, id);
+        wait(visual, |cx| {
+            !unread() && lane(cx) == Some(Lane::Idle) && !snapshot(&panel, cx).contains(&ring)
+        });
+        click(visual, "plaza-detail-close");
         visual.update(|window, _| window.remove_window());
         drop(panel);
         drop(shell);

@@ -7,7 +7,7 @@ use sailry_protocol::{Session, SessionId, connection::Resource, plugin};
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 mod observations;
 mod sessions;
-use sessions::{forward, options};
+use sessions::{forward, options, read};
 
 pub(super) struct Scope {
     pub owner: WeakEntity<super::Panel>,
@@ -174,6 +174,7 @@ impl Conversations {
                     else {
                         return unavailable(cx);
                     };
+                    let node = binding.client.target();
                     let chat = cx.new(|cx| {
                         Chat::embedded(
                             binding,
@@ -183,7 +184,9 @@ impl Conversations {
                             cx,
                         )
                     });
-                    forward(&chat, scope.as_ref().unwrap().owner.clone(), cx);
+                    let owner = scope.as_ref().unwrap().owner.clone();
+                    forward(&chat, owner.clone(), cx);
+                    read(owner, node, session.id, cx);
                     chat
                 } else if request.assistant.is_some() {
                     let Some((binding, session, assistant)) =

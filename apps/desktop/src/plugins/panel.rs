@@ -64,6 +64,13 @@ pub(crate) struct OpenSession {
 }
 impl EventEmitter<OpenSession> for Panel {}
 
+/// An embedded existing session was shown, which reads it like opening it.
+pub(crate) struct ReadSession {
+    pub node: sailry_protocol::NodeId,
+    pub session: sailry_protocol::SessionId,
+}
+impl EventEmitter<ReadSession> for Panel {}
+
 impl Drop for Panel {
     fn drop(&mut self) {
         self.stop.cancel();

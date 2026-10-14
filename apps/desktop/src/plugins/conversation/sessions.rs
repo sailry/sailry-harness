@@ -81,3 +81,19 @@ pub(super) fn forward(chat: &Entity<Chat>, owner: WeakEntity<super::super::Panel
     })
     .detach();
 }
+
+/// Showing an existing session reads it, as opening it from the sidebar does,
+/// so every activity surface derives the same Node-owned unread state.
+pub(super) fn read(
+    owner: WeakEntity<super::super::Panel>,
+    node: sailry_protocol::NodeId,
+    session: SessionId,
+    cx: &mut App,
+) {
+    // Mounting runs while the panel renders; emit after that update ends.
+    cx.defer(move |cx| {
+        let _ = owner.update(cx, |_, cx| {
+            cx.emit(super::super::panel::ReadSession { node, session });
+        });
+    });
+}

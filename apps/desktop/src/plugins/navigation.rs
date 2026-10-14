@@ -247,6 +247,14 @@ impl Shell {
             },
         )
         .detach();
+        cx.subscribe_in(
+            panel,
+            window,
+            |shell, _, event: &super::panel::ReadSession, window, cx| {
+                shell.mark_session_read(event.node, event.session, window, cx);
+            },
+        )
+        .detach();
     }
 
     fn follow_plugin_conversation(

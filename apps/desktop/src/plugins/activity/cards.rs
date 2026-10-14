@@ -27,6 +27,8 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
         export const HoverSwap:{new(id:string,props:{group:string}):import('gpui-kit').Element};
         /** The same animated indicator used by the conversation's execution phase. */
         export const ThinkingIcon:{new(id:string,props:{phase:string}):import('gpui-kit').Element};
+        /** An elliptical outline filling its parent; running rings carry a travelling highlight. */
+        export const StatusRing:{new(id:string,props:{color:string;opacity?:number;line?:number;running?:boolean}):import('gpui-kit').Element};
     "#
     );
     let (cards, events) = tokio::sync::mpsc::channel(32);
@@ -105,6 +107,16 @@ pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule 
         })
         .component("ThinkingIcon", |args, _, _| {
             crate::ui::thinking::render(args.id().to_owned(), &string(args.props(), "phase"), px(20.))
+        })
+        // Scripts cannot loop an animation along a path; see ui::status_ring.
+        .component("StatusRing", |args, _, _| {
+            let props = args.props();
+            let number = |name: &str| props.get(name).and_then(HostValue::as_number).filter(|value| value.is_finite());
+            let opacity = number("opacity").map_or(1., |value| value.clamp(0., 1.)) as f32;
+            let line = number("line").filter(|value| (0.5..=8.).contains(value)).unwrap_or(1.5) as f32;
+            let color = Rgba::try_from(string(props, "color").as_str()).map_or(transparent_black(), Hsla::from);
+            let running = props.get("running").and_then(HostValue::as_bool) == Some(true);
+            crate::ui::status_ring::render(args.id().to_owned(), color.opacity(opacity), px(line), running)
         })
         .async_function("nextCardEvent", move |_| {
             let events=events.clone();let stop=stop.clone();

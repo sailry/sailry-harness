@@ -245,8 +245,8 @@ fn cards_disclosures_and_lifecycle(cx: &mut TestAppContext) {
                             .min(window_size.height))
                         / 2.,
                 );
-                let last: &'static str =
-                    Box::leak(format!("activity-{}", sessions.last().unwrap().id).into_boxed_str());
+                // Idle cards list the newest first, so the initial session is last.
+                let last = initial;
                 // Scroll exactly the clipped overflow so the region reaches its end without chaining.
                 let overflow = visual.debug_bounds(last).unwrap().bottom() - list.bottom();
                 assert!(overflow > px(0.));
@@ -287,8 +287,10 @@ fn cards_disclosures_and_lifecycle(cx: &mut TestAppContext) {
         assert!(visual.debug_bounds("shell-feature-rail").is_some());
         let list = visual.debug_bounds(viewport).unwrap();
         let heading = visual.debug_bounds(header).unwrap();
+        // The shared activity order lists idle cards newest first.
         let cards: Vec<&'static str> = sessions
             .iter()
+            .rev()
             .map(|session| &*Box::leak(format!("activity-{}", session.id).into_boxed_str()))
             .collect();
         let first = visual.debug_bounds(cards[0]).unwrap();
@@ -297,7 +299,7 @@ fn cards_disclosures_and_lifecycle(cx: &mut TestAppContext) {
         assert_eq!(first.top(), list.top());
         assert!(last.bottom() > list.bottom());
         let rem = visual.update(|window, _| window.rem_size());
-        for (session, selector) in sessions.iter().zip(&cards).take(5) {
+        for (session, selector) in sessions.iter().rev().zip(&cards).take(5) {
             let bounds = visual.debug_bounds(selector).unwrap();
             let part = |name: &str| {
                 Box::leak(format!("activity-{}-{name}", session.id).into_boxed_str())
