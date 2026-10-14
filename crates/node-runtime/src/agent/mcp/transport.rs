@@ -2,68 +2,12 @@
 //! McpToolset does not expose RunningService::close, so both initialization failure
 //! and normal completion observe actual transport cleanup, not is_closed().
 use super::*;
-use crate::plugins::resources::mcp::Launch;
+use crate::{mcp_transport::Tracked, plugins::resources::mcp::Launch};
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
-use rmcp::{
-    RoleClient,
-    service::{RxJsonRpcMessage, TxJsonRpcMessage},
-    transport::Transport,
-};
+use rmcp::{RoleClient, transport::Transport};
 use std::{io, process::Stdio};
 use tokio::sync::oneshot;
 mod sse;
-
-struct Tracked<T: Transport<RoleClient> + 'static> {
-    inner: Option<T>,
-    closed: Option<oneshot::Sender<io::Result<()>>>,
-}
-
-impl<T: Transport<RoleClient> + 'static> Drop for Tracked<T> {
-    fn drop(&mut self) {
-        if let (Some(mut transport), Some(closed)) = (self.inner.take(), self.closed.take()) {
-            // The SDK drops its transport on failed/cancelled initialization without
-            // calling close. Node retains and awaits this completion before reaping.
-            tokio::spawn(async move {
-                let result = transport.close().await.map_err(|_| failure());
-                drop(transport);
-                let _ = closed.send(result);
-            });
-        }
-    }
-}
-
-impl<T: Transport<RoleClient> + 'static> Transport<RoleClient> for Tracked<T> {
-    type Error = io::Error;
-    fn send(
-        &mut self,
-        item: TxJsonRpcMessage<RoleClient>,
-    ) -> impl Future<Output = io::Result<()>> + Send + 'static {
-        let send = self
-            .inner
-            .as_mut()
-            .expect("MCP transport is retained")
-            .send(item);
-        async move { send.await.map_err(|_| failure()) }
-    }
-    async fn receive(&mut self) -> Option<RxJsonRpcMessage<RoleClient>> {
-        self.inner.as_mut()?.receive().await
-    }
-    async fn close(&mut self) -> io::Result<()> {
-        let Some(mut transport) = self.inner.take() else {
-            return Ok(());
-        };
-        let result = transport.close().await;
-        drop(transport);
-        if let Some(closed) = self.closed.take() {
-            let _ = closed.send(if result.is_ok() {
-                Ok(())
-            } else {
-                Err(failure())
-            });
-        }
-        result.map_err(|_| failure())
-    }
-}
 
 fn failure() -> io::Error {
     io::Error::other("MCP transport failed")
@@ -143,7 +87,7 @@ impl Child {
 
 pub(super) struct Connection {
     stop: CancellationToken,
-    closed: Option<oneshot::Receiver<io::Result<()>>>,
+    closed: Option<oneshot::Receiver<bool>>,
     child: Option<Child>,
 }
 
@@ -161,6 +105,8 @@ impl Connection {
         handler: Arc<input::Handler>,
         environment: &crate::process::Environment,
     ) -> Result<(Self, Service), Fault> {
+        // Include transport setup and the SDK's discover/legacy fallback in one bound.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
         match launch {
             Launch::Stdio {
                 command,
@@ -206,6 +152,7 @@ impl Connection {
                     Some(child),
                     turn_stop,
                     handler,
+                    deadline,
                 )
                 .await
             }
@@ -253,12 +200,13 @@ impl Connection {
                         sse,
                         turn_stop,
                         handler,
+                        deadline,
                     )
                     .await
                 } else if let Some(client) = authorized {
-                    Self::http(client, url, headers, sse, turn_stop, handler).await
+                    Self::http(client, url, headers, sse, turn_stop, handler, deadline).await
                 } else {
-                    Self::http(client, url, headers, sse, turn_stop, handler).await
+                    Self::http(client, url, headers, sse, turn_stop, handler, deadline).await
                 }
             }
         }
@@ -274,6 +222,7 @@ impl Connection {
         sse: bool,
         turn_stop: &CancellationToken,
         handler: Arc<input::Handler>,
+        deadline: tokio::time::Instant,
     ) -> Result<(Self, Service), Fault> {
         use rmcp::transport::{
             StreamableHttpClientTransport,
@@ -282,12 +231,12 @@ impl Connection {
         if sse {
             let transport = tokio::select! {
                 _ = turn_stop.cancelled() => return Err(unavailable()),
-                result = tokio::time::timeout(
-                    Duration::from_secs(10),
+                result = tokio::time::timeout_at(
+                    deadline.min(tokio::time::Instant::now() + Duration::from_secs(10)),
                     sse::Connection::open(client, &url, headers),
                 ) => result.map_err(|_| unavailable())?.map_err(|_| unavailable())?,
             };
-            return Self::connect(transport, None, turn_stop, handler).await;
+            return Self::connect(transport, None, turn_stop, handler, deadline).await;
         }
         let mut config = StreamableHttpClientTransportConfig::with_uri(url)
             .custom_headers(headers)
@@ -298,6 +247,7 @@ impl Connection {
             None,
             turn_stop,
             handler,
+            deadline,
         )
         .await
     }
@@ -307,12 +257,9 @@ impl Connection {
         child: Option<Child>,
         turn_stop: &CancellationToken,
         handler: Arc<input::Handler>,
+        deadline: tokio::time::Instant,
     ) -> Result<(Self, Service), Fault> {
-        let (closed, completion) = oneshot::channel();
-        let transport = Tracked {
-            inner: Some(transport),
-            closed: Some(closed),
-        };
+        let (transport, completion) = Tracked::new(transport);
         // Keep the transport available for task cancellation after a turn stops.
         // Node closes it after the ADK task cleanup has finished.
         let stop = CancellationToken::new();
@@ -324,7 +271,15 @@ impl Connection {
         let result = tokio::select! {
             biased;
             _ = turn_stop.cancelled() => None,
-            result = tokio::time::timeout(Duration::from_secs(10), rmcp::service::serve_client_with_ct(handler, transport, stop)) => Some(result),
+            result = tokio::time::timeout_at(
+                deadline,
+                rmcp::service::serve_client_with_lifecycle_and_ct(
+                    handler,
+                    transport,
+                    crate::mcp_transport::lifecycle(),
+                    stop,
+                ),
+            ) => Some(result),
         };
         match result {
             Some(Ok(Ok(service))) => Ok((owner, service)),
@@ -341,7 +296,7 @@ impl Connection {
             Some(closed) => matches!(
                 // Leave room for the SDK's five-second HTTP session cleanup bound.
                 tokio::time::timeout(Duration::from_secs(7), closed).await,
-                Ok(Ok(Ok(())))
+                Ok(Ok(true))
             ),
             None => true,
         };

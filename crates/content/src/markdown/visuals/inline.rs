@@ -68,7 +68,6 @@ pub(in crate::markdown) fn render(
     .selection_format(SelectionFormat::Source)
     .style(
         TextViewStyle::default()
-            .with_link_hover_underline(true)
             .with_foreground(theme.text)
             .with_muted_foreground(theme.text_muted)
             .with_link(theme.link)

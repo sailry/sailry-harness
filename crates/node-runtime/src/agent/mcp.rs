@@ -12,7 +12,7 @@ use adk_core::{Tool, ToolConfirmationRequest, ToolContext};
 use async_trait::async_trait;
 use rmcp::{
     RoleClient,
-    model::{ClientInfo, Tool as Descriptor},
+    model::{ClientConfig, Tool as Descriptor},
     service::RunningService,
 };
 use sailry_protocol::plugin::{

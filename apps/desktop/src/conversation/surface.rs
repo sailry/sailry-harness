@@ -17,8 +17,6 @@ mod thought;
 pub(crate) use thought::thought;
 mod work;
 pub(crate) use work::{trigger, work};
-#[cfg(test)]
-mod scrolling;
 
 /// Tool output uses a five-line viewport; padding lives outside it.
 pub(crate) const OUTPUT_LINES: usize = 5;
@@ -284,6 +282,7 @@ pub(crate) fn literal(text: &str) -> String {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    use gpui_kit::test::TestWindowExt as _;
     #[test]
     fn skills_have_core_labels_and_icons() {
         for name in ["load_skill", "read_skill_resource"] {
@@ -316,5 +315,193 @@ mod tests {
                 );
             }
         });
+    }
+
+    fn draw(cx: &mut VisualTestContext) {
+        cx.run_until_parked();
+        cx.update(|window, cx| window.render_frame(cx));
+    }
+
+    fn semantic_bounds(cx: &mut VisualTestContext, id: &'static str) -> Bounds<Pixels> {
+        cx.update(|window, _| window.find(id).bounds())
+    }
+
+    struct GroupHarness {
+        rows: usize,
+        diff: bool,
+    }
+
+    impl Render for GroupHarness {
+        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+            let rows = self.rows;
+            div().size_full().child(group_scroll(
+                "group-scroll".into(),
+                v_flex()
+                    .w_full()
+                    .child(if self.diff {
+                        diff::file_rows(
+                            "output",
+                            &(0..rows).map(|i| format!("line {i}\n")).collect::<String>(),
+                            "fixture.txt",
+                            true,
+                            Vec::new(),
+                        )
+                    } else {
+                        code(
+                            "output",
+                            &(0..rows).map(|i| format!("line {i}\n")).collect::<String>(),
+                            px(14.),
+                            cx,
+                        )
+                    })
+                    .children(
+                        (0..rows).map(|index| {
+                            div().h_8().flex_shrink_0().child(format!("Tool {index}"))
+                        }),
+                    ),
+            ))
+        }
+    }
+
+    #[gpui_kit::test]
+    fn caps_group_height(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+        });
+        for (rows, diff) in [(2, false), (30, false), (30, true)] {
+            let (_, visual) = cx.add_window_view(|_, _| GroupHarness { rows, diff });
+            let handle = visual.update(|window, _| window.window_handle());
+            visual.simulate_window_resize(handle, size(px(480.), px(600.)));
+            draw(visual);
+            let viewport = visual.debug_bounds("group-scroll").unwrap();
+            let cap = px(GROUP_HEIGHT.min(600. * 0.5));
+            if rows == 2 {
+                assert!(viewport.size.height < cap);
+            } else {
+                assert_eq!(viewport.size.height, cap);
+                for height in [400., 900.] {
+                    visual.simulate_window_resize(handle, size(px(480.), px(height)));
+                    draw(visual);
+                    assert_eq!(
+                        visual.debug_bounds("group-scroll").unwrap().size.height,
+                        px(GROUP_HEIGHT.min(height * 0.5))
+                    );
+                }
+            }
+            visual.update(|window, _| window.remove_window());
+        }
+    }
+
+    #[gpui::test]
+    fn preserves_blank_lines_without_footer(cx: &mut TestAppContext) {
+        struct FileHarness {
+            source: &'static str,
+            added: bool,
+        }
+        impl Render for FileHarness {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div().size_full().child(diff::file_rows(
+                    "output",
+                    self.source,
+                    "fixture.txt",
+                    self.added,
+                    Vec::new(),
+                ))
+            }
+        }
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+        });
+        for (source, added, copied, rows) in [
+            ("line\n", true, "line\n", 1),
+            ("line", true, "line", 1),
+            ("line\n\n\n", true, "line\n\n\n", 3),
+            ("@@ -0,0 +40,3 @@\n+line\n+\n+\n", false, "line\n\n\n", 3),
+        ] {
+            let (_, visual) = cx.add_window_view(|_, _| FileHarness { source, added });
+            let handle = visual.update(|window, _| window.window_handle());
+            visual.simulate_window_resize(handle, size(px(480.), px(600.)));
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                draw(visual);
+                if visual
+                    .update(|window, _| crate::ui::observation::all(window, "source").len() == rows)
+                {
+                    break;
+                }
+                assert!(std::time::Instant::now() < deadline, "diff rows deadline");
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            let body = semantic_bounds(visual, "diff-body-output");
+            let card = semantic_bounds(visual, "conversation-diff-output");
+            assert_eq!(body.bottom(), card.bottom() - px(1.));
+            visual.update(|window, cx| {
+                let lines = crate::ui::observation::all(window, "source");
+                assert_eq!(
+                    lines.iter().filter(|line| line.label() == Some("")).count(),
+                    rows - 1
+                );
+                window.click(("line", rows - 1), cx);
+                window.press("secondary-a", cx);
+                window.press("secondary-c", cx);
+                assert_eq!(
+                    cx.read_from_clipboard().unwrap().text().as_deref(),
+                    Some(copied)
+                );
+                window.remove_window();
+            });
+        }
+    }
+
+    #[gpui_kit::test]
+    fn keyboard_focus_reveals_tool_actions(cx: &mut TestAppContext) {
+        use gpui_kit::{component::button::Button, test::TestWindowExt as _};
+        use std::{cell::Cell, rc::Rc};
+        struct ActionsHarness(Rc<Cell<usize>>);
+        impl Render for ActionsHarness {
+            fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+                let hits = self.0.clone();
+                v_flex()
+                    .size_full()
+                    .child(Button::new("before").label("Before"))
+                    .child(
+                        div().pt_20().child(result(
+                            "keyboard",
+                            div().child("Tool output").into_any_element(),
+                            [Button::new("copy")
+                                .label("Copy")
+                                .on_click(move |_, _, _| hits.set(hits.get() + 1))
+                                .into_any_element()],
+                            cx,
+                        )),
+                    )
+            }
+        }
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+        });
+        let hits = Rc::new(Cell::new(0));
+        let captured = hits.clone();
+        let window = cx.add_window(move |window, cx| {
+            let view = cx.new(|_| ActionsHarness(captured));
+            Root::new(view, window, cx)
+        });
+        let mut visual = VisualTestContext::from_window(*window, cx);
+        visual.simulate_mouse_move(point(px(0.), px(280.)), None, Modifiers::default());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            window.focus_next(cx);
+            window.render_frame(cx);
+            assert_eq!(window.find("before").focused(), Some(true));
+            assert!(!window.find("tool-actions-keyboard").visible());
+            window.press("tab", cx);
+            assert_eq!(window.find("copy").focused(), Some(true));
+            assert!(window.find("tool-actions-keyboard").visible());
+            window.press("enter", cx);
+        });
+        assert_eq!(hits.get(), 1);
     }
 }

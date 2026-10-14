@@ -223,6 +223,7 @@ impl View {
                 )
             });
         let body = v_flex()
+            .key_context(self.questions.keys.read(cx).context().as_str())
             .w_80()
             .max_w_full()
             .gap_4()

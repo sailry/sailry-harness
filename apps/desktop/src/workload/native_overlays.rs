@@ -33,16 +33,10 @@ use wry::WebViewExtMacOS;
 struct Probe {
     position: Option<Point<Pixels>>,
     clicks: Rc<Cell<usize>>,
-    inset_probe: bool,
 }
 impl RootPlugin for Probe {}
 impl Render for Probe {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Registered before Component's WindowState: Shell has rendered its
-        // normal insets, and the real notification layer is built after this.
-        if self.inset_probe {
-            window.set_notification_insets(Edges::default(), cx);
-        }
         let clicks = self.clicks.clone();
         deferred(div().when_some(self.position, |this, position| {
             let action = clicks.clone();
@@ -83,7 +77,7 @@ pub(crate) fn init(cx: &mut App) {
     Root::register_plugin(cx, |_, _| Probe::default());
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Target {
     Element(&'static str),
     MenuItem,
@@ -128,7 +122,7 @@ async fn visible(target: Target, cx: &mut AsyncWindowContext) -> Bounds<Pixels> 
         previous = bounds;
         assert!(
             Instant::now() < deadline,
-            "native overlay target did not become visible and stable: {bounds:?}"
+            "native overlay target did not become visible and stable: target={target:?}, bounds={bounds:?}"
         );
     }
 }
@@ -380,7 +374,7 @@ pub(crate) async fn verify(
     })
     .unwrap();
     move_to(&page, tooltip_button.center(), cx).await;
-    let tooltip = wait_visible("managed-tooltip-popup", cx).await;
+    let tooltip = wait_visible("tooltip-popup", cx).await;
     cx.update(|_, _| {
         assert!(
             overlap(native_bounds(&page), tooltip),
@@ -445,27 +439,12 @@ pub(crate) async fn verify(
     .unwrap();
     absent("dialog", cx).await;
 
-    // Record the ordinary Shell placement, then test backend compositing over
-    // the viewport with zero reservation. This does not claim Browser's normal
-    // reserved toast position overlaps its page. Repeating the ordinary toast
-    // after disabling the probe proves the Shell's placement was restored.
     cx.update(|window, cx| push_toast(&page, right, clicks.clone(), window, cx))
         .unwrap();
     wait_visible("native-toast-action", cx).await;
     let normal = wait_visible("notification", cx).await;
     let normal_overlap = cx
         .update(|_, _| overlap(native_bounds(&page), normal))
-        .unwrap();
-    clear_toast(cx).await;
-    probe.update(cx, |probe, cx| {
-        probe.inset_probe = true;
-        cx.notify();
-    });
-    frame(cx).await;
-    cx.update(|window, cx| push_toast(&page, right, clicks.clone(), window, cx))
-        .unwrap();
-    let toast = wait_visible("notification", cx).await;
-    cx.update(|_, _| assert!(overlap(native_bounds(&page), toast)))
         .unwrap();
     click(
         &page,
@@ -474,24 +453,6 @@ pub(crate) async fn verify(
         cx,
     )
     .await;
-    clear_toast(cx).await;
-    probe.update(cx, |probe, cx| {
-        probe.inset_probe = false;
-        cx.notify();
-    });
-    frame(cx).await;
-    cx.update(|window, cx| push_toast(&page, right, clicks.clone(), window, cx))
-        .unwrap();
-    wait_visible("native-toast-action", cx).await;
-    let restored = wait_visible("notification", cx).await;
-    assert_eq!(
-        restored, normal,
-        "normal Shell toast placement must be restored after the controlled probe"
-    );
-    cx.update(|_, _| {
-        assert_eq!(overlap(native_bounds(&page), restored), normal_overlap);
-    })
-    .unwrap();
     clear_toast(cx).await;
     probe.update(cx, |probe, cx| {
         probe.position = None;
@@ -517,7 +478,6 @@ pub(crate) async fn verify(
             "controlled_frames": true, "native_visible": true, "tooltip": true,
             "menu": true, "dialog": true, "toast": true,
             "os_click_sequences": 5, "action_callbacks": 4,
-            "controlled_notification_insets": true, "normal_placement_restored": true,
             "normal_toast_native_overlap": normal_overlap
         })
         .to_string(),

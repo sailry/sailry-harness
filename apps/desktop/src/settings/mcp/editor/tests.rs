@@ -237,7 +237,7 @@ fn retries_on_captured_node(cx: &mut TestAppContext) {
             editor.submission.request.as_ref().unwrap().id
         });
         assert!(editor.read_with(visual, |editor, _| editor.locked()));
-        tap(visual, "installation-hide");
+        visual.simulate_keystrokes("escape");
         tap(visual, "mcp-cancel");
         assert_eq!(
             editor.read_with(visual, |editor, _| editor

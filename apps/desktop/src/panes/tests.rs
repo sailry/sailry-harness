@@ -101,13 +101,7 @@ fn drop_on(
                 .unwrap()
                 .find_panel_node(id)
                 .unwrap();
-            workspaces.drop(
-                workspace,
-                target,
-                DropTarget::new(node, placement),
-                window,
-                cx,
-            )
+            workspaces.drop_to(workspace, target, node, placement, window, cx)
         })
     })
 }

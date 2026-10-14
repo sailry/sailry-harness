@@ -1,5 +1,6 @@
 use super::*;
-use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+use crate::ui::observation;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_link::{Admission, Pending, Stream, Subscription as LinkSubscription, Transport};
 use sailry_protocol::{Fault, NodeId, StreamId, Topic};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -86,17 +87,20 @@ fn click_row(
     index: usize,
     modifiers: Modifiers,
 ) {
-    visual.update(|window, cx| {
+    let position = visual.update(|window, cx| {
         window.render_frame(cx);
         let id: ElementId = if picker.read(cx).grid {
             ("directory-entry", index).into()
         } else {
             ("directory-table-row", index).into()
         };
-        window
-            .within("directory-picker")
-            .click_with_modifiers(id, modifiers, cx);
+        let row = window.within("directory-picker").find(id);
+        assert!(row.visible(), "picker row must be visible: {row:?}");
+        row.bounds().center()
     });
+    visual.simulate_mouse_move(position, None, modifiers);
+    visual.update(|window, cx| window.render_frame(cx));
+    visual.simulate_click(position, modifiers);
     visual.run_until_parked();
 }
 
@@ -509,7 +513,7 @@ fn breadcrumbs_list_children_without_changing_history(cx: &mut TestAppContext) {
 }
 
 fn name_field(window: &mut Window) -> gpui_kit::test::ElementSnapshot {
-    let mut fields = window.within("dialog-1").find_all_by_role(Role::TextInput);
+    let mut fields = observation::roles_within(window, "dialog-1", Role::TextInput);
     assert_eq!(
         fields.len(),
         1,
@@ -537,8 +541,7 @@ fn go_to_field(window: &mut Window) -> gpui_kit::test::ElementSnapshot {
         .rposition(|item| item == &list)
         .expect("go-to target must belong to a Kit list");
     let scope = &target.path()[..=end];
-    let mut fields: Vec<_> = window
-        .find_all_by_role(Role::TextInput)
+    let mut fields: Vec<_> = observation::roles(window, Role::TextInput)
         .into_iter()
         .filter(|field| field.path().starts_with(scope))
         .collect();

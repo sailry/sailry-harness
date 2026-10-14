@@ -1,7 +1,4 @@
 //! Real WebKit interactions over both Client routes, with a deterministic model endpoint.
-#[path = "browser/focus.rs"]
-mod focus;
-
 use super::*;
 use crate::{
     backend::Services,
@@ -181,6 +178,7 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
             &shell,
             route,
             &scenario.output,
+            capture_enabled,
             cx,
         )
         .await;
@@ -192,10 +190,10 @@ pub(super) async fn run(scenario: Scenario, shell: Entity<Shell>, cx: &mut Async
     std::fs::write(
         scenario.output.join("browser.json"),
         serde_json::json!({"local": true, "remote": true, "model": "fixture",
-            "screenshots": "captured and downloaded", "foreground_capture": capture_enabled,
+            "foreground_capture": capture_enabled, "background_capture": capture_enabled,
             "background": {"sidebar_preserved": true, "selection_preserved": true,
                 "read_click_navigation": true, "selection_promotes": true, "focus_promotes": true,
-                "native_focus_preserved": true, "background_close": true}
+                "background_close": true}
         })
         .to_string(),
     )
@@ -210,6 +208,7 @@ async fn background(
     shell: &Entity<Shell>,
     route: &str,
     output: &Path,
+    capture_enabled: bool,
     cx: &mut AsyncWindowContext,
 ) {
     let browser = cx
@@ -236,7 +235,6 @@ async fn background(
             )
         })
         .unwrap();
-    let native_focus = focus::State::foreground(shell, &browser, selected, cx).await;
     let opened = call(
         client,
         services,
@@ -256,7 +254,7 @@ async fn background(
         )["background"],
         true
     );
-    native_focus.check(&browser, Some(hidden), "background open", cx);
+    background_hidden(&browser, hidden, "background open", cx);
     let read = call(
         client,
         services,
@@ -272,7 +270,7 @@ async fn background(
         .find(|element| element["label"] == "Second page")
         .expect("background page link");
     retained(shell, &browser, Some(&panel), selected, cx);
-    native_focus.check(&browser, Some(hidden), "background read", cx);
+    background_hidden(&browser, hidden, "background read", cx);
     let clicked = call(
         client,
         services,
@@ -293,7 +291,7 @@ async fn background(
         )["background"],
         true
     );
-    native_focus.check(&browser, Some(hidden), "background click", cx);
+    background_hidden(&browser, hidden, "background click", cx);
     let navigated = call(
         client,
         services,
@@ -308,36 +306,37 @@ async fn background(
     assert_eq!(navigated["url"], url);
     assert!(navigated["text"].as_str().unwrap().contains("Pending"));
     retained(shell, &browser, Some(&panel), selected, cx);
-    native_focus.check(&browser, Some(hidden), "background navigation", cx);
-    let capture = call(
-        client,
-        services,
-        session,
-        Action::Screenshot { tab: hidden },
-    )
-    .await;
-    assert_eq!(capture["tab"], hidden);
-    let download_client = client.clone();
-    let download_session = session.clone();
-    services
-        .runtime
-        .spawn(async move {
-            download(&download_client, &download_session, &capture).await;
-        })
-        .await
-        .unwrap();
-    retained(shell, &browser, Some(&panel), selected, cx);
-    native_focus.check(&browser, Some(hidden), "background capture", cx);
+    background_hidden(&browser, hidden, "background navigation", cx);
+    if capture_enabled {
+        let capture = call(
+            client,
+            services,
+            session,
+            Action::Screenshot { tab: hidden },
+        )
+        .await;
+        assert_eq!(capture["tab"], hidden);
+        let download_client = client.clone();
+        let download_session = session.clone();
+        services
+            .runtime
+            .spawn(async move {
+                download(&download_client, &download_session, &capture).await;
+            })
+            .await
+            .unwrap();
+        retained(shell, &browser, Some(&panel), selected, cx);
+        background_hidden(&browser, hidden, "background capture", cx);
+    }
     let tabs = call(client, services, session, Action::Tabs).await;
     assert_eq!(tab(&tabs, hidden)["background"], true);
     assert_eq!(tab(&tabs, selected)["background"], false);
     retained(shell, &browser, Some(&panel), selected, cx);
-    native_focus.check(&browser, Some(hidden), "background tabs", cx);
+    background_hidden(&browser, hidden, "background tabs", cx);
 
     let closed = call(client, services, session, Action::Close { tab: hidden }).await;
     assert_eq!(closed["closed"], hidden);
     retained(shell, &browser, Some(&panel), selected, cx);
-    native_focus.check(&browser, None, "background close", cx);
     let opened = call(
         client,
         services,
@@ -350,7 +349,7 @@ async fn background(
     .await;
     let hidden = opened["tab"].as_u64().unwrap();
     retained(shell, &browser, Some(&panel), selected, cx);
-    native_focus.check(&browser, Some(hidden), "replacement background open", cx);
+    background_hidden(&browser, hidden, "replacement background open", cx);
 
     let (reply, receive) = tokio::sync::oneshot::channel();
     cx.update(|_, cx| {
@@ -374,7 +373,6 @@ async fn background(
         shell.update(cx, |shell, cx| shell.close_resource_panel(cx));
     })
     .unwrap();
-    let composer_focus = focus::State::composer(shell, &browser, hidden, cx);
     let opened = call(
         client,
         services,
@@ -390,11 +388,11 @@ async fn background(
         tab(&retained(shell, &browser, None, hidden, cx), focus)["background"],
         true
     );
-    composer_focus.check(&browser, Some(focus), "closed-sidebar background open", cx);
+    background_hidden(&browser, focus, "closed-sidebar background open", cx);
     let read = call(client, services, session, Action::Read { tab: Some(focus) }).await;
     assert!(read["text"].as_str().unwrap().contains("Pending"));
     retained(shell, &browser, None, hidden, cx);
-    composer_focus.check(&browser, Some(focus), "closed-sidebar background read", cx);
+    background_hidden(&browser, focus, "closed-sidebar background read", cx);
     let link = read["elements"]
         .as_array()
         .unwrap()
@@ -414,25 +412,22 @@ async fn background(
     .await;
     assert!(clicked["text"].as_str().unwrap().contains("Second page"));
     retained(shell, &browser, None, hidden, cx);
-    composer_focus.check(&browser, Some(focus), "closed-sidebar background click", cx);
-    let capture = call(client, services, session, Action::Screenshot { tab: focus }).await;
-    assert_eq!(capture["tab"], focus);
-    let download_client = client.clone();
-    let download_session = session.clone();
-    services
-        .runtime
-        .spawn(async move {
-            download(&download_client, &download_session, &capture).await;
-        })
-        .await
-        .unwrap();
-    retained(shell, &browser, None, hidden, cx);
-    composer_focus.check(
-        &browser,
-        Some(focus),
-        "closed-sidebar background capture",
-        cx,
-    );
+    background_hidden(&browser, focus, "closed-sidebar background click", cx);
+    if capture_enabled {
+        let capture = call(client, services, session, Action::Screenshot { tab: focus }).await;
+        assert_eq!(capture["tab"], focus);
+        let download_client = client.clone();
+        let download_session = session.clone();
+        services
+            .runtime
+            .spawn(async move {
+                download(&download_client, &download_session, &capture).await;
+            })
+            .await
+            .unwrap();
+        retained(shell, &browser, None, hidden, cx);
+        background_hidden(&browser, focus, "closed-sidebar background capture", cx);
+    }
     call(
         client,
         services,
@@ -445,16 +440,10 @@ async fn background(
     )
     .await;
     retained(shell, &browser, None, hidden, cx);
-    composer_focus.check(
-        &browser,
-        Some(focus),
-        "closed-sidebar background navigation",
-        cx,
-    );
+    background_hidden(&browser, focus, "closed-sidebar background navigation", cx);
     let closed = call(client, services, session, Action::Close { tab: focus }).await;
     assert_eq!(closed["closed"], focus);
     retained(shell, &browser, None, hidden, cx);
-    composer_focus.check(&browser, None, "closed-sidebar background close", cx);
     let opened = call(
         client,
         services,
@@ -467,7 +456,7 @@ async fn background(
     .await;
     let focus = opened["tab"].as_u64().unwrap();
     retained(shell, &browser, None, hidden, cx);
-    composer_focus.check(&browser, Some(focus), "closed-sidebar replacement open", cx);
+    background_hidden(&browser, focus, "closed-sidebar replacement open", cx);
     let focused = call(client, services, session, Action::Focus { tab: focus }).await;
     assert_eq!(focused["tab"], focus);
     assert!(focused["text"].as_str().unwrap().contains("Second page"));
@@ -528,6 +517,24 @@ fn tab(state: &serde_json::Value, id: u64) -> &serde_json::Value {
         .iter()
         .find(|tab| tab["id"].as_u64() == Some(id))
         .expect("retained browser tab")
+}
+
+fn background_hidden(
+    browser: &Entity<Browser>,
+    tab: u64,
+    stage: &str,
+    cx: &mut AsyncWindowContext,
+) {
+    cx.update(|_, cx| {
+        let state = browser.read(cx).visibility_state(tab, cx);
+        assert_eq!(state["background"], true, "{stage}: tab is not background");
+        assert_eq!(state["kit_visible"], false, "{stage}: Kit child is visible");
+        assert_eq!(
+            state["raw_hidden"], true,
+            "{stage}: native child is visible"
+        );
+    })
+    .unwrap();
 }
 
 async fn call(

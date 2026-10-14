@@ -5,13 +5,8 @@ impl Render for Preview {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let failed = matches!(self.result, Some(Err(_)));
         let editable = matches!(self.result, Some(Ok(_))) && !self.transforming;
-        let viewport = window.viewport_size();
         let spacing = cx.theme().spacing_tokens();
         let toolbar_height = px(40.);
-        let canvas = size(
-            (viewport.width - spacing.lg * 2.).max(px(1.)),
-            (viewport.height - spacing.lg * 2. - spacing.md - toolbar_height).max(px(1.)),
-        );
         let motion = cx.theme().motion_tokens().clone();
         let presence = Presence::new(ElementId::from(("lightbox", cx.entity_id())), !self.closing)
             .transition(Transition::new(motion.duration_normal))
@@ -33,18 +28,20 @@ impl Render for Preview {
             window,
             cx,
         );
-        let image_size = self
-            .result
-            .as_ref()
-            .and_then(|result| result.as_ref().ok())
-            .map(|image| {
-                let fitted = viewport::fit(image.size(0), canvas);
-                let scale = zoom * (0.96 + 0.04 * presence.progress);
-                size(fitted.width * scale, fitted.height * scale)
-            });
-        if let Some(image_size) = image_size {
+        let image_size = self.canvas.and_then(|canvas| {
+            self.result
+                .as_ref()
+                .and_then(|result| result.as_ref().ok())
+                .map(|image| {
+                    let fitted = viewport::fit(image.size(0), canvas);
+                    let scale = zoom * (0.96 + 0.04 * presence.progress);
+                    size(fitted.width * scale, fitted.height * scale)
+                })
+        });
+        if let (Some(image_size), Some(canvas)) = (image_size, self.canvas) {
             self.viewport.clamp_pan(image_size, canvas);
         }
+        let preview = cx.entity();
         let content = v_flex()
             .id("attachment-image-preview")
             .debug_selector(|| "attachment-image-preview".into())
@@ -53,8 +50,7 @@ impl Render for Preview {
             .on_key_down(cx.listener(Self::key))
             .gap(spacing.md)
             .p(spacing.lg)
-            .w(viewport.width)
-            .h(viewport.height)
+            .size_full()
             .min_w_0()
             .items_center()
             .bg(cx.theme().overlay.alpha(0.94))
@@ -69,6 +65,19 @@ impl Render for Preview {
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
+                    .relative()
+                    .on_prepaint(move |bounds, _, cx| {
+                        let size = bounds.size;
+                        if size.width <= px(0.) || size.height <= px(0.) {
+                            return;
+                        }
+                        preview.update(cx, |preview, cx| {
+                            if preview.canvas != Some(size) {
+                                preview.canvas = Some(size);
+                                cx.notify();
+                            }
+                        });
+                    })
                     .cursor_grab()
                     .on_scroll_wheel(cx.listener(Self::wheel))
                     .on_pinch(cx.listener(Self::pinch))
@@ -86,7 +95,7 @@ impl Render for Preview {
                         }),
                     )
                     .child(match &self.result {
-                        Some(Ok(image)) => img(image.clone())
+                        Some(Ok(image)) if image_size.is_some() => img(image.clone())
                             .id("image-lightbox-image")
                             .debug_selector(|| "image-lightbox-image".into())
                             .flex_shrink_0()
@@ -115,7 +124,7 @@ impl Render for Preview {
                             .text_color(cx.theme().popover_foreground)
                             .child(tr(key))
                             .into_any_element(),
-                        None => Progress::new("image-loading")
+                        Some(Ok(_)) | None => Progress::new("image-loading")
                             .w_32()
                             .loading(true)
                             .accessibility_label(tr("chat_image_loading"))

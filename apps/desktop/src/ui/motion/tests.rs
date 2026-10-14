@@ -15,7 +15,7 @@ fn intersection_visibility() {
 #[derive(Default)]
 struct Host {
     hidden: bool,
-    waiting: bool,
+    standalone: bool,
 }
 
 impl Render for Host {
@@ -24,14 +24,14 @@ impl Render for Host {
             .size_full()
             .overflow_hidden()
             .when(!self.hidden, |view| {
-                view.when(!self.waiting, |view| {
+                view.when(!self.standalone, |view| {
                     view.child(crate::ui::loading::grid())
                         .child(crate::ui::loading::mini())
                 })
                 .child(crate::ui::thinking::render(
                     "thinking-test",
-                    if self.waiting {
-                        "turn_waiting"
+                    if self.standalone {
+                        "turn_tools_running"
                     } else {
                         "turn_thinking"
                     },
@@ -118,11 +118,11 @@ fn inactive_windows(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
-fn approval_waiting_animates_without_other_indicators(cx: &mut TestAppContext) {
+fn tool_activity_animates_without_other_indicators(cx: &mut TestAppContext) {
     let handle = setup(cx);
     handle
         .update(cx, |view, _, cx| {
-            view.waiting = true;
+            view.standalone = true;
             cx.notify();
         })
         .unwrap();

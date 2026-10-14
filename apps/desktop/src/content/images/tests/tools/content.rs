@@ -107,7 +107,7 @@ fn renders(cx: &mut TestAppContext) {
             result["output"]["sailry_content"]["version"] = json!(2);
             cx.notify();
         });
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         assert!(
             visual
                 .debug_bounds(Box::leak(format!("{key}-output-content").into_boxed_str()))

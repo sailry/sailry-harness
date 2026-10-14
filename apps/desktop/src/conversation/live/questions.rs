@@ -14,8 +14,8 @@ mod planning;
 mod tests;
 mod view;
 
-#[derive(Default)]
 pub(super) struct Form {
+    keys: Entity<crate::ui::keys::Bindings>,
     open: bool,
     editing: Option<Editing>,
     pending: bool,
@@ -66,6 +66,33 @@ impl Editing {
 }
 
 impl Form {
+    pub(super) fn new(cx: &mut App) -> Self {
+        let keys = crate::ui::keys::Bindings::new(cx);
+        keys.update(cx, |keys, cx| {
+            let context = keys.context();
+            let confirm = gpui_kit::base::actions::Confirm { secondary: false }.name();
+            // Kit 0.7.3 routes content Enter/Space to the Popover trigger.
+            // Unbind only that inherited action; native child actions and
+            // keyboard clicks retain their normal dispatch.
+            keys.replace(
+                ["enter", "space"]
+                    .into_iter()
+                    .map(|key| KeyBinding::new(key, Unbind(confirm.into()), Some(&context)))
+                    .collect(),
+                cx,
+            );
+        });
+        Self {
+            keys,
+            open: false,
+            editing: None,
+            pending: false,
+            attempt: None,
+            error: None,
+            task: None,
+        }
+    }
+
     fn locked(&self) -> bool {
         self.pending || self.attempt.is_some()
     }

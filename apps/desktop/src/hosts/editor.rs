@@ -241,7 +241,6 @@ impl Render for Editor {
         ];
         let tabs = TabBar::new("ssh-auth")
             .segmented()
-            .equal_width()
             .menu(false)
             .w_full()
             .selected_index(

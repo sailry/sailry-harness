@@ -4,6 +4,7 @@ use crate::conversation::live::tests::{
     wait,
 };
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use serde_json::json;
 
 fn native_reference(view: &View, cx: &App) {
@@ -12,7 +13,6 @@ fn native_reference(view: &View, cx: &App) {
         panic!("one captured reference expected");
     };
     let input = view.input.read(cx);
-    assert!(input.links().is_empty());
     let [span] = input.tokens() else {
         panic!("one native input token expected");
     };
@@ -49,15 +49,25 @@ fn install(fixture: &Fixture, name: &str, skill: &str, revision: u64) -> plugin:
     info
 }
 
-fn shown(visual: &mut VisualTestContext, selector: &'static str) {
+#[track_caller]
+fn shown(visual: &mut VisualTestContext, selector: &'static str, stage: &str) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         if visual.debug_bounds(selector).is_some() {
             return;
         }
-        assert!(std::time::Instant::now() < deadline, "missing {selector}");
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{stage}: missing {selector}; surfaces={:?}",
+            [
+                "dialog-0",
+                "plugin-details-cancel",
+                "plugin-details-configure"
+            ]
+            .map(|id| (id, visual.debug_bounds(id)))
+        );
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 }
@@ -134,8 +144,8 @@ fn plugin_links_reuse_details(cx: &mut TestAppContext) {
             native_reference(view, cx);
         });
         super::super::tests::inline::click_token(visual, &view, "@reports");
-        shown(visual, "plugin-skill-analysis");
-        shown(visual, "plugin-details-configure");
+        shown(visual, "plugin-skill-analysis", "draft reference");
+        shown(visual, "plugin-details-configure", "draft reference");
         assert!(visual.debug_bounds("details-content").is_none());
         assert!(fixture.server.requests.lock().unwrap().is_empty());
         visual.simulate_keystrokes("escape");
@@ -166,12 +176,14 @@ fn plugin_links_reuse_details(cx: &mut TestAppContext) {
             )));
             user.turn
         });
-        tap(visual, &format!("live-user-text-{turn}"));
-        shown(visual, "plugin-skill-analysis");
-        shown(visual, "plugin-details-configure");
+        let click =
+            super::super::tests::inline::click_sent_reference(visual, &view, turn, "@reports");
+        let stage = format!("sent reference: {click}");
+        shown(visual, "plugin-skill-analysis", &stage);
+        shown(visual, "plugin-details-configure", &stage);
         assert!(visual.debug_bounds("details-content").is_none());
         tap(visual, "plugin-details-configure");
-        shown(visual, "plugin-setting-label");
+        shown(visual, "plugin-setting-label", "configure reference");
         assert_eq!(fixture.server.requests.lock().unwrap().len(), 1);
         visual.simulate_keystrokes("escape escape");
         visual.update(|window, _| window.remove_window());
@@ -252,7 +264,7 @@ fn selects_and_loads_versions(cx: &mut TestAppContext) {
             "Please use @New Analysis "
         );
         super::super::tests::inline::click_token(visual, &view, "@New Analysis");
-        shown(visual, "details-content");
+        shown(visual, "details-content", "captured skill");
         visual.update(|window, cx| window.close_dialog(cx));
         assert!(fixture.server.requests.lock().unwrap().is_empty());
         visual.update(|window, cx| {

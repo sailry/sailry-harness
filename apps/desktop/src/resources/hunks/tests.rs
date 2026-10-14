@@ -43,8 +43,7 @@ fn control(window: &mut Window, selector: &str) -> Option<(ElementId, SharedStri
     let suffix = selector.strip_prefix("turn-hunks-")?;
     let (action, index) = suffix.rsplit_once('-')?;
     let index: usize = index.parse().ok()?;
-    let matches = window
-        .find_all(SharedString::from(action.to_owned()))
+    let matches = crate::ui::observation::all(window, SharedString::from(action.to_owned()))
         .into_iter()
         .filter(|target| {
             target
@@ -107,9 +106,7 @@ fn element(cx: &mut VisualTestContext, selector: &str) {
             Instant::now() < deadline,
             "hunk UI deadline: selector={selector:?}; observed={:?}",
             cx.update(|window, _| {
-                use gpui_kit::test::TestQueryExt as _;
-                window
-                    .elements()
+                gpui_kit::base::test_support::snapshots(window)
                     .into_iter()
                     .filter(|target| {
                         target

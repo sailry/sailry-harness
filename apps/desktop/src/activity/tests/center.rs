@@ -85,14 +85,12 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
     assert_eq!(toasts.len(), 1);
     click(visual, "notifications-open");
     let panel = visual.debug_bounds("notifications-panel").unwrap();
-    let trigger = visual.debug_bounds("notifications-open").unwrap();
+    let viewport = visual.update(|window, _| window.viewport_size());
     assert!(panel.size.width <= px(320.));
-    assert!(panel.left() > trigger.right());
-    let offset = visual.update(|window, _| Shell::rail_popover_offset(window));
-    assert!(
-        (f32::from(panel.bottom() - trigger.bottom())).abs() <= 1.,
-        "notification bottom: panel={panel:?}, trigger={trigger:?}, offset={offset:?}"
-    );
+    assert!(panel.left() >= px(0.));
+    assert!(panel.top() >= px(0.));
+    assert!(panel.right() <= viewport.width);
+    assert!(panel.bottom() <= viewport.height);
     for index in 0..2 {
         let selector = Box::leak(format!("notification-{index}").into_boxed_str());
         let row = visual.debug_bounds(selector).unwrap();
@@ -124,17 +122,12 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
     for viewport in [size(px(900.), px(640.)), size(px(680.), px(480.))] {
         visual.simulate_window_resize(handle, viewport);
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         let panel = visual.debug_bounds("notifications-panel").unwrap();
-        let trigger = visual.debug_bounds("notifications-open").unwrap();
-        assert!(panel.left() > trigger.right());
-        let offset = visual.update(|window, _| Shell::rail_popover_offset(window));
-        assert!(
-            (f32::from(panel.bottom() - trigger.bottom())).abs() <= 1.,
-            "notification bottom: panel={panel:?}, trigger={trigger:?}, offset={offset:?}, viewport={viewport:?}"
-        );
         assert!(panel.top() >= px(0.));
+        assert!(panel.left() >= px(0.));
         assert!(panel.right() <= viewport.width);
+        assert!(panel.bottom() <= viewport.height);
     }
     let selected = shell.read_with(visual, |shell, _| shell.live.as_ref().unwrap().selected);
     click(visual, "notifications-read-all");

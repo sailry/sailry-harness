@@ -194,6 +194,17 @@ async fn respond(
     } else {
         None
     };
+    if request["method"] == "server/discover" {
+        let error = json!({
+            "jsonrpc":"2.0", "id":request["id"],
+            "error":{"code":-32601,"message":"Method not found"}
+        });
+        if events.is_some() {
+            return send(&mut stream, &events, error).await;
+        }
+        let body = error.to_string();
+        return stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
+    }
     if let Some(result) = schema
         .get("task_schema")
         .and_then(|schema| tasks.respond(&request, schema, &calls))

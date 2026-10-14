@@ -9,7 +9,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 
-pub(crate) fn button(window: &mut Window, offset: Point<Pixels>, cx: &mut App) -> AnyElement {
+pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
     let owner = registry(cx);
     owner.update(cx, |queue, cx| queue.mount(window, cx));
     let queue = owner.read(cx);
@@ -51,7 +51,6 @@ pub(crate) fn button(window: &mut Window, offset: Point<Pixels>, cx: &mut App) -
     let change = owner.downgrade();
     Popover::new("installations-popover")
         .anchor(Anchor::BottomLeft)
-        .anchor_offset(offset)
         .open(open)
         .on_open_change(move |open, window, cx| {
             let _ = change.update(cx, |queue, cx| {

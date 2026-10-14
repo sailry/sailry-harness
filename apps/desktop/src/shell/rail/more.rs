@@ -7,7 +7,6 @@ impl Shell {
     pub(super) fn more_features(
         &self,
         features: Vec<Feature>,
-        window: &Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let owner = cx.entity().downgrade();
@@ -28,7 +27,6 @@ impl Shell {
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, cx| {
                 populate(menu, &features, owner.clone(), cx)
             })
-            .anchor_offset(Self::rail_popover_offset(window))
     }
 }
 

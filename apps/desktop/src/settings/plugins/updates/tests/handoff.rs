@@ -88,7 +88,8 @@ fn restores_a_hidden_queue(cx: &mut TestAppContext) {
             crate::installations::open(window, cx);
         });
         shown(visual, "installation-list", true);
-        tap(visual, "installation-hide");
+        visual.simulate_keystrokes("escape");
+        shown(visual, "installation-list", false);
         tap(visual, "plugins-updates-apply");
         wait(visual, |_| fixture.transport.entered.is_cancelled());
         shown(visual, "plugins-update-dialog", false);
@@ -104,7 +105,8 @@ fn restores_a_hidden_queue(cx: &mut TestAppContext) {
                     .is_some()
             );
         }
-        tap(visual, "installation-hide");
+        visual.simulate_keystrokes("escape");
+        shown(visual, "installation-list", false);
         visual.update(|window, cx| crate::installations::open(window, cx));
         shown(visual, "installation-list", true);
         assert!(visual.debug_bounds("plugins-update-dialog").is_none());

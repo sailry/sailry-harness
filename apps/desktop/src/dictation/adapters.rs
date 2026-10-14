@@ -6,14 +6,13 @@ use gpui_kit::component::speech::{
     AudioFormat, AudioInput, AudioSink, RecognitionSession, SpeechError, SpeechRecognizer,
     SpeechSink, SpeechState,
 };
-use gpui_kit::{App, AppContext as _, Entity, Subscription, Task};
+use gpui_kit::{App, AppContext as _, Entity, Subscription, Task, WeakEntity};
 use sailry_link::CancellationToken;
 use std::{cell::RefCell, rc::Rc, sync::mpsc, time::Duration};
 
 struct Control {
     stop: CancellationToken,
     cancel: CancellationToken,
-    capture_task: RefCell<Option<Task<()>>>,
 }
 
 struct Recognizer {
@@ -28,6 +27,7 @@ struct Microphone {
     selected: Option<String>,
     runtime: tokio::runtime::Handle,
     control: Rc<Control>,
+    state: WeakEntity<SpeechState>,
 }
 
 struct Session {
@@ -52,7 +52,6 @@ pub(crate) fn session(
         // the controller's queued Final/Error event. UI cancellation still
         // propagates to this child when the draft or view is released.
         cancel: cancel.child_token(),
-        capture_task: RefCell::new(None),
     });
     let recognizer = Recognizer {
         captured: RefCell::new(Some(captured)),
@@ -61,18 +60,16 @@ pub(crate) fn session(
         runtime: runtime.clone(),
         control: control.clone(),
     };
-    let input = Microphone {
-        selected: options.microphone,
-        runtime,
-        control,
-    };
     cx.new(|cx| {
         SpeechState::new(cx)
             .recognizer(recognizer)
-            .input(input)
+            .input(Microphone {
+                selected: options.microphone,
+                runtime,
+                control,
+                state: cx.weak_entity(),
+            })
             .system_fallback(false)
-            .drain_input_on_stop(true)
-            .wait_for_final()
     })
 }
 
@@ -189,6 +186,7 @@ impl AudioInput for Microphone {
             let _ = sender.send(Audio::End(result));
         });
         let cancel = self.control.cancel.clone();
+        let state = self.state.clone();
         let pump = cx.spawn(async move |cx| {
             while let Some(audio) = receiver.recv().await {
                 if cancel.is_cancelled() {
@@ -197,7 +195,9 @@ impl AudioInput for Microphone {
                 let ended = matches!(audio, Audio::End(_));
                 cx.update(|cx| match audio {
                     Audio::Samples(samples) => sink.push(samples, cx),
-                    Audio::End(Ok(())) => sink.finish(cx),
+                    Audio::End(Ok(())) => {
+                        let _ = state.update(cx, |state, cx| state.stop(cx));
+                    }
                     Audio::End(Err(error)) => sink.error(input_error(error), cx),
                 });
                 if ended {
@@ -208,11 +208,11 @@ impl AudioInput for Microphone {
                 cx.update(|cx| sink.error(input_error("dictation_microphone"), cx));
             }
         });
-        *self.control.capture_task.borrow_mut() = Some(pump);
         let stop = self.control.stop.clone();
-        // Keep the pump in Control while the capture subscription is dropped:
-        // its last PCM and EOS still have to reach Kit before recognition flushes.
-        Ok(Subscription::new(move || stop.cancel()))
+        Ok(Subscription::new(move || {
+            stop.cancel();
+            drop(pump);
+        }))
     }
 }
 

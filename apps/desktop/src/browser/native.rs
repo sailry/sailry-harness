@@ -37,10 +37,6 @@ impl Browser {
             unsafe { page.raw().controller().IsVisible(&mut visible).ok() }?;
             Some(!visible.as_bool())
         });
-        #[cfg(target_os = "windows")]
-        let snapshot = tab.map(|tab| tab.snapshot.state());
-        #[cfg(not(target_os = "windows"))]
-        let snapshot = serde_json::Value::Null;
         serde_json::json!({
             "mounted": self.mounted.get(),
             "lease": self.lease,
@@ -50,7 +46,6 @@ impl Browser {
             "loading": tab.map(|tab| tab.loading),
             "kit_visible": page.map(|page| page.visible()),
             "raw_hidden": hidden,
-            "snapshot": snapshot,
         })
     }
 
@@ -128,8 +123,6 @@ impl Browser {
             let navigation = self.events.clone();
             let shortcuts = self.events.clone();
             let shortcut = super::shortcuts::script(cx);
-            #[cfg(target_os = "windows")]
-            let signals = tab.snapshot.signals();
             let page = window
                 .window_handle()
                 .map_err(|error| error.to_string())
@@ -140,10 +133,6 @@ impl Browser {
                         .with_url(&url)
                         .with_initialization_script(&shortcut)
                         .with_ipc_handler(move |request| {
-                            #[cfg(target_os = "windows")]
-                            if signals.receive(request.body()) {
-                                return;
-                            }
                             #[cfg(target_os = "macos")]
                             if request.body() == "inspect" {
                                 let _ = shortcuts.send((id, Event::Inspect));
@@ -186,8 +175,6 @@ impl Browser {
                             let _ = popups.send((id, Event::Open(url)));
                             wry::NewWindowResponse::Deny
                         });
-                    #[cfg(target_os = "windows")]
-                    let builder = tab.snapshot.signals().prepare(builder);
                     #[cfg(target_os = "macos")]
                     let builder = {
                         use wry::WebViewBuilderExtMacos as _;
@@ -231,20 +218,9 @@ impl Browser {
                         ));
                     }
                     tab.page = Some(cx.new(|cx| {
-                        // Mounting and selection explicitly hand off focus later.
-                        // Hidden construction also preserves a foreground tab's responder.
-                        let page = WebView::new_hidden(page, window, cx);
-                        // Kit initializes zero bounds and has no layout for unmounted tabs.
-                        // Background browser tools still need a viewport; visible layout takes over.
-                        let viewport = window.viewport_size();
-                        let _ = page.set_bounds(wry::Rect {
-                            position: wry::dpi::LogicalPosition::new(0., 0.).into(),
-                            size: wry::dpi::LogicalSize::new(
-                                f32::from(viewport.width) as f64,
-                                f32::from(viewport.height) as f64,
-                            )
-                            .into(),
-                        });
+                        // The raw child starts hidden; stock Kit owns its bounds after mount.
+                        let mut page = WebView::new(page, window, cx);
+                        page.hide();
                         page
                     }));
                 }

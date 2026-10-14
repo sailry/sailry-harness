@@ -88,7 +88,7 @@ class Audit:
                     self.pair(label + ".surface", action.get(state), colors.get("muted.background"), base, 3)
         tracks = {
             "unchecked": colors.get("switch.background"),
-            "checked": colors.get("switch.checked.background", colors.get("button.primary.background")),
+            "checked": colors.get("primary.background"),
         }
         for state, track in tracks.items():
             self.pair(f"{mode}: {state} switch thumb", colors.get("switch.thumb.background"), track, base, 3)

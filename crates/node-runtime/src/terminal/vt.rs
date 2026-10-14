@@ -20,7 +20,7 @@ use std::{
 };
 
 use libghostty_vt::{
-    RenderState, Terminal as Ghostty, TerminalOptions,
+    RenderState, Terminal as Ghostty,
     error::Error as GhosttyError,
     key::{
         Action as GhosttyKeyAction, Encoder as GhosttyKeyEncoder, Event as GhosttyKeyEvent,
@@ -78,12 +78,15 @@ impl Vt {
     ) -> Result<Self, Fault> {
         let responses = Rc::new(RefCell::new(Vec::new()));
         let mut terminal = check(
-            Ghostty::new(TerminalOptions {
-                cols: viewport.columns,
-                rows: viewport.rows,
-                max_scrollback: ghostty_scrollback_bytes(viewport, max_scrollback_rows),
-            }),
+            Ghostty::new(viewport.columns, viewport.rows),
             "create Ghostty terminal",
+        )?;
+        check(
+            terminal.set_scrollback_max_bytes(Some(ghostty_scrollback_bytes(
+                viewport,
+                max_scrollback_rows,
+            ))),
+            "configure Ghostty scrollback",
         )?;
         configure_appearance(&mut terminal, appearance)?;
         check(

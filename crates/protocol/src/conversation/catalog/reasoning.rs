@@ -81,12 +81,12 @@ mod tests {
         };
         assert_eq!(
             model.efforts(ModelApi::DeepSeek, 8192),
-            vec![Effort::Low, Effort::High, Effort::Max, Effort::Disabled]
+            vec![Effort::High, Effort::Max, Effort::Disabled]
         );
         model.options.remove(0);
         assert_eq!(
             model.efforts(ModelApi::DeepSeek, 8192),
-            vec![Effort::Low, Effort::High, Effort::Max]
+            vec![Effort::High, Effort::Max]
         );
     }
 }

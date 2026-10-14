@@ -1,7 +1,11 @@
 use super::*;
+use crate::mcp_transport::{self, Tracked};
 use rmcp::{
-    model::{CallToolRequestParams, CallToolResponse, ClientInfo},
-    service::{ClientInitializeError, ServiceError},
+    RoleClient,
+    model::{CallToolRequestParams, CallToolResponse, ClientConfig},
+    service::{
+        ClientInitializeError, RunningService, ServiceError, serve_client_with_lifecycle_and_ct,
+    },
     transport::{
         StreamableHttpClientTransport,
         streamable_http_client::{
@@ -10,11 +14,16 @@ use rmcp::{
     },
 };
 use serde_json::{Value, json};
+use tokio::sync::oneshot;
+
+const DEADLINE: Duration = Duration::from_secs(20);
+const CLEANUP_LIMIT: Duration = Duration::from_secs(7);
 
 pub(super) async fn search(
     endpoint: &str,
     auth: &Auth,
     input: &search::Request,
+    stop: &CancellationToken,
 ) -> Result<Vec<search::Result>, Failure> {
     if auth.key.is_none() {
         let endpoint = if endpoint == "https://api.exa.ai/search" {
@@ -22,11 +31,17 @@ pub(super) async fn search(
         } else {
             endpoint
         };
-        return hosted(endpoint, input).await;
+        return hosted(endpoint, input, stop).await;
     }
-    let response = network::json(network::client()?.post(endpoint).header("x-api-key", network::key(auth)?).json(&json!({
+    let request = network::json(network::client()?.post(endpoint).header("x-api-key", network::key(auth)?).json(&json!({
         "query": input.query, "numResults": input.limit, "type": "auto", "contents": {"text": {"maxCharacters": 4000}},
-    }))).await?;
+    })));
+    let response = tokio::select! {
+        biased;
+        _ = stop.cancelled() => return Err(Failure::cancelled()),
+        result = tokio::time::timeout(DEADLINE, request) => result
+            .unwrap_or_else(|_| Err(Failure::unavailable("search service deadline exceeded")))?,
+    };
     parse(&response)
 }
 
@@ -34,32 +49,93 @@ pub(super) fn parse(value: &Value) -> Result<Vec<search::Result>, Failure> {
     network::results(value, "/results", "title", "text", "publishedDate")
 }
 
-async fn hosted(endpoint: &str, input: &search::Request) -> Result<Vec<search::Result>, Failure> {
-    let stop = CancellationToken::new();
-    let _guard = stop.clone().drop_guard();
+async fn hosted(
+    endpoint: &str,
+    input: &search::Request,
+    request_stop: &CancellationToken,
+) -> Result<Vec<search::Result>, Failure> {
+    let worker_stop = CancellationToken::new();
     let mut config = StreamableHttpClientTransportConfig::with_uri(endpoint.to_owned())
         .reinit_on_expired_session(false);
     config.max_sse_event_size = network::MAX_BODY;
     let adapter = StreamableHttpClientTransport::with_client(network::client()?, config);
-    let service = rmcp::service::serve_client_with_ct(ClientInfo::default(), adapter, stop)
-        .await
-        .map_err(initialize)?;
+    let (adapter, closed) = Tracked::new(adapter);
+    let mut deadline = Box::pin(tokio::time::sleep(DEADLINE));
+    let mut initializing = Box::pin(serve_client_with_lifecycle_and_ct(
+        ClientConfig::default(),
+        adapter,
+        mcp_transport::lifecycle(),
+        worker_stop.clone(),
+    ));
+    let initialized = tokio::select! {
+        biased;
+        _ = request_stop.cancelled() => None,
+        _ = &mut deadline => None,
+        result = &mut initializing => Some(result),
+    };
+    if initialized.is_none() {
+        worker_stop.cancel();
+    }
+    drop(initializing);
+    let service = match initialized {
+        Some(Ok(service)) => service,
+        Some(Err(error)) => {
+            let failure = initialize(error);
+            return Err(if wait_closed(closed).await {
+                failure
+            } else {
+                failure.with_cleanup_uncertain()
+            });
+        }
+        None => {
+            let cleaned = wait_closed(closed).await;
+            return if request_stop.is_cancelled() {
+                Err(Failure::cancelled_with_cleanup(cleaned))
+            } else {
+                Err(Failure::deadline_with_cleanup(cleaned))
+            };
+        }
+    };
     let params = CallToolRequestParams::new("web_search_exa").with_arguments(
         json!({"query":input.query,"numResults":input.limit})
             .as_object()
             .expect("search arguments are an object")
             .clone(),
     );
-    let response = service
-        .call_tool_once(params)
-        .await
-        .map_err(|error| match error {
+    let mut call = Box::pin(service.call_tool_once(params));
+    let response = tokio::select! {
+        biased;
+        _ = request_stop.cancelled() => None,
+        _ = &mut deadline => None,
+        result = &mut call => Some(result.map_err(|error| match error {
             ServiceError::TransportSend(error) => transport(error.error.as_ref()),
             ServiceError::TransportClosed => Failure::unavailable("search connection closed"),
             _ => Failure::invalid("search service rejected the tool call"),
-        });
-    let _ = service.cancel().await;
-    let CallToolResponse::Complete(response) = response? else {
+        })),
+    };
+    drop(call);
+    let cleaned = close(service, closed).await;
+    let Some(response) = response else {
+        return if request_stop.is_cancelled() {
+            Err(Failure::cancelled_with_cleanup(cleaned))
+        } else {
+            Err(Failure::deadline_with_cleanup(cleaned))
+        };
+    };
+    let response = match response {
+        Ok(response) => response,
+        Err(failure) => {
+            return Err(if cleaned {
+                failure
+            } else {
+                failure.with_cleanup_uncertain()
+            });
+        }
+    };
+    if !cleaned {
+        return Err(Failure::cleanup_uncertain());
+    }
+    let CallToolResponse::Complete(response) = response else {
         return Err(Failure::invalid(
             "search service did not return a final result",
         ));
@@ -80,6 +156,26 @@ async fn hosted(endpoint: &str, input: &search::Request) -> Result<Vec<search::R
         }
     }
     formatted(&text)
+}
+
+async fn close(
+    service: RunningService<RoleClient, ClientConfig>,
+    closed: oneshot::Receiver<bool>,
+) -> bool {
+    tokio::time::timeout(CLEANUP_LIMIT, async move {
+        let joined = service.cancel().await.is_ok();
+        let closed = closed.await.unwrap_or(false);
+        joined && closed
+    })
+    .await
+    .unwrap_or(false)
+}
+
+async fn wait_closed(closed: oneshot::Receiver<bool>) -> bool {
+    matches!(
+        tokio::time::timeout(CLEANUP_LIMIT, closed).await,
+        Ok(Ok(true))
+    )
 }
 
 fn initialize(error: ClientInitializeError) -> Failure {

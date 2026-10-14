@@ -1,7 +1,7 @@
 use super::*;
 use crate::editor::Command;
 use gpui_kit as gpui;
-use gpui_kit::{TestAppContext, VisualTestContext};
+use gpui_kit::{AppContext as _, TestAppContext, VisualTestContext};
 
 fn open<'a>(
     source: &'static str,
@@ -11,7 +11,16 @@ fn open<'a>(
         gpui_kit::init(cx);
         crate::tests::init(cx);
     });
-    cx.add_window_view(|window, cx| State::new(source, window, cx))
+    let mut state = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let editor = cx.new(|cx| State::new(source, window, cx));
+        state = Some(editor.clone());
+        gpui_kit::component::Root::new(editor, window, cx)
+    });
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.run_until_parked();
+    (state.unwrap(), visual)
 }
 
 #[gpui::test]

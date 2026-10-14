@@ -1,6 +1,7 @@
 use super::*;
+use crate::ui::observation;
 use chrono::{Timelike, Utc};
-use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+use gpui_kit::test::TestWindowExt as _;
 
 fn tap(visual: &mut VisualTestContext, id: impl Into<ElementId>) {
     let id = id.into();
@@ -16,7 +17,11 @@ fn tap(visual: &mut VisualTestContext, id: impl Into<ElementId>) {
 fn field(visual: &mut VisualTestContext, label: &str) {
     let id = visual.update(|window, cx| {
         window.render_frame(cx);
-        window.find_by_label(label).path().last().unwrap().clone()
+        observation::label(window, label)
+            .path()
+            .last()
+            .unwrap()
+            .clone()
     });
     tap(visual, id);
 }
@@ -46,19 +51,18 @@ fn preserves_calendar_edits_and_reports_invalid_zones(cx: &mut TestAppContext) {
         });
         visual.update(|window, cx| {
             window.render_frame(cx);
-            let mut timing = window.within("task-timing");
-            let id = timing
-                .find_by_label("Weekly")
+            let id = observation::label_within(window, "task-timing", "Weekly")
                 .path()
                 .last()
                 .unwrap()
                 .clone();
+            let mut timing = window.within("task-timing");
             timing.click(id, cx);
         });
         wait(visual, |cx| snapshot(&panel, cx).contains("task-weekday-7"));
         visual.update(|window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find_by_label("Interval (seconds)").is_none());
+            assert!(observation::try_label(window, "Interval (seconds)").is_none());
         });
         tap(visual, "task-save");
         toast(visual, "Enter a timezone");
@@ -80,7 +84,7 @@ fn preserves_calendar_edits_and_reports_invalid_zones(cx: &mut TestAppContext) {
         assert!(items(&fixture, &package).is_empty());
         visual.update(|window, cx| {
             window.render_frame(cx);
-            assert!(window.try_find_by_label("Time").is_some());
+            assert!(observation::try_label(window, "Time").is_some());
         });
         field(visual, "Timezone");
         visual.simulate_keystrokes("secondary-a");

@@ -225,6 +225,14 @@ async fn respond(
         .lock()
         .unwrap()
         .push((method.clone(), headers, request.clone()));
+    if request["method"] == "server/discover" {
+        let body = json!({
+            "jsonrpc":"2.0", "id":request["id"],
+            "error":{"code":-32601,"message":"Method not found"}
+        })
+        .to_string();
+        return stream.write_all(format!("HTTP/1.1 200 Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
+    }
     if matches!(reply, Reply::HeldInitialization) && request["method"] == "initialize" {
         std::future::pending::<()>().await;
     }

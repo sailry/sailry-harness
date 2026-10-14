@@ -5,9 +5,12 @@ use reqwest::{
     Client, Url,
     header::{HeaderName, HeaderValue},
 };
-use rmcp::transport::{
-    common::client_side_sse::BoxedSseResponse,
-    streamable_http_client::{StreamableHttpClient, StreamableHttpPostResponse},
+use rmcp::{
+    service::{RxJsonRpcMessage, TxJsonRpcMessage},
+    transport::{
+        common::client_side_sse::BoxedSseResponse,
+        streamable_http_client::{StreamableHttpClient, StreamableHttpPostResponse},
+    },
 };
 use std::collections::HashMap;
 #[cfg(test)]

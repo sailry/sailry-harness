@@ -4,7 +4,7 @@
 use super::*;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Command, Output};
-use std::{cell::Cell, rc::Rc};
+use std::rc::Rc;
 #[path = "preview/documents.rs"]
 mod documents;
 #[path = "preview/surface.rs"]

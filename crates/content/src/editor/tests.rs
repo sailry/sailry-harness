@@ -55,15 +55,67 @@ fn switches_modes(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn routes_history_without_switching_modes(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestWindowExt as _;
+
+    let (state, visual) = setup(cx, "Original");
+    let owner = state.read_with(visual, |state, _| {
+        let Buffer::Editor(input) = &state.input;
+        input.entity_id()
+    });
+    visual.update(|window, cx| {
+        let anchor = window.find("markdown-source-actions");
+        assert_eq!(anchor.bounds().size, gpui_kit::size(px(0.), px(0.)));
+        state.update(cx, |state, cx| {
+            state.focus_handle(cx).focus(window, cx);
+            state.select_all(cx);
+            state.insert("Changed", window, cx);
+        });
+    });
+    settle(visual);
+    visual.simulate_keystrokes("cmd-z");
+    assert_eq!(
+        state.read_with(visual, |state, cx| state.source(cx)),
+        "Original"
+    );
+    visual.simulate_keystrokes("cmd-shift-z");
+    assert_eq!(
+        state.read_with(visual, |state, cx| state.source(cx)),
+        "Changed"
+    );
+    visual.update(|window, cx| {
+        state.update(cx, |state, cx| {
+            state.select_all(cx);
+            state.command(Command::Copy, window, cx);
+            assert_eq!(
+                cx.read_from_clipboard().unwrap().text().as_deref(),
+                Some("Changed")
+            );
+            state.command(Command::Cut, window, cx);
+            assert!(state.source(cx).is_empty());
+            state.command(Command::Undo, window, cx);
+            assert_eq!(state.source(cx), "Changed");
+            state.select_all(cx);
+            cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string("Pasted".into()));
+            state.command(Command::Paste, window, cx);
+            assert_eq!(state.source(cx), "Pasted");
+            assert_eq!(state.mode(), Mode::Document);
+            let Buffer::Editor(input) = &state.input;
+            assert_eq!(input.entity_id(), owner);
+            assert!(!input.focus_handle(cx).is_focused(window));
+            assert!(state.focus_handle(cx).is_focused(window));
+        });
+    });
+}
+
+#[gpui::test]
 fn rendered_caret_projects_into_the_source_buffer(cx: &mut TestAppContext) {
     let (state, visual) = setup(cx, "# Title\n\n**é🚢x**\n");
     visual.update(|window, cx| {
         state.update(cx, |state, cx| {
             state.selection = Selection::at(Cursor::new(1, Part::Body, "é🚢".len()));
             assert_eq!(state.source_cursor_position(cx), Some(Position::new(2, 4)));
-            let Buffer::Editor(input) = &state.input else {
-                panic!("expected the existing document editor");
-            };
+            let Buffer::Editor(input) = &state.input;
             assert_eq!(input.read(cx).cursor_position(), Position::new(0, 0));
             state.focus_handle(cx).focus(window, cx);
         });
@@ -77,9 +129,7 @@ fn rendered_caret_projects_into_the_source_buffer(cx: &mut TestAppContext) {
         state.update(cx, |state, cx| {
             state.set_mode(Mode::Source, window, cx);
             assert_eq!(state.source_cursor_position(cx), None);
-            let Buffer::Editor(input) = &state.input else {
-                panic!("expected the existing document editor");
-            };
+            let Buffer::Editor(input) = &state.input;
             assert_eq!(input.read(cx).cursor_position(), Position::new(2, 3));
         });
     });
@@ -88,6 +138,7 @@ fn rendered_caret_projects_into_the_source_buffer(cx: &mut TestAppContext) {
 #[gpui::test]
 fn pointer_editing(cx: &mut TestAppContext) {
     let source = "Plain **bold** and *italic* tail\r\n\r\n[ref]: notes.md\r\n";
+    let inserted = " changed 中文";
     let (state, visual) = setup(cx, source);
     let point = visual.update(|_, cx| {
         let state = state.read(cx);
@@ -97,7 +148,7 @@ fn pointer_editing(cx: &mut TestAppContext) {
     });
     visual.simulate_mouse_down(point, MouseButton::Left, Modifiers::default());
     visual.simulate_mouse_up(point, MouseButton::Left, Modifiers::default());
-    visual.simulate_input(" changed 中文");
+    visual.simulate_input(inserted);
     settle(visual);
     visual.update(|window, cx| {
         state.update(cx, |state, cx| {
@@ -123,9 +174,23 @@ fn pointer_editing(cx: &mut TestAppContext) {
                     .as_deref(),
                 Some("Plain bold and italic tail changed 中文")
             );
-            state.command(Command::Undo, window, cx);
+            // Simulated typing dispatches one atomic source edit per character.
+            for (end, _) in inserted.char_indices().rev() {
+                state.command(Command::Undo, window, cx);
+                assert_eq!(
+                    state.source(cx).as_ref(),
+                    source.replacen("tail", &format!("tail{}", &inserted[..end]), 1)
+                );
+            }
             assert_eq!(state.source(cx).as_ref(), source);
-            state.command(Command::Redo, window, cx);
+            for (start, character) in inserted.char_indices() {
+                state.command(Command::Redo, window, cx);
+                let end = start + character.len_utf8();
+                assert_eq!(
+                    state.source(cx).as_ref(),
+                    source.replacen("tail", &format!("tail{}", &inserted[..end]), 1)
+                );
+            }
             assert!(state.source(cx).contains("changed 中文"));
         })
     });
@@ -146,7 +211,6 @@ fn edits_structured_blocks(cx: &mut TestAppContext) {
             let cell = state.source(cx);
             state.enter(&keys::Enter, window, cx);
             assert_eq!(state.source(cx), cell);
-            state.commit(cx);
             state.place(Cursor::new(1, Part::Code, 4));
             state.replace_text_in_range(None, "new_", window, cx);
             assert_eq!(
@@ -163,23 +227,34 @@ fn edits_structured_blocks(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn groups_typing_undo(cx: &mut TestAppContext) {
+fn programmatic_edits_are_atomic(cx: &mut TestAppContext) {
     let source = "# Original\r\n\r\n[ref]: notes.md\r\n";
     let (state, visual) = setup(cx, source);
     visual.update(|window, cx| {
         state.update(cx, |state, cx| {
             state.place(Cursor::new(0, Part::Body, 8));
+            let mut revisions = vec![state.source(cx)];
             for part in [" ", "Revised", " ", "中", "文"] {
                 state.replace_text_in_range(None, part, window, cx);
+                let source = state.source(cx);
+                if revisions.last() != Some(&source) {
+                    revisions.push(source);
+                }
             }
             assert_eq!(
                 state.source(cx).as_ref(),
                 source.replacen("Original", "Original Revised 中文", 1)
             );
             assert_eq!(state.caret_text().unwrap().text, "Original Revised 中文");
-            state.undo(&Undo, window, cx);
+            for expected in revisions.iter().rev().skip(1) {
+                state.undo(&Undo, window, cx);
+                assert_eq!(&state.source(cx), expected);
+            }
             assert_eq!(state.source(cx).as_ref(), source);
-            state.redo(&Redo, window, cx);
+            for expected in revisions.iter().skip(1) {
+                state.redo(&Redo, window, cx);
+                assert_eq!(&state.source(cx), expected);
+            }
             assert!(state.source(cx).contains("Original Revised 中文"));
         })
     });
@@ -214,9 +289,7 @@ fn cancels_stale_composition(cx: &mut TestAppContext) {
             state.place(Cursor::new(0, Part::Body, 8));
             state.replace_and_mark_text_in_range(None, "中", None, window, cx);
             assert_eq!(state.source(cx).as_ref(), "# Original\n");
-            let Buffer::Editor(input) = &state.input else {
-                unreachable!()
-            };
+            let Buffer::Editor(input) = &state.input;
             input.update(cx, |input, cx| {
                 input.set_value("# External\n", window, cx);
             });
@@ -295,7 +368,6 @@ fn preserves_literal_prefixes(cx: &mut TestAppContext) {
                 original.replacen("Heading", "Headingx", 1)
             );
             assert!(matches!(state.doc.blocks[0].kind, BlockKind::Paragraph(_)));
-            state.commit(cx);
             state.place(Cursor::new(1, Part::Body, "- item".len()));
             state.insert("x", window, cx);
             assert_eq!(

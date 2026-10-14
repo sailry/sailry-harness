@@ -17,13 +17,12 @@ pub(super) fn deepseek(
     Ok(match effort {
         Effort::Default => config,
         Effort::Disabled => config.with_thinking_mode(ThinkingMode::Disabled),
-        Effort::Low | Effort::High | Effort::Max => config
+        Effort::High => config
             .with_thinking_mode(ThinkingMode::Enabled)
-            .with_reasoning_effort(match effort {
-                Effort::Low => ReasoningEffort::Low,
-                Effort::High => ReasoningEffort::High,
-                _ => ReasoningEffort::Max,
-            }),
+            .with_reasoning_effort(ReasoningEffort::High),
+        Effort::Max => config
+            .with_thinking_mode(ThinkingMode::Enabled)
+            .with_reasoning_effort(ReasoningEffort::Max),
         _ => return Err(unsupported()),
     })
 }
@@ -85,11 +84,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deepseek_preserves_low_and_disabled() {
+    fn deepseek_limits_effort() {
         use adk_model::deepseek::{DeepSeekConfig, ReasoningEffort, ThinkingMode};
-        let low = deepseek(DeepSeekConfig::new("fixture", "fixture"), Effort::Low).unwrap();
-        assert_eq!(low.reasoning_effort, Some(ReasoningEffort::Low));
-        assert_eq!(low.thinking, Some(ThinkingMode::Enabled));
+        let config = || DeepSeekConfig::new("fixture", "fixture");
+        let default = deepseek(config(), Effort::Default).unwrap();
+        assert_eq!(default.thinking, None);
+        assert_eq!(default.reasoning_effort, None);
+        let high = deepseek(config(), Effort::High).unwrap();
+        assert_eq!(high.thinking, Some(ThinkingMode::Enabled));
+        assert_eq!(high.reasoning_effort, Some(ReasoningEffort::High));
+        let max = deepseek(config(), Effort::Max).unwrap();
+        assert_eq!(max.thinking, Some(ThinkingMode::Enabled));
+        assert_eq!(max.reasoning_effort, Some(ReasoningEffort::Max));
+        assert_eq!(deepseek(config(), Effort::Low).unwrap_err(), unsupported());
         let off = deepseek(DeepSeekConfig::new("fixture", "fixture"), Effort::Disabled).unwrap();
         assert_eq!(off.thinking, Some(ThinkingMode::Disabled));
         assert_eq!(off.reasoning_effort, None);

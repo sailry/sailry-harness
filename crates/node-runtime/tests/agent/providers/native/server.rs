@@ -26,6 +26,7 @@ pub enum Reply {
     Failure,
     Raw(Arc<Vec<u8>>),
     Scripted(Arc<Vec<Script>>),
+    Dynamic(Arc<dyn Fn(usize) -> Script + Send + Sync>),
     Redirect(String),
     Wait(Arc<tokio::sync::Notify>),
 }
@@ -170,8 +171,12 @@ async fn respond(
         });
         index
     };
-    if let Reply::Scripted(scripts) = &reply {
-        let script = &scripts[index.min(scripts.len() - 1)];
+    let script = match &reply {
+        Reply::Scripted(scripts) => Some(scripts[index.min(scripts.len() - 1)].clone()),
+        Reply::Dynamic(create) => Some(create(index)),
+        _ => None,
+    };
+    if let Some(script) = script {
         for chunk in script.bytes.chunks(7) {
             stream.write_all(chunk).await?;
         }

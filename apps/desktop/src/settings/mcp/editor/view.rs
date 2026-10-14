@@ -144,7 +144,6 @@ impl Render for Editor {
                 Field::new().label(tr("mcp_transport")).child(
                     TabBar::new("mcp-transport")
                         .segmented()
-                        .equal_width()
                         .w_full()
                         .selected_index(
                             transports

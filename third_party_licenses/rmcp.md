@@ -1,15 +1,14 @@
 # MCP SDK patches
 
-`vendor/rmcp` contains the published `rmcp 3.1.4` package from
-[the official Rust SDK](https://github.com/modelcontextprotocol/rust-sdk/tree/4a738b9dd99eaca418b614afa433a0cbdaf8d056/crates/rmcp).
-The registry package records revision `4a738b9dd99eaca418b614afa433a0cbdaf8d056`.
-The package declares Apache-2.0. The complete upstream licensing transition,
-Apache-2.0, MIT and documentation notices from that revision are retained in
-`vendor/rmcp/LICENSE`.
-Registry cache markers are omitted; trailing whitespace and final newlines are normalized.
-The manifest disables upstream's developer Git hook installer in the vendored build.
+Sailry uses `rmcp 3.5.1` from the pinned
+[sailry/rust-sdk fork](https://github.com/sailry/rust-sdk/tree/e43a57e4c4db63825dc5682d6a476da439bf9480/crates/rmcp),
+based on [the official Rust SDK v3.5.1](https://github.com/modelcontextprotocol/rust-sdk/tree/79437f291b2c44053d00dcd5db969fd0cca7c887/crates/rmcp).
+The root Cargo.toml applies the fork across all crates.io `rmcp` dependencies,
+including ADK's MCP feature. The upstream Apache-2.0, MIT and documentation
+licensing-transition text is retained in [rmcp-LICENSE](rmcp-LICENSE).
+The fork's `rmcp-macros 3.5.1` workspace package uses the same license text.
 
-The local reqwest patch applies the existing SSE message limit to JSON and HTTP
+The fork's reqwest patch applies the existing SSE message limit to JSON and HTTP
 error response bodies before decoding them. It rejects oversized Content-Length
 and stops chunked reads as soon as the limit is exceeded. Read failures propagate
 instead of being treated as accepted responses. Sailry configures an 8 MiB limit.
@@ -17,10 +16,10 @@ instead of being treated as accepted responses. Sailry configures an 8 MiB limit
 The SDK's response reader and SSE limiter are private, so using a separate client
 adapter would duplicate parsing and error handling. Session management, request
 correlation, authentication headers, SSE parsing and cleanup stay in the SDK.
-No protocol version, transport implementation or dependency version changes.
-Replace this patch with a pinned upstream revision after the same regressions pass.
+These patches add no new protocol version or alternate transport implementation.
+The fork remains pinned until an upstream revision passes the same regressions.
 
-The service cancellation patch also cancels incoming request contexts for client
+The fork's service cancellation patch also cancels incoming request contexts for client
 handlers, including elicitation. It uses the SDK's request-token pool, which is
 registered before callbacks are spawned, so cancellation cannot race a separate
 application callback registry. Existing outgoing client cancellation remains the
@@ -37,9 +36,9 @@ or authentication value, and does not change transport retry behavior.
 
 The dynamic registration patch selects `none` when advertised, otherwise
 `client_secret_basic`, then `client_secret_post`, matching the SDK's token
-exchange preference. The pinned SDK always requested `none`, preventing
+exchange preference. The upstream SDK requested `none`, preventing
 registration with servers advertising only confidential methods. Omitted
 authentication-method metadata keeps its existing public-client behavior.
 Explicit unsupported methods fail before registration, and confidential
-registration requires a returned nonempty client secret. The public API,
-dependency version and Node's private credential storage remain unchanged.
+registration requires a returned nonempty client secret. The public API and
+Node's private credential storage remain unchanged.

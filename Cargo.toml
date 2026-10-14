@@ -1,6 +1,5 @@
 [workspace]
 members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets", "crates/ocr"]
-exclude = ["vendor/rmcp", "vendor/portable-pty", "vendor/proc-macro-error2", "vendor/gpui-base", "vendor/gpui-component", "vendor/gpui-kit/kit", "vendor/gpui-kit/shell", "vendor/gpui-kit/assets", "vendor/gpui-kit/component-shell", "vendor/gpui-kit/webview", "vendor/gpui-kit/fps", "vendor/gpui-renderer/gpui", "vendor/gpui-renderer/apple", "vendor/gpui-renderer/macos", "vendor/gpui-renderer/wgpu", "vendor/gpui-renderer/windows", "vendor/rquickjs-compat", "vendor/block", "vendor/libghostty-vt-sys", "vendor/adk-model", "vendor/adk-gemini"]
 resolver = "2"
 
 [workspace.package]
@@ -14,7 +13,7 @@ tracing-log = "=0.2.0"
 tracing-subscriber = { version = "=0.3.23", default-features = false, features = ["fmt", "registry", "tracing-log", "json"] }
 tracing-appender = "=0.2.5"
 opendal = { version = "=0.57.0", default-features = false, features = ["services-s3", "services-webdav", "reqwest-rustls-no-provider-tls"] }
-age = { version = "=0.11.3", default-features = false }
+age = { version = "=0.11.5", default-features = false }
 anyhow = "=1.0.104"
 ammonia = "=4.1.4"
 html5ever = "=0.39.0"
@@ -46,11 +45,11 @@ sailry-content = { path = "crates/content" }
 objc2-application-services = { version = "=0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXUIElement", "AXError", "AXAttributeConstants", "AXRoleConstants", "AXActionConstants", "AXValue"] }
 objc2-core-graphics = { version = "=0.3.2", features = ["CGWindow"] }
 rfd = { version = "=0.17.2", default-features = false, features = ["gtk3", "common-controls-v6"] }
-gpui-kit = { git = "https://github.com/longbridge/gpui-kit", rev = "1ccf011620da24d633f7cd6d3c11ca2e97798dcf", features = ["tree-sitter-languages", "gpui-fast"] }
-gpui-fps = { git = "https://github.com/longbridge/gpui-kit", rev = "1ccf011620da24d633f7cd6d3c11ca2e97798dcf", features = ["gpui-fast"] }
-gpui-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "1ccf011620da24d633f7cd6d3c11ca2e97798dcf", features = ["gpui-fast"] }
-gpui-component-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "1ccf011620da24d633f7cd6d3c11ca2e97798dcf", features = ["gpui-fast"] }
-gpui-webview = { git = "https://github.com/longbridge/gpui-kit", rev = "1ccf011620da24d633f7cd6d3c11ca2e97798dcf" }
+gpui-kit = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["tree-sitter-languages", "gpui-fast"] }
+gpui-fps = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["gpui-fast"] }
+gpui-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["gpui-fast"] }
+gpui-component-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["gpui-fast"] }
+gpui-webview = { package = "gpui-wry", git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["gpui-fast"] }
 wry = { package = "lb-wry", version = "=0.53.3", features = ["transparent", "devtools"] }
 rust-i18n = "=4.2.0"
 sys-locale = "=0.3.2"
@@ -153,52 +152,40 @@ portable-pty = "=0.9.0"
 vte = { version = "=0.15.0", default-features = false }
 which = "=8.0.6"
 process-wrap = { version = "=10.0.0", default-features = false, features = ["tokio1", "process-group", "job-object", "kill-on-drop"] }
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs.git", rev = "6111c4d72f11f0a1894cf3c5943b9ee25a6d0c61", default-features = false, features = ["kitty-graphics"] }
+libghostty-vt = { git = "https://github.com/sailry/libghostty-rs.git", rev = "0b239afc87748c2a4bced30194a87f075a474a4b", default-features = false, features = ["kitty-graphics"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 windows = { version = "=0.62.2", features = ["Win32_System_Com", "Win32_UI_Shell"] }
-adk-browser = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
-adk-eval = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
+adk-browser = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false }
+adk-eval = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false }
 cpal = "=0.18.2"
-adk-sandbox = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false, features = ["sandbox-macos", "sandbox-linux"] }
-adk-core = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
-adk-session = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
-adk-runner = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
-adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
-adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false, features = ["openai", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
-adk-tool = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false, features = ["mcp"] }
-rmcp = { version = "=3.1.4", default-features = false, features = ["auth", "client", "transport-async-rw", "transport-streamable-http-client-reqwest"] }
-adk-acp = { git = "https://github.com/dux-web/adk-rust.git", rev = "ae14f6410e742ff84a73a7b0033a1cb77679b762", default-features = false }
+adk-sandbox = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false, features = ["sandbox-macos", "sandbox-linux"] }
+adk-core = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false }
+adk-session = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false }
+adk-runner = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false }
+adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false }
+adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false, features = ["openai", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
+adk-tool = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false, features = ["mcp"] }
+rmcp = { version = "=3.5.1", default-features = false, features = ["auth", "client", "transport-async-rw", "transport-streamable-http-client-reqwest"] }
+adk-acp = { git = "https://github.com/dux-web/adk-rust.git", rev = "940054a09de82214a7cd1d02bdb91d0e04e6f006", default-features = false }
 async-trait = "=0.1.92"
 chrono = { version = "=0.4.45", features = ["serde"] }
 chrono-tz = "=0.10.4"
 futures = "=0.3.34"
 url = "=2.5.8"
 
-[patch."https://github.com/Uzaaft/libghostty-rs.git"]
-libghostty-vt-sys = { path = "vendor/libghostty-vt-sys" }
-
 [patch.crates-io]
-rquickjs = { path = "vendor/rquickjs-compat" }
-# Preserve input, layout and native integration fixes on Kit's GPUI Fast 0.1.6 backend.
-gpui-fast = { path = "vendor/gpui-renderer/gpui" }
-gpui-fast-apple = { path = "vendor/gpui-renderer/apple" }
-gpui-fast-macos = { path = "vendor/gpui-renderer/macos" }
-gpui-fast-wgpu = { path = "vendor/gpui-renderer/wgpu" }
-gpui-fast-windows = { path = "vendor/gpui-renderer/windows" }
-block = { path = "vendor/block" }
-rmcp = { path = "vendor/rmcp" }
-portable-pty = { path = "vendor/portable-pty" }
-proc-macro-error2 = { path = "vendor/proc-macro-error2" }
-
-[patch."https://github.com/longbridge/gpui-kit"]
-gpui-base = { path = "vendor/gpui-base" }
-gpui-component = { path = "vendor/gpui-component" }
-gpui-kit = { path = "vendor/gpui-kit/kit" }
-gpui-shell = { path = "vendor/gpui-kit/shell" }
-gpui-kit-assets = { path = "vendor/gpui-kit/assets" }
-gpui-component-shell = { path = "vendor/gpui-kit/component-shell" }
-gpui-webview = { path = "vendor/gpui-kit/webview" }
-gpui-fps = { path = "vendor/gpui-kit/fps" }
+rquickjs = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab" }
+gpui-fast = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+gpui-fast-macros = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+gpui-fast-apple = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+gpui-fast-wgpu = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+gpui-fast-macos = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+gpui-fast-linux = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+gpui-fast-windows = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+gpui-fast-web = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+gpui-fast-platform = { git = "https://github.com/dux-web/gpui-fast", rev = "7c3cdde8cd7ba8b1695e0bae10261513bce20ed9" }
+rmcp = { git = "https://github.com/sailry/rust-sdk.git", rev = "e43a57e4c4db63825dc5682d6a476da439bf9480" }
+portable-pty = { git = "https://github.com/sailry/wezterm.git", rev = "e814e06b5149d73ddbcb5be670b41855b2873c74" }
 
 # Keep development code and unwind metadata small without disabling unwinding.
 [profile.dev]
@@ -211,8 +198,3 @@ split-debuginfo = "unpacked"
 gpui-base = { opt-level = 3 }
 gpui-fast = { opt-level = 3 }
 taffy = { opt-level = 3 }
-
-[patch."https://github.com/dux-web/adk-rust.git"]
-# Preserve streaming for Responses native tools in the pinned ADK revision.
-adk-model = { path = "vendor/adk-model" }
-adk-gemini = { path = "vendor/adk-gemini" }

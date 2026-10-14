@@ -12,6 +12,7 @@ use super::super::tests::{
 };
 use super::*;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 
 #[gpui::test]
 fn paste_requires_typed_marker(cx: &mut TestAppContext) {
@@ -513,23 +514,33 @@ fn selects_paths_and_sends_context(cx: &mut TestAppContext) {
         let selector: &'static str =
             Box::leak(format!("live-user-text-{}", user.turn).into_boxed_str());
         *opened.lock().unwrap() = None;
-        tap(visual, selector);
-        assert_eq!(opened.lock().unwrap().as_deref(), Some("src/资料.rs"));
+        let click = inline::click_sent_reference(visual, &view, user.turn, "@src/资料.rs");
+        assert_eq!(
+            opened.lock().unwrap().as_deref(),
+            Some("src/资料.rs"),
+            "{click}"
+        );
         *opened.lock().unwrap() = None;
         let bounds = visual.debug_bounds(selector).unwrap();
         let from = point(bounds.left() + px(1.), bounds.center().y);
         let to = point(bounds.right() - px(1.), bounds.center().y);
         visual.simulate_mouse_down(from, MouseButton::Left, Modifiers::default());
+        wait(visual, |_| true);
         visual.simulate_mouse_move(to, Some(MouseButton::Left), Modifiers::default());
+        wait(visual, |_| true);
         visual.simulate_mouse_up(to, MouseButton::Left, Modifiers::default());
         visual.run_until_parked();
         assert!(
             opened.lock().unwrap().is_none(),
             "dragging must select text without opening a reference"
         );
+        visual.simulate_keystrokes("cmd-c");
         assert_eq!(
             visual
-                .update(gpui_kit::base::TextSelection::selected_text)
+                .read_from_clipboard()
+                .unwrap()
+                .text()
+                .unwrap()
                 .trim_end(),
             "Inspect @src/资料.rs"
         );
@@ -787,7 +798,14 @@ fn typed_attachment_mentions(cx: &mut TestAppContext) {
                 rows.iter().map(Item::label).collect::<Vec<_>>()
             );
         });
-        tap(visual, "live-reference-row-0");
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let mut picker = window.within("live-reference-picker");
+            assert!(picker.find(0_usize).visible());
+            picker.click(0_usize, cx);
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| window.render_frame(cx));
         let state = view.read_with(visual, |view, cx| {
             let input = view.input.read(cx);
             (

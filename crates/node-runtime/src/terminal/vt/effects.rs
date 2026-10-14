@@ -23,27 +23,32 @@ pub(super) fn register(
     let clipboard = effects.clone();
     check(
         terminal.on_clipboard_write(move |_, write| {
-            if write.location() != ClipboardLocation::Standard {
-                return Err(ClipboardWriteError::Unsupported);
-            }
-            let text = write
-                .contents()
-                .find(|content| content.mime.split(';').next() == Some("text/plain"))
-                .ok_or(ClipboardWriteError::Unsupported)?
-                .data;
-            if text.len() > sailry_protocol::terminal::MAX_INPUT_BYTES {
-                return Err(ClipboardWriteError::InvalidData);
-            }
-            let mut effects = clipboard.borrow_mut();
-            let sequence = effects
-                .clipboard
-                .as_ref()
-                .map_or(1, |old| old.sequence.wrapping_add(1));
-            effects.clipboard = Some(Clipboard {
-                sequence,
-                text: text.to_owned(),
-            });
-            Ok(())
+            let result = (|| {
+                if write.location() != ClipboardLocation::Standard {
+                    return Err(ClipboardWriteError::Unsupported);
+                }
+                let data = write
+                    .contents()
+                    .find(|content| content.mime.split(';').next() == Some("text/plain"))
+                    .ok_or(ClipboardWriteError::Unsupported)?
+                    .data;
+                if data.len() > sailry_protocol::terminal::MAX_INPUT_BYTES {
+                    return Err(ClipboardWriteError::InvalidData);
+                }
+                let text =
+                    std::str::from_utf8(data).map_err(|_| ClipboardWriteError::InvalidData)?;
+                let mut effects = clipboard.borrow_mut();
+                let sequence = effects
+                    .clipboard
+                    .as_ref()
+                    .map_or(1, |old| old.sequence.wrapping_add(1));
+                effects.clipboard = Some(Clipboard {
+                    sequence,
+                    text: text.to_owned(),
+                });
+                Ok(())
+            })();
+            write.reply(result, false);
         }),
         "configure Ghostty clipboard callback",
     )?;

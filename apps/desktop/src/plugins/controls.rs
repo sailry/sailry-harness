@@ -1,6 +1,7 @@
 //! Small Kit adapters for script gaps: icon actions, boolean controls, and document tabs.
 //! The pinned TabBar lacks prefix/close slots; reuse Sailry's existing base Tabs composition.
 mod appearance;
+mod focus;
 mod menu;
 mod models;
 mod segments;
@@ -51,6 +52,7 @@ pub(super) fn module(
     );
     let module = appearance::extend(module, controls.clone(), stop.clone());
     let module = shortcuts::extend(module, stop.clone(), cx);
+    let module = focus::extend(module, stop.clone());
     let module = selection::extend(module, controls.clone());
     let module = menu::extend(module, controls.clone());
     let module = models::extend(module, controls.clone());

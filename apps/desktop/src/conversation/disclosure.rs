@@ -152,6 +152,8 @@ pub(crate) fn summary(
 fn tone(detail: &Detail, cx: &App) -> Hsla {
     if detail.failed {
         cx.theme().danger
+    } else if detail.pending {
+        cx.theme().warning
     } else if detail.running && !detail.pending {
         cx.theme().muted_foreground.mix(cx.theme().foreground, 0.35)
     } else {

@@ -21,7 +21,7 @@ impl Render for Browser {
         if let Some(page) = &tab.page
             && !tab.background
         {
-            body = surface::render(tab, page, &mut self.mounted, window, cx);
+            body = surface::render(page, &mut self.mounted, window, cx);
         }
         let panel = div().id("browser-surface").key_context("SailryBrowser");
         #[cfg(target_os = "macos")]

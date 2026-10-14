@@ -31,7 +31,6 @@ pub(in crate::markdown) fn render(
             .band(|point| SharedString::from(point.label.clone()))
             .value(|point| point.value)
             .value_axis(true)
-            .grid_columns(4)
             .into_any_element(),
         Data::Area { data } => AreaChart::new(data)
             .id(id)
@@ -70,8 +69,6 @@ pub(in crate::markdown) fn render(
             .high(|point| point.high)
             .low(|point| point.low)
             .close(|point| point.close)
-            .y_axis(true)
-            .grid_columns(4)
             .into_any_element(),
         Data::Sankey { nodes, links } => {
             let ids: std::collections::HashMap<_, _> = nodes

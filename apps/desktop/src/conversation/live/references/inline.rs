@@ -2,17 +2,10 @@
 //! a deleted token with Undo restores its reference, without a second edit history.
 use super::*;
 use crate::conversation::highlights;
-use gpui_kit::base::input::{
-    InlineToken, InlineTokenClickEvent, InlineTokenError, InputContent, TextareaLink,
-};
+use crate::conversation::prompt::Link;
+use gpui_kit::base::input::{InlineToken, InlineTokenClickEvent, InlineTokenError, InputContent};
 use gpui_kit::component::input::{InputToken, Textarea};
 use gpui_kit::prelude::FluentBuilder as _;
-
-const QUOTE_MARKER: &str = "quote-marker";
-
-pub(in crate::conversation::live) fn quote_marker() -> InlineToken {
-    InlineToken::new(QUOTE_MARKER, ">").with_label(" ")
-}
 
 pub(in crate::conversation::live) fn marker(reference: &Reference) -> String {
     format!("@{}", reference.label.trim_start_matches('@'))
@@ -69,28 +62,10 @@ pub(in crate::conversation::live) fn textarea(
         .iter()
         .filter_map(|reference| draft_icon(reference).map(|icon| (id(reference), icon)))
         .collect();
-    Textarea::new(input).token(move |context, _, cx| {
-        let quote = context.token().id().as_ref() == QUOTE_MARKER;
-        InputToken::new(context)
-            .border_0()
-            .when(!quote && !context.is_selected(), |token| {
-                token
-                    .bg(cx.theme().primary.opacity(0.12))
-                    .text_color(cx.theme().primary)
-            })
-            .when(quote, |token| {
-                token.rounded_none().px_0().w_2().border_l_2().when(
-                    !context.is_selected(),
-                    |token| {
-                        token
-                            .bg(cx.theme().transparent)
-                            .border_color(cx.theme().border)
-                    },
-                )
-            })
-            .when_some(icons.get(context.token().id()), |token, icon| {
-                token.icon(Icon::default().path(icon.clone()))
-            })
+    Textarea::new(input).token(move |context, _, _| {
+        InputToken::new(context).when_some(icons.get(context.token().id()), |token, icon| {
+            token.icon(Icon::default().path(icon.clone()))
+        })
     })
 }
 
@@ -101,14 +76,11 @@ pub(super) fn draft_icon(reference: &Reference) -> Option<SharedString> {
     }
 }
 
-pub(in crate::conversation::live) fn links(
-    text: &str,
-    references: &[Reference],
-) -> Vec<TextareaLink> {
+pub(in crate::conversation::live) fn links(text: &str, references: &[Reference]) -> Vec<Link> {
     source_links(text, references, true)
 }
 
-fn source_links(text: &str, references: &[Reference], historical: bool) -> Vec<TextareaLink> {
+fn source_links(text: &str, references: &[Reference], historical: bool) -> Vec<Link> {
     let excluded = if historical {
         highlights::excluded(text)
     } else {
@@ -133,10 +105,9 @@ fn source_links(text: &str, references: &[Reference], historical: bool) -> Vec<T
             {
                 continue;
             }
-            links.push(TextareaLink {
+            links.push(Link {
                 range,
                 id: label.clone().into(),
-                icon: None,
             });
         }
     }

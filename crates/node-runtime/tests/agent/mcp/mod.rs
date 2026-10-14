@@ -9,6 +9,7 @@ mod connections;
 mod content;
 mod elicitation;
 mod http;
+mod modern;
 use peer as mcp_peer;
 #[path = "../../support/mcp_input.rs"]
 #[allow(dead_code, unused_imports)]

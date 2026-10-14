@@ -117,8 +117,7 @@
 - Treat user-approved visual components and layouts as the baseline. Connect functionality to those components without restyling them. Functional additions may require local layout adjustments; explain the reason and regression-test the affected baseline. Do not redesign unrelated surfaces.
 - All right-click menus must use OS-native context menus; left-click menus must use Kit menus/popovers. Verify platform support rather than presenting a toolkit fallback as OS-native behavior.
 - For affected UI workflows, run relevant automated behavior and interaction tests. Screenshot capture, pixel assertions, screenshot baselines, and screenshot review are not required; do not add or run screenshot tests unless the user explicitly requests them. Investigate reported layout issues without making screenshot validation a delivery gate.
-- Interaction tests, OS-level E2E, performance measurements, and real-service E2E are different evidence; report exactly which ran and any coverage gaps.
-- Extend end-to-end coverage as real services are connected, using isolated test resources for local and remote paths. UI fixtures and mocked services cannot establish whole-product acceptance. When automation cannot cover a platform behavior, perform and record manual acceptance instead of declaring it tested.
+- Do not require OS-level or real-service end-to-end tests for delivery or CI. Use GPUI/Kit interaction tests and local/remote service-contract tests for automated acceptance. Run native OS or live-service checks only when explicitly requested, and report them as separate optional evidence. Keep performance measurements opt-in and separate from functional acceptance.
 
 ## Preservation and safety
 

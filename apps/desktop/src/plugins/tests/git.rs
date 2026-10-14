@@ -145,7 +145,7 @@ fn ready(panel: &Entity<Panel>, visual: &mut VisualTestContext, text: &str) {
         visual.executor().advance_clock(Duration::from_millis(10));
         visual.run_until_parked();
         let (connected, loading) = visual.update(|window, cx| {
-            window.draw(cx).clear(cx);
+            window.render_frame(cx);
             let panel = panel.read(cx);
             (panel.connected, panel.loading)
         });
@@ -166,9 +166,7 @@ fn ready_diff(panel: &Entity<Panel>, visual: &mut VisualTestContext, id: &'stati
         visual.run_until_parked();
         let ready = visual.update(|window, cx| {
             window.render_frame(cx);
-            window
-                .within(id)
-                .find_all("source")
+            crate::ui::observation::within(window, id, "source")
                 .iter()
                 .any(|line| line.visible())
         });
@@ -298,7 +296,9 @@ fn preserves_binary_entries_and_native_disclosure(cx: &mut TestAppContext) {
         click(visual, "git-tracked-payload.bin");
         ready(&panel, visual, "git-diff-payload.bin-binary");
         assert!(visual.update(|_, cx| snapshot(&panel, cx).contains("Cannot display binary diff")));
-        assert!(visual.update(|window, _| window.find_all("source").is_empty()));
+        assert!(
+            visual.update(|window, _| { crate::ui::observation::all(window, "source").is_empty() })
+        );
 
         click(visual, "git-open-changes");
         ready(&panel, visual, "git-diff-changes:/payload.bin-binary");
@@ -309,7 +309,7 @@ fn preserves_binary_entries_and_native_disclosure(cx: &mut TestAppContext) {
         assert!(header.bottom() <= body.top());
         assert!(visual.debug_bounds("git-diff-changes:/notes.txt").is_some());
         click(visual, "diff-file-changes:/payload.bin");
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         assert!(visual.debug_bounds("git-diff-body-payload.bin").is_none());
         assert!(
             visual
@@ -320,7 +320,7 @@ fn preserves_binary_entries_and_native_disclosure(cx: &mut TestAppContext) {
         click(visual, "diff-file-changes:/payload.bin");
         ready(&panel, visual, "git-diff-changes:/payload.bin-binary");
         click(visual, "diff-file-changes:/notes.txt");
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         assert!(visual.debug_bounds("git-diff-body-notes.txt").is_none());
         assert!(visual.debug_bounds("git-diff-body-payload.bin").is_some());
         assert!(writes(&fixture).is_empty());
@@ -425,7 +425,8 @@ fn surface_focused(visual: &mut VisualTestContext, handle: &FocusHandle) {
     loop {
         visual.run_until_parked();
         if visual.update(|window, cx| {
-            window.draw(cx).clear(cx);
+            window.render_frame(cx);
+            window.simulate_next_frame(cx);
             handle.is_focused(window)
         }) {
             return;
@@ -634,7 +635,7 @@ fn composer_changes_follow_package_lifecycle(cx: &mut TestAppContext) {
             visual.executor().advance_clock(Duration::from_millis(10));
             visual.run_until_parked();
             let enabled = visual.update(|window, cx| {
-                window.draw(cx).clear(cx);
+                window.render_frame(cx);
                 shell.read(cx).current_chat().is_some_and(|chat| {
                     chat.read(cx).contribution_enabled(
                         "git",
@@ -681,7 +682,7 @@ fn composer_changes_follow_package_lifecycle(cx: &mut TestAppContext) {
             enabled: false,
         });
         wait(visual, |cx| !embedded.read(cx).resource_active());
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         assert!(visual.debug_bounds("plugin-control-git-changes").is_none());
         assert_eq!(
             shell.read_with(visual, |shell, cx| shell

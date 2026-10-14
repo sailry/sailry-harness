@@ -1,6 +1,7 @@
 use super::*;
 use crate::conversation::live::tests::wait;
 use gpui_kit::component::WindowExt;
+use gpui_kit::test::TestWindowExt as _;
 
 const VISUAL_FEEDBACK: &str = "Package visual feedback";
 
@@ -10,6 +11,42 @@ pub(in crate::plugins::artifact) struct Mounted(
 );
 
 impl Global for Mounted {}
+
+impl Mounted {
+    pub(in crate::plugins::artifact) fn owner(
+        &self,
+        key: (sailry_protocol::NodeId, ArtifactId),
+    ) -> Entity<View> {
+        self.0.get(&key).and_then(WeakEntity::upgrade).unwrap()
+    }
+}
+
+fn notification_ids(window: &mut Window, cx: &mut App) -> Vec<EntityId> {
+    window
+        .notifications(cx)
+        .iter()
+        .map(Entity::entity_id)
+        .collect()
+}
+
+#[track_caller]
+fn dismissed(visual: &mut VisualTestContext) {
+    let interval = std::time::Duration::from_millis(10);
+    let timeout = std::time::Duration::from_secs(1);
+    let mut elapsed = std::time::Duration::ZERO;
+    loop {
+        visual.run_until_parked();
+        if visual.update(|window, cx| {
+            window.render_frame(cx);
+            window.notifications(cx).is_empty()
+        }) {
+            return;
+        }
+        assert!(elapsed < timeout, "feedback must finish closing");
+        visual.executor().advance_clock(interval);
+        elapsed += interval;
+    }
+}
 
 pub(super) fn capture(
     node: sailry_protocol::NodeId,
@@ -32,16 +69,12 @@ pub(in crate::plugins::artifact) fn mounted_revision(
     Some((content.artifact.revision, content.latest_revision))
 }
 
-#[cfg(all(target_os = "macos", feature = "workload-tests"))]
 #[track_caller]
 pub(in crate::plugins::artifact) fn settle_mount(
-    resource: &Resource,
+    owner: Entity<View>,
+    revision: u32,
     visual: &mut VisualTestContext,
 ) {
-    use gpui_kit::test::TestWindowExt as _;
-
-    let key = (resource.binding.client.target(), resource.artifact.id);
-    let revision = resource.artifact.revision;
     let preview_failure = crate::tr("artifact_preview_failed");
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
     loop {
@@ -51,25 +84,18 @@ pub(in crate::plugins::artifact) fn settle_mount(
         visual.run_until_parked();
         let (state, delivered) = visual.update(|window, cx| {
             window.render_frame(cx);
-            let state = cx
-                .global::<super::super::native_flow::Surfaces>()
-                .0
-                .get(&key)
-                .and_then(WeakEntity::upgrade)
-                .map(|owner| {
-                    let view = owner.read(cx);
-                    (
-                        owner.entity_id(),
-                        view.generation,
-                        view.loading,
-                        view.reload,
-                        view.content
-                            .as_ref()
-                            .map(|content| (content.artifact.revision, content.latest_revision)),
-                        view.error,
-                        view.native.is_some(),
-                    )
-                });
+            let view = owner.read(cx);
+            let state = (
+                owner.entity_id(),
+                view.generation,
+                view.loading,
+                view.reload,
+                view.content
+                    .as_ref()
+                    .map(|content| (content.artifact.revision, content.latest_revision)),
+                view.error,
+                view.native.is_some(),
+            );
             (
                 state,
                 crate::feedback::tests::count(window, &preview_failure, cx),
@@ -78,13 +104,12 @@ pub(in crate::plugins::artifact) fn settle_mount(
         // The package header can settle before its independently loaded body.
         // TestPlatform cannot mount WebKit; observe that owner's initial feedback
         // before the detached draft starts measuring operation feedback.
-        if state.as_ref().is_some_and(|state| {
-            !state.2
-                && !state.3
-                && state.4 == Some((revision, revision))
-                && state.5 == Some("artifact_preview_failed")
-                && !state.6
-        }) && delivered > 0
+        if !state.2
+            && !state.3
+            && state.4 == Some((revision, revision))
+            && state.5 == Some("artifact_preview_failed")
+            && !state.6
+            && delivered > 0
         {
             return;
         }
@@ -219,12 +244,22 @@ impl Draft {
             let custom_count = visual
                 .update(|window, cx| crate::feedback::tests::count(window, VISUAL_FEEDBACK, cx));
             for expected in 1..=2 {
-                visual.update(|window, cx| window.clear_notifications(cx));
-                crate::feedback::tests::settle(visual);
+                let (before_clear, after_clear) = visual.update(|window, cx| {
+                    let before = notification_ids(window, cx);
+                    window.clear_notifications(cx);
+                    (before, notification_ids(window, cx))
+                });
+                dismissed(visual);
+                let after_helper = visual.update(notification_ids);
                 visual.update(|window, cx| {
+                    let before_event = notification_ids(window, cx);
                     assert!(
-                        window.notifications(cx).is_empty(),
-                        "previous feedback must finish closing"
+                        before_event.is_empty(),
+                        "previous feedback must finish closing: kind={kind}, expected={expected}, \
+                         notifications={before_clear:?}->{after_clear:?}->{after_helper:?}->{before_event:?}, \
+                         message_count={}, custom_count={}",
+                        crate::feedback::tests::count(window, &message, cx),
+                        crate::feedback::tests::count(window, VISUAL_FEEDBACK, cx),
                     );
                     self.surface.update(cx, |view, cx| {
                         if kind == "render_error" {

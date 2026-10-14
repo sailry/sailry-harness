@@ -61,7 +61,8 @@ pub(crate) mod workspace;
 pub(crate) use panel::{ConversationEvent, Panel};
 
 pub(crate) fn init(cx: &mut gpui_kit::App) {
-    gpui_shell::init(cx);
+    // Kit already owns Base initialization; Shell's reflection table initializes lazily.
+    // Initializing Shell again would duplicate native input key bindings.
     contributions::native::init(cx);
     native_context::init(cx);
 }

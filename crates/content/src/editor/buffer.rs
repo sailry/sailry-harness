@@ -1,64 +1,32 @@
 //! Document editing shares the caller's existing Kit buffer and undo history.
 use super::{Command, Copy, Cut, Paste, Redo, SourceEditor, Undo};
-#[cfg(test)]
-use gpui_kit::component::input::Textarea;
-use gpui_kit::component::input::{EditorState, TextareaState};
+use gpui_kit::base::RoleOverride;
+use gpui_kit::component::input::EditorState;
 use gpui_kit::{
-    AnyElement, App, Entity, FocusHandle, Focusable, IntoElement, SharedString, Window, prelude::*,
+    Action, AnyElement, App, Entity, FocusHandle, Focusable, IntoElement, SharedString,
+    TestSupportExt as _, Window, div, prelude::*, px,
 };
 use std::ops::Range;
 
 #[derive(Clone)]
 pub(super) enum Buffer {
     Editor(Entity<EditorState>),
-    #[cfg(test)]
-    Textarea(Entity<TextareaState>),
-}
-
-macro_rules! read {
-    ($buffer:expr, $cx:expr, |$input:ident| $body:expr) => {
-        match $buffer {
-            Buffer::Editor(input) => {
-                let $input = input.read($cx);
-                $body
-            }
-            #[cfg(test)]
-            Buffer::Textarea(input) => {
-                let $input = input.read($cx);
-                $body
-            }
-        }
-    };
-}
-macro_rules! update {
-    ($buffer:expr, $cx:expr, |$input:ident, $context:ident| $body:expr) => {
-        match $buffer {
-            Buffer::Editor(input) => input.update($cx, |$input, $context| $body),
-            #[cfg(test)]
-            Buffer::Textarea(input) => input.update($cx, |$input, $context| $body),
-        }
-    };
 }
 
 impl Buffer {
-    pub(super) fn textarea(&self) -> Option<&Entity<TextareaState>> {
-        match self {
-            #[cfg(test)]
-            Self::Textarea(input) => Some(input),
-            Self::Editor(_) => None,
-        }
-    }
-
     pub(super) fn value(&self, cx: &App) -> SharedString {
-        read!(self, cx, |input| input.value())
+        let Self::Editor(input) = self;
+        input.read(cx).value()
     }
 
     pub(super) fn selection(&self, cx: &App) -> Range<usize> {
-        read!(self, cx, |input| input.selected_range())
+        let Self::Editor(input) = self;
+        input.read(cx).selected_range()
     }
 
     pub(super) fn select(&self, range: Range<usize>, cx: &mut App) {
-        update!(self, cx, |input, cx| input.set_selected_range(range, cx));
+        let Self::Editor(input) = self;
+        input.update(cx, |input, cx| input.set_selected_range(range, cx));
     }
 
     pub(super) fn replace(
@@ -68,70 +36,75 @@ impl Buffer {
         window: &mut Window,
         cx: &mut App,
     ) {
+        let Self::Editor(input) = self;
         let text = text.into();
-        update!(self, cx, |input, cx| {
+        input.update(cx, |input, cx| {
             input.set_selected_range(range, cx);
             input.replace(text, window, cx);
         });
     }
 
-    pub(super) fn begin(&self, cx: &mut App) {
-        update!(self, cx, |input, _cx| input.begin_undo_transaction());
-    }
-
-    pub(super) fn commit(&self, cx: &mut App) {
-        update!(self, cx, |input, _cx| input.commit_undo_transaction());
-    }
-
     pub(super) fn undo(&self, window: &mut Window, cx: &mut App) {
-        update!(self, cx, |input, cx| input.undo(&Undo, window, cx));
+        self.command(Command::Undo, window, cx);
     }
 
     pub(super) fn redo(&self, window: &mut Window, cx: &mut App) {
-        update!(self, cx, |input, cx| input.redo(&Redo, window, cx));
+        self.command(Command::Redo, window, cx);
     }
 
     pub(super) fn focus_handle(&self, cx: &App) -> FocusHandle {
-        match self {
-            Self::Editor(input) => input.focus_handle(cx),
-            #[cfg(test)]
-            Self::Textarea(input) => input.focus_handle(cx),
-        }
+        let Self::Editor(input) = self;
+        input.focus_handle(cx)
     }
 
     pub(super) fn find(&self, cx: &mut App) {
-        match self {
-            Self::Editor(input) => input.update(cx, |input, cx| input.open_search(false, cx)),
-            #[cfg(test)]
-            Self::Textarea(_) => {}
-        }
+        let Self::Editor(input) = self;
+        input.update(cx, |input, cx| input.open_search(false, cx));
     }
 
     pub(super) fn command(&self, command: Command, window: &mut Window, cx: &mut App) {
-        update!(self, cx, |input, cx| match command {
-            Command::Copy => input.copy(&Copy, window, cx),
-            Command::Cut => input.cut(&Cut, window, cx),
-            Command::Paste => input.paste(&Paste, window, cx),
-            _ => {}
-        });
+        let action: &dyn Action = match command {
+            Command::Copy => &Copy,
+            Command::Cut => &Cut,
+            Command::Paste => &Paste,
+            Command::Undo => &Undo,
+            Command::Redo => &Redo,
+            Command::Find => return,
+        };
+        self.focus_handle(cx).dispatch_action(action, window, cx);
+    }
+
+    pub(super) fn actions(&self) -> AnyElement {
+        let Self::Editor(input) = self;
+        // Stock input actions attach to rendered focus nodes. Keep the caller's
+        // editor mounted without another buffer or changing the document's focus.
+        div()
+            .id("markdown-source-actions")
+            .test_support()
+            .absolute()
+            .size_0()
+            .overflow_hidden()
+            .opacity(0.)
+            .child(
+                SourceEditor::new(input)
+                    .appearance(false)
+                    .bordered(false)
+                    .tab_index(-1)
+                    .role(RoleOverride::Presentational)
+                    .h(px(0.))
+                    .w_0(),
+            )
+            .into_any_element()
     }
 
     pub(super) fn render(&self, readonly: bool, label: Option<SharedString>) -> AnyElement {
-        match self {
-            Self::Editor(input) => SourceEditor::new(input)
-                .appearance(false)
-                .bordered(false)
-                .readonly(readonly)
-                .h_full()
-                .when_some(label, |input, label| input.aria_label(label))
-                .into_any_element(),
-            #[cfg(test)]
-            Self::Textarea(input) => Textarea::new(input)
-                .appearance(false)
-                .bordered(false)
-                .readonly(readonly)
-                .when_some(label, |input, label| input.aria_label(label))
-                .into_any_element(),
-        }
+        let Self::Editor(input) = self;
+        SourceEditor::new(input)
+            .appearance(false)
+            .bordered(false)
+            .readonly(readonly)
+            .h_full()
+            .when_some(label, |input, label| input.aria_label(label))
+            .into_any_element()
     }
 }

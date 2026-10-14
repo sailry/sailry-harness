@@ -564,7 +564,6 @@ fn readonly_approvals(cx: &mut TestAppContext) {
 
 #[gpui::test]
 fn picker_spaces_rows_and_preserves_keyboard(cx: &mut TestAppContext) {
-    use gpui_kit::test::TestWindowExt as _;
     init(cx);
     for remote in [false, true] {
         let fixture = fixture::Fixture::with_children(remote, 2);
@@ -634,8 +633,7 @@ fn picker_spaces_rows_and_preserves_keyboard(cx: &mut TestAppContext) {
         assert_eq!(rows[1].1.size.height, px(26.));
         assert!(rows[1].1.top() - rows[0].1.bottom() >= px(1.));
         visual.update(|window, cx| {
-            let entries = window
-                .find_all(0usize)
+            let entries = crate::ui::observation::all(window, 0usize)
                 .into_iter()
                 .filter(|entry| entry.role() == Some(Role::TreeItem))
                 .collect::<Vec<_>>();
@@ -666,8 +664,7 @@ fn picker_spaces_rows_and_preserves_keyboard(cx: &mut TestAppContext) {
         visual.simulate_keystrokes("down");
         wait(visual, |_| true);
         visual.update(|window, cx| {
-            let entries = window
-                .find_all(1usize)
+            let entries = crate::ui::observation::all(window, 1usize)
                 .into_iter()
                 .filter(|entry| entry.role() == Some(Role::TreeItem))
                 .collect::<Vec<_>>();

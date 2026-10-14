@@ -144,6 +144,7 @@ impl View {
                 turn.to_string(),
                 px(f32::from(self.message_text_size)),
             )
+            .adaptive_width()
             .on_resize(move |_, cx| {
                 _ = resizing.update(cx, |view, cx| {
                     if let Some(index) = view.rows.iter().position(|id| *id == turn) {
@@ -274,6 +275,8 @@ impl View {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(super) use tests::observe;
 
 pub(in crate::conversation::live) fn sent_input(
     page: &sailry_protocol::conversation::Page,

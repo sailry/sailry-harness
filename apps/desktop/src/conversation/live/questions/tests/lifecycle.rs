@@ -39,6 +39,41 @@ impl Transport for Lost {
     }
 }
 
+fn tap_input(view: &Entity<View>, visual: &mut VisualTestContext, stage: &str) {
+    let state = view.read_with(visual, |view, _| {
+        let input = view
+            .questions
+            .editing
+            .as_ref()
+            .and_then(|editing| editing.draft.field.as_ref())
+            .map(|field| match field {
+                Field::Line(input) => input.entity_id(),
+                Field::Multiline(input) => input.entity_id(),
+            });
+        (
+            view.questions.open,
+            current(view),
+            view.questions.pending,
+            input,
+        )
+    });
+    let observed = visual.update(|window, cx| {
+        window.render_frame(cx);
+        state
+            .3
+            .and_then(|id| window.try_find(("input", id)))
+            .map(|input| (input.visible(), input.focused(), input.bounds()))
+    });
+    assert!(
+        visual.debug_bounds("live-question-input").is_some(),
+        "missing question input at {stage}: open={}, current={:?}, pending={}, native={observed:?}",
+        state.0,
+        state.1,
+        state.2
+    );
+    tap(visual, "live-question-input");
+}
+
 #[gpui::test]
 fn retries_the_original_answer(cx: &mut TestAppContext) {
     init(cx);
@@ -57,7 +92,7 @@ fn retries_the_original_answer(cx: &mut TestAppContext) {
         tap(visual, "live-chat-input");
         visual.simulate_input("next draft");
         tap(visual, "live-question-trigger");
-        tap(visual, "live-question-input");
+        tap_input(&view, visual, "entering the original answer");
         visual.simulate_input("exact answer 中文");
         visual.simulate_keystrokes("enter");
         wait(visual, |cx| {
@@ -68,7 +103,7 @@ fn retries_the_original_answer(cx: &mut TestAppContext) {
                 .is_some_and(|snapshot| snapshot.page.questions.len() == 2)
         });
         assert!(view.read_with(visual, |view, _| view.questions.pending));
-        tap(visual, "live-question-input");
+        tap_input(&view, visual, "checking the submitted answer lock");
         visual.simulate_input("must not overwrite a submitted answer");
         assert_eq!(
             view.read_with(visual, |view, cx| view

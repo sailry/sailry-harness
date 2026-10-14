@@ -3,8 +3,7 @@ use super::*;
 struct Composer(Entity<TextareaState>);
 
 impl Render for Composer {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        apply(&self.0, cx);
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         div()
             .w_full()
             .child(Textarea::new(&self.0).appearance(false).bordered(false))
@@ -43,7 +42,6 @@ fn frame(
 }
 
 fn assert_frame(input: &Entity<TextareaState>, window: &mut Window, cx: &mut App) {
-    apply(input, cx);
     // Test updates otherwise flush effects and draw until stable. Inspect the
     // first frame inside the update, before those draws can conceal a jump.
     window.refresh();

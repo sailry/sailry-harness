@@ -60,15 +60,18 @@ class Colors(unittest.TestCase):
         result.variant("light", variant)
         self.assertTrue(any("card.explore.hover.foreground" in error for error in result.errors))
 
-    def test_separates_checked_track_from_buttons(self):
+    def test_uses_primary_for_checked_track(self):
         variant = fixture()["dark"]
         variant["theme"]["colors"].update({"background": "#000000", "foreground": "#FFFFFF", "group_box.background": "#000000",
                                            "switch.background": "#808080", "switch.thumb.background": "#FFFFFF",
-                                           "switch.checked.background": "#808080", "button.primary.background": "#000000"})
+                                           "primary.background": "#808080", "switch.checked.background": "#000000",
+                                           "button.primary.background": "#000000"})
         result = audit.Audit()
         result.variant("dark", variant)
         self.assertFalse(result.errors)
-        del variant["theme"]["colors"]["switch.checked.background"]
+        variant["theme"]["colors"]["primary.background"] = "#000000"
+        variant["theme"]["colors"]["switch.checked.background"] = "#808080"
+        variant["theme"]["colors"]["button.primary.background"] = "#808080"
         result = audit.Audit()
         result.variant("dark", variant)
         self.assertTrue(any("checked switch track" in error for error in result.errors))

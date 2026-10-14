@@ -11,4 +11,4 @@ Adapted from the committed Sailry Code revision `67ae9fa0`:
 
 These Sailry-owned adaptations are released under [Apache-2.0](../LICENSE) by their copyright owner. The adapted sections carry no additional file-level copyright notices. This adaptation changes module ownership, public names, error handling, and Node integration; it does not import the former Host or Flutter implementation.
 
-Ghostty and libghostty-rs retain their pinned revisions and upstream licenses. The raw binding crate is vendored for a focused native prompt-resize patch; see `ghostty-terminal.md`.
+Ghostty and libghostty-rs retain their pinned revisions and upstream licenses. The Rust wrapper has a GNU libc target-selection patch; native Ghostty is unmodified. See `ghostty-terminal.md`.

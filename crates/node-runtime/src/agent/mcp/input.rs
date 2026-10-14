@@ -120,8 +120,8 @@ impl Drop for Pending {
 }
 
 impl ClientHandler for Handler {
-    fn get_info(&self) -> ClientInfo {
-        let mut info = ClientInfo::default();
+    fn get_info(&self) -> ClientConfig {
+        let mut info = ClientConfig::default();
         info.capabilities = rmcp::model::ClientCapabilities::builder()
             .enable_tasks()
             .build();

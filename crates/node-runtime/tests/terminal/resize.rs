@@ -71,7 +71,7 @@ RPROMPT=''
         let mut stream = client.subscribe_terminal(info.id).await.unwrap();
         let mut projection = Projection::new(node.id(), info.id, 1);
         until(&mut *stream, &mut projection, "resize-fixture").await;
-        command(&client, &info, "printf output-without-newline").await;
+        command(&client, &info, "printf 'output-with-newline\\n'").await;
         for columns in (80..220).rev().chain(80..220) {
             client
                 .execute(client.prepare(Command::ResizeTerminal {

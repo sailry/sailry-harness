@@ -1,4 +1,5 @@
 use super::*;
+use rmcp::service::{RxJsonRpcMessage, TxJsonRpcMessage};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 struct Deferred {
@@ -31,26 +32,18 @@ impl Transport<RoleClient> for Deferred {
 type Fixture = (
     Tracked<Deferred>,
     oneshot::Sender<()>,
-    oneshot::Receiver<io::Result<()>>,
+    oneshot::Receiver<bool>,
     Arc<AtomicBool>,
 );
 
 fn fixture() -> Fixture {
     let (release, released) = oneshot::channel();
-    let (closed, completion) = oneshot::channel();
     let dropped = Arc::new(AtomicBool::new(false));
-    (
-        Tracked {
-            inner: Some(Deferred {
-                released,
-                dropped: dropped.clone(),
-            }),
-            closed: Some(closed),
-        },
-        release,
-        completion,
-        dropped,
-    )
+    let (transport, completion) = Tracked::new(Deferred {
+        released,
+        dropped: dropped.clone(),
+    });
+    (transport, release, completion, dropped)
 }
 
 #[tokio::test]
@@ -64,7 +57,7 @@ async fn dropping_initialization_joins_cleanup() {
     ));
     assert!(!dropped.load(Ordering::SeqCst));
     release.send(()).unwrap();
-    completion.await.unwrap().unwrap();
+    assert!(completion.await.unwrap());
     assert!(dropped.load(Ordering::SeqCst));
 }
 
@@ -73,7 +66,7 @@ async fn reports_cleanup_failure() {
     let (mut transport, release, completion, dropped) = fixture();
     drop(release);
     assert!(transport.close().await.is_err());
-    assert!(completion.await.unwrap().is_err());
+    assert!(!completion.await.unwrap());
     assert!(dropped.load(Ordering::SeqCst));
     assert!(transport.close().await.is_ok());
 }

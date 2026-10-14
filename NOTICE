@@ -5,10 +5,8 @@ Sailry-owned code, including adaptations of the authors' earlier Sailry Code
 and Sailry Platform implementations, is licensed under Apache-2.0.
 
 Third-party materials retain their own licenses and attribution. See
-third_party_licenses/ and the notices alongside vendor/ and bundled assets.
+third_party_licenses/ and the notices alongside bundled assets.
 These include GPUI Kit/GPUI, ADK, Ghostty, fonts, icons and other dependencies.
-Focused ADK TLS patches retain their upstream sources and licenses in
-vendor/adk-model/ and vendor/adk-gemini/.
 Imported Ghostty shell integration contains GPL-3.0-or-later material; the root
 Apache license does not relicense those scripts. Relevant notices and GPL text
 remain in third_party_licenses/.
@@ -19,15 +17,50 @@ Mason: https://github.com/mason-org/mason-registry at 2026-10-08-head-mirror, 73
 Original snapshots, checksums, provenance and license copies: crates/node-runtime/src/code/upstream/
 
 GPUI Kit integrations and editor overlays
-Vendored gpui-base sources originate from https://github.com/longbridge/gpui-kit
-at 1ccf011620da24d633f7cd6d3c11ca2e97798dcf (Apache-2.0). Sailry consumes handled
-completion and code-action menu keys before later bindings can edit the document.
-Kit integration packages retain the same source revision and select its GPUI Fast
-0.1.3 backend alongside the rebased Base and Component patches. GPUI WebView owns
-native composition on macOS and X11. Provenance and upstream licenses remain in
-vendor/gpui-kit/, vendor/gpui-base/ and vendor/gpui-component/.
-The renderer patches use the published GPUI Fast 0.1.3 family, with package
-provenance, archive checksums and upstream licenses in vendor/gpui-renderer/.
+Sailry uses the unmodified GPUI Kit 0.7.3 sources from
+https://github.com/longbridge/gpui-kit at
+67265a36e260ffe03c5aaebdcd8d654dbf892eab (Apache-2.0), including its editor
+overlay routing for handled completion and code-action menu actions. The Kit
+packages select GPUI Fast 0.1.8 through Kit's gpui-fast feature. All nine Fast
+packages use the compatibility distribution at
+https://github.com/dux-web/gpui-fast, commit
+7c3cdde8cd7ba8b1695e0bae10261513bce20ed9. It is generated with the official
+release exporter from source commit 8f238ac038dc7ce926801c0369effbd78a8f855d,
+based on upstream v0.1.8 at d599978f0ecf794b16cb6ec0b5875f818b822507.
+The sole source correction restores retained child links after reparenting;
+it is submitted at https://github.com/longbridge/gpui-fast/pull/68. The
+distribution retains Apache-2.0 licenses and upstream attribution, with Sailry
+modification notices in the two changed files and distribution NOTICE files.
+GPUI WebView owns native composition on macOS and X11. Upstream packages retain their license files;
+Sailry's current dependency notices and license copies remain in
+third_party_licenses/.
+
+ADK-Rust agent engine and model clients
+The ADK crates use https://github.com/dux-web/adk-rust at
+940054a09de82214a7cd1d02bdb91d0e04e6f006, based on upstream ADK-Rust
+v2.3.0 at 7dd31e2571e0e50ee5039b3edcec1150c106bcc6. The upstream source is
+https://github.com/zavora-ai/adk-rust. Retained notices and licenses are in
+third_party_licenses/adk-model.md.
+
+MCP Rust SDK
+Sailry uses rmcp 3.5.1 from https://github.com/sailry/rust-sdk at
+e43a57e4c4db63825dc5682d6a476da439bf9480, based on the official Rust SDK
+v3.5.1 at 79437f291b2c44053d00dcd5db969fd0cca7c887. The fork retains Sailry's
+transport and client-service fixes. Provenance and the upstream license text are
+in third_party_licenses/rmcp.md and third_party_licenses/rmcp-LICENSE.
+
+Portable PTY
+Sailry uses portable-pty 0.9.0 from https://github.com/sailry/wezterm at
+e814e06b5149d73ddbcb5be670b41855b2873c74, based on WezTerm at
+e2a98e1b8af156988ad0ac778658ac27b60a55fb. The fork retains Windows process
+and ConPTY fixes. Provenance and the MIT notice are in
+third_party_licenses/portable-pty.md and third_party_licenses/portable-pty-LICENSE.md.
+
+Ghostty terminal engine
+The Rust wrapper uses https://github.com/sailry/libghostty-rs at
+0b239afc87748c2a4bced30194a87f075a474a4b with GNU libc target selection.
+Native Ghostty sources are unmodified. Provenance and retained MIT notices are
+in third_party_licenses/ghostty-terminal.md and its linked license copies.
 
 Offline conversation export
 html2canvas 1.4.1 (MIT) and Apache ECharts 6.0.0 (Apache-2.0) retain their

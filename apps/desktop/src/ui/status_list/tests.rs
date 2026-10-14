@@ -1,5 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 
 struct Panel;
 
@@ -35,7 +36,7 @@ fn keeps_footer_outside_bounded_rows(cx: &mut TestAppContext) {
         Root::new(panel, window, cx)
     });
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     let panel = visual.debug_bounds("status-panel").unwrap();
     let scroll = visual.debug_bounds("status-panel-scroll").unwrap();
     let footer = visual.debug_bounds("status-panel-footer").unwrap();
@@ -54,11 +55,11 @@ fn keeps_footer_outside_bounded_rows(cx: &mut TestAppContext) {
     visual.update(|window, cx| {
         window.focus_next(cx);
         assert!(window.focused(cx).is_some());
-        window.draw(cx).clear(cx);
+        window.render_frame(cx);
     });
     press(visual, "enter");
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(visual.debug_bounds("status-row-0-details").is_some());
     assert!(
         visual
@@ -69,7 +70,7 @@ fn keeps_footer_outside_bounded_rows(cx: &mut TestAppContext) {
     assert_eq!(expanded_footer, footer);
     press(visual, "enter");
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(visual.debug_bounds("status-row-0-details").is_none());
     visual.update(|window, _| window.remove_window());
 }
@@ -134,7 +135,7 @@ fn animates_only_active_rows(cx: &mut TestAppContext) {
                 let frames = visual.update(|window, cx| {
                     window.simulate_next_frame(cx);
                     window.refresh();
-                    window.draw(cx).clear(cx);
+                    window.render_frame(cx);
                     window.simulate_next_frame(cx)
                 });
                 assert_eq!(frames > 0, state == State::InProgress && !reduced);
@@ -183,7 +184,7 @@ fn constrains_plain_and_highlighted_labels(cx: &mut TestAppContext) {
     });
     visual.update(|_, cx| cx.set_reduce_motion(true));
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     let panel = visual.debug_bounds("task-panel").unwrap();
     for index in 0..4 {
         let row_key = Box::leak(format!("task-row-{index}").into_boxed_str());
@@ -233,7 +234,7 @@ impl Render for Prose {
 
 #[gpui::test]
 fn plain_body_shares_scroll_not_footer(cx: &mut TestAppContext) {
-    use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+    use crate::ui::observation;
 
     crate::conversation::live::tests::fixture::init(cx);
     let text: SharedString = "## Literal **Markdown** 中文 🙂\n\nPreserve full prose e\u{301}\n"
@@ -257,12 +258,12 @@ fn plain_body_shares_scroll_not_footer(cx: &mut TestAppContext) {
                     view.rows = rows;
                     cx.notify();
                 });
-                window.draw(cx).clear(cx);
+                window.render_frame(cx);
             });
             visual.run_until_parked();
             visual.update(|window, cx| {
                 window.render_frame(cx);
-                let label = window.find_by_label(text.as_str());
+                let label = observation::label(window, text.as_str());
                 assert_eq!(label.role(), Some(Role::Label));
             });
             let scroll = visual.debug_bounds("prose-panel-scroll").unwrap();

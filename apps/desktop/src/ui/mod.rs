@@ -6,6 +6,8 @@ pub(crate) mod identicon;
 pub(crate) mod keys;
 pub(crate) mod loading;
 mod motion;
+#[cfg(any(test, feature = "workload-tests"))]
+pub(crate) mod observation;
 pub(crate) mod overlays;
 pub(crate) mod pending;
 pub(crate) mod session_preview;
@@ -13,8 +15,3 @@ pub(crate) mod settings_page;
 pub(crate) mod status_list;
 pub(crate) mod thinking;
 pub(crate) mod webview_capture;
-#[cfg(any(target_os = "windows", test))]
-pub(crate) mod webview_snapshot;
-
-#[cfg(test)]
-mod control_tests;

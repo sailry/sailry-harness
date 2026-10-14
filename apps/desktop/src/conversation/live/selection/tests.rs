@@ -295,12 +295,7 @@ fn quotes_preserve_editing_and_recovery(cx: &mut TestAppContext) {
         let expected =
             format!("{draft}\n\n> Selected **Markdown** 中文 🙂\n> \n> \u{301}Leading mark\n\n");
         assert_eq!(original.text().as_str(), expected);
-        assert_eq!(original.tokens().len(), 3);
-        assert!(original.tokens().iter().all(|span| {
-            span.token().text() == ">"
-                && span.token().label() == " "
-                && span.range().start > draft.len()
-        }));
+        assert!(original.tokens().is_empty());
         assert!(view.read_with(visual, |view, cx| view.active_references(cx).is_empty()));
         visual.simulate_keystrokes("cmd-z");
         view.read_with(visual, |view, cx| {
@@ -321,10 +316,7 @@ fn quotes_preserve_editing_and_recovery(cx: &mut TestAppContext) {
                 });
             });
         });
-        assert_eq!(
-            view.read_with(visual, |view, cx| view.input.read(cx).tokens().len()),
-            3
-        );
+        assert!(view.read_with(visual, |view, cx| view.input.read(cx).tokens().is_empty()));
         visual.simulate_keystrokes("cmd-z");
         assert_eq!(
             view.read_with(visual, |view, cx| view.input.read(cx).content()),
@@ -332,7 +324,7 @@ fn quotes_preserve_editing_and_recovery(cx: &mut TestAppContext) {
         );
         visual.update(|window, cx| {
             let snapshot = view.read(cx).snapshot_draft(cx).unwrap().unwrap();
-            assert_eq!(snapshot.draft.tokens.len(), 3);
+            assert!(snapshot.draft.tokens.is_empty());
             let restored =
                 serde_json::from_value(serde_json::to_value(&snapshot.draft).unwrap()).unwrap();
             view.update(cx, |view, cx| {
@@ -365,19 +357,12 @@ fn quotes_preserve_editing_and_recovery(cx: &mut TestAppContext) {
                 })
         });
         view.read_with(visual, |view, _| {
+            let entries = &view.history.snapshot.as_ref().unwrap().page.entries;
             assert!(
-                view.history
-                    .snapshot
-                    .as_ref()
-                    .unwrap()
-                    .page
-                    .entries
+                entries
                     .iter()
-                    .any(|entry| {
-                        entry
-                            .parts
-                            .contains(&Part::Text(expected.trim().to_owned()))
-                    })
+                    .any(|entry| entry.parts.contains(&Part::Text(expected.clone()))),
+                "submitted entries: {entries:?}"
             );
         });
         assert_eq!(fixture.task_requests(), 1);

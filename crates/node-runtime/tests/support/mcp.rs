@@ -98,6 +98,14 @@ fn stdio_peer() {
         };
         append(&data.join("requests.jsonl"), &format!("{request}\n"));
         let id = &request["id"];
+        if request["method"] == "server/discover" {
+            println!(
+                "{}",
+                json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Method not found"}})
+            );
+            std::io::stdout().flush().unwrap();
+            continue;
+        }
         if request["method"].is_null() && id == "form-request" {
             if let Some(call) = pending.take() {
                 println!(
@@ -136,7 +144,9 @@ fn stdio_peer() {
                     assert!(request["params"]["capabilities"]["elicitation"]["form"].is_object());
                     assert!(request["params"]["capabilities"]["elicitation"]["url"].is_object());
                 }
-                json!({"protocolVersion": request["params"]["protocolVersion"], "capabilities": {"tools": {}}, "serverInfo": {"name": "fixture", "version": "1"}})
+                // This peer exercises legacy server requests, not the modern MRTR lifecycle.
+                assert_eq!(request["params"]["protocolVersion"], "2025-11-25");
+                json!({"protocolVersion":"2025-11-25", "capabilities": {"tools": {}}, "serverInfo": {"name": "fixture", "version": "1"}})
             }
             "tools/list" => listed(&request["params"]["cursor"]),
             "tools/call" => {

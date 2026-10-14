@@ -1,6 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::{Root, ThemeMode, button::ButtonVariants as _, v_flex};
+use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::*;
 
 struct Controls {
@@ -35,9 +36,9 @@ impl Render for Controls {
 
 fn settle(cx: &mut VisualTestContext) {
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
 }
 
 #[gpui::test]
@@ -131,7 +132,7 @@ fn activation(cx: &mut TestAppContext, new_session: bool) {
             window.blur(cx);
             window.focus_next(cx);
             assert!(window.focused(cx).is_some());
-            window.draw(cx).clear(cx);
+            window.render_frame(cx);
         });
         for key in ["enter", "space"] {
             let keystroke = Keystroke::parse(key).unwrap();

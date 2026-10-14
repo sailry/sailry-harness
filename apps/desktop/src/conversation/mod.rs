@@ -55,11 +55,7 @@ impl Shell {
             )
             .with_list_style(StyleRefinement::default().px_0().py_6())
             .with_jump_button_label(tr("turn_latest"))
-            .with_jump_button_renderer(|button| {
-                button
-                    .without_tooltip()
-                    .accessibility_label(tr("turn_latest"))
-            })
+            .with_jump_button_renderer(|button| button.accessibility_label(tr("turn_latest")))
             .into_any_element()
         };
         v_flex()

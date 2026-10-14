@@ -2,7 +2,8 @@ use super::*;
 use crate::panes::Target;
 use gpui_kit::{
     base::Placement,
-    component::dock::{DockPlacement, DropTarget, PanelId},
+    component::dock::{DockPlacement, PanelId},
+    test::TestWindowExt as _,
 };
 use sailry_node_runtime::{NetworkScope, Node};
 use sailry_protocol::{
@@ -10,19 +11,36 @@ use sailry_protocol::{
     terminal::{Launch, Status as TerminalStatus, Viewport},
 };
 
-fn wait_terminal(cx: &mut VisualTestContext) {
+#[track_caller]
+fn wait_terminal(
+    cx: &mut VisualTestContext,
+    shell: &Entity<Shell>,
+    target: Target,
+    stage: &'static str,
+) {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         cx.run_until_parked();
-        cx.update(|window, cx| window.draw(cx).clear(cx));
-        if cx.debug_bounds("terminal-grid").is_some()
-            && cx.debug_bounds("terminal-status").is_none()
-        {
+        cx.update(|window, cx| window.render_frame(cx));
+        let grid = cx.debug_bounds("terminal-grid").is_some();
+        let status = cx.debug_bounds("terminal-status").is_some();
+        if grid && !status {
             return;
         }
         assert!(
             Instant::now() < deadline,
-            "restored terminal connection deadline"
+            "restored terminal connection deadline: stage={stage}, grid={grid}, status={status}, terminal={:?}",
+            shell.read_with(cx, |shell, cx| {
+                shell
+                    .plugin_panes
+                    .terminal(target, cx)
+                    .and_then(|terminal| {
+                        terminal
+                            .read(cx)
+                            .info()
+                            .map(|info| (info.status.clone(), info.revision, info.owner))
+                    })
+            }),
         );
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -128,10 +146,11 @@ fn retains_remote_restart_layout(cx: &mut TestAppContext) {
                     .unwrap()
                     .find_panel_node(panel)
                     .unwrap();
-                assert!(splits.drop(
+                assert!(splits.drop_to(
                     workspace,
                     terminal,
-                    DropTarget::new(target, Some(Placement::Right)),
+                    target,
+                    Some(Placement::Right),
                     window,
                     cx,
                 ));
@@ -143,7 +162,7 @@ fn retains_remote_restart_layout(cx: &mut TestAppContext) {
             .read(cx)
             .connected()
     });
-    wait_terminal(visual);
+    wait_terminal(visual, &shell, terminal, "initial");
     let saved = shell.read_with(visual, |shell, cx| shell.splits.read(cx).saved(cx));
     assert_eq!(saved.active, Some(terminal));
     assert_eq!(saved.parents, [(terminal, conversation)]);
@@ -226,18 +245,11 @@ fn retains_remote_restart_layout(cx: &mut TestAppContext) {
             .status,
         TerminalStatus::Stopped,
     );
-    // The sidebar must reopen the retained terminal, not create another resource.
     let restored = snapshot
         .terminals
         .iter()
         .find(|entry| entry.id == info.id)
         .unwrap();
-    visual.update(|window, cx| {
-        shell.update(cx, |shell, cx| {
-            assert!(shell.recovery.contains(terminal));
-            shell.open_terminal_pane(Some(project.id), restored, window, cx);
-        });
-    });
     click(&shell, visual, retries[0].to_string());
     wait(visual, |cx| {
         let shell = shell.read(cx);
@@ -247,7 +259,14 @@ fn retains_remote_restart_layout(cx: &mut TestAppContext) {
             .get(&(node, session.id))
             .is_some_and(|view| view.read(cx).connected())
     });
-    wait_terminal(visual);
+    // The sidebar must reopen the retained terminal, not create another resource.
+    visual.update(|window, cx| {
+        shell.update(cx, |shell, cx| {
+            assert!(shell.recovery.contains(terminal));
+            shell.open_terminal_pane(Some(project.id), restored, window, cx);
+        });
+    });
+    wait_terminal(visual, &shell, terminal, "reconnect");
     let Output::TerminalSnapshot(snapshot) =
         execute(Command::InspectTerminal { terminal: info.id })
     else {

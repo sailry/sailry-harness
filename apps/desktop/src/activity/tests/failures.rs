@@ -1,5 +1,4 @@
 use super::*;
-use gpui_kit::test::TestWindowExt as _;
 use sailry_client::activity::{Id, Notice};
 use sailry_protocol::{ErrorCode, Fault};
 

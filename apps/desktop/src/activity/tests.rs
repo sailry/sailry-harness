@@ -1,6 +1,7 @@
 use super::*;
 use crate::preview::Page;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_client::activity::Kind;
 use std::time::{Duration, Instant};
 
@@ -16,7 +17,7 @@ fn wait(cx: &mut VisualTestContext, ready: impl Fn(&App) -> bool) {
     loop {
         cx.run_until_parked();
         if cx.update(|window, cx| {
-            window.draw(cx).clear(cx);
+            window.render_frame(cx);
             ready(cx)
         }) {
             return;
@@ -27,12 +28,7 @@ fn wait(cx: &mut VisualTestContext, ready: impl Fn(&App) -> bool) {
 }
 
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
-    cx.update(|window, cx| window.draw(cx).clear(cx));
-    let bounds = cx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("missing {selector}"));
-    cx.simulate_click(bounds.center(), Modifiers::default());
-    cx.run_until_parked();
+    crate::conversation::live::tests::fixture::tap(cx, selector);
 }
 
 #[test]

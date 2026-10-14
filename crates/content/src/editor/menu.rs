@@ -10,7 +10,6 @@ impl State {
         cx: &mut Context<Self>,
     ) {
         self.cancel_composition(cx);
-        self.commit(cx);
         self.dragging = false;
         self.focus.focus(window, cx);
         let selected = self.can_copy(cx);

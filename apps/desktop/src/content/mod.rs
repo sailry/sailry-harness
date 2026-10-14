@@ -4,8 +4,6 @@
 //! ownership, requests and persistence stay with their existing feature modules.
 
 pub(crate) mod images;
-#[cfg(test)]
-pub(crate) use sailry_content::syntax;
 pub(crate) use sailry_content::{diff, editor, markdown, selection};
 
 pub(crate) mod files;

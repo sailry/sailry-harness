@@ -1,7 +1,8 @@
 use super::*;
+use crate::ui::observation;
 use core::prelude::v1::test;
-use gpui_kit::component::{ActiveTheme as _, Root, WindowExt as _};
-use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+use gpui_kit::component::{Root, WindowExt as _};
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::installation::Task as Observed;
 
 fn key() -> Key {
@@ -245,7 +246,7 @@ impl Render for Frame {
             .size_full()
             .justify_end()
             .items_start()
-            .child(button(window, point(px(44.), px(0.)), cx))
+            .child(button(window, cx))
     }
 }
 
@@ -315,7 +316,7 @@ fn frames_each_resource_task(cx: &mut TestAppContext) {
     });
     for width in [1000., 380.] {
         visual.simulate_resize(size(px(width), px(800.)));
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         let list = visual.debug_bounds("installation-list").unwrap();
         let rem = visual.update(|window, _| window.rem_size());
         let mut previous = None;
@@ -373,7 +374,7 @@ fn frames_each_resource_task(cx: &mut TestAppContext) {
         }
         visual.update(|window, cx| {
             window.render_frame(cx);
-            let title = window.find_by_label(&"a".repeat(64));
+            let title = observation::label(window, &"a".repeat(64));
             assert_eq!(title.role(), Some(Role::Label));
             let status = format!(
                 "{} · {} · 3/4 · {}",
@@ -382,16 +383,18 @@ fn frames_each_resource_task(cx: &mut TestAppContext) {
                 rust_i18n::t!("installation_speed", value = "1.0"),
             );
             assert_eq!(
-                window.find_by_label(&status).role(),
+                observation::label(window, &status).role(),
                 Some(Role::ProgressIndicator)
             );
             assert_eq!(
-                window
-                    .find_by_label(&format!(
+                observation::label(
+                    window,
+                    &format!(
                         "3/4 · {}",
                         rust_i18n::t!("installation_speed", value = "1.0")
-                    ))
-                    .role(),
+                    )
+                )
+                .role(),
                 Some(Role::Label)
             );
             let offline = rust_i18n::t!(
@@ -400,7 +403,7 @@ fn frames_each_resource_task(cx: &mut TestAppContext) {
             );
             let status = format!("{offline} · {}", tr("installation_node"));
             assert_eq!(
-                window.find_by_label(&status).role(),
+                observation::label(window, &status).role(),
                 Some(Role::ProgressIndicator)
             );
         });
@@ -466,7 +469,7 @@ fn icon_actions_preserve_completion_gates(cx: &mut TestAppContext) {
                 });
                 queue.changed(cx);
             });
-            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.update(|window, cx| window.render_frame(cx));
             assert!(visual.debug_bounds(selector("progress")).is_none());
             let actionable = finished && !dismissing;
             assert_eq!(
@@ -487,12 +490,12 @@ fn icon_actions_preserve_completion_gates(cx: &mut TestAppContext) {
             assert!(remove.right() <= row.right());
             assert!((remove.center().y - row.center().y).abs() <= px(1.));
             visual.simulate_mouse_move(row.center(), None, Modifiers::default());
-            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.update(|window, cx| window.render_frame(cx));
             assert_eq!(visual.debug_bounds(selector("row")), Some(row));
             visual.update(|window, cx| {
                 window.render_frame(cx);
                 assert_eq!(
-                    window.find_by_label(&tr("installation_remove")).role(),
+                    observation::label(window, &tr("installation_remove")).role(),
                     Some(Role::Button)
                 );
             });
@@ -513,12 +516,14 @@ fn icon_actions_preserve_completion_gates(cx: &mut TestAppContext) {
                     window.render_frame(cx);
                     for _ in 0..8 {
                         window.press("tab", cx);
-                        if window.find_by_label(&tr("installation_retry")).focused() == Some(true) {
+                        if observation::label(window, &tr("installation_retry")).focused()
+                            == Some(true)
+                        {
                             break;
                         }
                     }
                     assert_eq!(
-                        window.find_by_label(&tr("installation_retry")).focused(),
+                        observation::label(window, &tr("installation_retry")).focused(),
                         Some(true),
                     );
                     window.press("space", cx);
@@ -576,7 +581,7 @@ fn remove_icon_dismisses_without_replaying(cx: &mut TestAppContext) {
             .record(Err(error.clone()), cx);
         });
         visual.simulate_resize(size(px(380.), px(800.)));
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         let selector = Box::leak(format!("installation-remove-{}", request.id).into_boxed_str());
         let remove = visual.debug_bounds(selector).unwrap();
         visual.simulate_click(remove.center(), Modifiers::default());
@@ -623,23 +628,19 @@ fn hide_reopens_the_same_list(cx: &mut TestAppContext) {
     });
     visual.update(|window, cx| {
         window.activate_window();
-        window.draw(cx).clear(cx);
+        window.render_frame(cx);
     });
     let trigger = visual
         .debug_bounds("installations-open")
         .expect("permanent installation button");
     visual.simulate_click(trigger.center(), Modifiers::default());
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(visual.debug_bounds("installation-empty").is_some());
-    let surface = crate::ui::overlays::tests::panel(visual, "popover-surface");
-    visual.update(|_, cx| {
-        assert_eq!(surface.background.as_solid(), Some(cx.theme().popover));
-    });
     assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     visual.simulate_keystrokes("escape");
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(visual.debug_bounds("installation-panel").is_none());
     let queue = visual.update(|window, cx| {
         let queue = registry(cx);
@@ -657,17 +658,17 @@ fn hide_reopens_the_same_list(cx: &mut TestAppContext) {
         queue
     });
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(visual.debug_bounds("installation-panel").is_some());
     visual.simulate_click(point(px(900.), px(100.)), Modifiers::default());
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(visual.debug_bounds("installation-panel").is_none());
     assert_eq!(queue.read_with(visual, |queue, _| queue.entries.len()), 1);
     let trigger = visual.debug_bounds("installations-open").unwrap();
     visual.simulate_click(trigger.center(), Modifiers::default());
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(visual.debug_bounds("installation-panel").is_some());
     assert_eq!(queue.read_with(visual, |queue, _| queue.entries.len()), 1);
     visual.update(|window, _| window.remove_window());
@@ -742,7 +743,7 @@ fn form_completion_preserves_task_observation(cx: &mut TestAppContext) {
         (form, queue)
     });
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     assert!(visual.debug_bounds("installation-panel").is_some());
     visual.update(|window, cx| {
         let progress = window.focused(cx).unwrap();
@@ -752,15 +753,14 @@ fn form_completion_preserves_task_observation(cx: &mut TestAppContext) {
         queue.update(cx, |queue, cx| queue.hide(window, cx));
     });
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
     visual.run_until_parked();
     visual.update(|window, cx| {
         assert!(!form.read(cx).dialog.presented(cx));
         assert!(!window.has_active_dialog(cx));
         assert!(visible(cx));
         assert!(
-            window
-                .find_by_label(&tr("installation_title"))
+            observation::label(window, &tr("installation_title"))
                 .role()
                 .is_some()
         );

@@ -62,6 +62,50 @@ async fn searches_public_sources_without_credentials() {
     controller.close().await.unwrap();
 }
 
+#[tokio::test]
+async fn searches_keyless_exa_without_initialization() {
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_isolated(directory.path().join("node"))
+            .await
+            .unwrap();
+        let (controller, transport) = controller(&node, directory.path()).await;
+        let client = Client::new(if remote { transport } else { node.local() });
+        let http = Server::start().await;
+        node.set_search_fixture(Driver::Exa, &format!("{}/modern-mcp", http.endpoint));
+
+        let Output::SearchPage(page) = client
+            .execute(client.prepare(Command::SearchWeb(search::Request {
+                query: "Public source".into(),
+                limit: 1,
+            })))
+            .await
+            .unwrap()
+        else {
+            panic!("search page expected")
+        };
+        assert_eq!(page.driver, Driver::Exa);
+        assert_eq!(page.results.len(), 1);
+        assert_eq!(page.results[0].url, "https://example.com/source");
+
+        let requests = http.requests.lock().unwrap();
+        let methods: Vec<_> = requests
+            .iter()
+            .filter_map(|(_, body)| body["method"].as_str())
+            .collect();
+        assert_eq!(methods, ["server/discover", "tools/call"]);
+        assert!(
+            requests
+                .iter()
+                .all(|(_, body)| body["method"] != "initialize")
+        );
+        drop(requests);
+
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
 async fn read(client: &Client) -> search::Settings {
     let Output::SearchSettings(settings) = client
         .execute(client.prepare(Command::ReadSearchSettings))

@@ -9,7 +9,7 @@ use super::{
 };
 
 #[test]
-fn active_and_waiting_phases_animate() {
+fn active_phases_animate() {
     assert_eq!(
         super::state("turn_awaiting_response"),
         Some(OrbState::Searching)
@@ -17,8 +17,13 @@ fn active_and_waiting_phases_animate() {
     assert_eq!(super::state("turn_thinking"), Some(OrbState::Searching));
     assert_eq!(super::state("turn_generating"), Some(OrbState::Composing));
     assert_eq!(super::state("turn_tools_running"), Some(OrbState::Working));
-    assert_eq!(super::state("turn_waiting"), Some(OrbState::Breathing));
-    for phase in ["turn_queued", "chat_stopping", "completed", ""] {
+    for phase in [
+        "turn_waiting",
+        "turn_queued",
+        "chat_stopping",
+        "completed",
+        "",
+    ] {
         assert_eq!(super::state(phase), None);
     }
 }

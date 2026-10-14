@@ -129,7 +129,7 @@ pub(in crate::plugins) fn run(output: &Path) {
                     return;
                 }
                 verify(&view,&content,cx).await;
-                let page = cx.update(|_, cx| view.read(cx).native.page.handle()).unwrap();
+                let page = cx.update(|_, cx| view.read(cx).native.page.clone()).unwrap();
                 crate::workload::native_overlays::verify("html-brief", page, &output, cx).await;
                 let fallback=cx.update(|window,cx|page::capture(content.clone(),window,cx)).unwrap().await.unwrap();
                 assert!(fallback.contains("<svg"));
@@ -381,6 +381,7 @@ async fn evaluate_result(
         view.read(cx)
             .native
             .page
+            .raw()
             .evaluate_script_with_callback(script, move |value| {
                 if let Some(sender) = sender.lock().unwrap().take() {
                     let _ = sender.send(value);

@@ -46,7 +46,7 @@ async fn configure_api(client: &Client, endpoint: String, api: conversation::Mod
             capabilities: None,
             custom_efforts: false,
             efforts: if api == conversation::ModelApi::DeepSeek {
-                vec![Effort::High, Effort::Max, Effort::Low, Effort::Disabled]
+                vec![Effort::High, Effort::Max, Effort::Disabled]
             } else {
                 vec![]
             },
@@ -134,45 +134,34 @@ async fn completes_before_socket_eof() {
                     server.requests.lock().unwrap()[1]["reasoning_effort"],
                     "max"
                 );
-                let invalid = client
-                    .prepare(Command::GeneratePluginText {
-                        model: model.clone(),
-                        prompt: "Choose a card".into(),
-                        effort: Some(Effort::XHigh),
-                    })
-                    .with_plugin(request.plugin.clone().unwrap());
-                assert_eq!(
-                    client.execute(invalid).await.unwrap_err().code,
-                    ErrorCode::InvalidRequest
-                );
-                assert_eq!(server.requests.lock().unwrap().len(), 2);
-                for (index, effort) in [Effort::Low, Effort::Disabled].into_iter().enumerate() {
-                    let next = client
+                for effort in [Effort::XHigh, Effort::Low] {
+                    let invalid = client
                         .prepare(Command::GeneratePluginText {
                             model: model.clone(),
                             prompt: "Choose a card".into(),
                             effort: Some(effort),
                         })
                         .with_plugin(request.plugin.clone().unwrap());
-                    assert!(matches!(
-                        client.execute(next).await.unwrap(),
-                        Output::PluginText(_)
-                    ));
-                    let sent = server.requests.lock().unwrap()[index + 2].clone();
                     assert_eq!(
-                        sent["thinking"]["type"],
-                        if effort == Effort::Disabled {
-                            "disabled"
-                        } else {
-                            "enabled"
-                        }
+                        client.execute(invalid).await.unwrap_err().code,
+                        ErrorCode::InvalidRequest
                     );
-                    if effort == Effort::Low {
-                        assert_eq!(sent["reasoning_effort"], "low");
-                    } else {
-                        assert!(sent["reasoning_effort"].is_null());
-                    }
                 }
+                assert_eq!(server.requests.lock().unwrap().len(), 2);
+                let disabled = client
+                    .prepare(Command::GeneratePluginText {
+                        model: model.clone(),
+                        prompt: "Choose a card".into(),
+                        effort: Some(Effort::Disabled),
+                    })
+                    .with_plugin(request.plugin.clone().unwrap());
+                assert!(matches!(
+                    client.execute(disabled).await.unwrap(),
+                    Output::PluginText(_)
+                ));
+                let sent = server.requests.lock().unwrap()[2].clone();
+                assert_eq!(sent["thinking"]["type"], "disabled");
+                assert!(sent["reasoning_effort"].is_null());
             }
             if api == conversation::ModelApi::Responses {
                 let Command::GeneratePluginText { model, .. } = request.command else {

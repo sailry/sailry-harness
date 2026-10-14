@@ -44,7 +44,9 @@ dependencies:
 
 dependency_overrides:
   flutter_markdown_plus:
-    path: ../../vendor/flutter-markdown-plus
+    git:
+      url: https://github.com/sailry/flutter_markdown_plus.git
+      ref: eac4a6b2deebf50361b51b76ee3b2de13f23e219
 
 dev_dependencies:
   url_launcher_platform_interface: 2.3.2

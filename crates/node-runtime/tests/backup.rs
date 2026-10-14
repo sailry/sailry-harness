@@ -505,7 +505,7 @@ async fn restores_independent_managed_git_checkouts() {
         } else {
             node.local()
         });
-        let Output::Project(project) = execute(
+        let Output::Project(_) = execute(
             &client,
             Command::RegisterProject {
                 name: "Git source".into(),
@@ -516,36 +516,56 @@ async fn restores_independent_managed_git_checkouts() {
         else {
             unreachable!()
         };
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            unreachable!()
+        let config = SessionConfig {
+            assistant: None,
+            resource: None,
+            provider: ProviderId::new(),
+            model: "fixture".into(),
+            effort: Effort::Default,
+            mode: WorkMode::Code,
+            permission: Permission::Ask,
+            credential: None,
         };
-        let source = snapshot
-            .worktrees
-            .iter()
-            .find(|worktree| worktree.project == Some(project.id))
-            .unwrap()
-            .id;
-        let Output::GitStatus(base) =
-            execute(&client, Command::InspectGit { worktree: source }).await
-        else {
-            unreachable!()
-        };
-        let Output::Worktree(worktree) = execute(
+        let Output::Session(session) = execute(
             &client,
-            Command::CreateManagedWorktree {
-                project: project.id,
-                source,
-                branch: "backup-managed".into(),
-                expected_head: commit.to_string(),
-                expected_index: base.index_revision.unwrap(),
-                include_changes: false,
+            Command::CreateSession {
+                project: None,
+                worktree: None,
+                config: Some(config),
             },
         )
         .await
         else {
             unreachable!()
         };
+        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+            unreachable!()
+        };
+        let worktree = snapshot
+            .worktrees
+            .iter()
+            .find(|worktree| worktree.id == session.worktree)
+            .unwrap()
+            .clone();
         let original = Path::new(&worktree.path);
+        assert!(original.starts_with(node.profile()));
+        fs::create_dir_all(original).unwrap();
+        assert!(fs::read_dir(original).unwrap().next().is_none());
+        fs::remove_dir(original).unwrap();
+        let base = repository.find_commit(commit).unwrap();
+        let branch = repository
+            .branch("backup-managed", &base, false)
+            .unwrap()
+            .into_reference();
+        repository
+            .worktree(
+                &worktree.id.to_string(),
+                original,
+                Some(git2::WorktreeAddOptions::new().reference(Some(&branch))),
+            )
+            .unwrap();
+        drop(branch);
+        drop(base);
         assert!(original.join(".git").is_file());
         let linked = git2::Repository::open(original).unwrap();
         fs::write(original.join("tracked.txt"), b"staged\n").unwrap();

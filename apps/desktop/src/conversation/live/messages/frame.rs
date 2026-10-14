@@ -53,7 +53,9 @@ pub(super) fn phase(run: &Run, page: &Page, blocks: &[Block<'_>]) -> Option<&'st
         item.turn == run.turn
             && item.state == sailry_protocol::conversation::question::State::Pending
     }) {
-        return Some("turn_waiting");
+        // Pending review belongs to its tool row and actions, not a second
+        // turn-level thinking status.
+        return None;
     }
     if continuing_tools(run, page, blocks)
         || blocks.iter().any(|block| match block {

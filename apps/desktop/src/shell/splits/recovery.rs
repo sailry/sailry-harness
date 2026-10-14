@@ -52,8 +52,12 @@ impl Render for View {
                     .outline()
                     .label(tr("chat_retry"))
                     .on_click(cx.listener(|view, _, window, cx| {
-                        let _ = view.owner.update(cx, |shell, cx| {
-                            shell.restore_pane(view.target, window, cx);
+                        let owner = view.owner.clone();
+                        let target = view.target;
+                        window.defer(cx, move |window, cx| {
+                            let _ = owner.update(cx, |shell, cx| {
+                                shell.restore_pane(target, window, cx);
+                            });
                         });
                     })),
             )

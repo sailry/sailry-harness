@@ -259,20 +259,20 @@ fn preview_and_download(cx: &mut TestAppContext) {
         finish_close(visual);
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
         assert!(!visual.did_prompt_for_paths());
+        let preview = format!("attachment-preview-{}", attachment.id);
         visual.update(|window, cx| {
             view.update(cx, |view, cx| view.focus(window, cx));
             // Stop when the card is focused; its hover action can add a tab stop.
             for _ in 0..2 {
                 window.press("shift-tab", cx);
-                if window
-                    .find_all("composer-attachment-0")
+                if crate::ui::observation::all(window, SharedString::from(preview.clone()))
                     .iter()
                     .any(|card| card.focused() == Some(true))
                 {
                     break;
                 }
             }
-            let cards = window.find_all("composer-attachment-0");
+            let cards = crate::ui::observation::all(window, SharedString::from(preview.clone()));
             assert!(
                 cards.iter().any(|card| card.focused() == Some(true)),
                 "attachment focus after Shift-Tab: {cards:?}"

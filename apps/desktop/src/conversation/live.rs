@@ -416,7 +416,7 @@ impl View {
             ports: None,
             approvals: Default::default(),
             repository: Default::default(),
-            questions: Default::default(),
+            questions: questions::Form::new(cx),
             search,
             assets,
             controls,
@@ -683,7 +683,6 @@ impl Render for View {
             .with_jump_button_label(tr("turn_latest"))
             .with_jump_button_renderer(|button| {
                 button
-                    .without_tooltip()
                     .accessibility_label(tr("turn_latest"))
                     .debug_selector(|| "live-history-latest".into())
             })

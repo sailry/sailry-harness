@@ -137,11 +137,7 @@ impl Shell {
             )
             .separator()
             .submenu(tr("content_copy"), copy)
-            .submenu_with_icon(
-                tr("conversation_export"),
-                gpui_kit::assets::IconName::Download,
-                export,
-            )
+            .submenu(tr("conversation_export"), export)
             .separator()
             .submenu(tr("session_fork"), fork)
             .separator()

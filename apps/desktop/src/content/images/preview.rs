@@ -1,9 +1,6 @@
 use super::*;
 use gpui_kit::base::{Presence, Transition, spring};
-use gpui_kit::component::{
-    button::{Button, ButtonVariants as _},
-    progress::Progress,
-};
+use gpui_kit::component::{button::Button, dialog::DialogEntrance, progress::Progress};
 use gpui_kit::prelude::FluentBuilder as _;
 
 mod view;
@@ -59,17 +56,25 @@ pub(super) fn open_sources(
             transforming: false,
             cancel: CancellationToken::new(),
             viewport: Viewport::default(),
+            canvas: None,
             closing: false,
             on_close: None,
         }
     });
     view.update(cx, |view, cx| view.reload(window, cx));
     let content = view.clone();
+    let viewport = window.viewport_size();
     window.open_dialog(cx, move |dialog, _, _| {
+        let body = content.clone();
         let close = content.clone();
         let cancel = content.clone();
         dialog
-            .full_screen(true)
+            .close_button(false)
+            .p_0()
+            .w(viewport.width)
+            .h(viewport.height)
+            .margin_top(px(0.))
+            .entrance(DialogEntrance::None)
             .on_ok(|_, _, _| false)
             .on_cancel(move |_, _, cx| {
                 if cx.reduce_motion() {
@@ -84,7 +89,7 @@ pub(super) fn open_sources(
             .on_close(move |_, window, cx| {
                 close.update(cx, |view, cx| view.finish_close(window, cx));
             })
-            .child(content.clone())
+            .content(move |content, _, _| content.size_full().p_0().child(body.clone()))
     });
     view.read(cx).focus.clone().focus(window, cx);
     view
@@ -100,6 +105,7 @@ pub(super) struct Preview {
     transforming: bool,
     cancel: CancellationToken,
     viewport: Viewport,
+    canvas: Option<gpui_kit::Size<Pixels>>,
     closing: bool,
     pub(super) on_close: Option<CloseHandler>,
 }

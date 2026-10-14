@@ -1,6 +1,7 @@
 use super::*;
 use crate::preview::Page;
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_node_runtime::Node;
 use sailry_protocol::Command as Request;
 use std::time::{Duration, Instant};
@@ -31,7 +32,7 @@ fn wait(cx: &mut VisualTestContext, shell: &Entity<Shell>, node: NodeId) {
         assert!(Instant::now() < deadline, "menu inventory deadline");
         std::thread::sleep(Duration::from_millis(10));
     }
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
 }
 
 #[test]
@@ -163,7 +164,7 @@ fn captures_targets(cx: &mut TestAppContext) {
                 shell.live_resource_action(&action, window, cx)
             })
         });
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         assert!(visual.debug_bounds("live-overview").is_some());
         let deadline = Instant::now() + Duration::from_secs(10);
         while visual
@@ -172,13 +173,13 @@ fn captures_targets(cx: &mut TestAppContext) {
         {
             assert!(Instant::now() < deadline, "project actions deadline");
             visual.run_until_parked();
-            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.update(|window, cx| window.render_frame(cx));
             std::thread::sleep(Duration::from_millis(10));
         }
         for width in [760., 1280.] {
             visual.simulate_resize(size(px(width), px(820.)));
             visual.run_until_parked();
-            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.update(|window, cx| window.render_frame(cx));
             let viewport = visual.debug_bounds("live-overview").unwrap();
             let content = visual.debug_bounds("live-overview-content").unwrap();
             let host = visual.debug_bounds("live-overview-host").unwrap();
@@ -223,13 +224,13 @@ fn captures_targets(cx: &mut TestAppContext) {
                     cx,
                 );
             });
-            window.draw(cx).clear(cx);
+            window.render_frame(cx);
         });
         assert!(visual.debug_bounds("host-ports").is_some());
         let ports = visual.debug_bounds("host-ports").unwrap();
         visual.simulate_click(ports.center(), Modifiers::default());
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         assert!(visual.debug_bounds("port-picker").is_some());
         assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
         visual.simulate_keystrokes("escape");
@@ -274,7 +275,7 @@ fn captures_targets(cx: &mut TestAppContext) {
             })
         });
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         assert!(visual.debug_bounds("project-editor").is_some());
         assert!(visual.debug_bounds("project-local").is_none());
         visual.simulate_mouse_move(point(px(1.), px(1.)), None, Modifiers::default());
@@ -291,7 +292,7 @@ fn captures_targets(cx: &mut TestAppContext) {
             visual.executor().advance_clock(elapsed);
             advanced += elapsed;
             visual.run_until_parked();
-            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.update(|window, cx| window.render_frame(cx));
             let notifications = visual.update(|window, cx| window.notifications(cx).len());
             if notifications == 0 {
                 break;
@@ -398,7 +399,7 @@ fn captures_targets(cx: &mut TestAppContext) {
             })
         });
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         crate::prompts::tests::answer(visual, "project_remove");
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {

@@ -97,15 +97,12 @@ fn discovers_installs_and_restarts_removed_servers(cx: &mut TestAppContext) {
             .runtime
             .spawn(async move { client.execute(request).await });
         wait(visual, |_| network.hits.load(Ordering::SeqCst) == 1);
-        assert!(controller.read_with(visual, |controller, _| {
-            controller.documents[&id]
+        wait(visual, |cx| {
+            controller.read(cx).documents[&id]
                 .code
                 .as_ref()
-                .unwrap()
-                .startup
-                .borrow()
-                .is_none()
-        }));
+                .is_some_and(|provider| provider.startup.borrow().is_none())
+        });
         network.held.store(false, Ordering::SeqCst);
         let Output::CodeInstallation(installed) =
             fixture.runtime.block_on(installing).unwrap().unwrap()

@@ -1,4 +1,4 @@
-//! Kit b79f4ce omits TabBar.equal_width from scripts. Keep native segmented tabs.
+//! Keep segmented-tab state and events inside the native Kit control.
 use crate::plugins::host::sdk::values::decode;
 use gpui_kit::{
     component::tab::{Tab, TabBar},
@@ -31,7 +31,6 @@ fn render(id: String, props: Props, events: Sender<Value>) -> AnyElement {
         .collect::<Vec<_>>();
     TabBar::new(SharedString::from(id.clone()))
         .segmented()
-        .equal_width()
         .w_full()
         .menu(false)
         .selected_index(
@@ -107,7 +106,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn native_tabs_preserve_width_and_disabled_state(cx: &mut TestAppContext) {
+    fn native_tabs_preserve_disabled_state(cx: &mut TestAppContext) {
         init(cx);
         let (events, mut receiver) = tokio::sync::mpsc::channel(4);
         let mut owner = None;
@@ -120,14 +119,6 @@ mod tests {
             Root::new(view, window, cx)
         });
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        let widths = [
-            "engine-item-sqlite",
-            "engine-item-mysql",
-            "engine-item-postgres",
-        ]
-        .map(|selector| visual.debug_bounds(selector).unwrap().size.width);
-        assert!((widths[0] - widths[1]).abs() < px(1.));
-        assert!((widths[1] - widths[2]).abs() < px(1.));
         click(visual, "engine-item-postgres");
         assert!(receiver.try_recv().is_err());
         visual.update(|window, cx| {

@@ -1,5 +1,6 @@
 use super::*;
 use crate::conversation::live::tests::{cards as fixtures, fixture, wait};
+use crate::ui::observation;
 use sailry_link::{Admission, Pending, Subscription as LinkSubscription, Transport};
 use sailry_protocol::{ErrorCode, Fault, NodeId, Request, RequestOutcome, Topic, Update};
 use serde_json::json;
@@ -33,7 +34,7 @@ fn shown(visual: &mut VisualTestContext, selector: &'static str) {
 
 #[track_caller]
 fn action(visual: &mut VisualTestContext, label: &'static str) -> Bounds<Pixels> {
-    use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+    use gpui_kit::test::TestWindowExt as _;
 
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
@@ -41,8 +42,7 @@ fn action(visual: &mut VisualTestContext, label: &'static str) -> Bounds<Pixels>
         visual.run_until_parked();
         let action = visual.update(|window, cx| {
             window.render_frame(cx);
-            window
-                .try_find_by_label(label)
+            observation::try_label(window, label)
                 .filter(|action| {
                     // Native accessibility reports the disabled flag only when set.
                     action.role() == Some(Role::Button)
@@ -379,7 +379,7 @@ fn install_connector(fixture: &fixture::Fixture, endpoint: &str) {
 
 #[gpui::test]
 fn mounts_neutral_icon_cards(cx: &mut TestAppContext) {
-    use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
+    use gpui_kit::test::TestWindowExt as _;
     fixture::init(cx);
     for remote in [false, true] {
         let fixture = fixture::Fixture::with_tools(
@@ -428,7 +428,7 @@ fn mounts_neutral_icon_cards(cx: &mut TestAppContext) {
         });
         visual.update(|window, cx| {
             window.render_frame(cx);
-            let actions = window.find_all_by_role(Role::Button);
+            let actions = observation::roles(window, Role::Button);
             assert!(
                 actions
                     .iter()

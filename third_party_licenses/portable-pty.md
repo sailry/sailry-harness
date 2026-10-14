@@ -1,11 +1,17 @@
 # Portable PTY patches
 
-`vendor/portable-pty` contains the published `portable-pty 0.9.0` package from
-[WezTerm](https://github.com/wezterm/wezterm/tree/f8921727a11b9f8b073e8c24821d72fd41283500/pty).
-The complete upstream MIT notice is retained in `vendor/portable-pty/LICENSE.md`.
-Registry cache files are omitted. The dependency version remains pinned at 0.9.0.
+Sailry uses `portable-pty 0.9.0` from the pinned
+[sailry/wezterm fork](https://github.com/sailry/wezterm/tree/e814e06b5149d73ddbcb5be670b41855b2873c74/pty),
+based on [WezTerm](https://github.com/wezterm/wezterm/tree/e2a98e1b8af156988ad0ac778658ac27b60a55fb/pty).
+The fork adapts upstream proposals [#7604](https://github.com/wezterm/wezterm/pull/7604)
+for process creation flags and [#7606](https://github.com/wezterm/wezterm/pull/7606)
+for the retained primary thread handle, alongside Sailry's Windows Job and ConPTY
+fixes below. The dependency version remains pinned at 0.9.0. The complete upstream
+MIT notice is retained in [portable-pty-LICENSE.md](portable-pty-LICENSE.md).
+The fork's `portable-pty` depends on its `filedescriptor 0.8.3` workspace package;
+both packages retain the same MIT notice.
 
-The local Windows patch lets a command retain a caller-owned Job. ConPTY creates
+The Windows patch lets a command retain a caller-owned Job. ConPTY creates
 that process with `CREATE_SUSPENDED`, assigns it to the Job, then resumes its
 retained primary thread. Assignment or resume failures terminate the suspended
 process and propagate the error. This closes the interval in which an interactive

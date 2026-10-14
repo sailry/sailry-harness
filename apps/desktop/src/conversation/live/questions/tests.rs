@@ -63,7 +63,15 @@ fn ready(
             .height
             > px(0.)
     );
-    view.read_with(visual, |view, _| current(view).unwrap())
+    let (id, turn) = view.read_with(visual, |view, _| {
+        let id = current(view).unwrap();
+        let question = view.question_pending(id).unwrap();
+        (id, question.turn)
+    });
+    let waiting: &'static str =
+        Box::leak(format!("live-turn-phase-{turn}-turn_waiting").into_boxed_str());
+    assert!(visual.debug_bounds(waiting).is_none());
+    id
 }
 
 #[gpui::test]
@@ -111,7 +119,18 @@ fn choices_text_and_resume(cx: &mut TestAppContext) {
         tap(visual, "live-question-choice-2");
         tap(visual, "live-question-input");
         visual.simulate_input("custom 中文");
-        visual.simulate_keystrokes("shift-tab shift-tab");
+        visual.update(|window, cx| window.render_frame(cx));
+        let mut focus = Vec::new();
+        for _ in 0..2 {
+            visual.simulate_keystrokes("shift-tab");
+            focus.push(visual.update(|window, cx| {
+                window.render_frame(cx);
+                let radios = window.within(SharedString::from(format!("question-{first}-choices")));
+                (0..3usize)
+                    .map(|index| radios.find(index).focused())
+                    .collect::<Vec<_>>()
+            }));
+        }
         let keystroke = Keystroke::parse("space").unwrap();
         visual.simulate_event(KeyDownEvent {
             keystroke: keystroke.clone(),
@@ -130,7 +149,8 @@ fn choices_text_and_resume(cx: &mut TestAppContext) {
             Some(Answer::Choices {
                 selected: vec![1],
                 other: None
-            })
+            }),
+            "radio focus after each Shift-Tab: {focus:?}"
         );
         visual.simulate_keystrokes("escape");
         visual.executor().advance_clock(Duration::from_millis(400));

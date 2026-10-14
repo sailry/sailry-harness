@@ -4,6 +4,10 @@ export const SelectableText: {new(id:string,props:{text:string}):import('gpui-ki
 export const Toggle: {new(id:string,props:{label:string;checked:boolean;disabled?:boolean;variant?:'button'|'checkbox';text?:string}):import('gpui-kit').Element};
 export function nextControlEvent():Promise<{id:string;value?:boolean|string|{icon:string;color:string}|{model:string;effort:import('sailry/sdk').Json};click_count?:number}>;
 export const ActionScope: {new(id:string,props:{close?:string}):import('gpui-kit').Element};
+/** Wrap one native focusable leaf. focusEntry requests keyboard entry after its next completed layout. */
+export const FocusEntry: {new(id:string):import('gpui-kit').Element};
+/** Enter the matching mounted FocusEntry; null cancels an earlier request. Never traverses outside the entry. */
+export function focusEntry(id:string|null):void;
 /** Returns an instance-local key context for native on_action handlers; replaces this view's bindings and removes them on release. Optional context matches descendants within this instance, never global contexts. */
 export function registerShortcuts(bindings:{keystroke:string;action:string;context?:string}[]):string;
 export const NavigationTabs: {new(id:string,props:{items:{id:string;label:string;icon?:string;loading?:boolean;closable?:boolean;close_disabled?:boolean;dirty?:boolean;close_label?:string}[];selected:string|null;max_width?:number;close_label:string}):import('gpui-kit').Element};

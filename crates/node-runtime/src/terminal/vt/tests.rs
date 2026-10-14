@@ -25,11 +25,15 @@ mod cursor {
 }
 
 #[test]
-fn isolates_prompt_redraw() {
+fn redraws_separate_prompt_lines() {
     for columns in [21, 22, 25, 39, 40] {
         let mut terminal = Vt::new(&viewport(20, 4), &appearance(ColorScheme::Dark), 100).unwrap();
-        // zsh PROMPT_SP pads unterminated output to wrap onto a fresh prompt row.
-        terminal.write(b"output%                    \r \r\x1b[J\x1b]133;A;redraw=1\x07\x1b[45mresize-fixture\x1b[0m> \x1b]133;B\x07").unwrap();
+        // Upstream redraw clears a prompt separated from output by a hard newline.
+        terminal
+            .write(
+                b"output%\r\n\x1b]133;A;redraw=1\x07\x1b[45mresize-fixture\x1b[0m> \x1b]133;B\x07",
+            )
+            .unwrap();
         terminal.resize(&viewport(columns, 4)).unwrap();
         let screen = terminal.checkpoint();
         let text: String = screen
@@ -420,18 +424,16 @@ fn parses_fragmented_osc_metadata() {
     terminal.write(b"server\x1b").unwrap();
     terminal.write(b"\\").unwrap();
     assert_eq!(terminal.checkpoint().features.title, "Running server");
+    // The unmodified embedded handler ignores title stack operations.
     terminal.write(b"\x1b[23;0t").unwrap();
-    assert_eq!(terminal.checkpoint().features.title, "Project shell");
-    assert_eq!(
-        terminal.write(b"\x1b[21t").unwrap().responses,
-        vec![b"\x1b]lProject shell\x1b\\".to_vec()]
-    );
+    assert_eq!(terminal.checkpoint().features.title, "Running server");
+    assert!(terminal.write(b"\x1b[21t").unwrap().responses.is_empty());
     terminal
         .write(b"\x1b[22;2;5t\x1b]2;Nested\x07\x1b[23;2;5t")
         .unwrap();
-    assert_eq!(terminal.checkpoint().features.title, "Project shell");
+    assert_eq!(terminal.checkpoint().features.title, "Nested");
     terminal.write(b"\x1b[23;2;5t").unwrap();
-    assert_eq!(terminal.checkpoint().features.title, "Project shell");
+    assert_eq!(terminal.checkpoint().features.title, "Nested");
     terminal
         .write(b"\x1b]7;file://localhost/tmp/project%20one\x07")
         .unwrap();

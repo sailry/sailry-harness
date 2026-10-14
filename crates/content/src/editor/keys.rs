@@ -5,7 +5,6 @@ use gpui_kit::{App, Global, KeyBinding, actions};
 
 pub(super) const CONTEXT: &str = "MarkdownEditor";
 pub(super) const COMPOSER: &str = "MarkdownComposer";
-pub(super) const SELECTION: &str = "MarkdownComposer MarkdownSelection";
 
 actions!(
     markdown_editor,

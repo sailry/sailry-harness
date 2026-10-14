@@ -10,15 +10,17 @@ use crate::markdown::{
 use gpui_kit::{ClipboardItem, Context, Window};
 
 impl State {
+    pub(super) fn select_all(&mut self, cx: &mut Context<Self>) {
+        self.cancel_composition(cx);
+        self.selection = Selection::all(&self.doc);
+        cx.notify();
+    }
+
     pub(super) fn insert(&mut self, value: &str, window: &mut Window, cx: &mut Context<Self>) {
         if self.readonly {
             return;
         }
         self.sync(cx);
-        if self.input.textarea().is_some() {
-            self.replace_draft(value, false, window, cx);
-            return;
-        }
         if value.is_empty() && self.selection.is_collapsed() {
             return;
         }
@@ -48,7 +50,7 @@ impl State {
             self.shortcut(previous_shortcut, start.offset..start.offset + value.len());
             self.inline_rule();
         }
-        self.apply(before, false, window, cx);
+        self.apply(before, window, cx);
     }
 
     fn shortcut(
@@ -97,11 +99,7 @@ impl State {
     }
 
     pub(super) fn copy(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let text = if self.input.textarea().is_some() {
-            self.selected_source().to_owned()
-        } else {
-            copied(&self.doc, self.selection)
-        };
+        let text = copied(&self.doc, self.selection);
         if !text.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(text));
         }
@@ -118,17 +116,12 @@ impl State {
             return;
         }
         self.cancel_composition(cx);
-        if self.input.textarea().is_some() {
-            self.replace_source(&text, window, cx);
-            return;
-        }
         if matches!(
             self.cursor().part,
             Part::Code | Part::Caption | Part::Cell { .. }
         ) {
-            self.commit(cx);
             self.insert(&text, window, cx);
-            self.commit(cx);
+
             return;
         }
         let parsed = parse(&text);
@@ -141,15 +134,14 @@ impl State {
             _ => false,
         };
         if plain {
-            self.commit(cx);
             self.insert(&text, window, cx);
-            self.commit(cx);
+
             return;
         }
         let before = self.doc.clone();
         let at = self.doc.splice(self.selection, parsed);
         self.place(at);
-        self.apply(before, true, window, cx);
+        self.apply(before, window, cx);
     }
 
     pub(super) fn toggle_mark(&mut self, mark: Mark, window: &mut Window, cx: &mut Context<Self>) {
@@ -157,7 +149,7 @@ impl State {
             return;
         }
         self.cancel_composition(cx);
-        self.commit(cx);
+
         let leaving_code = mark == Mark::Code && self.cursor().part == Part::Code;
         if self.selection.is_collapsed() && !leaving_code {
             if let Some(index) = self.stored.iter().position(|current| *current == mark) {
@@ -179,7 +171,7 @@ impl State {
         } else {
             self.doc.toggle_mark(self.selection, mark);
         }
-        self.apply(before, true, window, cx);
+        self.apply(before, window, cx);
     }
 
     pub(super) fn motion(
@@ -189,7 +181,7 @@ impl State {
         cx: &mut Context<Self>,
     ) {
         self.cancel_composition(cx);
-        self.commit(cx);
+
         self.stored.clear();
         let at = movement(self.cursor(), &self.doc).clamp(&self.doc);
         self.selection = if extend {
@@ -227,16 +219,8 @@ impl State {
             return;
         }
         self.cancel_composition(cx);
-        if self.input.textarea().is_some()
-            && self.selection == Selection::all(&self.doc)
-            && !self.selected_source().is_empty()
-        {
-            self.replace_source("", window, cx);
-            return;
-        }
         let before = self.doc.clone();
         let at = self.cursor();
-        let structural = self.selection.is_collapsed() && at.offset == 0;
         let head = if !self.selection.is_collapsed() {
             self.doc.replace(self.selection, Text::default()).caret
         } else if at.offset > 0 {
@@ -247,7 +231,7 @@ impl State {
             self.doc.merge_back(at).unwrap_or(at)
         };
         self.place(head);
-        self.apply(before, structural, window, cx);
+        self.apply(before, window, cx);
     }
 
     pub(super) fn delete(&mut self, _: &keys::Delete, window: &mut Window, cx: &mut Context<Self>) {
@@ -255,13 +239,6 @@ impl State {
             return;
         }
         self.cancel_composition(cx);
-        if self.input.textarea().is_some()
-            && self.selection == Selection::all(&self.doc)
-            && !self.selected_source().is_empty()
-        {
-            self.replace_source("", window, cx);
-            return;
-        }
         let before = self.doc.clone();
         let at = self.cursor();
         let selection = if self.selection.is_collapsed() {
@@ -271,7 +248,7 @@ impl State {
         };
         let head = self.doc.replace(selection, Text::default()).caret;
         self.place(head);
-        self.apply(before, false, window, cx);
+        self.apply(before, window, cx);
     }
 
     pub(super) fn enter(&mut self, _: &keys::Enter, window: &mut Window, cx: &mut Context<Self>) {
@@ -293,7 +270,7 @@ impl State {
         let at = self.cursor();
         let index = self.doc.split(at.block, at.offset);
         self.place(Cursor::new(index, Part::Body, 0));
-        self.apply(before, true, window, cx);
+        self.apply(before, window, cx);
     }
 
     pub(super) fn soft_break(
@@ -318,7 +295,7 @@ impl State {
         self.cancel_composition(cx);
         let before = self.doc.clone();
         self.doc.indent(self.cursor().block);
-        self.apply(before, true, window, cx);
+        self.apply(before, window, cx);
     }
     pub(super) fn outdent(
         &mut self,
@@ -332,7 +309,7 @@ impl State {
         self.cancel_composition(cx);
         let before = self.doc.clone();
         self.doc.outdent(self.cursor().block);
-        self.apply(before, true, window, cx);
+        self.apply(before, window, cx);
     }
 
     pub(super) fn toggle_task(
@@ -351,7 +328,7 @@ impl State {
         {
             *checked = !*checked;
         }
-        self.apply(before, true, window, cx);
+        self.apply(before, window, cx);
     }
 
     pub(super) fn tail_click(
@@ -381,7 +358,7 @@ impl State {
                 Text::default(),
             )));
         self.place(Cursor::new(last + 1, Part::Body, 0));
-        self.apply(before, true, window, cx);
+        self.apply(before, window, cx);
         true
     }
 }

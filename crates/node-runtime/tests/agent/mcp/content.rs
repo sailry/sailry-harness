@@ -18,20 +18,19 @@ async fn restores() {
                 include_str!("../../../../../plugins/examples/tool-content/plugin.json"),
             ),
             (
-                "mcp.json",
-                include_str!("../../../../../plugins/examples/tool-content/mcp.json"),
-            ),
-            (
-                "server.py",
-                include_str!("../../../../../plugins/examples/tool-content/server.py"),
-            ),
-            (
                 "content.json",
                 include_str!("../../../../../plugins/examples/tool-content/content.json"),
             ),
         ] {
             fs::write(package.join(name), text).unwrap();
         }
+        fs::write(
+            package.join("mcp.json"),
+            json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+                "mcpServers":{"reports":peer::config("mcp::modern::stdio_peer", "content")}})
+            .to_string(),
+        )
+        .unwrap();
         let Output::Plugin(info) = execute(
             &fixture.client,
             Command::InstallPlugin {
@@ -47,6 +46,10 @@ async fn restores() {
             panic!("plugin expected")
         };
         assert!(info.issues.is_empty(), "{:?}", info.issues);
+        assert_eq!(
+            info.extension.as_ref().unwrap().tools[0].presentation,
+            Presentation::Content
+        );
         let (_, turn) = submit(&fixture, true).await;
         execute(
             &fixture.client,
@@ -60,6 +63,16 @@ async fn restores() {
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(page.approvals.is_empty());
+        let alias = peer::package_alias("tool-content", "reports", "report");
+        assert!(
+            model.requests.lock().unwrap()[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|tool| tool["function"]["name"] == alias),
+            "captured MCP tool was not registered: {page:?}"
+        );
+        modern::assert_lifecycle(&fixture.node.profile().join("plugins/data/tool-content"));
         let expected: Content = serde_json::from_str(include_str!(
             "../../../../../plugins/examples/tool-content/content.json"
         ))

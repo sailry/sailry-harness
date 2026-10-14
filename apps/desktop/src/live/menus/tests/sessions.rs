@@ -1,10 +1,8 @@
 use super::*;
 use crate::live::conversation::tests::wait as settled;
 use crate::live::file_tests::click;
-use gpui_kit::{
-    Role,
-    test::{TestQueryExt as _, TestWindowExt as _},
-};
+use crate::ui::observation;
+use gpui_kit::Role;
 use sailry_protocol::plugin::ui::Intent;
 
 #[gpui::test]
@@ -73,7 +71,7 @@ fn archive_restore_and_delete(cx: &mut TestAppContext) {
             .unwrap()
             .set_head("refs/heads/sidebar-branch")
             .unwrap();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         let row = visual.debug_bounds(selector("live-session")).unwrap();
         visual.simulate_mouse_move(row.center(), None, Modifiers::default());
         let branch_selector =
@@ -82,7 +80,7 @@ fn archive_restore_and_delete(cx: &mut TestAppContext) {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             visual.run_until_parked();
-            visual.update(|window, cx| window.draw(cx).clear(cx));
+            visual.update(|window, cx| window.render_frame(cx));
             assert!(visual.debug_bounds(archive_selector).is_none());
             assert_eq!(row, visual.debug_bounds(selector("live-session")).unwrap());
             assert!(shell.read_with(visual, |shell, _| shell.sidebar.hovered
@@ -95,7 +93,7 @@ fn archive_restore_and_delete(cx: &mut TestAppContext) {
         }
         visual.executor().advance_clock(Duration::from_secs(1));
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         assert!(visual.debug_bounds("tooltip-popup").is_none());
         assert!(
             super::super::session::items(false)
@@ -130,7 +128,10 @@ fn archive_restore_and_delete(cx: &mut TestAppContext) {
                 .iter()
                 .any(|s| s.id == session.id && s.archived)
         });
-        assert!(visual.debug_bounds(selector("live-session")).is_none());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find(selector("live-session")).is_none());
+        });
         // Project records retain the archived entry and expose the restore action.
         click(visual, selector("session-archive"));
         settled(visual, |cx| {
@@ -147,7 +148,10 @@ fn archive_restore_and_delete(cx: &mut TestAppContext) {
                 .iter()
                 .any(|s| s.id == session.id && !s.archived)
         });
-        assert!(visual.debug_bounds(selector("live-session")).is_some());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find(selector("live-session")).is_some());
+        });
         click(visual, selector("session-more"));
         visual.simulate_keystrokes("escape");
         visual.update(|window, cx| {
@@ -192,7 +196,10 @@ fn archive_restore_and_delete(cx: &mut TestAppContext) {
                 .iter()
                 .any(|s| s.id == session.id)
         });
-        assert!(visual.debug_bounds(selector("live-session")).is_none());
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find(selector("live-session")).is_none());
+        });
         let client = Client::new(fixture.nodes[index].local());
         let Output::Session(other) = fixture
             .runtime
@@ -310,8 +317,7 @@ fn surface(
         visual.run_until_parked();
         let (rows, inputs, focused) = visual.update(|window, cx| {
             window.render_frame(cx);
-            let rows = window
-                .elements()
+            let rows = gpui_kit::base::test_support::snapshots(window)
                 .into_iter()
                 .filter(|row| {
                     matches!(row.path().last(), Some(ElementId::NamedInteger(id, 0))
@@ -327,9 +333,7 @@ fn surface(
                     _ => None,
                 })
                 .map(|id| {
-                    window
-                        .within(id)
-                        .find_all_by_role(Role::TextInput)
+                    observation::roles_within(window, id, Role::TextInput)
                         .into_iter()
                         .filter(|input| input.visible())
                         .collect::<Vec<_>>()

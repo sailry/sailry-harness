@@ -104,6 +104,153 @@ async fn parses_keyless_hosted_mcp_results() {
 }
 
 #[tokio::test]
+async fn cancelled_initialization_releases_connection() {
+    let server = Server::start().await;
+    server.stall("initialize");
+    let owner = Arc::new(Searcher::default());
+    owner.fixture(Driver::Exa, &format!("{}/mcp", server.endpoint));
+    let caller = NodeId([2; 32]);
+    let id = RequestId::new();
+    let active = owner.clone();
+    let pending = tokio::spawn(async move {
+        active
+            .search(
+                caller,
+                id,
+                Plan::default(),
+                &input(),
+                &CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), server.held.cancelled())
+        .await
+        .unwrap();
+    owner.cancel(caller, id);
+    let error = tokio::time::timeout(Duration::from_secs(10), pending)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error,
+        Fault::new(ErrorCode::Cancelled, "web search was cancelled")
+    );
+    tokio::time::timeout(Duration::from_secs(5), server.disconnected.cancelled())
+        .await
+        .unwrap();
+    assert_eq!(server.method_count("DELETE"), 0);
+}
+
+#[tokio::test]
+async fn cancelled_tool_releases_session() {
+    let server = Server::start().await;
+    server.stall("tools/call");
+    let owner = Arc::new(Searcher::default());
+    owner.fixture(Driver::Exa, &format!("{}/mcp", server.endpoint));
+    let caller = NodeId([3; 32]);
+    let id = RequestId::new();
+    let active = owner.clone();
+    let pending = tokio::spawn(async move {
+        active
+            .search(
+                caller,
+                id,
+                Plan::default(),
+                &input(),
+                &CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), server.held.cancelled())
+        .await
+        .unwrap();
+    owner.cancel(caller, id);
+    let error = tokio::time::timeout(Duration::from_secs(10), pending)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error,
+        Fault::new(ErrorCode::Cancelled, "web search was cancelled")
+    );
+    tokio::time::timeout(Duration::from_secs(5), server.disconnected.cancelled())
+        .await
+        .unwrap();
+    assert_eq!(server.method_count("DELETE"), 1);
+    assert!(server.requests.lock().unwrap().iter().any(|(header, _)| {
+        header.starts_with("DELETE /mcp ")
+            && header
+                .to_ascii_lowercase()
+                .contains("mcp-session-id: search-fixture")
+    }));
+}
+
+#[tokio::test]
+async fn deadline_releases_tool_session() {
+    let server = Server::start().await;
+    server.stall("tools/call");
+    let owner = Arc::new(Searcher::default());
+    owner.fixture(Driver::Exa, &format!("{}/mcp", server.endpoint));
+    let active = owner.clone();
+    let pending = tokio::spawn(async move {
+        active
+            .search(
+                NodeId([4; 32]),
+                RequestId::new(),
+                Plan::default(),
+                &input(),
+                &CancellationToken::new(),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), server.held.cancelled())
+        .await
+        .unwrap();
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(20)).await;
+    tokio::time::resume();
+    let error = tokio::time::timeout(Duration::from_secs(10), pending)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(
+        error,
+        Fault::new(ErrorCode::Unavailable, "search service deadline exceeded")
+    );
+    tokio::time::timeout(Duration::from_secs(5), server.disconnected.cancelled())
+        .await
+        .unwrap();
+    assert_eq!(server.method_count("DELETE"), 1);
+}
+
+#[test]
+fn cleanup_uncertainty_prevents_fallback() {
+    let authentication = Failure::unauthorized().with_cleanup_uncertain();
+    assert_eq!(authentication.fault.code, ErrorCode::PermissionDenied);
+    assert!(!authentication.temporary);
+    assert!(
+        authentication
+            .fault
+            .message
+            .ends_with("cleanup could not be confirmed")
+    );
+
+    let unavailable =
+        Failure::unavailable("search service is unavailable").with_cleanup_uncertain();
+    assert_eq!(unavailable.fault.code, ErrorCode::Unavailable);
+    assert!(!unavailable.temporary);
+
+    assert!(Failure::deadline_with_cleanup(true).temporary);
+    assert!(!Failure::deadline_with_cleanup(false).temporary);
+    let cleanup = Failure::cleanup_uncertain();
+    assert_eq!(cleanup.fault.code, ErrorCode::OutcomeUnknown);
+    assert!(!cleanup.temporary);
+}
+
+#[tokio::test]
 async fn cools_keyless_mcp_and_preserves_auth_errors() {
     let server = Server::start().await;
     let owner = Arc::new(Searcher::default());

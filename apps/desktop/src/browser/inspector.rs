@@ -14,7 +14,6 @@ pub(super) struct Surface {
     _container: Retained<NSView>,
     page: gpui_webview::WebViewHandle,
     _delegate: Retained<delegate::Delegate>,
-    frame: Cell<Option<(Bounds<Pixels>, f32)>>,
 }
 
 impl Drop for Surface {
@@ -45,16 +44,7 @@ impl Surface {
                 _delegate: delegate,
                 _container: container,
                 page: page.handle(),
-                frame: Cell::new(None),
             })
-        }
-    }
-
-    pub(super) fn layout(&self, page: &gpui_webview::WebView, bounds: Bounds<Pixels>, scale: f32) {
-        // set_bounds resets WKWebView's frame. Apply it only on host resize so
-        // WebKit retains ownership of the document/inspector split between frames.
-        if self.frame.replace(Some((bounds, scale))) != Some((bounds, scale)) {
-            let _ = page.set_bounds(super::surface::rect(bounds));
         }
     }
 }

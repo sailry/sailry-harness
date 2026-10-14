@@ -35,7 +35,6 @@ impl Shell {
         items.sort_by_key(|(received, _)| std::cmp::Reverse(*received));
         Popover::new("notifications")
             .anchor(Anchor::BottomLeft)
-            .anchor_offset(Self::rail_popover_offset(window))
             .open(self.activity.open)
             .on_open_change(cx.listener(|shell, open, _, cx| {
                 shell.activity.open = *open;

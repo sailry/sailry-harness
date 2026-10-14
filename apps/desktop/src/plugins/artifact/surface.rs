@@ -287,6 +287,7 @@ impl View {
                 self.writable.set(Some(available));
                 let _ = native
                     .page
+                    .raw()
                     .evaluate_script(&format!("window.sailryDocument?.setWritable({available});"));
             }
         }
@@ -334,18 +335,10 @@ impl View {
             return;
         };
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<String>(4);
-        #[cfg(target_os = "windows")]
-        let snapshot = crate::ui::webview_snapshot::Snapshot::new();
-        #[cfg(target_os = "windows")]
-        let signals = snapshot.signals();
         let builder = wry::WebViewBuilder::new()
             .with_html(html)
             .with_navigation_handler(|url| url == "about:blank")
             .with_ipc_handler(move |request| {
-                #[cfg(target_os = "windows")]
-                if signals.receive(request.body()) {
-                    return;
-                }
                 if request.body().len() <= 16 * 1024 * 1024 {
                     let export = serde_json::from_str::<Value>(request.body())
                         .ok()
@@ -360,10 +353,6 @@ impl View {
                     }
                 }
             });
-        #[cfg(target_os = "windows")]
-        let native =
-            crate::content::files::html::surface::Native::build(builder, window, cx, snapshot);
-        #[cfg(not(target_os = "windows"))]
         let native = crate::content::files::html::surface::Native::build(builder, window, cx);
         let Ok(native) = native else {
             self.error = Some("artifact_preview_failed");
@@ -560,7 +549,7 @@ impl View {
     fn ack(&self, form: &str, accepted: bool) {
         if let Some(native) = &self.native {
             let form = serde_json::to_string(form).unwrap();
-            let _ = native.page.evaluate_script(&format!(
+            let _ = native.page.raw().evaluate_script(&format!(
                 "window.sailryDocument?.submitted({form},{accepted});"
             ));
         }
@@ -607,6 +596,7 @@ impl View {
             let capture = self.capture_id;
             if native
                 .page
+                .raw()
                 .evaluate_script(&page::serialize_capture(
                     Some(capture),
                     cx.theme().foreground,
@@ -649,7 +639,7 @@ impl Render for View {
                     } else {
                         format!("window.sailryDocument?.retheme({theme});")
                     };
-                    let _ = native.page.evaluate_script(&script);
+                    let _ = native.page.raw().evaluate_script(&script);
                     self.theme = Some(theme);
                 }
                 self.writable(window, cx);

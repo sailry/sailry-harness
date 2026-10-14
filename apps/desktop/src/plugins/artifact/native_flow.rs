@@ -292,7 +292,7 @@ pub(in crate::plugins) async fn verify(
         let view = mounted(node, first.id, cx).await;
         rendered(&view, cx).await;
         let page = cx
-            .update(|_, cx| view.read(cx).native_fixture().unwrap().page.handle())
+            .update(|_, cx| view.read(cx).native_fixture().unwrap().page.clone())
             .unwrap();
         crate::workload::native_overlays::verify(
             &format!("html-brief-flow-{route}"),
@@ -527,7 +527,7 @@ async fn reproduce_export(
     until(cx, "live composition mounted", |_, cx| {
         view.read(cx)
             .native_fixture()
-            .is_some_and(|native| native.page.visible())
+            .is_some_and(|native| visible(&native))
     })
     .await;
     cx.update(|window, cx| {
@@ -540,20 +540,17 @@ async fn reproduce_export(
         .update(|_, cx| view.read(cx).native_fixture().unwrap().clone())
         .unwrap();
     // Composition keeps live content beneath overlays. Independently retain
-    // the real hidden-page capture policy using Kit's managed visibility API.
-    native.page.set_visible(false).unwrap();
-    assert!(!native.page.visible());
+    // the real hidden-page capture policy through Kit's retained raw handle.
+    native.page.raw().set_visible(false).unwrap();
+    assert!(!visible(&native));
     let started = Instant::now();
     let captured = cx
         .update(|window, cx| view.update(cx, |view, cx| view.capture(2, window, cx)))
         .unwrap()
         .await
         .expect("live capture must complete while the normal-policy page is hidden");
-    assert!(
-        !native.page.visible(),
-        "capture must not reveal the hidden page"
-    );
-    native.page.set_visible(true).unwrap();
+    assert!(!visible(&native), "capture must not reveal the hidden page");
+    native.page.raw().set_visible(true).unwrap();
     assert!(captured.contains("Export end marker"));
     println!(
         "Brief {route}: normal-policy hidden live capture completed in {:?}",
@@ -605,6 +602,14 @@ async fn reproduce_export(
             );
         }
     }
+}
+
+fn visible(native: &crate::content::files::html::surface::Native) -> bool {
+    use wry::WebViewExtMacOS as _;
+    let page = native.page.raw().webview();
+    // SAFETY: workload checks run on the AppKit thread and the handle retains the view.
+    let hidden: bool = unsafe { objc2::msg_send![&*page, isHidden] };
+    !hidden
 }
 
 fn stage(output: &Path, route: &str, action: &str, node: NodeId, artifact: &Summary) {
@@ -817,6 +822,7 @@ async fn evaluate(
             .native_fixture()
             .unwrap()
             .page
+            .raw()
             .evaluate_script_with_callback(script, move |value| {
                 if let Some(sender) = sender.lock().unwrap().take() {
                     let _ = sender.send(value);

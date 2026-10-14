@@ -74,7 +74,6 @@ fn frame(
 ) -> ListItem {
     let text_key = key.clone();
     ListItem::new(id)
-        .hover_background(false)
         .h_8()
         .py_0()
         .px_2()

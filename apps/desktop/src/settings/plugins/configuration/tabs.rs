@@ -26,7 +26,6 @@ impl Editor {
         Some(
             TabBar::new("plugin-settings-tabs")
                 .segmented()
-                .equal_width()
                 .menu(false)
                 .w_full()
                 .selected_index(self.tab.min(sections.len() - 1))

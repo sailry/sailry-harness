@@ -167,6 +167,7 @@ impl Document {
         if self.native.as_ref().is_some_and(|native| {
             native
                 .page
+                .raw()
                 .evaluate_script(&format!("window.previewAction?.('{action}')"))
                 .is_err()
         }) {
@@ -192,7 +193,7 @@ impl Render for Document {
         if self.background != background {
             self.background = background;
             if let Some(native) = &self.native {
-                let _ = native.page.evaluate_script(&format!(
+                let _ = native.page.raw().evaluate_script(&format!(
                     "window.previewTheme?.({})",
                     serde_json::to_string(&self.background).unwrap()
                 ));

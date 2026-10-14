@@ -20,6 +20,12 @@ pub(super) fn api(api: ModelApi, model: &str) -> Result<ModelApi, Fault> {
         Some(OpenCodeApi::Responses) => ModelApi::Responses,
         Some(OpenCodeApi::Messages) => ModelApi::Anthropic,
         Some(OpenCodeApi::GenerateContent) => ModelApi::Gemini,
+        Some(_) => {
+            return Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "OpenCode model uses an unsupported wire API",
+            ));
+        }
         None => {
             return Err(Fault::new(
                 ErrorCode::NotConfigured,

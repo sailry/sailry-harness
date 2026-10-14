@@ -309,18 +309,12 @@ impl Picker {
                             }),
                         )
                         .child(
-                            Button::new("directory-name-save")
-                                .primary()
-                                .label(tr("settings_save"))
-                                .debug_selector(|| "directory-name-save".into())
-                                .on_click(|_, window, cx| {
-                                    window.dispatch_action(
-                                        Box::new(gpui_kit::component::dialog::Confirm {
-                                            secondary: false,
-                                        }),
-                                        cx,
-                                    )
-                                }),
+                            gpui_kit::component::dialog::DialogAction::new().child(
+                                Button::new("directory-name-save")
+                                    .primary()
+                                    .label(tr("settings_save"))
+                                    .debug_selector(|| "directory-name-save".into()),
+                            ),
                         ),
                 )
                 .on_ok(move |_, window, cx| {

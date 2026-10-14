@@ -2,6 +2,7 @@ use super::super::inline::{
     active, active_content, content, draft_icon, icon, links, marker, token,
 };
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 
 pub(in crate::conversation::live::references) fn click_token(
     visual: &mut VisualTestContext,
@@ -16,7 +17,8 @@ pub(in crate::conversation::live::references) fn click_token(
     });
     let position = token_position(visual, view, token);
     visual.simulate_mouse_move(position, None, Modifiers::default());
-    visual.simulate_click(position, Modifiers::default());
+    visual.update(|window, cx| window.render_frame(cx));
+    fixture::press(visual, position);
     visual.run_until_parked();
     view.read_with(visual, |view, cx| {
         let input = view.input.read(cx);
@@ -37,6 +39,84 @@ pub(in crate::conversation::live::references) fn click_token(
     });
 }
 
+pub(in crate::conversation::live::references) fn click_sent_reference(
+    visual: &mut VisualTestContext,
+    view: &Entity<View>,
+    turn: TurnId,
+    token: &str,
+) -> String {
+    let before = settled_reference(visual, view, turn, token);
+    let position = before.0.center();
+    visual.simulate_mouse_move(position, None, Modifiers::default());
+    let hovered = settled_reference(visual, view, turn, token);
+    assert!(
+        hovered.0.contains(&position) && hovered.1.contains(&position),
+        "reference moved before press: token={token:?}, position={position:?}, before={before:?}, hovered={hovered:?}"
+    );
+    visual.simulate_mouse_down(position, MouseButton::Left, Modifiers::default());
+    let pressed = sent_geometry(visual, view, turn, token);
+    let focus = visual.update(|window, cx| window.focused(cx));
+    visual.simulate_mouse_up(position, MouseButton::Left, Modifiers::default());
+    visual.run_until_parked();
+    visual.update(|window, cx| window.render_frame(cx));
+    format!(
+        "token={token:?}, position={position:?}, before={before:?}, hovered={hovered:?}, pressed={pressed:?}, focus={focus:?}"
+    )
+}
+
+fn sent_geometry(
+    visual: &mut VisualTestContext,
+    view: &Entity<View>,
+    turn: TurnId,
+    token: &str,
+) -> (Option<Bounds<Pixels>>, Bounds<Pixels>) {
+    visual.update(|window, cx| window.render_frame(cx));
+    let transcript = visual
+        .debug_bounds("live-history-viewport")
+        .expect("conversation viewport");
+    visual.update(|window, cx| {
+        let bounds = view
+            .read(cx)
+            .prompts
+            .borrow()
+            .get(&turn)
+            .and_then(|prompt| prompt.read(cx).reference_bounds(token, cx));
+        let viewport = Bounds::new(Point::default(), window.viewport_size());
+        (bounds, transcript.intersect(&viewport))
+    })
+}
+
+fn settled_reference(
+    visual: &mut VisualTestContext,
+    view: &Entity<View>,
+    turn: TurnId,
+    token: &str,
+) -> (Bounds<Pixels>, Bounds<Pixels>) {
+    // Prompt height is committed after prepaint, then the transcript remeasures its row.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut previous = None;
+    loop {
+        visual.run_until_parked();
+        let geometry = sent_geometry(visual, view, turn, token);
+        if previous == Some(geometry)
+            && let Some(bounds) = geometry.0
+        {
+            assert!(
+                bounds.size.width > px(0.)
+                    && bounds.size.height > px(0.)
+                    && geometry.1.contains(&bounds.center()),
+                "reference outside transcript: token={token:?}, geometry={geometry:?}"
+            );
+            return (bounds, geometry.1);
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "reference layout deadline: token={token:?}, previous={previous:?}, current={geometry:?}"
+        );
+        previous = Some(geometry);
+    }
+}
+
 fn token_position(
     visual: &mut VisualTestContext,
     view: &Entity<View>,
@@ -49,7 +129,7 @@ fn token_position(
     loop {
         visual.run_until_parked();
         let position = visual.update(|window, cx| {
-            window.draw(cx).clear(cx);
+            window.render_frame(cx);
             let input = view.read(cx).input.read(cx);
             let source = input.value();
             let start = source.find(token).unwrap();
@@ -94,7 +174,6 @@ fn matches_whole_labels_and_excludes_code() {
         ["@文档 notes.md (2)", "@文档 notes.md", "@Host"]
     );
     assert_eq!(active(text, &references), references);
-    assert!(matched.iter().all(|link| link.icon.is_none()));
     for text in [
         "`@Host`",
         "```\n@Host\n```",
@@ -168,7 +247,6 @@ fn markers_keep_text_and_targets_without_icons() {
         assert_eq!(matched.len(), 1);
         assert_eq!(&text[matched[0].range.clone()], "@Selected content");
         assert_eq!(matched[0].id, text);
-        assert!(matched[0].icon.is_none());
         assert_eq!(active(&text, std::slice::from_ref(&reference)), [reference]);
     }
 }
@@ -693,8 +771,8 @@ fn selects_sessions_and_binds_history_tool(cx: &mut TestAppContext) {
                 }
             })
         });
-        tap(visual, &format!("live-user-text-{turn}"));
-        assert_eq!(*opened.lock().unwrap(), Some(source.id));
+        let click = click_sent_reference(visual, &view, turn, "@Design notes 设计");
+        assert_eq!(*opened.lock().unwrap(), Some(source.id), "{click}");
         let requests = fixture.server.requests.lock().unwrap();
         let request = &requests[0];
         let tool = request["tools"]

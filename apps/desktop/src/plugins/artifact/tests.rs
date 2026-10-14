@@ -223,7 +223,17 @@ fn clears_admitted_answers_after_surface_close(cx: &mut TestAppContext) {
         let resource = panel.read_with(visual, |panel, _| panel.document.clone().unwrap());
         let host = panel.read_with(visual, |panel, _| panel.mounted.as_ref().unwrap().host());
         #[cfg(all(target_os = "macos", feature = "workload-tests"))]
-        surface::tests::settle_mount(&resource, visual);
+        {
+            let key = (resource.binding.client.target(), resource.artifact.id);
+            let owner = visual.read(|cx| {
+                cx.global::<native_flow::Surfaces>()
+                    .0
+                    .get(&key)
+                    .and_then(WeakEntity::upgrade)
+                    .unwrap()
+            });
+            surface::tests::settle_mount(owner, resource.artifact.revision, visual);
+        }
         let draft = surface::tests::Draft::new(resource, host.clone(), visual);
         crate::feedback::tests::settle(visual);
         visual.update(|window, cx| window.clear_notifications(cx));
@@ -937,10 +947,15 @@ mod cards {
         resource: Resource,
         visual: &mut VisualTestContext,
     ) -> tokio::sync::oneshot::Receiver<bool> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let (sender, mut receiver) = tokio::sync::oneshot::channel();
         visual.update(|window, cx| {
             export::choose_card(resource, export::Format::Html, sender, window, cx)
         });
+        let early = receiver.try_recv();
+        assert!(
+            matches!(early, Err(tokio::sync::oneshot::error::TryRecvError::Empty)),
+            "artifact export resolved before path picker: {early:?}"
+        );
         let platform = visual.cx.clone();
         wait(visual, |_| platform.did_prompt_for_new_path());
         receiver
@@ -966,7 +981,10 @@ mod cards {
             let (fixture, reads) = fixture(remote, Kind::Preview);
             let first = published(&fixture, 1);
             let (source, visual) = chat::open(cx, fixture.binding.clone(), fixture.session.clone());
-            wait(visual, |cx| source.read(cx).document_visible(&first));
+            wait(visual, |cx| {
+                let source = source.read(cx);
+                source.connected() && source.document_visible(&first)
+            });
             visual.update(|window, cx| source.update(cx, |source, cx| source.focus(window, cx)));
             visual.simulate_input("Keep the existing draft");
             let captured = visual.update(|_, cx| resource(&source, &first, cx));
@@ -1034,7 +1052,10 @@ mod cards {
                     cx.notify();
                 })
             });
-            wait(visual, |cx| source.read(cx).document_visible(&first));
+            wait(visual, |cx| {
+                let source = source.read(cx);
+                source.connected() && source.document_visible(&first)
+            });
             let captured = visual.update(|_, cx| resource(&source, &first, cx));
 
             let changed_path = fixture.directory.path().join("changed-source.html");

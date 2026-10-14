@@ -600,7 +600,7 @@ impl Render for Shell {
         self.sync_resource_shortcuts(cx);
         self.bind_host_monitor(window, cx);
         let content = self.page_content(window, cx);
-        let (frame, visible, panel_width) = if let Some(workspace) = self.plugin_workspace(cx) {
+        let (frame, visible) = if let Some(workspace) = self.plugin_workspace(cx) {
             let owner = cx.entity().downgrade();
             workspace.update(cx, |state, cx| state.bind(owner, cx));
             let geometry = self.frame_geometry(
@@ -609,10 +609,10 @@ impl Render for Shell {
                 window,
                 cx,
             );
-            (content, geometry.visible, geometry.panel_width)
+            (content, geometry.visible)
         } else {
-            let (frame, visible, panel_width) = self.frame(content, None, window, cx);
-            (frame.into_any_element(), visible, panel_width)
+            let (frame, visible, _) = self.frame(content, None, window, cx);
+            (frame.into_any_element(), visible)
         };
         if let Some(browser) = self
             .side_resource
@@ -629,13 +629,6 @@ impl Render for Shell {
             });
         }
         let mut key_context = KeyContext::default();
-        window.set_notification_insets(
-            gpui_kit::Edges {
-                right: if visible { px(panel_width) } else { px(0.) },
-                ..Default::default()
-            },
-            cx,
-        );
         key_context.add("Sailry");
         if self.page == Page::Conversation {
             key_context.add("SailryConversation");

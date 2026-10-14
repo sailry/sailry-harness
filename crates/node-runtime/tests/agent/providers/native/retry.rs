@@ -77,24 +77,27 @@ fn unavailable(retry_after: &str) -> Script {
 async fn honors_server_retry_delays() {
     for remote in [false, true] {
         for date in [false, true] {
-            let deadline =
-                chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() + 4, 0).unwrap();
-            let header = if date {
-                deadline.format("%a, %d %b %Y %H:%M:%S GMT").to_string()
-            } else {
-                "2".into()
+            let success = Script {
+                bytes: wire(&[completed()], true, true),
+                ending: Ending::Close,
             };
-            let server = Server::start(
-                ModelApi::Responses,
-                Reply::Scripted(Arc::new(vec![
-                    unavailable(&header),
-                    Script {
-                        bytes: wire(&[completed()], true, true),
-                        ending: Ending::Close,
-                    },
-                ])),
-            )
-            .await;
+            let deadline = Arc::new(std::sync::Mutex::new(None));
+            let reply = if date {
+                let deadline = deadline.clone();
+                Reply::Dynamic(Arc::new(move |index| {
+                    if index > 0 {
+                        return success.clone();
+                    }
+                    let due =
+                        chrono::DateTime::from_timestamp(chrono::Utc::now().timestamp() + 4, 0)
+                            .unwrap();
+                    *deadline.lock().unwrap() = Some(std::time::SystemTime::from(due));
+                    unavailable(&due.format("%a, %d %b %Y %H:%M:%S GMT").to_string())
+                }))
+            } else {
+                Reply::Scripted(Arc::new(vec![unavailable("2"), success]))
+            };
+            let server = Server::start(ModelApi::Responses, reply).await;
             let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Respect the server retry delay").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
@@ -105,7 +108,7 @@ async fn honors_server_retry_delays() {
             assert_eq!(requests.len(), 2);
             assert_eq!(requests[0].body, requests[1].body);
             if date {
-                let deadline: std::time::SystemTime = deadline.into();
+                let deadline = deadline.lock().unwrap().expect("date reply was sent");
                 assert!(
                     requests[0].received_at < deadline,
                     "date fixture must still be in the future"

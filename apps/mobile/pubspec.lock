@@ -299,9 +299,11 @@ packages:
   flutter_markdown_plus:
     dependency: "direct main"
     description:
-      path: "../../vendor/flutter-markdown-plus"
-      relative: true
-    source: path
+      path: "."
+      ref: eac4a6b2deebf50361b51b76ee3b2de13f23e219
+      resolved-ref: eac4a6b2deebf50361b51b76ee3b2de13f23e219
+      url: "https://github.com/sailry/flutter_markdown_plus.git"
+    source: git
     version: "1.0.12"
   flutter_native_splash:
     dependency: "direct dev"

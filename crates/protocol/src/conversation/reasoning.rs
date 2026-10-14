@@ -26,10 +26,7 @@ impl Effort {
             (ModelApi::AzureOpenAi, effort) => {
                 return effort.validate(ModelApi::ChatCompletions, output);
             }
-            (
-                ModelApi::DeepSeek,
-                Self::Default | Self::Disabled | Self::Low | Self::High | Self::Max,
-            ) => true,
+            (ModelApi::DeepSeek, Self::Default | Self::Disabled | Self::High | Self::Max) => true,
             (ModelApi::DeepSeek, _) => false,
             (ModelApi::OpenCodeGo, Self::Budget(tokens)) => {
                 tokens >= 1024 && (tokens as u32) < output

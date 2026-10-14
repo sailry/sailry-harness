@@ -121,7 +121,7 @@ fn elapsed_execution_time() {
 #[test]
 fn active_phase_lifecycle() {
     let mut run = run();
-    let page = Page {
+    let mut page = Page {
         session: run.session,
         revision: 1,
         entries: vec![],
@@ -152,6 +152,45 @@ fn active_phase_lifecycle() {
     let retry = [Block::Tools(vec![]), Block::Retry(1, 3)];
     assert!(!continuing_tools(&run, &page, &retry));
     assert_eq!(phase(&run, &page, &retry), None);
+    page.questions
+        .push(sailry_protocol::conversation::question::Question {
+            id: sailry_protocol::QuestionId::new(),
+            session: run.session,
+            turn: run.turn,
+            entry: "question".into(),
+            index: 0,
+            state: sailry_protocol::conversation::question::State::Pending,
+        });
+    assert_eq!(phase(&run, &page, &[]), None);
+    assert_eq!(phase(&run, &page, &text), None);
+    page.questions[0].turn = TurnId::new();
+    assert_eq!(phase(&run, &page, &[]), Some("turn_awaiting_response"));
+    page.questions.clear();
+    page.approvals
+        .push(sailry_protocol::conversation::Approval {
+            id: sailry_protocol::ApprovalId::new(),
+            session: run.session,
+            turn: run.turn,
+            entry: "tool".into(),
+            index: 0,
+            state: sailry_protocol::conversation::ApprovalState::Pending,
+            source: sailry_protocol::conversation::ApprovalSource::User,
+            choice: None,
+            reason: None,
+            prefix: None,
+            can_remember: false,
+            startup: None,
+            ssh: None,
+            access: None,
+        });
+    assert_eq!(phase(&run, &page, &[]), None);
+    assert_eq!(phase(&run, &page, &text), None);
+    page.approvals[0].turn = TurnId::new();
+    assert_eq!(phase(&run, &page, &[]), Some("turn_awaiting_response"));
+    page.approvals[0].turn = run.turn;
+    page.approvals[0].state = sailry_protocol::conversation::ApprovalState::Approved;
+    assert_eq!(phase(&run, &page, &[]), Some("turn_awaiting_response"));
+    assert_eq!(phase(&run, &page, &text), Some("turn_generating"));
     for status in [
         Status::Completed,
         Status::Continued,

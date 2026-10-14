@@ -443,8 +443,25 @@ impl Workspaces {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let node = destination.node();
-        let placement = destination.placement();
+        self.drop_to(
+            workspace,
+            target,
+            destination.node(),
+            destination.placement(),
+            window,
+            cx,
+        )
+    }
+
+    pub(crate) fn drop_to(
+        &mut self,
+        workspace: u64,
+        target: Target,
+        node: NodeId,
+        placement: Option<gpui_kit::base::Placement>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !self.can_drop(workspace, target, placement, cx) {
             return false;
         }

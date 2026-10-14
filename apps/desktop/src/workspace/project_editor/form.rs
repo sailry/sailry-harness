@@ -23,7 +23,6 @@ impl Render for Editor {
                     body.child(
                         TabBar::new("project-source")
                             .segmented()
-                            .equal_width()
                             .menu(false)
                             .w_full()
                             .selected_index(usize::from(self.clone))

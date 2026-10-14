@@ -105,14 +105,18 @@ impl Searcher {
                 stop,
             }
         };
-        tokio::select! {
-            biased;
-            _ = request.stop.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "web search was cancelled")),
-            result = self.execute(plan, input) => result,
-        }
+        self.execute(plan, input, &request.stop).await
     }
 
-    async fn execute(&self, plan: Plan, input: &search::Request) -> Result<search::Page, Fault> {
+    async fn execute(
+        &self,
+        plan: Plan,
+        input: &search::Request,
+        stop: &CancellationToken,
+    ) -> Result<search::Page, Fault> {
+        if stop.is_cancelled() {
+            return Err(Failure::cancelled().fault);
+        }
         let candidates = candidates(&plan.settings);
         if candidates.is_empty() {
             return Err(Fault::new(
@@ -122,22 +126,31 @@ impl Searcher {
         }
         let mut failure = None;
         for driver in candidates.iter().copied() {
+            if stop.is_cancelled() {
+                return Err(Failure::cancelled().fault);
+            }
             if self.cooldown(driver, plan.settings.revision).is_some() {
                 continue;
             }
             let auth = plan.credentials.get(&driver).cloned().unwrap_or_default();
             let endpoint = self.endpoint(driver, &plan.settings);
-            let attempt = tokio::time::timeout(Duration::from_secs(20), async {
-                match driver {
-                    Driver::Exa => exa::search(&endpoint, &auth, input).await,
-                    Driver::Tavily => tavily::search(&endpoint, &auth, input).await,
-                    Driver::Brave => brave::search(&endpoint, &auth, input).await,
-                    Driver::Searxng => searxng::search(&endpoint, &auth, input).await,
-                    Driver::Bocha => bocha::search(&endpoint, &auth, input).await,
+            let attempt = if driver == Driver::Exa {
+                exa::search(&endpoint, &auth, input, stop).await
+            } else {
+                tokio::select! {
+                    biased;
+                    _ = stop.cancelled() => Err(Failure::cancelled()),
+                    result = tokio::time::timeout(Duration::from_secs(20), async {
+                        match driver {
+                            Driver::Exa => unreachable!("Exa owns its cancellable MCP lifecycle"),
+                            Driver::Tavily => tavily::search(&endpoint, &auth, input).await,
+                            Driver::Brave => brave::search(&endpoint, &auth, input).await,
+                            Driver::Searxng => searxng::search(&endpoint, &auth, input).await,
+                            Driver::Bocha => bocha::search(&endpoint, &auth, input).await,
+                        }
+                    }) => result.unwrap_or_else(|_| Err(Failure::unavailable("search service deadline exceeded"))),
                 }
-            })
-            .await
-            .unwrap_or_else(|_| Err(Failure::unavailable("search service deadline exceeded")));
+            };
             match attempt {
                 Ok(mut results) => {
                     results.truncate(input.limit as usize);
@@ -158,6 +171,9 @@ impl Searcher {
                     failure = Some(error.fault);
                 }
             }
+        }
+        if stop.is_cancelled() {
+            return Err(Failure::cancelled().fault);
         }
         let deadlines: Vec<_> = candidates
             .iter()
@@ -262,6 +278,54 @@ struct Failure {
 }
 
 impl Failure {
+    fn cancelled() -> Self {
+        Self::cancelled_with_cleanup(true)
+    }
+
+    fn cancelled_with_cleanup(cleaned: bool) -> Self {
+        Self {
+            fault: Fault::new(
+                ErrorCode::Cancelled,
+                if cleaned {
+                    "web search was cancelled"
+                } else {
+                    "web search was cancelled before cleanup completed"
+                },
+            ),
+            temporary: false,
+            retry_at: None,
+        }
+    }
+
+    fn deadline_with_cleanup(cleaned: bool) -> Self {
+        let mut failure = Self::unavailable(if cleaned {
+            "search service deadline exceeded"
+        } else {
+            "search service deadline exceeded before cleanup completed"
+        });
+        failure.temporary = cleaned;
+        failure
+    }
+
+    fn cleanup_uncertain() -> Self {
+        Self {
+            fault: Fault::new(
+                ErrorCode::OutcomeUnknown,
+                "search service cleanup could not be confirmed",
+            ),
+            temporary: false,
+            retry_at: None,
+        }
+    }
+
+    fn with_cleanup_uncertain(mut self) -> Self {
+        self.fault
+            .message
+            .push_str("; cleanup could not be confirmed");
+        self.temporary = false;
+        self
+    }
+
     fn unavailable(message: &str) -> Self {
         Self {
             fault: Fault::new(ErrorCode::Unavailable, message),

@@ -30,7 +30,6 @@ fn state(phase: &str) -> Option<OrbState> {
         "turn_awaiting_response" | "turn_thinking" => Some(OrbState::Searching),
         "turn_generating" => Some(OrbState::Composing),
         "turn_tools_running" => Some(OrbState::Working),
-        "turn_waiting" => Some(OrbState::Breathing),
         _ => None,
     }
 }

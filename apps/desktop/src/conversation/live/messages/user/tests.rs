@@ -4,6 +4,184 @@ use crate::conversation::live::tests::{
     wait,
 };
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
+
+#[derive(Default)]
+struct Surfaces(BTreeMap<(WindowId, TurnId), Bounds<Pixels>>);
+
+impl Global for Surfaces {}
+
+pub(in crate::conversation::live::messages) fn observe(
+    turn: TurnId,
+    bubble: Bubble,
+) -> impl IntoElement {
+    Surface {
+        turn,
+        bubble: bubble.into_any_element(),
+    }
+}
+
+struct Surface {
+    turn: TurnId,
+    bubble: AnyElement,
+}
+
+impl IntoElement for Surface {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for Surface {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<ElementId> {
+        None
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        // Share the actual Bubble's layout node: observation must not change
+        // its constraints or inspect the border-inset content rectangle.
+        (self.bubble.request_layout(window, cx), ())
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        bounds: Bounds<Pixels>,
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if !cx.has_global::<Surfaces>() {
+            cx.set_global(Surfaces::default());
+        }
+        cx.global_mut::<Surfaces>()
+            .0
+            .insert((window.window_handle().window_id(), self.turn), bounds);
+        self.bubble.prepaint(window, cx);
+    }
+
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&InspectorElementId>,
+        _: Bounds<Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        self.bubble.paint(window, cx);
+    }
+}
+
+#[gpui_kit::test]
+fn adapts_bubble_width(cx: &mut TestAppContext) {
+    use sailry_protocol::conversation::reference::{Reference, Target};
+    init(cx);
+    let fixture = Fixture::with_tools(false, vec![]);
+    std::fs::write(fixture.directory.path().join("project/notes.md"), "Notes").unwrap();
+    let plain = complete(&fixture, "Hi");
+    let reference = Reference {
+        label: "notes.md".into(),
+        target: Target::File("notes.md".into()),
+    };
+    let short = complete(
+        &fixture,
+        Input {
+            text: "See @notes.md".into(),
+            attachments: vec![],
+            references: vec![reference.clone()],
+        },
+    );
+    let long = complete(
+        &fixture,
+        Input {
+            text: format!(
+                "{} @notes.md",
+                "A longer message with Unicode 内容. ".repeat(12)
+            ),
+            attachments: vec![],
+            references: vec![reference],
+        },
+    );
+    let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+    let handle = visual.update(|window, _| window.window_handle());
+    visual.simulate_window_resize(handle, size(px(960.), px(1100.)));
+    wait(visual, |cx| view.read(cx).connected());
+    view.update(visual, |view, cx| {
+        view.scroller
+            .update(cx, |state, cx| state.scroll_to_item(0, cx))
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut previous = None;
+    let bounds = loop {
+        visual.run_until_parked();
+        let current = visual.update(|window, cx| {
+            window.render_frame(cx);
+            [plain, short, long].map(|turn| {
+                cx.try_global::<Surfaces>().and_then(|surfaces| {
+                    surfaces
+                        .0
+                        .get(&(window.window_handle().window_id(), turn))
+                        .copied()
+                })
+            })
+        });
+        let measured = current[1].is_some_and(|bounds| {
+            bounds.size.width < px(crate::conversation::layout::USER_MESSAGE_WIDTH)
+        });
+        if measured
+            && previous == Some(current)
+            && let [Some(plain), Some(short), Some(long)] = current
+        {
+            break [plain, short, long];
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "adaptive bubble layout deadline: {current:?}"
+        );
+        previous = Some(current);
+    };
+    let [plain, short, long] = bounds;
+    let maximum = px(crate::conversation::layout::USER_MESSAGE_WIDTH);
+    assert!(
+        plain.size.width > px(0.) && plain.size.width < maximum,
+        "{bounds:?}"
+    );
+    assert!(
+        short.size.width > plain.size.width && short.size.width < maximum,
+        "{bounds:?}"
+    );
+    assert!((long.size.width - maximum).abs() <= px(1.), "{bounds:?}");
+    assert!(
+        long.size.height > short.size.height,
+        "long prompt must wrap: {bounds:?}"
+    );
+    for bounds in [plain, short] {
+        assert!(
+            (bounds.right() - long.right()).abs() <= px(1.),
+            "bubbles retain trailing alignment: {bounds:?}, long={long:?}"
+        );
+    }
+    visual.update(|window, _| window.remove_window());
+    fixture.close();
+}
 
 #[gpui_kit::test]
 fn hides_automatic_input_and_marker(cx: &mut TestAppContext) {
@@ -14,6 +192,11 @@ fn hides_automatic_input_and_marker(cx: &mut TestAppContext) {
         let package = fixture.files_context().package;
         let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
         wait(visual, |cx| view.read(cx).connected());
+        visual.update(|window, cx| window.render_frame(cx));
+        let prompt_id = view.read_with(visual, |view, _| {
+            view.prompts.borrow().get(&turn).unwrap().entity_id()
+        });
+        visual.update(|window, _| assert!(window.try_find(("prompt", prompt_id)).is_some()));
         let mut history = view.read_with(visual, |view, _| view.history.clone());
         let page = Arc::make_mut(&mut Arc::make_mut(history.snapshot.as_mut().unwrap()).page);
         page.runs[0].continuation = Some(sailry_protocol::conversation::Continuation {
@@ -28,10 +211,11 @@ fn hides_automatic_input_and_marker(cx: &mut TestAppContext) {
         let continuation = page.runs[0].continuation.clone();
         view.update(visual, |view, cx| view.update_history(history.clone(), cx));
         let marker: &'static str = Box::leak(format!("live-continuation-{turn}").into_boxed_str());
-        let prompt: &'static str = Box::leak(format!("live-user-text-{turn}").into_boxed_str());
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert!(window.try_find(("prompt", prompt_id)).is_none());
+        });
         assert!(visual.debug_bounds(marker).is_none());
-        assert!(visual.debug_bounds(prompt).is_none());
         assert_eq!(
             view.read_with(visual, |view, _| view
                 .history

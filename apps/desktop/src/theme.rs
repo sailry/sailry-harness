@@ -141,7 +141,6 @@ pub fn init(cx: &mut App) {
         let theme = Theme::global_mut(cx);
         theme.list.active_highlight = false;
         theme.focus_ring = false;
-        theme.notification.content_width = true;
         neutral::configure(&mut Rc::make_mut(&mut theme.light_theme).colors, false);
         neutral::configure(&mut Rc::make_mut(&mut theme.dark_theme).colors, true);
         // Kit keeps omitted sizing fields from the preceding config. Capture the
@@ -413,12 +412,15 @@ mod tests {
                     }
                 );
                 assert!(contrast(theme.tab_active, theme.tab_active_foreground) >= 4.5);
-                let thumb = theme.switch_thumb;
-                assert_eq!(theme.switch_thumb.a, 1.);
+                let thumb = theme.tokens.switch_thumb.color;
+                assert_eq!(thumb.a, 1.);
                 for (opacity, minimum) in [(1., 3.), (0.5, 1.5)] {
-                    let rendered = surface.blend(theme.switch_checked.opacity(opacity));
+                    let rendered = surface.blend(theme.tokens.primary.color.opacity(opacity));
                     assert!(contrast(thumb, rendered) >= minimum);
-                    let inactive = surface.blend(theme.switch.opacity(opacity)).to_rgb().r;
+                    let inactive = surface
+                        .blend(theme.tokens.switch.color.opacity(opacity))
+                        .to_rgb()
+                        .r;
                     assert!((thumb.to_rgb().r - inactive).abs() > 0.1 * opacity);
                 }
             }
@@ -453,15 +455,19 @@ mod tests {
                     let selected = surface.blend(theme.primary);
                     let text = contrast(selected, selected.blend(theme.primary_foreground));
                     let selected_surface = contrast(selected, surface);
-                    let checked = surface.blend(theme.switch_checked);
-                    let thumb = contrast(checked, checked.blend(theme.switch_thumb));
+                    let checked = surface.blend(theme.tokens.primary.color);
+                    let thumb = contrast(checked, checked.blend(theme.tokens.switch_thumb.color));
                     assert!(text >= 4.5, "{} {mode:?}: primary text {text}", package.id);
                     assert!(
                         selected_surface >= 3.,
                         "{} {mode:?}: selected surface {selected_surface}",
                         package.id
                     );
-                    assert!(thumb >= 3., "{} {mode:?}: checked thumb {thumb}", package.id);
+                    assert!(
+                        thumb >= 3.,
+                        "{} {mode:?}: checked thumb {thumb}",
+                        package.id
+                    );
                 }
             }
         });

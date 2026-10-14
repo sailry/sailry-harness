@@ -6,7 +6,7 @@ use gpui_kit::component::{
     ActiveTheme, Disableable,
     button::{Button, ButtonVariants},
     h_flex,
-    input::{Editor, EditorState},
+    input::{Copy, Editor, EditorState},
     scroll::ScrollableElement,
     v_flex,
 };
@@ -225,9 +225,8 @@ impl Notebook {
             }
             for source in std::iter::once(&cell.source).chain(&cell.outputs) {
                 if source.read(cx).focus_handle(cx).is_focused(window) {
-                    source.update(cx, |source, cx| {
-                        source.copy(&gpui_kit::component::input::Copy, window, cx)
-                    });
+                    let focus = source.read(cx).focus_handle(cx);
+                    focus.dispatch_action(&Copy, window, cx);
                     return;
                 }
             }
@@ -340,7 +339,10 @@ impl Notebook {
             }
             list = list.child(content);
         }
-        list.flex_1().overflow_y_scrollbar().into_any_element()
+        list.flex_1()
+            .min_h_0()
+            .overflow_y_scrollbar()
+            .into_any_element()
     }
 
     pub(super) fn render(
@@ -350,10 +352,8 @@ impl Notebook {
         context: &plugin::Context,
         cx: &App,
     ) -> AnyElement {
-        let mut view = v_flex()
-            .size_full()
-            .min_h_0()
-            .child(self.view(SharedString::from(format!("notebook-preview-{id}")), cx));
+        let preview = self.view(SharedString::from(format!("notebook-preview-{id}")), cx);
+        let mut view = v_flex().size_full().min_h_0().child(preview);
         if self.next.is_some() {
             let owner = controller.clone();
             let context = context.clone();

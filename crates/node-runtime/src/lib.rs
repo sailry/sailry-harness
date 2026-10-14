@@ -22,6 +22,7 @@ mod host;
 mod installation;
 mod knowledge;
 pub mod logging;
+mod mcp_transport;
 mod models;
 mod ocr;
 mod office;

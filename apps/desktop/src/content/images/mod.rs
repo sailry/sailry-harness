@@ -1,6 +1,7 @@
 //! View-owned, bounded thumbnails for local drafts and published Node attachments.
 use crate::tr;
 use gpui_kit::component::attachment::AttachmentMedia;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::{component::*, *};
 use sailry_client::Client;
 use sailry_link::CancellationToken;
@@ -211,11 +212,17 @@ impl Images {
         images: &Entity<Self>,
         sources: Vec<ImageSource>,
         index: usize,
-    ) -> gpui_kit::component::attachment::Attachment {
+        cx: &App,
+    ) -> Button {
         let id = sources[index].id();
+        let label = format!("{}: {}", tr("chat_image_preview"), sources[index].name());
         let images = images.downgrade();
-        card.id(format!("attachment-preview-{id}"))
-            .accessibility_label(sources[index].name())
+        Button::new(format!("attachment-preview-{id}"))
+            .text()
+            .rounded(cx.theme().radius_2xl())
+            .max_w_full()
+            .accessibility_label(label)
+            .child(card)
             .on_click(move |_, window, cx| {
                 if let Some(images) = images.upgrade() {
                     preview::open_gallery(&images, sources.clone(), index, window, cx);

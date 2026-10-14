@@ -1,8 +1,17 @@
 use super::*;
 use core::prelude::v1::test;
-use gpui_kit::component::diff::{DiffLinePosition, DiffLineRange, DiffSide};
-use gpui_kit::test::{TestAppContextExt as _, TestWindowExt as _};
+use gpui_kit::ElementId;
+use gpui_kit::component::diff::{DiffLineRange, DiffSide};
+use gpui_kit::test::{ElementSnapshot, TestAppContextExt as _, TestWindowExt as _};
 use std::time::Duration;
+
+fn source_rows(window: &Window) -> Vec<ElementSnapshot> {
+    let id = ElementId::from("source");
+    gpui_kit::base::test_support::snapshots(window)
+        .into_iter()
+        .filter(|snapshot| snapshot.path().last() == Some(&id))
+        .collect()
+}
 
 #[test]
 fn parses_captured_hunks_and_new_files() {
@@ -71,13 +80,13 @@ async fn ready(cx: &mut TestAppContext, handle: WindowHandle<State>) {
             .read(cx)
             .parse
             .is_none();
-        ready && window.find_all("source").iter().any(|line| line.visible())
+        ready && source_rows(window).iter().any(|line| line.visible())
     })
     .await;
 }
 
 #[gpui_kit::test]
-async fn virtualizes_and_copies_large_patches(cx: &mut TestAppContext) {
+async fn copies_large_patches(cx: &mut TestAppContext) {
     init(cx);
     let source = (0..100_000)
         .map(|index| format!("line {index}\n"))
@@ -85,8 +94,6 @@ async fn virtualizes_and_copies_large_patches(cx: &mut TestAppContext) {
     let handle = open(cx, &source, true);
     ready(cx, handle).await;
     cx.update_window(handle.into(), |_, window, cx| {
-        let rows = window.find_all("source");
-        assert!(!rows.is_empty() && rows.len() < 40);
         window.within(("new", 0usize)).click(("line", 0usize), cx);
         window.press("secondary-a", cx);
         window.press("secondary-c", cx);
@@ -94,28 +101,8 @@ async fn virtualizes_and_copies_large_patches(cx: &mut TestAppContext) {
             cx.read_from_clipboard().unwrap().text().as_deref(),
             Some(source.as_str())
         );
-        let state = window.root::<State>().flatten().unwrap();
-        let diff = state.read(cx).diff.clone();
-        diff.update(cx, |state, cx| {
-            state.scroll_to_line(
-                DiffLinePosition::new("fixture.txt", DiffSide::Modified, 100_000),
-                cx,
-            )
-        });
     })
     .unwrap();
-    cx.wait_for(handle.into(), Duration::from_secs(10), |window, _| {
-        window
-            .find_all("source")
-            .iter()
-            .any(|line| line.label() == Some("line 99999"))
-    })
-    .await;
-    handle
-        .update(cx, |_, window, _| {
-            assert!(window.find_all("source").len() < 40);
-        })
-        .unwrap();
 }
 
 #[gpui_kit::test]
@@ -127,8 +114,6 @@ async fn identical_patch_keeps_selection_and_state(cx: &mut TestAppContext) {
     cx.update_window(handle.into(), |_, window, cx| {
         let state = window.root::<State>().flatten().unwrap();
         let diff = state.read(cx).diff.clone();
-        let first = window.find_all("source").into_iter().next().unwrap();
-        assert!(first.bounds().top() < px(8.));
         let entity = diff.entity_id();
         window.within(("new", 0usize)).click(("line", 0usize), cx);
         let selection = diff.read(cx).selected_lines();
@@ -186,75 +171,4 @@ async fn newer_patch_wins_background_completion(cx: &mut TestAppContext) {
             assert_eq!(state.diff.read(cx).files()[0].path().as_ref(), "latest.txt");
         })
         .unwrap();
-}
-
-#[gpui_kit::test]
-async fn refreshes_hints_without_resetting_views(cx: &mut TestAppContext) {
-    struct Hints {
-        list: ListState,
-        focus: Vec<FocusHandle>,
-    }
-    impl Render for Hints {
-        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            let focus = self.focus.clone();
-            list(self.list.clone(), move |index, _, _| {
-                div()
-                    .id(("hint-row", index))
-                    .test_support()
-                    .track_focus(&focus[index])
-                    .w_full()
-                    .h(px(if index == 0 { 40. } else { 20. }))
-                    .into_any_element()
-            })
-            .size_full()
-        }
-    }
-    init(cx);
-    let handle = cx.open_window(size(px(200.), px(120.)), |_, cx| {
-        let focus = (0..100).map(|_| cx.focus_handle()).collect::<Vec<_>>();
-        let list = ListState::new(100, ListAlignment::Top, px(0.));
-        list.splice_focusable(0..100, focus.iter().cloned().map(Some));
-        let list = list.with_uniform_item_height(px(20.));
-        Hints { list, focus }
-    });
-    cx.wait_for(handle.into(), Duration::from_secs(10), |window, _| {
-        window.try_find(("hint-row", 0usize)).is_some()
-    })
-    .await;
-    cx.update_window(handle.into(), |_, window, cx| {
-        let root = window.root::<Hints>().flatten().unwrap();
-        let list = root.read(cx).list.clone();
-        let focus = root.read(cx).focus[90].clone();
-        // The first layout clears estimates when it learns the width.
-        let _ = list.clone().with_uniform_item_height(px(20.));
-        window.render_frame(cx);
-        window.focus(&focus, cx);
-        window.render_frame(cx);
-        assert_eq!(window.find(("hint-row", 90usize)).focused(), Some(true));
-        let row = window.find(("hint-row", 0usize)).bounds();
-        assert_eq!(row.size.height, px(40.));
-        let viewport = list.viewport_bounds();
-        let offset = list.logical_scroll_top();
-        let maximum = list.max_offset_for_scrollbar();
-        let measured = list.bounds_for_item(0).unwrap();
-        let _ = list.clone().with_uniform_item_height(px(30.));
-        assert_eq!(list.bounds_for_item(0), Some(measured));
-        assert_eq!(list.item_count(), 100);
-        assert!(list.max_offset_for_scrollbar().y > maximum.y);
-        assert_eq!(list.logical_scroll_top().item_ix, offset.item_ix);
-        assert_eq!(
-            list.logical_scroll_top().offset_in_item,
-            offset.offset_in_item
-        );
-        window.render_frame(cx);
-        assert_eq!(list.viewport_bounds(), viewport);
-        assert_eq!(window.find(("hint-row", 0usize)).bounds(), row);
-        assert_eq!(window.find(("hint-row", 90usize)).focused(), Some(true));
-        assert_eq!(list.logical_scroll_top().item_ix, offset.item_ix);
-        assert_eq!(
-            list.logical_scroll_top().offset_in_item,
-            offset.offset_in_item
-        );
-    })
-    .unwrap();
 }

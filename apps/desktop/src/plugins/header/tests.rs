@@ -2,6 +2,7 @@ use super::*;
 use crate::plugins::tests::{click, init};
 use core::prelude::v1::test;
 use gpui_kit::component::Root;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_link::CancellationToken;
 use serde_json::json;
 
@@ -66,10 +67,10 @@ fn routes_flat_and_dropdown_selections(cx: &mut TestAppContext) {
     visual.update(|window, cx| window.draw(cx).clear(cx));
     click(visual, "flat");
     assert_eq!(receiver.try_recv().unwrap(), "flat");
-    assert!(visual.debug_bounds("popup-menu").is_none());
+    assert!(!menu_open(visual));
     click(visual, "more");
     visual.update(|window, cx| window.draw(cx).clear(cx));
-    assert!(visual.debug_bounds("popup-menu").is_some());
+    assert!(menu_open(visual));
     assert!(
         receiver.try_recv().is_err(),
         "opening a menu must not emit its trigger ID"
@@ -77,7 +78,7 @@ fn routes_flat_and_dropdown_selections(cx: &mut TestAppContext) {
     visual.simulate_keystrokes("escape");
     visual.run_until_parked();
     assert!(receiver.try_recv().is_err());
-    assert!(visual.debug_bounds("popup-menu").is_none());
+    assert!(!menu_open(visual));
     click(visual, "more");
     visual.update(|window, cx| window.draw(cx).clear(cx));
     visual.simulate_keystrokes("down down enter");
@@ -102,9 +103,16 @@ fn routes_flat_and_dropdown_selections(cx: &mut TestAppContext) {
     );
     click(visual, "blocked");
     visual.update(|window, cx| window.draw(cx).clear(cx));
-    assert!(visual.debug_bounds("popup-menu").is_none());
+    assert!(!menu_open(visual));
     assert!(receiver.try_recv().is_err());
     visual.update(|window, _| window.remove_window());
+}
+
+fn menu_open(visual: &mut VisualTestContext) -> bool {
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        window.try_find("popup-menu").is_some()
+    })
 }
 
 #[gpui::test]

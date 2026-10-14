@@ -354,7 +354,14 @@ impl Shell {
                     if let Some(pane) = shell.splits.read(cx).pane(target).cloned() {
                         pane.update(cx, |pane, _| pane.extension = Some(Extension { package: package.name.clone() }));
                     }
-                    panel.update(cx, |panel, cx| panel.open(package, window, cx));
+                    let active = shell.splits.read(cx).active == Some(target);
+                    panel.update(cx, |panel, cx| {
+                        if active {
+                            panel.enter(package, window, cx);
+                        } else {
+                            panel.open(package, window, cx);
+                        }
+                    });
                 } else if shell.plugin_panes.closing.remove(&target) {
                     shell.remove_pane(target, window, cx);
                 }

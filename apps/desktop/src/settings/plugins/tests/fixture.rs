@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_link::{
     Admission, CancellationToken, Link, NetworkScope, Pending, Subscription, Transport,
 };
@@ -465,13 +466,11 @@ pub(in crate::settings) fn wait(cx: &mut VisualTestContext, predicate: impl Fn(&
 pub(in crate::settings) fn draw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
     cx.update(|window, cx| {
-        window.refresh();
-        let _ = window.draw(cx);
+        window.render_frame(cx);
     });
 }
 
 pub(in crate::settings) fn reveal(cx: &mut VisualTestContext, id: ElementId) -> bool {
-    use gpui_kit::test::TestWindowExt as _;
     if cx.update(|window, cx| window.has_active_dialog(cx)) {
         return false;
     }
@@ -525,7 +524,8 @@ pub(in crate::settings) fn shown(
         {
             reveal(cx, SharedString::from(selector).into());
         }
-        if cx.debug_bounds(selector).is_some() == expected {
+        let observed = cx.update(|window, _| window.try_find(selector).is_some());
+        if (observed || cx.debug_bounds(selector).is_some()) == expected {
             return;
         }
         assert!(

@@ -280,7 +280,7 @@ fn missing_metadata(cx: &mut TestAppContext) {
                     *value = result;
                     cx.notify();
                 });
-                visual.update(|window, cx| window.draw(cx).clear(cx));
+                visual.update(|window, cx| window.render_frame(cx));
                 assert!(visual.debug_bounds(image).is_some());
                 assert_eq!(visual.debug_bounds(error).is_some(), failed);
                 assert!(visual.debug_bounds(output).is_none());

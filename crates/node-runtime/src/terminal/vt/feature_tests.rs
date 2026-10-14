@@ -38,6 +38,48 @@ fn reports_requested_effects() {
 }
 
 #[test]
+fn rejects_invalid_clipboard_bytes() {
+    use base64::Engine as _;
+
+    let mut vt = Vt::new(&viewport(80, 24), &appearance(ColorScheme::Dark), 100).unwrap();
+    vt.write(b"\x1b]52;c;aGVsbG8=\x07").unwrap();
+    let previous = vt.checkpoint().features.clipboard.unwrap();
+    let rejected = vt
+        .write(
+            concat!(
+                "\x1b]5522;type=write:id=invalid\x1b\\",
+                "\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;/w==\x1b\\",
+                "\x1b]5522;type=wdata\x1b\\",
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    assert_eq!(
+        rejected.responses.concat(),
+        b"\x1b]5522;type=write:status=EINVAL:id=invalid\x1b\\"
+    );
+    assert_eq!(vt.checkpoint().features.clipboard, Some(previous.clone()));
+
+    let text = "中文🚢";
+    let payload = base64::engine::general_purpose::STANDARD.encode(text);
+    let accepted = vt
+        .write(
+            format!(
+                "\x1b]5522;type=write:id=valid\x1b\\\x1b]5522;type=wdata:mime=dGV4dC9wbGFpbg==;{payload}\x1b\\\x1b]5522;type=wdata\x1b\\"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+    assert_eq!(
+        accepted.responses.concat(),
+        b"\x1b]5522;type=write:status=DONE:id=valid\x1b\\"
+    );
+    let clipboard = vt.checkpoint().features.clipboard.unwrap();
+    assert_eq!(clipboard.text, text);
+    assert_eq!(clipboard.sequence, previous.sequence.wrapping_add(1));
+}
+
+#[test]
 fn retains_graphics_without_retransmission() {
     let mut vt = Vt::new(&viewport(80, 4), &appearance(ColorScheme::Dark), 100).unwrap();
     vt.write(b"\x1b_Ga=T,f=32,s=1,v=1,i=7,c=2,r=2;/wAA/w==\x1b\\")
@@ -55,8 +97,13 @@ fn retains_graphics_without_retransmission() {
     let graphics = vt.checkpoint().graphics;
     assert_eq!(graphics.images.len(), 1);
     assert!(graphics.placements[0].row < 0);
+    // Visible-placement deletion must preserve images retained in scrollback.
     vt.write(b"\x1b_Ga=d,d=A\x1b\\").unwrap();
-    assert!(vt.checkpoint().graphics.images.is_empty());
+    assert_eq!(vt.checkpoint().graphics, graphics);
+    vt.write(b"\x1b_Ga=d,d=I,i=7\x1b\\").unwrap();
+    let graphics = vt.checkpoint().graphics;
+    assert!(graphics.images.is_empty());
+    assert!(graphics.placements.is_empty());
 }
 
 #[test]

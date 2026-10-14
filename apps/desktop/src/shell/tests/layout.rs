@@ -1,10 +1,11 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
     super::workspace::click(cx, selector);
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(400));
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
 }
 
 #[gpui::test]
@@ -20,7 +21,7 @@ fn navigation_fits_without_changing_its_saved_width(cx: &mut TestAppContext) {
     for (width, navigation_width) in [(760., 224.), (1280., 320.)] {
         visual.simulate_window_resize(handle, size(px(width), px(820.)));
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         let navigation = visual.debug_bounds("shell-navigation").unwrap();
         let main = visual.debug_bounds("main-content").unwrap();
         assert!((navigation.size.width - px(navigation_width)).abs() < px(1.));
@@ -59,7 +60,7 @@ fn optional_pane_releases_minimum(cx: &mut TestAppContext) {
     ] {
         visual.simulate_window_resize(handle, size(width, px(820.)));
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         visual.update(|window, cx| {
             let shell = shell.read(cx);
             let geometry = shell.frame_geometry(true, shell.has_resource_panel(cx), window, cx);
@@ -108,7 +109,7 @@ fn feature_navigation_and_headers(cx: &mut TestAppContext) {
     cx.executor()
         .advance_clock(std::time::Duration::from_millis(400));
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
     assert_eq!(cx.update(|_, cx| shell.read(cx).page), Page::Activity);
     assert!(cx.debug_bounds("shell-navigation").is_none());
     assert!(cx.debug_bounds("header-sidebar-toggle").is_none());
@@ -175,7 +176,7 @@ fn short_project_content_does_not_reserve_height(cx: &mut TestAppContext) {
     for height in [560., 820.] {
         visual.simulate_window_resize(handle, size(px(1280.), px(height)));
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.update(|window, cx| window.render_frame(cx));
         let projects = visual.debug_bounds("projects-heading").unwrap();
         let viewport = visual.debug_bounds("sidebar-projects-viewport").unwrap();
         let first = visual.debug_bounds("sidebar-project").unwrap();
@@ -212,7 +213,7 @@ fn project_scrolling_preserves_hosts(cx: &mut TestAppContext) {
     for height in [560., 820.] {
         cx.simulate_window_resize(handle, size(px(1000.), px(height)));
         cx.run_until_parked();
-        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|window, cx| window.render_frame(cx));
         let viewport = cx.debug_bounds("sidebar-projects-viewport").unwrap();
         let fixed = [
             "new-conversation",
@@ -239,7 +240,7 @@ fn project_scrolling_preserves_hosts(cx: &mut TestAppContext) {
                 ..Default::default()
             });
             cx.run_until_parked();
-            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|window, cx| window.render_frame(cx));
             let after = cx.debug_bounds("session-0").unwrap();
             if delta < 0. {
                 assert!(after.top() < before.top());
@@ -257,7 +258,7 @@ fn project_scrolling_preserves_hosts(cx: &mut TestAppContext) {
             ..Default::default()
         });
         cx.run_until_parked();
-        cx.update(|window, cx| window.draw(cx).clear(cx));
+        cx.update(|window, cx| window.render_frame(cx));
         assert_eq!(cx.debug_bounds("session-0").unwrap(), session);
         click(&mut cx, "session-0");
         assert_eq!(cx.update(|_, cx| shell.read(cx).session), 0);
@@ -276,7 +277,7 @@ fn project_scrolling_preserves_hosts(cx: &mut TestAppContext) {
         })
     });
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
     assert!(cx.debug_bounds("sidebar-recent-viewport").is_none());
     click(&mut cx, "recent-toggle");
     let recent = cx.debug_bounds("sidebar-recent-viewport").unwrap();
@@ -292,7 +293,7 @@ fn project_scrolling_preserves_hosts(cx: &mut TestAppContext) {
         ..Default::default()
     });
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
     let after = cx.debug_bounds("recent-preview-0").unwrap();
     assert!(after.top() < before.top());
     assert!(after.top() >= recent.top() && after.bottom() <= recent.bottom());
@@ -345,7 +346,7 @@ fn container_tints_are_independent_of_window_opacity(cx: &mut TestAppContext) {
                 cx.refresh_windows();
             });
             cx.run_until_parked();
-            cx.update(|window, cx| window.draw(cx).clear(cx));
+            cx.update(|window, cx| window.render_frame(cx));
             for selector in ["shell-body", "shell-navigation"] {
                 let bounds = cx.debug_bounds(selector).unwrap();
                 cx.update(|window, cx| {

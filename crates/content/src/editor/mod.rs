@@ -7,7 +7,6 @@
 //! the caller's sole buffer, undo history and existing draft/save subscriptions.
 mod buffer;
 mod commands;
-mod composer;
 mod input;
 mod keys;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -23,8 +22,6 @@ use crate::markdown::{
     parse::parse,
 };
 use buffer::Buffer;
-#[cfg(test)]
-use gpui_kit::component::input::TextareaState;
 use gpui_kit::component::{
     RopeExt as _,
     input::{
@@ -67,18 +64,15 @@ pub struct State {
     doc: Doc,
     map: source::Map,
     selection: Selection,
-    source_selection: Range<usize>,
     mode: Mode,
     marked: Option<Range<usize>>,
     composition: Option<Composition>,
     stored: Vec<Mark>,
-    transaction: bool,
     layouts: BlockLayouts,
     scroll: ScrollHandle,
     focus: FocusHandle,
     dragging: bool,
     pointer: Point<Pixels>,
-    pressed: Option<(gpui_kit::base::input::TextareaLink, Point<Pixels>)>,
     readonly: bool,
     label: Option<SharedString>,
     reveal: bool,
@@ -109,12 +103,6 @@ impl State {
         Self::from_buffer(Buffer::Editor(input.clone()), cx)
     }
 
-    /// Render the conversation's existing draft without another buffer or history.
-    #[cfg(test)]
-    pub fn from_textarea(input: &Entity<TextareaState>, cx: &mut Context<Self>) -> Self {
-        Self::from_buffer(Buffer::Textarea(input.clone()), cx)
-    }
-
     /// Project the rendered caret onto the caller's existing source buffer.
     pub fn source_cursor_position(&self, cx: &App) -> Option<Position> {
         if self.mode != Mode::Document {
@@ -123,64 +111,35 @@ impl State {
         let offset = self.map.offset(self.cursor())?;
         Some(match &self.input {
             Buffer::Editor(input) => input.read(cx).text().offset_to_position(offset),
-            #[cfg(test)]
-            Buffer::Textarea(input) => input.read(cx).text().offset_to_position(offset),
         })
     }
 
     fn from_buffer(input: Buffer, cx: &mut Context<Self>) -> Self {
         keys::init(cx);
         let source = input.value(cx);
-        let doc = if input.textarea().is_some() {
-            composer::draft(&source)
-        } else {
-            document(&source)
-        };
+        let doc = document(&source);
         let map = source::Map::new(&source, &doc);
         let changes = match &input {
             Buffer::Editor(input) => cx.observe(input, |state, _, cx| {
                 state.sync(cx);
                 cx.notify();
             }),
-            #[cfg(test)]
-            Buffer::Textarea(input) => cx.observe(input, |state, _, cx| {
-                state.sync(cx);
-                cx.notify();
-            }),
         };
-        let source_selection = input.selection(cx);
-        let selection = if input.textarea().is_some() {
-            Selection::new(
-                map.cursor(source_selection.start, &doc),
-                map.cursor(source_selection.end, &doc),
-            )
-        } else {
-            Selection::default()
-        };
-        let focus = if input.textarea().is_some() {
-            input.focus_handle(cx)
-        } else {
-            cx.focus_handle()
-        };
-        cx.on_release(|state, cx| state.commit(cx)).detach();
         Self {
             input,
             source,
             doc,
             map,
-            selection,
-            source_selection,
+            selection: Selection::default(),
             mode: Mode::Document,
             marked: None,
             composition: None,
             stored: Vec::new(),
-            transaction: false,
             layouts: BlockLayouts::default(),
             scroll: ScrollHandle::new(),
-            focus,
+            focus: cx.focus_handle(),
             dragging: false,
             pointer: point(px(0.), px(0.)),
-            pressed: None,
             readonly: false,
             label: None,
             reveal: false,
@@ -201,7 +160,6 @@ impl State {
     pub fn can_copy(&self, cx: &App) -> bool {
         match self.mode {
             Mode::Source => !self.input.selection(cx).is_empty(),
-            Mode::Document if self.input.textarea().is_some() => !self.selected_source().is_empty(),
             Mode::Document => !self.selection.is_collapsed(),
         }
     }
@@ -227,11 +185,7 @@ impl State {
             Command::Cut => {
                 if !self.readonly && self.can_copy(cx) {
                     self.copy(window, cx);
-                    if self.input.textarea().is_some() {
-                        self.replace_source("", window, cx);
-                    } else {
-                        self.insert("", window, cx);
-                    }
+                    self.insert("", window, cx);
                 }
             }
             Command::Paste => self.paste(window, cx),
@@ -246,7 +200,6 @@ impl State {
             return;
         }
         self.cancel_composition(cx);
-        self.commit(cx);
         self.dragging = false;
         self.blink = None;
         self.sync(cx);
@@ -280,7 +233,6 @@ impl State {
         self.selection = Selection::at(at.clamp(&self.doc));
     }
     fn notify_caret(&mut self, cx: &mut Context<Self>) {
-        self.sync_selection(cx);
         self.reveal = true;
         self.caret_on = true;
         self.blink = None;
@@ -300,42 +252,18 @@ impl State {
     fn sync(&mut self, cx: &mut Context<Self>) {
         let source = self.source(cx);
         if source == self.source {
-            let selected = self.input.selection(cx);
-            if self.input.textarea().is_some()
-                && self.composition.is_none()
-                && selected != self.source_selection
-            {
-                self.selection = Selection::new(
-                    self.map.cursor(selected.start, &self.doc),
-                    self.map.cursor(selected.end, &self.doc),
-                );
-                self.source_selection = selected;
-            }
             return;
         }
         self.cancel_composition(cx);
-        self.commit(cx);
-        self.doc = if self.input.textarea().is_some() {
-            composer::draft(&source)
-        } else {
-            document(&source)
-        };
+        self.doc = document(&source);
         self.map = source::Map::new(&source, &self.doc);
         self.source = source;
-        self.source_selection = self.input.selection(cx);
-        self.selection = if self.input.textarea().is_some() {
-            Selection::new(
-                self.map.cursor(self.source_selection.start, &self.doc),
-                self.map.cursor(self.source_selection.end, &self.doc),
-            )
-        } else {
-            Selection::at(self.map.cursor(self.source_selection.end, &self.doc))
-        };
+        self.selection = Selection::at(self.map.cursor(self.input.selection(cx).end, &self.doc));
         self.stored.clear();
         cx.notify();
     }
 
-    fn apply(&mut self, before: Doc, atomic: bool, window: &mut Window, cx: &mut Context<Self>) {
+    fn apply(&mut self, before: Doc, window: &mut Window, cx: &mut Context<Self>) {
         if self.readonly {
             self.doc = before;
             return;
@@ -344,13 +272,6 @@ impl State {
             self.notify_caret(cx);
             return;
         };
-        if atomic {
-            self.commit(cx);
-        }
-        if !self.transaction {
-            self.input.begin(cx);
-            self.transaction = true;
-        }
         let mut updated = self.source.to_string();
         updated.replace_range(patch.range.clone(), &patch.text);
         // Set the expected source before notifying Kit observers, so a view's
@@ -358,16 +279,7 @@ impl State {
         self.source = updated.into();
         self.map = source::Map::new(&self.source, &self.doc);
         self.input.replace(patch.range, patch.text, window, cx);
-        if atomic {
-            self.commit(cx);
-        }
         self.notify_caret(cx);
-    }
-
-    fn commit(&mut self, cx: &mut App) {
-        if std::mem::take(&mut self.transaction) {
-            self.input.commit(cx);
-        }
     }
 
     fn undo(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
@@ -376,7 +288,6 @@ impl State {
             return;
         }
         self.cancel_composition(cx);
-        self.commit(cx);
         self.input.undo(window, cx);
         self.sync(cx);
         self.focus_handle(cx).focus(window, cx);
@@ -387,7 +298,6 @@ impl State {
             return;
         }
         self.cancel_composition(cx);
-        self.commit(cx);
         self.input.redo(window, cx);
         self.sync(cx);
         self.focus_handle(cx).focus(window, cx);
@@ -415,9 +325,7 @@ impl State {
         if self._blur.is_none() {
             self._blur = Some(cx.on_blur(&self.focus, window, |state, _, cx| {
                 state.cancel_composition(cx);
-                state.commit(cx);
                 state.dragging = false;
-                state.pressed = None;
                 state.blink = None;
                 cx.notify();
             }));
@@ -488,19 +396,12 @@ impl State {
             .absolute()
             .size_0()
         });
-        let annotations = self.annotations(cx);
-        let placeholder = self
-            .input
-            .textarea()
-            .map(|input| input.read(cx).presentation().placeholder().clone());
         let content = markdown::with_selection(
             &self.doc,
             Editing {
                 selection: Some(self.selection),
                 caret_on: focused && self.caret_on,
                 layouts: Some(&self.layouts),
-                annotations: &annotations,
-                placeholder: placeholder.clone(),
                 // Document clicks place the caret, including linked text.
                 on_link: Some(Rc::new(|_, _, _| {})),
                 ..Editing::default()
@@ -512,58 +413,25 @@ impl State {
             .id("markdown-document")
             .debug_selector(|| "markdown-document".into())
             .w_full()
-            .when(self.input.textarea().is_none(), |surface| {
-                surface.size_full().min_h_0().p(px(16.))
-            })
-            .when(self.input.textarea().is_some(), |surface| {
-                let line = px(markdown::typography::Typography::of(cx).body.line_height());
-                let entity = cx.entity();
-                surface
-                    .min_h(line * 2.)
-                    .max_h(line * 6.)
-                    .role(gpui_kit::Role::MultilineTextInput)
-                    .aria_value(self.source.clone())
-                    .on_a11y_action(
-                        gpui_kit::AccessibleAction::SetValue,
-                        move |data, window, cx| {
-                            entity.update(cx, |state, cx| {
-                                state.accessibility_value(data, window, cx)
-                            });
-                        },
-                    )
-                    .when_some(placeholder.clone(), |surface, placeholder| {
-                        surface.aria_placeholder(placeholder)
-                    })
-                    .when_some(self.label.clone(), |surface, label| {
-                        surface.aria_label(label)
-                    })
-            })
+            .size_full()
+            .min_h_0()
+            .p(px(16.))
             .track_scroll(&self.scroll)
             .overflow_y_scrollbar()
             .relative()
             .cursor_text()
-            .key_context(if self.input.textarea().is_some() {
-                if self.selection.is_collapsed() {
-                    keys::COMPOSER
-                } else {
-                    keys::SELECTION
-                }
-            } else {
-                keys::CONTEXT
-            })
+            .key_context(keys::CONTEXT)
             .track_focus(&self.focus.clone().tab_stop(true))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::press))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|state, event, _, cx| {
-                    state.release_link(event, cx);
+                cx.listener(|state, _, _, cx| {
                     state.release(cx);
                 }),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
                 cx.listener(|state, _, _, cx| {
-                    state.pressed = None;
                     state.release(cx);
                 }),
             )
@@ -587,12 +455,6 @@ impl State {
             .on_action(cx.listener(Self::soft_break))
             .on_action(cx.listener(Self::indent))
             .on_action(cx.listener(Self::outdent))
-            .on_action(cx.listener(Self::submit))
-            .on_action(cx.listener(Self::composer_backspace))
-            .on_action(cx.listener(Self::composer_up))
-            .on_action(cx.listener(Self::composer_down))
-            .on_action(cx.listener(Self::composer_indent))
-            .on_action(cx.listener(Self::composer_outdent))
             .on_action(cx.listener(|state, _: &keys::Bold, window, cx| {
                 state.toggle_mark(Mark::Bold, window, cx)
             }))
@@ -681,31 +543,25 @@ impl Focusable for State {
 
 impl Render for State {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.input.textarea().is_some() {
-            let content = if self.mode == Mode::Document && self.document_active(window, cx) {
-                self.sync_selection(cx);
-                self.document(window, cx)
-            } else {
-                self.input.render(self.readonly, self.label.clone())
-            };
-            return div()
-                .w_full()
+        let content = match self.mode {
+            Mode::Document => div()
+                .size_full()
+                .min_h_0()
                 .capture_action(cx.listener(Self::undo))
                 .capture_action(cx.listener(Self::redo))
-                .child(content)
-                .into_any_element();
-        }
-        let content = match self.mode {
-            Mode::Document => self.document(window, cx),
+                .child(self.document(window, cx))
+                .into_any_element(),
             Mode::Source => self.input.render(self.readonly, self.label.clone()),
         };
         div()
+            .relative()
             .size_full()
             .min_h_0()
             .flex()
             .flex_col()
-            .capture_action(cx.listener(Self::undo))
-            .capture_action(cx.listener(Self::redo))
+            .when(self.mode == Mode::Document && !self.readonly, |view| {
+                view.child(self.input.actions())
+            })
             .child(div().flex_1().min_h_0().child(content))
             .into_any_element()
     }
@@ -739,7 +595,6 @@ impl RenderOnce for View {
         self.state.update(cx, |state, cx| {
             if self.readonly && !state.readonly {
                 state.cancel_composition(cx);
-                state.commit(cx);
             }
             state.readonly = self.readonly;
             state.label = self.label;

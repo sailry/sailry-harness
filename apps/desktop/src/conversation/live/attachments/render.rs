@@ -46,20 +46,17 @@ impl View {
                                         | Status::Rejected(_)
                                 );
                             let retry = status.is_failed() && !item.pending && !blocked;
-                            let card = if source.kind().is_some() {
-                                let index = gallery
+                            let index = source.kind().is_some().then(|| {
+                                gallery
                                     .iter()
                                     .position(|value| value.id() == source.id())
-                                    .unwrap();
-                                Images::gallery(
-                                    Card::new().axis(Axis::Vertical).media(
-                                        Images::media(&self.images, source.clone(), cx)
-                                            .rounded(cx.theme().radius_2xl())
-                                            .overlay(media_bounds(key)),
-                                    ),
-                                    &self.images,
-                                    gallery.clone(),
-                                    index,
+                                    .expect("image source is present in its gallery")
+                            });
+                            let card = if index.is_some() {
+                                Card::new().axis(Axis::Vertical).media(
+                                    Images::media(&self.images, source.clone(), cx)
+                                        .rounded(cx.theme().radius_2xl())
+                                        .overlay(media_bounds(key)),
                                 )
                             } else {
                                 Card::new()
@@ -98,6 +95,12 @@ impl View {
                                         view.remove_attachment(key, window, cx)
                                     }))
                                 });
+                            let card = if let Some(index) = index {
+                                Images::gallery(card, &self.images, gallery.clone(), index, cx)
+                                    .into_any_element()
+                            } else {
+                                card.into_any_element()
+                            };
                             div()
                                 .id(("attachment-card", key))
                                 .flex_shrink_0()

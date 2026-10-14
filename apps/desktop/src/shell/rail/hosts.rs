@@ -10,7 +10,7 @@ enum Host {
 }
 
 impl Shell {
-    pub(super) fn host_picker(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+    pub(super) fn host_picker(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let owner = cx.entity().downgrade();
         let (icon, hosts) = if let Some(live) = &self.live {
             (
@@ -88,7 +88,6 @@ impl Shell {
                     },
                 )
             })
-            .anchor_offset(Self::rail_popover_offset(window))
     }
 }
 

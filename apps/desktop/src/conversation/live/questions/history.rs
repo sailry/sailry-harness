@@ -62,6 +62,7 @@ impl View {
             _ => IconName::CircleCheck,
         };
         let detail = disclosure::Detail {
+            pending: question.state == State::Pending,
             state: (!plan && !matches!(label, "question_answered" | "interaction_cancelled"))
                 .then(|| tr(label)),
             wrap: !plan,

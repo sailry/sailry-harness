@@ -1,6 +1,6 @@
 use super::*;
+use crate::ui::observation;
 use crate::{backend::Services, resources::SideResource, shell::Shell};
-use gpui_kit::test::TestQueryExt as _;
 use sailry_protocol::artifact::Kind;
 use std::{cell::RefCell, rc::Rc};
 
@@ -95,7 +95,7 @@ fn mounts_captured_header(cx: &mut TestAppContext) {
             assert_eq!(labels, expected);
             visual.simulate_keystrokes("escape");
             visual.run_until_parked();
-            assert!(visual.debug_bounds("popup-menu").is_none());
+            assert!(visual.update(|window, _| window.try_find("popup-menu").is_none()));
             assert!(opened.borrow().is_empty());
 
             let model_requests = fixture.server.requests.lock().unwrap().len();
@@ -208,14 +208,14 @@ fn mounts_captured_header(cx: &mut TestAppContext) {
                 if kind == Kind::Document {
                     expected.push(crate::tr("conversation_export_image").to_string());
                 }
-                let mut menu = window.within("popup-menu");
                 assert_eq!(
-                    menu.find_all_by_role(Role::MenuItem)
+                    observation::roles_within(window, "popup-menu", Role::MenuItem)
                         .iter()
                         .map(|item| item.label().unwrap().to_owned())
                         .collect::<Vec<_>>(),
                     expected
                 );
+                let mut menu = window.within("popup-menu");
                 let html = menu.find(0usize);
                 assert_eq!(html.role(), Some(Role::MenuItem));
                 assert_eq!(html.label(), Some(html_label.as_ref()));
@@ -308,6 +308,9 @@ fn opens_new_card_without_restoring_older_draft(cx: &mut TestAppContext) {
                 panel.mounted.as_ref().unwrap().host(),
             )
         });
+        let key = (resource.binding.client.target(), resource.artifact.id);
+        let owner = visual.read(|cx| cx.global::<surface::tests::Mounted>().owner(key));
+        surface::tests::settle_mount(owner, resource.artifact.revision, visual);
         let cache = surface::tests::Draft::new(resource, host, visual).close();
 
         fixture.server.replace_tools(vec![(
@@ -489,8 +492,7 @@ fn actions(visual: &mut VisualTestContext, artifact: &Summary) -> Vec<String> {
     );
     visual.update(|window, cx| {
         window.render_frame(cx);
-        window
-            .find_all_by_role(Role::MenuItem)
+        observation::roles(window, Role::MenuItem)
             .iter()
             .map(|item| item.label().unwrap().to_owned())
             .collect()
@@ -526,7 +528,8 @@ fn shown(visual: &mut VisualTestContext, selector: &'static str) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         wait(visual, |_| true);
-        if visual.debug_bounds(selector).is_some() {
+        let observed = visual.update(|window, _| window.try_find(selector).is_some());
+        if observed || visual.debug_bounds(selector).is_some() {
             return;
         }
         assert!(Instant::now() < deadline, "missing {selector}");

@@ -1,6 +1,7 @@
 use super::super::tests::{click, wait};
 use super::*;
 use crate::conversation::live::subagents::fixture::{Fixture, observed};
+use crate::ui::observation;
 use core::prelude::v1::test;
 use sailry_protocol::conversation::{ApprovalState, Status};
 
@@ -390,12 +391,34 @@ fn shows_prompt_before_connection_response(cx: &mut TestAppContext) {
         });
         visual.update(|window, cx| {
             window.render_frame(cx);
+            assert_eq!(
+                observation::roles_within(
+                    window,
+                    ElementId::View(source.entity_id()),
+                    Role::MultilineTextInput
+                )
+                .len(),
+                1
+            );
             let parent = window.within(ElementId::View(source.entity_id()));
-            assert_eq!(parent.find_all_by_role(Role::MultilineTextInput).len(), 1);
             assert!(parent.try_find("live-send").is_some());
+            assert!(
+                observation::roles_within(
+                    window,
+                    ElementId::View(child_view.entity_id()),
+                    Role::MultilineTextInput
+                )
+                .is_empty()
+            );
+            assert!(
+                observation::roles_within(
+                    window,
+                    ElementId::View(child_view.entity_id()),
+                    Role::TextInput
+                )
+                .is_empty()
+            );
             let child = window.within(ElementId::View(child_view.entity_id()));
-            assert!(child.find_all_by_role(Role::MultilineTextInput).is_empty());
-            assert!(child.find_all_by_role(Role::TextInput).is_empty());
             assert!(child.try_find("live-send").is_none());
         });
         assert_eq!(

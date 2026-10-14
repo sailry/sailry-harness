@@ -49,10 +49,15 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
                         .is_some_and(|approval| approval.state == ApprovalState::Pending)
                 })
             });
-            let id = view.read_with(visual, |view, _| {
+            let (id, turn) = view.read_with(visual, |view, _| {
                 let page = &view.history.snapshot.as_ref().unwrap().page;
                 let call = &view.history.calls[index];
                 let details = approvals::details(call, page);
+                let pending = summary(call, page);
+                assert!(pending.detail.pending);
+                assert!(!pending.detail.running);
+                let group = view.history.calls[..=index].iter().collect::<Vec<_>>();
+                assert!(group_summary(&group, page).detail.pending);
                 if index == 0 {
                     assert_eq!(details.description.as_deref(), Some(command));
                     assert_eq!(details.context.as_deref(), Some("nested"));
@@ -77,8 +82,12 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
                     call.approval.as_ref().unwrap().access,
                     Some(sailry_protocol::process::Access::Unrestricted)
                 );
-                call.approval.as_ref().unwrap().id
+                (call.approval.as_ref().unwrap().id, call.turn)
             });
+            redraw(visual);
+            let waiting: &'static str =
+                Box::leak(format!("live-turn-phase-{turn}-turn_waiting").into_boxed_str());
+            assert!(visual.debug_bounds(waiting).is_none());
             fixture::tap(visual, &format!("live-approval-approve-{id}"));
             wait(visual, |cx| {
                 view.read(cx).history.calls.get(index).is_some_and(|call| {
@@ -86,6 +95,13 @@ fn preserves_external_messages(cx: &mut TestAppContext) {
                         .as_ref()
                         .is_some_and(|approval| approval.state == ApprovalState::Approved)
                 })
+            });
+            view.read_with(visual, |view, _| {
+                let page = &view.history.snapshot.as_ref().unwrap().page;
+                let call = &view.history.calls[index];
+                assert!(!summary(call, page).detail.pending);
+                let group = view.history.calls[..=index].iter().collect::<Vec<_>>();
+                assert!(!group_summary(&group, page).detail.pending);
             });
         }
         wait(visual, |cx| {

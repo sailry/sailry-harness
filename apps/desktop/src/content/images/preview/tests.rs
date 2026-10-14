@@ -48,7 +48,7 @@ fn loaded(preview: &Entity<Preview>, visual: &mut VisualTestContext) {
     wait(visual, |cx| {
         let view = preview.read(cx);
         assert!(!matches!(view.result, Some(Err(_))), "preview failed");
-        matches!(view.result, Some(Ok(_))) && !view.transforming
+        matches!(view.result, Some(Ok(_))) && !view.transforming && view.canvas.is_some()
     });
 }
 
@@ -166,12 +166,18 @@ fn controls_and_original_download(cx: &mut TestAppContext) {
         let handle = visual.update(|window, _| window.window_handle());
         for viewport in [size(px(1280.), px(820.)), size(px(640.), px(480.))] {
             visual.simulate_window_resize(handle, viewport);
-            visual.update(|window, cx| window.draw(cx).clear(cx));
+            frame(visual, 0);
             let overlay = visual.debug_bounds("attachment-image-preview").unwrap();
             let canvas = visual.debug_bounds("image-lightbox-canvas").unwrap();
             let toolbar = visual.debug_bounds("image-lightbox-toolbar").unwrap();
-            assert_eq!(overlay.origin, point(px(0.), px(0.)));
-            assert_eq!(overlay.size, viewport);
+            assert_eq!(
+                preview.read_with(visual, |preview, _| preview.canvas),
+                Some(canvas.size)
+            );
+            // Stock Dialog constrains requested fullscreen content by its margins.
+            assert!(overlay.left() >= px(0.) && overlay.top() >= px(0.));
+            assert!(overlay.right() <= viewport.width && overlay.bottom() <= viewport.height);
+            assert!(overlay.size.width > px(0.) && overlay.size.height > px(0.));
             assert_eq!(canvas.center().x, overlay.center().x);
             assert_eq!(toolbar.center().x, overlay.center().x);
             assert!(toolbar.top() >= canvas.bottom());

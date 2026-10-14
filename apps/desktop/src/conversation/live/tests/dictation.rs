@@ -65,8 +65,6 @@ fn connect(view: &Entity<View>, visual: &mut VisualTestContext) -> Rc<Capture> {
                 .input(Input(captured.clone()))
                 .recognizer(Recognizer(captured.clone()))
                 .system_fallback(false)
-                .drain_input_on_stop(true)
-                .wait_for_final()
         });
         view.update(cx, |view, cx| view.bind_dictation(speech, window, cx));
         window.render_frame(cx);
@@ -268,8 +266,7 @@ fn stops_and_transcribes(cx: &mut TestAppContext) {
         fixture::tap(visual, "dictation-toggle");
         assert!(view.read_with(visual, |view, _| view.dictation.phase
             == super::super::dictation::Phase::Transcribing));
-        visual.update(|_, cx| captured.audio.borrow().as_ref().unwrap().finish(cx));
-        visual.executor().advance_clock(Duration::from_secs(5));
+        visual.executor().advance_clock(Duration::from_secs(1));
         wait(visual, |_| true);
         assert!(view.read_with(visual, |view, _| view.dictation.phase
             == super::super::dictation::Phase::Transcribing));
@@ -288,6 +285,47 @@ fn stops_and_transcribes(cx: &mut TestAppContext) {
             "你好 hello"
         );
         assert!(visual.debug_bounds("live-chat-send").is_some());
+        assert_eq!(fixture.task_requests(), 0);
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn timeout_preserves_current_transcript(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    for remote in [false, true] {
+        let fixture = fixture::Fixture::with_tools(remote, vec![]);
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| view.read(cx).connected());
+        let captured = connect(&view, visual);
+        visual.update(|_, cx| {
+            let speech = captured.speech.borrow();
+            let sink = speech.as_ref().unwrap();
+            sink.ready(cx);
+            sink.hypothesis("Current transcript", cx);
+        });
+        wait(visual, |cx| {
+            view.read(cx).draft(cx).as_ref() == "Current transcript"
+        });
+        fixture::tap(visual, "dictation-toggle");
+        visual.executor().advance_clock(Duration::from_secs(4));
+        wait(visual, |cx| {
+            view.read(cx).dictation.phase == super::super::dictation::Phase::Idle
+        });
+        visual.update(|_, cx| {
+            let speech = captured.speech.borrow();
+            let sink = speech.as_ref().unwrap();
+            sink.phrase("Late transcript", cx);
+            sink.finish(cx);
+        });
+        wait(visual, |_| true);
+        assert_eq!(
+            view.read_with(visual, |view, cx| view.draft(cx).to_string()),
+            "Current transcript"
+        );
+        assert!(captured.released.get());
         assert_eq!(fixture.task_requests(), 0);
         visual.update(|window, _| window.remove_window());
         drop(view);
@@ -328,7 +366,6 @@ fn cancel_ignores_late_audio_and_transcript(cx: &mut TestAppContext) {
                     .as_ref()
                     .unwrap()
                     .push(vec![16384; 2560], cx);
-                captured.audio.borrow().as_ref().unwrap().finish(cx);
                 let speech = captured.speech.borrow();
                 let sink = speech.as_ref().unwrap();
                 sink.phrase("Stale transcript", cx);
@@ -425,7 +462,6 @@ fn released_view_discards_queued_results(cx: &mut TestAppContext) {
                 .as_ref()
                 .unwrap()
                 .push(vec![16384; 2560], cx);
-            captured.audio.borrow().as_ref().unwrap().finish(cx);
             let speech = captured.speech.borrow();
             let sink = speech.as_ref().unwrap();
             sink.phrase("Released transcript", cx);

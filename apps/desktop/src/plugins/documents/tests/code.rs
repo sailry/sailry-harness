@@ -409,6 +409,19 @@ fn applies_completion_to_the_draft(cx: &mut TestAppContext) {
         std::fs::write(fixture.directory.path().join("project/control"),
             json!({"completions":[{"label":"completed","textEdit":{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"completed"}}]}).to_string()).unwrap();
         let (panel, visual) = publication::mount(&fixture, cx);
+        assert_eq!(
+            visual.update(|_, cx| {
+                cx.key_bindings()
+                    .borrow()
+                    .bindings_for_action(&gpui_kit::base::input::Enter {
+                        secondary: false,
+                        shift: false,
+                    })
+                    .count()
+            }),
+            1,
+            "native Enter binding: remote={remote}"
+        );
         let (controller, id, input) = open(&panel, visual, "resource-file-main.rs");
         ready(&input, visual);
         click(visual, "document-focus");

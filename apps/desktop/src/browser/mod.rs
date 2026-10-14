@@ -41,8 +41,6 @@ struct Tab {
     surface: Option<std::rc::Rc<inspector::Surface>>,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     page: Option<Entity<gpui_webview::WebView>>,
-    #[cfg(target_os = "windows")]
-    snapshot: std::rc::Rc<crate::ui::webview_snapshot::Snapshot>,
 }
 
 pub(crate) struct Browser {
@@ -254,11 +252,9 @@ impl Browser {
                 if let Some(page) = &tab.page {
                     page.update(cx, |page, _| {
                         let show = visible && index == self.selected && !tab.background;
-                        // The selected paint adapter owns clipped visibility.
+                        // The selected stock element shows the current page.
                         // Inactive tabs retain their page while hidden.
                         if !show {
-                            #[cfg(target_os = "windows")]
-                            tab.snapshot.unmount();
                             if page.visible() {
                                 page.hide();
                             }
@@ -317,8 +313,6 @@ impl Tab {
             surface: None,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             page: None,
-            #[cfg(target_os = "windows")]
-            snapshot: crate::ui::webview_snapshot::Snapshot::new(),
         }
     }
 }

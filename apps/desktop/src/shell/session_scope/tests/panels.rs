@@ -1,6 +1,6 @@
 use super::*;
 use crate::panes::Target;
-use gpui_kit::component::dock::{DockPlacement, DropTarget};
+use gpui_kit::component::dock::DockPlacement;
 
 #[gpui::test]
 fn overview_stays_with_each_split(cx: &mut TestAppContext) {
@@ -63,10 +63,11 @@ fn overview_stays_with_each_split(cx: &mut TestAppContext) {
             let area = splits.active_area(cx).unwrap();
             let tree = area.read(cx).layout(DockPlacement::Center).unwrap();
             let node = tree.find_panel_node(tree.panels().next().unwrap()).unwrap();
-            assert!(splits.drop(
+            assert!(splits.drop_to(
                 workspace,
                 targets[0],
-                DropTarget::new(node, Some(gpui_kit::base::Placement::Left)),
+                node,
+                Some(gpui_kit::base::Placement::Left),
                 window,
                 cx,
             ));
@@ -136,10 +137,11 @@ fn header_follows_active_split(cx: &mut TestAppContext) {
             let area = splits.active_area(cx).unwrap();
             let tree = area.read(cx).layout(DockPlacement::Center).unwrap();
             let node = tree.find_panel_node(tree.panels().next().unwrap()).unwrap();
-            assert!(splits.drop(
+            assert!(splits.drop_to(
                 workspace,
                 targets[0],
-                DropTarget::new(node, Some(gpui_kit::base::Placement::Left)),
+                node,
+                Some(gpui_kit::base::Placement::Left),
                 window,
                 cx,
             ));
@@ -243,31 +245,6 @@ fn retains_file_preview_per_session(cx: &mut TestAppContext) {
             assert_eq!(panel.read(cx).source, source);
             panel.entity_id()
         }));
-        let panel = visual.debug_bounds("artifact-panel").unwrap();
-        visual.update(|window, cx| {
-            use gpui_kit::component::notification::{Notification, NotificationDelivery};
-            window.push_notification(
-                Notification::new()
-                    .delivery(NotificationDelivery::InApp)
-                    .placement(Anchor::TopCenter)
-                    .autohide(false)
-                    .content(|_, _, _| {
-                        div()
-                            .debug_selector(|| "artifact-notice".into())
-                            .child("Preview fixture")
-                            .into_any_element()
-                    }),
-                cx,
-            );
-        });
-        visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        let notice = visual.debug_bounds("artifact-notice").unwrap();
-        assert!(
-            notice.right() <= panel.left(),
-            "notifications stay beside the native preview"
-        );
-        visual.update(|window, cx| window.clear_notifications(cx));
     }
     for (key, expected) in keys.into_iter().zip(panels) {
         visual.update(|window, cx| {

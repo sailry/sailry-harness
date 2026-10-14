@@ -8,14 +8,6 @@ mod order;
 pub(super) use features::{Destination, Feature};
 
 impl Shell {
-    pub(crate) fn rail_popover_offset(window: &Window) -> Point<Pixels> {
-        // Pinned Kit's block prepaint canvas follows the trigger, so BottomLeft
-        // resolves to trigger.top. Add size_9 and undo the content's bottom_1 gap.
-        let height = rems(2.25).to_pixels(window.rem_size());
-        let gap = rems(0.25).to_pixels(window.rem_size());
-        point(px(RAIL_WIDTH), height + gap)
-    }
-
     pub(super) fn feature_rail(
         &self,
         window: &mut Window,
@@ -66,15 +58,11 @@ impl Shell {
                                 )
                             }),
                     )
-                    .child(self.more_features(self.features(cx), window, cx)),
+                    .child(self.more_features(self.features(cx), cx)),
             )
             .child(self.notifications(window, cx))
-            .child(crate::installations::button(
-                window,
-                Self::rail_popover_offset(window),
-                cx,
-            ))
-            .child(self.host_picker(window, cx))
+            .child(crate::installations::button(window, cx))
+            .child(self.host_picker(cx))
             .child(
                 Button::new("feature-search")
                     .ghost()

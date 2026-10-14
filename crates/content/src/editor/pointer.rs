@@ -15,11 +15,9 @@ impl State {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.commit(cx);
         self.cancel_composition(cx);
         self.stored.clear();
         self.focus.focus(window, cx);
-        self.press_link(event, cx);
         self.pointer = event.position;
         self.dragging = false;
 
@@ -61,7 +59,6 @@ impl State {
             self.selection = self.selection.extend_to(cursor.clamp(&self.doc));
         }
         if previous != (self.pointer, self.selection) {
-            self.sync_selection(cx);
             cx.notify();
         }
     }

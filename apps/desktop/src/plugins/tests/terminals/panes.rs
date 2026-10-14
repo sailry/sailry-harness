@@ -154,7 +154,7 @@ fn native(panel: &Entity<Panel>, visual: &mut VisualTestContext) -> Entity<crate
 }
 
 fn split(shell: &Entity<Shell>, session: Target, terminal: Target, visual: &mut VisualTestContext) {
-    use gpui_kit::component::dock::{DockPlacement, DropTarget, PanelId};
+    use gpui_kit::component::dock::{DockPlacement, PanelId};
     visual.update(|window, cx| {
         shell.update(cx, |shell, cx| {
             shell.activate_pane(session, window, cx);
@@ -170,10 +170,11 @@ fn split(shell: &Entity<Shell>, session: Target, terminal: Target, visual: &mut 
                     .unwrap()
                     .find_panel_node(panel)
                     .unwrap();
-                assert!(splits.drop(
+                assert!(splits.drop_to(
                     workspace,
                     terminal,
-                    DropTarget::new(node, Some(gpui_kit::base::Placement::Right)),
+                    node,
+                    Some(gpui_kit::base::Placement::Right),
                     window,
                     cx,
                 ));

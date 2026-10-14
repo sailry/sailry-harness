@@ -1,5 +1,7 @@
 //! Shared status rows compose Kit ListItem, Button, Spinner, Collapsible and scrolling.
 //! Packages supply content and actions; this module owns only presentation state.
+#[cfg(test)]
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::button::ButtonVariants as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -278,7 +280,12 @@ impl RenderOnce for Content {
                             .min_w_0()
                             .text_sm()
                             .text_color(cx.theme().foreground)
-                            .child(gpui_kit::base::SelectableText::new(key, text)),
+                            .child(gpui_kit::base::SelectableText::new(key, text))
+                            .map(|body| {
+                                #[cfg(test)]
+                                let body = body.test_support();
+                                body
+                            }),
                     )
                 })
                 .when(!self.items.is_empty(), |body| {

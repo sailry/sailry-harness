@@ -146,15 +146,18 @@ impl Document {
                 Action::Reveal { .. } => unreachable!(),
             });
         } else {
-            self.input.update(cx, |input, cx| match action {
-                Action::Copy {} => input.copy(&Copy, window, cx),
-                Action::Cut {} => input.cut(&Cut, window, cx),
-                Action::Paste {} => input.paste(&Paste, window, cx),
-                Action::Undo {} => input.undo(&Undo, window, cx),
-                Action::Redo {} => input.redo(&Redo, window, cx),
-                Action::Find {} => input.open_search(false, cx),
-                _ => input.focus(window, cx),
-            });
+            let focus = self.input.read(cx).focus_handle(cx);
+            match action {
+                Action::Copy {} => focus.dispatch_action(&Copy, window, cx),
+                Action::Cut {} => focus.dispatch_action(&Cut, window, cx),
+                Action::Paste {} => focus.dispatch_action(&Paste, window, cx),
+                Action::Undo {} => focus.dispatch_action(&Undo, window, cx),
+                Action::Redo {} => focus.dispatch_action(&Redo, window, cx),
+                Action::Find {} => self
+                    .input
+                    .update(cx, |input, cx| input.open_search(false, cx)),
+                _ => focus.focus(window, cx),
+            }
         }
     }
 }

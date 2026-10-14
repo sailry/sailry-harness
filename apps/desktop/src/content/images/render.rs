@@ -8,7 +8,7 @@ pub(crate) fn card(
     index: usize,
     compact: bool,
     cx: &App,
-) -> Card {
+) -> gpui_kit::component::button::Button {
     let single = !compact;
     let ratio = if single {
         Images::aspect_ratio(images, source, cx)
@@ -31,7 +31,6 @@ pub(crate) fn card(
         .p_0()
         .gap_1()
         .border_0()
-        .highlight(false)
         .bg(gpui_kit::transparent_black())
         .media(
             Images::media(images, source.clone(), cx)
@@ -40,5 +39,5 @@ pub(crate) fn card(
                 .overlay(div().size_full().debug_selector(move || selector.clone()))
                 .rounded(cx.theme().radius_2xl()),
         );
-    Images::gallery(card, images, gallery, index)
+    Images::gallery(card, images, gallery, index, cx)
 }

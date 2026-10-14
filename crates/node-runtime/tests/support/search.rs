@@ -22,6 +22,7 @@ pub struct Server {
     pub requests: Arc<Mutex<Vec<(String, Value)>>>,
     replies: Arc<Mutex<BTreeMap<String, VecDeque<Reply>>>>,
     pub holds: Arc<Mutex<BTreeSet<String>>>,
+    stalls: Arc<Mutex<BTreeSet<String>>>,
     pub held: CancellationToken,
     pub disconnected: CancellationToken,
     stop: CancellationToken,
@@ -42,21 +43,24 @@ impl Server {
             requests: requests.clone(),
             replies: replies.clone(),
             holds: Default::default(),
+            stalls: Default::default(),
             stop: stop.clone(),
             held: held.clone(),
             disconnected: disconnected.clone(),
         };
         let holds = server.holds.clone();
+        let stalls = server.stalls.clone();
         let held = server.held.clone();
         let disconnected = server.disconnected.clone();
         tokio::spawn(async move {
             let mut connections = tokio::task::JoinSet::new();
             loop {
                 let (mut stream, _) = tokio::select! { _=stop.cancelled()=>break, result=listener.accept()=>result.unwrap() };
-                let (requests, replies, holds, held, disconnected) = (
+                let (requests, replies, holds, stalls, held, disconnected) = (
                     requests.clone(),
                     replies.clone(),
                     holds.clone(),
+                    stalls.clone(),
                     held.clone(),
                     disconnected.clone(),
                 );
@@ -71,7 +75,9 @@ impl Server {
                         path,
                     } = request;
                     requests.lock().unwrap().push((header, body.clone()));
-                    let holding = holds.lock().unwrap().remove(&path);
+                    let stage = body.get("method").and_then(Value::as_str);
+                    let holding = holds.lock().unwrap().remove(&path)
+                        || stage.is_some_and(|stage| stalls.lock().unwrap().remove(stage));
                     if holding {
                         held.cancel();
                         let _ = stream.read(&mut [0; 1]).await;
@@ -94,9 +100,18 @@ impl Server {
                             let (status, body) = formatted::response(&method, &body);
                             (status, None, body)
                         }
+                        None if path == "/modern-mcp" => {
+                            let (status, body) = formatted::modern_response(&method, &body);
+                            (status, None, body)
+                        }
                         None => (200, None, mapping(&path).to_string()),
                     };
-                    transport::respond(&mut stream, status, retry.as_deref(), &body).await;
+                    if stage == Some("initialize") && status == 200 {
+                        transport::respond_session(&mut stream, status, retry.as_deref(), &body)
+                            .await;
+                    } else {
+                        transport::respond(&mut stream, status, retry.as_deref(), &body).await;
+                    }
                 });
             }
             connections.abort_all();
@@ -124,6 +139,9 @@ impl Server {
             .unwrap()
             .insert(path.into(), replies.into());
     }
+    pub fn stall(&self, method: &str) {
+        self.stalls.lock().unwrap().insert(method.into());
+    }
     pub fn count(&self, path: &str) -> usize {
         self.requests
             .lock()
@@ -141,6 +159,14 @@ impl Server {
                     .next()
                     == Some(path)
             })
+            .count()
+    }
+    pub fn method_count(&self, method: &str) -> usize {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(header, _)| header.split_whitespace().next() == Some(method))
             .count()
     }
 }

@@ -51,8 +51,6 @@ struct Props {
     resizable: bool,
     #[serde(default)]
     stripe: bool,
-    #[serde(default)]
-    empty_stripes: bool,
     #[serde(default = "resizable")]
     header: bool,
 }
@@ -443,7 +441,6 @@ fn render(
         });
     }
     let stripe = table.read(cx).delegate().props.stripe;
-    let empty_stripes = table.read(cx).delegate().props.empty_stripes;
     let header = table.read(cx).delegate().props.header;
     let header_height = table.read(cx).delegate().props.header_height;
     let size = table.read(cx).delegate().size();
@@ -503,7 +500,6 @@ fn render(
                 })
                 .bordered(false)
                 .stripe(stripe)
-                .empty_stripes(empty_stripes)
                 .scrollbar_visible(header, header),
         )
         .into_any_element()

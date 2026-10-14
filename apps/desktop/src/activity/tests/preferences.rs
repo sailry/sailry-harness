@@ -1,6 +1,5 @@
 use super::*;
 use crate::preferences::Preferences;
-use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::terminal::Status;
 
 struct Background;

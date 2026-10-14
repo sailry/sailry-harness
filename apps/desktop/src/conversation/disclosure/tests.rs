@@ -27,7 +27,7 @@ fn colors_failure_text_semantically(cx: &mut TestAppContext) {
             let detail = Detail::mono("missing.txt").state(Some("Read failed".into()), true);
             assert_eq!(tone(&detail, cx), cx.theme().danger);
             assert_ne!(tone(&Detail::default(), cx), cx.theme().danger);
-            assert_ne!(
+            assert_eq!(
                 tone(
                     &Detail {
                         pending: true,
@@ -35,7 +35,7 @@ fn colors_failure_text_semantically(cx: &mut TestAppContext) {
                     },
                     cx
                 ),
-                cx.theme().danger
+                cx.theme().warning
             );
             assert_eq!(
                 detail.accessible(&"Read".into()),

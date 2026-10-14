@@ -56,35 +56,38 @@ impl View {
             .when(
                 !prompt.is_empty() || !references.is_empty() || editing,
                 |content| {
-                    content.bubble(
-                        Bubble::new()
-                            .with_variant(BubbleVariant::Muted)
-                            .max_w(px(crate::conversation::layout::USER_MESSAGE_WIDTH))
-                            .when(editing, |bubble| bubble.w_full())
-                            .content(
-                                crate::theme::messages::user(cx)
-                                    .when(editing, |content| content.w_full())
-                                    .child(
-                                        div()
-                                            .debug_selector(move || {
-                                                format!("live-user-bubble-{turn}")
-                                            })
-                                            .when(
-                                                prompt.is_empty() && !references.is_empty(),
-                                                |content| {
-                                                    content.child(
-                                                        self.sent_references(turn, references, cx),
-                                                    )
-                                                },
-                                            )
-                                            .when(!prompt.is_empty() || editing, |content| {
+                    let bubble = Bubble::new()
+                        .with_variant(BubbleVariant::Muted)
+                        .max_w(px(crate::conversation::layout::USER_MESSAGE_WIDTH))
+                        .when(editing, |bubble| bubble.w_full())
+                        .content(
+                            crate::theme::messages::user(cx)
+                                .when(editing, |content| content.w_full())
+                                .child(
+                                    div()
+                                        .debug_selector(move || format!("live-user-bubble-{turn}"))
+                                        .when(
+                                            prompt.is_empty() && !references.is_empty(),
+                                            |content| {
                                                 content.child(
-                                                    self.user_text(turn, prompt, references, cx),
+                                                    self.sent_references(turn, references, cx),
                                                 )
-                                            }),
-                                    ),
-                            ),
-                    )
+                                            },
+                                        )
+                                        .when(!prompt.is_empty() || editing, |content| {
+                                            content
+                                                .child(self.user_text(turn, prompt, references, cx))
+                                        }),
+                                ),
+                        );
+                    #[cfg(test)]
+                    {
+                        content.child(user::observe(turn, bubble))
+                    }
+                    #[cfg(not(test))]
+                    {
+                        content.bubble(bubble)
+                    }
                 },
             )
     }
@@ -152,7 +155,6 @@ impl View {
             .typography(
                 typography.scaled(f32::from(self.message_text_size) / typography.body.size()),
             )
-            .list_state(self.scroller.read(cx).list_state())
             .on_selection(move |excerpt, _, cx| {
                 _ = selection_owner.update(cx, |view, cx| view.select_excerpt(excerpt, cx));
             })
@@ -481,24 +483,18 @@ impl View {
                         .debug_selector(move || format!("live-turn-phase-{turn}-{phase}"))
                         .gap_2()
                         .text_sm()
-                        .text_color(if phase == "turn_waiting" {
-                            cx.theme().warning
-                        } else {
-                            cx.theme().muted_foreground
-                        })
+                        .text_color(cx.theme().muted_foreground)
                         .aria_label(tr(phase))
                         .child(crate::ui::thinking::render(
                             format!("live-turn-avatar-{turn}"),
                             phase,
                             px(20.),
                         ))
-                        .child(if phase == "turn_waiting" {
-                            div().child(tr(phase)).into_any_element()
-                        } else {
+                        .child(
                             ShimmerText::new(tr(phase))
                                 .id(format!("{turn}-thinking"))
-                                .into_any_element()
-                        }),
+                                .into_any_element(),
+                        ),
                 )
             })
             .children(self.published_files(turn, cx))

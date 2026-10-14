@@ -31,7 +31,6 @@ pub(super) fn chart(
         .linear()
         .y_domain(-peak, peak)
         .y_padding(4., 4.)
-        .baseline(0.)
         .reference_line(0.)
         .tooltip_title(|point| point.0.clone().into())
         .tooltip_value(|_, _, value| value_label(value))

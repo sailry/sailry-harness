@@ -3,10 +3,6 @@
 export function report(status) {
   window.ipc.postMessage(JSON.stringify(status));
 }
-window.layoutPreview = () => {
-  if (window.previewFrame) Object.assign(document.querySelector('#preview').style, window.previewFrame);
-};
-window.layoutPreview();
 window.previewTheme = color => document.documentElement.style.setProperty('--preview-background', color);
 window.previewTheme(window.previewBackground);
 window.addEventListener('error', event => report({ error: 'failed', diagnostic: event.message }));

@@ -94,6 +94,9 @@ impl Cache {
                 .get(&id)
                 .is_none_or(|cached| cached.generation != generation)
             {
+                let Some(pixels) = check(image.data(), "read Ghostty image pixels")? else {
+                    continue;
+                };
                 let width = check(image.width(), "read Ghostty image width")?;
                 let height = check(image.height(), "read Ghostty image height")?;
                 let format = check(image.format(), "read Ghostty image format")?;
@@ -104,12 +107,7 @@ impl Cache {
                 };
                 let mut png = Vec::new();
                 image::codecs::png::PngEncoder::new(&mut png)
-                    .write_image(
-                        check(image.data(), "read Ghostty image pixels")?,
-                        width,
-                        height,
-                        color,
-                    )
+                    .write_image(pixels, width, height, color)
                     .map_err(|error| fail(format!("encode terminal image: {error}")))?;
                 self.images.insert(
                     id,

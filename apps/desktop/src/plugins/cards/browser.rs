@@ -1,6 +1,8 @@
 //! Protected targets use isolated Kit WebViews, never an Agent browser resource.
 //! Kit provides native attachment, focus and composition; no IPC or DOM bridge exists.
 use super::*;
+#[cfg(target_os = "macos")]
+use raw_window_handle::HasWindowHandle as _;
 use url::Url;
 
 pub(crate) struct Browser {
@@ -52,14 +54,21 @@ impl Browser {
             let builder = wry::WebViewBuilder::new()
                 .with_url(&url)
                 .with_incognito(true)
+                .with_visible(false)
                 .with_navigation_handler(move |url| allowed(&url, &target, redirect.as_deref()))
                 .with_download_started_handler(|_, _| false)
                 .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny);
-            let native =
-                gpui_webview::WebView::build_hidden(builder, window, cx).map_err(|_| {
-                    sailry_protocol::Fault::invalid("isolated browser could not be created")
-                })?;
-            let native = cx.new(|_| native);
+            let handle = window.window_handle().map_err(|_| {
+                sailry_protocol::Fault::invalid("isolated browser could not be created")
+            })?;
+            let page = builder.build_as_child(&handle).map_err(|_| {
+                sailry_protocol::Fault::invalid("isolated browser could not be created")
+            })?;
+            let native = cx.new(|cx| {
+                let mut page = gpui_webview::WebView::new(page, window, cx);
+                page.hide();
+                page
+            });
             let observed = owner
                 .upgrade()
                 .ok_or_else(|| sailry_protocol::Fault::invalid("card is unavailable"))?;

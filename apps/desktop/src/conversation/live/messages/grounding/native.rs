@@ -1,6 +1,7 @@
 use super::*;
 use gpui_kit::component::link::Link;
 use gpui_webview::WebView;
+use raw_window_handle::HasWindowHandle as _;
 
 struct ResultView {
     entry: Arc<Entry>,
@@ -54,12 +55,26 @@ impl ResultView {
                 }
                 wry::NewWindowResponse::Deny
             });
-        let webview = WebView::build(builder, window, cx)
+        let webview = window
+            .window_handle()
+            .map_err(|error| error.to_string())
+            .and_then(|handle| {
+                builder
+                    .with_visible(false)
+                    .build_as_child(&handle)
+                    .map_err(|error| error.to_string())
+            })
             .map_err(|error| {
                 eprintln!("sailry-desktop: failed to render search suggestions: {error}");
             })
             .ok()
-            .map(|page| cx.new(|_| page));
+            .map(|page| {
+                cx.new(|cx| {
+                    let mut page = WebView::new(page, window, cx);
+                    page.hide();
+                    page
+                })
+            });
         let task = cx.spawn(async move |_, cx| {
             while let Some(url) = incoming.recv().await {
                 cx.update(|cx| cx.open_url(&url));
@@ -92,6 +107,7 @@ impl Render for ResultView {
                 .child(tr("chat_search_unavailable"))
                 .into_any_element();
         };
+        webview.update(cx, |webview, _| webview.show());
         // Keep search suggestions in their existing window and fixed region.
         v_flex()
             .size_full()
