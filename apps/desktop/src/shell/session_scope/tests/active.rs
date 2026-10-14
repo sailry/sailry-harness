@@ -35,6 +35,15 @@ fn header_and_group_share_attention(cx: &mut TestAppContext) {
                 < visual.debug_bounds("projects-label").unwrap().top()
         );
         assert!(visual.debug_bounds(group_row).is_some());
+        let group = visual.debug_bounds(group_row).unwrap();
+        let guide = visual
+            .debug_bounds(selector(format!("{group_row}-guide")))
+            .unwrap();
+        let title = visual
+            .debug_bounds(selector(format!("{group_row}-label")))
+            .unwrap();
+        assert!(guide.left() > group.left() && guide.right() < title.left());
+        assert!((title.left() - group.left() - px(30.)).abs() <= px(1.));
         let branch = sidebar::hover(visual, group_row);
         let title = visual
             .debug_bounds(selector(format!("{group_row}-label")))

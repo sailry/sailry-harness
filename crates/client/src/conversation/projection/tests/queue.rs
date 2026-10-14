@@ -9,6 +9,7 @@ fn pending() -> Queue {
             kind: sailry_protocol::conversation::RunKind::Task,
             attachments: vec![],
             turn: TurnId::new(),
+            request: sailry_protocol::RequestId::new(),
             revision: 1,
             config_revision: 3,
             ready: true,
@@ -84,7 +85,10 @@ fn rejects_inconsistent_revisions() {
     kind.revision = 2;
     kind.items[0].revision = 2;
     kind.items[0].kind = sailry_protocol::conversation::RunKind::Compaction;
-    for invalid in [stale, duplicate, changed, content, config, kind] {
+    let mut identity = original.clone();
+    identity.revision = 2;
+    identity.items[0].request = sailry_protocol::RequestId::new();
+    for invalid in [stale, duplicate, changed, content, config, kind, identity] {
         assert!(
             projection
                 .apply(1, frame(&snapshot, 11, Change::Queue(invalid)))
@@ -95,9 +99,31 @@ fn rejects_inconsistent_revisions() {
     let mut edited = original.clone();
     edited.revision = 2;
     edited.items[0].revision = 2;
+    edited.items[0].request = sailry_protocol::RequestId::new();
     edited.items[0].preview = "edited".into();
     projection
         .apply(1, frame(&snapshot, 11, Change::Queue(edited.clone())))
         .unwrap();
     assert_eq!(projection.snapshot().unwrap().page.queue, edited);
+}
+
+#[test]
+fn correlates_exact_request_despite_identical_preview() {
+    let mut queue = pending();
+    let own = queue.items[0].clone();
+    let mut foreign = own.clone();
+    foreign.turn = TurnId::new();
+    foreign.request = sailry_protocol::RequestId::new();
+    queue.items.insert(0, foreign.clone());
+    assert_eq!(
+        super::super::super::turns::pending(&queue, own.request),
+        Some(&own)
+    );
+    assert_eq!(
+        super::super::super::turns::pending(&queue, foreign.request),
+        Some(&foreign)
+    );
+    assert!(
+        super::super::super::turns::pending(&queue, sailry_protocol::RequestId::new()).is_none()
+    );
 }

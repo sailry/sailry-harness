@@ -114,11 +114,11 @@ pub(super) fn open(
     }
     window.open_dialog(cx, {
         let editor = editor.clone();
-        move |dialog, window, _| {
+        move |dialog, window, cx| {
             let close = editor.clone();
             let cancel = editor.clone();
             dialog
-                .form_title(tr("hooks_configure"))
+                .form_title(tr("hooks_configure"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(600.)))
                 .overlay_closable(false)
                 .on_cancel(move |_, window, cx| {

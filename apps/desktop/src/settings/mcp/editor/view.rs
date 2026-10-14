@@ -16,11 +16,14 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
         let reload = editor.clone();
         let state = editor.read(cx);
         dialog
-            .form_title(tr(if state.original.is_some() {
-                "mcp_edit"
-            } else {
-                "mcp_add"
-            }))
+            .form_title(
+                tr(if state.original.is_some() {
+                    "mcp_edit"
+                } else {
+                    "mcp_add"
+                }),
+                cx,
+            )
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .max_h(window.viewport_size().height * 0.85)
             .overlay_closable(false)

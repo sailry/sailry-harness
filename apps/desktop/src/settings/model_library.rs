@@ -382,11 +382,14 @@ pub(super) fn open(
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = library.clone();
         dialog
-            .form_title(tr(match library.read(cx).target.kind() {
-                Kind::Embedding => "model_library_embedding",
-                Kind::Speech => "model_library_speech",
-                Kind::Ocr => "model_library_ocr",
-            }))
+            .form_title(
+                tr(match library.read(cx).target.kind() {
+                    Kind::Embedding => "model_library_embedding",
+                    Kind::Speech => "model_library_speech",
+                    Kind::Ocr => "model_library_ocr",
+                }),
+                cx,
+            )
             .w((window.viewport_size().width - px(48.)).min(px(680.)))
             .overlay_closable(false)
             .on_ok(|_, _, _| false)

@@ -28,6 +28,96 @@ fn session() -> Session {
 }
 
 #[test]
+fn descendant_activity_follows_events_and_recovery() {
+    use crate::activity::{Lane, aggregate_lane};
+    use conversation::{Run, RunKind, Status};
+    let mut parent = session();
+    parent.activity.run = Some(Run {
+        worktree: parent.worktree,
+        turn: TurnId::new(),
+        kind: RunKind::Task,
+        session: parent.id,
+        sequence: 1,
+        revision: 1,
+        status: Status::Completed,
+        error: None,
+        started_ms: None,
+        finished_ms: None,
+        origin: None,
+        continuation: None,
+        input: None,
+    });
+    let mut child = parent.clone();
+    child.id = SessionId::new();
+    child.delegation = Some(Box::new(Delegation {
+        session: parent.id,
+        turn: parent.activity.run.as_ref().unwrap().turn,
+        entry: "background-call".into(),
+        index: 0,
+        role: None,
+    }));
+    let run = child.activity.run.as_mut().unwrap();
+    run.session = child.id;
+    run.turn = TurnId::new();
+    run.sequence = 2;
+    run.status = Status::Queued;
+    let mut state = snapshot(0);
+    state.sessions = vec![parent.clone(), child.clone()];
+    let mut projection = Projection::new(state.node, 1);
+    projection
+        .apply(1, Update::Snapshot(state.clone()))
+        .unwrap();
+    assert_eq!(
+        aggregate_lane(&parent, &projection.snapshot().unwrap().sessions),
+        Lane::Idle
+    );
+    for (index, status) in [Status::Running, Status::Stopping, Status::Completed]
+        .into_iter()
+        .enumerate()
+    {
+        child.activity.run.as_mut().unwrap().status = status;
+        let update = Update::Event(EventEnvelope {
+            node: state.node,
+            cursor: index as u64 + 1,
+            event: Event::ConversationChanged {
+                session: child.id,
+                activity: child.activity.clone(),
+            },
+        });
+        assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
+        assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
+        let snapshot = projection.snapshot().unwrap();
+        assert_eq!(
+            aggregate_lane(&parent, &snapshot.sessions),
+            if status == Status::Completed {
+                Lane::Idle
+            } else {
+                Lane::Running
+            }
+        );
+        assert_eq!(snapshot.sessions[0].activity, parent.activity);
+    }
+    let gap = Update::Event(EventEnvelope {
+        node: state.node,
+        cursor: 5,
+        event: Event::ConversationChanged {
+            session: child.id,
+            activity: child.activity.clone(),
+        },
+    });
+    assert_eq!(projection.apply(1, gap).unwrap(), Apply::Recover);
+    projection.reconnect(2).unwrap();
+    state.cursor = 5;
+    child.activity.run.as_mut().unwrap().status = Status::Running;
+    state.sessions[1] = child;
+    projection.apply(2, Update::Snapshot(state)).unwrap();
+    assert_eq!(
+        aggregate_lane(&parent, &projection.snapshot().unwrap().sessions),
+        Lane::Running
+    );
+}
+
+#[test]
 fn scheduled_session_recovers_workspace_and_keeps_turn() {
     for known in [false, true] {
         let mut created = session();

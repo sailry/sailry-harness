@@ -1,6 +1,6 @@
 use super::*;
 use core::prelude::v1::test;
-use gpui_kit::component::{Root, WindowExt as _};
+use gpui_kit::component::{ActiveTheme as _, Root, WindowExt as _};
 use gpui_kit::test::{TestQueryExt as _, TestWindowExt as _};
 use sailry_protocol::installation::Task as Observed;
 
@@ -632,6 +632,10 @@ fn hide_reopens_the_same_list(cx: &mut TestAppContext) {
     visual.run_until_parked();
     visual.update(|window, cx| window.draw(cx).clear(cx));
     assert!(visual.debug_bounds("installation-empty").is_some());
+    let surface = crate::ui::overlays::tests::panel(visual, "popover-surface");
+    visual.update(|_, cx| {
+        assert_eq!(surface.background.as_solid(), Some(cx.theme().popover));
+    });
     assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     visual.simulate_keystrokes("escape");
     visual.run_until_parked();

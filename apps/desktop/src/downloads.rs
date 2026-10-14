@@ -126,10 +126,10 @@ pub(crate) fn start(
 
 fn open(form: Entity<Form>, window: &mut Window, cx: &mut App) {
     let close = form.clone();
-    window.open_dialog(cx, move |dialog, window, _| {
+    window.open_dialog(cx, move |dialog, window, cx| {
         let close = close.clone();
         dialog
-            .form_title(tr("files_download"))
+            .form_title(tr("files_download"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(460.)))
             .overlay_closable(false)
             .on_ok(|_, _, _| false)

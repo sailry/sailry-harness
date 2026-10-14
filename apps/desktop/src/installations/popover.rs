@@ -64,7 +64,6 @@ pub(crate) fn button(window: &mut Window, offset: Point<Pixels>, cx: &mut App) -
         })
         .w(px(320.).min(window.viewport_size().width - px(32.)))
         .p_2()
-        .bg(cx.theme().title_bar)
         .trigger(
             Button::new("installations-open")
                 .ghost()

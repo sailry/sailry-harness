@@ -125,6 +125,8 @@ impl State {
 // Kit ListItem has no branch guides; decorate the existing rows without changing
 // their focus, drag or menu behavior, matching the database tree's guide style.
 pub(crate) fn branch(id: String, last: bool, indent: Pixels, cx: &App) -> Div {
+    let vertical = id.clone();
+    let arm = id.clone();
     div()
         .debug_selector(move || format!("{id}-guide"))
         .absolute()
@@ -134,6 +136,7 @@ pub(crate) fn branch(id: String, last: bool, indent: Pixels, cx: &App) -> Div {
         .w(indent - px(18.))
         .child(
             div()
+                .debug_selector(move || format!("{vertical}-guide-vertical"))
                 .absolute()
                 .top_0()
                 .left_0()
@@ -144,6 +147,7 @@ pub(crate) fn branch(id: String, last: bool, indent: Pixels, cx: &App) -> Div {
         )
         .child(
             div()
+                .debug_selector(move || format!("{arm}-guide-arm"))
                 .absolute()
                 .top(relative(0.5))
                 .w_full()
@@ -151,6 +155,19 @@ pub(crate) fn branch(id: String, last: bool, indent: Pixels, cx: &App) -> Div {
                 .border_dashed()
                 .border_color(cx.theme().sidebar_foreground.opacity(0.35)),
         )
+}
+
+pub(crate) fn branch_empty(id: &'static str, label: SharedString, cx: &App) -> Div {
+    div()
+        .debug_selector(move || id.into())
+        .relative()
+        .px_2()
+        .pl(px(30.))
+        .py_1()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(branch(id.into(), true, px(30.), cx))
+        .child(label)
 }
 
 fn location(id: String, label: SharedString, cx: &App) -> impl IntoElement {

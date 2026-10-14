@@ -69,11 +69,11 @@ impl Shell {
                 .default_value(turn.prompt.clone())
         });
         let owner = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, _| {
+        window.open_dialog(cx, move |dialog, _, cx| {
             let input = input.clone();
             let owner = owner.clone();
             dialog
-                .form_title(tr("message_edit"))
+                .form_title(tr("message_edit"), cx)
                 .child(Textarea::new(&input))
                 .child(div().text_sm().child(tr("message_edit_notice")))
                 .on_ok(move |_, window, cx| {

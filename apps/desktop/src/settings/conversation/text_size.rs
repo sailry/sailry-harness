@@ -22,11 +22,12 @@ pub(super) fn slider(state: &Entity<SliderState>, cx: &App) -> AnyElement {
     let thumb = cx.theme().tokens.slider_thumb;
     let ring = cx.theme().ring;
     let tooltip_state = state.clone();
-    // The standard Slider has fixed thin-track/thumbnail geometry and no mark
-    // slots. Its Base parts retain pointer, drag, step and accessibility behavior.
+    // The component Slider has no mark slots or size variant. Its Base parts retain
+    // pointer, drag, step and accessibility behavior with the component's default
+    // 24 px control, 6 px track and 16 px thumb geometry.
     Slider::new(state)
         .w_full()
-        .h_8()
+        .h_6()
         .child(
             div()
                 .id("message-text-size-slider")
@@ -54,8 +55,8 @@ pub(super) fn slider(state: &Entity<SliderState>, cx: &App) -> AnyElement {
                     SliderTrack::new(state)
                         .relative()
                         .w_full()
-                        .h_3()
-                        .px_3()
+                        .h_1p5()
+                        .px_2()
                         .rounded_full_style(cx)
                         .bg(bar.opacity(0.2))
                         .child(
@@ -78,7 +79,7 @@ pub(super) fn slider(state: &Entity<SliderState>, cx: &App) -> AnyElement {
                                         div()
                                             .absolute()
                                             .left(relative(f32::from(size - 12) / 6.))
-                                            .top_1()
+                                            .top(px(1.))
                                             .ml(-px(2.))
                                             .size_1()
                                             .rounded_full_style(cx)
@@ -92,9 +93,9 @@ pub(super) fn slider(state: &Entity<SliderState>, cx: &App) -> AnyElement {
                                     SliderThumb::new(state)
                                         .absolute()
                                         .left(relative(value))
-                                        .top(-px(6.))
-                                        .ml(-px(12.))
-                                        .size_6()
+                                        .top(-px(5.))
+                                        .ml(-px(8.))
+                                        .size_4()
                                         .rounded_full_style(cx)
                                         .bg(thumb)
                                         .border_1()

@@ -47,7 +47,7 @@ pub(super) fn open(library: Entity<Library>, index: usize, window: &mut Window, 
         let download = library.clone();
         let close = library.clone();
         dialog
-            .form_title(item.name.clone())
+            .form_title(item.name.clone(), cx)
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .overlay_closable(false)
             .on_close(move |_, _, cx| {

@@ -9,8 +9,7 @@ pub(super) struct Summary {
     id: String,
     text: SharedString,
     detail_start: usize,
-    mono: bool,
-    secondary: bool,
+    detail: super::Detail,
 }
 
 impl Summary {
@@ -24,8 +23,7 @@ impl Summary {
             id,
             text,
             detail_start,
-            mono: detail.mono,
-            secondary: detail.secondary && !detail.failed,
+            detail: detail.clone(),
         }
     }
 
@@ -33,10 +31,10 @@ impl Summary {
         let mut runs = vec![style.to_run(self.detail_start)];
         if self.detail_start < self.text.len() {
             let mut detail = style.to_run(self.text.len() - self.detail_start);
-            if self.mono {
+            if self.detail.mono {
                 detail.font.family = mono;
             }
-            if self.secondary {
+            if self.detail.secondary && !self.detail.failed {
                 detail.color = secondary;
             }
             runs.push(detail);
@@ -47,19 +45,21 @@ impl Summary {
 
 impl RenderOnce for Summary {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let style = window.text_style();
+        let mut style = window.text_style();
+        let base = super::tone(&self.detail, cx);
+        let hovered = style.color != base;
+        style.color = base;
         let secondary = cx.theme().muted_foreground.opacity(0.65);
         let runs = self.runs(&style, cx.theme().mono_font_family.clone(), secondary);
         let text = StyledText::new(self.text).with_runs(runs);
-        if cx.reduce_motion() {
+        if cx.reduce_motion() || hovered {
             return text.into_any_element();
         }
         Glyphs {
             text,
             detail_start: self.detail_start,
             color: style.color,
-            secondary: self.secondary.then_some(secondary),
-            highlight: cx.theme().foreground,
+            secondary: (self.detail.secondary && !self.detail.failed).then_some(secondary),
             phase: 0.,
         }
         .with_animation(
@@ -79,11 +79,15 @@ struct Glyphs {
     detail_start: usize,
     color: Hsla,
     secondary: Option<Hsla>,
-    highlight: Hsla,
     phase: f32,
 }
 
 impl Glyphs {
+    fn color(base: Hsla, amount: f32) -> Hsla {
+        // Preserve the semantic ink outside the band; the sweep only changes alpha.
+        base.opacity(1. - 0.35 * amount * amount)
+    }
+
     fn decorations(&self, line: &LineLayout, offset: usize, extent: Pixels) -> Vec<DecorationRun> {
         // Native shaping clusters keep combining marks and ligatures together.
         let boundaries: BTreeSet<_> = [0, line.len]
@@ -110,7 +114,7 @@ impl Glyphs {
                 };
                 DecorationRun {
                     len: (boundary[1] - boundary[0]) as u32,
-                    color: self.highlight.mix(base, amount * amount),
+                    color: Self::color(base, amount),
                     background_color: None,
                     underline: None,
                     strikethrough: None,

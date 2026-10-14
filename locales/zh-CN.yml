@@ -1689,6 +1689,7 @@ reference_host: 主机
 reference_project: 项目
 reference_worktree: worktree
 reference_empty: 没有匹配的引用
+reference_connections_empty: 当前项目没有可用连接
 reference_back: 返回上一级
 reference_remove: 移除引用
 reference_preview: 仅引用预览 · 输入筛选，↑↓ 选择，Enter 确认
@@ -2660,8 +2661,9 @@ directory_size: "大小"
 directory_locations: "位置"
 directory_devices: "设备"
 directory_no_matches: "没有匹配项"
-directory_counts: "%{directories} 个文件夹，%{files} 个文件"
-directory_counts_hidden: "%{directories} 个文件夹，%{files} 个文件 · 已隐藏 %{hidden} 项"
+directory_count_directories: "%{count} 目录"
+directory_count_files: "%{count} 文件"
+directory_count_hidden: "%{count} 隐藏"
 directory_folder_kind: "文件夹"
 directory_file_kind: "文件"
 directory_markdown_kind: "Markdown 文档"

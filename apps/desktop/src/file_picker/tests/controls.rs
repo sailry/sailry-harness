@@ -106,6 +106,57 @@ fn dismiss(visual: &mut VisualTestContext, picker: &Entity<Picker>) {
 }
 
 #[gpui::test]
+fn counts_use_spaced_labels(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = crate::plugins::fixture::Fixture::directory(remote);
+        cx.update(|cx| cx.set_global(fixture.services(remote)));
+        let path = fixture.directory.path().join("counts");
+        std::fs::create_dir(&path).unwrap();
+        for name in ["first", "second"] {
+            std::fs::create_dir(path.join(name)).unwrap();
+        }
+        std::fs::write(path.join("shown.txt"), "shown").unwrap();
+        std::fs::write(path.join("second.txt"), "second").unwrap();
+        std::fs::write(path.join(".hidden.txt"), "hidden").unwrap();
+        let (picker, _, visual) = show(
+            cx,
+            Arc::new(Client::new(fixture.transport.clone())),
+            path.to_str().unwrap().into(),
+            Mode::Files { multiple: false },
+            false,
+        );
+        wait(visual, &picker);
+        picker.read_with(visual, |picker, _| {
+            let (directories, files, hidden) = picker.status();
+            assert_eq!(directories.as_ref(), "2 folders");
+            assert_eq!(files.as_ref(), "2 files");
+            assert_eq!(hidden.as_deref(), Some("1 hidden"));
+        });
+        visual.update(|window, cx| window.render_frame(cx));
+        let directories = visual.debug_bounds("directory-count-directories").unwrap();
+        let files = visual.debug_bounds("directory-count-files").unwrap();
+        let hidden = visual.debug_bounds("directory-count-hidden").unwrap();
+        assert!(directories.right() < files.left());
+        assert!(files.right() < hidden.left());
+        visual.update(|window, cx| window.click("directory-hidden", cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+        });
+        picker.read_with(visual, |picker, _| {
+            let (directories, files, hidden) = picker.status();
+            assert_eq!(directories.as_ref(), "2 folders");
+            assert_eq!(files.as_ref(), "3 files");
+            assert!(hidden.is_none());
+        });
+        assert!(visual.debug_bounds("directory-count-hidden").is_none());
+        dismiss(visual, &picker);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn single_modes_ignore_selection_modifiers(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

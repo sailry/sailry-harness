@@ -55,7 +55,7 @@ pub(super) fn open_for(
         let cancel = login.clone();
         let close = login.clone();
         dialog
-            .form_title(tr("provider_connect"))
+            .form_title(tr("provider_connect"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .on_ok(|_, _, _| false)
             .on_cancel(move |_, window, cx| cancel.update(cx, |login, cx| login.cancel(window, cx)))

@@ -108,7 +108,6 @@ impl View {
                             self.outgoing.as_ref().is_none_or(|outgoing| {
                                 outgoing.turn == Some(run.turn)
                                     || self.rows.contains(&run.turn)
-                                    || run.input.is_some()
                                     || self.sent.contains_key(&run.turn)
                                     || run.kind != RunKind::Task
                                     || !matches!(run.status, Status::Running | Status::Stopping)

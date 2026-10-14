@@ -158,11 +158,11 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
     });
     let panel = editor.read(cx).owner.clone();
     panel.update(cx, |panel, _| panel.editor = Some(editor.downgrade()));
-    window.open_dialog(cx, move |dialog, window, _| {
+    window.open_dialog(cx, move |dialog, window, cx| {
         let close = editor.clone();
         let cancel = editor.clone();
         dialog
-            .form_title(tr("backup_destination"))
+            .form_title(tr("backup_destination"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(600.)))
             .overlay_closable(false)
             .on_cancel(move |_, window, cx| {

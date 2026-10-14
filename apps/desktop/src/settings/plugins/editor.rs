@@ -57,16 +57,19 @@ pub(super) fn open(
                 .collect()
         });
     });
-    window.open_dialog(cx, move |dialog, window, _| {
+    window.open_dialog(cx, move |dialog, window, cx| {
         let save = editor.clone();
         dialog
-            .form_title(tr(if !update {
-                "plugins_configure"
-            } else if index.is_some() {
-                "plugins_update"
-            } else {
-                "plugins_install"
-            }))
+            .form_title(
+                tr(if !update {
+                    "plugins_configure"
+                } else if index.is_some() {
+                    "plugins_update"
+                } else {
+                    "plugins_install"
+                }),
+                cx,
+            )
             .w((window.viewport_size().width - px(48.)).min(px(620.)))
             .child(editor.clone())
             .footer(

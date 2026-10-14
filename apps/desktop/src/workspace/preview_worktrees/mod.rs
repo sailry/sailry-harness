@@ -136,7 +136,7 @@ impl Shell {
                 .collect::<Vec<_>>();
             let shell = shell.clone();
             dialog
-                .form_title(tr("worktree_manage"))
+                .form_title(tr("worktree_manage"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(560.)))
                 .child(
                     div()
@@ -217,11 +217,11 @@ impl Shell {
         form.update(cx, |_, cx| {
             crate::feedback::observe(window, cx, |view, _| view.error.into_iter().collect());
         });
-        window.open_dialog(cx, move |dialog, window, _| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let submit = form.clone();
             let confirm = form.clone();
             dialog
-                .form_title(tr("worktree_create"))
+                .form_title(tr("worktree_create"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(480.)))
                 .overlay_closable(false)
                 .on_ok(move |_, window, cx| {

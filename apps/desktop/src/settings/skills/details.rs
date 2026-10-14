@@ -35,6 +35,7 @@ pub(super) fn open(info: Info, skill: Skill, window: &mut Window, cx: &mut App) 
                     .display_name
                     .clone()
                     .unwrap_or_else(|| skill.name.clone()),
+                cx,
             )
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .max_h(window.viewport_size().height * 0.8)

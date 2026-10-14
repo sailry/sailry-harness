@@ -474,6 +474,7 @@ fn mounts_package_and_reads_captured_versions(cx: &mut TestAppContext) {
             window.within(id).click("input", cx);
         });
         visual.run_until_parked();
+        assert!(visual.debug_bounds("list-search").is_none());
         visual.update(|window, cx| {
             window.render_frame(cx);
             let header = panel.read(cx).header().unwrap();

@@ -1,7 +1,7 @@
 //! Original square-dot artwork with pointer-driven illumination.
 //! Kit b79f4ce's Icon supplies one monochrome tint, not spatial lighting.
 //! Keep its stable SVG as the dim base and use Kit's GPUI canvas only for
-//! illuminated particles and glow, with colors supplied by the active theme.
+//! illuminated particles, with colors supplied by the active theme.
 use super::*;
 
 const SVG: &[u8] = include_bytes!("wordmark.svg");
@@ -25,7 +25,7 @@ impl Light {
 }
 
 pub(super) fn render(height: Pixels, pointer: Option<Pixels>, cx: &App) -> impl IntoElement {
-    let (ink, glow) = crate::theme::wordmark::colors(cx);
+    let (ink, _) = crate::theme::wordmark::colors(cx);
     div()
         .id("welcome-dots")
         .debug_selector(|| "welcome-dots".into())
@@ -51,26 +51,6 @@ pub(super) fn render(height: Pixels, pointer: Option<Pixels>, cx: &App) -> impl 
                         return;
                     }
                     let center = beam(bounds, pointer);
-                    let scale = bounds.size.height / HEIGHT;
-                    // Paint all light spill before the square cores to preserve
-                    // the original particle edges under overlapping halos.
-                    for &(x, y) in particles() {
-                        let strength = strength(x + 3., center);
-                        if strength < 0.005 {
-                            continue;
-                        }
-                        let dot = particle(bounds, x, y);
-                        window.paint_drop_shadows(
-                            dot,
-                            Corners::default(),
-                            &[
-                                BoxShadow::new(px(0.), px(0.), glow.opacity(strength * 0.26))
-                                    .blur_radius(scale * 5.),
-                                BoxShadow::new(px(0.), px(0.), glow.opacity(strength * 0.09))
-                                    .blur_radius(scale * 13.),
-                            ],
-                        );
-                    }
                     for &(x, y) in particles() {
                         let strength = strength(x + 3., center);
                         window

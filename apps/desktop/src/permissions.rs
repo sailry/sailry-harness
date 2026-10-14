@@ -189,6 +189,7 @@ pub(crate) fn open(
                 div()
                     .debug_selector(|| "permissions-title".into())
                     .child(tr("permission_title")),
+                cx,
             )
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .on_ok(|_, _, _| false)

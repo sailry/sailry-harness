@@ -129,7 +129,7 @@ impl State {
             let later = entity.clone();
             let apply = entity.clone();
             dialog
-                .form_title(tr("plugins_updates_title"))
+                .form_title(tr("plugins_updates_title"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(640.)))
                 .max_h(window.viewport_size().height * 0.85)
                 .overlay_closable(false)

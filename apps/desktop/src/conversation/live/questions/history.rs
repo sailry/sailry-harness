@@ -1,7 +1,6 @@
 use super::*;
 use crate::conversation::{disclosure, surface};
 use gpui_kit::component::collapsible::Collapsible;
-use gpui_kit::component::scroll::ScrollableElement as _;
 use sailry_client::conversation::tools::{Call, State as CallState};
 use sailry_protocol::conversation::Page;
 
@@ -102,32 +101,35 @@ impl View {
             )
             .into_any_element()
         } else {
-            // The answer owns one frame; the question header still spans the row.
             div()
-                .debug_selector(move || format!("live-question-answer-frame-{id}"))
-                .self_start()
-                .max_w_full()
+                .w_full()
                 .min_w_0()
-                .rounded(cx.theme().radius)
-                .bg(cx.theme().muted)
-                .text_color(cx.theme().muted_foreground)
-                .p_3()
+                .pt_1()
+                .pb_2()
                 .child(
-                    v_flex()
-                        .debug_selector(move || format!("live-question-answer-{id}"))
-                        .max_w_full()
-                        .min_w_0()
-                        .max_h(px(surface::OUTPUT_LINES as f32 * surface::LINE_HEIGHT))
-                        .gap_1()
-                        .text_sm()
-                        .children(answers.into_iter().enumerate().map(|(index, answer)| {
-                            gpui_kit::base::SelectableText::new(
-                                format!("question-answer-{id}-{index}"),
-                                answer,
-                            )
-                        }))
-                        .overflow_y_scrollbar()
-                        .id(SharedString::from(format!("question-answer-scroll-{id}"))),
+                    surface::result(
+                        &format!("question-{id}"),
+                        surface::scroll(
+                            format!("question-answer-scroll-{id}"),
+                            v_flex()
+                                .debug_selector(move || format!("live-question-answer-{id}"))
+                                .w_full()
+                                .min_w_0()
+                                .gap_1()
+                                .text_sm()
+                                .children(answers.into_iter().enumerate().map(
+                                    |(index, answer)| {
+                                        gpui_kit::base::SelectableText::new(
+                                            format!("question-answer-{id}-{index}"),
+                                            answer,
+                                        )
+                                    },
+                                )),
+                        ),
+                        [],
+                        cx,
+                    )
+                    .debug_selector(move || format!("live-question-answer-frame-{id}")),
                 )
                 .into_any_element()
         };

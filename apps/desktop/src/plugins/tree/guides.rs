@@ -1,5 +1,9 @@
 //! Kit Tree has no hierarchy strokes. Eventless borders retain its row interactions.
+//! Arms follow the accepted sidebar tree: start on the parent column and stop near child content.
 use super::*;
+
+pub(super) const ROW_INSET: f32 = 8.;
+const EDGE_INSET: f32 = 2.;
 
 pub(super) fn paths(items: &[Item]) -> BTreeMap<String, Vec<bool>> {
     fn collect(items: &[Item], path: &mut Vec<bool>, paths: &mut BTreeMap<String, Vec<bool>>) {
@@ -41,7 +45,7 @@ pub(super) fn render(id: &str, path: &[bool], skip: usize, indent: f32, cx: &App
     let color = cx.theme().muted_foreground.opacity(0.65);
     let mut lines = Vec::new();
     for column in columns(path, skip) {
-        let left = px(8. + indent * (column.index as f32 + 0.5));
+        let left = px(ROW_INSET + indent * column.index as f32 + EDGE_INSET);
         let selector = format!("resource-guide-{id}-{}-vertical", column.index);
         lines.push(
             div()
@@ -62,7 +66,7 @@ pub(super) fn render(id: &str, path: &[bool], skip: usize, indent: f32, cx: &App
                     .absolute()
                     .left(left)
                     .top(relative(0.5))
-                    .w(px(indent * 0.5))
+                    .w(px(indent - EDGE_INSET * 2.))
                     .border_t_1()
                     .border_dashed()
                     .border_color(color),

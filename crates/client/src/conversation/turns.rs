@@ -1,8 +1,13 @@
 //! Content visibility shared by controllers without changing canonical history.
 use sailry_protocol::{
-    TurnId,
-    conversation::{Draft, Input, Page, Part, Run, SentInput, Status},
+    RequestId, TurnId,
+    conversation::{Draft, Input, Page, Part, Pending, Queue, Run, SentInput, Status},
 };
+
+/// Correlates one local command with its exact durable queued input revision.
+pub fn pending(queue: &Queue, request: RequestId) -> Option<&Pending> {
+    queue.items.iter().find(|item| item.request == request)
+}
 
 /// Canonical user content replaces the claim capture without inventing history entries.
 pub fn input(page: &Page, turn: TurnId) -> Option<SentInput> {

@@ -157,6 +157,7 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
                                 .child(version),
                         )
                     }),
+                cx,
             )
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .on_close(move |_, _, cx| close.read(cx).stop.cancel())

@@ -20,6 +20,190 @@ fn landing_width(visual: &mut VisualTestContext, prefix: &str) {
     assert!(button.size.width > px(200.));
 }
 
+fn saved_rows(fixture: &Fixture, name: &str, count: usize, port: u16) -> Vec<&'static str> {
+    let path = fixture.directory.path().join("connections.sqlite3");
+    if name == "databases" {
+        drop(rusqlite::Connection::open(&path).unwrap());
+    }
+    (0..count)
+        .map(|index| {
+            let label = format!("Connection {index:02}");
+            let selector = if name == "databases" {
+                let Output::DatabaseProfile(profile) = fixture.execute(Command::SaveDatabase {
+                    profile: sailry_protocol::database::Profile {
+                        id: format!("00000000-0000-0000-0000-{:012}", index + 1)
+                            .parse()
+                            .unwrap(),
+                        revision: 0,
+                        name: label,
+                        connection: sailry_protocol::database::Connection::Sqlite {
+                            path: path.to_str().unwrap().into(),
+                        },
+                        read_only: false,
+                        sharing: None,
+                    },
+                    expected_revision: 0,
+                    password: None,
+                }) else {
+                    panic!("database profile expected");
+                };
+                format!("db-open-{}", profile.id)
+            } else {
+                let Output::SshProfile(profile) = fixture.execute(Command::SaveSsh {
+                    profile: sailry_protocol::ssh::Profile {
+                        id: format!("00000000-0000-0000-0000-{:012}", index + 1)
+                            .parse()
+                            .unwrap(),
+                        revision: 0,
+                        name: label,
+                        host: "127.0.0.1".into(),
+                        port,
+                        username: "fixture".into(),
+                        authentication: sailry_protocol::ssh::Authentication::Password,
+                        host_key: None,
+                        sharing: None,
+                    },
+                    expected_revision: 0,
+                    credential: Some(sailry_protocol::ssh::Credential::Password {
+                        password: sailry_protocol::Secret::new("isolated-ssh-password".into()),
+                    }),
+                }) else {
+                    panic!("SSH profile expected");
+                };
+                format!("ssh-open-{}", profile.id)
+            };
+            &*Box::leak(selector.into_boxed_str())
+        })
+        .collect()
+}
+
+#[gpui::test]
+fn cards_keep_spacing_and_scroll_to_last(cx: &mut TestAppContext) {
+    init(cx);
+    let mut row_height = None;
+    for remote in [false, true] {
+        for count in [3, 12] {
+            for name in ["databases", "ssh"] {
+                let fixture = Fixture::new(remote);
+                let package = install(&fixture, name);
+                let peer = (name == "ssh").then(|| {
+                    fixture.runtime.block_on(crate::ssh_fixture::Server::start(
+                        fixture.directory.path().to_path_buf(),
+                        79,
+                    ))
+                });
+                let rows = saved_rows(
+                    &fixture,
+                    name,
+                    count,
+                    peer.as_ref().map_or(0, |peer| peer.port),
+                );
+                let prefix = if name == "databases" { "db" } else { "ssh" };
+                let (shell, panel, visual) = mount(&fixture, remote, name, cx);
+                shown(&panel, visual, rows.last().unwrap());
+                let icon: &'static str =
+                    Box::leak(format!("empty-icon-{prefix}_workspace_empty").into_boxed_str());
+                let button: &'static str = Box::leak(format!("{prefix}-new").into_boxed_str());
+                let handle = visual.update(|window, _| window.window_handle());
+                for height in [940., 400.] {
+                    visual.simulate_window_resize(handle, size(px(1440.), px(height)));
+                    visual.run_until_parked();
+                    visual.update(|window, cx| window.draw(cx).clear(cx));
+                    // Kit's overlay measures the viewport; Bounds inside the scrollable
+                    // content measures the entire list after materialization.
+                    let viewport = visual.debug_bounds("scrollbar-overlay").unwrap();
+                    let heading = visual.debug_bounds(icon).unwrap();
+                    let action = visual.debug_bounds(button).unwrap();
+                    assert!(viewport.size.height <= px(320.));
+                    assert!(viewport.top() >= action.bottom());
+                    assert!(viewport.bottom() <= px(height));
+                    assert_eq!(viewport.left(), action.left());
+                    assert_eq!(viewport.right(), action.right());
+                    visual.simulate_event(ScrollWheelEvent {
+                        position: viewport.center(),
+                        delta: ScrollDelta::Pixels(point(px(0.), px(40_000.))),
+                        touch_phase: TouchPhase::Moved,
+                        ..Default::default()
+                    });
+                    visual.run_until_parked();
+                    visual.update(|window, cx| window.draw(cx).clear(cx));
+                    let first = visual.debug_bounds(rows[0]).unwrap();
+                    let expected = *row_height.get_or_insert(first.size.height);
+                    assert_eq!(first.size.height, expected);
+                    assert!(first.top() >= viewport.top());
+                    for pair in rows.windows(2) {
+                        let before = visual.debug_bounds(pair[0]).unwrap();
+                        let after = visual.debug_bounds(pair[1]).unwrap();
+                        assert_eq!(after.size.height, expected);
+                        let gap = after.top() - before.bottom();
+                        assert!(
+                            (gap - px(8.)).abs() < px(1.),
+                            "{name} count {count} height {height}: gap {gap:?}"
+                        );
+                    }
+                    let last = visual.debug_bounds(rows[count - 1]).unwrap();
+                    if count == 12 {
+                        assert!(last.bottom() > viewport.bottom());
+                    }
+                    visual.simulate_event(ScrollWheelEvent {
+                        position: first.center(),
+                        delta: ScrollDelta::Pixels(point(px(0.), px(-40_000.))),
+                        touch_phase: TouchPhase::Moved,
+                        ..Default::default()
+                    });
+                    visual.run_until_parked();
+                    visual.update(|window, cx| window.draw(cx).clear(cx));
+                    let last = visual.debug_bounds(rows[count - 1]).unwrap();
+                    assert!(last.top() >= viewport.top());
+                    assert!(last.bottom() <= viewport.bottom() + px(1.));
+                    assert_eq!(visual.debug_bounds(icon).unwrap(), heading);
+                    assert_eq!(visual.debug_bounds(button).unwrap(), action);
+                    assert_eq!(visual.debug_bounds("scrollbar-overlay").unwrap(), viewport);
+                }
+                let last = rows[count - 1];
+                tap(visual, last);
+                shown(
+                    &panel,
+                    visual,
+                    if name == "databases" {
+                        "db-page"
+                    } else {
+                        "ssh-host-key"
+                    },
+                );
+                assert!(
+                    fixture
+                        .transport
+                        .requests
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|request| {
+                            match &request.command {
+                                Command::BrowseDatabase { profile, .. } => {
+                                    format!("db-open-{profile}") == last
+                                }
+                                Command::OpenSshTerminal { profile, .. } => {
+                                    format!("ssh-open-{profile}") == last
+                                }
+                                _ => false,
+                            }
+                        })
+                );
+                if let Some(peer) = peer {
+                    assert_eq!(peer.authentication.load(Ordering::SeqCst), 0);
+                    fixture.runtime.block_on(peer.close());
+                }
+                visual.update(|window, _| window.remove_window());
+                drop(panel);
+                drop(shell);
+                drop(package);
+                fixture.close();
+            }
+        }
+    }
+}
+
 fn install(fixture: &Fixture, name: &str) -> plugin::Info {
     let path = fixture.directory.path().join("project").join(name);
     fixture::copy_package(

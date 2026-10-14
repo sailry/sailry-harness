@@ -17,6 +17,8 @@ pub(super) struct Filter {
     disabled: bool,
     #[serde(default)]
     primary: bool,
+    #[serde(default)]
+    searchable: bool,
 }
 #[derive(Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -115,9 +117,12 @@ impl Header {
     }
 
     pub(super) fn sync_filters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.filters
-            .fields
-            .retain(|id, _| self.content.filters.iter().any(|filter| &filter.id == id));
+        self.filters.fields.retain(|id, field| {
+            self.content
+                .filters
+                .iter()
+                .any(|filter| &filter.id == id && filter.searchable == field.props.searchable)
+        });
         for props in &self.content.filters {
             let field = self
                 .filters
@@ -126,7 +131,7 @@ impl Header {
                 .or_insert_with(|| {
                     let state = cx.new(|cx| {
                         SelectState::new(SearchableVec::new(props.items.clone()), None, window, cx)
-                            .searchable(true)
+                            .searchable(props.searchable)
                     });
                     let id = props.id.clone();
                     let events = self.actions.clone();

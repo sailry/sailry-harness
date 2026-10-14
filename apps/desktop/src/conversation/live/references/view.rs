@@ -11,6 +11,7 @@ pub(super) struct Items {
     pub rows: Vec<Item>,
     pub generation: u64,
     pub nested: bool,
+    pub empty_label: &'static str,
     selected: Option<IndexPath>,
     owner: WeakEntity<View>,
 }
@@ -47,6 +48,7 @@ impl Items {
             rows: vec![],
             generation: 0,
             nested: false,
+            empty_label: "reference_empty",
             selected: None,
             owner,
         }
@@ -209,10 +211,11 @@ impl ListDelegate for Items {
         cx: &mut Context<ListState<Self>>,
     ) -> impl IntoElement {
         div()
+            .debug_selector(|| "live-reference-empty".into())
             .p_2()
             .text_sm()
             .text_color(cx.theme().muted_foreground)
-            .child(tr("reference_empty"))
+            .child(tr(self.empty_label))
     }
 }
 
@@ -271,7 +274,8 @@ impl View {
         }
         let nested = state.page != self.reference_root();
         let commands = matches!(state.page, Page::Commands | Page::Root);
-        let height = ((state.list.read(cx).delegate().rows.len().max(1) as f32 * 32.
+        let count = state.list.read(cx).delegate().rows.len();
+        let height = ((if count == 0 { 40. } else { count as f32 * 32. }
             + state.list.read(cx).delegate().headers_count() as f32 * 28.)
             .min(320.))
         .min((f32::from(bounds.top()) - 100.).max(32.));

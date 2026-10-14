@@ -7,8 +7,8 @@ use sailry_protocol::{Command, Output, SessionId};
 
 pub(crate) enum Placement<'a> {
     Project(&'a super::tree::Entry),
-    Recent,
-    Active,
+    Recent { last: bool },
+    Active { last: bool },
 }
 
 #[derive(Default)]
@@ -114,21 +114,24 @@ impl Shell {
         let live = self.live.as_ref().unwrap();
         let session = session.clone();
         let id = session.id;
-        let active = matches!(placement, Placement::Active);
-        let (prefix, row_key, entry) = match placement {
-            Placement::Project(entry) => ("live-session", Row::LiveSession(id), Some(entry)),
-            Placement::Recent => ("recent-session", Row::RecentSession(id), None),
-            Placement::Active => ("active-session", Row::ActiveSession(id), None),
+        let active = matches!(placement, Placement::Active { .. });
+        let (prefix, row_key, entry, branch_last) = match placement {
+            Placement::Project(entry) => ("live-session", Row::LiveSession(id), Some(entry), None),
+            Placement::Recent { last } => {
+                ("recent-session", Row::RecentSession(id), None, Some(last))
+            }
+            Placement::Active { last } => {
+                ("active-session", Row::ActiveSession(id), None, Some(last))
+            }
         };
-        let indicators = !matches!(placement, Placement::Recent);
+        let indicators = !matches!(placement, Placement::Recent { .. });
         let node = live.selected;
         let hovered = self.sidebar.hovered == Some(row_key);
         let preference = crate::preferences::sessions::get(node, id, cx);
         let unread = indicators && session.activity.attention.unread;
-        let running = indicators
-            && sailry_client::activity::lane(&session) == sailry_client::activity::Lane::Running;
-        let waiting = indicators
-            && sailry_client::activity::lane(&session) == sailry_client::activity::Lane::Waiting;
+        let activity = self.session_lane(node, &session);
+        let running = indicators && activity == sailry_client::activity::Lane::Running;
+        let waiting = indicators && activity == sailry_client::activity::Lane::Waiting;
         let worktree = indicators
             && session.project.is_some()
             && live.view.snapshot.as_ref().is_some_and(|snapshot| {
@@ -154,6 +157,10 @@ impl Shell {
             .when_some(entry, |row, entry| {
                 row.pl(entry.indent())
                     .child(entry.guides(format!("{prefix}-{id}"), cx))
+            })
+            .when_some(branch_last, |row, last| {
+                row.pl(px(30.))
+                    .child(super::branch(format!("{prefix}-{id}"), last, px(30.), cx))
             })
             .when(running, |row| row.text_color(cx.theme().sidebar_foreground))
             .relative()
@@ -195,16 +202,10 @@ impl Shell {
                     .gap_2()
                     .h_5()
                     .items_center()
-                    .when(active || session.delegation.is_some(), |row| {
-                        row.child(if session.delegation.is_some() {
-                            crate::ui::identicon::agent(&id.to_string(), cx).into_any_element()
-                        } else {
-                            crate::workspace::appearance::project(
-                                &self.session_appearance(node, &session),
-                                cx,
-                            )
-                            .into_any_element()
-                        })
+                    .when(session.delegation.is_some(), |row| {
+                        row.child(
+                            crate::ui::identicon::agent(&id.to_string(), cx).into_any_element(),
+                        )
                     })
                     .child(super::title::Title::new(
                         format!("{prefix}-{id}-label"),

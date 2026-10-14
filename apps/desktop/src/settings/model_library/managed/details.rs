@@ -92,7 +92,10 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
             }
         }
         dialog
-            .form_title(model.map_or_else(|| tr("knowledge_model_details"), |model| model.name))
+            .form_title(
+                model.map_or_else(|| tr("knowledge_model_details"), |model| model.name),
+                cx,
+            )
             .w((window.viewport_size().width - px(48.)).min(px(520.)))
             .child(details.clone())
             .footer(footer)

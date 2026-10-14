@@ -119,11 +119,11 @@ fn mount(
     });
     window.open_dialog(cx, {
         let login = login.clone();
-        move |dialog, window, _| {
+        move |dialog, window, cx| {
             let cancel = login.clone();
             let close = login.clone();
             dialog
-                .form_title(tr("mcp_oauth_title"))
+                .form_title(tr("mcp_oauth_title"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(520.)))
                 .on_ok(|_, _, _| false)
                 .on_cancel(move |_, window, cx| {

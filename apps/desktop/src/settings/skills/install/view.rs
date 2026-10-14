@@ -9,7 +9,7 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
         let submit = editor.clone();
         let state = editor.read(cx);
         dialog
-            .form_title(tr("skills_install"))
+            .form_title(tr("skills_install"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(600.)))
             .max_h(window.viewport_size().height * 0.85)
             .overlay_closable(false)

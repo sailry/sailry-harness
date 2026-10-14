@@ -3,7 +3,7 @@ use super::*;
 use crate::activity;
 use gpui_kit::component::{button::Button, list::ListItem, scroll::ScrollableElement, tag::Tag, *};
 use gpui_kit::prelude::FluentBuilder as _;
-use sailry_client::activity::{Lane, lane};
+use sailry_client::activity::Lane;
 
 mod disks;
 mod monitor;
@@ -28,7 +28,10 @@ impl Shell {
             .flat_map(|snapshot| &snapshot.sessions)
             .filter(|session| {
                 session.delegation.is_none()
-                    && matches!(lane(session), Lane::Running | Lane::Waiting)
+                    && matches!(
+                        self.session_lane(selected, session),
+                        Lane::Running | Lane::Waiting
+                    )
             })
             .collect();
         let platform = info
@@ -175,11 +178,12 @@ impl Shell {
                                                                 .child(location),
                                                         ),
                                                 )
-                                                .child(
-                                                    Tag::secondary()
-                                                        .small()
-                                                        .child(activity::status(session)),
-                                                ),
+                                                .child(Tag::secondary().small().child(
+                                                    activity::status_with_lane(
+                                                        session,
+                                                        self.session_lane(selected, session),
+                                                    ),
+                                                )),
                                         )
                                         .on_click(cx.listener(move |shell, _, window, cx| {
                                             shell.reveal_session(target.clone(), window, cx)

@@ -14,7 +14,7 @@ impl View {
     ) -> Option<AnyElement> {
         self.queue.update(cx, |panel, cx| panel.sync(self, cx));
         let panel = self.queue.read(cx);
-        if panel.queue.items.is_empty() && panel.editing.is_none() && panel.outgoing.is_none() {
+        if panel.items().next().is_none() && panel.editing.is_none() && panel.outgoing.is_none() {
             return None;
         }
         Some(self.queue.clone().into_any_element())
@@ -22,6 +22,13 @@ impl View {
 }
 
 impl Panel {
+    fn items(&self) -> impl Iterator<Item = &Pending> {
+        self.queue
+            .items
+            .iter()
+            .filter(|item| Some(item.turn) != self.represented)
+    }
+
     fn row(&self, item: &Pending, cx: &mut Context<Self>) -> AnyElement {
         let turn = item.turn;
         let revision = item.revision;
@@ -297,7 +304,7 @@ impl Render for Panel {
                         .id("queue-list")
                         .max_h(px(132.))
                         .overflow_y_scrollbar()
-                        .children(self.queue.items.iter().map(|item| self.row(item, cx)))
+                        .children(self.items().map(|item| self.row(item, cx)))
                         .children(self.outgoing.clone().map(|text| {
                             let actions = [
                                 ("edit", IconName::Replace, "queue_edit"),

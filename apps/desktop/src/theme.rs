@@ -490,12 +490,14 @@ mod tests {
                     assert!(navigation.to_rgb().r > main.to_rgb().r);
                     let popover = theme.background.blend(theme.popover).to_rgb().r;
                     assert!(popover - background > 0.03);
+                    assert!((theme.popover.a - 245. / 255.).abs() < 0.001);
                     assert!((background - 24. / 255.).abs() < 0.001);
                     assert!(theme.group_box.a > 0. && theme.group_box.a < 1.);
                     assert!(card - background > 0.03);
                     assert!(composer - card > 0.02);
                 } else {
                     assert!(navigation.to_rgb().r < main.to_rgb().r);
+                    assert_eq!(theme.popover, theme.background);
                     assert_eq!(theme.group_box.a, 0.);
                     assert_eq!(card, background);
                     assert!(background - composer > 0.02);

@@ -35,7 +35,7 @@ pub(crate) fn open(
 ) {
     window.open_dialog(cx, move |dialog, window, cx| {
         dialog
-            .form_title(div().pr_6().child(title.clone()))
+            .form_title(div().pr_6().child(title.clone()), cx)
             .w((window.viewport_size().width - px(48.))
                 .max(px(0.))
                 .min(px(560.)))

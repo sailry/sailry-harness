@@ -8,6 +8,31 @@ fn tracks_catalog_and_disclosure(cx: &mut TestAppContext) {
     visual.simulate_window_resize(handle, size(px(1280.), px(820.)));
     for index in 0..2 {
         open(&shell, visual, &fixture, index, &fixture.sessions[index]);
+        visual.update(|window, cx| {
+            crate::preferences::update(cx, |data| data.recent = Some(Vec::new()));
+            window.draw(cx).clear(cx);
+        });
+        if visual.debug_bounds("sidebar-recent-viewport").is_none() {
+            click(&shell, visual, "recent-toggle".into());
+        }
+        for empty in [
+            "active-sessions-empty",
+            "unassigned-sessions-empty",
+            "recent-sessions-empty",
+        ] {
+            let row = visual.debug_bounds(empty).unwrap();
+            let guide = visual
+                .debug_bounds(selector(format!("{empty}-guide")))
+                .unwrap();
+            let vertical = visual
+                .debug_bounds(selector(format!("{empty}-guide-vertical")))
+                .unwrap();
+            assert!(
+                guide.left() > row.left() - px(30.) && guide.right() < row.left(),
+                "{empty}: row {row:?}, guide {guide:?}"
+            );
+            assert!(vertical.bottom() <= row.center().y + px(1.));
+        }
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(visual.debug_bounds("sidebar-projects-empty").is_none());
         let populated = shell.read_with(visual, |shell, _| {

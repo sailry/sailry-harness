@@ -69,6 +69,15 @@ export default class Overlays extends View {
         visual.executor().advance_clock(duration);
         visual.run_until_parked();
         visual.update(|window, cx| window.draw(cx).clear(cx));
+        let selector = if trigger == "open-form" {
+            "overlay"
+        } else {
+            "plugin-modal-surface"
+        };
+        let surface = crate::ui::overlays::tests::panel(visual, selector);
+        visual.update(|_, cx| {
+            assert_eq!(surface.background.as_solid(), Some(cx.theme().popover));
+        });
         assert!(visual.debug_bounds("overlay-close").is_some());
         assert!(visual.debug_bounds("details-content").is_some());
         assert_ne!(visual.update(|window, cx| window.focused(cx)), previous);

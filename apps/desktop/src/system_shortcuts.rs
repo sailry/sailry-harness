@@ -223,13 +223,13 @@ fn show(text: String, chat: Option<Composer>, window: &mut Window, cx: &mut App)
         return;
     }
     let id = format!("selection-{}", sailry_protocol::RequestId::new());
-    window.open_dialog(cx, move |dialog, _, _| {
+    window.open_dialog(cx, move |dialog, _, cx| {
         let spoken = text.clone();
         let quote = text.clone();
         let chat = chat.clone();
         let id = id.clone();
         dialog
-            .form_title(tr("selection_title"))
+            .form_title(tr("selection_title"), cx)
             .child(div().max_h(px(260.)).overflow_y_scrollbar().child(
                 gpui_kit::base::SelectableText::new("selection-text", text.clone()),
             ))

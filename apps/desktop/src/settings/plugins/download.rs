@@ -103,7 +103,7 @@ fn present(editor: Entity<Download>, window: &mut Window, cx: &mut App) {
         let submit = editor.clone();
         let state = editor.read(cx);
         dialog
-            .form_title(tr("plugins_download"))
+            .form_title(tr("plugins_download"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(600.)))
             .overlay_closable(false)
             .on_close(move |_, _, cx| {

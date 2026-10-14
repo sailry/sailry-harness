@@ -9,6 +9,8 @@ struct Delayed {
     history: CancellationToken,
     identity: CancellationToken,
     held_input: Option<&'static str>,
+    queue: Option<CancellationToken>,
+    start: Option<CancellationToken>,
 }
 
 impl Transport for Delayed {
@@ -26,6 +28,9 @@ impl Transport for Delayed {
                 history: self.history.clone(),
                 identity: self.identity.clone(),
                 held_input: self.held_input,
+                queue: self.queue.clone(),
+                start: self.start.clone(),
+                admitted: false,
             }) as Box<dyn Subscription>)
         })
     }
@@ -57,12 +62,30 @@ struct Events {
     history: CancellationToken,
     identity: CancellationToken,
     held_input: Option<&'static str>,
+    queue: Option<CancellationToken>,
+    start: Option<CancellationToken>,
+    admitted: bool,
 }
 
 impl Subscription for Events {
     fn next(&mut self) -> Pending<'_, Result<Update, Fault>> {
         Box::pin(async move {
             let update = self.inner.next().await?;
+            if let Update::ConversationFrame(frame) = &update {
+                if matches!(&frame.change, Change::Queue(queue) if !queue.items.is_empty()) {
+                    if let Some(queue) = &self.queue {
+                        queue.cancelled().await;
+                    }
+                    self.admitted = true;
+                }
+                if self.admitted
+                    && (matches!(&frame.change, Change::Queue(queue) if queue.items.is_empty())
+                        || matches!(&frame.change, Change::Run(run) if matches!(run.status, Status::Running | Status::Stopping)))
+                    && let Some(start) = &self.start
+                {
+                    start.cancelled().await;
+                }
+            }
             if matches!(&update, Update::Event(envelope) if matches!(envelope.event, Event::TurnQueued { .. }))
             {
                 self.identity.cancelled().await;
@@ -97,6 +120,167 @@ impl Events {
 }
 
 #[gpui::test]
+fn idle_submission_keeps_transcript_placement(cx: &mut TestAppContext) {
+    const MESSAGE: &str = "Keep the submitted input in this conversation";
+    fixture::init(cx);
+    for remote in [false, true] {
+        for reply_first in [false, true] {
+            let fixture = fixture::Fixture::with_tools(remote, vec![]);
+            let queue = CancellationToken::new();
+            let start = CancellationToken::new();
+            let delayed = Arc::new(Delayed {
+                inner: fixture.transport.clone(),
+                dispatch: CancellationToken::new(),
+                reply: CancellationToken::new(),
+                history: CancellationToken::new(),
+                identity: CancellationToken::new(),
+                held_input: Some(MESSAGE),
+                queue: Some(queue.clone()),
+                start: Some(start.clone()),
+            });
+            let mut binding = fixture.binding.clone();
+            binding.client = Arc::new(Client::new(delayed.clone()));
+            let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
+            wait(visual, |cx| {
+                view.read(cx).connected() && view.read(cx).configured()
+            });
+            fixture::tap(visual, "live-chat-input");
+            visual.simulate_input(MESSAGE);
+            fixture::tap(visual, "live-chat-send");
+            wait(visual, |cx| {
+                view.read(cx).pending && view.read(cx).outgoing.is_some()
+            });
+            let (request, row) = view.read_with(visual, |view, _| {
+                let outgoing = view.outgoing.as_ref().unwrap();
+                assert!(!outgoing.queued);
+                (outgoing.request.unwrap(), outgoing.row)
+            });
+            assert!(visual.debug_bounds("live-outgoing-message").is_some());
+            assert!(visual.debug_bounds("queue-tray").is_none());
+            delayed.dispatch.cancel();
+            if reply_first {
+                delayed.reply.cancel();
+                wait(visual, |cx| {
+                    !view.read(cx).pending
+                        && view
+                            .read(cx)
+                            .outgoing
+                            .as_ref()
+                            .is_some_and(|message| message.turn.is_some())
+                });
+                assert!(view.read_with(visual, |view, _| {
+                    view.history
+                        .snapshot
+                        .as_ref()
+                        .unwrap()
+                        .page
+                        .queue
+                        .items
+                        .is_empty()
+                }));
+                assert!(visual.debug_bounds("live-outgoing-message").is_some());
+            }
+            queue.cancel();
+            wait(visual, |cx| view.read(cx).transcript_pending().is_some());
+            let turn = view.read_with(visual, |view, _| {
+                let outgoing = view.outgoing.as_ref().unwrap();
+                let queued = view.transcript_pending().unwrap();
+                assert_eq!(queued.request, request);
+                assert_eq!(outgoing.request, Some(request));
+                assert_eq!(outgoing.row, row);
+                assert_eq!(outgoing.turn, Some(queued.turn));
+                assert!(!outgoing.queued);
+                assert_eq!(view.pending, !reply_first);
+                queued.turn
+            });
+            assert!(visual.debug_bounds("live-outgoing-message").is_some());
+            assert!(visual.debug_bounds("live-outgoing-queued").is_some());
+            assert!(visual.debug_bounds("queue-tray").is_none());
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(format!("queue-row-{turn}").into_boxed_str()))
+                    .is_none()
+            );
+
+            // An identical preview with another command identity stays visible in the queue.
+            visual.update(|_, cx| {
+                view.update(cx, |view, cx| {
+                    let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+                    let page = Arc::make_mut(&mut snapshot.page);
+                    let mut foreign = page.queue.items[0].clone();
+                    foreign.turn = TurnId::new();
+                    foreign.request = sailry_protocol::RequestId::new();
+                    page.queue.items.push(foreign);
+                    cx.notify();
+                })
+            });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(visual.debug_bounds("queue-tray").is_some());
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(format!("queue-row-{turn}").into_boxed_str()))
+                    .is_none()
+            );
+            let foreign = view.read_with(visual, |view, _| {
+                view.history.snapshot.as_ref().unwrap().page.queue.items[1].turn
+            });
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(format!("queue-row-{foreign}").into_boxed_str()))
+                    .is_some()
+            );
+            visual.update(|_, cx| {
+                view.update(cx, |view, cx| {
+                    let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
+                    Arc::make_mut(&mut snapshot.page).queue.items.pop();
+                    cx.notify();
+                })
+            });
+            delayed.identity.cancel();
+            delayed.reply.cancel();
+            start.cancel();
+            wait(visual, |cx| {
+                view.read(cx)
+                    .history
+                    .snapshot
+                    .as_ref()
+                    .unwrap()
+                    .page
+                    .runs
+                    .iter()
+                    .any(|run| run.turn == turn && run.status == Status::Running)
+            });
+            assert!(visual.debug_bounds("live-outgoing-queued").is_none());
+            assert!(visual.debug_bounds("queue-tray").is_none());
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(format!("live-user-text-{turn}").into_boxed_str()))
+                    .is_some()
+            );
+            delayed.history.cancel();
+            wait(visual, |cx| {
+                view.read(cx).outgoing.is_none()
+                    && !view.read(cx).pending
+                    && view
+                        .read(cx)
+                        .history
+                        .snapshot
+                        .as_ref()
+                        .unwrap()
+                        .page
+                        .runs
+                        .iter()
+                        .any(|run| run.turn == turn && run.status == Status::Completed)
+            });
+            assert_eq!(fixture.task_requests(), 1);
+            visual.update(|window, _| window.remove_window());
+            drop(view);
+            fixture.close();
+        }
+    }
+}
+
+#[gpui::test]
 fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
     fixture::init(cx);
     for remote in [false, true] {
@@ -118,6 +302,8 @@ fn shows_before_admission_and_reconciles_before_reply(cx: &mut TestAppContext) {
                 history: CancellationToken::new(),
                 identity: CancellationToken::new(),
                 held_input: None,
+                queue: None,
+                start: None,
             });
             let mut binding = fixture.binding.clone();
             binding.client = Arc::new(Client::new(delayed.clone()));
@@ -302,6 +488,8 @@ fn guidance_handoff_precedes_canonical_history(cx: &mut TestAppContext) {
             history: CancellationToken::new(),
             identity: CancellationToken::new(),
             held_input: Some(MESSAGE),
+            queue: None,
+            start: None,
         });
         delayed.dispatch.cancel();
         delayed.reply.cancel();
@@ -456,6 +644,8 @@ fn queued_prompt_survives_until_canonical_history(cx: &mut TestAppContext) {
             history: CancellationToken::new(),
             identity: CancellationToken::new(),
             held_input: Some(MESSAGE),
+            queue: None,
+            start: None,
         });
         delayed.dispatch.cancel();
         delayed.reply.cancel();

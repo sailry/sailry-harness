@@ -22,6 +22,7 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                 title
                     .map(SharedString::from)
                     .unwrap_or_else(|| tr("plugins_settings_title")),
+                cx,
             )
             .w((window.viewport_size().width - px(48.)).min(px(500.)))
             .max_h(window.viewport_size().height * 0.8)

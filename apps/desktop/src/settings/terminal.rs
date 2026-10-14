@@ -113,7 +113,13 @@ impl Workspace {
                             h_flex()
                                 .w_full()
                                 .gap_3()
-                                .child(Slider::new(&self.terminal.font_size))
+                                .child(
+                                    div()
+                                        .id("terminal-font-size-slider")
+                                        .debug_selector(|| "terminal-font-size-slider".into())
+                                        .flex_1()
+                                        .child(Slider::new(&self.terminal.font_size)),
+                                )
                                 .child(
                                     self.terminal.font_size.read(cx).value().start().to_string(),
                                 ),

@@ -30,6 +30,46 @@ pub fn lane(session: &Session) -> Lane {
     }
 }
 
+/// Display activity includes owned descendants without changing any run's status.
+/// The session slice must belong to one execution Node.
+pub fn aggregate_lane(session: &Session, sessions: &[Session]) -> Lane {
+    let own = lane(session);
+    if matches!(own, Lane::Running | Lane::Waiting) {
+        return own;
+    }
+    let scoped: std::collections::BTreeMap<_, _> = sessions
+        .iter()
+        .filter(|candidate| candidate.project == session.project)
+        .map(|candidate| (candidate.id, candidate))
+        .collect();
+    let mut result = own;
+    for child in scoped.values() {
+        let activity = lane(child);
+        if !matches!(activity, Lane::Running | Lane::Waiting) {
+            continue;
+        }
+        let mut current = *child;
+        // Bound ancestry traversal to the supplied graph, including malformed cycles.
+        for _ in 0..scoped.len() {
+            let Some(origin) = &current.delegation else {
+                break;
+            };
+            if origin.session == session.id {
+                if activity == Lane::Running {
+                    return Lane::Running;
+                }
+                result = Lane::Waiting;
+                break;
+            }
+            let Some(parent) = scoped.get(&origin.session) else {
+                break;
+            };
+            current = parent;
+        }
+    }
+    result
+}
+
 fn attention(waiting: Waiting) -> Kind {
     match waiting {
         Waiting::Approval => Kind::Approval,

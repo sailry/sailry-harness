@@ -84,6 +84,7 @@ fn compares_manual_package_versions(cx: &mut TestAppContext) {
                 ))
                 .unwrap();
             assert_eq!(matches!(entry.candidate, Some(Candidate::Upload(_))), newer);
+            assert!(!entry.manual);
             assert_eq!(fixture.plugins()[0], current);
             assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
         }
@@ -115,6 +116,16 @@ fn accepts_unversioned_manual_changes(cx: &mut TestAppContext) {
             };
             let (_, visual) = fixture.mount(cx);
             let directory = fixture.directory.path().join("project/example");
+            let missing = fixture
+                .runtime
+                .block_on(inspect(
+                    &binding,
+                    report.clone(),
+                    Some(directory.join("missing")),
+                    CancellationToken::new(),
+                ))
+                .unwrap();
+            assert!(missing.candidate.is_none() && missing.manual);
             let unchanged = fixture
                 .runtime
                 .block_on(inspect(
@@ -124,7 +135,7 @@ fn accepts_unversioned_manual_changes(cx: &mut TestAppContext) {
                     CancellationToken::new(),
                 ))
                 .unwrap();
-            assert!(unchanged.candidate.is_none() && unchanged.manual);
+            assert!(unchanged.candidate.is_none() && !unchanged.manual);
             std::fs::write(directory.join("README.md"), "Updated package\n").unwrap();
             for version in [Some("1.0.1"), None, Some("invalid")] {
                 package(&fixture, "example", version);

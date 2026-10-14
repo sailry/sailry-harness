@@ -2,6 +2,26 @@ use super::*;
 use core::prelude::v1::test;
 
 #[test]
+fn preserves_semantic_ink() {
+    for base in [
+        hsla(0., 0., 0.45, 1.),
+        hsla(0., 0., 0.7, 0.65),
+        hsla(0.05, 0.8, 0.5, 0.75),
+        hsla(0.65, 0.6, 0.4, 1.),
+    ] {
+        // Off-band glyphs keep their original ink rather than a full-text highlight.
+        assert_eq!(Glyphs::color(base, 0.), base);
+        for amount in [0., 0.25, 0.5, 0.75, 1.] {
+            let color = Glyphs::color(base, amount);
+            assert_eq!((color.h, color.s, color.l), (base.h, base.s, base.l));
+            assert!(color.a <= base.a);
+            assert!(color.a >= base.a * 0.65);
+        }
+        assert!(Glyphs::color(base, 1.).a < base.a);
+    }
+}
+
+#[test]
 fn preserves_unicode_and_mixed_fonts() {
     let detail = super::super::Detail {
         running: true,
@@ -60,7 +80,6 @@ impl Render for Scan {
             detail_start: summary.detail_start,
             color: style.color,
             secondary: Some(secondary),
-            highlight: cx.theme().foreground,
             phase: self.phase,
         };
         *self.layout.borrow_mut() = Some(glyphs.text.layout().clone());
@@ -176,6 +195,19 @@ fn shares_one_scan_and_native_bounds(cx: &mut TestAppContext) {
                     .debug_bounds("mixed-activity-summary-label")
                     .is_none()
             );
+            if !reduced {
+                visual.simulate_mouse_move(text.center(), None, Modifiers::default());
+                visual.run_until_parked();
+                let frames = visual.update(|window, cx| {
+                    window.draw(cx).clear(cx);
+                    window.simulate_next_frame(cx);
+                    window.draw(cx).clear(cx);
+                    window.simulate_next_frame(cx)
+                });
+                assert_eq!(frames, 0, "hovered text keeps its normal static ink");
+                visual.simulate_mouse_move(point(px(500.), px(500.)), None, Modifiers::default());
+                visual.run_until_parked();
+            }
         }
     }
     visual.update(|window, _| window.remove_window());

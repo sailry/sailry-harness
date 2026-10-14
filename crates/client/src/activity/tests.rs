@@ -91,3 +91,81 @@ fn waiting_execution_keeps_waiting_lane() {
         assert_eq!(lane(&session), Lane::Running);
     }
 }
+
+fn child(parent: &Session, status: Status) -> Session {
+    let mut child = session(Some(status));
+    child.project = parent.project;
+    child.delegation = Some(Box::new(sailry_protocol::Delegation {
+        session: parent.id,
+        turn: parent.activity.run.as_ref().unwrap().turn,
+        entry: "delegated-call".into(),
+        index: 0,
+        role: None,
+    }));
+    child
+}
+
+#[test]
+fn child_activity_preserves_parent_completion() {
+    let mut parent = session(Some(Status::Completed));
+    parent.activity.attention.unread = true;
+    for (status, expected) in [
+        (Status::Running, Lane::Running),
+        (Status::Stopping, Lane::Running),
+        (Status::Queued, Lane::Completed),
+        (Status::Continued, Lane::Completed),
+        (Status::Completed, Lane::Completed),
+        (Status::Failed, Lane::Completed),
+        (Status::Cancelled, Lane::Completed),
+        (Status::Interrupted, Lane::Completed),
+    ] {
+        let child = child(&parent, status);
+        let sessions = [parent.clone(), child];
+        assert_eq!(aggregate_lane(&parent, &sessions), expected);
+        assert_eq!(lane(&parent), Lane::Completed);
+        assert_eq!(
+            parent.activity.run.as_ref().unwrap().status,
+            Status::Completed
+        );
+    }
+}
+
+#[test]
+fn nested_activity_survives_closed_intermediate_run() {
+    let parent = session(Some(Status::Completed));
+    let intermediate = child(&parent, Status::Completed);
+    let mut nested = child(&intermediate, Status::Running);
+    let mut sessions = vec![parent.clone(), intermediate, nested.clone()];
+    // Delegated work may use another registered worktree in the same project.
+    assert_ne!(nested.worktree, parent.worktree);
+    assert_eq!(aggregate_lane(&parent, &sessions), Lane::Running);
+    nested.activity.waiting = Some(Waiting::Approval);
+    sessions[2] = nested;
+    assert_eq!(aggregate_lane(&parent, &sessions), Lane::Waiting);
+    sessions[2].activity.run.as_mut().unwrap().status = Status::Completed;
+    assert_eq!(aggregate_lane(&parent, &sessions), Lane::Idle);
+}
+
+#[test]
+fn own_active_run_keeps_its_lane() {
+    let mut parent = session(Some(Status::Running));
+    parent.activity.waiting = Some(Waiting::Input);
+    let child = child(&parent, Status::Running);
+    assert_eq!(
+        aggregate_lane(&parent, &[parent.clone(), child]),
+        Lane::Waiting
+    );
+}
+
+#[test]
+fn ignores_other_projects_and_unrelated_ancestry() {
+    let parent = session(Some(Status::Completed));
+    let unrelated = session(Some(Status::Completed));
+    let stranger = child(&unrelated, Status::Running);
+    let mut misplaced = child(&parent, Status::Running);
+    misplaced.project = Some(sailry_protocol::ProjectId::new());
+    let mut cyclic = child(&parent, Status::Running);
+    cyclic.delegation.as_mut().unwrap().session = cyclic.id;
+    let sessions = [parent.clone(), stranger, misplaced, cyclic];
+    assert_eq!(aggregate_lane(&parent, &sessions), Lane::Idle);
+}

@@ -256,7 +256,11 @@ impl View {
             .filter(|row| row.matches(&query))
             .cloned()
             .collect::<Vec<_>>();
+        // An explicitly opened connection category retains its empty state.
+        // Ordinary unmatched queries still close the suggestions.
+        let empty_category = matches!(self.references.page, Page::Databases | Page::Ssh);
         if rows.is_empty()
+            && !empty_category
             && !self.references.loading
             && !self.references.error
             && self.references.next.is_none()
@@ -270,6 +274,11 @@ impl View {
             list.delegate_mut().rows = rows;
             list.delegate_mut().generation = generation;
             list.delegate_mut().nested = nested;
+            list.delegate_mut().empty_label = if empty_category {
+                "reference_connections_empty"
+            } else {
+                "reference_empty"
+            };
             list.set_selected_index(selected, window, cx);
             list.scroll_to_selected_item(window, cx);
             cx.notify();

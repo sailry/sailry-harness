@@ -116,16 +116,22 @@ fn preserves_deep_tree_interactions(cx: &mut TestAppContext) {
     let arm = visual.debug_bounds("resource-guide-leaf-23-arm").unwrap();
     assert_eq!(guide.top(), leaf.top());
     assert_eq!(guide.size.height, leaf.size.height * 0.5);
+    assert_eq!(arm.left(), guide.left());
     assert_eq!(arm.top(), leaf.top() + leaf.size.height * 0.5);
-    assert_eq!(arm.right(), leaf.left() + px(8. + 12. * 24.));
+    assert_eq!(arm.right(), leaf.left() + px(8. + 12. * 24. - 2.));
     let group = visual.debug_bounds("resource-file-folder-0").unwrap();
     let label = visual.debug_bounds("resource-label-folder-0").unwrap();
     let check = visual.debug_bounds("group-check").unwrap();
+    let leaf_check = visual.debug_bounds("deep-check").unwrap();
     let disclosure = visual.debug_bounds("resource-disclosure-folder-0").unwrap();
     assert_eq!(label.left(), group.left() + px(8.));
-    assert!(label.right() < check.left());
-    assert!(check.right() < disclosure.left());
-    assert_eq!(disclosure.right(), group.right() - px(8.));
+    assert!(label.right() < disclosure.left());
+    assert!(disclosure.right() < check.left());
+    assert_eq!(check.right(), group.right() - px(8.));
+    assert_eq!(
+        (check.left(), check.right()),
+        (leaf_check.left(), leaf_check.right())
+    );
     click(visual, "group-check");
     wait(visual, |_| events.borrow().len() == 1);
     assert_eq!(
@@ -176,7 +182,7 @@ fn preserves_deep_tree_interactions(cx: &mut TestAppContext) {
         );
         visual.simulate_mouse_up(leaf.center(), MouseButton::Right, Modifiers::default());
     }
-    click(visual, "resource-file-folder-0");
+    click(visual, "resource-disclosure-folder-0");
     wait(visual, |_| events.borrow().len() == 2);
     assert_eq!(
         events.borrow_mut().remove(0),
@@ -196,7 +202,7 @@ fn preserves_deep_tree_interactions(cx: &mut TestAppContext) {
     wait(visual, |_| true);
     assert!(visual.debug_bounds("resource-file-leaf").is_none());
     assert!(events.borrow().is_empty());
-    click(visual, "resource-file-folder-0");
+    click(visual, "resource-disclosure-folder-0");
     wait(visual, |_| events.borrow().len() == 2);
     assert_eq!(
         events.borrow_mut().remove(0),

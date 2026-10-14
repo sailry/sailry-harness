@@ -51,7 +51,7 @@ impl Shell {
         window.open_dialog(cx, move |dialog, window, cx| {
             let closing = owner.clone();
             dialog
-                .form_title(tr("host_add"))
+                .form_title(tr("host_add"), cx)
                 .w(px(560.).min(window.viewport_size().width - px(48.)))
                 .max_h(window.viewport_size().height * 0.85)
                 .overlay_closable(false)

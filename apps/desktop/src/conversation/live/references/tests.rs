@@ -64,6 +64,163 @@ fn paste_requires_typed_marker(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+fn empty_connection_categories(cx: &mut TestAppContext) {
+    use sailry_protocol::{database, ssh};
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        fixture.execute(Command::SaveDatabase {
+            profile: database::Profile {
+                id: sailry_protocol::DatabaseId::new(),
+                revision: 0,
+                name: "Private database".into(),
+                connection: database::Connection::Sqlite {
+                    path: fixture
+                        .directory
+                        .path()
+                        .join("private.sqlite3")
+                        .to_str()
+                        .unwrap()
+                        .into(),
+                },
+                read_only: true,
+                sharing: None,
+            },
+            expected_revision: 0,
+            password: None,
+        });
+        fixture.execute(Command::SaveSsh {
+            profile: ssh::Profile {
+                id: sailry_protocol::SshId::new(),
+                revision: 0,
+                name: "Private host".into(),
+                host: "localhost".into(),
+                port: 22,
+                username: "fixture".into(),
+                authentication: ssh::Authentication::Agent,
+                host_key: None,
+                sharing: None,
+            },
+            expected_revision: 0,
+            credential: Some(ssh::Credential::Agent),
+        });
+        let (view, visual) = fixture::open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected()
+                && view
+                    .read(cx)
+                    .node
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|snapshot| {
+                        snapshot.databases.len() == 1 && snapshot.ssh.len() == 1
+                    })
+        });
+        tap(visual, "live-chat-input");
+        for (page, selector) in [
+            (Page::Databases, "live-reference-row-4"),
+            (Page::Ssh, "live-reference-row-5"),
+        ] {
+            visual.simulate_keystrokes("cmd-a backspace");
+            visual.simulate_input("@");
+            wait(visual, |cx| {
+                view.read(cx).references.open && !view.read(cx).references.loading
+            });
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            let position = visual.debug_bounds(selector).unwrap().center();
+            visual.simulate_mouse_move(position, None, Modifiers::default());
+            fixture::press(visual, position);
+            wait(visual, |cx| view.read(cx).references.page == page);
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+            assert!(visual.debug_bounds("live-reference-empty").is_some());
+            view.read_with(visual, |view, cx| {
+                assert!(view.references.open);
+                assert!(view.references.rows.is_empty());
+                assert_eq!(
+                    view.references.list.read(cx).delegate().empty_label,
+                    "reference_connections_empty"
+                );
+                assert!(view.references.list.read(cx).selected_index().is_none());
+                assert_eq!(view.input.read(cx).value(), "@");
+                assert_eq!(view.input.read(cx).selected_range(), 1..1);
+                assert!(view.reference_databases().is_empty());
+                assert!(view.reference_ssh().is_empty());
+            });
+
+            visual.simulate_input("missing");
+            wait(visual, |cx| {
+                view.read(cx).references.open
+                    && view
+                        .read(cx)
+                        .references
+                        .list
+                        .read(cx)
+                        .delegate()
+                        .rows
+                        .is_empty()
+            });
+            view.read_with(visual, |view, cx| {
+                assert_eq!(view.references.page, page);
+                assert_eq!(
+                    view.references.list.read(cx).delegate().empty_label,
+                    "reference_connections_empty"
+                );
+            });
+            visual.simulate_keystrokes(
+                "backspace backspace backspace backspace backspace backspace backspace",
+            );
+
+            // Returning to the root and Escape retain the typed draft.
+            visual.simulate_keystrokes("backspace");
+            wait(visual, |cx| view.read(cx).references.page == Page::Root);
+            assert!(view.read_with(visual, |view, _| view.references.open));
+            tap(visual, selector);
+            visual.simulate_keystrokes("escape");
+            assert!(!view.read_with(visual, |view, _| view.references.open));
+            assert_eq!(
+                view.read_with(visual, |view, cx| view.input.read(cx).value()),
+                "@"
+            );
+
+            visual.simulate_keystrokes("cmd-a backspace");
+            visual.simulate_input("@");
+            wait(visual, |cx| {
+                view.read(cx).references.open && !view.read(cx).references.loading
+            });
+            tap(visual, selector);
+            // Pasting into an open category cannot retain or reopen its empty state.
+            let pasted = "Inspect @files";
+            visual.simulate_keystrokes("cmd-a");
+            visual.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string(pasted.into())));
+            visual.simulate_keystrokes("cmd-v");
+            visual.run_until_parked();
+            view.read_with(visual, |view, cx| {
+                assert!(!view.references.open);
+                assert_eq!(view.input.read(cx).value(), pasted);
+                assert_eq!(
+                    view.input.read(cx).selected_range(),
+                    pasted.len()..pasted.len()
+                );
+            });
+            visual.simulate_input("x");
+            visual.simulate_keystrokes("backspace");
+            view.read_with(visual, |view, cx| {
+                assert!(!view.references.open);
+                assert_eq!(view.input.read(cx).value(), pasted);
+                assert_eq!(
+                    view.input.read(cx).selected_range(),
+                    pasted.len()..pasted.len()
+                );
+            });
+        }
+        assert!(fixture.server.requests.lock().unwrap().is_empty());
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
 fn command_menu(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {

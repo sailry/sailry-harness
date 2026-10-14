@@ -50,7 +50,7 @@ pub(super) fn open(owner: Entity<Panel>, record: Record, window: &mut Window, cx
     window.open_dialog(cx, move |dialog, window, cx| {
         let restore = form.clone();
         dialog
-            .form_title(tr("backup_restore"))
+            .form_title(tr("backup_restore"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(560.)))
             .child(form.clone())
             .footer(

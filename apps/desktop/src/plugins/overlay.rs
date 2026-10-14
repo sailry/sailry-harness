@@ -68,7 +68,8 @@ fn form_popup(
         .pt_6()
         .pb_6()
         .gap_6()
-        .bg(cx.theme().tokens.background)
+        .bg(cx.theme().popover)
+        .text_color(cx.theme().popover_foreground)
         .border_1()
         .border_color(cx.theme().border)
         .rounded(cx.theme().radius_lg)
@@ -184,7 +185,6 @@ pub(super) fn module(cx: &mut App) -> HostModule {
             drop(current);
             let id = args.id().to_owned();
             let closed = sender.clone();
-            let colors = cx.theme().semantic_tokens().colors;
             let form = args.props().get("form").and_then(HostValue::as_bool) == Some(true);
             let dismissable = args.props().get("dismissable").and_then(HostValue::as_bool).unwrap_or(true);
             let popup = if form {
@@ -196,8 +196,8 @@ pub(super) fn module(cx: &mut App) -> HostModule {
             } else {
                 div().absolute().inset_0().flex().items_center().justify_center()
                     .child(div().debug_selector(|| "plugin-modal-surface".into()).occlude().relative().flex().flex_col().p_5().pt_10()
-                        .bg(colors.surface.alpha(1.)).text_color(colors.surface_foreground)
-                        .border_1().border_color(colors.border).rounded(cx.theme().radius_lg)
+                        .bg(cx.theme().popover).text_color(cx.theme().popover_foreground)
+                        .border_1().border_color(cx.theme().border).rounded(cx.theme().radius_lg)
                         .children(args.take_children()).child(close_button(id.clone(), dismissable))).into_any_element()
             };
             base::Dialog::new(cx)

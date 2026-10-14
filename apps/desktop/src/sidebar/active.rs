@@ -3,7 +3,7 @@ use super::*;
 
 impl Shell {
     pub(super) fn active_group(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let rows: Vec<_> = self
+        let sessions: Vec<_> = self
             .active_sessions()
             .into_iter()
             .filter(|(node, _)| {
@@ -11,7 +11,21 @@ impl Shell {
                     .as_ref()
                     .is_some_and(|live| live.selected == *node)
             })
-            .map(|(_, session)| self.live_session_row(&session, sessions::Placement::Active, cx))
+            .map(|(_, session)| session)
+            .collect();
+        let count = sessions.len();
+        let rows: Vec<_> = sessions
+            .into_iter()
+            .enumerate()
+            .map(|(index, session)| {
+                self.live_session_row(
+                    &session,
+                    sessions::Placement::Active {
+                        last: index + 1 == count,
+                    },
+                    cx,
+                )
+            })
             .collect();
         let open = !self.sidebar.active_closed;
         let empty = rows.is_empty();
@@ -80,14 +94,11 @@ impl Shell {
                             .gap_0p5()
                             .children(rows)
                             .when(empty, |list| {
-                                list.child(
-                                    div()
-                                        .px_2()
-                                        .py_1()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(tr("active_sessions_empty")),
-                                )
+                                list.child(super::branch_empty(
+                                    "active-sessions-empty",
+                                    tr("active_sessions_empty"),
+                                    cx,
+                                ))
                             }),
                     ),
             )

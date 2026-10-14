@@ -18,6 +18,7 @@ mod authentication;
 pub(crate) mod files;
 mod install;
 pub(crate) mod transfer;
+mod transport;
 
 const OUTPUT_LIMIT: usize = 128 * 1024;
 
@@ -81,11 +82,18 @@ pub(crate) async fn connect(
         trusted: profile.host_key.clone(),
         observed: observed.clone(),
     };
-    let connecting = client::connect(
-        Arc::new(client::Config::default()),
-        (profile.host.as_str(), profile.port),
-        handler,
-    );
+    let connecting = async {
+        let config = Arc::new(client::Config::default());
+        let socket = transport::open(&profile.host, profile.port)
+            .await
+            .map_err(russh::Error::from)?;
+        if config.nodelay
+            && let Err(error) = socket.set_nodelay(true)
+        {
+            tracing::warn!("SSH TCP_NODELAY failed: {error}");
+        }
+        client::connect_stream(config, socket, handler).await
+    };
     let connected = tokio::select! {
         _ = stop.cancelled() => return Err(cancelled()),
         _ = closed.cancelled() => return Err(cancelled()),

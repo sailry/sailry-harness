@@ -53,9 +53,9 @@ impl Shell {
         launcher.update(cx, |_, cx| {
             crate::feedback::observe(window, cx, |view, _| view.error.into_iter().collect());
         });
-        window.open_dialog(cx, move |dialog, window, _| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             dialog
-                .form_title(tr("cli_launch"))
+                .form_title(tr("cli_launch"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(480.)))
                 .overlay_closable(false)
                 .on_ok(|_, _, _| false)

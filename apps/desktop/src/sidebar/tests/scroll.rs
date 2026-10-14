@@ -2,7 +2,10 @@ use super::*;
 use crate::activity::fixture::Fixture;
 use gpui_kit::{ScrollDelta, ScrollWheelEvent};
 use sailry_client::Client;
-use sailry_protocol::{Command, Output, SessionId};
+use sailry_protocol::{
+    Command, Output, SessionId, TurnId,
+    conversation::{Run, RunKind, Status},
+};
 use std::time::Instant;
 
 fn wait(visual: &mut VisualTestContext, ready: impl Fn(&App) -> bool) {
@@ -110,7 +113,21 @@ fn scrollbar_drags_from_the_scrolled_viewport(cx: &mut TestAppContext) {
                 .clone();
                 session.id = SessionId::new();
                 session.activity.title = format!("Scrollbar row {row}");
-                session.activity.queued = 1;
+                session.activity.run = Some(Run {
+                    worktree: session.worktree,
+                    turn: TurnId::new(),
+                    kind: RunKind::Task,
+                    session: session.id,
+                    sequence: 1,
+                    revision: 1,
+                    status: Status::Running,
+                    error: None,
+                    started_ms: Some(0),
+                    finished_ms: None,
+                    origin: None,
+                    continuation: None,
+                    input: None,
+                });
                 session
             })
             .collect();

@@ -67,9 +67,9 @@ impl Shell {
                 },
             );
         });
-        window.open_dialog(cx, move |dialog, window, _| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             dialog
-                .form_title(tr("host_update"))
+                .form_title(tr("host_update"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(480.)))
                 .overlay_closable(false)
                 .on_ok(|_, _, _| false)

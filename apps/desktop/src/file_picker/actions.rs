@@ -273,18 +273,21 @@ impl Picker {
                 .placeholder(tr("directory_name"))
         });
         let picker = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, _| {
+        window.open_dialog(cx, move |dialog, _, cx| {
             let picker = picker.clone();
             let input = input.clone();
             let from = from.clone();
             let parent = parent.clone();
             dialog
                 .w_96()
-                .form_title(tr(if rename {
-                    "files_rename"
-                } else {
-                    "directory_create"
-                }))
+                .form_title(
+                    tr(if rename {
+                        "files_rename"
+                    } else {
+                        "directory_create"
+                    }),
+                    cx,
+                )
                 .child(
                     div()
                         .debug_selector(|| "directory-name".into())

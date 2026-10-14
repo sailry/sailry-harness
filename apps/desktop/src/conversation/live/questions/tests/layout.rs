@@ -183,8 +183,8 @@ fn wraps_pending_and_resolved_prompts(cx: &mut TestAppContext) {
         assert_eq!(expanded, resolved);
         let frame = bounds(visual, format!("live-question-answer-frame-{id}"));
         let row = bounds(visual, format!("live-question-history-{id}"));
-        assert!(frame.size.width <= row.size.width);
-        assert!(frame.size.height <= px(124.));
+        assert_eq!(frame.size.width, row.size.width);
+        assert!(frame.size.height <= px(140.));
         toggle_history(visual, id);
         draw(visual);
         assert!(
@@ -200,10 +200,19 @@ fn wraps_pending_and_resolved_prompts(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn fits_short_completed_answers(cx: &mut TestAppContext) {
+fn fills_completed_answer_width(cx: &mut TestAppContext) {
     init(cx);
     for remote in [false, true] {
-        let fixture = Fixture::with_tools(remote, vec![text(false, 100)]);
+        let fixture = Fixture::with_tools(
+            remote,
+            vec![
+                text(false, 100),
+                (
+                    crate::agent_fixture::plugin_tool("commands", "run_command"),
+                    json!({"access":"unrestricted","command":"printf 'Fixture output'"}),
+                ),
+            ],
+        );
         fixture.start();
         let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
         let id = ready(&view, visual, None);
@@ -211,16 +220,66 @@ fn fits_short_completed_answers(cx: &mut TestAppContext) {
         visual.simulate_input("Keep it");
         tap(visual, "live-question-submit");
         wait(visual, |cx| {
+            view.read(cx).history.calls.iter().any(|call| {
+                call.approval.as_ref().is_some_and(|approval| {
+                    approval.state == sailry_protocol::conversation::ApprovalState::Pending
+                })
+            })
+        });
+        let approval = view.read_with(visual, |view, _| {
+            view.history
+                .calls
+                .iter()
+                .find_map(|call| call.approval.as_ref())
+                .unwrap()
+                .id
+        });
+        tap(visual, &format!("live-approval-approve-{approval}"));
+        wait(visual, |cx| {
             view.read(cx).active().is_none() && !view.read(cx).questions.pending
+        });
+        let (turn, source) = view.update(visual, |view, cx| {
+            let call = view
+                .history
+                .calls
+                .iter()
+                .find(|call| call.question.is_none())
+                .unwrap();
+            let turn = call.turn;
+            let source = call.source.key();
+            for entry in [
+                "work".into(),
+                format!("tool-group-{source}"),
+                format!("tools-{source}"),
+            ] {
+                view.expanded.insert((turn, entry), true);
+            }
+            cx.notify();
+            (turn, source)
         });
         toggle_history(visual, id);
         draw(visual);
         let frame = bounds(visual, format!("live-question-answer-frame-{id}"));
         let row = bounds(visual, format!("live-question-history-{id}"));
         let answer = bounds(visual, format!("live-question-answer-{id}"));
-        assert!(frame.size.width < row.size.width * 0.5);
+        assert_eq!(frame.size.width, row.size.width);
         assert!(frame.size.height < px(64.));
-        assert_eq!(frame.size.height - answer.size.height, px(24.));
+        assert_eq!(frame.size.height - answer.size.height, px(40.));
+        let gap = frame.top() - row.bottom();
+        assert_eq!(gap, px(4.));
+        let command = bounds(visual, format!("live-{turn}-tools-{source}"));
+        let output = bounds(visual, format!("live-tool-result-{turn}-{source}"));
+        assert_eq!(output.top() - command.bottom(), gap);
+        assert_eq!(output.size.width, frame.size.width);
+        toggle_history(visual, id);
+        draw(visual);
+        assert!(
+            visual
+                .debug_bounds(Box::leak(
+                    format!("live-question-answer-frame-{id}").into_boxed_str()
+                ))
+                .is_none()
+        );
         view.read_with(visual, |view, _| {
             assert_eq!(
                 view.history.snapshot.as_ref().unwrap().page.questions[0].state,

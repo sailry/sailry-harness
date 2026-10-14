@@ -37,7 +37,7 @@ pub(super) fn open(
         let done = viewer.clone();
         let state = viewer.read(cx);
         dialog
-            .form_title(tr("knowledge_source"))
+            .form_title(tr("knowledge_source"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(800.)))
             .on_ok(|_, _, _| false)
             .on_close(move |_, _, cx| close.update(cx, |viewer, _| viewer.closed = true))

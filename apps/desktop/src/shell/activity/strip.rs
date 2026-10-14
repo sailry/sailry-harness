@@ -17,8 +17,8 @@ enum Group {
 }
 
 impl Group {
-    fn of(session: &Session) -> Option<Self> {
-        match lane(session) {
+    fn of(lane: Lane) -> Option<Self> {
+        match lane {
             Lane::Running => Some(Self::Running),
             Lane::Waiting | Lane::Failed => Some(Self::Waiting),
             Lane::Completed => Some(Self::Completed),
@@ -56,7 +56,9 @@ impl Shell {
                         .filter_map(|group| {
                             let entries: Vec<_> = sessions
                                 .iter()
-                                .filter(|(_, session)| Group::of(session) == Some(group))
+                                .filter(|(node, session)| {
+                                    Group::of(self.session_lane(*node, session)) == Some(group)
+                                })
                                 .collect();
                             if entries.is_empty() {
                                 return None;
@@ -92,8 +94,8 @@ impl Shell {
 
     fn activity_avatar(&self, node: NodeId, session: &Session, cx: &mut Context<Self>) -> Div {
         let id = session.id;
-        let state = lane(session);
-        let label = label(session);
+        let state = self.session_lane(node, session);
+        let label = label(session, state);
         let button = Button::new(format!("header-session-{node:?}-{id}"))
             .debug_selector(move || format!("header-session-{node:?}-{id}"))
             .text()
@@ -163,7 +165,10 @@ impl Shell {
                             .read(cx)
                             .active_sessions()
                             .into_iter()
-                            .filter(|(_, session)| Group::of(session) == Some(group))
+                            .filter(|(node, session)| {
+                                Group::of(shell.read(cx).session_lane(*node, session))
+                                    == Some(group)
+                            })
                             .map(|(node, session)| {
                                 let target = shell.clone();
                                 let popup = cx.entity().downgrade();
@@ -178,7 +183,10 @@ impl Shell {
                                         .h_9()
                                         .px_2()
                                         .flex_shrink_0()
-                                        .accessibility_label(label(&session))
+                                        .accessibility_label(label(
+                                            &session,
+                                            shell.read(cx).session_lane(node, &session),
+                                        ))
                                         .child(
                                             h_flex()
                                                 .w_full()
@@ -196,9 +204,12 @@ impl Shell {
                                                         .child(crate::activity::title(&session)),
                                                 )
                                                 .child(
-                                                    crate::activity::indicator(lane(&session), cx)
-                                                        .size_4()
-                                                        .flex_shrink_0(),
+                                                    crate::activity::indicator(
+                                                        shell.read(cx).session_lane(node, &session),
+                                                        cx,
+                                                    )
+                                                    .size_4()
+                                                    .flex_shrink_0(),
                                                 ),
                                         )
                                         .on_click(move |_, window, cx| {
@@ -279,11 +290,11 @@ fn avatar_icon(key: &str, state: Lane, cx: &App) -> Div {
         .child(content)
 }
 
-fn label(session: &Session) -> SharedString {
+fn label(session: &Session, lane: Lane) -> SharedString {
     format!(
         "{} · {}",
         crate::activity::title(session),
-        crate::activity::status(session)
+        crate::activity::status_with_lane(session, lane)
     )
     .into()
 }

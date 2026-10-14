@@ -13,6 +13,7 @@ fn pauses_unclaimed_input_after_restart() {
         let before = read(&fixture.database.connection, fixture.session).unwrap();
         assert!(!before.paused);
         assert_eq!(before.items[0].ready, ready);
+        assert_eq!(before.items[0].request, message.turn.request);
         let path = fixture
             ._root
             .path()
@@ -80,6 +81,44 @@ fn pauses_unclaimed_input_after_restart() {
         assert_eq!(invocation.message, message.message);
         database.close().unwrap();
     }
+}
+
+#[test]
+fn edits_publish_current_input_identity() {
+    let mut fixture = Fixture::new();
+    let turn = fixture.queued();
+    let original = message(&fixture.database.connection, turn).unwrap();
+    let before = read(&fixture.database.connection, fixture.session).unwrap();
+    assert_eq!(before.items[0].request, original.turn.request);
+    let Output::Queue(update) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::EditQueuedTurn {
+            turn,
+            expected_revision: before.items[0].revision,
+            message: original.message.clone(),
+        },
+    ) else {
+        panic!("queue update expected");
+    };
+    let edited = read(&fixture.database.connection, fixture.session).unwrap();
+    assert_eq!(edited, update.queue);
+    assert_eq!(edited.items[0].revision, before.items[0].revision + 1);
+    assert_ne!(edited.items[0].request, before.items[0].request);
+    let stored: String = fixture
+        .database
+        .connection
+        .query_row(
+            "SELECT request FROM agent_pending WHERE turn=?1",
+            [turn.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(edited.items[0].request.to_string(), stored);
+    assert_eq!(
+        message(&fixture.database.connection, turn).unwrap().turn,
+        original.turn
+    );
 }
 
 #[test]

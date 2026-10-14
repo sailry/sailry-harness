@@ -105,7 +105,7 @@ impl Host {
                         value["node"] = crate::live::node_key(catalog.node).into();
                         value["cursor"] = catalog.cursor.to_string().into();
                         value["session_lanes"] = json!(catalog.sessions.iter().map(|session| (
-                            session.id.to_string(), lane(sailry_client::activity::lane(session))
+                            session.id.to_string(), lane(sailry_client::activity::aggregate_lane(session, &catalog.sessions))
                         )).collect::<BTreeMap<_, _>>());
                         value["terminal_lanes"] = json!(catalog.terminals.iter().filter_map(|terminal| {
                             sailry_client::activity::terminal_activity(terminal)

@@ -30,6 +30,8 @@ pub(super) struct Panel {
     /// Input sent while a turn runs, shown here until the Node admits it.
     outgoing: Option<SharedString>,
     outgoing_attached: bool,
+    /// Derived from the owning view's existing outgoing command identity.
+    represented: Option<TurnId>,
 }
 
 struct Editing {
@@ -148,6 +150,7 @@ impl Panel {
             action: None,
             outgoing: None,
             outgoing_attached: false,
+            represented: None,
         }
     }
 
@@ -161,6 +164,7 @@ impl Panel {
         let guidance_blocked = view.busy() || view.outgoing.is_some();
         let recipient = view.recipient().map(|run| run.turn);
         let outgoing = view.queued_outgoing();
+        let represented = view.transcript_pending().map(|item| item.turn);
         let outgoing_attached = outgoing.is_some()
             && view
                 .outgoing
@@ -172,10 +176,12 @@ impl Panel {
             || self.connected != connected
             || self.guidance_blocked != guidance_blocked
             || self.outgoing != outgoing
+            || self.represented != represented
             || self.outgoing_attached != outgoing_attached
             || queue.is_some_and(|queue| *queue != self.queue)
         {
             self.outgoing = outgoing;
+            self.represented = represented;
             self.outgoing_attached = outgoing_attached;
             self.session = view.session();
             self.recipient = recipient;

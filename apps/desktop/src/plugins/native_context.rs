@@ -1,7 +1,7 @@
 //! The pinned script menu trigger is left-click only. Reuse the OS menu for right-click regions.
 use super::host::sdk::values::{decode, encode};
 use gpui_kit::{component::native_menu::NativeMenu, *};
-use gpui_shell::{HostError, HostModule};
+use gpui_shell::{HostError, HostModule, HostValue};
 use sailry_link::CancellationToken;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -158,15 +158,18 @@ pub(super) fn module(module: HostModule, stop: CancellationToken, cx: &mut App) 
     let events = cx.new(|_| Events::new(sender, stop.clone()));
     let receiver = Arc::new(tokio::sync::Mutex::new(receiver));
     let declarations = format!(
-        "{}\nexport type NativeMenuItem = {{id?: string; label?: string; enabled?: boolean; separator?: boolean; value?: unknown}};\nexport const NativeContextMenu: {{new(id: string, props: {{items: NativeMenuItem[]}}): import(\"gpui-kit\").Element}};\nexport function nextContextMenuEvent(): Promise<{{menu: string; id: string; value?: unknown}}>;",
+        "{}\nexport type NativeMenuItem = {{id?: string; label?: string; enabled?: boolean; separator?: boolean; value?: unknown}};\nexport const NativeContextMenu: {{new(id: string, props: {{items: NativeMenuItem[]; fill?: boolean}}): import(\"gpui-kit\").Element}};\nexport function nextContextMenuEvent(): Promise<{{menu: string; id: string; value?: unknown}}>;",
         module.declared().unwrap_or_default()
     );
     module.component("NativeContextMenu", move |mut args, _, _| {
         let items = args.props().get("items").and_then(|value| decode(value).ok()).and_then(|value| serde_json::from_value::<Vec<Item>>(value).ok()).unwrap_or_default();
+        let fill = args.props().get("fill").and_then(HostValue::as_bool) != Some(false);
         let id = args.id().to_owned();
         let events = events.clone();
-        div().id(SharedString::from(id.clone())).debug_selector({let id=id.clone(); move ||id.clone()})
-            .flex().flex_col().flex_1().min_w_0().min_h_0().children(args.take_children())
+        let menu = div().id(SharedString::from(id.clone())).debug_selector({let id=id.clone(); move ||id.clone()})
+            .flex().flex_col().min_w_0().min_h_0();
+        let menu = if fill { menu.flex_1() } else { menu.flex_none() };
+        menu.children(args.take_children())
             .on_mouse_down(MouseButton::Right, move |event,window,cx| {
                 show(&items,events.clone(),json!({"menu":id}),"id",event.position,window,cx);
                 cx.stop_propagation();

@@ -85,7 +85,7 @@ impl Panel {
                         }),
                 );
             dialog
-                .form_title(tr("hooks_enable"))
+                .form_title(tr("hooks_enable"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(600.)))
                 .overlay_closable(false)
                 .child(details)

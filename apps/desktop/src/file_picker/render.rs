@@ -135,9 +135,37 @@ impl Render for Picker {
                                     .px_3()
                                     .h_flex()
                                     .items_center()
+                                    .gap_3()
                                     .text_xs()
                                     .text_color(cx.theme().muted_foreground)
-                                    .child(self.status()),
+                                    .children({
+                                        let (directories, files, hidden) = self.status();
+                                        [
+                                            Some(
+                                                div()
+                                                    .debug_selector(|| {
+                                                        "directory-count-directories".into()
+                                                    })
+                                                    .child(directories),
+                                            ),
+                                            Some(
+                                                div()
+                                                    .debug_selector(|| {
+                                                        "directory-count-files".into()
+                                                    })
+                                                    .child(files),
+                                            ),
+                                            hidden.map(|hidden| {
+                                                div()
+                                                    .debug_selector(|| {
+                                                        "directory-count-hidden".into()
+                                                    })
+                                                    .child(hidden)
+                                            }),
+                                        ]
+                                        .into_iter()
+                                        .flatten()
+                                    }),
                             ),
                     ),
             )
@@ -221,7 +249,7 @@ impl Picker {
                     }),
             )
     }
-    fn status(&self) -> SharedString {
+    pub(super) fn status(&self) -> (SharedString, SharedString, Option<SharedString>) {
         let directories = self
             .visible
             .iter()
@@ -240,19 +268,18 @@ impl Picker {
                 .filter(|entry| entry.name.starts_with('.'))
                 .count()
         };
-        if hidden == 0 {
-            rust_i18n::t!("directory_counts", directories = directories, files = files)
+        (
+            rust_i18n::t!("directory_count_directories", count = directories)
                 .to_string()
-                .into()
-        } else {
-            rust_i18n::t!(
-                "directory_counts_hidden",
-                directories = directories,
-                files = files,
-                hidden = hidden
-            )
-            .to_string()
-            .into()
-        }
+                .into(),
+            rust_i18n::t!("directory_count_files", count = files)
+                .to_string()
+                .into(),
+            (hidden > 0).then(|| {
+                rust_i18n::t!("directory_count_hidden", count = hidden)
+                    .to_string()
+                    .into()
+            }),
+        )
     }
 }

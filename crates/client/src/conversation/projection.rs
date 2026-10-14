@@ -340,7 +340,8 @@ impl Projection {
                                     || previous.kind != item.kind
                                     || previous.revision > item.revision
                                     || previous.revision == item.revision
-                                        && (previous.preview != item.preview
+                                        && (previous.request != item.request
+                                            || previous.preview != item.preview
                                             || previous.truncated != item.truncated))
                             {
                                 return Err(sailry_protocol::Fault::invalid(

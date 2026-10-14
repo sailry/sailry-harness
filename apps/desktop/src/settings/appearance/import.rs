@@ -91,6 +91,7 @@ fn open(package: theme::Package, loaded: Option<Loaded>, window: &mut Window, cx
                     .truncate()
                     .debug_selector(|| "theme-preview-title".into())
                     .child(view.read(cx).package.name.clone()),
+                cx,
             )
             .w((window.viewport_size().width - px(48.)).min(px(640.)))
             .close_button(!busy)

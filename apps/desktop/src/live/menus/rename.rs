@@ -24,11 +24,11 @@ pub(super) fn open(client: Arc<Client>, session: &Session, window: &mut Window, 
     form.update(cx, |_, cx| {
         crate::feedback::observe(window, cx, |form, _| form.error.into_iter().collect())
     });
-    window.open_dialog(cx, move |dialog, window, _| {
+    window.open_dialog(cx, move |dialog, window, cx| {
         let submit = form.clone();
         let close = form.clone();
         dialog
-            .form_title(tr("workspace_rename"))
+            .form_title(tr("workspace_rename"), cx)
             .w(px(420.).min(window.viewport_size().width - px(48.)))
             .overlay_closable(false)
             .on_ok(move |_, window, cx| {

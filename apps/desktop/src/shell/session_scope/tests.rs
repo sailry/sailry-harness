@@ -643,6 +643,26 @@ fn indented_title_spacing(cx: &mut TestAppContext) {
                     .is_some_and(|session| session.activity.title == INPUT.trim())
             })
         });
+        visual.update(|window, cx| {
+            shell.update(cx, |shell, cx| {
+                let session = shell
+                    .live
+                    .as_mut()
+                    .unwrap()
+                    .view
+                    .snapshot
+                    .as_mut()
+                    .unwrap()
+                    .sessions
+                    .iter_mut()
+                    .find(|session| session.id == fixture.sessions[index].id)
+                    .unwrap();
+                session.activity.queued = 0;
+                session.activity.run.as_mut().unwrap().status = Status::Running;
+                cx.notify();
+            });
+            window.draw(cx).clear(cx);
+        });
         shell.read_with(visual, |shell, cx| {
             let session = shell.current_chat().unwrap().read(cx).summary().unwrap();
             assert_eq!(session.activity.title, INPUT.trim());

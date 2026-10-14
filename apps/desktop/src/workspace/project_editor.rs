@@ -187,11 +187,14 @@ impl Shell {
             let save = form.clone();
             dialog
                 .margin_top(px(24.))
-                .form_title(tr(if editing {
-                    "project_edit"
-                } else {
-                    "project_add"
-                }))
+                .form_title(
+                    tr(if editing {
+                        "project_edit"
+                    } else {
+                        "project_add"
+                    }),
+                    cx,
+                )
                 .w((window.viewport_size().width - px(48.)).min(WIDTH))
                 .overlay_closable(false)
                 .on_ok(move |_, window, cx| {

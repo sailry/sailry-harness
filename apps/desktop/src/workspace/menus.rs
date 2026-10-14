@@ -328,11 +328,11 @@ impl Shell {
                 .placeholder(tr("form_name_hint"))
         });
         let owner = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, window, _| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let input = input.clone();
             let owner = owner.clone();
             dialog
-                .form_title(tr("workspace_rename"))
+                .form_title(tr("workspace_rename"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(420.)))
                 .child(
                     div()
@@ -471,9 +471,9 @@ impl Shell {
             .map(|(&key, s)| (key, s.title.clone(), s.archived))
             .collect();
         let owner = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, window, _| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             dialog
-                .form_title(tr("workspace_records"))
+                .form_title(tr("workspace_records"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(560.)))
                 .child(
                     v_flex()

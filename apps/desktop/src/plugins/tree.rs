@@ -337,7 +337,7 @@ fn render(
             .h_7()
             .text_sm()
             .px_2()
-            .pl(px(indent) * entry.depth().saturating_sub(skip_depth) + px(8.))
+            .pl(px(indent) * entry.depth().saturating_sub(skip_depth) + px(guides::ROW_INSET))
             .when_some(
                 guides.as_ref().and_then(|paths| paths.get(&path)),
                 |row, path| {

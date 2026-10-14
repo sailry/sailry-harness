@@ -1,6 +1,7 @@
 //! Local input retained for presentation until canonical user content arrives.
 use super::*;
 use gpui_kit::component::message::{Message as ChatMessage, MessageAlignment};
+use gpui_kit::prelude::FluentBuilder as _;
 use sailry_protocol::{RequestId, conversation::Input};
 
 pub(super) struct Message {
@@ -102,15 +103,33 @@ impl View {
         let Some(message) = &mut self.outgoing else {
             return;
         };
-        if let Some(request) = message.request
-            && let Some(turn) = self.node.snapshot.as_ref().and_then(|snapshot| {
+        if let Some(request) = message.request {
+            let pending = self.history.snapshot.as_ref().and_then(|snapshot| {
+                sailry_client::conversation::turns::pending(&snapshot.page.queue, request)
+            });
+            if let Some(item) = pending {
+                message.turn = Some(item.turn);
+                if message.guidance.is_none()
+                    && self.history.snapshot.as_ref().is_some_and(|snapshot| {
+                        snapshot.page.queue.paused
+                            || !item.ready
+                            || item.guidance.is_some()
+                            || snapshot.page.runs.iter().any(|run| {
+                                run.turn != item.turn
+                                    && matches!(run.status, Status::Running | Status::Stopping)
+                            })
+                    })
+                {
+                    message.queued = true;
+                }
+            } else if let Some(turn) = self.node.snapshot.as_ref().and_then(|snapshot| {
                 snapshot.turns.iter().find(|turn| {
                     turn.request == request
                         && Some(turn.session) == self.session.as_ref().map(|s| s.id)
                 })
-            })
-        {
-            message.turn = Some(turn.id);
+            }) {
+                message.turn = Some(turn.id);
+            }
         }
         let Some(turn) = message.turn else { return };
         let guidance = message
@@ -156,6 +175,24 @@ impl View {
             // input needed if execution precedes the canonical user event.
             self.sent.insert(turn, self.outgoing.take().unwrap());
         }
+    }
+
+    /// The local immediate submission already represented in the transcript.
+    pub(super) fn transcript_pending(&self) -> Option<&sailry_protocol::conversation::Pending> {
+        let message = self
+            .outgoing
+            .as_ref()
+            .filter(|message| !message.queued && message.guidance.is_none())?;
+        let snapshot = self.history.snapshot.as_ref()?;
+        let item =
+            sailry_client::conversation::turns::pending(&snapshot.page.queue, message.request?)?;
+        (!snapshot.page.queue.paused
+            && item.ready
+            && item.guidance.is_none()
+            && !snapshot.page.runs.iter().any(|run| {
+                run.turn != item.turn && matches!(run.status, Status::Running | Status::Stopping)
+            }))
+        .then_some(item)
     }
 
     /// Input waiting for admission while another turn runs.
@@ -207,7 +244,20 @@ impl View {
                         message.attachments.clone(),
                         cx,
                     ))
-                    .footer(self.user_footer(message.row, &message.input.text, None, cx)),
+                    .footer(
+                        self.user_footer(message.row, &message.input.text, None, cx)
+                            .when(self.transcript_pending().is_some(), |footer| {
+                                footer.child(
+                                    h_flex()
+                                        .w_full()
+                                        .justify_end()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .debug_selector(|| "live-outgoing-queued".into())
+                                        .child(tr("turn_queued")),
+                                )
+                            }),
+                    ),
             )
             .into_any_element()
     }

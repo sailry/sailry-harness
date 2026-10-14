@@ -54,10 +54,10 @@ pub fn open(
     editor.update(cx, |_, cx| {
         crate::feedback::observe(window, cx, |view, _| view.error.into_iter().collect());
     });
-    window.open_dialog(cx, move |dialog, window, _| {
+    window.open_dialog(cx, move |dialog, window, cx| {
         let save = editor.clone();
         dialog
-            .form_title(tr(title))
+            .form_title(tr(title), cx)
             .w((window.viewport_size().width - px(48.)).min(px(560.)))
             .child(editor.clone())
             .footer(

@@ -76,8 +76,6 @@ pub(super) fn open(
         let cancel = editor.clone();
         let real = editor.read(cx).binding.is_some();
         dialog
-            .bg(cx.theme().popover)
-            .text_color(cx.theme().popover_foreground)
             .form_title(
                 div()
                     .debug_selector(|| "provider-dialog-title".into())
@@ -86,6 +84,7 @@ pub(super) fn open(
                     } else {
                         "provider_add_title"
                     })),
+                cx,
             )
             .w(width)
             .max_h(window.viewport_size().height * 0.8)

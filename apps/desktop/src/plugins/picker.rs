@@ -468,8 +468,8 @@ fn popup(
                         // leaves its virtual row viewport at zero after async loading.
                         .h(height)
                         .max_h(window.viewport_size().height * 0.6)
-                        .bg(cx.theme().tokens.background)
-                        .text_color(cx.theme().foreground)
+                        .bg(cx.theme().popover)
+                        .text_color(cx.theme().popover_foreground)
                         .border_1()
                         .border_color(cx.theme().border)
                         .rounded(cx.theme().radius_lg)

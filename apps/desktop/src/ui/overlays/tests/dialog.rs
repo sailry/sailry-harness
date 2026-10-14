@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
     Root, WindowExt,
     dialog::{ANIMATION_DURATION, DialogAction, DialogClose, DialogFooter},
@@ -82,7 +83,7 @@ impl Render for Frame {
                         let accepted = accepted.clone();
                         let cancelled = cancelled.clone();
                         let cancel_allowed = cancel_allowed.clone();
-                        window.open_dialog(cx, move |dialog, _, _| {
+                        window.open_dialog(cx, move |dialog, _, cx| {
                             let accepted = accepted.clone();
                             let cancelled = cancelled.clone();
                             let cancel_allowed = cancel_allowed.clone();
@@ -91,7 +92,7 @@ impl Render for Frame {
                                 .when(refined, |dialog| {
                                     dialog.rounded(rems(1.25)).rounded_tr(px(7.))
                                 })
-                                .title("Dialog")
+                                .form_title("Dialog", cx)
                                 .child(body())
                                 .footer(footer())
                                 .on_ok(move |_, _, _| {
@@ -231,6 +232,9 @@ fn default_surface_radius(cx: &mut TestAppContext) {
         let quad = panel(visual, "dialog-0");
         let scale = visual.update(|window, _| window.scale_factor());
         assert_eq!(quad.corner_radii, Corners::all(px(radius)).scale(scale));
+        visual.update(|_, cx| {
+            assert_eq!(quad.background.as_solid(), Some(cx.theme().popover));
+        });
         visual.simulate_keystrokes("escape");
         finish_close(visual, &trigger);
         visual.update(|window, _| window.remove_window());

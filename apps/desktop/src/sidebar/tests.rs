@@ -154,6 +154,13 @@ fn preview_locations_stay_inline(cx: &mut TestAppContext) {
         });
         window.draw(cx).clear(cx);
     });
+    let recent = visual.debug_bounds("recent-preview-2").unwrap();
+    let guide = visual.debug_bounds("recent-preview-2-guide").unwrap();
+    let vertical = visual
+        .debug_bounds("recent-preview-2-guide-vertical")
+        .unwrap();
+    assert!(guide.left() > recent.left() && guide.right() < recent.left() + px(30.));
+    assert!(vertical.bottom() <= recent.center().y + px(1.));
     for (row, branch) in [
         ("session-2", "session-branch-2"),
         ("recent-preview-2", "recent-preview-2-branch"),

@@ -1,5 +1,9 @@
 use super::*;
 
+fn selector(value: String) -> &'static str {
+    Box::leak(value.into_boxed_str())
+}
+
 #[gpui::test]
 fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
@@ -43,6 +47,20 @@ fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
             visual.debug_bounds(first_row).unwrap().top()
                 < visual.debug_bounds(second_row).unwrap().top()
         );
+        let first_guide = visual
+            .debug_bounds(selector(format!("{first_row}-guide-vertical")))
+            .unwrap();
+        let second_guide = visual
+            .debug_bounds(selector(format!("{second_row}-guide-vertical")))
+            .unwrap();
+        assert!(first_guide.size.height > second_guide.size.height);
+        for selector_name in [first_row, second_row] {
+            let row = visual.debug_bounds(selector_name).unwrap();
+            let guide = visual
+                .debug_bounds(selector(format!("{selector_name}-guide")))
+                .unwrap();
+            assert!(guide.left() > row.left() && guide.right() < row.left() + px(30.));
+        }
         sidebar::hover(visual, first_row);
         assert!(
             visual

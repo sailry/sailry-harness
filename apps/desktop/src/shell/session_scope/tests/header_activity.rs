@@ -192,8 +192,8 @@ fn groups_spaced_indicators(cx: &mut TestAppContext) {
     read.activity.attention.unread = false;
     let mut child = session(template, Status::Running, None);
     child.delegation = Some(Box::new(Delegation {
-        session: template.id,
-        turn: TurnId::new(),
+        session: running[0].id,
+        turn: running[0].activity.run.as_ref().unwrap().turn,
         entry: "child".into(),
         index: 0,
         role: None,

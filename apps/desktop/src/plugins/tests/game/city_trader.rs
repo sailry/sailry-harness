@@ -184,7 +184,9 @@ fn constrains_shell_and_presents_events(cx: &mut TestAppContext) {
         let coin = visual.debug_bounds("city-event-coin").unwrap();
         assert!((coin.center().x - popup.center().x).abs() <= px(1.));
         let native = crate::ui::overlays::tests::panel(visual, "plugin-modal-surface");
-        assert!(native.background.as_solid().is_some());
+        visual.update(|_, cx| {
+            assert_eq!(native.background.as_solid(), Some(cx.theme().popover));
+        });
         wait(visual, |cx| {
             !snapshot(&panel, cx).contains("city-event-dialog")
         });

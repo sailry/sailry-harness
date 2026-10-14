@@ -45,10 +45,10 @@ impl Panel {
 
     fn confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let service = self.service.clone();
-        window.open_dialog(cx, move |dialog, _, _| {
+        window.open_dialog(cx, move |dialog, _, cx| {
             let service = service.clone();
             dialog
-                .form_title(tr("updates_install"))
+                .form_title(tr("updates_install"), cx)
                 .child(tr("updates_restart_description"))
                 .button_props(
                     DialogButtonProps::default()

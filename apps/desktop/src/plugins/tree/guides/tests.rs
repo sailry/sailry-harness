@@ -158,7 +158,7 @@ fn aligns_strokes_at_each_indent(cx: &mut TestAppContext) {
                 let line = visual.debug_bounds(selector).unwrap();
                 assert_eq!(
                     line.left(),
-                    row.left() + px(8. + indent * (index as f32 + 0.5))
+                    row.left() + px(ROW_INSET + indent * index as f32 + EDGE_INSET)
                 );
                 assert_eq!(line.top(), row.top());
                 assert_eq!(
@@ -170,10 +170,16 @@ fn aligns_strokes_at_each_indent(cx: &mut TestAppContext) {
                 Box::leak(format!("resource-guide-leaf-last-{}-arm", 2 - skip).into_boxed_str());
             let arm = visual.debug_bounds(selector).unwrap();
             assert_eq!(arm.top(), row.top() + row.size.height * 0.5);
-            assert_eq!(arm.size.width, px(indent * 0.5));
+            let vertical = visual
+                .debug_bounds(Box::leak(
+                    format!("resource-guide-leaf-last-{}-vertical", 2 - skip).into_boxed_str(),
+                ))
+                .unwrap();
+            assert_eq!(arm.left(), vertical.left());
+            assert_eq!(arm.size.width, px(indent - EDGE_INSET * 2.));
             assert_eq!(
                 arm.right(),
-                row.left() + px(8. + indent * (3 - skip) as f32)
+                row.left() + px(ROW_INSET + indent * (3 - skip) as f32 - EDGE_INSET)
             );
             assert!(
                 visual

@@ -4,7 +4,7 @@ mod icons;
 mod notice;
 mod sessions;
 pub(crate) use icons::indicator;
-pub(crate) use sessions::{status, title};
+pub(crate) use sessions::{status_with_lane, title};
 #[cfg(test)]
 pub(crate) mod fixture;
 mod notifications;

@@ -125,14 +125,11 @@ impl Shell {
                             .flex_none()
                             .child(self.live_resource_rows(None, cx))
                             .when(empty, |list| {
-                                list.child(
-                                    div()
-                                        .px_2()
-                                        .py_1()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(tr("project_sessions_empty")),
-                                )
+                                list.child(super::branch_empty(
+                                    "unassigned-sessions-empty",
+                                    tr("project_sessions_empty"),
+                                    cx,
+                                ))
                             }),
                     )
                     .overflow_y_scroll()

@@ -1,5 +1,6 @@
 use super::*;
 use crate::preferences::{MessageDisplay, Preferences};
+use gpui_kit::test::TestWindowExt as _;
 
 #[gpui::test]
 fn drags_and_restores_text_size(cx: &mut TestAppContext) {
@@ -41,7 +42,7 @@ fn drags_and_restores_text_size(cx: &mut TestAppContext) {
             let selector = Box::leak(format!("message-text-size-tick-{size}").into_boxed_str());
             let tick = visual.debug_bounds(selector).unwrap();
             assert!(tick.left() >= px(0.) && tick.right() <= px(width));
-            let inset = px(12.);
+            let inset = px(8.);
             let fraction = f32::from(size - 12) / 6.;
             let position = point(
                 slider.left() + inset + (slider.size.width - inset * 2.) * fraction,
@@ -79,6 +80,30 @@ fn drags_and_restores_text_size(cx: &mut TestAppContext) {
             assert!(visual.debug_bounds("message-text-size-tooltip").is_some());
         }
     }
+    let message_control = visual.debug_bounds("message-text-size-slider").unwrap();
+    let message_thumb = visual.update(|window, cx| {
+        window.render_frame(cx);
+        let slider = window.within("message-text-size-slider");
+        slider.find(("slider-thumb", 0u32)).bounds()
+    });
+    let message_track = settings.read_with(visual, |settings, cx| {
+        settings.conversation.text_size.read(cx).bounds()
+    });
+    visual.update(|window, cx| {
+        settings.update(cx, |settings, cx| settings.select(Section::Terminal, cx));
+        window.draw(cx).clear(cx);
+    });
+    let terminal_control = visual.debug_bounds("terminal-font-size-slider").unwrap();
+    let terminal_thumb = visual.update(|window, cx| {
+        window.render_frame(cx);
+        let slider = window.within("terminal-font-size-slider");
+        slider.find(("slider-thumb", 0u32)).bounds()
+    });
+    let terminal_track =
+        settings.read_with(visual, |settings, cx| settings.terminal.font_size.read(cx).bounds());
+    assert_eq!(message_control.size.height, terminal_control.size.height);
+    assert_eq!(message_track.size.height, terminal_track.size.height);
+    assert_eq!(message_thumb.size, terminal_thumb.size);
     // Kit accessibility increment/decrement uses this state path without a
     // SliderEvent, so persistence must not depend on pointer release alone.
     visual.update(|window, cx| {
@@ -178,7 +203,7 @@ fn snaps_text_size_thumb_to_stops(cx: &mut TestAppContext) {
     visual.simulate_window_resize(handle, size(px(960.), px(820.)));
     visual.update(|window, cx| window.draw(cx).clear(cx));
     let slider = visual.debug_bounds("message-text-size-slider").unwrap();
-    let inset = px(12.);
+    let inset = px(8.);
     let at = |fraction: f32| {
         point(
             slider.left() + inset + (slider.size.width - inset * 2.) * fraction,

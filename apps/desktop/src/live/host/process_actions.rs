@@ -175,7 +175,7 @@ fn details(process: Process, window: &mut Window, cx: &mut App) {
     }
     window.open_dialog(cx, move |dialog, window, cx| {
         dialog
-            .form_title(tr("host_process_details"))
+            .form_title(tr("host_process_details"), cx)
             .w((window.viewport_size().width - px(48.)).min(px(420.)))
             .child(
                 v_flex()

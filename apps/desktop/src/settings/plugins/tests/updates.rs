@@ -137,6 +137,20 @@ fn chooses_a_missing_directory_and_reselects_archives(cx: &mut TestAppContext) {
         let remembered = hint(&fixture, visual);
         let moved = fixture.directory.path().join("moved-package");
         std::fs::rename(&original, &moved).unwrap();
+        tap(visual, "plugins-check-updates");
+        wait(visual, |cx| {
+            !owner
+                .read(cx)
+                .plugin_catalog
+                .updates
+                .as_ref()
+                .unwrap()
+                .read(cx)
+                .checking()
+        });
+        shown(visual, "plugin-update-example", false);
+        visual.update(|window, cx| window.clear_notifications(cx));
+        crate::feedback::tests::settle(visual);
         let requests = fixture.transport.requests.lock().unwrap().len();
         menu(visual, "plugin-menu-example", 1);
         prompt(visual);

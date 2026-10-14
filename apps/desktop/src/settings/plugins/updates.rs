@@ -772,7 +772,7 @@ async fn inspect(
     stop: CancellationToken,
 ) -> Result<Entry, Fault> {
     let current = &report.current;
-    let candidate = if report.manual
+    let (candidate, manual) = if report.manual
         && let Some(path) = directory
     {
         match upload::prepare(binding.clone(), path, true, stop).await? {
@@ -789,18 +789,22 @@ async fn inspect(
                 if package.info.summary.name != current.name {
                     return Err(Fault::invalid("plugin update has a different identity"));
                 }
-                changed(current, &package.info.summary).then_some(Candidate::Upload(package))
+                (
+                    changed(current, &package.info.summary).then_some(Candidate::Upload(package)),
+                    false,
+                )
             }
         }
     } else {
-        match report.available {
+        let candidate = match report.available {
             Some(checks::Candidate::Package(info)) => Some(Candidate::Node(*info)),
             Some(checks::Candidate::Official(listing)) => {
                 let info = prepare(binding, current, *listing).await?;
                 Some(Candidate::Node(info))
             }
             None => None,
-        }
+        };
+        (candidate, report.manual)
     };
     let previous = if candidate.is_some() {
         let Output::Plugin(info) = binding
@@ -819,7 +823,6 @@ async fn inspect(
     } else {
         None
     };
-    let manual = report.manual && !matches!(candidate, Some(Candidate::Upload(_)));
     Ok(Entry {
         current: report.current,
         previous,

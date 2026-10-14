@@ -48,3 +48,17 @@ pub(crate) fn status(session: &Session) -> SharedString {
         tr(key)
     }
 }
+
+pub(crate) fn status_with_lane(
+    session: &Session,
+    lane: sailry_client::activity::Lane,
+) -> SharedString {
+    if lane != sailry_client::activity::lane(session) {
+        match lane {
+            sailry_client::activity::Lane::Running => return tr("activity_running"),
+            sailry_client::activity::Lane::Waiting => return tr("activity_waiting"),
+            _ => {}
+        }
+    }
+    status(session)
+}

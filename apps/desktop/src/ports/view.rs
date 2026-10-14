@@ -23,7 +23,7 @@ impl Workspace {
             let cancelling = owner.clone();
             let busy = owner.read(cx).busy;
             dialog
-                .form_title(tr("port_add"))
+                .form_title(tr("port_add"), cx)
                 .w((window.viewport_size().width - px(48.)).min(px(480.)))
                 .close_button(!busy)
                 .overlay_closable(!busy)

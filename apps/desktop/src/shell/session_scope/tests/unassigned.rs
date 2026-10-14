@@ -47,6 +47,11 @@ fn navigation_and_resources(cx: &mut TestAppContext) {
         let session_row = visual
             .debug_bounds(Box::leak(row.clone().into_boxed_str()))
             .unwrap();
+        let guide = visual
+            .debug_bounds(Box::leak(format!("{row}-guide").into_boxed_str()))
+            .unwrap();
+        assert!(guide.left() > session_row.left());
+        assert!(guide.right() < session_row.left() + px(30.));
         assert!(session_row.top() - group.bottom() >= px(1.));
         for height in [560., 820.] {
             visual.simulate_window_resize(handle, size(px(1280.), px(height)));

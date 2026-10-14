@@ -222,6 +222,8 @@ pub struct Queue {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pending {
     pub turn: TurnId,
+    /// Durable command identity of this queued input revision.
+    pub request: crate::RequestId,
     pub kind: RunKind,
     /// Editable message revision, independent of the frozen session revision.
     pub revision: u64,

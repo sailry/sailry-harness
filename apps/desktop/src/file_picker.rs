@@ -237,7 +237,7 @@ pub(crate) fn open(
         let close = picker.clone();
         dialog
             .margin_top(px(24.))
-            .form_title(tr(title))
+            .form_title(tr(title), cx)
             .w((window.viewport_size().width - px(48.)).min(px(900.)))
             .overlay_closable(false)
             .on_ok(|_, _, _| false)

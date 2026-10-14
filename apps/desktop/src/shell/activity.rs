@@ -5,6 +5,13 @@ use sailry_client::activity::{Lane, lane};
 use sailry_protocol::{NodeId, Session, Snapshot, projects::Appearance};
 
 impl Shell {
+    pub(crate) fn session_lane(&self, node: NodeId, session: &Session) -> Lane {
+        self.activity_snapshot(node).map_or_else(
+            || lane(session),
+            |snapshot| sailry_client::activity::aggregate_lane(session, &snapshot.sessions),
+        )
+    }
+
     pub(crate) fn session_project_name(&self, node: NodeId, session: &Session) -> SharedString {
         self.activity_snapshot(node)
             .and_then(|snapshot| {
@@ -40,7 +47,7 @@ impl Shell {
                     .filter(|session| {
                         session.delegation.is_none()
                             && !session.archived
-                            && match lane(session) {
+                            && match self.session_lane(*node, session) {
                                 Lane::Running | Lane::Waiting => true,
                                 Lane::Completed | Lane::Failed => session.activity.attention.unread,
                                 Lane::Idle => false,

@@ -32,7 +32,7 @@ impl Connections {
                                 .child(tr("pairing_local_code")),
                         )
                     } else {
-                        dialog.form_title(tr("connections_pair"))
+                        dialog.form_title(tr("connections_pair"), cx)
                     }
                 })
                 .w(px(400.).min(window.viewport_size().width - px(48.)))

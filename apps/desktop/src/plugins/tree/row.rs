@@ -198,21 +198,6 @@ pub(super) fn content(
                 )
             },
         )
-        .children(decoration.check.map(|check| {
-            let path = item.id.clone();
-            let check_id = check.id.clone();
-            let change = move |_: &bool, _: &mut Window, cx: &mut App| {
-                cx.stop_propagation();
-                events
-                    .read(cx)
-                    .send(json!({"tree":tree,"id":path,"kind":"check"}));
-            };
-            div()
-                .id(SharedString::from(format!("check-region-{check_id}")))
-                .flex_shrink_0()
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .child(checkbox(check, window, cx, change))
-        }))
         .when(decoration.group, |row| {
             row.child(
                 div()
@@ -228,6 +213,21 @@ pub(super) fn content(
                     ),
             )
         })
+        .children(decoration.check.map(|check| {
+            let path = item.id.clone();
+            let check_id = check.id.clone();
+            let change = move |_: &bool, _: &mut Window, cx: &mut App| {
+                cx.stop_propagation();
+                events
+                    .read(cx)
+                    .send(json!({"tree":tree,"id":path,"kind":"check"}));
+            };
+            div()
+                .id(SharedString::from(format!("check-region-{check_id}")))
+                .flex_shrink_0()
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(checkbox(check, window, cx, change))
+        }))
         .into_any_element()
 }
 

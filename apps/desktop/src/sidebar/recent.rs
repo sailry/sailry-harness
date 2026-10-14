@@ -4,7 +4,7 @@ use super::*;
 impl Shell {
     pub(super) fn recent_sessions(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let rows: Vec<AnyElement> = if let Some(live) = &self.live {
-            crate::preferences::data(cx)
+            let sessions: Vec<_> = crate::preferences::data(cx)
                 .recent
                 .unwrap_or_default()
                 .iter()
@@ -18,10 +18,24 @@ impl Shell {
                         .find(|session| session.id == visit.session && !session.archived)
                 })
                 .filter(|session| session.delegation.is_none())
-                .map(|session| self.live_session_row(session, sessions::Placement::Recent, cx))
+                .collect();
+            let count = sessions.len();
+            sessions
+                .into_iter()
+                .enumerate()
+                .map(|(index, session)| {
+                    self.live_session_row(
+                        session,
+                        sessions::Placement::Recent {
+                            last: index + 1 == count,
+                        },
+                        cx,
+                    )
+                })
                 .collect()
         } else {
-            self.sidebar
+            let sessions: Vec<_> = self
+                .sidebar
                 .recent_preview
                 .iter()
                 .filter(|key| key.0 == self.host)
@@ -32,7 +46,12 @@ impl Shell {
                         .map(|session| (*key, session))
                 })
                 .filter(|(_, session)| !session.archived)
-                .map(|(key, session)| {
+                .collect();
+            let count = sessions.len();
+            sessions
+                .into_iter()
+                .enumerate()
+                .map(|(index, (key, session))| {
                     let title = session.title.clone();
                     let branch = self.workspace.branch_label(session.owner);
                     let hovered = self.sidebar.hovered == Some(Row::RecentPreview(key.0, key.1));
@@ -42,6 +61,14 @@ impl Shell {
                         self.page == Page::Conversation && (self.host, self.session) == key,
                         cx,
                     )
+                    .pl(px(30.))
+                    .relative()
+                    .child(super::branch(
+                        format!("recent-preview-{}", key.1),
+                        index + 1 == count,
+                        px(30.),
+                        cx,
+                    ))
                     .debug_selector(move || format!("recent-preview-{}", key.1))
                     .child(
                         h_flex()
@@ -129,14 +156,11 @@ impl Shell {
                             .gap_0p5()
                             .children(rows)
                             .when(empty, |list| {
-                                list.child(
-                                    div()
-                                        .px_2()
-                                        .py_1()
-                                        .text_sm()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(tr("project_sessions_empty")),
-                                )
+                                list.child(super::branch_empty(
+                                    "recent-sessions-empty",
+                                    tr("project_sessions_empty"),
+                                    cx,
+                                ))
                             }),
                     )
                     .overflow_y_scroll()
