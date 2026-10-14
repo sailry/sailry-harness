@@ -198,7 +198,6 @@ impl Shell {
                     if let Some(ports) = shell.ports_for(node, window, cx) {
                         view.update(cx, |view, cx| view.bind_ports(ports, cx));
                     }
-                    crate::preferences::recent::record(node, session.id, cx);
                     let active =
                         shell.page == Page::Conversation && shell.current_chat() == Some(view);
                     let key = (view.read(cx).binding().client.target(), session.worktree);

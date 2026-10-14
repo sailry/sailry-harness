@@ -4,21 +4,12 @@ use super::*;
 impl Shell {
     pub(super) fn recent_sessions(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let rows: Vec<AnyElement> = if let Some(live) = &self.live {
-            let sessions: Vec<_> = crate::preferences::data(cx)
-                .recent
-                .unwrap_or_default()
-                .iter()
-                .filter(|visit| visit.node == live.selected)
-                .filter_map(|visit| {
-                    live.view
-                        .snapshot
-                        .as_ref()?
-                        .sessions
-                        .iter()
-                        .find(|session| session.id == visit.session && !session.archived)
-                })
-                .filter(|session| session.delegation.is_none())
-                .collect();
+            let sessions = live
+                .view
+                .snapshot
+                .as_ref()
+                .map(sailry_client::sessions::recent)
+                .unwrap_or_default();
             let count = sessions.len();
             sessions
                 .into_iter()
@@ -34,19 +25,18 @@ impl Shell {
                 })
                 .collect()
         } else {
-            let sessions: Vec<_> = self
-                .sidebar
-                .recent_preview
+            let mut sessions: Vec<_> = self
+                .workspace
+                .sessions
                 .iter()
-                .filter(|key| key.0 == self.host)
-                .filter_map(|key| {
-                    self.workspace
-                        .sessions
-                        .get(key)
-                        .map(|session| (*key, session))
+                .filter(|(key, session)| {
+                    key.0 == self.host
+                        && !session.archived
+                        && self.workspace.contains(session.owner)
                 })
-                .filter(|(_, session)| !session.archived)
+                .map(|(key, session)| (*key, session))
                 .collect();
+            sessions.sort_by_key(|(key, _)| std::cmp::Reverse(key.1));
             let count = sessions.len();
             sessions
                 .into_iter()

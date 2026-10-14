@@ -68,9 +68,6 @@ impl Shell {
             return;
         };
         let owner = session.owner;
-        self.sidebar.recent_preview.retain(|entry| *entry != key);
-        self.sidebar.recent_preview.insert(0, key);
-        self.sidebar.recent_preview.truncate(100);
         self.park_session_panel(window, cx);
         self.select_owner(owner, window, cx);
         self.session = key.1;

@@ -16,6 +16,7 @@ pub mod plugin_login;
 pub mod ports;
 mod projection;
 pub mod python;
+pub mod sessions;
 pub mod terminal;
 mod transfers;
 pub use transfers::Upload;

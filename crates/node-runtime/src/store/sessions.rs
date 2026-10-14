@@ -78,8 +78,9 @@ pub(super) fn create(
             ));
         }
     };
-    let session = Session {
+    let mut session = Session {
         id,
+        creation_order: 0,
         archived: false,
         activity: Default::default(),
         project,
@@ -91,7 +92,7 @@ pub(super) fn create(
         fork: None,
         delegation: None,
     };
-    insert(db, &session)?;
+    session.creation_order = insert(db, &session)?;
     super::media::freeze(db, session.id, None)?;
     Ok((
         Output::Session(session.clone()),
@@ -114,7 +115,7 @@ pub(super) fn validate_model(
     Ok(())
 }
 
-pub(in crate::store) fn insert(db: &Connection, session: &Session) -> Result<(), Fault> {
+pub(in crate::store) fn insert(db: &Connection, session: &Session) -> Result<u64, Fault> {
     db.execute(
         "INSERT INTO sessions(id,project,worktree,revision) VALUES(?1,?2,?3,1)",
         params![
@@ -124,7 +125,9 @@ pub(in crate::store) fn insert(db: &Connection, session: &Session) -> Result<(),
         ],
     )
     .map_err(storage_error)?;
-    commands::insert_revision(db, session)
+    let creation_order = db.last_insert_rowid().try_into().map_err(storage_error)?;
+    commands::insert_revision(db, session)?;
+    Ok(creation_order)
 }
 
 pub(in crate::store) fn writable(session: &Session) -> Result<(), Fault> {

@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 
 fn selector(value: String) -> &'static str {
     Box::leak(value.into_boxed_str())
@@ -35,6 +36,7 @@ fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
         else {
             panic!("session expected")
         };
+        assert!(second.creation_order > original.creation_order);
         open(&shell, visual, &fixture, index, original);
         open(&shell, visual, &fixture, index, &second);
         open(&shell, visual, &fixture, index, original);
@@ -44,8 +46,8 @@ fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
             Box::leak(format!("recent-session-{}", second.id).into_boxed_str());
         visual.update(|window, cx| window.draw(cx).clear(cx));
         assert!(
-            visual.debug_bounds(first_row).unwrap().top()
-                < visual.debug_bounds(second_row).unwrap().top()
+            visual.debug_bounds(second_row).unwrap().top()
+                < visual.debug_bounds(first_row).unwrap().top()
         );
         let first_guide = visual
             .debug_bounds(selector(format!("{first_row}-guide-vertical")))
@@ -53,7 +55,7 @@ fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
         let second_guide = visual
             .debug_bounds(selector(format!("{second_row}-guide-vertical")))
             .unwrap();
-        assert!(first_guide.size.height > second_guide.size.height);
+        assert!(second_guide.size.height > first_guide.size.height);
         for selector_name in [first_row, second_row] {
             let row = visual.debug_bounds(selector_name).unwrap();
             let guide = visual
@@ -62,13 +64,8 @@ fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
             assert!(guide.left() > row.left() && guide.right() < row.left() + px(30.));
         }
         sidebar::hover(visual, first_row);
-        assert!(
-            visual
-                .debug_bounds(Box::leak(
-                    format!("recent-session-{}", fixture.sessions[1 - index].id).into_boxed_str()
-                ))
-                .is_none()
-        );
+        let other_row = format!("recent-session-{}", fixture.sessions[1 - index].id);
+        assert!(visual.update(|window, _| window.try_find(other_row).is_none()));
         click(&shell, visual, second_row.into());
         assert_eq!(
             shell.read_with(visual, |shell, _| shell.session_scope.active),
@@ -81,7 +78,7 @@ fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
         );
         let expanded = visual.debug_bounds("sidebar-projects-viewport").unwrap();
         click(&shell, visual, "recent-toggle".into());
-        assert!(visual.debug_bounds(second_row).is_none());
+        assert!(visual.update(|window, _| window.try_find(second_row).is_none()));
         assert!(
             (visual
                 .debug_bounds("sidebar-projects-viewport")
@@ -98,10 +95,18 @@ fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
             Key::Session(node, second.id)
         );
         click(&shell, visual, "recent-toggle".into());
-        assert!(visual.debug_bounds(second_row).is_some());
+        assert!(
+            visual.update(|window, _| {
+                window.try_find(second_row).is_some_and(|row| row.visible())
+            })
+        );
         click(&shell, visual, "projects-toggle".into());
         assert!(visual.debug_bounds("sidebar-projects-viewport").is_none());
-        assert!(visual.debug_bounds(second_row).is_some());
+        assert!(
+            visual.update(|window, _| {
+                window.try_find(second_row).is_some_and(|row| row.visible())
+            })
+        );
         click(&shell, visual, "projects-toggle".into());
         // Hidden resources leave history intact but cannot be opened from Recent.
         visual.update(|_, cx| {
@@ -123,6 +128,6 @@ fn navigation_is_scoped_and_collapsible(cx: &mut TestAppContext) {
             })
         });
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        assert!(visual.debug_bounds(second_row).is_none());
+        assert!(visual.update(|window, _| window.try_find(second_row).is_none()));
     }
 }

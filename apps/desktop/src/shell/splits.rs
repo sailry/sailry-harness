@@ -60,10 +60,7 @@ impl Shell {
         match target {
             Target::Draft | Target::Session(..) => {
                 let key = match target {
-                    Target::Session(node, id) => {
-                        crate::preferences::recent::record(node, id, cx);
-                        Key::Session(node, id)
-                    }
+                    Target::Session(node, id) => Key::Session(node, id),
                     _ => Key::Draft,
                 };
                 self.session_scope.open(key);

@@ -7,6 +7,7 @@ use sailry_protocol::{
 fn session(status: Option<Status>) -> Session {
     let mut session = Session {
         id: SessionId::new(),
+        creation_order: 1,
         archived: false,
         activity: Default::default(),
         project: None,

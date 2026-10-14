@@ -99,6 +99,38 @@ async fn closes_earlier_admission() {
     let (fixture, mut gate) = blocked().await;
     let (network, controller, remote) = connect(&fixture).await;
     let expected = snapshot(&fixture.client).await.projects[0].clone();
+    let Output::Session(retained) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::CreateSession {
+            project: Some(expected.id),
+            worktree: None,
+            config: Some(SessionConfig {
+                assistant: None,
+                resource: None,
+                provider: ProviderId::new(),
+                model: "fixture".into(),
+                effort: Effort::Default,
+                mode: WorkMode::Code,
+                permission: Permission::Ask,
+                credential: None,
+            }),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("session expected")
+    };
+    assert!(retained.creation_order > 0);
+    assert_eq!(
+        snapshot(&remote)
+            .await
+            .sessions
+            .iter()
+            .find(|session| session.id == retained.id)
+            .unwrap()
+            .creation_order,
+        retained.creation_order
+    );
     let stopped = saved(
         fixture.worktree,
         "00000000-0000-0000-0000-000000000001",
@@ -219,6 +251,17 @@ async fn closes_earlier_admission() {
         terminal::Status::Running
     );
     assert_eq!(state.projects, vec![other]);
+    assert!(
+        state
+            .sessions
+            .iter()
+            .any(|session| session.id == retained.id && session.project == Some(expected.id))
+    );
+    assert!(
+        !sailry_client::sessions::recent(&state)
+            .iter()
+            .any(|session| session.id == retained.id)
+    );
     assert_eq!(
         std::fs::read_to_string(fixture.directory.path().join("project/blocked")).unwrap(),
         "retained"

@@ -40,6 +40,7 @@ async fn restores_config_revisions() {
     else {
         panic!("session expected")
     };
+    assert!(session.creation_order > 0);
     node.shutdown().await.unwrap();
     let db = Connection::open(profile.join("storage/node.sqlite3")).unwrap();
     assert_eq!(
