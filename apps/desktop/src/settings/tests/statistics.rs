@@ -78,8 +78,17 @@ fn populate(fixture: &Fixture, index: usize, endpoint: &str) {
     });
 }
 
+/// The provider SelectField line of the plugin snapshot, which carries its choice labels.
+fn providers(panel: &Entity<crate::plugins::Panel>, cx: &App) -> String {
+    crate::plugins::diagnostics(panel, cx)
+        .lines()
+        .find(|line| line.contains("SelectField") && line.contains("\"usage-filter-provider\""))
+        .unwrap_or_default()
+        .to_owned()
+}
+
 #[gpui::test]
-fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
+fn host_observation_preserves_page_filters(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
     rust_i18n::set_locale("en");
     let fixture = Fixture::new();
@@ -226,30 +235,30 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
         );
         assert!(visual.debug_bounds("usage-filter-host").is_none());
         wait(visual, |cx| {
-            panel.read(cx).header().is_some_and(|header| {
-                let providers = header.read(cx).filter_items("usage-filter-provider");
-                providers.contains(&fixture.providers[index].name)
-                    && !providers.contains(&fixture.providers[1 - index].name)
-            })
+            let providers = providers(&panel, cx);
+            providers.contains(&fixture.providers[index].name)
+                && !providers.contains(&fixture.providers[1 - index].name)
         });
         assert!(visual.debug_bounds("settings-heading").is_none());
         for width in [1280., 760., 1280.] {
             visual.simulate_resize(size(px(width), px(1000.)));
-            // Header fitting is deferred from prepaint to the next render.
-            shown(visual, "usage-filter-model", width != 760.);
+            draw(visual);
+            // Filters belong to the page body; the header keeps only its title and refresh.
+            assert!(visual.debug_bounds("plugin-header-filters").is_none());
             let header = visual.debug_bounds("shell-module-header").unwrap();
-            let controls = visual.debug_bounds("plugin-header-filters").unwrap();
-            assert!(controls.top() >= header.top() && controls.bottom() <= header.bottom());
-            let field = visual.debug_bounds("usage-filter-range").unwrap();
-            assert!(field.left() >= header.left() && field.right() <= header.right());
-            if width == 760. {
-                assert!(visual.debug_bounds("usage-filter-model").is_none());
-                tap(visual, "plugin-header-filters-trigger");
-                shown(visual, "usage-filter-model", true);
-                visual.simulate_keystrokes("escape");
-                draw(visual);
-            } else {
-                assert!(visual.debug_bounds("usage-filter-model").is_some());
+            let table = visual.debug_bounds("usage-requests").unwrap();
+            let fields = [
+                "usage-filter-project",
+                "usage-filter-provider",
+                "usage-filter-model",
+            ]
+            .map(|selector| visual.debug_bounds(selector).unwrap());
+            for field in fields {
+                assert!(field.top() >= header.bottom() && field.bottom() <= table.top());
+                assert!(field.left() >= header.left() && field.right() <= header.right());
+            }
+            if width != 760. {
+                assert!(fields.iter().all(|field| field.top() == fields[0].top()));
             }
         }
         let original = panel.entity_id();
@@ -293,12 +302,10 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
         );
         let panel = current;
         wait(visual, |cx| {
+            let providers = providers(&panel, cx);
             crate::plugins::diagnostics(&panel, cx).contains("usage-summary")
-                && panel.read(cx).header().is_some_and(|header| {
-                    let providers = header.read(cx).filter_items("usage-filter-provider");
-                    providers.contains(&fixture.providers[index].name)
-                        && !providers.contains(&fixture.providers[1 - index].name)
-                })
+                && providers.contains(&fixture.providers[index].name)
+                && !providers.contains(&fixture.providers[1 - index].name)
         });
         let client = Client::new(fixture.transports[index].clone());
         let Output::Plugin(info) = fixture
@@ -335,7 +342,7 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
             !panel.read(cx).resource_active() && panel.read(cx).header().is_none()
         });
         shown(visual, "usage-summary", false);
-        shown(visual, "plugin-header-filters", false);
+        shown(visual, "usage-filter-provider", false);
         visual.update(|window, cx| {
             owner.update(cx, |owner, cx| {
                 owner.navigate(crate::preview::Page::Host, window, cx)
