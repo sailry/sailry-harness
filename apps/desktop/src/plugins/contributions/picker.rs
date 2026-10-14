@@ -1,5 +1,6 @@
 //! Standard Kit search owns focus, filtering, keyboard selection and dialog dismissal.
 use super::*;
+use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
     command::{Command, CommandGroup, CommandItem, CommandState},
     *,
@@ -34,7 +35,9 @@ pub(super) fn open(registry: Entity<Registry>, key: Key, window: &mut Window, cx
         let picker = picker.read(cx);
         let entry = picker.registry.read(cx).entry(&picker.key, cx);
         let Some(entry) = entry else {
-            return dialog.child(crate::tr("plugins_view_unavailable"));
+            return dialog
+                .floating_surface(cx)
+                .child(crate::tr("plugins_view_unavailable"));
         };
         let mut groups: Vec<(Option<SharedString>, Vec<ui::Choice>)> = Vec::new();
         for choice in entry.choices() {
@@ -122,6 +125,7 @@ pub(super) fn open(registry: Entity<Registry>, key: Key, window: &mut Window, cx
                     }
                 }),
             window,
+            cx,
         )
     });
     window.defer(cx, move |window, cx| {

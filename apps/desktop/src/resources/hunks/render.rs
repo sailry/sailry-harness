@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
     Disableable, Sizable, dialog::Dialog, h_flex, scroll::ScrollableElement, v_flex,
 };
@@ -84,6 +85,7 @@ impl Review {
             }
         }
         dialog
+            .floating_surface(cx)
             .title(self.path.clone())
             .w((window.viewport_size().width - px(48.)).min(px(900.)))
             .max_h(window.viewport_size().height * 0.8)

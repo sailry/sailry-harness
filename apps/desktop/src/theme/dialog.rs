@@ -5,13 +5,19 @@ use gpui_kit::{
 };
 
 pub(crate) trait DialogStyle {
+    fn floating_surface(self, cx: &App) -> Self;
     fn form_title(self, title: impl IntoElement, cx: &App) -> Self;
 }
 
 impl DialogStyle for Dialog {
-    fn form_title(self, title: impl IntoElement, cx: &App) -> Self {
+    fn floating_surface(self, cx: &App) -> Self {
+        // Kit's default dialog fill follows the possibly translucent window background.
         self.bg(cx.theme().popover)
             .text_color(cx.theme().popover_foreground)
+    }
+
+    fn form_title(self, title: impl IntoElement, cx: &App) -> Self {
+        self.floating_surface(cx)
             .p_6()
             .title(div().pb_4().child(title))
     }

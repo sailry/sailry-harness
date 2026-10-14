@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{
     ErrorCode, Fault,
     conversation::Part,
@@ -263,9 +264,7 @@ fn reserves_danger_for_execution_errors(cx: &mut TestAppContext) {
             });
             redraw(visual);
             assert_eq!(
-                visual
-                    .debug_bounds(Box::leak(selector.into_boxed_str()))
-                    .is_some(),
+                visual.update(|window, _| window.try_find(selector).is_some()),
                 has_result,
                 "remote={remote}, name={name}"
             );

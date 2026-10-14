@@ -1,4 +1,7 @@
+use super::test_support::{Fixture, draw, init, select, shown, tap};
 use super::*;
+use core::prelude::v1::test;
+use sailry_protocol::Command;
 
 #[gpui::test]
 fn scrolls_long_skill_details(cx: &mut TestAppContext) {

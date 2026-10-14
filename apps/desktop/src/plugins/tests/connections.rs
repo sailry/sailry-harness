@@ -437,11 +437,21 @@ fn tap(visual: &mut VisualTestContext, id: &str) {
 }
 #[track_caller]
 fn input(visual: &mut VisualTestContext, id: &str, value: &str) {
-    tap(visual, id);
-    let retained = visual.update(|window, cx| {
-        window.draw(cx).clear(cx);
-        window.focused_input(cx)
-    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let retained = loop {
+        tap(visual, id);
+        if let Some(input) = visual.update(|window, cx| {
+            window.draw(cx).clear(cx);
+            window.focused_input(cx)
+        }) {
+            break Some(input);
+        }
+        assert!(
+            Instant::now() < deadline,
+            "connection input focus deadline: {id}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    };
     visual.simulate_keystrokes("secondary-a");
     visual.simulate_input(value);
     visual.run_until_parked();

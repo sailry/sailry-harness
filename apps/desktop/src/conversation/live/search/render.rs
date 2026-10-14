@@ -30,6 +30,7 @@ impl Search {
             "live-search-panel",
             crate::command_picker::list(&self.list, tr("chat_search_query"), window),
             window,
+            cx,
         )
         .on_close(cx.listener(|search, _, _, cx| search.dismiss(cx)))
     }

@@ -104,6 +104,11 @@ Keys are nonempty UTF-8 strings up to 128 bytes, without NUL. Values are JSON up
 
 Use GPUI Kit controls and its native `transition` API for interpolated position, size and opacity. Plugin scripts sequence game events with `cx.sleep()` and `cx.notify()`; they do not need a per-frame rendering loop. Keep game rules and animation sequencing in the plugin.
 
+`SegmentedTabs.new(id, {items, selected, disabled, fill})` uses native Kit tabs.
+Set `fill: true` for equal-width choices across a modal form; it defaults to
+false so page and toolbar tabs retain their content widths. Selection events
+retain the same `{id, value}` payload.
+
 `Loading.new(id)` from `sailry/ui` is the region loading overlay. It covers its
 parent, blocks input to the content below, and shows a centered spinner. The
 parent must be `relative()` and have real size (`flex_1`, `size_full` or a

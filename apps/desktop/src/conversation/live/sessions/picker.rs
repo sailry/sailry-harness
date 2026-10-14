@@ -42,13 +42,14 @@ pub(super) fn open(view: &View, window: &mut Window, cx: &mut Context<View>) {
     let list = cx.new(|cx| ListState::new(items, window, cx).searchable(true));
     list.update(cx, |list, cx| list.set_selected_index(selected, window, cx));
     let content = list.clone();
-    window.open_dialog(cx, move |dialog, window, _| {
+    window.open_dialog(cx, move |dialog, window, cx| {
         crate::command_picker::dialog(
             dialog,
             "connection-chat-picker",
             &content,
             tr("connection_search"),
             window,
+            cx,
         )
     });
     window.defer(cx, move |window, cx| {

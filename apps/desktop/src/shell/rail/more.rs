@@ -24,7 +24,7 @@ impl Shell {
             .selected(selected)
             .tooltip(tr("features_all"))
             .accessibility_label(tr("features_all"))
-            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, cx| {
+            .dropdown_menu_with_anchor(Anchor::LeftCenter, move |menu, _, cx| {
                 populate(menu, &features, owner.clone(), cx)
             })
     }
@@ -156,7 +156,7 @@ fn populate(
                                 .xsmall()
                                 .icon(Icon::default().path("reicon:map/pin-tack").text_color(
                                     if pinned {
-                                        cx.theme().primary
+                                        cx.theme().foreground
                                     } else {
                                         cx.theme().muted_foreground
                                     },

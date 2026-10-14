@@ -22,7 +22,7 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.busy()
+        if self.configuration_blocked()
             || (self.session.is_some() && !self.connected())
             || !self.available_efforts().contains(&effort)
         {
@@ -85,7 +85,7 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.readonly() || self.busy() {
+        if self.readonly() || self.configuration_blocked() {
             return;
         }
         let choice = self
@@ -155,7 +155,9 @@ impl View {
         }
         if let Some(session) = &self.session {
             self.config_owner = self.binding.client.target();
-            self.config = Some(session.config.clone());
+            if !self.config_attempt() {
+                self.config = Some(session.config.clone());
+            }
         } else if self.config.is_none() {
             self.config = self.remembered_config(cx).or_else(|| {
                 self.configuration().snapshot.as_ref().and_then(|snapshot| {

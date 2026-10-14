@@ -4,6 +4,7 @@ use crate::conversation::live::tests::{
     wait,
 };
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use std::time::{Duration, Instant};
 mod lifecycle;
 mod updates;
@@ -367,6 +368,85 @@ fn browsing_preserves_drafts(cx: &mut TestAppContext) {
             "Keep my draft"
         );
         assert_eq!(fixture.task_requests(), 22);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn sources_use_compact_file_rows(cx: &mut TestAppContext) {
+    init(cx);
+    cx.update(|cx| cx.set_reduce_motion(true));
+    for remote in [false, true] {
+        let fixture = Fixture::with_server(remote, |runtime| {
+            runtime.block_on(crate::agent_fixture::Server::markdown(
+                "Sources ready".into(),
+            ))
+        });
+        let directory = fixture.directory.path().join("project/nested");
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join("report.docx"), b"Document fixture").unwrap();
+        image::DynamicImage::new_rgb8(2, 2)
+            .save(directory.join("photo.png"))
+            .unwrap();
+        submit(
+            &fixture,
+            "Inspect [Document](nested/report.docx) and ![Image](nested/photo.png)".into(),
+        );
+        let (view, visual) = open(cx, fixture.binding.clone(), fixture.session.clone());
+        wait(visual, |cx| view.read(cx).connected());
+        tap(visual, "live-assets");
+        let panel = view.read_with(visual, |view, _| view.assets.clone());
+        wait(visual, |cx| !panel.read(cx).loading);
+        let rows = panel.read_with(visual, |panel, _| {
+            sailry_client::conversation::unique_assets(&panel.groups)
+                .filter(|(group, _, _)| group.kind == Kind::Resource)
+                .map(|(group, index, target)| {
+                    let Target::File { path } = target else {
+                        panic!("file source expected")
+                    };
+                    (path.clone(), format!("asset-{}-{index}", group.sequence))
+                })
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(rows.len(), 2);
+        let rem = visual.update(|window, _| window.rem_size());
+        let mut heights = Vec::new();
+        for (path, key) in &rows {
+            let icon = visual
+                .debug_bounds(Box::leak(format!("{key}-icon").into_boxed_str()))
+                .unwrap();
+            assert_eq!(icon.size, size(rem, rem), "source: {path}");
+            let row = visual.update(|window, _| window.find(key.clone()).bounds());
+            assert!(row.contains(&icon.center()));
+            heights.push(row.size.height);
+        }
+        assert_eq!(heights[0], heights[1]);
+        let selected = Rc::new(std::cell::RefCell::new(Vec::new()));
+        visual.update(|_, cx| {
+            let selected = selected.clone();
+            cx.subscribe(&view, move |_, event, _| {
+                if let Event::FileAt(worktree, path) = event {
+                    selected.borrow_mut().push((*worktree, path.clone()));
+                }
+            })
+            .detach();
+        });
+        let key = |path: &str| rows.iter().find(|row| row.0 == path).unwrap().1.clone();
+        tap(visual, &key("nested/report.docx"));
+        assert_eq!(
+            *selected.borrow(),
+            [(fixture.session.worktree, "nested/report.docx".into())]
+        );
+        assert!(!panel.read_with(visual, |panel, _| panel.open));
+        tap(visual, "live-assets");
+        wait(visual, |cx| !panel.read(cx).loading);
+        tap(visual, &key("nested/photo.png"));
+        assert!(visual.debug_bounds("attachment-image-preview").is_some());
+        assert!(!panel.read_with(visual, |panel, _| panel.open));
+        visual.simulate_keystrokes("escape");
+        wait(visual, |cx| panel.read(cx).open);
+        assert_eq!(fixture.task_requests(), 1);
+        visual.update(|window, _| window.remove_window());
         fixture.close();
     }
 }

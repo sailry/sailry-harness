@@ -143,7 +143,7 @@ impl View {
                     cx.listener(move |view, _, _, cx| view.expand(turn, key.clone(), !open, cx)),
                 ),
             )
-            .content(body)
+            .content(disclosure::body(body, cx))
             .into_any_element()
     }
 }

@@ -18,12 +18,18 @@ impl View {
             || self.queue_edit_pending.get()
     }
 
+    pub(super) fn config_attempt(&self) -> bool {
+        self.retry
+            .as_ref()
+            .is_some_and(|attempt| attempt.is_configure())
+    }
+
     pub(super) fn saving_config(&self) -> bool {
-        self.pending
-            && self
-                .retry
-                .as_ref()
-                .is_some_and(|attempt| attempt.is_configure())
+        self.pending && self.config_attempt()
+    }
+
+    pub(super) fn configuration_blocked(&self) -> bool {
+        self.busy() && !self.saving_config()
     }
 
     pub(crate) fn set_hosts(&mut self, hosts: Vec<(NodeId, SharedString)>, cx: &mut Context<Self>) {

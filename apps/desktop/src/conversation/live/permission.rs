@@ -13,7 +13,7 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.busy() || (self.session.is_some() && !self.connected()) {
+        if self.configuration_blocked() || (self.session.is_some() && !self.connected()) {
             return;
         }
         if self.session.is_none() {
@@ -43,7 +43,7 @@ impl View {
         } else {
             permission::label(mode)
         };
-        let button = Button::new("live-permission")
+        let button = Button::new("live-chat-permission")
             .custom(crate::theme::subtle_button(cx).foreground(match mode {
                 sailry_protocol::Permission::Full => cx.theme().danger,
                 sailry_protocol::Permission::Project => cx.theme().warning,
@@ -60,7 +60,9 @@ impl View {
             .tooltip(tr(label))
             .accessibility_label(tr(label))
             .debug_selector(|| "live-chat-permission".into())
-            .disabled(self.busy() || (self.session.is_some() && !self.connected()));
+            .disabled(
+                self.configuration_blocked() || (self.session.is_some() && !self.connected()),
+            );
         button
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                 modes

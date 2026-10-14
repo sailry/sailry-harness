@@ -126,8 +126,8 @@ impl Shell {
         let groups = catalog::entries(self, scope, Folder::Root, cx);
         let palette = cx.new(|cx| Palette::new(owner, scope, groups, window, cx));
         let focus = palette.read(cx).list.clone();
-        window.open_dialog(cx, move |dialog, window, _| {
-            crate::command_picker::frame(dialog, "global-command", palette.clone(), window)
+        window.open_dialog(cx, move |dialog, window, cx| {
+            crate::command_picker::frame(dialog, "global-command", palette.clone(), window, cx)
                 .on_ok(|_, _, _| false)
         });
         focus.update(cx, |list, cx| list.focus(window, cx));

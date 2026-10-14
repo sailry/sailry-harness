@@ -1,6 +1,10 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::test::TestWindowExt as _;
+use sailry_link::{Admission, Pending, Subscription, Transport};
+use sailry_protocol::{ErrorCode, Fault, Topic};
+use std::sync::Mutex;
+use tokio::sync::Semaphore;
 
 #[test]
 fn orders_explicit_levels_and_budgets() {
@@ -342,4 +346,195 @@ fn advance(cx: &mut VisualTestContext, millis: u64) {
         window.refresh();
         window.draw(cx).clear(cx);
     });
+}
+
+struct Gate {
+    inner: Arc<dyn Transport>,
+    entered: Semaphore,
+    release: Semaphore,
+    requests: Mutex<Vec<(u64, SessionConfig)>>,
+    reject: bool,
+}
+
+impl Gate {
+    fn new(inner: Arc<dyn Transport>, reject: bool) -> Arc<Self> {
+        Arc::new(Self {
+            inner,
+            entered: Semaphore::new(0),
+            release: Semaphore::new(0),
+            requests: Mutex::new(Vec::new()),
+            reject,
+        })
+    }
+
+    fn requests(&self) -> Vec<(u64, SessionConfig)> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+impl Transport for Gate {
+    fn target(&self) -> NodeId {
+        self.inner.target()
+    }
+
+    fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
+        Box::pin(async move {
+            let captured = match &request.command {
+                Command::SetSessionConfig {
+                    expected_revision,
+                    config,
+                    ..
+                } => Some((*expected_revision, config.clone())),
+                _ => None,
+            };
+            let Some(captured) = captured else {
+                return self.inner.dispatch(request).await;
+            };
+            self.requests.lock().unwrap().push(captured);
+            if self.reject {
+                self.entered.add_permits(1);
+                self.release.acquire().await.unwrap().forget();
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "injected configuration conflict",
+                ));
+            }
+            let admission = self.inner.dispatch(request).await?;
+            self.entered.add_permits(1);
+            self.release.acquire().await.unwrap().forget();
+            Ok(admission)
+        })
+    }
+
+    fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
+        self.inner.subscribe(topic)
+    }
+}
+
+fn assert_controls_enabled(
+    view: &Entity<View>,
+    focus: &FocusHandle,
+    visual: &mut VisualTestContext,
+) {
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        for selector in [
+            "live-chat-model",
+            "model-controls-choose",
+            "live-chat-mode",
+            "live-chat-permission",
+        ] {
+            assert_ne!(window.find(selector).disabled(), Some(true), "{selector}");
+        }
+        assert!(focus.is_focused(window));
+        assert!(!view.read(cx).configuration_blocked());
+    });
+}
+
+#[gpui::test]
+fn serializes_latest_while_saving(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
+            panic!("snapshot expected")
+        };
+        let mut provider = snapshot.providers[0].clone();
+        provider.models[0].efforts = vec![Effort::Low, Effort::Medium, Effort::High];
+        provider.models[0].custom_efforts = true;
+        fixture.execute(Command::PutProvider {
+            expected_revision: provider.revision,
+            provider,
+        });
+        let gate = Gate::new(fixture.transport.clone(), false);
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(gate.clone()));
+        let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && view.read(cx).configured()
+        });
+        tap(visual, "live-chat-model");
+        let focus = view.read_with(visual, |view, cx| {
+            view.model_controls.read(cx).focus.clone()
+        });
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| view.select_effort(Effort::Low, window, cx))
+        });
+        wait(visual, |_| gate.entered.available_permits() == 1);
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| {
+                view.select_effort(Effort::Medium, window, cx);
+                view.select_effort(Effort::High, window, cx);
+            })
+        });
+        assert_eq!(
+            view.read_with(visual, |view, _| view.config.as_ref().unwrap().effort),
+            Effort::High
+        );
+        assert_controls_enabled(&view, &focus, visual);
+        gate.release.add_permits(1);
+        wait(visual, |_| gate.entered.available_permits() == 2);
+        assert_controls_enabled(&view, &focus, visual);
+        let requests = gate.requests();
+        assert_eq!(
+            requests
+                .iter()
+                .map(|(revision, config)| (*revision, config.effort))
+                .collect::<Vec<_>>(),
+            [(1, Effort::Low), (2, Effort::High)]
+        );
+        gate.release.add_permits(1);
+        wait(visual, |cx| {
+            let view = view.read(cx);
+            !view.busy()
+                && view.session.as_ref().is_some_and(|session| {
+                    session.revision == 3 && session.config.effort == Effort::High
+                })
+        });
+        assert!(visual.update(|window, _| focus.is_focused(window)));
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
+}
+
+#[gpui::test]
+fn rolls_back_rejected_change(cx: &mut TestAppContext) {
+    init(cx);
+    for remote in [false, true] {
+        let fixture = Fixture::with_tools(remote, vec![]);
+        let gate = Gate::new(fixture.transport.clone(), true);
+        let mut binding = fixture.binding.clone();
+        binding.client = Arc::new(Client::new(gate.clone()));
+        let (view, visual) = fixture::open(cx, binding, fixture.session.clone());
+        wait(visual, |cx| {
+            view.read(cx).connected() && view.read(cx).configured()
+        });
+        tap(visual, "live-chat-model");
+        let focus = view.read_with(visual, |view, cx| {
+            view.model_controls.read(cx).focus.clone()
+        });
+        visual.update(|window, cx| {
+            view.update(cx, |view, cx| view.select_effort(Effort::Low, window, cx))
+        });
+        wait(visual, |_| gate.entered.available_permits() == 1);
+        assert_controls_enabled(&view, &focus, visual);
+        gate.release.add_permits(1);
+        wait(visual, |cx| {
+            let view = view.read(cx);
+            !view.pending && view.retry.is_none() && view.error == Some("chat_config_changed")
+        });
+        view.read_with(visual, |view, _| {
+            assert_eq!(
+                view.config.as_ref().unwrap(),
+                &view.session.as_ref().unwrap().config
+            );
+            assert_eq!(view.config.as_ref().unwrap().effort, Effort::High);
+        });
+        assert!(visual.update(|window, cx| !window.notifications(cx).is_empty()));
+        assert!(visual.update(|window, _| focus.is_focused(window)));
+        visual.update(|window, _| window.remove_window());
+        drop(view);
+        fixture.close();
+    }
 }

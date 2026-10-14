@@ -1,5 +1,4 @@
 use super::*;
-use gpui_kit::component::group_box::{GroupBox, GroupBoxVariants};
 use sailry_protocol::conversation::progress::{Progress, State};
 
 /// Completed steps over all steps; skipped steps count as settled.
@@ -27,21 +26,7 @@ pub(in crate::conversation::live) fn render(
             let key = key.to_owned();
             move || format!("live-progress-card-{key}")
         })
-        .child(
-            GroupBox::new()
-                .rounded(cx.theme().radius_2xl())
-                .id(format!("progress-card-{key}"))
-                .outline()
-                .content_style(
-                    StyleRefinement::default()
-                        .px_3()
-                        .py_0()
-                        .overflow_hidden()
-                        .rounded(cx.theme().radius_2xl())
-                        .bg(cx.theme().group_box.opacity(0.8)),
-                )
-                .child(rows(key, progress, continuing, true)),
-        )
+        .child(disclosure::body(rows(key, progress, continuing, true), cx))
         .into_any_element()
 }
 

@@ -3,6 +3,25 @@ use crate::conversation::live::tests::{fixture, wait};
 use core::prelude::v1::test;
 
 #[gpui_kit::test]
+fn file_labels_use_caption_type(cx: &mut TestAppContext) {
+    fixture::init(cx);
+    cx.update(|cx| {
+        for mode in [ThemeMode::Light, ThemeMode::Dark] {
+            Theme::change(mode, None, cx);
+            let size = cx.theme().typography_tokens().sm.size;
+            assert_eq!(size, px(14.));
+            for content in [
+                StyledText::new("nested/analysis.ipynb").into_any_element(),
+                tr("turn_changes_less").into_any_element(),
+            ] {
+                let mut label = file_label(content, cx);
+                assert_eq!(label.style().text.font_size, Some(size.into()));
+            }
+        }
+    });
+}
+
+#[gpui_kit::test]
 fn opens_files_and_preserves_diff(cx: &mut TestAppContext) {
     fixture::init(cx);
     for remote in [false, true] {

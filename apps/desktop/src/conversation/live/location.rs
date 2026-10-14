@@ -159,13 +159,14 @@ impl View {
             ListState::new(picker, window, cx).searchable(true)
         });
         let content = list.clone();
-        window.open_dialog(cx, move |dialog, window, _| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             crate::command_picker::dialog(
                 dialog,
                 "composer-location-picker",
                 &content,
                 tr("location_project"),
                 window,
+                cx,
             )
         });
         list.update(cx, |list, cx| {

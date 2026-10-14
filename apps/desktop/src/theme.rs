@@ -67,6 +67,7 @@ pub fn select(mode: Option<gpui_kit::component::ThemeMode>, window: &mut Window,
         cx.set_window_appearance(None);
         Theme::change(cx.window_appearance(), Some(window), cx);
     }
+    sync_window(cx);
 }
 
 /// Resolve translucent card tints against the theme base, excluding wallpaper.
@@ -250,6 +251,15 @@ fn sync_editor(cx: &mut App) {
 }
 
 fn sync_window(cx: &mut App) {
+    // Floating bodies share one opaque semantic surface, independent of window material.
+    let color = cx.theme().popover.alpha(1.);
+    let token = color.into();
+    if cx.theme().popover != color || cx.theme().tokens.popover != token {
+        Theme::update(cx, |theme| {
+            theme.colors.popover = color;
+            theme.tokens.popover = token;
+        });
+    }
     sync_editor(cx);
     let appearance = if cx.theme().is_dark() {
         WindowAppearance::Dark
@@ -492,11 +502,11 @@ mod tests {
                 assert!((0.01..0.03).contains(&navigation_contrast));
                 assert!(sidebar_background(cx).a < 1.);
                 assert!(theme.muted.a > 0. && theme.muted.a < 1.);
+                assert!(theme.popover.is_opaque());
                 if mode == ThemeMode::Dark {
                     assert!(navigation.to_rgb().r > main.to_rgb().r);
                     let popover = theme.background.blend(theme.popover).to_rgb().r;
                     assert!(popover - background > 0.03);
-                    assert!((theme.popover.a - 245. / 255.).abs() < 0.001);
                     assert!((background - 24. / 255.).abs() < 0.001);
                     assert!(theme.group_box.a > 0. && theme.group_box.a < 1.);
                     assert!(card - background > 0.03);

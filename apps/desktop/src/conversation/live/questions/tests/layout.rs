@@ -169,7 +169,11 @@ fn wraps_pending_and_resolved_prompts(cx: &mut TestAppContext) {
         assert_eq!(expanded, resolved);
         let frame = bounds(visual, format!("live-question-answer-frame-{id}"));
         let row = bounds(visual, format!("live-question-history-{id}"));
-        assert_eq!(frame.size.width, row.size.width);
+        let inset = visual.update(|_, cx| {
+            (crate::conversation::disclosure::ICON_SIZE + rems(0.5)).to_pixels(cx.theme().font_size)
+        });
+        assert_eq!(frame.left(), row.left() + inset);
+        assert_eq!(frame.right(), row.right());
         assert!(frame.size.height <= px(140.));
         toggle_history(visual, id);
         draw(visual);
@@ -248,7 +252,11 @@ fn fills_completed_answer_width(cx: &mut TestAppContext) {
         let frame = bounds(visual, format!("live-question-answer-frame-{id}"));
         let row = bounds(visual, format!("live-question-history-{id}"));
         let answer = bounds(visual, format!("live-question-answer-{id}"));
-        assert_eq!(frame.size.width, row.size.width);
+        let inset = visual.update(|_, cx| {
+            (crate::conversation::disclosure::ICON_SIZE + rems(0.5)).to_pixels(cx.theme().font_size)
+        });
+        assert_eq!(frame.left(), row.left() + inset);
+        assert_eq!(frame.right(), row.right());
         assert!(frame.size.height < px(64.));
         assert_eq!(frame.size.height - answer.size.height, px(40.));
         let gap = frame.top() - row.bottom();

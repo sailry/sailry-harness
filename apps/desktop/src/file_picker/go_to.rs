@@ -44,7 +44,7 @@ impl Picker {
         let name_error = self.name_error;
         let cancel = cx.weak_entity();
         let content = list.clone();
-        window.open_dialog(cx, move |dialog, window, _| {
+        window.open_dialog(cx, move |dialog, window, cx| {
             let cancel = cancel.clone();
             crate::command_picker::dialog(
                 dialog,
@@ -52,6 +52,7 @@ impl Picker {
                 &content,
                 tr("directory_address"),
                 window,
+                cx,
             )
             .on_ok(|_, _, _| false)
             .overlay_closable(false)

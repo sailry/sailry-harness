@@ -28,11 +28,15 @@ impl Render for Editor {
                             .selected_index(usize::from(self.clone))
                             .child(
                                 Tab::new()
+                                    .flex_1()
+                                    .min_w_0()
                                     .label(tr("project_local"))
                                     .debug_selector(|| "project-local".into()),
                             )
                             .child(
                                 Tab::new()
+                                    .flex_1()
+                                    .min_w_0()
                                     .label(tr("project_clone"))
                                     .debug_selector(|| "project-clone".into()),
                             )

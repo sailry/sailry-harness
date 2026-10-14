@@ -129,6 +129,7 @@ impl Render for Editor {
         ];
         v_flex()
             .id("mcp-editor")
+            .test_support()
             .debug_selector(|| "mcp-editor".into())
             .gap_3()
             .child(
@@ -157,6 +158,8 @@ impl Render for Editor {
                                 .enumerate()
                                 .map(|(index, transport)| {
                                     Tab::new()
+                                        .flex_1()
+                                        .min_w_0()
                                         .label(tr(transport_key(transport)))
                                         .disabled(locked)
                                         .debug_selector(move || format!("mcp-transport-{index}"))

@@ -90,11 +90,9 @@ impl View {
                 ),
             )
             .content(
-                div()
-                    .pl_4()
+                disclosure::body(content, cx)
                     .py_2()
-                    .debug_selector(move || content_id.clone())
-                    .child(content),
+                    .debug_selector(move || content_id.clone()),
             )
             .into_any_element()
     }
@@ -149,11 +147,9 @@ impl View {
                 ),
             )
             .content(
-                div()
-                    .pl_4()
+                disclosure::body(content, cx)
                     .py_2()
-                    .debug_selector(move || content_id.clone())
-                    .child(content),
+                    .debug_selector(move || content_id.clone()),
             )
             .into_any_element()
     }
@@ -211,11 +207,9 @@ impl View {
                         })),
                     )
                     .content(
-                        div()
-                            .min_w_0()
+                        disclosure::body(self.tool(call, page, continuing, cx), cx)
                             .pt_1()
-                            .pb_2()
-                            .child(self.tool(call, page, continuing, cx)),
+                            .pb_2(),
                     )
                     .into_any_element()
             }))
@@ -245,6 +239,8 @@ impl View {
                 && output::failure(&call.name, Some(result)).is_none()
             {
                 return div()
+                    .id(selector.clone())
+                    .test_support()
                     .min_w_0()
                     .debug_selector(move || selector.clone())
                     .child(self.structured(&key, call, page, content, result, cx))
@@ -254,6 +250,8 @@ impl View {
                 && call.presentation != sailry_protocol::tool::Presentation::Content
             {
                 return v_flex()
+                    .id(selector.clone())
+                    .test_support()
                     .min_w_0()
                     .gap_2()
                     .debug_selector(move || selector.clone())
@@ -290,6 +288,8 @@ impl View {
                 self.generic(&key, call, path.clone(), result, cx)
             };
             v_flex()
+                .id(selector.clone())
+                .test_support()
                 .min_w_0()
                 .debug_selector(move || selector.clone())
                 .child(body)

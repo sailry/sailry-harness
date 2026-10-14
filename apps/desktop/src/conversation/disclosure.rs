@@ -7,7 +7,21 @@ use gpui_kit::{
     *,
 };
 
-mod shimmer;
+pub(crate) const ICON_SIZE: Rems = rems(1.);
+
+/// Expanded activity follows the header's native icon slot, without a card fill.
+pub(crate) fn body(content: impl IntoElement, cx: &App) -> Div {
+    let half_icon = ICON_SIZE.to_pixels(cx.theme().font_size) / 2.;
+    let half_border = px(0.5);
+    div()
+        .min_w_0()
+        .self_stretch()
+        .ml(half_icon - half_border)
+        .pl(half_icon + rems(0.5).to_pixels(cx.theme().font_size) - half_border)
+        .border_l_1()
+        .border_color(cx.theme().border)
+        .child(content)
+}
 
 /// Activity details retain semantic failure ink and accessible diagnostics.
 #[derive(Clone, Default)]
@@ -179,7 +193,6 @@ fn row(
         state_color
     };
     let selector = id.clone();
-    let unified = detail.running && !detail.pending && !detail.failed && !detail.wrap;
     h_flex()
         .id(id.clone())
         .debug_selector(move || selector.clone())
@@ -195,63 +208,48 @@ fn row(
                 cx.theme().foreground
             })
         })
-        .child(if detail.wrap {
+        .child(
             div()
+                .debug_selector({
+                    let selector = format!("{id}-icon");
+                    move || selector.clone()
+                })
                 .flex_shrink_0()
-                .pt_0p5()
-                .child(icons)
-                .into_any_element()
-        } else {
-            icons
-        })
-        .when(unified, |row| {
-            row.child(
-                div()
-                    .min_w_0()
-                    .max_w_full()
-                    .truncate()
-                    .debug_selector({
-                        let selector = format!("{id}-shimmer");
-                        move || selector.clone()
-                    })
-                    .child(shimmer::Summary::new(
-                        format!("{id}-text-shimmer"),
-                        label.clone(),
-                        &detail,
-                    )),
-            )
-        })
-        .when(!unified, |row| {
-            row.child(
-                div()
-                    .debug_selector({
-                        let selector = format!("{id}-label");
-                        move || selector.clone()
-                    })
-                    .when(detail.wrap, |label| {
-                        label.flex_1().min_w_0().whitespace_normal()
-                    })
-                    .when(!detail.wrap && detail.secondary, |label| {
-                        label.min_w_0().truncate()
-                    })
-                    .when(!detail.wrap && !detail.secondary, |label| {
-                        label.flex_shrink_0()
-                    })
-                    .child(if detail.running && !detail.pending && !detail.failed {
-                        let selector = format!("{id}-shimmer");
-                        div()
-                            .debug_selector(move || selector.clone())
-                            .child(
-                                gpui_kit::component::shimmer::ShimmerText::new(label)
-                                    .id(format!("{id}-label-shimmer")),
-                            )
-                            .into_any_element()
-                    } else {
-                        div().child(label).into_any_element()
-                    }),
-            )
-        })
-        .when(!unified && !detail.text.is_empty(), |row| {
+                .when(detail.wrap, |icon| icon.pt_0p5())
+                .child(icons),
+        )
+        // Running and settled captions share the same typography and spacing.
+        .child(
+            div()
+                .debug_selector({
+                    let selector = format!("{id}-label");
+                    move || selector.clone()
+                })
+                .when(detail.wrap, |label| {
+                    label.flex_1().min_w_0().whitespace_normal()
+                })
+                .when(!detail.wrap && detail.secondary, |label| {
+                    label.min_w_0().truncate()
+                })
+                .when(!detail.wrap && !detail.secondary, |label| {
+                    label.flex_shrink_0()
+                })
+                .child(if detail.running && !detail.pending && !detail.failed {
+                    let selector = format!("{id}-shimmer");
+                    div()
+                        .id(selector.clone())
+                        .test_support()
+                        .debug_selector(move || selector.clone())
+                        .child(
+                            gpui_kit::component::shimmer::ShimmerText::new(label)
+                                .id(format!("{id}-label-shimmer")),
+                        )
+                        .into_any_element()
+                } else {
+                    div().child(label).into_any_element()
+                }),
+        )
+        .when(!detail.text.is_empty(), |row| {
             row.child(
                 div()
                     .debug_selector({
@@ -319,11 +317,11 @@ fn glyph(icon: Icon, detail: &Detail, cx: &App) -> AnyElement {
             } else {
                 cx.theme().warning
             })
-            .size_4()
+            .size(ICON_SIZE)
             .into_any_element()
     } else {
         crate::ui::identicon::animated(
-            icon.size_4()
+            icon.size(ICON_SIZE)
                 .flex_shrink_0()
                 .when(detail.failed, |icon| icon.text_color(cx.theme().danger)),
             detail.rotate_icon,

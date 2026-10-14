@@ -16,6 +16,12 @@ mod tests;
 const DELTA_WIDTH: f32 = 88.;
 const PREVIEW_FILES: usize = 3;
 
+fn file_label(content: impl IntoElement, cx: &App) -> Div {
+    div()
+        .text_size(cx.theme().typography_tokens().sm.size)
+        .child(content)
+}
+
 pub(in crate::conversation::live) struct Card {
     owner: WeakEntity<View>,
     turn: TurnId,
@@ -381,27 +387,23 @@ impl Render for Card {
                                         .w_full()
                                         .min_w_0()
                                         .child(
-                                            div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .truncate()
-                                                .text_left()
-                                                .debug_selector(move || {
-                                                    format!("live-turn-file-label-{turn}-{index}")
-                                                })
-                                                .child(
-                                                    StyledText::new(path.clone()).with_highlights(
-                                                        [(
-                                                            0..directory_end,
-                                                            HighlightStyle {
-                                                                color: Some(
-                                                                    cx.theme().muted_foreground,
-                                                                ),
-                                                                ..Default::default()
-                                                            },
-                                                        )],
-                                                    ),
-                                                ),
+                                            file_label(
+                                                StyledText::new(path.clone()).with_highlights([(
+                                                    0..directory_end,
+                                                    HighlightStyle {
+                                                        color: Some(cx.theme().muted_foreground),
+                                                        ..Default::default()
+                                                    },
+                                                )]),
+                                                cx,
+                                            )
+                                            .flex_1()
+                                            .min_w_0()
+                                            .truncate()
+                                            .text_left()
+                                            .debug_selector(move || {
+                                                format!("live-turn-file-label-{turn}-{index}")
+                                            }),
                                         )
                                         .child(
                                             h_flex()
@@ -526,13 +528,9 @@ impl Render for Card {
                             h_flex()
                                 .min_w_0()
                                 .gap_2()
-                                .child(
-                                    div()
-                                        .debug_selector(move || {
-                                            format!("live-turn-files-more-label-{turn}")
-                                        })
-                                        .child(label),
-                                )
+                                .child(file_label(label, cx).debug_selector(move || {
+                                    format!("live-turn-files-more-label-{turn}")
+                                }))
                                 .child(crate::conversation::disclosure::caret(
                                     self.expanded,
                                     group,

@@ -1,6 +1,6 @@
 //! Shared activity surfaces for tool output, commands and file changes.
 //!
-//! Tool results share a rounded frame; review surfaces retain their own framing.
+//! Tool results use plain disclosure bodies; review surfaces retain their framing.
 use crate::tr;
 use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{
@@ -68,7 +68,7 @@ pub(crate) fn card(header: Option<AnyElement>, body: AnyElement, cx: &App) -> Di
         .child(body)
 }
 
-/// Tool results share one frame, without repeating the disclosure's title.
+/// Tool results retain their actions without adding a second disclosure frame.
 pub(crate) fn result(
     key: &str,
     body: AnyElement,
@@ -83,9 +83,7 @@ pub(crate) fn result(
         .w_full()
         .min_w_0()
         .items_start()
-        .rounded(cx.theme().radius)
-        .bg(cx.theme().muted)
-        .p_3()
+        .py_3()
         .text_color(cx.theme().muted_foreground)
         .child(div().w_full().min_w_0().child(body))
         .child(Actions {
@@ -152,7 +150,6 @@ pub(crate) fn literal_text(id: &str, text: &str, text_size: Pixels, cx: &App) ->
         .text_size(text_size)
         .line_height(line_height);
     div()
-        .px_3()
         .debug_selector({
             let id = id.to_owned();
             move || format!("{id}-content")

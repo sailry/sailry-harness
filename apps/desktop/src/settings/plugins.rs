@@ -4,6 +4,9 @@ mod cards;
 pub(super) mod configuration;
 mod details;
 pub(crate) use details::open_bound;
+#[cfg(test)]
+#[path = "plugins/tests/details.rs"]
+mod details_tests;
 pub(super) mod dialog;
 mod download;
 mod editor;

@@ -488,7 +488,8 @@ impl View {
                         .child(crate::ui::thinking::render(
                             format!("live-turn-avatar-{turn}"),
                             phase,
-                            px(20.),
+                            crate::conversation::disclosure::ICON_SIZE
+                                .to_pixels(cx.theme().font_size),
                         ))
                         .child(
                             ShimmerText::new(tr(phase))
@@ -531,21 +532,26 @@ impl View {
                                 },
                             )),
                         )
-                        .content(crate::conversation::surface::result(
-                            &format!("{turn}-error"),
-                            div()
-                                .id(format!("{turn}-error-scroll"))
-                                .debug_selector(move || format!("live-turn-error-reason-{turn}"))
-                                .text_sm()
-                                .min_w_0()
-                                .max_h_40()
-                                .overflow_y_scroll()
-                                .child(gpui_kit::base::SelectableText::new(
-                                    format!("{turn}-error-text"),
-                                    error.message.clone(),
-                                ))
-                                .into_any_element(),
-                            Vec::<AnyElement>::new(),
+                        .content(crate::conversation::disclosure::body(
+                            crate::conversation::surface::result(
+                                &format!("{turn}-error"),
+                                div()
+                                    .id(format!("{turn}-error-scroll"))
+                                    .debug_selector(move || {
+                                        format!("live-turn-error-reason-{turn}")
+                                    })
+                                    .text_sm()
+                                    .min_w_0()
+                                    .max_h_40()
+                                    .overflow_y_scroll()
+                                    .child(gpui_kit::base::SelectableText::new(
+                                        format!("{turn}-error-text"),
+                                        error.message.clone(),
+                                    ))
+                                    .into_any_element(),
+                                Vec::<AnyElement>::new(),
+                                cx,
+                            ),
                             cx,
                         )),
                 )

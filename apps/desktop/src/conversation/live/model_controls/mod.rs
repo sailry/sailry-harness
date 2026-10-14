@@ -98,14 +98,14 @@ impl View {
             .map_or(Effort::Default, |model| {
                 Effort::initial(&model.efforts, model.default_effort)
             });
-        let saving = self.saving_config();
+        let blocked = self.configuration_blocked();
         let available = channels
             .iter()
             .any(|channel| channel.enabled && !channel.models.is_empty());
         self.model_picker.update(cx, |picker, cx| {
             picker.set(channels, selected, cx);
             picker.popover = None;
-            picker.composer(effort, self.busy() || !self.can_pick_model(), saving, cx);
+            picker.composer(effort, blocked || !self.can_pick_model(), cx);
         });
         let panel = self.model_controls.clone();
         panel.update(cx, |panel, cx| {
@@ -115,7 +115,7 @@ impl View {
                     choices,
                     effort,
                     initial,
-                    busy: self.busy() || !self.can_pick_model(),
+                    busy: blocked || !self.can_pick_model(),
                     connected: self.configuration().connected,
                 },
                 cx,
@@ -132,7 +132,7 @@ impl View {
             .ghost()
             .w_full()
             .label(tr("composer_select_model"))
-            .disabled(self.busy() || !self.can_pick_model())
+            .disabled(self.configuration_blocked() || !self.can_pick_model())
             .on_click(cx.listener(|view, _, _, cx| cx.emit(Event::Settings(view.settings_node()))))
             .into_any_element()
     }
@@ -145,8 +145,7 @@ impl View {
             .as_ref()
             .map_or(Effort::Default, |config| config.effort);
         let choices = self.available_efforts();
-        let saving = self.saving_config();
-        let button = Button::new("live-model")
+        let button = Button::new("live-chat-model")
             .custom(crate::theme::subtle_button(cx))
             .rounded_full()
             .max_w(px(260.))
@@ -177,10 +176,7 @@ impl View {
                         )
                     }),
             )
-            .disabled(self.busy() || !self.can_pick_model())
-            .when(saving && self.can_pick_model(), |button| {
-                button.text_color(cx.theme().foreground)
-            });
+            .disabled(self.configuration_blocked() || !self.can_pick_model());
         if !available {
             return button
                 .on_click(

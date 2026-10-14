@@ -34,7 +34,7 @@ impl Shell {
         }
         items.sort_by_key(|(received, _)| std::cmp::Reverse(*received));
         Popover::new("notifications")
-            .anchor(Anchor::BottomLeft)
+            .anchor(Anchor::LeftCenter)
             .open(self.activity.open)
             .on_open_change(cx.listener(|shell, open, _, cx| {
                 shell.activity.open = *open;
@@ -65,6 +65,8 @@ impl Shell {
             )
             .child(
                 v_flex()
+                    .id("notifications-panel")
+                    .test_support()
                     .w_full()
                     .debug_selector(|| "notifications-panel".into())
                     .p_2()

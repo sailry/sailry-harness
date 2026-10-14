@@ -8,6 +8,7 @@ use super::{
 };
 use crate::{
     backend::{Lifecycle, Services},
+    theme::DialogStyle as _,
     tr,
 };
 use gpui_kit::{
@@ -490,6 +491,7 @@ fn barrier(window: &mut Window, cx: &mut App) {
                 .into_any_element()
         };
         dialog
+            .floating_surface(cx)
             .title(tr(match state {
                 State::Stopped => "updates_restart",
                 State::Restarting => "updates_restarting",

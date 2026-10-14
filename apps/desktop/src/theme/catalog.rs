@@ -244,6 +244,7 @@ pub fn apply_colors(package: Package, window: Option<&mut Window>, cx: &mut App)
     theme.light_theme = complete(package.light, builtin.light);
     theme.dark_theme = complete(package.dark, builtin.dark);
     Theme::change(mode, window, cx);
+    super::sync_window(cx);
 }
 
 pub fn remove(id: &str, window: &mut Window, cx: &mut App) -> Result<(), String> {
