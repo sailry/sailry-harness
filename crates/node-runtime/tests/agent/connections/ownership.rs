@@ -213,6 +213,7 @@ async fn survives_without_projects() {
                     start_ms: now - 86_400_000,
                     end_ms: now + 86_400_000,
                     dimension: sailry_protocol::usage::Dimension::Project,
+                    utc_offset_minutes: 0,
                     projects: vec![],
                     worktrees: vec![],
                     providers: vec![],

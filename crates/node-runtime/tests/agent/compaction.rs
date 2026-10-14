@@ -41,6 +41,7 @@ async fn usage_total(client: &Client, responses: u64, input: u64) {
                 start_ms: now - 86_400_000,
                 end_ms: now + 86_400_000,
                 dimension: sailry_protocol::usage::Dimension::Model,
+                utc_offset_minutes: 0,
                 projects: vec![],
                 worktrees: vec![],
                 providers: vec![],

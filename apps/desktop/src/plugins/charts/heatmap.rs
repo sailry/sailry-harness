@@ -1,8 +1,11 @@
 use super::*;
 
-pub(super) const CELL: f32 = 12.;
-pub(super) const PITCH: f32 = 15.;
-const GAP: f32 = PITCH - CELL;
+/// Largest cell pitch; wider plots keep this pitch and leave the remainder empty.
+pub(super) const MAX_PITCH: f32 = 24.;
+/// Share of each pitch left as the gap between cells.
+pub(super) const GAP: f32 = 0.2;
+/// Height of the label band below the cells.
+pub(super) const LABELS: f32 = 28.;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -44,23 +47,36 @@ impl Heatmap {
             }))
         .then_some(Self { id, props })
     }
-    pub fn columns_at(&self, width: Pixels) -> usize {
-        (((width.as_f32() + GAP) / PITCH).floor() as usize)
-            .max(1)
-            .min(self.props.columns)
-    }
-    pub fn height(&self) -> Pixels {
-        px(self.props.rows as f32 * PITCH + 28.)
+    /// Pitch that fits every column and row within the plot bounds.
+    pub fn pitch(&self, bounds: Bounds<Pixels>) -> f32 {
+        let width = bounds.size.width.as_f32() / self.props.columns as f32;
+        let height = (bounds.size.height.as_f32() - LABELS) / self.props.rows as f32;
+        width.min(height).clamp(0., MAX_PITCH)
     }
     pub fn cell(&self, cell: &Cell, bounds: Bounds<Pixels>) -> Option<Bounds<Pixels>> {
-        let hidden = self.props.columns - self.columns_at(bounds.size.width);
-        let column = cell.column.checked_sub(hidden)?;
-        let cell = Bounds::new(
-            point(px(column as f32 * PITCH), px(cell.row as f32 * PITCH)),
-            size(px(CELL), px(CELL)),
-        );
+        let pitch = self.pitch(bounds);
+        let side = pitch * (1. - GAP);
         // Coordinates are local to the plot, matching Plot's pointer contract.
-        (cell.right() <= bounds.size.width).then_some(cell)
+        (side >= 1.).then(|| {
+            Bounds::new(
+                point(px(cell.column as f32 * pitch), px(cell.row as f32 * pitch)),
+                size(px(side), px(side)),
+            )
+        })
+    }
+    /// Scales cells with the available width: Kit has no aspect-ratio plot
+    /// container, so a sizing sibling holds the grid ratio and the plot overlays it.
+    pub fn frame(self, id: String) -> AnyElement {
+        let ratio = self.props.columns as f32 / self.props.rows as f32;
+        let height = self.props.rows as f32 * MAX_PITCH;
+        div()
+            .debug_selector(move || id.clone())
+            .relative()
+            .w_full()
+            .child(div().w_full().aspect_ratio(ratio).max_h(px(height)))
+            .child(div().w_full().h(px(LABELS)))
+            .child(div().absolute().inset_0().child(self))
+            .into_any_element()
     }
 }
 impl Plot for Heatmap {
@@ -68,6 +84,7 @@ impl Plot for Heatmap {
         Some(SharedString::from(self.id.clone()).into())
     }
     fn paint(&mut self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+        let pitch = self.pitch(bounds);
         let cells: Vec<_> = self
             .props
             .cells
@@ -84,7 +101,7 @@ impl Plot for Heatmap {
             .collect();
         Bar::new()
             .data(cells)
-            .band_width(CELL)
+            .band_width(pitch * (1. - GAP))
             .cross(|(cell, _)| Some(cell.left().as_f32()))
             .base(|(cell, _)| cell.bottom().as_f32())
             .value(|(cell, _)| Some(cell.top().as_f32()))
@@ -112,7 +129,7 @@ impl Plot for Heatmap {
                 right = x + width + 8.;
                 Some(Text::new(
                     text,
-                    point(px(x), px(self.props.rows as f32 * PITCH + 8.)),
+                    point(px(x), px(self.props.rows as f32 * pitch + 8.)),
                     cx.theme().muted_foreground,
                 ))
             })

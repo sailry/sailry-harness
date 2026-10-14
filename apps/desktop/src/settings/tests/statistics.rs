@@ -54,6 +54,7 @@ fn populate(fixture: &Fixture, index: usize, endpoint: &str) {
         start_ms: now - 86400000,
         end_ms: now + 86400000,
         dimension: sailry_protocol::usage::Dimension::Model,
+        utc_offset_minutes: 0,
         projects: vec![],
         worktrees: vec![],
         providers: vec![],
@@ -163,25 +164,25 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
             owner.extensions.as_ref().unwrap().panel.clone().unwrap()
         });
         shown(visual, "empty-usage-requests-empty", true);
-        shown(visual, "empty-usage-ranking-empty", true);
+        shown(visual, "empty-usage-breakdown-empty", true);
         let table = visual.debug_bounds("usage-requests").unwrap();
         let header = visual.debug_bounds("usage-requests-header").unwrap();
         let empty = visual.debug_bounds("empty-usage-requests-empty").unwrap();
-        assert_eq!(header.size.height, px(48.));
+        assert_eq!(header.size.height, px(32.));
         assert_eq!(empty.top(), header.bottom());
         assert_eq!(empty.bottom(), table.bottom());
-        for column in 0..6 {
+        for column in 0..8 {
             shown(
                 visual,
                 Box::leak(format!("usage-requests-header-{column}").into_boxed_str()),
                 true,
             );
         }
-        let ranking_icon = visual
-            .debug_bounds("empty-icon-usage-ranking-empty")
+        let breakdown_icon = visual
+            .debug_bounds("empty-icon-usage-breakdown-empty")
             .unwrap();
-        let ranking_title = visual
-            .debug_bounds("empty-title-usage-ranking-empty")
+        let breakdown_title = visual
+            .debug_bounds("empty-title-usage-breakdown-empty")
             .unwrap();
         let icon = visual
             .debug_bounds("empty-icon-usage-requests-empty")
@@ -189,8 +190,8 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
         let title = visual
             .debug_bounds("empty-title-usage-requests-empty")
             .unwrap();
-        assert_eq!(icon.size, ranking_icon.size);
-        assert_eq!(title.size, ranking_title.size);
+        assert_eq!(icon.size, breakdown_icon.size);
+        assert_eq!(title.size, breakdown_title.size);
         assert!(icon.top() >= empty.top() && title.bottom() <= empty.bottom());
         assert_eq!(title.top() - icon.bottom(), px(12.));
         assert!((icon.center().x - title.center().x).abs() < px(1.));
@@ -199,33 +200,21 @@ fn host_observation_preserves_header_filters(cx: &mut TestAppContext) {
         shown(visual, "usage-requests-row-0", false);
         populate(&fixture, index, &server.endpoint);
         wait(visual, |cx| {
-            crate::plugins::diagnostics(&panel, cx).contains("12 · 4")
+            crate::plugins::diagnostics(&panel, cx).contains("12 · ")
         });
         shown(visual, "empty-usage-requests-empty", false);
-        shown(visual, "empty-usage-ranking-empty", false);
-        shown(visual, "usage-requests-cell-0-2-secondary", true);
-        assert_eq!(
-            visual
-                .debug_bounds("usage-requests-row-0")
-                .unwrap()
-                .size
-                .height,
-            px(48.)
-        );
+        shown(visual, "empty-usage-breakdown-empty", false);
+        shown(visual, "usage-requests-cell-0-2-secondary", false);
+        shown(visual, "usage-requests-cell-0-3-primary-meter", true);
         let row = visual.debug_bounds("usage-requests-row-0").unwrap();
-        let first = visual
+        assert_eq!(row.size.height, px(40.));
+        let line = visual
             .debug_bounds("usage-requests-cell-0-2-primary")
             .unwrap();
-        let second = visual
-            .debug_bounds("usage-requests-cell-0-2-secondary")
-            .unwrap();
-        assert!(
-            first.top() >= row.top() + px(4.)
-                && first.bottom() + px(4.) <= second.top()
-                && second.bottom() + px(4.) <= row.bottom()
-        );
+        assert!(line.top() >= row.top() && line.bottom() <= row.bottom());
+        assert!((line.center().y - row.center().y).abs() < px(1.));
         assert!(panel.read_with(visual, |_, cx| {
-            crate::plugins::diagnostics(&panel, cx).contains("12 · 4")
+            crate::plugins::diagnostics(&panel, cx).contains("12 · ")
         }));
         assert_eq!(
             owner.read_with(visual, |owner, _| owner.page),

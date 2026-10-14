@@ -163,6 +163,7 @@ fn follows_visible_delegations_without_duplication() {
         start_ms: now - 86_400_000,
         end_ms: now + 86_400_000,
         dimension: Dimension::Model,
+        utc_offset_minutes: 0,
         projects: vec![],
         worktrees: vec![],
         providers: vec![],

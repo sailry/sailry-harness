@@ -30,6 +30,7 @@ async fn binds_canonical_reads_to_enabled_page_packages() {
             start_ms: 0,
             end_ms: 86400000,
             dimension: Dimension::Model,
+            utc_offset_minutes: 0,
             projects: vec![],
             worktrees: vec![],
             providers: vec![],

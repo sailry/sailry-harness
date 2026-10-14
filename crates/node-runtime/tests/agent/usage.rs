@@ -63,6 +63,7 @@ async fn shares_frozen_usage_after_recovery() {
             start_ms: now - 86_400_000,
             end_ms: now + 86_400_000,
             dimension: Dimension::Model,
+            utc_offset_minutes: 0,
             projects: vec![],
             worktrees: vec![],
             providers: vec![],

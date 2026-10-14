@@ -1,8 +1,9 @@
-//! Header filter declarations reuse Kit Select and Popover, including narrow layouts.
+//! Header filter declarations reuse Kit Select, TabBar and Popover, including narrow layouts.
 use super::*;
 use gpui_kit::component::{
     popover::Popover,
     select::{SearchableVec, Select, SelectEvent, SelectItem, SelectState},
+    tab::{Tab, TabBar},
 };
 use std::collections::BTreeMap;
 
@@ -19,6 +20,9 @@ pub(super) struct Filter {
     primary: bool,
     #[serde(default)]
     searchable: bool,
+    /// Shows a few short choices as segmented tabs instead of a select.
+    #[serde(default)]
+    segmented: bool,
 }
 #[derive(Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -191,7 +195,7 @@ impl Header {
                     .iter()
                     .filter(|filter| filter.primary || !compact)
                     .filter_map(|filter| self.filters.fields.get(&filter.id))
-                    .map(|field| field.render(false)),
+                    .map(|field| field.render(false, &self.actions)),
             )
             .when(
                 compact && self.content.filters.iter().any(|filter| !filter.primary),
@@ -219,7 +223,7 @@ impl Header {
                                         .iter()
                                         .filter(|filter| !filter.primary)
                                         .filter_map(|filter| owner.filters.fields.get(&filter.id))
-                                        .map(|field| field.render(true)),
+                                        .map(|field| field.render(true, &owner.actions)),
                                 )
                             }),
                     )
@@ -229,7 +233,10 @@ impl Header {
     }
 }
 impl Field {
-    fn render(&self, compact: bool) -> Div {
+    fn render(&self, compact: bool, events: &tokio::sync::mpsc::Sender<String>) -> Div {
+        if self.props.segmented {
+            return self.segments(events.clone());
+        }
         let id = self.props.id.clone();
         div()
             .w(rems(7.))
@@ -246,6 +253,48 @@ impl Field {
                     .menu_max_h(rems(16.))
                     .accessibility_label(self.props.label.clone())
                     .disabled(self.props.disabled),
+            )
+    }
+
+    fn segments(&self, events: tokio::sync::mpsc::Sender<String>) -> Div {
+        let id = self.props.id.clone();
+        let values: Vec<_> = self
+            .props
+            .items
+            .iter()
+            .map(|item| item.id.clone())
+            .collect();
+        let selected = values
+            .iter()
+            .position(|value| value == &self.props.selected)
+            .unwrap_or(usize::MAX);
+        let disabled = self.props.disabled;
+        div()
+            .flex_shrink_0()
+            .debug_selector({
+                let id = id.clone();
+                move || id.clone()
+            })
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                TabBar::new(SharedString::from(format!("{id}-tabs")))
+                    .segmented()
+                    .small()
+                    .menu(false)
+                    .selected_index(selected)
+                    .children(self.props.items.iter().map(|item| {
+                        let selector = format!("{id}-item-{}", item.id);
+                        Tab::new()
+                            .label(item.label.clone())
+                            .disabled(disabled)
+                            .debug_selector(move || selector.clone())
+                    }))
+                    .on_click(move |index, _, _| {
+                        if !disabled && let Some(value) = values.get(*index) {
+                            let _ = events
+                                .try_send(serde_json::json!({"id":id,"value":value}).to_string());
+                        }
+                    }),
             )
     }
 }

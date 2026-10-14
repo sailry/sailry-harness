@@ -251,6 +251,7 @@ async fn reports_usage_after_restart() {
             start_ms: now - 86_400_000,
             end_ms: now + 86_400_000,
             dimension: usage::Dimension::Model,
+            utc_offset_minutes: 0,
             projects: Vec::new(),
             worktrees: Vec::new(),
             providers: Vec::new(),

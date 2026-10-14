@@ -260,6 +260,7 @@ async fn restores_frozen_execution() {
             start_ms: chrono::Utc::now().timestamp_millis() - 60_000,
             end_ms: chrono::Utc::now().timestamp_millis() + 60_000,
             dimension: sailry_protocol::usage::Dimension::Model,
+            utc_offset_minutes: 0,
             projects: vec![session.project.unwrap()],
             worktrees: vec![session.worktree],
             providers: vec![provider.id],
