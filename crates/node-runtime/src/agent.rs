@@ -499,6 +499,7 @@ async fn execute_with(
                 .with_references(invocation.message.references.clone())
                 .with_groupings(catalog.groupings())
                 .with_displays(catalog.displays())
+                .with_connection_context(bindings.clone(), invocation.connections.resources())
                 .with_presentations(catalog.presentations()),
         ))
         .compaction_config(compaction_config)

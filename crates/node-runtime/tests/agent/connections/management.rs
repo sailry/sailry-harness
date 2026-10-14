@@ -618,6 +618,7 @@ async fn creates_and_queries_in_one_turn() {
         let server = Server::result_tools(vec![
             (tool("database_connections"),json!({})),
             (tool("database_save_connection"),json!({"name":"Created SQLite","engine":"sqlite","path":"./created.sqlite3","read_only":true})),
+            (tool("database_query"),json!({"connection":"$connection","sql":"SELECT value FROM missing_items","row_limit":20,"timeout_ms":3000})),
             (tool("database_query"),json!({"connection":"$connection","sql":"SELECT value FROM items","row_limit":20,"timeout_ms":3000})),
             (agent_support::plugin_tool(&other.summary.name,"database_query"),json!({"connection":"$connection","sql":"SELECT value FROM items","row_limit":20,"timeout_ms":3000})),
             (agent_support::plugin_tool(&other.summary.name,"database_connections"),json!({})),
@@ -721,23 +722,78 @@ async fn creates_and_queries_in_one_turn() {
             page.runs[0].error
         );
         let output = results(&page);
-        assert_eq!(output.len(), 8, "{output:?}");
+        assert_eq!(output.len(), 9, "{output:?}");
         assert_eq!(output[0], &json!([]));
         assert_eq!(output[1]["id"], profile.id.to_string());
         assert_eq!(output[1]["credentials_required"], false);
-        assert_eq!(output[2]["data"]["rows"][0][0]["value"], 37, "{output:?}");
+        assert_eq!(output[2]["isError"], true, "{output:?}");
+        assert_eq!(output[3]["data"]["rows"][0][0]["value"], 37, "{output:?}");
         assert_eq!(
-            output[3]["error"]["code"], "permission_denied",
+            output[4]["error"]["code"], "permission_denied",
             "{output:?}"
         );
-        assert_eq!(output[4], &json!([]), "{output:?}");
+        assert_eq!(output[5], &json!([]), "{output:?}");
         assert_eq!(
-            output[5]["error"]["code"], "permission_denied",
+            output[6]["error"]["code"], "permission_denied",
             "{output:?}"
         );
-        assert_eq!(output[6]["revision"], 2);
-        assert_eq!(output[7].as_array().unwrap().len(), 1);
-        assert_eq!(output[7][0]["name"], "Renamed SQLite");
+        assert_eq!(output[7]["revision"], 2);
+        assert_eq!(output[8].as_array().unwrap().len(), 1);
+        assert_eq!(output[8][0]["name"], "Renamed SQLite");
+        let query_names: Vec<_> = page
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| {
+                let Part::ToolCall { name, display, .. } = part else {
+                    return None;
+                };
+                (name == &tool("database_query")).then(|| {
+                    &display
+                        .as_ref()
+                        .unwrap()
+                        .input
+                        .as_ref()
+                        .unwrap()
+                        .summary
+                        .as_ref()
+                        .unwrap()
+                        .names
+                })
+            })
+            .collect();
+        assert_eq!(query_names.len(), 3);
+        for names in &query_names[..2] {
+            assert_eq!(
+                names.get(&profile.id.to_string()).unwrap(),
+                "Created SQLite"
+            );
+        }
+        assert!(!query_names[2].contains_key(&foreign.to_string()));
+        let other_names =
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .find_map(|part| {
+                    let Part::ToolCall { name, display, .. } = part else {
+                        return None;
+                    };
+                    (name == &agent_support::plugin_tool(&other.summary.name, "database_query"))
+                        .then(|| {
+                            &display
+                                .as_ref()
+                                .unwrap()
+                                .input
+                                .as_ref()
+                                .unwrap()
+                                .summary
+                                .as_ref()
+                                .unwrap()
+                                .names
+                        })
+                })
+                .unwrap();
+        assert!(!other_names.contains_key(&profile.id.to_string()));
         assert_eq!(
             databases(&fixture.client)
                 .await
@@ -1037,6 +1093,32 @@ async fn requires_exact_first_use_consent() {
                 Status::Completed,
                 "{:?}",
                 page.runs[0].error
+            );
+            let run_names = page
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .find_map(|part| {
+                    let Part::ToolCall { name, display, .. } = part else {
+                        return None;
+                    };
+                    (name == &tool("ssh_run")).then(|| {
+                        &display
+                            .as_ref()
+                            .unwrap()
+                            .input
+                            .as_ref()
+                            .unwrap()
+                            .summary
+                            .as_ref()
+                            .unwrap()
+                            .names
+                    })
+                })
+                .unwrap();
+            assert_eq!(
+                run_names.get(&profile.id.to_string()).unwrap(),
+                "Created SSH"
             );
             let saved = ssh_profiles(&fixture.client).await.pop().unwrap();
             let output = results(&page);

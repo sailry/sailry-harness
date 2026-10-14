@@ -262,19 +262,7 @@ impl HostOperation {
                         .map(|settings| json!({"values": settings.values}))
                         .map_err(Clone::clone)
                 }),
-            connections: invocation
-                .connections
-                .databases
-                .iter()
-                .map(|profile| sailry_protocol::connection::Resource::Database(profile.id))
-                .chain(
-                    invocation
-                        .connections
-                        .ssh
-                        .iter()
-                        .map(|profile| sailry_protocol::connection::Resource::Ssh(profile.id)),
-                )
-                .collect(),
+            connections: invocation.connections.resources(),
             stop: stop.clone(),
         }
     }

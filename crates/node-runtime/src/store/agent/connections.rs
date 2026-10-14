@@ -11,6 +11,16 @@ pub(crate) struct Catalog {
     pub ssh: Vec<ssh::Profile>,
 }
 
+impl Catalog {
+    pub(crate) fn resources(&self) -> Vec<Resource> {
+        self.databases
+            .iter()
+            .map(|profile| Resource::Database(profile.id))
+            .chain(self.ssh.iter().map(|profile| Resource::Ssh(profile.id)))
+            .collect()
+    }
+}
+
 pub(crate) fn catalog(db: &Connection, session: SessionId) -> Result<Catalog, Fault> {
     let session = super::super::commands::session(db, session)?;
     let allowed = |target, sharing: Option<&sailry_protocol::connection::Sharing>| {
@@ -278,6 +288,24 @@ impl Ingress {
             .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
+    pub(crate) async fn connection_names(
+        &self,
+        turn: TurnId,
+        entries: Vec<(plugin::Reference, Resource)>,
+        captured: Vec<Resource>,
+    ) -> Result<Vec<Option<String>>, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::ConnectionNames {
+                turn,
+                entries,
+                captured,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::super::unavailable())?;
+        response.await.map_err(|_| super::super::unavailable())?
+    }
     pub(crate) async fn connection_trust(
         &self,
         turn: TurnId,
@@ -304,6 +332,30 @@ impl Ingress {
             .map_err(|_| super::super::unavailable())?;
         response.await.map_err(|_| super::super::unavailable())?
     }
+}
+
+pub(super) fn names(
+    db: &Connection,
+    turn: TurnId,
+    entries: &[(plugin::Reference, Resource)],
+    captured: &[Resource],
+) -> Result<Vec<Option<String>>, Fault> {
+    entries
+        .iter()
+        .map(|(package, target)| {
+            if !created(db, turn, package, *target)? {
+                return Ok(None);
+            }
+            check(db, turn, package, *target, captured)?;
+            let name = match target {
+                Resource::Database(id) => {
+                    super::super::databases::read(db, *id)?.map(|profile| profile.name)
+                }
+                Resource::Ssh(id) => super::super::ssh::read(db, *id)?.map(|profile| profile.name),
+            };
+            Ok(name.filter(|name| !name.trim().is_empty()))
+        })
+        .collect()
 }
 
 pub(super) fn status(
