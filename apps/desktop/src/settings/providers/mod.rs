@@ -17,8 +17,8 @@ mod model;
 use gpui_kit::prelude::FluentBuilder as _;
 pub(super) use live::Binding;
 pub(super) use live::Live;
-pub(crate) use live::channel;
 pub(super) use live::local as bind_local;
+pub(crate) use live::{channel, logo};
 
 use super::{
     Workspace,

@@ -115,7 +115,7 @@ impl Host {
                         sdk::values::encode(json!({
                             "node":node_key(snapshot.node),
                             "projects":snapshot.projects.iter().map(|project|json!({"id":project.id,"name":project.name})).collect::<Vec<_>>(),
-                            "providers":snapshot.providers.iter().map(|provider|json!({"id":provider.id,"name":provider.name,"models":provider.models.iter().map(|model|&model.id).collect::<Vec<_>>()})).collect::<Vec<_>>()
+                            "providers":snapshot.providers.iter().map(|provider|json!({"id":provider.id,"name":provider.name,"icon":crate::settings::provider_logo(provider),"models":provider.models.iter().map(|model|&model.id).collect::<Vec<_>>()})).collect::<Vec<_>>()
                         }))
                         }=>result}
                     }).await.map_err(|_|HostError::new("usage worker failed"))?

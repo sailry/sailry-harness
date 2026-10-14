@@ -180,7 +180,7 @@ fn host_observation_preserves_page_filters(cx: &mut TestAppContext) {
         assert_eq!(header.size.height, px(32.));
         assert_eq!(empty.top(), header.bottom());
         assert_eq!(empty.bottom(), table.bottom());
-        for column in 0..8 {
+        for column in 0..9 {
             shown(
                 visual,
                 Box::leak(format!("usage-requests-header-{column}").into_boxed_str()),
@@ -208,13 +208,15 @@ fn host_observation_preserves_page_filters(cx: &mut TestAppContext) {
         assert!(((icon.top() + title.bottom()) / 2. - empty.center().y).abs() < px(1.));
         shown(visual, "usage-requests-row-0", false);
         populate(&fixture, index, &server.endpoint);
+        shown(visual, "usage-requests-row-0", true);
+        // Inventory provider types replace the monogram with the configured type logo.
         wait(visual, |cx| {
-            crate::plugins::diagnostics(&panel, cx).contains("12 · ")
+            crate::plugins::diagnostics(&panel, cx).contains("icons/providers/openai.svg")
         });
         shown(visual, "empty-usage-requests-empty", false);
         shown(visual, "empty-usage-breakdown-empty", false);
         shown(visual, "usage-requests-cell-0-2-secondary", false);
-        shown(visual, "usage-requests-cell-0-3-primary-meter", true);
+        shown(visual, "usage-requests-cell-0-4-primary-meter", true);
         let row = visual.debug_bounds("usage-requests-row-0").unwrap();
         assert_eq!(row.size.height, px(40.));
         let line = visual
@@ -222,9 +224,11 @@ fn host_observation_preserves_page_filters(cx: &mut TestAppContext) {
             .unwrap();
         assert!(line.top() >= row.top() && line.bottom() <= row.bottom());
         assert!((line.center().y - row.center().y).abs() < px(1.));
-        assert!(panel.read_with(visual, |_, cx| {
-            crate::plugins::diagnostics(&panel, cx).contains("12 · ")
-        }));
+        // The session column fills the card, so the last column ends at the table edge.
+        draw(visual);
+        let table = visual.debug_bounds("usage-requests").unwrap();
+        let cost = visual.debug_bounds("usage-requests-header-8").unwrap();
+        assert!(table.right() - cost.right() < px(16.));
         assert_eq!(
             owner.read_with(visual, |owner, _| owner.page),
             crate::preview::Page::Plugin
