@@ -307,6 +307,7 @@ fn empty_query() -> Query {
         start_ms: 0,
         end_ms: 1,
         dimension: sailry_protocol::usage::Dimension::Model,
+        utc_offset_minutes: 0,
         projects: vec![],
         worktrees: vec![],
         providers: vec![],
@@ -330,7 +331,12 @@ fn query(mut value: Value) -> Result<Query, HostError> {
                 .map_err(|_| HostError::new("invalid usage cursor"))?,
         );
     }
-    for path in ["/start_ms", "/end_ms", "/before/timestamp_ms"] {
+    for path in [
+        "/start_ms",
+        "/end_ms",
+        "/before/timestamp_ms",
+        "/utc_offset_minutes",
+    ] {
         if let Some(field) = value.pointer_mut(path)
             && let Some(text) = field.as_str()
         {
@@ -340,7 +346,17 @@ fn query(mut value: Value) -> Result<Query, HostError> {
             );
         }
     }
+    if let Some(fields) = value.as_object_mut() {
+        fields
+            .entry("utc_offset_minutes")
+            .or_insert_with(|| Value::from(local_offset()));
+    }
     serde_json::from_value(value).map_err(|error| HostError::new(error.to_string()))
+}
+
+/// Day buckets follow the desktop's current local offset unless the package supplies one.
+fn local_offset() -> i32 {
+    chrono::Local::now().offset().local_minus_utc() / 60
 }
 
 pub(crate) fn exact(value: Value) -> Value {
@@ -488,5 +504,25 @@ mod tests {
             exact(json!({"tokens":u64::MAX}))["tokens"],
             u64::MAX.to_string()
         );
+    }
+
+    #[test]
+    fn reads_dimension_and_offset() {
+        use sailry_protocol::usage::Dimension;
+        let mut value = serde_json::to_value(empty_query()).unwrap();
+        value.as_object_mut().unwrap().remove("utc_offset_minutes");
+        value["dimension"] = json!("project");
+        let parsed = super::query(value.clone()).unwrap();
+        assert_eq!(parsed.dimension, Dimension::Project);
+        assert_eq!(parsed.utc_offset_minutes, local_offset());
+        value["dimension"] = json!("provider");
+        value["utc_offset_minutes"] = json!("-300");
+        let parsed = super::query(value.clone()).unwrap();
+        assert_eq!(parsed.dimension, Dimension::Provider);
+        assert_eq!(parsed.utc_offset_minutes, -300);
+        value["utc_offset_minutes"] = json!(330);
+        assert_eq!(super::query(value.clone()).unwrap().utc_offset_minutes, 330);
+        value["dimension"] = json!("session");
+        assert!(super::query(value).is_err());
     }
 }

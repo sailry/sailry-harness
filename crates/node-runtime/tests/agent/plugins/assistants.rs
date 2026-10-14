@@ -333,6 +333,7 @@ async fn usage(client: &Client, session: &Session, project: ProjectId, responses
         start_ms: now - 86_400_000,
         end_ms: now + 86_400_000,
         dimension: Dimension::Model,
+        utc_offset_minutes: 0,
         projects: vec![],
         worktrees: vec![],
         providers: vec![],

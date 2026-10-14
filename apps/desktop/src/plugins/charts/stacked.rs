@@ -5,6 +5,9 @@ use gpui_kit::component::plot::{
     shape::{Stack, StackSeries},
 };
 
+/// Widest bar; sparse charts center narrower bars in their bands.
+pub(super) const MAX_BAR: f32 = 28.;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Props {
@@ -12,6 +15,8 @@ pub(super) struct Props {
     pub buckets: Vec<Bucket>,
     pub maximum: f64,
     pub ticks: Vec<Tick>,
+    /// Element height in pixels, including the axis labels.
+    pub height: Option<f32>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +51,7 @@ impl Color {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Bucket {
+    /// Axis label; empty labels leave the bucket unlabeled.
     pub label: String,
     pub values: Option<Vec<f32>>,
     pub tooltip: Content,
@@ -73,6 +79,9 @@ impl StackedChart {
     pub fn new(id: String, props: Props) -> Option<Self> {
         if !props.maximum.is_finite()
             || props.maximum < 0.
+            || props
+                .height
+                .is_some_and(|height| !height.is_finite() || !(96. ..=480.).contains(&height))
             || props.ticks.iter().any(|tick| !tick.value.is_finite())
             || props.buckets.iter().any(|bucket| {
                 bucket.tooltip.rows.len() != props.series.len()
@@ -121,6 +130,26 @@ impl StackedChart {
             .padding_inner(0.2)
             .padding_outer(0.2)
     }
+    /// Bar width and its offset within the band.
+    pub fn bar(scale: &ScaleBand<usize>) -> (f32, f32) {
+        let width = scale.band_width().min(MAX_BAR);
+        (width, (scale.band_width() - width) / 2.)
+    }
+    /// Known buckets with no usage, drawn as a baseline mark instead of a bar.
+    pub fn empty(&self) -> Vec<usize> {
+        self.props
+            .buckets
+            .iter()
+            .enumerate()
+            .filter(|(_, bucket)| {
+                bucket
+                    .values
+                    .as_ref()
+                    .is_some_and(|values| values.iter().all(|value| *value == 0.))
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
 }
 impl Plot for StackedChart {
     fn id(&self) -> Option<ElementId> {
@@ -147,6 +176,7 @@ impl Plot for StackedChart {
                 .collect::<Vec<_>>())
             .stroke(cx.theme().border)
             .paint(&plot, window);
+        let (width, inset) = Self::bar(&x);
         for (series, style) in self.series.iter().zip(&self.props.series) {
             let x = x.clone();
             let base = y.clone();
@@ -154,13 +184,24 @@ impl Plot for StackedChart {
             let color = style.color.value(cx);
             Bar::new()
                 .data(series.points.clone())
-                .band_width(x.band_width())
-                .cross(move |point| x.tick(&point.data))
+                .band_width(width)
+                .cross(move |point| x.tick(&point.data).map(|left| left + inset))
                 .base(move |point| base.tick(&f64::from(point.y0)).unwrap_or(0.))
                 .value(move |point| value.tick(&f64::from(point.y1)))
                 .fill(move |_, _, _| color)
                 .paint(&plot, window, cx);
         }
+        let baseline = area.size.height.as_f32();
+        let scale = x.clone();
+        let mark = cx.theme().muted_foreground.opacity(0.5);
+        Bar::new()
+            .data(self.empty())
+            .band_width(width)
+            .cross(move |index| scale.tick(index).map(|left| left + inset))
+            .base(move |_| baseline)
+            .value(move |_| Some(baseline - 1.))
+            .fill(move |_, _, _| mark)
+            .paint(&plot, window, cx);
         let font_size = cx.theme().font_size * 0.75;
         let mut right = area.left();
         let labels = self
@@ -168,6 +209,7 @@ impl Plot for StackedChart {
             .buckets
             .iter()
             .enumerate()
+            .filter(|(_, bucket)| !bucket.label.is_empty())
             .filter_map(|(index, bucket)| {
                 let text = SharedString::from(bucket.label.clone());
                 let width = px(measure_text_width(&text, font_size, window));

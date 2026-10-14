@@ -8,6 +8,9 @@ pub struct Query {
     pub start_ms: i64,
     /// Exclusive UTC milliseconds.
     pub end_ms: i64,
+    /// Viewer offset from UTC; day and half-hour buckets start at its local boundaries.
+    #[serde(default)]
+    pub utc_offset_minutes: i32,
     pub dimension: Dimension,
     /// Empty filters include all resources; different filters are intersected.
     pub projects: Vec<ProjectId>,
@@ -32,6 +35,9 @@ pub struct Position {
 pub struct Request {
     pub position: Position,
     pub session: SessionId,
+    /// Current session title; absent when the session has none.
+    #[serde(default)]
+    pub session_title: Option<String>,
     pub turn: TurnId,
     pub project: Option<ProjectId>,
     pub scope_name: String,
@@ -149,6 +155,9 @@ pub enum Key {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Group {
     pub key: Key,
+    /// Frozen provider or owner display name from the latest matching response.
+    #[serde(default)]
+    pub name: Option<String>,
     pub metrics: Metrics,
 }
 
@@ -161,7 +170,7 @@ pub struct Report {
     pub pricing_updated_at_ms: Option<u64>,
     pub query: Query,
     pub totals: Metrics,
-    /// UTC day buckets, including empty days in the requested range.
+    /// Local day buckets at the query offset, including empty days in the requested range.
     pub days: Vec<Point>,
     /// Half-hour buckets in the last 48 hours of the requested range.
     pub recent: Vec<Point>,

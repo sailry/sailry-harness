@@ -30,6 +30,7 @@ struct Props {
     #[serde(default)]
     cells: Vec<Vec<cells::Cell>>,
     row_height: Option<f32>,
+    header_height: Option<f32>,
     #[serde(default)]
     page: usize,
     #[serde(default)]
@@ -369,9 +370,13 @@ fn render(
                     .cells
                     .iter()
                     .any(|row| row.len() != props.columns.len()))
+        || props.cells.iter().flatten().any(|cell| !cell.valid())
         || props
             .row_height
             .is_some_and(|height| !height.is_finite() || !(32. ..=96.).contains(&height))
+        || props
+            .header_height
+            .is_some_and(|height| !height.is_finite() || !(24. ..=96.).contains(&height))
         || props
             .widths
             .iter()
@@ -440,6 +445,7 @@ fn render(
     let stripe = table.read(cx).delegate().props.stripe;
     let empty_stripes = table.read(cx).delegate().props.empty_stripes;
     let header = table.read(cx).delegate().props.header;
+    let header_height = table.read(cx).delegate().props.header_height;
     let size = table.read(cx).delegate().size();
     let owner = table.clone();
     div()
@@ -492,6 +498,9 @@ fn render(
             DataTable::new(&table)
                 .with_size(Size::Medium)
                 .when(size != Size::Medium, |table| table.with_size(size))
+                .when_some(header_height, |table, height| {
+                    table.header_row_height(px(height))
+                })
                 .bordered(false)
                 .stripe(stripe)
                 .empty_stripes(empty_stripes)

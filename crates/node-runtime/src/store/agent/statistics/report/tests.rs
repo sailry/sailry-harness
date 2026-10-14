@@ -1,7 +1,9 @@
 use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
 
+mod labels;
 mod location;
+mod offsets;
 mod requests;
 
 const START: i64 = 1_609_459_200_000;
@@ -11,6 +13,7 @@ fn query() -> Query {
         start_ms: START,
         end_ms: START + 3 * DAY,
         dimension: Dimension::Model,
+        utc_offset_minutes: 0,
         projects: vec![],
         worktrees: vec![],
         providers: vec![],

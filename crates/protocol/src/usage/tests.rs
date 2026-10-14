@@ -69,3 +69,24 @@ fn session_owner_round_trips() {
     assert_eq!(encoded["kind"], "session");
     assert_eq!(serde_json::from_value::<Key>(encoded).unwrap(), key);
 }
+
+#[test]
+fn query_offset_defaults_to_utc() {
+    let query: Query = serde_json::from_value(serde_json::json!({
+        "start_ms":0,"end_ms":1,"dimension":"project","projects":[],"worktrees":[],
+        "providers":[],"models":[],"before":null
+    }))
+    .unwrap();
+    assert_eq!(query.utc_offset_minutes, 0);
+    assert_eq!(query.dimension, Dimension::Project);
+}
+
+#[test]
+fn optional_labels_default_to_absent() {
+    let group: Group = serde_json::from_value(serde_json::json!({
+        "key":{"kind":"provider","data":ProviderId::new()},
+        "metrics":{"responses":0,"tokens":null,"cost":null,"generation":null}
+    }))
+    .unwrap();
+    assert_eq!(group.name, None);
+}

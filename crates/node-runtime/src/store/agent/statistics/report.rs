@@ -28,11 +28,13 @@ pub(in crate::store) fn read(
             row.get::<_, i64>(0)
         })
         .map_err(storage_error)? as u64;
-    let mut days = buckets(query.start_ms, query.end_ms, DAY);
+    let offset = i64::from(query.utc_offset_minutes) * 60_000;
+    let mut days = buckets(query.start_ms, query.end_ms, DAY, offset);
     let recent_start = query.start_ms.max(query.end_ms - 2 * DAY);
-    let mut recent = buckets(recent_start, query.end_ms, HALF_HOUR);
+    let mut recent = buckets(recent_start, query.end_ms, HALF_HOUR, offset);
     let mut totals = Metrics::default();
     let mut groups = BTreeMap::<Key, Metrics>::new();
+    let mut names = BTreeMap::<Key, String>::new();
     let mut resources = BTreeSet::new();
     let mut prices = pricing::Catalog::default();
     let mut requests = BTreeMap::new();
@@ -73,6 +75,11 @@ pub(in crate::store) fn read(
         };
         let provider = query::id(row, 5)?;
         let model: String = row.get(6).map_err(storage_error)?;
+        let provider_name = row
+            .get::<_, Option<String>>(19)
+            .map_err(storage_error)?
+            .unwrap_or_else(|| provider.to_string());
+        let scope_name: String = row.get(20).map_err(storage_error)?;
         let cost = prices.estimate(db, row)?;
         let elapsed = row
             .get::<_, Option<i64>>(13)
@@ -135,13 +142,16 @@ pub(in crate::store) fn read(
             owner,
             location,
         ];
-        let key = keys[match query.dimension {
-            Dimension::Provider => 0,
-            Dimension::Model => 1,
-            Dimension::Project => 2,
-            Dimension::Worktree => 3,
-        }]
-        .clone();
+        let (key, name) = match query.dimension {
+            Dimension::Provider => (keys[0].clone(), Some(&provider_name)),
+            Dimension::Model => (keys[1].clone(), Some(&provider_name)),
+            Dimension::Project => (keys[2].clone(), Some(&scope_name)),
+            Dimension::Worktree => (keys[3].clone(), None),
+        };
+        // Rows are ordered by time, so the latest frozen label wins.
+        if let Some(name) = name.filter(|name| !name.is_empty()) {
+            names.insert(key.clone(), name.clone());
+        }
         resources.extend(keys);
         if resources.len() > MAX_GROUPS * 4 {
             return Err(sailry_protocol::Fault::invalid(
@@ -160,12 +170,11 @@ pub(in crate::store) fn read(
             ));
         }
         add(&mut totals, &tokens, cost.as_ref(), elapsed)?;
-        let day = ((timestamp.div_euclid(DAY) * DAY - days[0].start_ms) / DAY) as usize;
+        let day = index(timestamp, days[0].start_ms, DAY, offset);
         add(&mut days[day].metrics, &tokens, cost.as_ref(), elapsed)?;
         add_model(&mut days[day], &model, &tokens);
         if timestamp >= recent_start {
-            let bucket = ((timestamp.div_euclid(HALF_HOUR) * HALF_HOUR - recent[0].start_ms)
-                / HALF_HOUR) as usize;
+            let bucket = index(timestamp, recent[0].start_ms, HALF_HOUR, offset);
             add(&mut recent[bucket].metrics, &tokens, cost.as_ref(), elapsed)?;
             add_model(&mut recent[bucket], &model, &tokens);
         }
@@ -180,6 +189,7 @@ pub(in crate::store) fn read(
                 Request {
                     position,
                     session: query::id(row, 16)?,
+                    session_title: None,
                     turn: query::id(row, 17)?,
                     project,
                     worktree: query::id(row, 8)?,
@@ -195,11 +205,8 @@ pub(in crate::store) fn read(
                             *value >= 0 && elapsed.is_some_and(|elapsed| *value as u64 <= elapsed)
                         })
                         .map(|value| value as u64),
-                    provider_name: row
-                        .get::<_, Option<String>>(19)
-                        .map_err(storage_error)?
-                        .unwrap_or_else(|| provider.to_string()),
-                    scope_name: row.get(20).map_err(storage_error)?,
+                    provider_name,
+                    scope_name,
                 },
             );
             if requests.len() > PAGE_SIZE {
@@ -207,6 +214,15 @@ pub(in crate::store) fn read(
                 has_more = true;
             }
         }
+    }
+    let mut items: Vec<Request> = requests.into_values().rev().collect();
+    let mut titles = BTreeMap::new();
+    for item in &mut items {
+        if !titles.contains_key(&item.session) {
+            let title = crate::store::agent::activity::title(db, item.session)?;
+            titles.insert(item.session, Some(title).filter(|title| !title.trim().is_empty()));
+        }
+        item.session_title = titles[&item.session].clone();
     }
     let report = Report {
         node,
@@ -218,13 +234,14 @@ pub(in crate::store) fn read(
         recent,
         groups: groups
             .into_iter()
-            .map(|(key, metrics)| Group { key, metrics })
+            .map(|(key, metrics)| Group {
+                name: names.remove(&key),
+                key,
+                metrics,
+            })
             .collect(),
         resources: resources.into_iter().collect(),
-        requests: Page {
-            items: requests.into_values().rev().collect(),
-            has_more,
-        },
+        requests: Page { items, has_more },
     };
     if serde_json::to_vec(&report).map_err(storage_error)?.len() > MAX_FRAME_BYTES - 64 * 1024 {
         return Err(sailry_protocol::Fault::invalid(
@@ -234,8 +251,17 @@ pub(in crate::store) fn read(
     Ok(report)
 }
 
-fn buckets(start: i64, end: i64, width: i64) -> Vec<Point> {
-    let first = start.div_euclid(width) * width;
+/// Start of the local bucket containing `timestamp`, in UTC milliseconds.
+fn floor(timestamp: i64, width: i64, offset: i64) -> i64 {
+    (timestamp + offset).div_euclid(width) * width - offset
+}
+
+fn index(timestamp: i64, first: i64, width: i64, offset: i64) -> usize {
+    ((floor(timestamp, width, offset) - first) / width) as usize
+}
+
+fn buckets(start: i64, end: i64, width: i64, offset: i64) -> Vec<Point> {
+    let first = floor(start, width, offset);
     (first..end)
         .step_by(width as usize)
         .map(|start_ms| Point {

@@ -224,6 +224,7 @@ async fn preserves_regional_routes_and_usage() {
                     start_ms: now - 86_400_000,
                     end_ms: now + 86_400_000,
                     dimension: Dimension::Model,
+                    utc_offset_minutes: 0,
                     projects: vec![],
                     worktrees: vec![],
                     providers: vec![fixture.provider.id],

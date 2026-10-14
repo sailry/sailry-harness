@@ -242,3 +242,74 @@ fn multiline_cells_preserve_selection_and_scrolling(cx: &mut TestAppContext) {
         visual.update(|window, _| window.remove_window());
     }
 }
+
+mod inline_parts {
+    use super::*;
+
+    fn line(meter: serde_json::Value) -> cells::Line {
+        serde_json::from_value(json!({
+            "text":"12.3k","badge":"G","note":"Provider","chip":"Project",
+            "text_tone":"muted","meter":meter,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn validates_meter_and_badge_bounds() {
+        assert!(line(json!({"value":42,"label":"42%","tone":"warning"})).valid());
+        assert!(!line(json!({"value":120,"label":"120%"})).valid());
+        assert!(!line(json!({"value":42,"label":"42%","width":8})).valid());
+        let mut wide = line(json!({"value":42,"label":"42%"}));
+        wide.badge = Some("ABC".into());
+        assert!(!wide.valid());
+    }
+
+    #[gpui::test]
+    fn share_one_line(cx: &mut TestAppContext) {
+        init(cx);
+        let props: Props = serde_json::from_value(json!({
+            "revision":"1", "columns":["Model", "Input"], "rows":[["Model · Provider", "12.3k · 42%"]],
+            "cells":[[
+                {"primary":{"text":"Model","badge":"P","note":"Provider","chip":"Project"}},
+                {"primary":{"text":"12.3k","meter":{"value":42,"label":"42%","tone":"warning","icon":"reicon:ui/alert-triangle"}}},
+            ]],
+            "alignments":["start", "end"], "widths":[240, 160], "row_height":40, "header_height":32,
+        }))
+        .unwrap();
+        let (sender, _) = tokio::sync::mpsc::channel(8);
+        let (_, visual) = cx.add_window_view(|window, cx| {
+            let events = cx.new(|_| Events::new(sender, CancellationToken::new()));
+            let table = cx.new(|cx| {
+                TableState::new(
+                    Rows {
+                        id: "parts".into(),
+                        props,
+                        selected: BTreeSet::new(),
+                        anchor: None,
+                        cursor: None,
+                        events,
+                    },
+                    window,
+                    cx,
+                )
+            });
+            let view = cx.new(|_| Harness { table });
+            Root::new(view, window, cx)
+        });
+        visual.simulate_resize(size(px(480.), px(200.)));
+        for _ in 0..4 {
+            visual.run_until_parked();
+            visual.update(|window, cx| window.draw(cx).clear(cx));
+        }
+        let row = visual.debug_bounds("parts-row-0").unwrap();
+        let name = visual.debug_bounds("parts-cell-0-0-primary").unwrap();
+        let meter = visual.debug_bounds("parts-cell-0-1-primary-meter").unwrap();
+        assert_eq!(row.size.height, px(40.));
+        assert!(name.top() >= row.top() && name.bottom() <= row.bottom());
+        assert!(meter.top() >= row.top() && meter.bottom() <= row.bottom());
+        assert!((meter.center().y - name.center().y).abs() <= px(1.));
+        assert_eq!(meter.size, size(px(36.), px(4.)));
+        assert!(visual.debug_bounds("parts-cell-0-0-secondary").is_none());
+        visual.update(|window, _| window.remove_window());
+    }
+}

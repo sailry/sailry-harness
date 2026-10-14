@@ -213,8 +213,8 @@ export function listRoles(): Promise<Array<unknown>>;
 export function newRoleId(): string;
 export function prepareRole(role: unknown, expected_revision: number): string;
 export function prepareRemoveRole(id: string, expected_revision: number): string;
-/** Canonical Sailry reports only. Integer counters and cursors are exact decimal strings. */
-export interface UsageQuery {start_ms:number|string;end_ms:number|string;dimension:'model';projects:string[];worktrees:string[];providers:string[];models:string[];before:null|{node:string;timestamp_ms:string;sequence:string}}
+/** Canonical Sailry reports only. Integer counters and cursors are exact decimal strings. Groups cover the selected dimension; day buckets start at local midnight for `utc_offset_minutes`, which defaults to the desktop's current offset. */
+export interface UsageQuery {start_ms:number|string;end_ms:number|string;utc_offset_minutes?:number|string;dimension:'model'|'provider'|'project';projects:string[];worktrees:string[];providers:string[];models:string[];before:null|{node:string;timestamp_ms:string;sequence:string}}
 export function usageSources():{node:string;label:string}[];
 export function readUsageInventory(node?:string):Promise<{node:string;projects:{id:string;name:string}[];providers:{id:string;name:string;models:string[]}[]}>;
 export function readUsageChoices(query:UsageQuery,node?:string):Promise<Record<string,unknown>>;

@@ -93,13 +93,7 @@ pub(super) fn module(module: HostModule) -> HostModule {
             let Some(chart) = heatmap::Heatmap::new(args.id().to_owned(), props) else {
                 return div().into_any_element();
             };
-            let id = args.id().to_owned();
-            div()
-                .debug_selector(move || id.clone())
-                .w_full()
-                .h(chart.height())
-                .child(chart)
-                .into_any_element()
+            chart.frame(args.id().to_owned())
         })
         .component("StackedChart", |args, _, _| {
             let Ok(props) = decode(args.props()).and_then(|value| {
@@ -115,7 +109,7 @@ pub(super) fn module(module: HostModule) -> HostModule {
             div()
                 .debug_selector(move || id.clone())
                 .w_full()
-                .h(px(148.))
+                .h(px(chart.props.height.unwrap_or(148.)))
                 .child(chart)
                 .into_any_element()
         })

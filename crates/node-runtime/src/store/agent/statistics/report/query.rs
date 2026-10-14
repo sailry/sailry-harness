@@ -50,6 +50,7 @@ pub(super) fn validate(query: &Query) -> Result<(DateTime<Utc>, DateTime<Utc>), 
         })
         || query.end_ms <= query.start_ms
         || query.end_ms - query.start_ms > 366 * DAY
+        || query.utc_offset_minutes.unsigned_abs() > 14 * 60
         || [
             query.projects.len(),
             query.worktrees.len(),

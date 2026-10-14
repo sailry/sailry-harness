@@ -106,3 +106,36 @@ fn routes_flat_and_dropdown_selections(cx: &mut TestAppContext) {
     assert!(receiver.try_recv().is_err());
     visual.update(|window, _| window.remove_window());
 }
+
+#[gpui::test]
+fn segmented_filters_emit_choices(cx: &mut TestAppContext) {
+    init(cx);
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+    let content: Content = serde_json::from_value(json!({"filters":[{
+        "id":"range", "label":"Range", "selected":"30", "primary":true, "segmented":true,
+        "items":[{"id":"7", "label":"7 days"}, {"id":"30", "label":"30 days"}]
+    }]}))
+    .unwrap();
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let header = cx.new(|cx| {
+            let mut header = Header {
+                content,
+                trailing: false,
+                filters: Default::default(),
+                tabs: super::super::controls::tabs::Controls::new(CancellationToken::new()),
+                actions: sender,
+            };
+            header.sync_filters(window, cx);
+            header
+        });
+        Root::new(header, window, cx)
+    });
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(visual.debug_bounds("range").is_some());
+    assert!(visual.debug_bounds("range-item-30").is_some());
+    click(visual, "range-item-7");
+    let value: serde_json::Value = serde_json::from_str(&receiver.try_recv().unwrap()).unwrap();
+    assert_eq!(value, json!({"id":"range", "value":"7"}));
+    assert!(receiver.try_recv().is_err());
+    visual.update(|window, _| window.remove_window());
+}
