@@ -176,6 +176,7 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
             continue;
         }
         let mut body = String::new();
+        let mut text_run = false;
         for (index, part) in entry.parts.iter().enumerate() {
             if !user
                 && boundaries
@@ -187,18 +188,21 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
             match part {
                 Part::Text(text) => {
                     body.push_str(text);
-                    body.push_str("\n\n");
+                    text_run = true;
                 }
                 Part::Attachment(attachment) => {
+                    finish_text(&mut body, &mut text_run);
                     attachment_link(&mut body, &mut attachments, attachment, assets, false)?
                 }
                 Part::Image(image) => {
+                    finish_text(&mut body, &mut text_run);
                     attachment_link(&mut body, &mut attachments, &image.attachment, assets, true)?;
                     images.insert(image.attachment.id, image.clone());
                 }
-                _ => (),
+                _ => finish_text(&mut body, &mut text_run),
             }
         }
+        finish_text(&mut body, &mut text_run);
         if body.is_empty() {
             continue;
         }
@@ -241,6 +245,12 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
         attachments: attachments.into_values().collect(),
         images: images.into_values().collect(),
     })
+}
+
+fn finish_text(output: &mut String, active: &mut bool) {
+    if std::mem::take(active) {
+        output.push_str("\n\n");
+    }
 }
 
 fn attachment_link(

@@ -44,6 +44,74 @@ fn keeps_body_without_thinking() {
 }
 
 #[test]
+fn joins_adjacent_text() {
+    let fragments = [
+        "摘要 **完",
+        "整**\n\n| 列 | 值 |\n| --- | --- |\n| 中文 | 1 |\n\n公式 $x",
+        "^2$。\n\n```",
+        "mer",
+        "maid\nflowchart",
+        " LR\nA[用户下单] --",
+        "> B[支付]\n",
+        "```\n",
+    ];
+    let source = fragments.concat();
+    let page = page(
+        fragments
+            .into_iter()
+            .map(|fragment| Part::Text(fragment.into()))
+            .collect(),
+    );
+    let document = render(&page, "Fragments", Format::Markdown, "assets").unwrap();
+    assert_eq!(document.content, format!("## user\n\n{source}\n\n"));
+    let document = render(&page, "Fragments", Format::Html, "assets").unwrap();
+    assert!(document.content.contains("<strong>完整</strong>"));
+    assert!(document.content.contains("<table>"));
+    assert!(
+        document
+            .content
+            .contains("<span class=\"math inline\">\\(x^2\\)</span>")
+    );
+    assert!(document.content.contains(
+        "<pre><code class=\"language-mermaid\">flowchart LR\nA[用户下单] --&gt; B[支付]\n</code></pre>"
+    ));
+}
+
+#[test]
+fn separates_attachment_boundaries() {
+    let attachment = Attachment {
+        id: AttachmentId::new(),
+        spec: Spec {
+            worktree: WorktreeId::new(),
+            name: "file.txt".into(),
+            media_type: "text/plain".into(),
+            size: 3,
+            revision: blake3::hash(b"txt").to_hex().to_string(),
+        },
+    };
+    let name = attachment_name(&attachment);
+    let document = render(
+        &page(vec![
+            Part::Text("Before".into()),
+            Part::Attachment(attachment.clone()),
+            Part::Text("After".into()),
+        ]),
+        "Attachment",
+        Format::Markdown,
+        "assets",
+    )
+    .unwrap();
+    assert_eq!(
+        document.attachments.as_slice(),
+        std::slice::from_ref(&attachment)
+    );
+    assert_eq!(
+        document.content,
+        format!("## user\n\nBefore\n\n[file.txt](<assets/{name}>)\n\nAfter\n\n")
+    );
+}
+
+#[test]
 fn escapes_html_and_script_links() {
     let document = render(
         &page(vec![Part::Text(
