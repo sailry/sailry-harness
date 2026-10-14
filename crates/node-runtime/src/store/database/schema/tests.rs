@@ -245,6 +245,89 @@ mod startup {
     use sailry_protocol::RequestId;
     use std::{ffi::OsString, path::PathBuf};
 
+    fn queue_receipt() -> serde_json::Value {
+        serde_json::json!({"Ok": {
+            "kind": "queue",
+            "data": {
+                "session": sailry_protocol::SessionId::new(),
+                "queue": {"revision": 3, "paused": true, "items": [{
+                    "turn": sailry_protocol::TurnId::new(), "kind": "task", "revision": 2,
+                    "config_revision": 1, "ready": false, "guidance": null,
+                    "preview": "Retained input", "truncated": false, "attachments": []
+                }]},
+                "runs": []
+            }
+        }})
+    }
+
+    #[test]
+    fn retains_unrecorded_queue_identity() {
+        let (directory, path, node) = fixture("");
+        let connection = Connection::open(&path).unwrap();
+        let receipt = queue_receipt().to_string();
+        connection
+            .execute(
+                "UPDATE requests SET status='completed',result=?1",
+                [&receipt],
+            )
+            .unwrap();
+        let before = std::fs::read(&path).unwrap();
+        let files = entries(directory.path());
+        let changes = connection.total_changes();
+        let schema = prepare(&connection, &path, node).unwrap();
+        assert!(matches!(&schema.0, State::Current));
+        schema.initialize(&connection).unwrap();
+        assert_eq!(connection.total_changes(), changes);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(entries(directory.path()), files);
+        let stored: (Vec<u8>, String, String) = connection
+            .query_row("SELECT body,status,result FROM requests", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap();
+        assert_eq!(stored, (b"kept".to_vec(), "completed".into(), receipt));
+        let decoded = crate::store::outcomes::decode(&stored.2).unwrap();
+        let Ok(sailry_protocol::Output::Queue(update)) = decoded else {
+            panic!("queue receipt expected");
+        };
+        assert_eq!(update.queue.items[0].request, None);
+        assert!(!directory.path().join("backups").exists());
+    }
+
+    #[test]
+    fn rejects_invalid_queue_identity() {
+        for missing_revision in [false, true] {
+            let (directory, path, node) = fixture("");
+            let connection = Connection::open(&path).unwrap();
+            let mut receipt = queue_receipt();
+            let item = &mut receipt["Ok"]["data"]["queue"]["items"][0];
+            if missing_revision {
+                item.as_object_mut().unwrap().remove("revision");
+            } else {
+                item["request"] = serde_json::json!("invalid-request-id");
+            }
+            connection
+                .execute(
+                    "UPDATE requests SET status='completed',result=?1",
+                    [receipt.to_string()],
+                )
+                .unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let files = entries(directory.path());
+            let changes = connection.total_changes();
+            let error = prepare(&connection, &path, node).err().unwrap().to_string();
+            assert!(
+                error.contains("invalid stored JSON in requests.result"),
+                "{error}"
+            );
+            assert!(error.contains("(Data)"), "{error}");
+            assert!(error.contains("existing data was not changed"), "{error}");
+            assert_eq!(connection.total_changes(), changes);
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+            assert_eq!(entries(directory.path()), files);
+        }
+    }
+
     #[test]
     fn adds_missing_tables() {
         for table in [

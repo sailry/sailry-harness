@@ -201,7 +201,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Queue, Fault> 
             preview.truncate(end);
             Ok(Pending {
                 turn: run.turn,
-                request: request.id,
+                request: Some(request.id),
                 kind: run.kind,
                 revision,
                 config_revision: run.revision,

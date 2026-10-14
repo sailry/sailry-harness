@@ -185,7 +185,7 @@ fn idle_submission_keeps_transcript_placement(cx: &mut TestAppContext) {
             let turn = view.read_with(visual, |view, _| {
                 let outgoing = view.outgoing.as_ref().unwrap();
                 let queued = view.transcript_pending().unwrap();
-                assert_eq!(queued.request, request);
+                assert_eq!(queued.request, Some(request));
                 assert_eq!(outgoing.request, Some(request));
                 assert_eq!(outgoing.row, row);
                 assert_eq!(outgoing.turn, Some(queued.turn));
@@ -202,14 +202,18 @@ fn idle_submission_keeps_transcript_placement(cx: &mut TestAppContext) {
                     .is_none()
             );
 
-            // An identical preview with another command identity stays visible in the queue.
+            // Identical previews without this exact command identity stay visible in the queue.
             visual.update(|_, cx| {
                 view.update(cx, |view, cx| {
                     let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
                     let page = Arc::make_mut(&mut snapshot.page);
                     let mut foreign = page.queue.items[0].clone();
                     foreign.turn = TurnId::new();
-                    foreign.request = sailry_protocol::RequestId::new();
+                    foreign.request = Some(sailry_protocol::RequestId::new());
+                    let mut historical = page.queue.items[0].clone();
+                    historical.turn = TurnId::new();
+                    historical.request = None;
+                    page.queue.items.insert(0, historical);
                     page.queue.items.push(foreign);
                     cx.notify();
                 })
@@ -221,9 +225,17 @@ fn idle_submission_keeps_transcript_placement(cx: &mut TestAppContext) {
                     .debug_bounds(Box::leak(format!("queue-row-{turn}").into_boxed_str()))
                     .is_none()
             );
-            let foreign = view.read_with(visual, |view, _| {
-                view.history.snapshot.as_ref().unwrap().page.queue.items[1].turn
+            let (historical, foreign) = view.read_with(visual, |view, _| {
+                let items = &view.history.snapshot.as_ref().unwrap().page.queue.items;
+                (items[0].turn, items[2].turn)
             });
+            assert!(
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("queue-row-{historical}").into_boxed_str()
+                    ))
+                    .is_some()
+            );
             assert!(
                 visual
                     .debug_bounds(Box::leak(format!("queue-row-{foreign}").into_boxed_str()))
@@ -232,7 +244,10 @@ fn idle_submission_keeps_transcript_placement(cx: &mut TestAppContext) {
             visual.update(|_, cx| {
                 view.update(cx, |view, cx| {
                     let snapshot = Arc::make_mut(view.history.snapshot.as_mut().unwrap());
-                    Arc::make_mut(&mut snapshot.page).queue.items.pop();
+                    Arc::make_mut(&mut snapshot.page)
+                        .queue
+                        .items
+                        .retain(|item| item.turn == turn);
                     cx.notify();
                 })
             });

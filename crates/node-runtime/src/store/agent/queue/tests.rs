@@ -13,7 +13,7 @@ fn pauses_unclaimed_input_after_restart() {
         let before = read(&fixture.database.connection, fixture.session).unwrap();
         assert!(!before.paused);
         assert_eq!(before.items[0].ready, ready);
-        assert_eq!(before.items[0].request, message.turn.request);
+        assert_eq!(before.items[0].request, Some(message.turn.request));
         let path = fixture
             ._root
             .path()
@@ -89,7 +89,7 @@ fn edits_publish_current_input_identity() {
     let turn = fixture.queued();
     let original = message(&fixture.database.connection, turn).unwrap();
     let before = read(&fixture.database.connection, fixture.session).unwrap();
-    assert_eq!(before.items[0].request, original.turn.request);
+    assert_eq!(before.items[0].request, Some(original.turn.request));
     let Output::Queue(update) = command(
         &mut fixture.database,
         &fixture.events,
@@ -114,7 +114,7 @@ fn edits_publish_current_input_identity() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(edited.items[0].request.to_string(), stored);
+    assert_eq!(edited.items[0].request, Some(stored.parse().unwrap()));
     assert_eq!(
         message(&fixture.database.connection, turn).unwrap().turn,
         original.turn

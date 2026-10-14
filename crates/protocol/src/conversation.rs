@@ -222,8 +222,9 @@ pub struct Queue {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pending {
     pub turn: TurnId,
-    /// Durable command identity of this queued input revision.
-    pub request: crate::RequestId,
+    /// Durable input identity, absent only when an older receipt did not record it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<crate::RequestId>,
     pub kind: RunKind,
     /// Editable message revision, independent of the frozen session revision.
     pub revision: u64,
@@ -249,6 +250,10 @@ pub struct QueueUpdate {
     pub queue: Queue,
     pub runs: Vec<Run>,
 }
+
+#[cfg(test)]
+#[path = "conversation/queue_tests.rs"]
+mod queue_tests;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

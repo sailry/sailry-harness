@@ -6,7 +6,10 @@ use sailry_protocol::{
 
 /// Correlates one local command with its exact durable queued input revision.
 pub fn pending(queue: &Queue, request: RequestId) -> Option<&Pending> {
-    queue.items.iter().find(|item| item.request == request)
+    queue
+        .items
+        .iter()
+        .find(|item| item.request == Some(request))
 }
 
 /// Canonical user content replaces the claim capture without inventing history entries.
