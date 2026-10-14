@@ -87,15 +87,23 @@ impl Category {
 
     pub fn icon(self) -> gpui_kit::component::Icon {
         use gpui_kit::component::{Icon, IconName};
+        self.logo().map_or_else(
+            || Icon::new(IconName::Settings2),
+            |path| Icon::empty().path(path),
+        )
+    }
+
+    /// Logo asset path; generic providers have none.
+    pub fn logo(self) -> Option<String> {
         let name = match self {
             Self::OpenAi => "openai",
             Self::Anthropic => "anthropic",
             Self::Gemini => "gemini",
             Self::Vendor(vendor) => vendor.logo(),
-            Self::Other => return Icon::new(IconName::Settings2),
+            Self::Other => return None,
             Self::OpenCodeGo | Self::OpenCodeZen => "opencode",
         };
-        Icon::empty().path(format!("icons/providers/{name}.svg"))
+        Some(format!("icons/providers/{name}.svg"))
     }
 
     pub fn key(self) -> &'static str {

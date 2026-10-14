@@ -25,6 +25,8 @@ pub(super) struct Line {
     pub text_tone: Option<Tone>,
     /// Leading one or two character monogram on a neutral surface.
     pub badge: Option<String>,
+    /// Icon shown on the badge surface in place of the monogram.
+    pub badge_icon: Option<String>,
     /// Muted text following the main text on the same line.
     pub note: Option<String>,
     /// Bordered muted label following the text.
@@ -42,6 +44,9 @@ pub(super) struct Meter {
     pub tone: Option<Tone>,
     pub icon: Option<String>,
     pub width: Option<f32>,
+    /// Stretches the bar across the remaining line width; `width` is then ignored.
+    #[serde(default)]
+    pub fill: bool,
 }
 
 #[derive(Clone, Copy, Deserialize, PartialEq)]
@@ -84,17 +89,17 @@ impl Meter {
             .tone
             .map_or(cx.theme().muted_foreground, |tone| tone.color(cx));
         let id = id.to_owned();
+        let bar = Progress::new(id).xsmall().value(self.value).color(color);
         h_flex()
-            .flex_shrink_0()
+            .when(self.fill, |meter| meter.flex_1().min_w_0())
+            .when(!self.fill, |meter| meter.flex_shrink_0())
             .items_center()
             .gap_1()
-            .child(
-                Progress::new(id)
-                    .xsmall()
-                    .w(px(self.width.unwrap_or(36.)))
-                    .value(self.value)
-                    .color(color),
-            )
+            .child(if self.fill {
+                div().flex_1().min_w_0().child(bar.w_full())
+            } else {
+                div().child(bar.w(px(self.width.unwrap_or(36.))))
+            })
             .child(
                 h_flex()
                     .min_w(px(36.))
@@ -147,7 +152,7 @@ impl Line {
             .gap_1()
             .when(alignment == Alignment::End, |line| line.justify_end())
             .when(secondary, |line| line.text_xs().text_color(muted))
-            .when_some(self.badge.clone(), |line, badge| {
+            .when(self.badge.is_some() || self.badge_icon.is_some(), |line| {
                 line.child(
                     div()
                         .flex_shrink_0()
@@ -161,7 +166,16 @@ impl Line {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(badge),
+                        .map(|badge| match (&self.badge_icon, &self.badge) {
+                            (Some(path), _) => badge.child(
+                                Icon::default()
+                                    .path(path.clone())
+                                    .size_3()
+                                    .text_color(cx.theme().foreground),
+                            ),
+                            (None, Some(text)) => badge.child(text.clone()),
+                            (None, None) => badge,
+                        }),
                 )
             })
             .when_some(self.icon.clone(), |line, path| {

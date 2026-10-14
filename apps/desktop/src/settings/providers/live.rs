@@ -13,6 +13,8 @@ use sailry_protocol::{
 use std::{collections::BTreeMap, sync::Arc};
 
 pub(super) mod quota;
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone)]
 pub(in crate::settings) struct Binding {
@@ -280,6 +282,49 @@ pub(in crate::settings) fn local(owner: &mut Workspace, cx: &mut Context<Workspa
     }
 }
 
+/// The editor preset a configured provider corresponds to.
+fn preset(provider: &Provider) -> Preset {
+    match (provider.authentication, provider.api) {
+        (sailry_protocol::Authentication::ChatGptOAuth, _) => Preset::ChatGptOAuth,
+        (sailry_protocol::Authentication::ChatGpt, _) => Preset::ChatGpt,
+        (sailry_protocol::Authentication::ClaudeOAuth, _) => Preset::ClaudeOAuth,
+        (sailry_protocol::Authentication::Copilot, ModelApi::Responses) => Preset::CopilotResponses,
+        (sailry_protocol::Authentication::Copilot, _) => Preset::Copilot,
+        (_, api) => match api {
+            ModelApi::AzureOpenAi => Preset::AzureOpenAi,
+            ModelApi::AzureAi => Preset::AzureAi,
+            ModelApi::DeepSeek => Preset::Hosted(super::vendors::Vendor::DeepSeek),
+            ModelApi::OpenCodeGo => Preset::OpenCodeGo,
+            ModelApi::OpenCodeZen => Preset::OpenCodeZen,
+            ModelApi::ChatCompletions => super::vendors::Vendor::from_endpoint(&provider.endpoint)
+                .map(Preset::Hosted)
+                .unwrap_or(Preset::CompatibleChat),
+            ModelApi::Responses if provider.endpoint == "https://api.openai.com/v1" => {
+                Preset::OpenAi
+            }
+            ModelApi::Responses => Preset::CompatibleResponses,
+            ModelApi::Anthropic
+                if provider.endpoint.trim_end_matches('/') == "https://api.anthropic.com" =>
+            {
+                Preset::Anthropic
+            }
+            ModelApi::Anthropic => Preset::CompatibleAnthropic,
+            ModelApi::Gemini
+                if provider.endpoint.trim_end_matches('/')
+                    == "https://generativelanguage.googleapis.com/v1beta" =>
+            {
+                Preset::Gemini
+            }
+            ModelApi::Gemini => Preset::CompatibleGemini,
+        },
+    }
+}
+
+/// Logo asset path of the provider's configured type, or None for generic providers.
+pub(crate) fn logo(provider: &Provider) -> Option<String> {
+    preset(provider).category().logo()
+}
+
 pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
     Channel {
         options: provider.options.clone(),
@@ -287,44 +332,7 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
         quota: None,
         id,
         name: provider.name.clone(),
-        preset: match (provider.authentication, provider.api) {
-            (sailry_protocol::Authentication::ChatGptOAuth, _) => Preset::ChatGptOAuth,
-            (sailry_protocol::Authentication::ChatGpt, _) => Preset::ChatGpt,
-            (sailry_protocol::Authentication::ClaudeOAuth, _) => Preset::ClaudeOAuth,
-            (sailry_protocol::Authentication::Copilot, ModelApi::Responses) => {
-                Preset::CopilotResponses
-            }
-            (sailry_protocol::Authentication::Copilot, _) => Preset::Copilot,
-            (_, api) => match api {
-                ModelApi::AzureOpenAi => Preset::AzureOpenAi,
-                ModelApi::AzureAi => Preset::AzureAi,
-                ModelApi::DeepSeek => Preset::Hosted(super::vendors::Vendor::DeepSeek),
-                ModelApi::OpenCodeGo => Preset::OpenCodeGo,
-                ModelApi::OpenCodeZen => Preset::OpenCodeZen,
-                ModelApi::ChatCompletions => {
-                    super::vendors::Vendor::from_endpoint(&provider.endpoint)
-                        .map(Preset::Hosted)
-                        .unwrap_or(Preset::CompatibleChat)
-                }
-                ModelApi::Responses if provider.endpoint == "https://api.openai.com/v1" => {
-                    Preset::OpenAi
-                }
-                ModelApi::Responses => Preset::CompatibleResponses,
-                ModelApi::Anthropic
-                    if provider.endpoint.trim_end_matches('/') == "https://api.anthropic.com" =>
-                {
-                    Preset::Anthropic
-                }
-                ModelApi::Anthropic => Preset::CompatibleAnthropic,
-                ModelApi::Gemini
-                    if provider.endpoint.trim_end_matches('/')
-                        == "https://generativelanguage.googleapis.com/v1beta" =>
-                {
-                    Preset::Gemini
-                }
-                ModelApi::Gemini => Preset::CompatibleGemini,
-            },
-        },
+        preset: preset(provider),
         endpoint: provider.endpoint.clone(),
         credential_configured: provider.credential.is_some(),
         enabled: provider.enabled,

@@ -104,22 +104,6 @@ impl Header {
             .map(|field| field.props.selected.as_str())
     }
 
-    #[cfg(test)]
-    pub(crate) fn filter_items(&self, id: &str) -> Vec<String> {
-        self.filters
-            .fields
-            .get(id)
-            .map(|field| {
-                field
-                    .props
-                    .items
-                    .iter()
-                    .map(|choice| choice.label.clone())
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     pub(super) fn sync_filters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.filters.fields.retain(|id, field| {
             self.content

@@ -53,6 +53,8 @@ struct Props {
     stripe: bool,
     #[serde(default = "resizable")]
     header: bool,
+    /// Column that absorbs the table's remaining width; its `widths` entry is the minimum.
+    fill: Option<usize>,
 }
 fn resizable() -> bool {
     true
@@ -70,6 +72,8 @@ struct Rows {
     anchor: Option<usize>,
     cursor: Option<usize>,
     events: Entity<Events>,
+    /// Last laid-out table width, used only by the fill column.
+    width: Pixels,
 }
 impl Rows {
     fn size(&self) -> Size {
@@ -84,6 +88,21 @@ impl Rows {
                 Some(Alignment::End) => TextAlign::Right,
                 _ => TextAlign::Left,
             })
+    }
+    fn width(&self, column: usize) -> Pixels {
+        px(self.props.widths.get(column).copied().unwrap_or(180.))
+    }
+    fn fill(&self, column: usize) -> Pixels {
+        let width = self.width(column);
+        if self.props.fill != Some(column) {
+            return width;
+        }
+        let others = (0..self.props.columns.len())
+            .filter(|index| *index != column)
+            .map(|index| self.width(index))
+            .fold(px(0.), |sum, width| sum + width);
+        // One spare pixel keeps rounding from showing a horizontal scrollbar.
+        width.max((self.width - others - px(1.)).floor())
     }
     fn count(&self) -> usize {
         self.props
@@ -145,7 +164,7 @@ impl TableDelegate for Rows {
     }
     fn column(&self, index: usize, _: &App) -> Column {
         Column::new(format!("column-{index}"), self.props.columns[index].clone())
-            .width(px(self.props.widths.get(index).copied().unwrap_or(180.)))
+            .width(self.fill(index))
             .resizable(self.props.resizable)
             .movable(false)
             .when(
@@ -379,6 +398,7 @@ fn render(
             .widths
             .iter()
             .any(|width| !width.is_finite() || *width < 16. || *width > 4096.)
+        || props.fill.is_some_and(|fill| fill >= props.columns.len())
         || !props.details.is_empty()
             && (props.details.len() != props.rows.len()
                 || props
@@ -404,6 +424,7 @@ fn render(
                     anchor: None,
                     cursor: None,
                     events: events.clone(),
+                    width: px(0.),
                 },
                 window,
                 cx,
@@ -445,12 +466,28 @@ fn render(
     let header_height = table.read(cx).delegate().props.header_height;
     let size = table.read(cx).delegate().size();
     let owner = table.clone();
+    let measured = table.clone();
     div()
         .id(SharedString::from(id.clone()))
         .debug_selector(move || id.clone())
         .size_full()
         .min_h_0()
         .min_w_0()
+        .on_prepaint(move |bounds, _, cx| {
+            // Kit columns have fixed widths; the fill column is resized after layout.
+            let width = bounds.size.width;
+            let table = measured.clone();
+            cx.defer(move |cx| {
+                table.update(cx, |table, cx| {
+                    let rows = table.delegate_mut();
+                    if rows.props.fill.is_some() && rows.width != width {
+                        rows.width = width;
+                        table.refresh(cx);
+                        cx.notify();
+                    }
+                })
+            });
+        })
         .on_key_down(move |event: &KeyDownEvent, window, cx| {
             owner.update(cx, |table, cx| {
                 let rows = table.delegate_mut();
