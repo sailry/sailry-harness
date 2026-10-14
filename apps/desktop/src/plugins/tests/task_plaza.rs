@@ -137,14 +137,34 @@ fn rooms_sidebar_and_lifecycle(cx: &mut TestAppContext) {
             assert!(visual.debug_bounds(room).is_some());
             let board = visual.debug_bounds(room).unwrap();
             assert!(board.size.height >= px(64.));
-            let first = visual
-                .debug_bounds(selector(format!("plaza-room-{project}-row-0")))
+            let name = visual
+                .debug_bounds(selector(format!("plaza-room-{project}-name")))
                 .unwrap();
-            let second = visual
-                .debug_bounds(selector(format!("plaza-room-{project}-row-1")))
+            let statistics = visual
+                .debug_bounds(selector(format!("plaza-room-{project}-statistics")))
                 .unwrap();
-            assert!(board.top() <= first.top() && first.bottom() <= second.top());
-            assert!(second.bottom() <= board.bottom());
+            assert!(board.top() < name.top() && name.bottom() <= statistics.top());
+            assert!(statistics.bottom() < board.bottom());
+            assert!(name.left() > board.left() && name.right() < board.right());
+            let columns = ["running", "approval", "completed", "idle"].map(|state| {
+                visual
+                    .debug_bounds(selector(format!("plaza-room-{project}-{state}")))
+                    .unwrap()
+            });
+            for pair in columns.windows(2) {
+                assert!((pair[0].size.width - pair[1].size.width).abs() < px(1.));
+                assert!(pair[0].right() <= pair[1].left() + px(1.));
+            }
+            // The board sits on the room's top edge; the pager sits in the
+            // opening of its bottom edge and shares the room's center.
+            let outline = visual.debug_bounds("plaza-room-outline-0").unwrap();
+            assert!(board.top() < outline.top() && outline.top() < board.bottom());
+            assert!((board.center().x - outline.center().x).abs() < px(1.));
+            let pager = visual
+                .debug_bounds(selector(format!("plaza-room-pages-{project}")))
+                .unwrap();
+            assert!((pager.center().x - outline.center().x).abs() < px(1.));
+            assert!((pager.center().y - outline.bottom()).abs() < px(1.));
             assert!(
                 visual
                     .debug_bounds(selector(format!("plaza-{}-status", fixture.session.id)))
