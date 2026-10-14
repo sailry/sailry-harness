@@ -73,7 +73,7 @@ pub(in crate::store) fn read(
             cached_input: row.get::<_, i64>(3).map_err(storage_error)? as u64,
             reasoning: row.get::<_, i64>(4).map_err(storage_error)? as u64,
         };
-        let provider = query::id(row, 5)?;
+        let provider: sailry_protocol::ProviderId = query::id(row, 5)?;
         let model: String = row.get(6).map_err(storage_error)?;
         let provider_name = row
             .get::<_, Option<String>>(19)
