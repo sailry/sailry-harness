@@ -540,8 +540,10 @@ async fn reproduce_export(
         .update(|_, cx| view.read(cx).native_fixture().unwrap().clone())
         .unwrap();
     // Composition keeps live content beneath overlays. Independently retain
-    // the real hidden-page capture policy through Kit's retained raw handle.
-    native.page.raw().set_visible(false).unwrap();
+    // the real hidden-page capture policy through Kit's managed native owner.
+    cx.update(|_, cx| native.set_visible(false, cx))
+        .unwrap()
+        .unwrap();
     assert!(!visible(&native));
     let started = Instant::now();
     let captured = cx
@@ -550,7 +552,9 @@ async fn reproduce_export(
         .await
         .expect("live capture must complete while the normal-policy page is hidden");
     assert!(!visible(&native), "capture must not reveal the hidden page");
-    native.page.raw().set_visible(true).unwrap();
+    cx.update(|_, cx| native.set_visible(true, cx))
+        .unwrap()
+        .unwrap();
     assert!(captured.contains("Export end marker"));
     println!(
         "Brief {route}: normal-policy hidden live capture completed in {:?}",
