@@ -2,8 +2,7 @@ use super::*;
 use sailry_protocol::plugin::authorization::{Attempt, State};
 use std::sync::atomic::Ordering;
 mod confidential;
-#[path = "../../support/mcp_oauth.rs"]
-mod issuer;
+use crate::oauth_server as issuer;
 
 async fn state(client: &Client, attempt: &Attempt, ready: impl Fn(&State) -> bool) -> State {
     let mut stream = client.subscribe_mcp_login(attempt.id).await.unwrap();

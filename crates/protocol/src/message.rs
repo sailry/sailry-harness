@@ -1979,7 +1979,7 @@ pub enum Event {
     },
     ConversationChanged {
         session: SessionId,
-        activity: crate::activity::Summary,
+        activity: Box<crate::activity::Summary>,
     },
     TerminalChanged(crate::terminal::Info),
     ProjectRegistered(Project),
@@ -2002,7 +2002,7 @@ pub enum Event {
     },
     TurnQueued {
         turn: QueuedTurn,
-        activity: crate::activity::Summary,
+        activity: Box<crate::activity::Summary>,
     },
     PlanAccepted(Box<crate::conversation::question::AcceptedPlan>),
 }
@@ -2064,7 +2064,7 @@ pub enum Update {
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Topic {
     Installations,
-    ScopedInstallations(Request),
+    ScopedInstallations(Box<Request>),
     Python,
     CodeServers(WorktreeId),
     CodeInstallations,

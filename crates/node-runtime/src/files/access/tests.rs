@@ -219,7 +219,7 @@ fn retains_parent_and_revision_checks() {
             .write(
                 &mut &b"ours"[..],
                 4,
-                &blake3::hash(b"ours").to_hex().to_string(),
+                blake3::hash(b"ours").to_hex().as_ref(),
                 &|_| {}
             )
             .is_err()

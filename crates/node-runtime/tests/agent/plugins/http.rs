@@ -5,6 +5,12 @@ use std::collections::BTreeMap;
 #[path = "../../plugins/http/server.rs"]
 mod server;
 
+impl server::Server {
+    async fn with_json(body: serde_json::Value, held_path: Option<String>) -> Self {
+        Self::respond(Some(body.to_string()), held_path).await
+    }
+}
+
 const PAT: &str = "figma-pat-private-marker";
 
 async fn install_figma(fixture: &process::Fixture, origin: &str) {

@@ -79,10 +79,9 @@ fn stdio_peer() {
                 let mut annotations = ToolAnnotations::new();
                 annotations.read_only_hint = Some(true);
                 tool.annotations = Some(annotations);
-                let mut listed = ListToolsResult::default();
-                listed.tools = vec![tool];
-                listed.ttl_ms = Some(0);
-                listed.cache_scope = Some(CacheScope::Private);
+                let listed = ListToolsResult::with_all_items(vec![tool])
+                    .with_ttl_ms(0)
+                    .with_cache_scope(CacheScope::Private);
                 serde_json::to_value(listed).unwrap()
             }
             "tools/call" if mode == "content" => {

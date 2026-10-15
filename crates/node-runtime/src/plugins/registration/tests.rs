@@ -116,6 +116,7 @@ async fn honors_provider_backoff() {
         credentials.client_secret.expose(),
         "private-app-secret-marker"
     );
+    assert!(issuer.replies.lock().unwrap().is_empty());
     let records = issuer.requests.lock().unwrap();
     assert_eq!(records.len(), 4);
     assert!(records[3].0.duration_since(records[2].0) >= Duration::from_secs(6));

@@ -7,7 +7,11 @@ fn follows_current_session_title() {
     let db = &fixture.database.connection;
     let derived = crate::store::agent::activity::title(db, fixture.session).unwrap();
     assert!(!derived.is_empty());
-    let title = |fixture: &Fixture| report(fixture, &query()).requests.items[0].session_title.clone();
+    let title = |fixture: &Fixture| {
+        report(fixture, &query()).requests.items[0]
+            .session_title
+            .clone()
+    };
     assert_eq!(title(&fixture), Some(derived));
     let revision = session(&mut fixture).revision;
     command(

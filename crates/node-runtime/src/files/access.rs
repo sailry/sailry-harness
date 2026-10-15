@@ -40,15 +40,11 @@ impl<'a> Scope<'a> {
         self.root
     }
 
-    pub(crate) fn components<'p>(
-        self,
-        value: &'p str,
-        allow_root: bool,
-    ) -> Result<Vec<&'p str>, Fault> {
+    pub(crate) fn components(self, value: &str, allow_root: bool) -> Result<Vec<&str>, Fault> {
         super::path::components_with(value, allow_root, self.access)
     }
 
-    pub(crate) fn entries<'p>(self, value: &'p str) -> Result<Vec<&'p str>, Fault> {
+    pub(crate) fn entries(self, value: &str) -> Result<Vec<&str>, Fault> {
         super::path::entries_with(value, self.access)
     }
 }

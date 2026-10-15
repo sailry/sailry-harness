@@ -37,14 +37,15 @@ async fn retains_status_for_nonstandard_error_bodies() {
             assert!(!serialized.contains(server::KEY));
             // Node retries a rate-limited opening five times before any output.
             // The Responses transport and client have no additional retry layer.
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), attempts, "status={status}, remote={remote}");
-            assert!(
-                requests
-                    .iter()
-                    .all(|request| request.body == requests[0].body)
-            );
-            drop(requests);
+            {
+                let requests = server.requests.lock().unwrap();
+                assert_eq!(requests.len(), attempts, "status={status}, remote={remote}");
+                assert!(
+                    requests
+                        .iter()
+                        .all(|request| request.body == requests[0].body)
+                );
+            }
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }

@@ -210,7 +210,10 @@ impl Transport for ScopedFeed {
         panic!("scoped observation must not execute requests")
     }
     fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
-        assert_eq!(topic, Topic::ScopedInstallations(self.request.clone()));
+        assert_eq!(
+            topic,
+            Topic::ScopedInstallations(Box::new(self.request.clone()))
+        );
         self.feed.subscribe(Topic::Installations)
     }
 }

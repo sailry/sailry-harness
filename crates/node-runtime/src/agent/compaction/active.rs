@@ -139,10 +139,9 @@ impl Context {
                     self.service
                         .append_event(&self.session.to_string(), summary)
                         .await
-                        .map_err(|error| {
+                        .inspect_err(|error| {
                             self.summarizer
-                                .failure(SummaryMode::Automatic, "persistence", &error);
-                            error
+                                .failure(SummaryMode::Automatic, "persistence", error);
                         })?;
                     self.applied.store(true, Ordering::Relaxed);
                     events = self.events().await?;

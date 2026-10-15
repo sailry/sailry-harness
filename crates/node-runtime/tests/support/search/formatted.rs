@@ -2,15 +2,7 @@ use serde_json::{Value, json};
 
 const FORMATTED: &str = "Title: Public source\nURL: https://example.com/source\nPublished: 2026-10-09\nAuthor: N/A\nHighlights:\nUntrusted content\n\n---\n\nTitle: Other source\nURL: https://example.com/other\nPublished: N/A\nAuthor: N/A\nText: More content";
 
-pub fn response(method: &str, body: &Value) -> (u16, String) {
-    response_for(method, body, false)
-}
-
-pub fn modern_response(method: &str, body: &Value) -> (u16, String) {
-    response_for(method, body, true)
-}
-
-fn response_for(method: &str, body: &Value, modern: bool) -> (u16, String) {
+pub fn response(method: &str, body: &Value, modern: bool) -> (u16, String) {
     if method == "DELETE" {
         (204, String::new())
     } else if method == "GET" {

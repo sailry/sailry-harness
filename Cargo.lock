@@ -14543,6 +14543,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "sailry-release"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ed25519-dalek 3.0.0",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "zeroize",
+ "zip 8.6.0",
+ "zipsign-api",
+]
+
+[[package]]
 name = "sailry-speech"
 version = "0.1.0"
 dependencies = [

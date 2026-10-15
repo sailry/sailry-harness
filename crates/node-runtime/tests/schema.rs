@@ -10,11 +10,7 @@ use std::{
     time::Duration,
 };
 
-#[expect(
-    dead_code,
-    reason = "The shared model fixture includes response modes used by other integration test binaries"
-)]
-mod agent_support;
+use crate::agent_support;
 
 const ADDED_TABLES: [&str; 5] = [
     "agent_approval_rules",

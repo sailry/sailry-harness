@@ -88,18 +88,19 @@ async fn searches_keyless_exa_without_initialization() {
         assert_eq!(page.results.len(), 1);
         assert_eq!(page.results[0].url, "https://example.com/source");
 
-        let requests = http.requests.lock().unwrap();
-        let methods: Vec<_> = requests
-            .iter()
-            .filter_map(|(_, body)| body["method"].as_str())
-            .collect();
-        assert_eq!(methods, ["server/discover", "tools/call"]);
-        assert!(
-            requests
+        {
+            let requests = http.requests.lock().unwrap();
+            let methods: Vec<_> = requests
                 .iter()
-                .all(|(_, body)| body["method"] != "initialize")
-        );
-        drop(requests);
+                .filter_map(|(_, body)| body["method"].as_str())
+                .collect();
+            assert_eq!(methods, ["server/discover", "tools/call"]);
+            assert!(
+                requests
+                    .iter()
+                    .all(|(_, body)| body["method"] != "initialize")
+            );
+        }
 
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();

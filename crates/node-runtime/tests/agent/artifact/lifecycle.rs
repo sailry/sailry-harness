@@ -61,7 +61,10 @@ async fn preserves_form_until_last_reference() {
             .read_conversation(branch.id, None, 100)
             .await
             .unwrap();
-        assert_eq!(cards(&inherited.page), [card.clone()]);
+        assert_eq!(
+            cards(&inherited.page).as_slice(),
+            std::slice::from_ref(&card)
+        );
         assert_eq!(
             fixture
                 .client

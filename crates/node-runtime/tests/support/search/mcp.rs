@@ -38,12 +38,12 @@ impl Server {
                         return;
                     };
                     assert_eq!(request.path, "/mcp");
-                    let (status, body) = formatted::response(&request.method, &request.body);
+                    let (status, body) = formatted::response(&request.method, &request.body, false);
                     requests
                         .lock()
                         .unwrap()
                         .push((request.header, request.body));
-                    transport::respond(&mut stream, status, None, &body).await;
+                    transport::respond(&mut stream, status, None, &body, None).await;
                 });
             }
             connections.abort_all();

@@ -112,10 +112,10 @@ fn normalize(text: &str) -> Result<String, Fault> {
         let range = node.range();
         if let Some(opening) = prefix(text, range.start + 1) {
             prefixes.push(opening);
-            if let Some(end) = text[range.clone()].rfind("</") {
-                if let Some(prefix) = prefix(text, range.start + end + 2) {
-                    prefixes.push(prefix);
-                }
+            if let Some(end) = text[range.clone()].rfind("</")
+                && let Some(prefix) = prefix(text, range.start + end + 2)
+            {
+                prefixes.push(prefix);
             }
         }
     }

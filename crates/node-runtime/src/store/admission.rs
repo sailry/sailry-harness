@@ -141,9 +141,8 @@ impl Ingress {
         Box::pin(async move {
             let mut span = crate::logging::commands::begin(self.node, caller, &request);
             let result = self.route_request(caller, request, internal).await;
-            match (span.as_mut(), &result) {
-                (Some(span), Err(fault)) => crate::logging::commands::rejected(span, fault),
-                _ => {}
+            if let (Some(span), Err(fault)) = (span.as_mut(), &result) {
+                crate::logging::commands::rejected(span, fault);
             }
             result.map(|admission| match span {
                 Some(span) => crate::logging::commands::admitted(span, admission),

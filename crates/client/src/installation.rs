@@ -97,7 +97,7 @@ impl Client {
             return Err(Fault::invalid("plugin scope expected"));
         }
         self.transport
-            .subscribe(Topic::ScopedInstallations(request))
+            .subscribe(Topic::ScopedInstallations(Box::new(request)))
             .await
     }
 

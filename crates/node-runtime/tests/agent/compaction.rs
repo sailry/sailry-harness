@@ -238,15 +238,55 @@ async fn failure_preserves_context() {
         .await;
         submit(&fixture.client, fixture.session.id, "Second".into()).await;
         let (_, _, page) = submit(&fixture.client, fixture.session.id, "Third".into()).await;
-        assert!(!page.entries.iter().any(|entry| entry.author == "system"));
-        assert_eq!(server.requests.lock().unwrap().len(), 5);
-        submit(&fixture.client, fixture.session.id, "Continue".into()).await;
+        let parts = page.entries.iter().flat_map(|entry| &entry.parts);
+        assert!(
+            !parts
+                .clone()
+                .any(|part| matches!(part, Part::Compaction(_)))
+        );
+        let retries = parts
+            .filter(|part| matches!(part, Part::Resource(value) if value["type"] == "model_retry" && value["limit"] == 5))
+            .count();
+        assert!(retries > 0);
+        let attempted = {
+            let requests = server.requests.lock().unwrap();
+            let attempts = requests
+                .iter()
+                .filter(|request| agent_support::compaction::is_summary(request))
+                .count();
+            assert_eq!(attempts, retries + 1);
+            assert_eq!(requests.len() - attempts, 4);
+            attempts
+        };
+        let (_, _, continued) =
+            submit(&fixture.client, fixture.session.id, "Continue".into()).await;
+        assert!(
+            !continued
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::Compaction(_)))
+        );
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 7);
-        let current = &requests[5];
-        assert!(messages(current).contains("Original requirement"));
-        assert!(messages(current).contains("Evidence preserved"));
-        assert!(messages(current).contains("evidence-call"));
+        let attempts = requests
+            .iter()
+            .filter(|request| agent_support::compaction::is_summary(request))
+            .count();
+        assert_eq!(attempts, attempted * 2);
+        assert_eq!(requests.len() - attempts, 5);
+        let current = requests
+            .iter()
+            .rfind(|request| !agent_support::compaction::is_summary(request))
+            .expect("conversation request expected");
+        let contents = messages(current);
+        for text in [
+            "Continue",
+            "Original requirement",
+            "Evidence preserved",
+            "evidence-call",
+        ] {
+            assert!(contents.contains(text), "{text}");
+        }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

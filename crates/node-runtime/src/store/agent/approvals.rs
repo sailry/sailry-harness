@@ -429,14 +429,13 @@ pub(super) fn authorize(
         }
         super::super::code::grant(&transaction, startup)?;
     }
-    if let Some(ssh) = &approval.ssh {
-        if !matches!(prepared, Some(Command::RunSsh { profile, expected_revision, .. } | Command::TransferSsh { profile, expected_revision, .. }) if *profile == ssh.profile && *expected_revision == ssh.expected_revision)
-        {
-            return Err(Fault::new(
-                ErrorCode::PermissionDenied,
-                "prepared SSH connection differs from host key approval",
-            ));
-        }
+    if let Some(ssh) = &approval.ssh
+        && !matches!(prepared, Some(Command::RunSsh { profile, expected_revision, .. } | Command::TransferSsh { profile, expected_revision, .. }) if *profile == ssh.profile && *expected_revision == ssh.expected_revision)
+    {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "prepared SSH connection differs from host key approval",
+        ));
     }
     rules::check_prepared(&approval, prepared)?;
     transaction

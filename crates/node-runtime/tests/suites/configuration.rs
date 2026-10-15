@@ -1,3 +1,9 @@
+#[expect(
+    dead_code,
+    reason = "The shared model fixture includes response modes used by other integration test binaries"
+)]
+#[path = "../agent_support/mod.rs"]
+mod agent_support;
 #[path = "../discovery_support/mod.rs"]
 mod discovery_support;
 #[path = "../support/retry.rs"]

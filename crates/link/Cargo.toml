@@ -24,6 +24,5 @@ libc.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }
 tracing-subscriber.workspace = true

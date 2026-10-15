@@ -163,7 +163,7 @@ async fn request(
                 Call::WatchPython => sailry_protocol::Topic::Python,
                 Call::WatchInstallations => sailry_protocol::Topic::Installations,
                 Call::WatchScopedInstallations(request) => {
-                    sailry_protocol::Topic::ScopedInstallations(*request)
+                    sailry_protocol::Topic::ScopedInstallations(request)
                 }
                 Call::WatchProviderLogin(id) => sailry_protocol::Topic::ProviderLogin(id),
                 Call::WatchMcpLogin(id) => sailry_protocol::Topic::McpLogin(id),

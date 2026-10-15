@@ -388,18 +388,19 @@ async fn edits_catalog_and_applies_future_capture() {
         let fresh = submit(&client, &session, "Inspect the applied roster").await;
         assert_eq!(fresh.roles.profiles, vec![edited.clone()]);
         finished(&client, session.id, fresh.id).await;
-        let requests = server.requests.lock().unwrap();
-        let declaration = requests.last().unwrap()["tools"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|entry| entry["function"]["name"] == tool("spawn_agent"))
-            .unwrap();
-        assert_eq!(
-            declaration["function"]["parameters"]["properties"]["role"]["enum"],
-            json!([edited.key, null])
-        );
-        drop(requests);
+        {
+            let requests = server.requests.lock().unwrap();
+            let declaration = requests.last().unwrap()["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["function"]["name"] == tool("spawn_agent"))
+                .unwrap();
+            assert_eq!(
+                declaration["function"]["parameters"]["properties"]["role"]["enum"],
+                json!([edited.key, null])
+            );
+        }
 
         server.replace_tools(vec![(
             tool("delete_agent"),

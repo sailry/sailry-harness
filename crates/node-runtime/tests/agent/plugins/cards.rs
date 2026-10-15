@@ -1,13 +1,12 @@
 #![cfg(unix)]
 use super::*;
+use crate::oauth_server as issuer;
 use sailry_protocol::{
     plugin::{self, authorization, card},
     tool,
 };
 use serde_json::json;
 use std::sync::atomic::Ordering;
-#[path = "../../support/mcp_oauth.rs"]
-mod issuer;
 
 async fn install(fixture: &process::Fixture, endpoint: &str) -> plugin::Info {
     let root = fixture.root.join("card-package");

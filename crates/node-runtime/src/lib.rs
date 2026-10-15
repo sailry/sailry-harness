@@ -1,7 +1,5 @@
-//! Node lifecycle foundation. Behavioral references: sailry-code 23bc118c,
-//! `harbor-host-runtime/src/{layout.rs,host_tasks.rs,runtime/shutdown.rs}`.
-//! Only ownership and shutdown semantics are carried forward here; the old Agent,
-//! service assemblers and transport implementations are not imported by this stage.
+//! Execution Node ownership, durable admission and shared resource services.
+//! Desktop and Host use the same runtime, session history and shutdown lifecycle.
 
 mod agent;
 mod artifacts;

@@ -57,15 +57,7 @@ pub async fn read(stream: &mut TcpStream) -> Option<Request> {
     })
 }
 
-pub async fn respond(stream: &mut TcpStream, status: u16, retry: Option<&str>, body: &str) {
-    response(stream, status, retry, body, None).await;
-}
-
-pub async fn respond_session(stream: &mut TcpStream, status: u16, retry: Option<&str>, body: &str) {
-    response(stream, status, retry, body, Some("search-fixture")).await;
-}
-
-async fn response(
+pub async fn respond(
     stream: &mut TcpStream,
     status: u16,
     retry: Option<&str>,

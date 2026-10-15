@@ -169,7 +169,7 @@ impl Projection {
                         if let Some(session) =
                             snapshot.sessions.iter_mut().find(|item| item.id == session)
                         {
-                            session.activity = activity;
+                            session.activity = *activity;
                         }
                     }
                     Event::TerminalChanged(info) => {
@@ -278,7 +278,7 @@ impl Projection {
                             .iter_mut()
                             .find(|item| item.id == turn.session)
                         {
-                            session.activity = activity;
+                            session.activity = *activity;
                         }
                         snapshot.turns.retain(|item| item.id != turn.id);
                         snapshot.turns.push(turn);

@@ -85,7 +85,7 @@ fn find_limit() -> usize {
 pub(super) fn failure(operation: Operation, error: Fault) -> Value {
     use sailry_protocol::tool::{Diagnostic, Expected, ResultDisplay};
     let expected = (error.code == ErrorCode::NotFound)
-        .then(|| match operation {
+        .then_some(match operation {
             Operation::ListDirectory => Some(Expected::DirectoryNotFound),
             Operation::ReadFile => Some(Expected::FileNotFound),
             _ => None,

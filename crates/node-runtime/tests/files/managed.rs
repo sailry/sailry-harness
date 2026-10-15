@@ -258,7 +258,7 @@ async fn shares_manual_operations_without_root_grants() {
         else {
             panic!("search results expected")
         };
-        assert_eq!(results.paths, [path.clone()]);
+        assert_eq!(results.paths.as_slice(), std::slice::from_ref(&path));
         let copied = format!("{directory}/copy.txt");
         execute(
             client,

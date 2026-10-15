@@ -21,11 +21,13 @@ pub(crate) struct Target {
 }
 
 type Client = AuthClient<reqwest::Client>;
+type Slot = Arc<OnceCell<Client>>;
+type Registration = (String, Option<Secret>);
 
 /// Active transports for one grant share the SDK manager's token refresh lock.
 #[derive(Default)]
 pub(crate) struct Clients {
-    active: Mutex<BTreeMap<(Target, Option<String>), Arc<OnceCell<Client>>>>,
+    active: Mutex<BTreeMap<(Target, Option<String>), Slot>>,
 }
 
 impl Clients {
@@ -112,7 +114,7 @@ struct Store {
     ingress: Weak<Ingress>,
     target: Target,
     revision: AtomicU64,
-    client: Arc<Mutex<Option<(String, Option<Secret>)>>>,
+    client: Arc<Mutex<Option<Registration>>>,
     registered: Option<Registered>,
 }
 

@@ -527,7 +527,7 @@ async fn decide(
             .ok_or_else(|| invalid("child observation is unavailable"))?
     };
     let request = connection.send_request(request);
-    operation["rpc_request_id"] = request.id();
+    operation["rpc_request_id"] = json!(request.id());
     let response = request.block_task();
     tokio::pin!(response);
     let response = loop {

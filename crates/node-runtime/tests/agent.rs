@@ -49,6 +49,9 @@ mod media;
 #[cfg(unix)]
 #[path = "agent/memory.rs"]
 mod memory;
+#[cfg(unix)]
+#[path = "support/mcp_oauth.rs"]
+mod oauth_server;
 #[path = "agent/office.rs"]
 mod office;
 #[path = "agent/paging.rs"]

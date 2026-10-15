@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets", "crates/ocr"]
+members = ["apps/desktop", "apps/host", "crates/node-runtime", "crates/protocol", "crates/link", "crates/client", "crates/mobile-bridge", "crates/speech", "crates/content", "crates/embedding", "crates/model-assets", "crates/ocr", "tools/release"]
 resolver = "2"
 
 [workspace.package]

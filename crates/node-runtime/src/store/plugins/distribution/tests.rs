@@ -218,6 +218,8 @@ fn skips_custom_unchanged_and_removed_packages() {
             install(&mut db, &host).unwrap();
             assert_eq!(required(&db, name).unwrap(), custom);
         }
+        let mut newer = semver::Version::parse(original.summary.version.as_ref().unwrap()).unwrap();
+        newer.patch += 1;
         for version in [
             original.summary.version.clone(),
             original
@@ -226,7 +228,7 @@ fn skips_custom_unchanged_and_removed_packages() {
                 .as_ref()
                 .map(|version| format!("{version}+retained")),
             Some("99.0.0".into()),
-            Some("0.1.1".into()),
+            Some(newer.to_string()),
             Some("not-semver".into()),
             None,
         ] {

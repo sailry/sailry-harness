@@ -179,11 +179,9 @@ tokio-rustls.workspace = true
 rcgen.workspace = true
 sailry-node-runtime = { workspace = true, features = ["test-support"] }
 hyper.workspace = true
-hyper-util.workspace = true
 http-body-util.workspace = true
 eventsource-stream.workspace = true
 adk-eval.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
-image.workspace = true
 iroh.workspace = true
 sailry-client.workspace = true

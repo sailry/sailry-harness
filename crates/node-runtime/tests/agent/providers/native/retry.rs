@@ -104,23 +104,24 @@ async fn honors_server_retry_delays() {
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
             assert_eq!(completion::response(&page), RECOVERED);
             assert_eq!(attempts(&page), vec![1]);
-            let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 2);
-            assert_eq!(requests[0].body, requests[1].body);
-            if date {
-                let deadline = deadline.lock().unwrap().expect("date reply was sent");
-                assert!(
-                    requests[0].received_at < deadline,
-                    "date fixture must still be in the future"
-                );
-                assert!(requests[1].received_at >= deadline);
-            } else {
-                assert!(
-                    requests[1].received.duration_since(requests[0].received)
-                        >= Duration::from_secs(2)
-                );
+            {
+                let requests = server.requests.lock().unwrap();
+                assert_eq!(requests.len(), 2);
+                assert_eq!(requests[0].body, requests[1].body);
+                if date {
+                    let deadline = deadline.lock().unwrap().expect("date reply was sent");
+                    assert!(
+                        requests[0].received_at < deadline,
+                        "date fixture must still be in the future"
+                    );
+                    assert!(requests[1].received_at >= deadline);
+                } else {
+                    assert!(
+                        requests[1].received.duration_since(requests[0].received)
+                            >= Duration::from_secs(2)
+                    );
+                }
             }
-            drop(requests);
             let serialized = serde_json::to_string(&page).unwrap();
             assert!(!serialized.contains("private provider failure"));
             assert!(!serialized.contains(server::KEY));
@@ -430,14 +431,15 @@ async fn shares_opening_and_stream_retry_budget() {
             ErrorCode::Unavailable
         );
         assert_eq!(attempts(&page), vec![1, 2, 3, 4, 5]);
-        let requests = server.requests.lock().unwrap();
-        assert_eq!(requests.len(), 6);
-        assert!(
-            requests
-                .iter()
-                .all(|request| request.body == requests[0].body)
-        );
-        drop(requests);
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 6);
+            assert!(
+                requests
+                    .iter()
+                    .all(|request| request.body == requests[0].body)
+            );
+        }
         assert_eq!(completion::response(&page), DISCARDED);
         unique_entries(&page);
         fixture.controller.close().await.unwrap();

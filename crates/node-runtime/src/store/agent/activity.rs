@@ -125,12 +125,12 @@ fn preview(db: &Connection, turn: TurnId) -> Result<Option<String>, Fault> {
 pub(in crate::store) fn changed(db: &Connection, session: SessionId) -> Result<Event, Fault> {
     Ok(Event::ConversationChanged {
         session,
-        activity: read(db, session)?,
+        activity: Box::new(read(db, session)?),
     })
 }
 pub(in crate::store) fn queued(db: &Connection, turn: QueuedTurn) -> Result<Event, Fault> {
     Ok(Event::TurnQueued {
-        activity: read(db, turn.session)?,
+        activity: Box::new(read(db, turn.session)?),
         turn,
     })
 }

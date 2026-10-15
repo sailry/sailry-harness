@@ -18,11 +18,7 @@ impl Server {
         Self::respond(None, None).await
     }
 
-    pub async fn with_json(body: serde_json::Value, held_path: Option<String>) -> Self {
-        Self::respond(Some(body.to_string()), held_path).await
-    }
-
-    async fn respond(body: Option<String>, held_path: Option<String>) -> Self {
+    pub(super) async fn respond(body: Option<String>, held_path: Option<String>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));

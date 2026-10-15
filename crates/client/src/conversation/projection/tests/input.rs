@@ -34,7 +34,10 @@ fn canonical_user_replaces_capture() {
     let input =
         super::super::super::turns::input(&projection.snapshot().unwrap().page, run.turn).unwrap();
     assert_eq!(input.message, captured);
-    assert_eq!(input.attachments, [attachment.clone()]);
+    assert_eq!(
+        input.attachments.as_slice(),
+        std::slice::from_ref(&attachment)
+    );
     let entry = Entry {
         sequence: 1,
         id: "canonical-input".into(),

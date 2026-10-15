@@ -497,11 +497,12 @@ async fn bundled_tools_keep_saved_id() {
             "{output:?}"
         );
         assert_eq!(output[3]["data"][0]["id"], profiles[0].id.to_string());
-        let requests = server.requests.lock().unwrap();
-        let tools = requests[0]["tools"].as_array().unwrap();
-        assert!(tools.iter().any(|tool| tool["function"]["name"]
-            == agent_support::plugin_tool("databases", "database_query")));
-        drop(requests);
+        {
+            let requests = server.requests.lock().unwrap();
+            let tools = requests[0]["tools"].as_array().unwrap();
+            assert!(tools.iter().any(|tool| tool["function"]["name"]
+                == agent_support::plugin_tool("databases", "database_query")));
+        }
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }

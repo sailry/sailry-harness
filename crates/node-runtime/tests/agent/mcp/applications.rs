@@ -72,15 +72,17 @@ async fn refreshes_persistent_application_transport() {
         assert_eq!(peer.initializations.load(Ordering::SeqCst), 1);
         assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
         assert_eq!(issuer.tokens.load(Ordering::SeqCst), 2);
-        let records = issuer.records.lock().unwrap();
-        let calls = records
-            .iter()
-            .filter(|(_, _, body)| body["method"] == "tools/call")
-            .collect::<Vec<_>>();
-        assert_eq!(calls.len(), 2);
-        assert_eq!(calls[0].1["x-lark-mcp-tat"], "application-token-1");
-        assert_eq!(calls[1].1["x-lark-mcp-tat"], "application-token-2");
-        drop(records);
+        assert!(!issuer.failed.load(Ordering::SeqCst));
+        {
+            let records = issuer.records.lock().unwrap();
+            let calls = records
+                .iter()
+                .filter(|(_, _, body)| body["method"] == "tools/call")
+                .collect::<Vec<_>>();
+            assert_eq!(calls.len(), 2);
+            assert_eq!(calls[0].1["x-lark-mcp-tat"], "application-token-1");
+            assert_eq!(calls[1].1["x-lark-mcp-tat"], "application-token-2");
+        }
         assert!(
             !serde_json::to_string(&*model.requests.lock().unwrap())
                 .unwrap()

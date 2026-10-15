@@ -1,6 +1,6 @@
 //! Connection operations retain the admitted choices and existing Node commands.
 use super::*;
-use crate::store::agent::connections::Action;
+use crate::store::agent::connections::{Action, Inspection};
 use sailry_protocol::connection::Resource;
 use serde::Deserialize;
 
@@ -322,10 +322,12 @@ pub(super) async fn preflight(
             .connection_trust(
                 owner.turn,
                 owner.context.package.clone(),
-                profile,
-                expected_revision,
-                key,
-                changed,
+                Inspection {
+                    profile,
+                    expected_revision,
+                    key,
+                    changed,
+                },
                 owner.connections.clone(),
             )
             .await

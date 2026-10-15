@@ -106,10 +106,7 @@ pub(super) enum Operation {
     ConnectionTrust {
         turn: TurnId,
         package: plugin::Reference,
-        profile: SshId,
-        revision: u64,
-        key: ssh::HostKey,
-        changed: bool,
+        inspection: connections::Inspection,
         captured: Vec<sailry_protocol::connection::Resource>,
         reply: oneshot::Sender<Result<ssh::Trust, Fault>>,
     },
@@ -544,10 +541,7 @@ pub(super) fn execute(
         Operation::ConnectionTrust {
             turn,
             package,
-            profile,
-            revision,
-            key,
-            changed,
+            inspection,
             captured,
             reply,
         } => {
@@ -555,10 +549,7 @@ pub(super) fn execute(
                 &database.connection,
                 turn,
                 &package,
-                profile,
-                revision,
-                key,
-                changed,
+                inspection,
                 &captured,
             ));
         }

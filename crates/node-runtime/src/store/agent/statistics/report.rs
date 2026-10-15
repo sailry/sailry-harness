@@ -218,9 +218,9 @@ pub(in crate::store) fn read(
     let mut items: Vec<Request> = requests.into_values().rev().collect();
     let mut titles = BTreeMap::new();
     for item in &mut items {
-        if !titles.contains_key(&item.session) {
+        if let std::collections::btree_map::Entry::Vacant(entry) = titles.entry(item.session) {
             let title = crate::store::agent::activity::title(db, item.session)?;
-            titles.insert(item.session, Some(title).filter(|title| !title.trim().is_empty()));
+            entry.insert(Some(title).filter(|title| !title.trim().is_empty()));
         }
         item.session_title = titles[&item.session].clone();
     }

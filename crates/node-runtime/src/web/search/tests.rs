@@ -3,6 +3,21 @@ use super::*;
 mod server;
 use server::{Reply, Server};
 
+impl Server {
+    fn stall(&self, method: &str) {
+        self.stalls.lock().unwrap().insert(method.into());
+    }
+
+    fn method_count(&self, method: &str) -> usize {
+        self.requests
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(header, _)| header.split_whitespace().next() == Some(method))
+            .count()
+    }
+}
+
 fn plan(drivers: &[Driver]) -> Plan {
     let mut plan = Plan::default();
     for driver in Driver::ALL {

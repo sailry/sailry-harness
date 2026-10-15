@@ -82,7 +82,7 @@ fn descendant_activity_follows_events_and_recovery() {
             cursor: index as u64 + 1,
             event: Event::ConversationChanged {
                 session: child.id,
-                activity: child.activity.clone(),
+                activity: Box::new(child.activity.clone()),
             },
         });
         assert_eq!(projection.apply(1, update.clone()).unwrap(), Apply::Applied);
@@ -103,7 +103,7 @@ fn descendant_activity_follows_events_and_recovery() {
         cursor: 5,
         event: Event::ConversationChanged {
             session: child.id,
-            activity: child.activity.clone(),
+            activity: Box::new(child.activity.clone()),
         },
     });
     assert_eq!(projection.apply(1, gap).unwrap(), Apply::Recover);
@@ -336,7 +336,7 @@ fn updates_keep_position_and_reorders_recover() {
         &mut projection,
         Event::ConversationChanged {
             session: second.id,
-            activity: second.activity.clone(),
+            activity: Box::new(second.activity.clone()),
         },
     );
     apply(

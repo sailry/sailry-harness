@@ -571,18 +571,19 @@ async fn cancels_original_before_explicit_refresh() {
             Output::PluginLogin(second.clone())
         );
         state(&client, &first, |state| matches!(state, State::Cancelled)).await;
-        let records = issuer.requests.lock().unwrap();
-        for action in ["init", "begin"] {
-            assert_eq!(
-                records
-                    .iter()
-                    .filter(|(_, body)| url::form_urlencoded::parse(body.as_bytes())
-                        .any(|(key, value)| key == "action" && value == action))
-                    .count(),
-                2
-            );
+        {
+            let records = issuer.requests.lock().unwrap();
+            for action in ["init", "begin"] {
+                assert_eq!(
+                    records
+                        .iter()
+                        .filter(|(_, body)| url::form_urlencoded::parse(body.as_bytes())
+                            .any(|(key, value)| key == "action" && value == action))
+                        .count(),
+                    2
+                );
+            }
         }
-        drop(records);
         execute(&client, Command::CancelPluginLogin { attempt: second.id }).await;
         state(&client, &second, |state| matches!(state, State::Cancelled)).await;
         controller.close().await.unwrap();

@@ -11,6 +11,13 @@ pub(crate) struct Catalog {
     pub ssh: Vec<ssh::Profile>,
 }
 
+pub(crate) struct Inspection {
+    pub profile: SshId,
+    pub expected_revision: u64,
+    pub key: ssh::HostKey,
+    pub changed: bool,
+}
+
 impl Catalog {
     pub(crate) fn resources(&self) -> Vec<Resource> {
         self.databases
@@ -310,10 +317,7 @@ impl Ingress {
         &self,
         turn: TurnId,
         package: plugin::Reference,
-        profile: SshId,
-        revision: u64,
-        key: ssh::HostKey,
-        changed: bool,
+        inspection: Inspection,
         captured: Vec<Resource>,
     ) -> Result<ssh::Trust, Fault> {
         let (reply, response) = oneshot::channel();
@@ -321,10 +325,7 @@ impl Ingress {
             .send(Job::Agent(Box::new(Operation::ConnectionTrust {
                 turn,
                 package,
-                profile,
-                revision,
-                key,
-                changed,
+                inspection,
                 captured,
                 reply,
             })))
@@ -398,19 +399,22 @@ pub(super) fn trust(
     db: &Connection,
     turn: TurnId,
     package: &plugin::Reference,
-    profile: SshId,
-    revision: u64,
-    key: ssh::HostKey,
-    changed: bool,
+    inspection: Inspection,
     captured: &[Resource],
 ) -> Result<ssh::Trust, Fault> {
+    let Inspection {
+        profile,
+        expected_revision,
+        key,
+        changed,
+    } = inspection;
     check(db, turn, package, Resource::Ssh(profile), captured)?;
     let profile = super::super::ssh::read(db, profile)?
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "SSH connection does not exist"))?;
-    super::super::commands::check_revision(profile.revision, revision)?;
+    super::super::commands::check_revision(profile.revision, expected_revision)?;
     Ok(ssh::Trust {
         profile: profile.id,
-        expected_revision: revision,
+        expected_revision,
         host: profile.host,
         port: profile.port,
         key,

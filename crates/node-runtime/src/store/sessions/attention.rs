@@ -46,7 +46,7 @@ pub(in crate::store) fn set(
         session.activity.attention = read(db, id)?;
         let event = Event::ConversationChanged {
             session: id,
-            activity: session.activity.clone(),
+            activity: Box::new(session.activity.clone()),
         };
         Ok((Output::Session(session), Some(event)))
     } else {

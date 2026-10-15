@@ -1,10 +1,5 @@
 use super::*;
-#[path = "../agent_support/mod.rs"]
-#[expect(
-    dead_code,
-    reason = "The shared model fixture includes modes used by other integration tests"
-)]
-mod agent_support;
+use crate::agent_support;
 use sailry_protocol::{
     Authentication, Effort, Permission, ProviderId, Session, SessionConfig, WorkMode,
     conversation::{ModelApi, Page, Provider, Status},

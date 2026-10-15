@@ -260,9 +260,12 @@ async fn execute(
         &mut connections,
         hooks,
         diagnostics,
-        completion_review,
     )
-    .await;
+    .await
+    .map(|outcome| {
+        *completion_review = outcome.review;
+        outcome.output
+    });
     // Computer observations belong to the conversation's trusted SDK handle,
     // not this turn. Retain it with the history across completion and stopping.
     // ADK can drop a tool future on interruption before its async cleanup runs.
@@ -302,6 +305,12 @@ async fn execute(
     result
 }
 
+#[derive(Default)]
+struct Outcome {
+    output: Option<String>,
+    review: Option<adk_core::Event>,
+}
+
 async fn execute_with(
     ingress: &Arc<Ingress>,
     tasks: &Tasks,
@@ -310,15 +319,14 @@ async fn execute_with(
     connections: &mut mcp::Connections,
     hooks: Option<Arc<crate::hooks::Binding>>,
     diagnostics: &Diagnostics,
-    completion_review: &mut Option<adk_core::Event>,
-) -> Result<Option<String>, Fault> {
+) -> Result<Outcome, Fault> {
     if stop.is_cancelled() {
-        return Ok(None);
+        return Ok(Outcome::default());
     }
     let model = model::build(ingress, &invocation, &stop).await?;
     if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
         compaction::manual(ingress, &invocation, model, stop).await?;
-        return Ok(None);
+        return Ok(Outcome::default());
     }
     let content = attachments::input(ingress, &invocation).await?;
     let resources = Arc::new(crate::plugins::resources::Resources::new(
@@ -602,16 +610,18 @@ async fn execute_with(
                         "Model returned no answer",
                     ));
                 }
-                if reviewing
+                let review = if reviewing
                     && !requested_review
                     && !cancelled
                     && !stop.is_cancelled()
                     && let Some(source) = proposal
                 {
                     let _review = diagnostics.span(Phase::PlanReview, None);
-                    *completion_review = Some(review::completion(turn, source));
-                }
-                return Ok(output);
+                    Some(review::completion(turn, source))
+                } else {
+                    None
+                };
+                return Ok(Outcome { output, review });
             }
         }
     }

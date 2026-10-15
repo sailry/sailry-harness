@@ -67,6 +67,45 @@ mod history {
     use super::*;
 
     #[test]
+    fn preserves_activity_event_shapes() {
+        let session = SessionId::new();
+        let activity = json!({
+            "title": "Queued task",
+            "attention": {"revision": 2, "unread": true},
+            "run": null,
+            "waiting": null,
+            "queued": 1,
+        });
+        let turn = QueuedTurn {
+            id: TurnId::new(),
+            kind: crate::conversation::RunKind::Task,
+            session,
+            request: RequestId::new(),
+            revision: 1,
+            config: crate::SessionConfig {
+                assistant: None,
+                resource: None,
+                provider: crate::ProviderId::new(),
+                model: "fixture".into(),
+                effort: crate::Effort::Default,
+                mode: crate::WorkMode::Code,
+                permission: crate::Permission::Ask,
+                credential: None,
+            },
+            roles: Default::default(),
+            plugins: Vec::new(),
+        };
+        for wire in [
+            json!({"kind": "conversation_changed", "data": {"session": session, "activity": activity}}),
+            json!({"kind": "turn_queued", "data": {"turn": turn, "activity": activity}}),
+        ] {
+            let event: Event = serde_json::from_value(wire.clone()).unwrap();
+            assert_eq!(serde_json::to_value(event).unwrap(), wire);
+        }
+        assert_eq!(crate::VERSION, 1);
+    }
+
+    #[test]
     fn rejects_unknown_kinds() {
         for data in [
             json!({ "private": "value" }),
@@ -92,6 +131,24 @@ mod history {
         ] {
             assert!(serde_json::from_value::<Event>(value).is_err());
         }
+    }
+}
+
+mod subscriptions {
+    use super::*;
+
+    #[test]
+    fn preserves_scoped_request_shape() {
+        let request = Request::new(
+            NodeId([7; 32]),
+            Command::ReadInstallations {
+                requests: vec![RequestId::new()],
+            },
+        );
+        let wire = json!({"kind": "scoped_installations", "data": request});
+        let topic: Topic = serde_json::from_value(wire.clone()).unwrap();
+        assert_eq!(topic, Topic::ScopedInstallations(Box::new(request)));
+        assert_eq!(serde_json::to_value(topic).unwrap(), wire);
     }
 }
 

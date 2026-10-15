@@ -18,6 +18,3 @@ serde_json.workspace = true
 blake3.workspace = true
 url.workspace = true
 pulldown-cmark = { workspace = true, features = ["html"] }
-
-[dev-dependencies]
-tokio.workspace = true

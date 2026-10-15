@@ -22,7 +22,7 @@ pub struct Server {
     pub requests: Arc<Mutex<Vec<(String, Value)>>>,
     replies: Arc<Mutex<BTreeMap<String, VecDeque<Reply>>>>,
     pub holds: Arc<Mutex<BTreeSet<String>>>,
-    stalls: Arc<Mutex<BTreeSet<String>>>,
+    pub(super) stalls: Arc<Mutex<BTreeSet<String>>>,
     pub held: CancellationToken,
     pub disconnected: CancellationToken,
     stop: CancellationToken,
@@ -97,21 +97,18 @@ impl Server {
                         ),
                         Some(Reply::Json(body)) => (200, None, body.to_string()),
                         None if path == "/mcp" => {
-                            let (status, body) = formatted::response(&method, &body);
+                            let (status, body) = formatted::response(&method, &body, false);
                             (status, None, body)
                         }
                         None if path == "/modern-mcp" => {
-                            let (status, body) = formatted::modern_response(&method, &body);
+                            let (status, body) = formatted::response(&method, &body, true);
                             (status, None, body)
                         }
                         None => (200, None, mapping(&path).to_string()),
                     };
-                    if stage == Some("initialize") && status == 200 {
-                        transport::respond_session(&mut stream, status, retry.as_deref(), &body)
-                            .await;
-                    } else {
-                        transport::respond(&mut stream, status, retry.as_deref(), &body).await;
-                    }
+                    let session =
+                        (stage == Some("initialize") && status == 200).then_some("search-fixture");
+                    transport::respond(&mut stream, status, retry.as_deref(), &body, session).await;
                 });
             }
             connections.abort_all();
@@ -139,9 +136,6 @@ impl Server {
             .unwrap()
             .insert(path.into(), replies.into());
     }
-    pub fn stall(&self, method: &str) {
-        self.stalls.lock().unwrap().insert(method.into());
-    }
     pub fn count(&self, path: &str) -> usize {
         self.requests
             .lock()
@@ -159,14 +153,6 @@ impl Server {
                     .next()
                     == Some(path)
             })
-            .count()
-    }
-    pub fn method_count(&self, method: &str) -> usize {
-        self.requests
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(header, _)| header.split_whitespace().next() == Some(method))
             .count()
     }
 }
