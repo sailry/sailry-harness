@@ -1,10 +1,6 @@
 use super::*;
 use crate::downloads::destination::Destination;
-use gpui_kit::component::{
-    button::{Button, ButtonVariants},
-    notification::Notification,
-    spinner::Spinner,
-};
+use gpui_kit::component::{notification::Notification, spinner::Spinner};
 use sailry_client::conversation::export::{Format as DocumentFormat, attachment_name};
 use sailry_link::CancellationToken;
 use sailry_protocol::{Output, Session, TurnId};
@@ -107,6 +103,7 @@ impl Drop for Progress {
 impl Render for Progress {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         h_flex()
+            .id("conversation-export-progress")
             .debug_selector(|| "conversation-export-progress".into())
             .gap_2()
             .text_sm()
@@ -130,7 +127,6 @@ fn start(
     });
     let progress = ("conversation-export", form.entity_id());
     let closing = cancel.clone();
-    let stopping = cancel.clone();
     crate::feedback::toast(
         window,
         tr("conversation_export"),
@@ -138,20 +134,8 @@ fn start(
             .id1::<Progress>(progress)
             .autohide(false)
             .content(move |_, _, _| div().child(form.clone()).into_any_element())
-            .action(move |_, _, cx| {
-                let cancel = stopping.clone();
-                Button::new("conversation-export-cancel")
-                    .icon(IconName::Close)
-                    .tooltip(tr("settings_cancel"))
-                    .accessibility_label(tr("settings_cancel"))
-                    .debug_selector(|| "conversation-export-cancel".to_owned())
-                    .ghost()
-                    .on_click(cx.listener(move |toast, _, window, cx| {
-                        cx.stop_propagation();
-                        cancel.cancel();
-                        toast.dismiss(window, cx);
-                    }))
-            })
+            // Kit's close button cancels; a finished export is already settled
+            // when it removes this toast, so the late cancellation is inert.
             .on_close(move |_, _| closing.cancel()),
         cx,
     );

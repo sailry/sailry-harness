@@ -273,7 +273,7 @@ fn entries(path: &Path) -> Vec<std::path::PathBuf> {
 }
 
 fn loading(window: &mut Window) -> bool {
-    window.try_find("conversation-export-cancel").is_some()
+    window.try_find("conversation-export-progress").is_some()
 }
 
 #[gpui_kit::test]
@@ -464,12 +464,16 @@ fn cancels_without_publishing_files(cx: &mut TestAppContext) {
             !entries(output.path()).is_empty(),
             "prepared export staging expected"
         );
-        visual.update(|window, _| {
-            let button = window.find("conversation-export-cancel");
-            assert_eq!(button.label(), Some(crate::tr("settings_cancel").as_ref()));
-            assert!(button.bounds().size.width <= px(32.));
-        });
-        crate::live::file_tests::click(visual, "conversation-export-cancel");
+        assert!(
+            visual
+                .update(|window, _| window.try_find("conversation-export-cancel"))
+                .is_none()
+        );
+        // The toast's own close button is the only cancel control.
+        let close = visual.debug_bounds("notification-close").unwrap();
+        visual.simulate_mouse_move(close.center(), None, Modifiers::default());
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        visual.simulate_click(close.center(), Modifiers::default());
         wait(visual, |window, cx| {
             !loading(window) && !window.has_active_dialog(cx)
         });
