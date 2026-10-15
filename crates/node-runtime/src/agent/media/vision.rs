@@ -81,10 +81,16 @@ impl Media {
             tools: Default::default(),
             previous_response_id: None,
         };
-        let mut responses =
-            model::timing::generate(&model, request, false, &self.identity, self.stop.clone())
-                .await
-                .map_err(|error| Failure::model(error, true))?;
+        let mut responses = model::timing::generate(
+            &model,
+            request,
+            false,
+            "vision",
+            &self.identity,
+            self.stop.clone(),
+        )
+        .await
+        .map_err(|error| Failure::model(error, true))?;
         let mut text = String::new();
         let mut usage = None;
         let mut timing = None;

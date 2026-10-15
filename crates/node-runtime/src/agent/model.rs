@@ -1,6 +1,7 @@
 use super::*;
 mod authorization;
 mod cloud;
+mod diagnostics;
 pub(super) mod history;
 mod hosted;
 mod opencode;
@@ -19,6 +20,7 @@ use adk_model::{
     openai_compatible::{OpenAICompatible, OpenAICompatibleConfig, ReasoningReplayField},
     retry::RetryConfig,
 };
+pub(super) use diagnostics::cause;
 use sailry_protocol::{
     Authentication, Effort, SessionConfig,
     conversation::{ModelApi, Provider},

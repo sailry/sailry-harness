@@ -1,6 +1,31 @@
 use super::*;
 use adk_core::{Content, LlmResponse};
 
+mod retry_diagnostics {
+    use super::*;
+
+    #[test]
+    fn excludes_nonretryable_and_exhausted() {
+        let nonretryable = AdkError::new(
+            adk_core::ErrorComponent::Model,
+            adk_core::ErrorCategory::Internal,
+            "model.fixture.invalid",
+            "fixture",
+        );
+        let retryable = AdkError::new(
+            adk_core::ErrorComponent::Model,
+            adk_core::ErrorCategory::Unavailable,
+            "model.fixture.unavailable",
+            "fixture",
+        );
+        assert!(!scheduled(&nonretryable, false, 1, 5, false));
+        assert!(scheduled(&retryable, false, 5, 5, false));
+        assert!(!scheduled(&retryable, false, 6, 5, false));
+        assert!(!scheduled(&retryable, true, 1, 5, false));
+        assert!(!scheduled(&retryable, false, 1, 5, true));
+    }
+}
+
 struct Stalled {
     before_stream: bool,
 }

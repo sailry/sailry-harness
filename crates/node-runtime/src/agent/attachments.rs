@@ -216,6 +216,7 @@ impl Llm for Model {
             &self.inner,
             request,
             stream,
+            "model_request",
             &self.identity,
             self.stop.clone(),
         )

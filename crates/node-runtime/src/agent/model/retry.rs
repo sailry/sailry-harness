@@ -20,6 +20,10 @@ fn retryable(error: &AdkError) -> bool {
     error.code != "model.response_timeout" && is_retryable_model_error(error)
 }
 
+fn scheduled(error: &AdkError, stopped: bool, attempt: u64, limit: u32, committed: bool) -> bool {
+    !stopped && attempt <= u64::from(limit) && !committed && retryable(error)
+}
+
 async fn open(
     model: &dyn Llm,
     request: LlmRequest,
@@ -118,23 +122,15 @@ impl Llm for Model {
             let published = &published;
             let model = inner.as_ref();
             let sender = output.clone();
-            let mut index = 0;
+            let policy = RetryConfig::default().with_max_retries(5);
+            let retry_limit = policy.max_retries;
+            let limit = u64::from(retry_limit);
+            let node = ingress.node;
+            let mut index = 0_u64;
             let mut operation = || {
                 index += 1;
-                let mut entry = crate::logging::Entry::new(
-                    crate::logging::Area::Model,
-                    crate::logging::Phase::Begin,
-                );
-                entry.reason = Some("attempt");
-                entry.count = Some(index);
-                entry.context = crate::logging::Context {
-                    node: Some(ingress.node),
-                    turn: Some(turn),
-                    session: Some(session),
-                    model: Some(model.name().into()),
-                    ..Default::default()
-                };
-                let mut span = crate::logging::Span::new(entry).cancel_when(stop.clone());
+                let attempt_number = index;
+                let started = std::time::Instant::now();
                 let stopped = stop.clone();
                 let attempt = attempt(
                     model,
@@ -147,25 +143,35 @@ impl Llm for Model {
                 );
                 async move {
                     let result = attempt.await;
-                    match &result {
-                        Ok(()) => span.finish(crate::logging::Phase::Completed, None),
-                        Err(_) => span.finish(
-                            if stopped.is_cancelled() {
-                                crate::logging::Phase::Cancelled
-                            } else {
-                                crate::logging::Phase::Failed
-                            },
-                            Some(if stopped.is_cancelled() {
-                                ErrorCode::Cancelled
-                            } else {
-                                ErrorCode::Unavailable
-                            }),
-                        ),
+                    if let Err(error) = &result {
+                        let stopped = stopped.is_cancelled();
+                        let committed = committed.load(Ordering::Relaxed);
+                        if !scheduled(error, stopped, attempt_number, retry_limit, committed) {
+                            return result;
+                        }
+                        let mut entry = crate::logging::Entry::new(
+                            crate::logging::Area::Model,
+                            crate::logging::Phase::Failed,
+                        );
+                        entry.operation = Some("model_retry");
+                        entry.stage = Some("attempt");
+                        entry.attempt = Some(attempt_number);
+                        entry.limit = Some(limit);
+                        entry.duration_us = u64::try_from(started.elapsed().as_micros()).ok();
+                        entry.code = Some(ErrorCode::Unavailable);
+                        entry.context = crate::logging::Context {
+                            node: Some(node),
+                            turn: Some(turn),
+                            session: Some(session),
+                            model: Some(model.name().into()),
+                            ..Default::default()
+                        };
+                        super::cause(&mut entry, error);
+                        entry.emit();
                     }
                     result
                 }
             };
-            let policy = RetryConfig::default().with_max_retries(5);
             let result = tokio::select! {
                 biased;
                 _ = stop.cancelled() => Err(cancelled()),

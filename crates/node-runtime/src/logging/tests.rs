@@ -67,6 +67,85 @@ fn records_typed_artifact_metadata() {
 }
 
 #[test]
+fn records_safe_model_causes_without_empty_fields() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
+    tracing::dispatcher::with_default(&dispatch, || {
+        let mut error = adk_core::AdkError::new(
+            adk_core::ErrorComponent::Model,
+            adk_core::ErrorCategory::RateLimited,
+            "model.fixture.rate_limited",
+            "PRIVATE_MESSAGE",
+        )
+        .with_upstream_status(429)
+        .with_request_id("PRIVATE_REQUEST")
+        .with_provider("PRIVATE_PROVIDER");
+        error
+            .details
+            .metadata
+            .insert("body".into(), json!("PRIVATE_BODY"));
+        let mut entry = Entry::new(Area::Model, Phase::Failed);
+        entry.operation = Some("conversation");
+        entry.stage = Some("request");
+        entry.attempt = Some(2);
+        entry.limit = Some(5);
+        entry.request_mode = Some("interactions");
+        entry.stream = Some(true);
+        entry.budget = Some(4096);
+        entry.parse_layer = Some("stream_event");
+        entry.parse_category = Some("data");
+        entry.parse_cause = Some("missing_field");
+        entry.parse_field = Some("sequence_number");
+        entry.parse_event = Some("response.output_text.delta".into());
+        entry.parse_line = Some(7);
+        entry.parse_column = Some(11);
+        entry.cause_code = Some(error.code);
+        entry.cause_component = Some("model");
+        entry.cause_category = Some("rate_limited");
+        entry.upstream_status = error.details.upstream_status_code.map(u64::from);
+        entry.emit();
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records.len(), 1);
+    let record = &records[0];
+    assert_eq!(record["operation"], "conversation");
+    assert_eq!(record["stage"], "request");
+    assert_eq!(record["cause_code"], "model.fixture.rate_limited");
+    assert_eq!(record["cause_component"], "model");
+    assert_eq!(record["cause_category"], "rate_limited");
+    assert_eq!(record["upstream_status"], 429);
+    assert_eq!(record["attempt"], 2);
+    assert_eq!(record["limit"], 5);
+    assert_eq!(record["request_mode"], "interactions");
+    assert_eq!(record["stream"], true);
+    assert_eq!(record["budget"], 4096);
+    assert_eq!(record["parse_layer"], "stream_event");
+    assert_eq!(record["parse_category"], "data");
+    assert_eq!(record["parse_cause"], "missing_field");
+    assert_eq!(record["parse_field"], "sequence_number");
+    assert_eq!(record["parse_event"], "response.output_text.delta");
+    assert_eq!(record["parse_line"], 7);
+    assert_eq!(record["parse_column"], 11);
+    for absent in [
+        "node",
+        "package",
+        "digest",
+        "settings_revision",
+        "command",
+        "source_kind",
+        "reason",
+    ] {
+        assert!(
+            !record.as_object().unwrap().contains_key(absent),
+            "{absent}"
+        );
+    }
+    assert!(!serde_json::to_string(record).unwrap().contains("PRIVATE_"));
+}
+
+#[test]
 fn retains_cancelled_cleanup_uncertainty() {
     let directory = tempfile::tempdir().unwrap();
     let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();

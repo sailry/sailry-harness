@@ -1,6 +1,6 @@
 use super::*;
 use sailry_link::Admission;
-use sailry_protocol::{Command, Fault, NodeId, Request};
+use sailry_protocol::{Command, Fault, NodeId, Output, Request};
 
 pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<Span> {
     let (kind, session, turn) = match &request.command {
@@ -47,7 +47,13 @@ pub(crate) fn admitted(mut span: Span, mut admission: Admission) -> Admission {
         match original.await {
             Ok(result) => {
                 match &result {
-                    Ok(_) => span.finish(Phase::Completed, None),
+                    Ok(output) => {
+                        if let Output::QueuedTurn(turn) = output {
+                            span.entry.context.session = Some(turn.session);
+                            span.entry.context.turn = Some(turn.id);
+                        }
+                        span.finish(Phase::Completed, None);
+                    }
                     Err(fault) => span.finish(Phase::Failed, Some(fault.code)),
                 }
                 let _ = sender.send(result);

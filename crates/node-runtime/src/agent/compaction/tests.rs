@@ -61,6 +61,7 @@ fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarizer, Arc<Mode
     (
         Summarizer {
             model: model.clone(),
+            identity: crate::logging::Context::default(),
             turn: TurnId::new(),
             budget: Some(12800),
             output: Some(2048),
@@ -333,6 +334,7 @@ async fn discards_cancelled_summary() {
     let stop = CancellationToken::new();
     let summarizer = Summarizer {
         model: model.clone(),
+        identity: crate::logging::Context::default(),
         turn: TurnId::new(),
         budget: None,
         output: None,

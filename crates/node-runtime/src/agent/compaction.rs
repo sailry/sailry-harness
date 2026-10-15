@@ -38,7 +38,7 @@ pub(super) fn bind(
         ingress.clone(),
         ingress.sessions(invocation.turn.id),
         invocation.turn.session,
-        Summarizer::new(model, invocation, stop),
+        Summarizer::new(ingress, model, invocation, stop),
         instruction,
     ));
     let observer = context.clone();
@@ -80,9 +80,9 @@ pub(super) async fn manual(
     {
         return Ok(());
     }
-    let summarizer = Summarizer::new(model, invocation, stop.clone());
+    let summarizer = Summarizer::new(ingress, model, invocation, stop.clone());
     if let Some(event) = summarizer
-        .summarize_events(&events)
+        .summarize_with(&events, SummaryMode::Manual)
         .await
         .map_err(model::error)?
         && !stop.is_cancelled()
@@ -90,7 +90,10 @@ pub(super) async fn manual(
         service
             .append_event(&session, event)
             .await
-            .map_err(model::error)?;
+            .map_err(|error| {
+                summarizer.failure(SummaryMode::Manual, "persistence", &error);
+                model::error(error)
+            })?;
     }
     Ok(())
 }
@@ -98,6 +101,7 @@ pub(super) async fn manual(
 #[derive(Clone)]
 struct Summarizer {
     model: Arc<dyn Llm>,
+    identity: crate::logging::Context,
     turn: TurnId,
     budget: Option<u64>,
     output: Option<i32>,
@@ -105,8 +109,28 @@ struct Summarizer {
     stop: CancellationToken,
 }
 
+#[derive(Clone, Copy)]
+enum SummaryMode {
+    Manual,
+    Automatic,
+}
+
+impl SummaryMode {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Manual => "manual",
+            Self::Automatic => "automatic",
+        }
+    }
+}
+
 impl Summarizer {
-    fn new(model: Arc<dyn Llm>, invocation: &Invocation, stop: CancellationToken) -> Self {
+    fn new(
+        ingress: &Arc<Ingress>,
+        model: Arc<dyn Llm>,
+        invocation: &Invocation,
+        stop: CancellationToken,
+    ) -> Self {
         let metadata = invocation.provider.as_ref().and_then(|provider| {
             provider
                 .models
@@ -115,6 +139,18 @@ impl Summarizer {
         });
         Self {
             model,
+            identity: crate::logging::Context {
+                node: Some(ingress.node),
+                session: Some(invocation.turn.session),
+                turn: Some(invocation.turn.id),
+                provider: invocation.provider.as_ref().map(|provider| provider.id),
+                provider_name: invocation
+                    .provider
+                    .as_ref()
+                    .map(|provider| provider.name.clone()),
+                model: Some(invocation.turn.config.model.clone()),
+                ..Default::default()
+            },
             turn: invocation.turn.id,
             budget: metadata.and_then(|model| budget(model.context, model.output)),
             output: metadata.map(|model| model.output as i32),
@@ -166,6 +202,18 @@ impl Summarizer {
         }
         latest(events)
     }
+
+    fn failure(&self, mode: SummaryMode, stage: &'static str, error: &adk_core::AdkError) {
+        let mut entry =
+            crate::logging::Entry::new(crate::logging::Area::Model, crate::logging::Phase::Failed);
+        entry.context = self.identity.clone();
+        entry.operation = Some("summary_apply");
+        entry.source_kind = Some(mode.name());
+        entry.stage = Some(stage);
+        entry.code = Some(ErrorCode::Unavailable);
+        model::cause(&mut entry, error);
+        entry.emit();
+    }
 }
 
 fn budget(context: u32, output: u32) -> Option<u64> {
@@ -177,9 +225,12 @@ fn budget(context: u32, output: u32) -> Option<u64> {
     (tokens > 0).then_some(tokens)
 }
 
-#[async_trait]
-impl BaseEventsSummarizer for Summarizer {
-    async fn summarize_events(&self, events: &[Event]) -> adk_core::Result<Option<Event>> {
+impl Summarizer {
+    async fn summarize_with(
+        &self,
+        events: &[Event],
+        mode: SummaryMode,
+    ) -> adk_core::Result<Option<Event>> {
         let Some(first) = events.first() else {
             return Ok(None);
         };
@@ -188,77 +239,109 @@ impl BaseEventsSummarizer for Summarizer {
         if transcript.len() < MINIMUM_BYTES || self.stop.is_cancelled() {
             return Ok(None);
         }
-        let instruction = self.covered_instruction(events);
-        let verbatim = instruction
-            .as_ref()
-            .map_or_else(String::new, |instruction| {
-                format!(
-                    "\n\nLatest {} instruction (verbatim data)\n{}",
-                    instruction.source, instruction.text
-                )
+        let mut entry =
+            crate::logging::Entry::new(crate::logging::Area::Model, crate::logging::Phase::Begin);
+        entry.context = self.identity.clone();
+        entry.operation = Some("summary_request");
+        entry.source_kind = Some(mode.name());
+        entry.stage = Some("validation");
+        let mut span = crate::logging::Span::new(entry).cancel_when(self.stop.clone());
+        let result = async {
+            let instruction = self.covered_instruction(events);
+            let verbatim = instruction
+                .as_ref()
+                .map_or_else(String::new, |instruction| {
+                    format!(
+                        "\n\nLatest {} instruction (verbatim data)\n{}",
+                        instruction.source, instruction.text
+                    )
+                });
+            let size_limit = self.size_limit();
+            let available = size_limit
+                .checked_sub(verbatim.len())
+                .filter(|available| *available >= MINIMUM_BYTES)
+                .ok_or_else(|| invalid("latest instruction exceeds the summary budget"))?;
+            let request = LlmRequest {
+                model: self.model.name().into(),
+                contents: vec![
+                    Content::new("system")
+                        .with_text(format!("{PROMPT}\nHandoff budget: {available} UTF-8 bytes")),
+                    Content::new("user").with_text(&transcript),
+                ],
+                config: Some(GenerateContentConfig {
+                    max_output_tokens: self.output,
+                    ..Default::default()
+                }),
+                tools: Default::default(),
+                previous_response_id: None,
+            };
+            span.entry.stage = Some("request");
+            // A failed or cancelled summary never replaces history or retries business work.
+            let response = tokio::select! {
+                biased;
+                _ = self.stop.cancelled() => return Ok(None),
+                // The shared model owns first-response and per-event inactivity deadlines.
+                result = summarize(&*self.model, request) => result?,
+            };
+            span.entry.stage = Some("validation");
+            let Summary {
+                mut text,
+                usage,
+                timing,
+            } = response;
+            if text.trim().is_empty() {
+                return Err(invalid("context summary did not reduce the conversation"));
+            }
+            if text.len() > available {
+                return Err(invalid("context summary exceeds the size limit"));
+            }
+            text.push_str(&verbatim);
+            if text.len() > size_limit || text.len() * 2 >= transcript.len() {
+                return Err(invalid("context summary did not reduce the conversation"));
+            }
+            let mut event = Event::new(self.turn.to_string());
+            event.author = "system".into();
+            event.actions.compaction = Some(EventCompaction {
+                start_timestamp: first.timestamp,
+                end_timestamp: last.timestamp,
+                compacted_content: Content::new("model").with_text(text),
             });
-        let size_limit = self.size_limit();
-        let available = size_limit
-            .checked_sub(verbatim.len())
-            .filter(|available| *available >= MINIMUM_BYTES)
-            .ok_or_else(|| invalid("latest instruction exceeds the summary budget"))?;
-        let request = LlmRequest {
-            model: self.model.name().into(),
-            contents: vec![
-                Content::new("system")
-                    .with_text(format!("{PROMPT}\nHandoff budget: {available} UTF-8 bytes")),
-                Content::new("user").with_text(&transcript),
-            ],
-            config: Some(GenerateContentConfig {
-                max_output_tokens: self.output,
-                ..Default::default()
-            }),
-            tools: Default::default(),
-            previous_response_id: None,
-        };
-        // A failed or cancelled summary never replaces history or retries business work.
-        let response = tokio::select! {
-            biased;
-            _ = self.stop.cancelled() => return Ok(None),
-            // The shared model owns first-response and per-event inactivity deadlines.
-            result = summarize(&*self.model, request) => result?,
-        };
-        let Summary {
-            mut text,
-            usage,
-            timing,
-        } = response;
-        if text.trim().is_empty() {
-            return Err(invalid("context summary did not reduce the conversation"));
-        }
-        if text.len() > available {
-            return Err(invalid("context summary exceeds the size limit"));
-        }
-        text.push_str(&verbatim);
-        if text.len() > size_limit || text.len() * 2 >= transcript.len() {
-            return Err(invalid("context summary did not reduce the conversation"));
-        }
-        let mut event = Event::new(self.turn.to_string());
-        event.author = "system".into();
-        event.actions.compaction = Some(EventCompaction {
-            start_timestamp: first.timestamp,
-            end_timestamp: last.timestamp,
-            compacted_content: Content::new("model").with_text(text),
-        });
-        event.provider_metadata.insert(
-            crate::store::agent::compaction::END_EVENT.into(),
-            last.id.clone(),
-        );
-        if let Some(instruction) = instruction {
             event.provider_metadata.insert(
-                LATEST_INSTRUCTION.into(),
-                serde_json::to_string(&instruction)
-                    .map_err(|_| invalid("latest instruction could not be encoded"))?,
+                crate::store::agent::compaction::END_EVENT.into(),
+                last.id.clone(),
             );
+            if let Some(instruction) = instruction {
+                event.provider_metadata.insert(
+                    LATEST_INSTRUCTION.into(),
+                    serde_json::to_string(&instruction)
+                        .map_err(|_| invalid("latest instruction could not be encoded"))?,
+                );
+            }
+            event.llm_response.usage_metadata = usage;
+            event.llm_response.provider_metadata =
+                timing.map(|timing| json!({"sailry_timing":timing}));
+            Ok(Some(event))
         }
-        event.llm_response.usage_metadata = usage;
-        event.llm_response.provider_metadata = timing.map(|timing| json!({"sailry_timing":timing}));
-        Ok(Some(event))
+        .await;
+        match &result {
+            Ok(Some(_)) => {
+                span.entry.stage = Some("prepared");
+                span.finish(crate::logging::Phase::Completed, None);
+            }
+            Ok(None) => span.finish(crate::logging::Phase::Cancelled, Some(ErrorCode::Cancelled)),
+            Err(error) => {
+                model::cause(&mut span.entry, error);
+                span.finish(crate::logging::Phase::Failed, Some(ErrorCode::Unavailable));
+            }
+        }
+        result
+    }
+}
+
+#[async_trait]
+impl BaseEventsSummarizer for Summarizer {
+    async fn summarize_events(&self, events: &[Event]) -> adk_core::Result<Option<Event>> {
+        self.summarize_with(events, SummaryMode::Automatic).await
     }
 }
 
@@ -406,11 +489,20 @@ fn transcript(events: &[Event]) -> adk_core::Result<String> {
 }
 
 fn request_error(error: adk_core::AdkError) -> adk_core::AdkError {
+    let component = error.component;
+    let category = error.category;
+    let code = error.code;
+    let status = error.details.upstream_status_code;
     let fault = model::error(error);
-    adk_core::AdkError::model("context summary request failed").with_source(Fault::new(
-        fault.code,
-        format!("context summary request failed: {}", fault.message),
-    ))
+    let safe = adk_core::AdkError::new(component, category, code, "context summary request failed")
+        .with_source(Fault::new(
+            fault.code,
+            format!("context summary request failed: {}", fault.message),
+        ));
+    match status {
+        Some(status) => safe.with_upstream_status(status),
+        None => safe,
+    }
 }
 
 fn invalid(message: &'static str) -> adk_core::AdkError {

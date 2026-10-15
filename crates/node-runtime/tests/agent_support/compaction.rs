@@ -45,6 +45,26 @@ pub async fn respond_usage(
     reply_usage(stream, body, delta, read, Some(input_tokens)).await
 }
 
+pub async fn respond_plain(
+    stream: TcpStream,
+    body: &Value,
+    input_tokens: i32,
+) -> std::io::Result<()> {
+    let content = if is_summary(body) {
+        "Prepared summary".into()
+    } else {
+        "Conversation evidence ".repeat(200)
+    };
+    reply_usage(
+        stream,
+        body,
+        json!({"role":"assistant","content":content}),
+        false,
+        Some(input_tokens),
+    )
+    .await
+}
+
 pub async fn respond_loop(
     stream: TcpStream,
     body: &Value,

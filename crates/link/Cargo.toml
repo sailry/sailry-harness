@@ -21,7 +21,9 @@ rustls.workspace = true
 zeroize.workspace = true
 tempfile.workspace = true
 libc.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }
+tracing-subscriber.workspace = true

@@ -1,8 +1,78 @@
 use super::*;
 use adk_core::{Content, LlmResponse, UsageMetadata};
 use async_trait::async_trait;
+use std::sync::Mutex;
+use tracing::instrument::WithSubscriber as _;
+
+#[derive(Clone, Default)]
+struct Capture(Arc<Mutex<Vec<u8>>>);
+
+impl Capture {
+    fn dispatch(&self) -> tracing::Dispatch {
+        tracing::Dispatch::new(
+            tracing_subscriber::fmt()
+                .json()
+                .without_time()
+                .with_writer(self.clone())
+                .finish(),
+        )
+    }
+
+    fn records(&self) -> Vec<Value> {
+        let bytes = self.0.lock().unwrap().clone();
+        String::from_utf8(bytes)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+}
+
+impl std::io::Write for Capture {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for Capture {
+    type Writer = Self;
+
+    fn make_writer(&'writer self) -> Self::Writer {
+        self.clone()
+    }
+}
 
 struct Model;
+
+struct Cancelled {
+    stop: sailry_link::CancellationToken,
+}
+
+#[async_trait]
+impl Llm for Cancelled {
+    fn name(&self) -> &str {
+        "cancelled-fixture"
+    }
+
+    async fn generate_content(
+        &self,
+        _: LlmRequest,
+        _: bool,
+    ) -> adk_core::Result<LlmResponseStream> {
+        self.stop.cancel();
+        Err(adk_core::AdkError::new(
+            adk_core::ErrorComponent::Model,
+            adk_core::ErrorCategory::Cancelled,
+            "model.request_cancelled",
+            "PRIVATE_CANCEL_MESSAGE",
+        ))
+    }
+}
 
 #[async_trait]
 impl Llm for Model {
@@ -47,6 +117,7 @@ async fn preserves_usage_timing() {
         &model,
         LlmRequest::new(model.name(), vec![]),
         true,
+        "conversation",
         &crate::logging::Context::default(),
         sailry_link::CancellationToken::new(),
     )
@@ -76,6 +147,7 @@ async fn omits_nonstreaming_first_token() {
         &model,
         LlmRequest::new(model.name(), vec![]),
         false,
+        "conversation",
         &crate::logging::Context::default(),
         sailry_link::CancellationToken::new(),
     )
@@ -91,4 +163,38 @@ async fn omits_nonstreaming_first_token() {
         .unwrap();
     assert!(metadata["sailry_timing"]["first_token_us"].is_null());
     assert!(metadata["sailry_timing"]["elapsed_us"].as_u64().unwrap() > 0);
+}
+
+#[tokio::test]
+async fn records_observed_cancellation_cause() {
+    let stop = sailry_link::CancellationToken::new();
+    let model: Arc<dyn Llm> = Arc::new(Cancelled { stop: stop.clone() });
+    let capture = Capture::default();
+    let result = generate(
+        &model,
+        LlmRequest::new(model.name(), vec![]),
+        true,
+        "model_request",
+        &crate::logging::Context::default(),
+        stop,
+    )
+    .with_subscriber(capture.dispatch())
+    .await;
+    let Err(error) = result else {
+        panic!("cancelled model request must fail")
+    };
+    assert_eq!(error.code, "model.request_cancelled");
+    let records = capture.records();
+    assert_eq!(records.len(), 2);
+    let fields = &records[1]["fields"];
+    assert_eq!(fields["phase"], "cancelled");
+    assert_eq!(fields["code"], "cancelled");
+    assert_eq!(fields["cause_code"], "model.request_cancelled");
+    assert_eq!(fields["cause_component"], "model");
+    assert_eq!(fields["cause_category"], "cancelled");
+    assert!(
+        !serde_json::to_string(&records)
+            .unwrap()
+            .contains("PRIVATE_")
+    );
 }

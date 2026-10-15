@@ -7,11 +7,55 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tracing::instrument::WithSubscriber as _;
 
 #[path = "streams/admissions.rs"]
 mod admissions;
 #[path = "streams/subscriptions.rs"]
 mod subscriptions;
+
+#[derive(Clone, Default)]
+struct Capture(Arc<Mutex<Vec<u8>>>);
+
+impl Capture {
+    fn dispatch(&self) -> tracing::Dispatch {
+        tracing::Dispatch::new(
+            tracing_subscriber::fmt()
+                .json()
+                .without_time()
+                .with_writer(self.clone())
+                .finish(),
+        )
+    }
+
+    fn records(&self) -> Vec<serde_json::Value> {
+        let bytes = self.0.lock().unwrap().clone();
+        String::from_utf8(bytes)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect()
+    }
+}
+
+impl std::io::Write for Capture {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for Capture {
+    type Writer = Self;
+
+    fn make_writer(&'writer self) -> Self::Writer {
+        self.clone()
+    }
+}
 
 #[derive(Default)]
 struct Peers(Mutex<BTreeSet<NodeId>>);

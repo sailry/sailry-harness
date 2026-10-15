@@ -35,8 +35,26 @@ const FIELDS: &[&str] = &[
     "artifact_id",
     "revision",
     "command",
+    "operation",
+    "stage",
     "source_kind",
     "reason",
+    "cause_code",
+    "cause_component",
+    "cause_category",
+    "upstream_status",
+    "attempt",
+    "limit",
+    "request_mode",
+    "stream",
+    "budget",
+    "parse_layer",
+    "parse_category",
+    "parse_cause",
+    "parse_field",
+    "parse_event",
+    "parse_line",
+    "parse_column",
     "code",
     "status",
     "duration_us",
@@ -60,16 +78,14 @@ impl Fields {
 impl Visit for Fields {
     fn record_debug(&mut self, _: &Field, _: &dyn fmt::Debug) {}
     fn record_str(&mut self, field: &Field, value: &str) {
-        self.set(
-            field,
-            Value::String(
-                value
-                    .chars()
-                    .filter(|character| !character.is_control())
-                    .take(256)
-                    .collect(),
-            ),
-        );
+        let value: String = value
+            .chars()
+            .filter(|character| !character.is_control())
+            .take(256)
+            .collect();
+        if !value.is_empty() {
+            self.set(field, Value::String(value));
+        }
     }
     fn record_u64(&mut self, field: &Field, value: u64) {
         self.set(field, value.into());

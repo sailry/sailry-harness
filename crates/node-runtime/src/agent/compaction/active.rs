@@ -45,7 +45,10 @@ impl Context {
         if automatic && self.failed.load(Ordering::Relaxed) {
             return Ok(None);
         }
-        let result = self.summarizer.summarize_events(events).await;
+        let result = self
+            .summarizer
+            .summarize_with(events, SummaryMode::Automatic)
+            .await;
         match &result {
             Err(_) => self.failed.store(true, Ordering::Relaxed),
             Ok(Some(_)) => self.failed.store(false, Ordering::Relaxed),
@@ -135,14 +138,17 @@ impl Context {
                 Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
                     self.service
                         .append_event(&self.session.to_string(), summary)
-                        .await?;
+                        .await
+                        .map_err(|error| {
+                            self.summarizer
+                                .failure(SummaryMode::Automatic, "persistence", &error);
+                            error
+                        })?;
                     self.applied.store(true, Ordering::Relaxed);
                     events = self.events().await?;
                 }
                 Ok(_) => {}
-                Err(error) => {
-                    eprintln!("Context compaction failed: {}", model::error(error).message)
-                }
+                Err(_) => {}
             }
         }
         if self.summarizer.stop.is_cancelled() {

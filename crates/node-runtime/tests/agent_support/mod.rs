@@ -56,6 +56,7 @@ enum Reply {
         text: Arc<String>,
         usage: Arc<Vec<i32>>,
     },
+    Summary(i32),
     LoopCompaction {
         fail_summary: bool,
         pending_summary: bool,
@@ -89,6 +90,7 @@ enum Reply {
     Delegation(Option<String>),
     Staged(Arc<Vec<Arc<tokio::sync::Notify>>>),
     ResponsesStaged(streaming::Reply),
+    ResponsesParse,
 }
 
 impl Server {
@@ -129,6 +131,10 @@ impl Server {
             ending,
         }))
         .await
+    }
+
+    pub async fn responses_parse() -> Self {
+        Self::serve(Reply::ResponsesParse).await
     }
 
     pub async fn markdown(text: String) -> Self {
@@ -232,6 +238,9 @@ impl Server {
             14000,
         )
         .await
+    }
+    pub async fn summary(usage: i32) -> Self {
+        Self::serve(Reply::Summary(usage)).await
     }
     pub async fn loop_usage(usage: Vec<Option<i32>>, summary_input: i32) -> Self {
         assert!(!usage.is_empty());
@@ -486,6 +495,10 @@ async fn respond(
         };
         return compaction::respond_usage(stream, &body, fail_summary, &text, input_tokens).await;
     }
+    if let Reply::Summary(usage) = reply {
+        records.lock().unwrap().push(body.clone());
+        return compaction::respond_plain(stream, &body, usage).await;
+    }
     if let Reply::LoopCompaction {
         fail_summary,
         pending_summary,
@@ -512,6 +525,26 @@ async fn respond(
         return terminal::respond(stream, &body, responses).await;
     }
     if responses {
+        if matches!(reply, Reply::ResponsesParse) {
+            records.lock().unwrap().push(body);
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+                )
+                .await?;
+            let event = json!({
+                "type":"response.output_text.delta",
+                "item_id":"PRIVATE_ITEM",
+                "output_index":0,
+                "content_index":0,
+                "delta":"PRIVATE_RESPONSE_BODY",
+                "logprobs":[]
+            });
+            stream
+                .write_all(format!("data: {event}\n\n").as_bytes())
+                .await?;
+            return stream.shutdown().await;
+        }
         if let Reply::ResponsesStaged(reply) = reply {
             records.lock().unwrap().push(body.clone());
             return streaming::respond(stream, &body, reply).await;
