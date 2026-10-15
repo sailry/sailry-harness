@@ -73,7 +73,7 @@ just check          # Rust formatting and Clippy with warnings denied
 just test-source    # Public guides, publication boundaries and source fixtures
 just test-plugins   # Deterministic package JavaScript tests
 just test-backend   # Protocol, Link, Client, Node and Host tests
-just test-ui        # Desktop behavior and Kit interaction tests
+just test-ui        # Desktop logic and service-contract tests
 ```
 
 `just test-ui` uses CI's nextest profile. Install the pinned runner with
@@ -125,9 +125,17 @@ adapted to Sailry's ownership and local/remote boundaries.
   Do not add a framework or arbitrary coverage targets to inflate test counts.
 - Keep source and developer diagnostics in English. Product copy belongs in
   i18n resources; test operation feedback through the toast boundary.
+- Use simulated-window, rendered-layout, mouse or keyboard interaction checks
+  only as temporary development and debugging aids. Remove them afterward rather
+  than committing permanent tests or adding CI, release or other standardized
+  gates. GPUI Kit owns framework-control interaction coverage. Preserve static
+  checks and ordinary logic, protocol, persistence and local/remote service
+  integration; controller logic should be tested without mounting a window.
 
 Real-service, device, OS interaction and performance acceptance must state their
-actual prerequisites and results separately. Screenshots are not a default gate.
+actual prerequisites and results separately. Do not substitute automatic OS,
+screenshot, pixel or end-to-end gates for removed UI interaction tests. Add or run
+those checks only when explicitly requested.
 
 ## Continuous integration
 
@@ -138,8 +146,9 @@ the same ref cancels superseded work. Reuse verified results while their relevan
 inputs remain unchanged.
 
 Native validation runs strict Rust checks, backend local/remote integration,
-desktop Kit interactions and production-feature checks on Apple silicon with an
-explicit Xcode SDK. Intel packaging and compilation run in the release workflow.
+Desktop logic and service-contract tests, and production-feature checks on Apple
+silicon with an explicit Xcode SDK. Intel packaging and compilation run in the
+release workflow.
 Mobile checks include Flutter analysis and widget tests, native Dart FFI contracts
 and Flutter against an isolated real remote Node. Android builds an ARM64 release
 APK and checks its native libraries; iOS builds an unsigned application. Both
@@ -160,8 +169,8 @@ Checks omit debug information and preserve the workspace's optimization settings
 including the GPUI hot-path overrides. Development and release profiles are unchanged.
 Compilation and execution are separate steps; compilation timings are uploaded
 for the backend and Desktop jobs. The pinned nextest runner executes each Desktop
-and backend test in its own process, isolating locale and GPUI test-platform
-state without compiling a binary per test. Desktop runs two tests concurrently;
+and backend test in its own process without compiling a binary per test.
+Desktop runs two tests concurrently;
 failures are not retried. Hung tests fail after five 60-second timeout periods.
 Unit tests precede production-feature checks; the lifecycle suite builds its own
 required application executable. JUnit reports remain separate and include
@@ -187,10 +196,10 @@ entry point, which its parent fixtures launch themselves. CI APKs use disposable
 debug certificates, not distribution keys. Native builds and a macOS host-side
 Flutter run do not establish iOS or Android device acceptance.
 
-## macOS releases
+## Release packages
 
 [The release workflow](.github/workflows/release.yml) runs when a `v*` tag is
-pushed. Manual dispatch can select `host`, `desktop`, `android` or `all`, but must
+pushed. Manual dispatch can select `host`, `desktop` or `all`, but must
 also run from a version tag. The tag must match every application's version,
 such as `v0.1.0` for version `0.1.0`; branch pushes and pull requests do not build releases.
 A tag starts signed packaging into a draft, which can run alongside candidate
@@ -201,8 +210,8 @@ after the required candidate checks and all signed packages pass:
 gh release edit v0.1.0-alpha.1 --draft=false
 ```
 
-This changes visibility without rebuilding the packages. iOS and App Store
-publication are not part of this workflow.
+This changes visibility without rebuilding the packages. Mobile publication is
+not part of this workflow.
 
 Configure these repository secrets through GitHub's encrypted secret storage:
 
@@ -210,6 +219,8 @@ Configure these repository secrets through GitHub's encrypted secret storage:
   with its private key
 - `APPLE_CERTIFICATE_PASSWORD`: the certificate export password
 - `APPLE_API_PRIVATE_KEY`: the App Store Connect API private key contents
+- `SAILRY_UPDATE_SIGNING_KEY`: the base64-encoded raw 32-byte Ed25519 publisher
+  seed whose public key is present in `release/update-public-keys.txt`
 
 Configure repository variables `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID`,
 `APPLE_API_KEY_ID` and `APPLE_API_ISSUER_ID`. The signing identity is the Developer
@@ -217,6 +228,17 @@ ID certificate's SHA-1 fingerprint. Keep credentials out of source, artifacts an
 logs; the workflow imports them into a temporary keychain and removes its key
 files after packaging. The Apple account must have accepted current agreements
 and the API key must have notarization access.
+
+The packaging workflow signs the final notarized updater ZIP with its published
+filename before calculating checksums. Publishing the reviewed draft triggers
+the update-feed workflow, which downloads the published ZIPs and metadata,
+verifies their version, target, digest and both publisher signatures, then
+advances the root feeds with one non-forced compare-and-swap commit. The stable
+feed accepts final versions only. The experience feed accepts both final and
+prerelease versions, and a stable publication advances both feeds. GitHub does
+not normally start another workflow for events created with `GITHUB_TOKEN`; keep
+the existing manual release publication, or have any future publisher invoke the
+same verified feed handoff explicitly.
 
 Apple silicon and Intel runners build native Desktop DMGs, updater ZIPs and
 standalone macOS Host archives. Desktop contains its local Node, not remote Host
@@ -244,10 +266,11 @@ Distribution signs nested native code inside out with hardened runtime and secur
 timestamps, submits Desktop and Host for notarization, staples Desktop's ticket,
 and verifies Gatekeeper before creating archives. Standalone executables cannot
 carry stapled tickets. The DMG is separately signed, notarized, stapled and checked
-before distribution. Platform publishers attach verified assets to the same draft;
-the Linux Host publisher does not wait for Desktop or Android. They never overwrite
-public releases or existing assets. Review all required platform and candidate
-checks before publishing a full-product draft.
+before distribution. The Desktop publisher attaches only macOS Desktop assets.
+The Host publisher waits for the macOS and Linux Host packages, then
+attaches their verified assets to the same draft. They never overwrite public
+releases or existing assets. Review all required platform and candidate checks
+before publishing a full-product draft.
 
 To build and package one Linux Host locally, install the pinned Zig 0.16.0,
 cargo-zigbuild 0.23.4 tools plus LLVM ar/strip, then run:

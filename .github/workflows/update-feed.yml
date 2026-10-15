@@ -1,0 +1,48 @@
+name: Published update feeds
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: published-update-feeds
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify release and advance feeds
+    if: github.event.action == 'published' && !github.event.release.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name }}
+      - name: Build pinned release producer
+        run: cargo build --locked --release -p sailry-release
+      - name: Download published updater assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          mkdir "$RUNNER_TEMP/update-assets"
+          gh release download "$RELEASE_TAG" --repo "$GH_REPO" \
+            --dir "$RUNNER_TEMP/update-assets" \
+            --pattern 'Sailry-*.zip' --pattern 'Sailry-*.zip.update.json'
+      - name: Publish authenticated feeds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SAILRY_UPDATE_SIGNING_KEY: ${{ secrets.SAILRY_UPDATE_SIGNING_KEY }}
+        run: |
+          python3 scripts/publish-update-feed.py \
+            --assets "$RUNNER_TEMP/update-assets" \
+            --binary target/release/sailry-release \
+            --event "$GITHUB_EVENT_PATH" \
+            --keys release/update-public-keys.txt \
+            --repository "$GITHUB_REPOSITORY" \
+            --stage "$RUNNER_TEMP/update-feed"

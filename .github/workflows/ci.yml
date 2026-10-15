@@ -167,22 +167,22 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Backend strict lint
         if: matrix.kind == 'backend'
-        run: cargo clippy --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -p sailry-speech -p sailry-embedding -p sailry-model-assets -p sailry-ocr --all-targets --jobs "$BUILD_JOBS" -- -D warnings
+        run: cargo clippy --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -p sailry-speech -p sailry-embedding -p sailry-model-assets -p sailry-ocr -p sailry-release --all-targets --jobs "$BUILD_JOBS" -- -D warnings
       - name: Desktop strict lint
         if: matrix.kind == 'desktop'
         run: cargo clippy --locked -p sailry-content -p sailry-desktop --all-targets --jobs "$BUILD_JOBS" -- -D warnings
       - name: Backend unit and local/remote integration
         if: matrix.kind == 'backend'
-        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
+        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -p sailry-release --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
       - name: Isolated database engines
         if: matrix.kind == 'backend'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
           cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --build-jobs "$BUILD_JOBS" --profile databases --run-ignored only --filterset 'binary(databases)' --test-threads=1
-      - name: Desktop behavior and Kit interactions
+      - name: Desktop logic and service contracts
         if: matrix.kind == 'desktop'
-        # Process isolation permits bounded concurrency without shared locale/UI state.
+        # Process isolation permits bounded concurrency without shared global state.
         run: cargo nextest run --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --timings --build-jobs "$BUILD_JOBS" --profile ci
       - name: Desktop and Host without test features
         if: matrix.kind == 'desktop'

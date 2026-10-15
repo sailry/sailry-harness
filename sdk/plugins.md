@@ -362,12 +362,13 @@ are bounded strings, booleans, or integers, not nested data. Set
 Credentials, callback addresses, OAuth URLs, scripts and commands are not public
 card properties. A card-only package does not need a workspace navigation entry.
 
-An admitted host tool imports `card` and `status` from `sailry/cards`:
+An admitted host tool imports `card` and `status` from `sailry/cards` and loads
+`connectionLabels` from its package's i18n resources:
 
 ```javascript
 const props = await status("owned-server");
 return {sailry_content: {version: 1, blocks: [
-  card("connection", props, {label: "Connect", locales: {"zh-CN": "连接"}})
+  card("connection", props, {label: "Connect", locales: connectionLabels})
 ]}};
 ```
 

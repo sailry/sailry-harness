@@ -514,6 +514,12 @@ headless process, using a private profile and explicit network/pairing options.
 Only one process may own that profile. Pairing is opt-in for Host; established
 peer trust survives restart. Host release archives are independent from Desktop;
 the official installer verifies versioned assets and starts systemd or launchd.
+The release-only `sailry-release` tool owns Desktop archive and update-feed
+signing; it is not linked into Desktop, Host or Node. Desktop embeds the public
+publisher ring and verifies the exact v1 feed payload plus the final archive's
+filename-bound signature. Stable feeds contain final versions only; experience
+feeds contain final and prerelease versions so SemVer precedence can graduate a
+preview installation to a newer stable release.
 Desktop's Add Host command invokes that installer through Node-owned SSH, then
 pairs through a private bootstrap ticket. It never uploads a bundled Host or
 overwrites an existing profile. Desktop still includes its own local Node.

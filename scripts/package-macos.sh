@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep the update publisher seed out of every unrelated packaging child.
+task_update_signing_key="${SAILRY_UPDATE_SIGNING_KEY:-}"
+unset SAILRY_UPDATE_SIGNING_KEY
+
 # Package existing builds into a fresh directory; never replace an installed app.
 task_profile="${1:-release}"
 case "$task_profile" in debug|release) ;; *) echo 'Usage: bash scripts/package-macos.sh [debug|release]' >&2; exit 1 ;; esac
@@ -13,8 +17,18 @@ task_version="$(awk -F '"' '/^version = "/ {print $2; exit}' "$task_root/apps/de
 task_apple_version="$(bash "$task_root/scripts/python.sh" "$task_root/scripts/package/versions.py" --apple "$task_version")"
 task_signing="${SAILRY_SIGNING:-ad-hoc}"
 case "$task_signing" in
-  ad-hoc) test "${SAILRY_NOTARIZE:-0}" != 1 ;;
-  developer-id) test -n "${APPLE_SIGNING_IDENTITY:-}"; test -n "${APPLE_TEAM_ID:-}" ;;
+  ad-hoc)
+    test "${SAILRY_NOTARIZE:-0}" != 1
+    task_update_signing_key=
+    unset task_update_signing_key
+    ;;
+  developer-id)
+    test -n "${APPLE_SIGNING_IDENTITY:-}"
+    test -n "${APPLE_TEAM_ID:-}"
+    test "${SAILRY_NOTARIZE:-0}" = 1
+    test -n "$task_update_signing_key"
+    test -x "${SAILRY_RELEASE_TOOL:-$task_root/target/release/sailry-release}"
+    ;;
   *) echo 'SAILRY_SIGNING must be ad-hoc or developer-id' >&2; exit 1 ;;
 esac
 test -n "$task_version"
@@ -92,8 +106,39 @@ bash "$task_root/scripts/python.sh" "$task_root/scripts/package/dmg.py" --app "$
 if test "${SAILRY_NOTARIZE:-0}" = 1; then
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/notarize-macos.py" --dmg "$task_dmg"
 fi
-# The existing signed automatic updater consumes ZIP; DMG is the manual installer.
-ditto -c -k --norsrc --keepParent "$task_app" "$task_output/Sailry-$task_version-$task_target.zip"
+# Automatic updates use the final notarized app ZIP; DMG remains the manual installer.
+task_zip_name="Sailry-$task_version-$task_target.zip"
+task_zip="$task_output/$task_zip_name"
+task_unsigned="$task_output/.unsigned-$task_zip_name"
+ditto -c -k --norsrc --keepParent "$task_app" "$task_unsigned"
+if test "$task_signing" = developer-id; then
+  task_release_tool="${SAILRY_RELEASE_TOOL:-$task_root/target/release/sailry-release}"
+  test -x "$task_release_tool"
+  test -n "${SAILRY_RELEASE_REPOSITORY:-}"
+  test -n "${SAILRY_RELEASE_TAG:-}"
+  SAILRY_UPDATE_SIGNING_KEY="$task_update_signing_key" \
+    "$task_release_tool" sign-archive --input "$task_unsigned" --output "$task_zip" \
+    --name "$task_zip_name" --keys "$task_root/release/update-public-keys.txt"
+  task_update_signing_key=
+  unset task_update_signing_key
+  "$task_release_tool" describe --archive "$task_zip" --version "$task_version" \
+    --target "$task_target" --minimum-system 13.0 \
+    --repository "$SAILRY_RELEASE_REPOSITORY" --tag "$SAILRY_RELEASE_TAG" \
+    --keys "$task_root/release/update-public-keys.txt" --output "$task_zip.update.json"
+  python3 - "$task_unsigned" <<'PY'
+import pathlib, sys
+pathlib.Path(sys.argv[1]).unlink()
+PY
+else
+  mv "$task_unsigned" "$task_zip"
+fi
 tar -czf "$task_output/sailry-host-$task_version-$task_target.tar.gz" -C "$task_output/host" .
-(cd "$task_output" && shasum -a 256 ./*.dmg ./*.zip ./*.tar.gz > SHA256SUMS)
+(
+  cd "$task_output"
+  task_checksums=(./*.dmg ./*.zip ./*.tar.gz)
+  if compgen -G '*.zip.update.json' >/dev/null; then
+    task_checksums+=(./*.zip.update.json)
+  fi
+  shasum -a 256 "${task_checksums[@]}" > SHA256SUMS
+)
 printf 'Local package: %s\n' "$task_output"

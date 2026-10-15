@@ -10,7 +10,7 @@ on:
         type: choice
         required: true
         default: all
-        options: [all, host, desktop, android]
+        options: [all, host, desktop]
 
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
   build:
     name: Signed ${{ matrix.target }}
     needs: version
-    if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'desktop'
+    if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'desktop' || inputs.component == 'host'
     strategy:
       fail-fast: false
       matrix:
@@ -98,11 +98,13 @@ jobs:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+          SAILRY_UPDATE_SIGNING_KEY: ${{ secrets.SAILRY_UPDATE_SIGNING_KEY }}
         run: |
           python3 - <<'PY'
           import os
           names = ('APPLE_CERTIFICATE_P12', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_API_PRIVATE_KEY',
-                   'APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_API_KEY_ID', 'APPLE_API_ISSUER_ID')
+                   'APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_API_KEY_ID',
+                   'APPLE_API_ISSUER_ID', 'SAILRY_UPDATE_SIGNING_KEY')
           if not all(os.environ.get(name) for name in names):
               raise SystemExit('The macOS distribution signing configuration is incomplete')
           PY
@@ -113,7 +115,7 @@ jobs:
         run: python3 -m unittest discover -s scripts/tests -v
       - name: Build native Desktop and standalone Host
         run: |
-          cargo build --locked --release --timings -p sailry-desktop -p sailry-host
+          cargo build --locked --release --timings -p sailry-desktop -p sailry-host -p sailry-release
       - name: Save compilation before signing
         if: always() && steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -174,21 +176,40 @@ jobs:
           APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
           APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
+          SAILRY_UPDATE_SIGNING_KEY: ${{ secrets.SAILRY_UPDATE_SIGNING_KEY }}
+          SAILRY_RELEASE_REPOSITORY: ${{ github.repository }}
+          SAILRY_RELEASE_TAG: ${{ github.ref_name }}
+          SAILRY_RELEASE_TOOL: target/release/sailry-release
         run: |
           set -o pipefail
           bash scripts/package-macos.sh release | tee "$RUNNER_TEMP/package.log"
           task_package="$(sed -n 's/^Local package: //p' "$RUNNER_TEMP/package.log")"
           test -d "$task_package"
-          mv "$task_package/SHA256SUMS" "$task_package/SHA256SUMS-${{ matrix.target }}"
+          (
+            cd "$task_package"
+            shasum -a 256 ./*.dmg ./*.zip ./*.zip.update.json > "SHA256SUMS-desktop-${{ matrix.target }}"
+            shasum -a 256 ./*.tar.gz > "SHA256SUMS-host-${{ matrix.target }}"
+            rm SHA256SUMS
+          )
           printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'desktop'
         with:
           name: packages-${{ matrix.target }}
           path: |
             ${{ steps.package.outputs.directory }}/*.zip
+            ${{ steps.package.outputs.directory }}/*.zip.update.json
             ${{ steps.package.outputs.directory }}/*.dmg
+            ${{ steps.package.outputs.directory }}/SHA256SUMS-desktop-*
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'host'
+        with:
+          name: host-macos-${{ matrix.target }}
+          path: |
             ${{ steps.package.outputs.directory }}/*.tar.gz
-            ${{ steps.package.outputs.directory }}/SHA256SUMS-*
+            ${{ steps.package.outputs.directory }}/SHA256SUMS-host-*
           if-no-files-found: error
           retention-days: 14
       - name: Remove temporary signing credentials
@@ -274,108 +295,12 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  android:
-    name: Signed Android ARM64
-    needs: version
-    if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'android'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Verify release version
-        run: python3 scripts/package/versions.py --tag "$GITHUB_REF_NAME"
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.0.0
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
-        with:
-          flutter-version: '3.44.7'
-          channel: stable
-      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.0
-        with:
-          cmdline-tools-version: '15859902'
-          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;28.2.13676358'
-      - name: Native prerequisites
-        run: |
-          printf 'ANDROID_NDK_HOME=%s/ndk/28.2.13676358\n' "$ANDROID_HOME" >> "$GITHUB_ENV"
-          rustup target add aarch64-linux-android
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes ripgrep
-      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: packages-android-arm64-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'apps/mobile/pubspec.lock') }}
-      - name: Pinned Flutter dependencies
-        working-directory: apps/mobile
-        run: flutter pub get --enforce-lockfile
-      - name: Rust dependency boundary
-        run: bash scripts/check-mobile-boundary.sh aarch64-linux-android sailry-mobile-bridge
-      - name: Import signing credential
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          python3 - <<'PY'
-          import base64, os, pathlib
-          value = os.environ.get('ANDROID_KEYSTORE_BASE64')
-          if not value:
-              raise SystemExit('The Android release signing secret is not configured')
-          keystore = pathlib.Path(os.environ['RUNNER_TEMP'], 'sailry-android.p12')
-          keystore.write_bytes(base64.b64decode(value, validate=True))
-          keystore.chmod(0o600)
-          with open(os.environ['GITHUB_ENV'], 'a') as file:
-              file.write(f'ANDROID_KEYSTORE_PATH={keystore}\n')
-          PY
-      - name: Distribution APK
-        working-directory: apps/mobile
-        env:
-          SAILRY_ANDROID_RELEASE: '1'
-          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        # Pub setup regenerates native registrants for release, excluding test-only plugins.
-        run: flutter build apk --release --target-platform android-arm64
-      - name: Verify and package APK
-        id: package
-        env:
-          ANDROID_SIGNING_SHA256: ${{ vars.ANDROID_SIGNING_SHA256 }}
-        run: |
-          test -n "$ANDROID_SIGNING_SHA256"
-          git diff --exit-code -- apps/mobile/pubspec.lock
-          task_version="$(python3 scripts/package/versions.py --tag "$GITHUB_REF_NAME")"
-          python3 scripts/package/verify-android.py apps/mobile/build/app/outputs/flutter-apk/app-release.apk \
-            --version "$task_version" --code "$(python3 scripts/package/versions.py --android-code)" \
-            --certificate "$ANDROID_SIGNING_SHA256"
-          mkdir -p dist
-          task_output="$(mktemp -d dist/android-release-XXXXXX)"
-          cp apps/mobile/build/app/outputs/flutter-apk/app-release.apk "$task_output/Sailry-$task_version-android-arm64.apk"
-          (cd "$task_output" && sha256sum ./*.apk > SHA256SUMS-android-arm64)
-          printf 'directory=%s\n' "$task_output" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: packages-android-arm64
-          path: |
-            ${{ steps.package.outputs.directory }}/*.apk
-            ${{ steps.package.outputs.directory }}/SHA256SUMS-*
-          if-no-files-found: error
-          retention-days: 14
-      - name: Remove temporary signing credential
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import os, pathlib
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'sailry-android.p12').unlink(missing_ok=True)
-          PY
-
   publish:
     name: GitHub release draft
-    if: always() && !cancelled() && (needs.build.result == 'success' || needs.android.result == 'success')
-    needs: [build, android]
+    if: >-
+      always() && !cancelled() && needs.build.result == 'success' &&
+      (github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'desktop')
+    needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -403,7 +328,11 @@ jobs:
 
   publish-host:
     name: Independent Host release draft
-    needs: host
+    if: >-
+      always() && !cancelled() &&
+      (github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'host') &&
+      needs.build.result == 'success' && needs.host.result == 'success'
+    needs: [build, host]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

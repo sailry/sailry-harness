@@ -21,6 +21,7 @@ class Ownership(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertFalse(checking.owned(Path(path)))
         self.assertTrue(checking.owned(Path("apps/desktop/src/panel/tests.rs")))
+        self.assertTrue(checking.owned(Path("tools/release/src/manifest.rs")))
 
 
 class Identifiers(unittest.TestCase):

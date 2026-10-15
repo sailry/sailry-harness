@@ -38,6 +38,7 @@ class Selection(unittest.TestCase):
             ("apps/desktop/src/pages.rs", {"desktop"}),
             ("crates/content/assets/visuals/render.js", {"desktop"}),
             ("apps/host/src/main.rs", {"backend"}),
+            ("tools/release/src/main.rs", {"backend"}),
             ("crates/node-runtime/src/store.rs", {"backend", "desktop", "mobile"}),
             ("crates/embedding/Cargo.toml", {"backend", "desktop", "mobile"}),
             ("crates/ocr/src/lib.rs", {"backend", "desktop", "mobile"}),

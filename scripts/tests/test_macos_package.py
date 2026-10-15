@@ -3,7 +3,9 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -231,6 +233,75 @@ class DiskImage(unittest.TestCase):
             self.assertIn("--timestamp", calls[1])
             self.assertIn("ai.sailry.disk-image", calls[1])
             self.assertIn("--keychain", calls[1])
+
+
+class UpdateArchive(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (ROOT / "scripts/package-macos.sh").read_text()
+
+    def test_requires_notarized_distribution(self):
+        setup = self.source.split('case "$task_signing" in', 1)[1].split("esac", 1)[0]
+        self.assertIn('test "${SAILRY_NOTARIZE:-0}" = 1', setup)
+        self.assertIn('test -n "$task_update_signing_key"', setup)
+        self.assertIn('test -x "${SAILRY_RELEASE_TOOL:', setup)
+
+    def test_preflight_fails_closed(self):
+        capture = self.source.split(
+            "# Keep the update publisher seed out of every unrelated packaging child.", 1
+        )[1].split("# Package existing builds", 1)[0]
+        setup = self.source.split('task_signing="${SAILRY_SIGNING:-ad-hoc}"', 1)[1]
+        setup = 'task_signing="${SAILRY_SIGNING:-ad-hoc}"' + setup.split("esac", 1)[0] + "esac"
+        script = f"set -euo pipefail\n{capture}\ntask_root=\"$FIXTURE_ROOT\"\n{setup}\n"
+        environment = os.environ.copy()
+        for name in (
+            "APPLE_SIGNING_IDENTITY",
+            "APPLE_TEAM_ID",
+            "SAILRY_NOTARIZE",
+            "SAILRY_RELEASE_TOOL",
+            "SAILRY_SIGNING",
+            "SAILRY_UPDATE_SIGNING_KEY",
+        ):
+            environment.pop(name, None)
+        environment.update({
+            "APPLE_SIGNING_IDENTITY": "Fixture identity",
+            "APPLE_TEAM_ID": "FIXTURE",
+            "FIXTURE_ROOT": str(ROOT),
+            "SAILRY_NOTARIZE": "1",
+            "SAILRY_RELEASE_TOOL": "/usr/bin/true",
+            "SAILRY_SIGNING": "developer-id",
+        })
+        missing_key = subprocess.run(["bash", "-c", script], env=environment)
+        self.assertNotEqual(missing_key.returncode, 0)
+        environment["SAILRY_UPDATE_SIGNING_KEY"] = "fixture-seed"
+        environment["SAILRY_RELEASE_TOOL"] = str(ROOT / "missing-release-tool")
+        missing_tool = subprocess.run(["bash", "-c", script], env=environment)
+        self.assertNotEqual(missing_tool.returncode, 0)
+        environment["SAILRY_RELEASE_TOOL"] = "/usr/bin/true"
+        environment["SAILRY_NOTARIZE"] = "0"
+        missing_notary = subprocess.run(["bash", "-c", script], env=environment)
+        self.assertNotEqual(missing_notary.returncode, 0)
+        environment["SAILRY_NOTARIZE"] = "1"
+        self.assertEqual(subprocess.run(["bash", "-c", script], env=environment).returncode, 0)
+
+    def test_ad_hoc_never_signs_updates(self):
+        package = self.source.split("# Automatic updates", 1)[1]
+        package = package.split("tar -czf", 1)[0]
+        self.assertIn('if test "$task_signing" = developer-id; then', package)
+        self.assertNotIn('if test -n "${SAILRY_UPDATE_SIGNING_KEY:-}"; then', package)
+
+    def test_scopes_key_to_archive_signer(self):
+        capture = self.source.index("unset SAILRY_UPDATE_SIGNING_KEY")
+        first_child = self.source.index("uname -s")
+        self.assertLess(capture, first_child)
+        package = self.source.split("# Automatic updates", 1)[1]
+        self.assertIn(
+            'SAILRY_UPDATE_SIGNING_KEY="$task_update_signing_key" \\\n'
+            '    "$task_release_tool" sign-archive',
+            package,
+        )
+        describe = package.split('"$task_release_tool" describe', 1)[0]
+        self.assertIn("unset task_update_signing_key", describe)
 
 
 if __name__ == "__main__":

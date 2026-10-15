@@ -19,6 +19,7 @@ DOCS = {
 }
 # Node is also exercised by Desktop and Mobile's real-Node contract fixtures.
 DEPENDENTS = (
+    (("tools/release/",), {"backend"}),
     (("apps/desktop/", "crates/content/"), {"desktop"}),
     (("apps/host/",), {"backend"}),
     (("crates/node-runtime/", "crates/embedding/", "crates/ocr/"),

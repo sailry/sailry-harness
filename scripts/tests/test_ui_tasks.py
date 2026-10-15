@@ -1,4 +1,4 @@
-"""UI tasks preserve the CI runner's coverage and bounded concurrency."""
+"""Desktop logic tasks preserve CI coverage and bounded concurrency."""
 
 from pathlib import Path
 import re

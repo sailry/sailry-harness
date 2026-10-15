@@ -13,7 +13,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 IDENTIFIER_WORDS = 7
 LABEL_WORDS = 12
-SOURCE_ROOTS = {"apps", "crates", "scripts", "services"}
+SOURCE_ROOTS = {"apps", "crates", "scripts", "services", "tools"}
 EXTENSIONS = {".rs", ".dart", ".py", ".ts", ".js", ".mjs", ".java", ".kt", ".swift"}
 
 # Preserve offsets while ignoring comments and literal contents. Rust raw strings

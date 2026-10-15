@@ -82,7 +82,7 @@ class ReleaseWorkflows(unittest.TestCase):
         trigger = workflow.split("permissions:", 1)[0]
         self.assertIn("tags: ['v*']", trigger)
         self.assertIn("workflow_dispatch", trigger)
-        self.assertIn("options: [all, host, desktop, android]", trigger)
+        self.assertIn("options: [all, host, desktop]", trigger)
         self.assertIn('test "$GITHUB_REF_TYPE" = tag', workflow)
         self.assertNotIn("branches:", trigger)
         self.assertNotIn("pull_request", trigger)
@@ -103,21 +103,27 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("--tag \"$RELEASE_TAG\"", workflow)
         self.assertNotIn("release', 'create'", workflow)
 
-    def test_publishes_both_platforms_with_distribution_signing(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        self.assertIn("needs: [build, android]", workflow)
-        self.assertIn("SAILRY_ANDROID_RELEASE: '1'", workflow)
-        self.assertIn("--certificate", workflow)
-        self.assertNotIn("build apk --release --no-pub", workflow)
-
-    def test_linux_host_publication_is_independent(self):
+    def test_publishes_macos_desktop_without_mobile_artifacts(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         desktop = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
-        host = workflow.split("  host:\n", 1)[1].split("  android:\n", 1)[0]
+        publisher = workflow.split("  publish:\n", 1)[1].split("  publish-host:\n", 1)[0]
+        self.assertIn("aarch64-apple-darwin", desktop)
+        self.assertIn("x86_64-apple-darwin", desktop)
+        self.assertIn("*.dmg", desktop)
+        self.assertIn("needs: build", publisher)
+        self.assertNotIn("android", workflow.lower())
+        self.assertNotIn("*.apk", workflow)
+
+    def test_host_publication_covers_macos_and_linux(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        desktop = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
+        host = workflow.split("  host:\n", 1)[1].split("  publish:\n", 1)[0]
         publisher = workflow.split("  publish-host:\n", 1)[1]
         self.assertNotIn("scripts/build-hosts.sh", desktop)
         self.assertNotIn("cargo-zigbuild", desktop)
         self.assertIn("*.dmg", desktop)
+        self.assertIn("name: host-macos-${{ matrix.target }}", desktop)
+        self.assertIn("SHA256SUMS-host-", desktop)
         self.assertIn("ubuntu-24.04-arm", host)
         self.assertIn("x86_64-unknown-linux-gnu", host)
         self.assertIn("aarch64-unknown-linux-gnu", host)
@@ -125,15 +131,29 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("scripts/check-host.py", host)
         self.assertIn("scripts/check-host-install.py", host)
         self.assertNotIn("scripts/check-host-install.py", desktop)
-        self.assertIn("needs: host", publisher)
-        self.assertNotIn("needs: [build", publisher)
+        self.assertIn("needs: [build, host]", publisher)
+        self.assertIn("pattern: host-*", publisher)
         self.assertIn("SHA256SUMS-installer", publisher)
+
+    def test_component_routing_does_not_cross_publish(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        desktop = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
+        publish = workflow.split("  publish:\n", 1)[1].split("  publish-host:\n", 1)[0]
+        publish_host = workflow.split("  publish-host:\n", 1)[1]
+        self.assertIn("inputs.component == 'host'", desktop.split("strategy:", 1)[0])
+        self.assertIn("inputs.component == 'desktop'", publish.split("needs:", 1)[0])
+        self.assertNotIn("inputs.component == 'host'", publish.split("needs:", 1)[0])
+        self.assertIn("inputs.component == 'host'", publish_host.split("needs:", 1)[0])
+        self.assertNotIn("inputs.component == 'desktop'", publish_host.split("needs:", 1)[0])
+        packages = desktop.split("name: packages-${{ matrix.target }}", 1)[1].split(
+            "name: host-macos-${{ matrix.target }}", 1)[0]
+        self.assertNotIn("*.tar.gz", packages)
 
     def test_native_builds_install_pinned_zig(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         for job, following, build in (
             ("build", "host", "Build native Desktop and standalone Host"),
-            ("host", "android", "Build one Host architecture"),
+            ("host", "publish", "Build one Host architecture"),
         ):
             with self.subTest(job=job):
                 steps = workflow.split(f"  {job}:\n", 1)[1].split(f"  {following}:\n", 1)[0]

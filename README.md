@@ -197,7 +197,9 @@ Store.
 3. Open Sailry and connect a model provider
 4. Add a folder or start a conversation
 
-ZIP assets on the same release serve Desktop's automatic updater.
+Filename-bound ZIP assets on the same release serve Desktop's automatic updater.
+The Stable channel receives final releases; Experience also receives previews
+and can advance to a newer stable version by SemVer precedence.
 
 Screenshots show a fresh English-language demo workspace with illustrative
 conversations, not personal data or previous test sessions.
