@@ -11,6 +11,12 @@ Imported Ghostty shell integration contains GPL-3.0-or-later material; the root
 Apache license does not relicense those scripts. Relevant notices and GPL text
 remain in third_party_licenses/.
 
+Native macOS diagnostics
+Sailry uses the unmodified oslog 0.2.1 safe wrapper from
+https://github.com/steven-joruk/oslog at 8afad459855d8a77b2c0618fe29016d87674d6a3.
+Provenance and the original MIT notice are retained in
+third_party_licenses/oslog.md and third_party_licenses/oslog-LICENSE.
+
 Helix language rules and Mason package registry
 Helix: https://github.com/helix-editor/helix at ba40e547426b0f9896c8bdc699a4ab11f2b37dbc (MPL-2.0)
 Mason: https://github.com/mason-org/mason-registry at 2026-10-08-head-mirror, 73f39fa4b90654e88737aedf72e44b14ff92c5e5 (Apache-2.0)

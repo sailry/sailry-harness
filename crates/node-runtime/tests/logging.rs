@@ -5,11 +5,13 @@
     reason = "The shared fixture includes response modes used by other suites"
 )]
 mod models;
+#[path = "logging/parse.rs"]
+mod parse;
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::{Node, logging};
 use sailry_protocol::{conversation::*, *};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{path::Path, time::Duration};
 
 async fn execute(client: &Client, command: Command) -> Output {
@@ -199,7 +201,11 @@ async fn observes_shared_lifecycles_without_payloads() {
                 }
             );
             expected.push((
-                serde_json::to_string(&node.id()).unwrap(),
+                node.id()
+                    .0
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>(),
                 request.id.to_string(),
                 turn.id.to_string(),
                 stop,
@@ -407,7 +413,7 @@ async fn observes_shared_lifecycles_without_payloads() {
             std::fs::read_to_string(entry.unwrap().path())
                 .unwrap()
                 .lines()
-                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .map(parse::line)
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
@@ -493,7 +499,7 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert_eq!(failure["parse_layer"], "stream_event");
     assert_eq!(failure["parse_category"], "data");
     assert_eq!(failure["parse_cause"], "missing_field");
-    assert_eq!(failure["parse_field"], "sequence_number");
+    assert_eq!(failure["parse_field"], "output_index");
     assert_eq!(failure["parse_event"], "response.output_text.delta");
     assert!(failure["parse_line"].is_u64());
     assert!(failure["parse_column"].is_u64());

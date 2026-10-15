@@ -1,6 +1,7 @@
 //! This process installs a pre-existing log bridge before Sailry's tracing sink.
 use sailry_node_runtime::logging::{self, Area, Entry, Phase};
-use serde_json::Value;
+#[path = "parse.rs"]
+mod parse;
 
 #[test]
 fn retains_sink_with_existing_logger() {
@@ -18,7 +19,7 @@ fn retains_sink_with_existing_logger() {
             std::fs::read_to_string(entry.unwrap().path())
                 .unwrap()
                 .lines()
-                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .map(parse::line)
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();

@@ -6,6 +6,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "../../tests/logging/parse.rs"]
+mod parse;
+
 fn lines(directory: &Path) -> Vec<Value> {
     std::fs::read_dir(directory)
         .unwrap()
@@ -17,7 +20,7 @@ fn lines(directory: &Path) -> Vec<Value> {
             std::fs::read_to_string(path)
                 .unwrap()
                 .lines()
-                .map(|line| serde_json::from_str(line).unwrap())
+                .map(parse::line)
                 .collect::<Vec<_>>()
         })
         .collect()
@@ -143,6 +146,102 @@ fn records_safe_model_causes_without_empty_fields() {
         );
     }
     assert!(!serde_json::to_string(record).unwrap().contains("PRIVATE_"));
+}
+
+#[derive(Clone, Default)]
+struct Capture(Arc<Mutex<Vec<Emission>>>);
+
+struct Emission {
+    level: tracing::Level,
+    area: String,
+    line: String,
+}
+
+impl format::Sink for Capture {
+    fn emit(&self, level: tracing::Level, area: &str, line: &str) {
+        self.0.lock().unwrap().push(Emission {
+            level,
+            area: area.into(),
+            line: line.into(),
+        });
+    }
+}
+
+#[test]
+fn shares_sanitized_lines_with_native_sink() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let capture = Capture::default();
+    let dispatch = tracing::Dispatch::new(
+        tracing_subscriber::registry().with(
+            tracing_subscriber::fmt::layer()
+                .event_format(format::Safe {
+                    application: "host",
+                    sink: capture.clone(),
+                })
+                .with_writer(writer)
+                .with_ansi(false),
+        ),
+    );
+    tracing::dispatcher::with_default(&dispatch, || {
+        tracing::warn!(target: "sailry", area = "model", phase = "failed", provider_name = "Safe \"quoted\" name=fixture\\value\n\0\u{1b}", model = "false", budget = -1_i64, stream = false, count = 0_u64, reason = "", error = ?"PRIVATE_ERROR", code = ?"PRIVATE_DEBUG", body = "PRIVATE_BODY", "PRIVATE_MESSAGE");
+        tracing::info!(target: "sailry", area = "model", budget = 0_i64, stream = true, reason = "\n\0\u{1b}");
+    });
+    drop(worker);
+    let text = std::fs::read_to_string(latest_file(directory.path()).unwrap().unwrap()).unwrap();
+    let emitted = capture.0.lock().unwrap();
+    assert_eq!(emitted.len(), 2);
+    assert_eq!(
+        text.lines().collect::<Vec<_>>(),
+        emitted
+            .iter()
+            .map(|value| value.line.as_str())
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(emitted[0].level, tracing::Level::WARN);
+    assert_eq!(emitted[0].area, "model");
+    assert!(!text.contains("PRIVATE_"));
+    assert!(
+        !text
+            .chars()
+            .any(|character| character.is_control() && character != '\n')
+    );
+    let records = lines(directory.path());
+    assert_eq!(
+        records[0]["provider_name"],
+        "Safe \"quoted\" name=fixture\\value"
+    );
+    assert_eq!(records[0]["model"], "false");
+    assert_eq!(records[0]["budget"], -1);
+    assert_eq!(records[0]["stream"], false);
+    assert_eq!(records[0]["count"], 0);
+    assert_eq!(records[1]["budget"], 0);
+    assert_eq!(records[1]["stream"], true);
+    assert!(records.iter().all(|record| record.get("reason").is_none()));
+    assert!(text.contains("budget=-1"));
+    assert!(text.contains("budget=0"));
+    assert!(text.contains("model=\"false\""));
+}
+
+#[test]
+fn records_complete_public_node_ids() {
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
+    tracing::dispatcher::with_default(&dispatch, || {
+        let mut entry = Entry::new(Area::Command, Phase::Begin);
+        entry.context.node = Some(sailry_protocol::NodeId([1; 32]));
+        entry.context.caller = Some(sailry_protocol::NodeId([255; 32]));
+        entry.context.request = Some(sailry_protocol::RequestId::new());
+        entry.context.provider_name = Some("x".repeat(300));
+        entry.emit();
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    assert_eq!(records[0]["node"], "01".repeat(32));
+    assert_eq!(records[0]["caller"], "ff".repeat(32));
+    assert_eq!(records[0]["provider_name"], "x".repeat(256));
+    assert_eq!(records[0]["request"].as_str().unwrap().len(), 36);
 }
 
 #[test]

@@ -15,11 +15,27 @@ pub enum Area {
     Image,
     Artifact,
     Desktop,
+    Link,
     Turn,
     Logging,
 }
 impl Area {
-    fn name(self) -> &'static str {
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) const ALL: [Self; 11] = [
+        Self::Node,
+        Self::Command,
+        Self::Run,
+        Self::Model,
+        Self::Plugin,
+        Self::Image,
+        Self::Artifact,
+        Self::Desktop,
+        Self::Link,
+        Self::Turn,
+        Self::Logging,
+    ];
+
+    pub(super) fn name(self) -> &'static str {
         match self {
             Self::Node => "node",
             Self::Command => "command",
@@ -29,6 +45,7 @@ impl Area {
             Self::Image => "image",
             Self::Artifact => "artifact",
             Self::Desktop => "desktop",
+            Self::Link => "link",
             Self::Turn => "turn",
             Self::Logging => "logging",
         }
@@ -164,6 +181,15 @@ impl Entry {
     }
     fn write(&self, level: Option<tracing::Level>) {
         let id = |value: Option<String>| value.unwrap_or_default();
+        let node = |value: Option<NodeId>| {
+            value.map(|value| {
+                value
+                    .0
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            })
+        };
         let context = &self.context;
         let package = context.package.as_ref();
         let code = self
@@ -178,7 +204,7 @@ impl Entry {
             .unwrap_or_default();
         macro_rules! emit { ($level:expr) => { tracing::event!(target: "sailry", $level,
             area = self.area.name(), phase = self.phase.name(),
-            node = id(context.node.and_then(|value| serde_json::to_string(&value).ok())), caller = id(context.caller.and_then(|value| serde_json::to_string(&value).ok())),
+            node = id(node(context.node)), caller = id(node(context.caller)),
             request = id(context.request.map(|value| value.to_string())), session = id(context.session.map(|value| value.to_string())),
             turn = id(context.turn.map(|value| value.to_string())), worktree = id(context.worktree.map(|value| value.to_string())),
             provider = id(context.provider.map(|value| value.to_string())), provider_name = context.provider_name.as_deref().unwrap_or_default(), model = context.model.as_deref().unwrap_or_default(),

@@ -1,5 +1,5 @@
 use serde_json::{Map, Value};
-use std::fmt;
+use std::fmt::{self, Write as _};
 use tracing::{
     Event, Subscriber,
     field::{Field, Visit},
@@ -9,8 +9,22 @@ use tracing_subscriber::{
     registry::LookupSpan,
 };
 
-pub(super) struct Safe {
+pub(super) struct Safe<T = super::native::Native> {
     pub application: &'static str,
+    pub sink: T,
+}
+
+impl Safe {
+    pub fn new(application: super::Application) -> Self {
+        Self {
+            application: application.name(),
+            sink: super::native::Native::new(application),
+        }
+    }
+}
+
+pub(super) trait Sink: Send + Sync {
+    fn emit(&self, level: tracing::Level, area: &str, line: &str);
 }
 
 // Even an accidental payload field on an application target must not be written.
@@ -97,10 +111,11 @@ impl Visit for Fields {
         self.set(field, value.into());
     }
 }
-impl<S, N> FormatEvent<S, N> for Safe
+impl<S, N, T> FormatEvent<S, N> for Safe<T>
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
     N: for<'a> FormatFields<'a> + 'static,
+    T: Sink,
 {
     fn format_event(
         &self,
@@ -110,15 +125,31 @@ where
     ) -> fmt::Result {
         let mut fields = Fields::default();
         event.record(&mut fields);
-        fields
-            .0
-            .insert("timestamp".into(), chrono::Utc::now().to_rfc3339().into());
-        fields
-            .0
-            .insert("application".into(), self.application.into());
-        fields
-            .0
-            .insert("level".into(), event.metadata().level().as_str().into());
-        writeln!(writer, "{}", Value::Object(fields.0))
+        let level = *event.metadata().level();
+        let mut line = format!(
+            "{} {level} {}",
+            chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            self.application,
+        );
+        for key in FIELDS {
+            let Some(value) = fields.0.get(*key) else {
+                continue;
+            };
+            write!(line, " {key}=")?;
+            match value {
+                Value::String(value)
+                    if !value.chars().any(|character| {
+                        character.is_whitespace() || matches!(character, '"' | '\\' | '=')
+                    }) && serde_json::from_str::<Value>(value).is_err() =>
+                {
+                    line.push_str(value);
+                }
+                value => write!(line, "{value}")?,
+            }
+        }
+        // Both outputs receive this exact line only after the privacy allowlist.
+        let area = fields.0.get("area").and_then(Value::as_str).unwrap_or("");
+        self.sink.emit(level, area, &line);
+        writeln!(writer, "{line}")
     }
 }

@@ -534,11 +534,10 @@ async fn respond(
                 .await?;
             let event = json!({
                 "type":"response.output_text.delta",
-                "item_id":"PRIVATE_ITEM",
-                "output_index":0,
+                "sequence_number":0,
+                "item_id":"msg",
                 "content_index":0,
-                "delta":"PRIVATE_RESPONSE_BODY",
-                "logprobs":[]
+                "delta":"PRIVATE_SENTINEL"
             });
             stream
                 .write_all(format!("data: {event}\n\n").as_bytes())

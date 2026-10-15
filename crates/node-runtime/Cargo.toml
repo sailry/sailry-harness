@@ -156,6 +156,7 @@ libc.workspace = true
 trash.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+oslog.workspace = true
 system-configuration.workspace = true
 cua-platform-macos = { workspace = true, optional = true }
 objc2-app-kit = { workspace = true, features = ["NSRunningApplication", "NSWorkspace", "libc"] }

@@ -13,6 +13,7 @@ use tracing_subscriber::{Layer, filter::filter_fn, layer::SubscriberExt};
 
 pub(crate) mod commands;
 mod format;
+mod native;
 mod records;
 pub use records::{Area, Context, Entry, Phase, Span};
 #[cfg(test)]
@@ -32,6 +33,14 @@ impl Application {
         match self {
             Self::Desktop => "desktop",
             Self::Host => "host",
+        }
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    fn subsystem(self) -> &'static str {
+        match self {
+            Self::Desktop => "ai.sailry.desktop",
+            Self::Host => "ai.sailry.host",
         }
     }
 }
@@ -149,9 +158,7 @@ fn subscriber(
 ) -> impl tracing::Subscriber + Send + Sync {
     tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
-            .event_format(format::Safe {
-                application: application.name(),
-            })
+            .event_format(format::Safe::new(application))
             .with_writer(writer)
             .with_ansi(false)
             .with_filter(filter_fn(|metadata| {

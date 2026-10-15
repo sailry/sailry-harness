@@ -3,13 +3,13 @@
 The model, Anthropic and Gemini dependencies come from
 [dux-web/adk-rust](https://github.com/dux-web/adk-rust), a fork of
 [ADK-Rust](https://github.com/zavora-ai/adk-rust). The pinned fork revision is
-[`585374c`](https://github.com/dux-web/adk-rust/commit/585374c3fac068fef217a1871c602702ba711354),
+[`c44a9b8`](https://github.com/dux-web/adk-rust/commit/c44a9b8b55bbef8751f70f72d87d9607b2210230),
 based on upstream [v2.3.0](https://github.com/zavora-ai/adk-rust/releases/tag/v2.3.0)
 at `7dd31e2571e0e50ee5039b3edcec1150c106bcc6`. The root Cargo.toml and
 Cargo.lock use that exact fork revision for all ADK packages.
 
-The pinned fork retains Sailry's focused Responses streaming and safe typed parse
-diagnostics, provider error metadata, and Anthropic request adaptation. Its Gemini adapter
+The pinned fork retains Sailry's focused Responses streaming, consumed wire-field
+validation, and safe typed parse diagnostics, provider error metadata, and Anthropic request adaptation. Its Gemini adapter
 forwards explicitly requested response modalities through generation extensions
 and preserves uncached system instructions. The Google Search entry point,
 grounding part index and Anthropic request-size error extensions remain available
