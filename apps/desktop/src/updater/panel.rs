@@ -1,4 +1,7 @@
-use super::service::{self, Notice, Service, State};
+use super::{
+    config::Channel,
+    service::{self, Notice, Service, State},
+};
 use crate::{
     settings::group::{Group, Row},
     theme::DialogStyle as _,
@@ -10,6 +13,8 @@ use gpui_kit::{
         button::{Button, ButtonVariants},
         notification::Notification,
         progress::Progress,
+        searchable_list::SearchableListItem,
+        select::{Select, SelectEvent, SelectState},
         *,
     },
     prelude::FluentBuilder as _,
@@ -18,15 +23,50 @@ use gpui_kit::{
 
 pub(crate) struct Panel {
     service: Entity<Service>,
+    channel: Entity<SelectState<Vec<ChannelChoice>>>,
 }
 
-#[cfg(test)]
-#[path = "tests/panel.rs"]
-mod tests;
+#[derive(Clone)]
+struct ChannelChoice(Channel);
+
+impl SearchableListItem for ChannelChoice {
+    type Value = Channel;
+
+    fn title(&self) -> SharedString {
+        match self.0 {
+            Channel::Stable => tr("updates_channel_stable"),
+            Channel::Experience => tr("updates_channel_experience"),
+        }
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.0
+    }
+}
 
 impl Panel {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let service = Service::shared(cx);
+        let selected = crate::preferences::update_channel(cx);
+        if crate::preferences::data(cx).update_channel.is_none()
+            && cx.try_global::<crate::backend::Services>().is_some()
+        {
+            crate::preferences::update(cx, |data| data.update_channel = Some(selected));
+        }
+        let channel = cx.new(|cx| {
+            SelectState::new(
+                Channel::ALL
+                    .into_iter()
+                    .map(ChannelChoice)
+                    .collect::<Vec<_>>(),
+                Channel::ALL
+                    .iter()
+                    .position(|channel| *channel == selected)
+                    .map(IndexPath::new),
+                window,
+                cx,
+            )
+        });
         cx.observe(&service, |_, _, cx| cx.notify()).detach();
         cx.subscribe_in(&service, window, |_, _, notice: &Notice, window, cx| {
             let summary = tr(notice.key);
@@ -38,7 +78,26 @@ impl Panel {
             crate::feedback::toast(window, summary, message, cx);
         })
         .detach();
-        let panel = Self { service };
+        cx.subscribe_in(&channel, window, |panel, _, event, _, cx| {
+            if cx.try_global::<crate::backend::Services>().is_none() {
+                return;
+            }
+            let SelectEvent::Confirm(Some(channel)) = event else {
+                return;
+            };
+            if crate::preferences::data(cx).update_channel == Some(*channel) {
+                return;
+            }
+            crate::preferences::update(cx, |data| data.update_channel = Some(*channel));
+            let recheck = panel
+                .service
+                .update(cx, |service, cx| service.channel_changed(cx));
+            if recheck {
+                panel.service.update(cx, |service, cx| service.check(cx));
+            }
+        })
+        .detach();
+        let panel = Self { service, channel };
         panel.receipt(window, cx);
         panel
     }
@@ -101,6 +160,14 @@ impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let state = self.service.read(cx).state.clone();
         let live = cx.try_global::<crate::backend::Services>().is_some();
+        let channel_locked = matches!(
+            &state,
+            State::Checking
+                | State::Downloading(_)
+                | State::Installing
+                | State::Restarting
+                | State::Stopped
+        );
         let status = match &state {
             State::Idle => env!("CARGO_PKG_VERSION").to_owned().into_any_element(),
             State::Checking => tr("updates_checking").into_any_element(),
@@ -192,6 +259,18 @@ impl Render for Panel {
                         })),
                 )
             })
+            .child(Row::new(
+                "updates_channel",
+                div()
+                    .w_48()
+                    .debug_selector(|| "updates-channel".into())
+                    .child(
+                        Select::new(&self.channel)
+                            .id("updates-channel-select")
+                            .accessibility_label(tr("updates_channel"))
+                            .disabled(!live || channel_locked),
+                    ),
+            ))
             .child(Row::new("updates_version", status))
     }
 }

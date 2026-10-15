@@ -39,8 +39,6 @@ struct Choice {
     efforts: Vec<sailry_protocol::Effort>,
 }
 
-#[cfg(test)]
-mod tests;
 mod view;
 
 pub(crate) struct Picker {

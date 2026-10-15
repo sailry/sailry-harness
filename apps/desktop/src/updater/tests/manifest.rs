@@ -1,16 +1,18 @@
-use super::{super::manifest, fixture};
+use super::{
+    super::{config::Channel, manifest},
+    fixture,
+};
 
 #[test]
 fn authenticates_exact_payload_bytes() {
     let release = fixture::release();
     let bytes = fixture::signed(std::slice::from_ref(&release));
-    assert_eq!(
-        manifest::select(&bytes, &fixture::config())
-            .unwrap()
-            .unwrap()
-            .release,
-        release
-    );
+    let selection = manifest::select(&bytes, &fixture::config())
+        .unwrap()
+        .unwrap();
+    assert_eq!(selection.release, release);
+    assert_eq!(selection.manifest, bytes);
+    assert_eq!(selection.channel, Channel::Experience);
     let altered = String::from_utf8(bytes).unwrap().replace("9.9.9", "9.9.8");
     assert_eq!(
         manifest::select(altered.as_bytes(), &fixture::config())
@@ -18,6 +20,94 @@ fn authenticates_exact_payload_bytes() {
             .key,
         "updates_signature_invalid"
     );
+}
+
+#[test]
+fn stable_filters_prereleases() {
+    let mut stable = fixture::release();
+    stable.version = "9.0.0".into();
+    let mut preview = fixture::release();
+    preview.version = "10.0.0-alpha.1".into();
+    let bytes = fixture::signed(&[stable.clone(), preview.clone()]);
+    let mut config = fixture::config();
+    config.channel = Channel::Stable;
+    assert_eq!(
+        manifest::select(&bytes, &config)
+            .unwrap()
+            .unwrap()
+            .release
+            .version,
+        stable.version
+    );
+
+    config.channel = Channel::Experience;
+    assert_eq!(
+        manifest::select(&bytes, &config)
+            .unwrap()
+            .unwrap()
+            .release
+            .version,
+        preview.version
+    );
+    let mut final_release = preview;
+    final_release.version = "10.0.0".into();
+    let bytes = fixture::signed(&[stable, final_release.clone()]);
+    assert_eq!(
+        manifest::select(&bytes, &config)
+            .unwrap()
+            .unwrap()
+            .release
+            .version,
+        final_release.version
+    );
+}
+
+#[test]
+fn chooses_compatible_before_newer_system_requirement() {
+    let mut compatible = fixture::release();
+    compatible.version = "8.0.0".into();
+    let mut incompatible = fixture::release();
+    incompatible.version = "9.0.0".into();
+    incompatible.minimum_system = "100.0".into();
+    assert_eq!(
+        manifest::select(
+            &fixture::signed(&[compatible.clone(), incompatible]),
+            &fixture::config()
+        )
+        .unwrap()
+        .unwrap()
+        .release
+        .version,
+        compatible.version
+    );
+}
+
+#[test]
+fn uses_precedence_without_build_metadata() {
+    let mut release = fixture::release();
+    release.version = "9.9.9+two".into();
+    let bytes = fixture::signed(&[release]);
+    let mut config = fixture::config();
+    config.version = "9.9.9+one".into();
+    assert!(manifest::select(&bytes, &config).unwrap().is_none());
+    config.version = "10.0.0".into();
+    assert!(manifest::select(&bytes, &config).unwrap().is_none());
+}
+
+#[test]
+fn retains_first_equal_precedence_source() {
+    let mut stable = fixture::release();
+    stable.version = "2.0.0+stable".into();
+    let stable_bytes = fixture::signed(std::slice::from_ref(&stable));
+    let mut preview = stable;
+    preview.version = "2.0.0+preview".into();
+    let preview_bytes = fixture::signed(&[preview]);
+    let config = fixture::config();
+    let stable = manifest::select(&stable_bytes, &config).unwrap().unwrap();
+    let preview = manifest::select(&preview_bytes, &config).unwrap().unwrap();
+    let selected = manifest::prefer(Some(stable), preview).unwrap();
+    assert_eq!(selected.manifest, stable_bytes);
+    assert_eq!(selected.release.version, "2.0.0+stable");
 }
 
 #[test]
@@ -74,6 +164,12 @@ fn refuses_downgrade_and_tampered_staging() {
         manifest::revalidate(&selection, &fixture::config())
             .unwrap_err()
             .key,
+        "updates_manifest_invalid"
+    );
+    let mut stable = fixture::config();
+    stable.channel = Channel::Stable;
+    assert_eq!(
+        manifest::revalidate(&selection, &stable).unwrap_err().key,
         "updates_manifest_invalid"
     );
 }

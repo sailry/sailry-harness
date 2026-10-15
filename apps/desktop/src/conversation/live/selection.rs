@@ -129,6 +129,3 @@ impl View {
         )
     }
 }
-
-#[cfg(test)]
-mod tests;

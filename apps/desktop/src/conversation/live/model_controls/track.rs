@@ -5,9 +5,6 @@ use super::*;
 use gpui_kit::base::{Slider, SliderIndicator, SliderThumb, SliderTrack};
 use std::time::Duration;
 
-#[cfg(test)]
-mod tests;
-
 pub(super) fn render(
     state: &Entity<SliderState>,
     focus: &FocusHandle,

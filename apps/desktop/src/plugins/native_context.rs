@@ -54,58 +54,6 @@ fn dispatch(events: Entity<Events>, mut value: Value, field: &str, item: &Item) 
     Dispatch { events, value }
 }
 
-#[cfg(test)]
-#[derive(Clone)]
-struct Captured {
-    items: Vec<Item>,
-    events: WeakEntity<Events>,
-    value: Value,
-    field: String,
-}
-
-#[cfg(test)]
-#[derive(Default)]
-struct Captures(std::collections::HashMap<WindowId, Captured>);
-#[cfg(test)]
-impl Global for Captures {}
-
-#[cfg(test)]
-pub(in crate::plugins) fn choose(menu: &str, label: &str, window: &mut Window, cx: &mut App) {
-    let captured = cx
-        .default_global::<Captures>()
-        .0
-        .remove(&window.window_handle().window_id())
-        .expect("native menu was not opened");
-    assert_eq!(
-        captured
-            .value
-            .get("menu")
-            .or_else(|| captured.value.get("tree"))
-            .and_then(Value::as_str),
-        Some(menu),
-        "captured menu target changed"
-    );
-    let item = captured
-        .items
-        .iter()
-        .find(|item| !item.separator && item.label == label)
-        .expect("native menu item is absent");
-    assert!(item.enabled, "native menu item is disabled");
-    let events = captured
-        .events
-        .upgrade()
-        .expect("native menu owner was released");
-    window.dispatch_action(
-        Box::new(dispatch(
-            events,
-            captured.value.clone(),
-            &captured.field,
-            item,
-        )),
-        cx,
-    );
-}
-
 pub(super) fn init(cx: &mut App) {
     cx.on_action(|action: &Dispatch, cx| action.events.read(cx).send(action.value.clone()));
 }
@@ -128,16 +76,6 @@ pub(super) fn show(
         );
         return;
     }
-    #[cfg(test)]
-    cx.default_global::<Captures>().0.insert(
-        window.window_handle().window_id(),
-        Captured {
-            items: items.to_vec(),
-            events: events.downgrade(),
-            value: value.clone(),
-            field: field.to_owned(),
-        },
-    );
     let mut menu = NativeMenu::new();
     for item in items {
         if item.separator {

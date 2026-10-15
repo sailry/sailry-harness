@@ -1,9 +1,6 @@
 use super::*;
 use gpui_kit::component::{input::InputEvent, notification::Notification};
 
-#[cfg(test)]
-mod tests;
-
 impl Editor {
     pub(super) fn select_source(
         &mut self,

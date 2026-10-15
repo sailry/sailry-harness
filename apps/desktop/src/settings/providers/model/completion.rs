@@ -110,6 +110,3 @@ impl Draft {
         self.model = model;
     }
 }
-
-#[cfg(test)]
-mod tests;

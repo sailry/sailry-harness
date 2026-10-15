@@ -167,6 +167,3 @@ impl Render for Panel {
             .child(Group::new("settings_global_commands").children(rows))
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -40,18 +40,12 @@ impl Shell {
             }
             _ => false,
         };
-        #[cfg(test)]
-        let actions = std::cell::RefCell::new(Vec::new());
         let action = |command| {
             let action = Dispatch {
                 node,
                 target: Target::Session(session.id),
                 command,
             };
-            #[cfg(test)]
-            actions
-                .borrow_mut()
-                .push((action.clone(), disabled(command)));
             Box::new(action)
         };
         let copy = NativeMenu::new()
@@ -152,9 +146,6 @@ impl Shell {
                 IconName::ExternalLink,
                 action(Command::NewWindow),
             );
-        #[cfg(test)]
-        capture::record(window, cx, actions.into_inner());
-        #[cfg(not(test))]
         let _ = window;
         menu
     }

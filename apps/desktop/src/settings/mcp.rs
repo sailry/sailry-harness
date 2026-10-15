@@ -80,7 +80,11 @@ impl Workspace {
                 view.child(
                     crate::feedback::retry("mcp-retry")
                         .debug_selector(|| "mcp-retry".into())
-                        .on_click(cx.listener(|owner, _, window, cx| owner.send_plugin_action(window, cx))),
+                        .on_click(
+                            cx.listener(|owner, _, window, cx| {
+                                owner.send_plugin_action(window, cx)
+                            }),
+                        ),
                 )
             })
             .when(empty, |view| {
@@ -177,17 +181,20 @@ impl Workspace {
                         )
                     }),
             )
-            .children(info.mcp.iter().filter_map(|server| {
-                (server.transport != McpTransport::Stdio).then(|| {
-                    plugins::authorization::action(
-                        live.binding.clone(),
-                        info.summary.reference(),
-                        server.name.clone(),
-                        format!("mcp-login-{name}-{}", server.name),
-                    )
-                    .disabled(busy)
-                })
-            }))
+            .children(
+                info.mcp
+                    .iter()
+                    .filter(|server| server.transport != McpTransport::Stdio)
+                    .map(|server| {
+                        plugins::authorization::action(
+                            live.binding.clone(),
+                            info.summary.reference(),
+                            server.name.clone(),
+                            format!("mcp-login-{name}-{}", server.name),
+                        )
+                        .disabled(busy)
+                    }),
+            )
             .child(
                 div().debug_selector(move || toggle_id.clone()).child(
                     Switch::new(SharedString::from(format!("mcp-toggle-{name}")))

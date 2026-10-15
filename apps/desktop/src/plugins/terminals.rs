@@ -149,32 +149,4 @@ impl Terminals {
             })
             .declarations(declarations)
     }
-
-    #[cfg(test)]
-    pub fn first(&self) -> Option<Entity<View>> {
-        self.views
-            .borrow()
-            .values()
-            .next()
-            .map(|(_, view)| view.clone())
-    }
-
-    #[cfg(test)]
-    pub fn focused(&self, id: TerminalId, window: &Window, cx: &App) -> bool {
-        self.views.borrow().values().any(|(terminal, view)| {
-            *terminal == id && view.read(cx).focus_handle(cx).is_focused(window)
-        })
-    }
-
-    #[cfg(test)]
-    pub fn focus_state(&self, cx: &App) -> (Option<TerminalId>, Vec<(TerminalId, FocusHandle)>) {
-        (
-            self.focus.get(),
-            self.views
-                .borrow()
-                .values()
-                .map(|(id, view)| (*id, view.read(cx).focus_handle(cx)))
-                .collect(),
-        )
-    }
 }

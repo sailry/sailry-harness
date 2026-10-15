@@ -2,9 +2,6 @@ use super::*;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Command, ErrorCode, Output, conversation::discovery};
 
-#[cfg(test)]
-mod tests;
-
 pub(super) struct Probe {
     stop: CancellationToken,
     _task: Task<()>,

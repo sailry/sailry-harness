@@ -8,8 +8,6 @@ use sailry_link::CancellationToken;
 use serde_json::{Value, json};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use std::rc::Rc;
-#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
-pub(super) mod tests;
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 struct PreparedNative {
@@ -87,10 +85,6 @@ impl View {
             let _ = events.try_send(json!({
                 "kind":"edited","artifact":resource.artifact.id,"revision":revision.unwrap()
             }));
-        }
-        #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
-        if cx.has_global::<tests::Mounted>() {
-            tests::capture(node, resource.artifact.id, cx.entity().downgrade(), cx);
         }
         #[cfg(all(target_os = "macos", feature = "workload-tests"))]
         {

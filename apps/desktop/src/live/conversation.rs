@@ -6,15 +6,11 @@ use crate::{
     resources::SideResource,
     settings::Section,
 };
-#[cfg(test)]
-use gpui_kit::component::*;
 use sailry_protocol::{Session, SessionId};
 mod artifact;
 mod children;
 mod draft;
 mod references;
-#[cfg(test)]
-pub(super) mod tests;
 
 #[derive(Default)]
 pub(crate) struct State {

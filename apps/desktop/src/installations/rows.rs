@@ -42,30 +42,6 @@ pub(super) fn snapshot(entries: &BTreeMap<Key, Entry>) -> Vec<Row> {
     rows.into_iter().map(|(_, row)| row).collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[core::prelude::v1::test]
-    fn preserves_measured_counts() {
-        let progress = Measurement::Counts {
-            completed: 3,
-            total: 4,
-            bytes_per_second: None,
-        };
-        assert_eq!(percentage(&progress), 75.);
-        assert_eq!(measurement(&progress), "3/4");
-        assert_eq!(
-            percentage(&Measurement::Counts {
-                completed: 0,
-                total: 0,
-                bytes_per_second: None
-            }),
-            0.
-        );
-    }
-}
-
 pub(super) struct Rows {
     pub owner: WeakEntity<Queue>,
     pub entries: Vec<Row>,
@@ -409,5 +385,29 @@ impl ListDelegate for Rows {
 
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<ListState<Self>>) {
         let _ = self.owner.update(cx, |queue, cx| queue.hide(window, cx));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[core::prelude::v1::test]
+    fn preserves_measured_counts() {
+        let progress = Measurement::Counts {
+            completed: 3,
+            total: 4,
+            bytes_per_second: None,
+        };
+        assert_eq!(percentage(&progress), 75.);
+        assert_eq!(measurement(&progress), "3/4");
+        assert_eq!(
+            percentage(&Measurement::Counts {
+                completed: 0,
+                total: 0,
+                bytes_per_second: None
+            }),
+            0.
+        );
     }
 }

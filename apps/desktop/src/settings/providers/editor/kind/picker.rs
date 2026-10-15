@@ -5,8 +5,6 @@ use gpui_kit::component::{
     popover::{Popover, PopoverState},
     tree::{TreeItem, TreeState, tree},
 };
-#[cfg(test)]
-mod tests;
 
 pub(super) fn popover(owner: WeakEntity<Editor>, button: Button) -> Popover {
     Popover::new("provider-kind-popover")

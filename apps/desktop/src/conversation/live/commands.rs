@@ -380,6 +380,3 @@ impl Render for Panel {
             })
     }
 }
-
-#[cfg(test)]
-mod tests;

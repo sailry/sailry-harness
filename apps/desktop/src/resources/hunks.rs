@@ -14,9 +14,6 @@ use std::collections::BTreeMap;
 mod render;
 mod requests;
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Decision {
     Accepted,

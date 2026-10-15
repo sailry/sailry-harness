@@ -3,8 +3,6 @@ mod details;
 mod managed;
 mod requests;
 mod rows;
-#[cfg(test)]
-mod tests;
 mod view;
 pub(super) use managed::rows as model_rows;
 

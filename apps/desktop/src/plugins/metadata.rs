@@ -135,19 +135,6 @@ impl Metadata {
         self.reload(cx);
     }
 
-    #[cfg(test)]
-    pub(crate) fn skills(&self) -> Vec<String> {
-        self.entries
-            .values()
-            .filter(|info| info.summary.enabled)
-            .flat_map(|info| {
-                info.skills
-                    .iter()
-                    .map(|skill| format!("{}:{}", info.summary.name, skill.name))
-            })
-            .collect()
-    }
-
     pub(crate) fn settled(&self) -> bool {
         !self.loading && self.errors.is_empty()
     }

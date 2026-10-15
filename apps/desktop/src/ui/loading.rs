@@ -12,12 +12,6 @@ pub(crate) fn mini() -> Div {
     dots(RING, 6.4)
 }
 
-/// The activity rail uses a full, three-by-three matrix at navigation icon size.
-#[cfg(test)]
-pub(crate) fn grid() -> Div {
-    dots([[0, 1, 2], [3, 4, 5], [6, 7, 8]], 4.8).debug_selector(|| "activity-loading-grid".into())
-}
-
 fn dots<const COLUMNS: usize>(phases: [[usize; COLUMNS]; 3], scale: f32) -> Div {
     div().size_4().flex_shrink_0().child(
         canvas(

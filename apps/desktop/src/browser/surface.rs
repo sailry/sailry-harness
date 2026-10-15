@@ -14,9 +14,7 @@ struct Mount {
 
 impl Drop for Mount {
     fn drop(&mut self) {
-        if !self.mounted.replace(false) {
-            return;
-        }
+        self.mounted.replace(false);
     }
 }
 

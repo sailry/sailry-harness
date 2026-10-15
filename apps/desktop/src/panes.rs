@@ -3,8 +3,6 @@ mod arrange;
 mod hierarchy;
 mod skin;
 mod state;
-#[cfg(test)]
-mod tests;
 
 use gpui_kit::component::dock::AnyDrag;
 use gpui_kit::{

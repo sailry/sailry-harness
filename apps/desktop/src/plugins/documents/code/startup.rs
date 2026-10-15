@@ -8,14 +8,6 @@ use gpui_kit::component::{
 };
 
 impl Controller {
-    #[cfg(test)]
-    pub(in crate::plugins::documents) fn confirming_code(&self, id: RequestId) -> bool {
-        self.documents
-            .get(&id)
-            .and_then(|document| document.code.as_ref())
-            .is_some_and(|provider| *provider.confirming.borrow())
-    }
-
     pub(in crate::plugins::documents) fn pending_code(&self) -> bool {
         self.documents
             .values()

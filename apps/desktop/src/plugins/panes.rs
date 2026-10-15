@@ -40,26 +40,6 @@ impl State {
     pub(crate) fn contains(&self, target: Target) -> bool {
         self.panels.contains_key(&target)
     }
-
-    #[cfg(test)]
-    pub(crate) fn panel_id(&self, target: Target) -> Option<EntityId> {
-        self.panels.get(&target).map(Entity::entity_id)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn terminal(
-        &self,
-        target: Target,
-        cx: &App,
-    ) -> Option<Entity<crate::terminal::View>> {
-        self.panels
-            .get(&target)?
-            .read(cx)
-            .mounted
-            .as_ref()?
-            .terminals
-            .first()
-    }
 }
 
 #[derive(Clone)]

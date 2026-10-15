@@ -79,7 +79,7 @@ fn retains_captured_locations_and_publication_receipts() {
         let mut target = source.clone();
         target.context.worktree = Some(tree);
         let entry = worker::Source::Entry {
-            access: source.clone(),
+            access: Box::new(source.clone()),
             path: "notes.txt".into(),
             kind: sailry_protocol::EntryKind::File,
             cut: false,
@@ -116,7 +116,7 @@ fn retains_captured_locations_and_publication_receipts() {
         )
         .unwrap();
         let entry = worker::Source::Entry {
-            access: source,
+            access: Box::new(source),
             path: "move.txt".into(),
             kind: sailry_protocol::EntryKind::File,
             cut: true,
@@ -152,7 +152,7 @@ fn streams_captured_sources() {
         )
         .unwrap();
         let entry = worker::Source::Entry {
-            access: source.clone(),
+            access: Box::new(source.clone()),
             path: "source.bin".into(),
             kind: sailry_protocol::EntryKind::File,
             cut: false,
@@ -187,7 +187,7 @@ fn streams_captured_sources() {
             b"Later"
         );
         let folder = worker::Source::Entry {
-            access: source,
+            access: Box::new(source),
             path: "package".into(),
             kind: sailry_protocol::EntryKind::Directory,
             cut: false,
@@ -218,7 +218,7 @@ fn stops_before_admission_when_cancelled_or_disabled() {
         let fixture = Fixture::new(remote);
         let target = access(&fixture);
         let entry = worker::Source::Entry {
-            access: target.clone(),
+            access: Box::new(target.clone()),
             path: "notes.txt".into(),
             kind: sailry_protocol::EntryKind::File,
             cut: false,

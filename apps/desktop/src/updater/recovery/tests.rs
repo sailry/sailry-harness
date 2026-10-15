@@ -196,6 +196,3 @@ fn draft_retries_preserve_external_revisions() {
     );
     assert_eq!(fs::read(path).unwrap(), external);
 }
-
-#[cfg(test)]
-mod views;

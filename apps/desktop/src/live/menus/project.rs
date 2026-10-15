@@ -6,7 +6,6 @@ use sailry_protocol::plugin::ui::Slot;
 enum Group {
     Project,
     Create,
-    Repository,
     Path,
     Remove,
 }
@@ -133,8 +132,6 @@ impl Shell {
             return;
         }
         let mut menu = NativeMenu::new();
-        #[cfg(test)]
-        let mut actions = Vec::new();
         let mut previous = None;
         for (command, label) in items(Target::Project(project), false) {
             if !command.available(live.view.snapshot.as_ref()) {
@@ -143,9 +140,6 @@ impl Shell {
             let group = match command {
                 Command::Open | Command::Edit => Group::Project,
                 Command::NewSession => Group::Create,
-                Command::Worktrees => Group::Repository,
-                #[cfg(test)]
-                Command::Branches => Group::Repository,
                 Command::Copy => Group::Path,
                 _ => Group::Remove,
             };
@@ -158,8 +152,6 @@ impl Shell {
                 target: Target::Project(project),
                 command,
             };
-            #[cfg(test)]
-            actions.push(action.clone());
             menu = menu.menu(tr(label), Box::new(action));
             if command == Command::NewSession
                 && let Some(registry) = &registry
@@ -167,46 +159,6 @@ impl Shell {
                 menu = native::append(menu, registry.clone(), Slot::ProjectMenu, cx);
             }
         }
-        #[cfg(test)]
-        cx.default_global::<Captures>()
-            .0
-            .insert(window.window_handle().window_id(), actions);
         menu.show(position, window, cx);
     }
-}
-
-#[cfg(test)]
-#[derive(Default)]
-struct Captures(std::collections::HashMap<WindowId, Vec<Dispatch>>);
-#[cfg(test)]
-impl Global for Captures {}
-
-#[cfg(test)]
-pub(super) fn opened(window: &Window, cx: &App, node: NodeId, project: ProjectId) -> bool {
-    cx.try_global::<Captures>()
-        .and_then(|captures| captures.0.get(&window.window_handle().window_id()))
-        .is_some_and(|actions| {
-            !actions.is_empty()
-                && actions
-                    .iter()
-                    .all(|action| action.node == node && action.target == Target::Project(project))
-        })
-}
-
-#[cfg(test)]
-pub(super) fn captured(window: &mut Window, cx: &mut App) -> Vec<Dispatch> {
-    cx.default_global::<Captures>()
-        .0
-        .get(&window.window_handle().window_id())
-        .cloned()
-        .expect("project native menu was not opened")
-}
-
-#[cfg(test)]
-pub(super) fn choose(command: Command, window: &mut Window, cx: &mut App) {
-    let action = captured(window, cx)
-        .into_iter()
-        .find(|action| action.command == command)
-        .expect("project native menu action is absent");
-    window.dispatch_action(Box::new(action), cx);
 }

@@ -49,6 +49,8 @@ pub(crate) mod recovery;
 mod repository;
 mod sessions;
 pub(crate) use options::{ComposerOptions, Mentions};
+mod dictation;
+mod feedback;
 mod questions;
 mod queue;
 mod references;
@@ -60,10 +62,6 @@ pub(crate) mod subagents;
 mod submission;
 #[cfg(test)]
 pub(crate) mod tests;
-#[cfg(test)]
-pub(crate) use tests::fixture::Fixture as ChatFixture;
-mod dictation;
-mod feedback;
 pub(super) mod tools;
 mod watch;
 
@@ -507,11 +505,6 @@ impl View {
             .iter()
             .all(|run| run.status == Status::Completed)
             .then_some(snapshot.statistics.turns)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn draft(&self, cx: &App) -> SharedString {
-        self.input.read(cx).value()
     }
 
     pub(crate) fn find(&mut self, window: &mut Window, cx: &mut Context<Self>) {

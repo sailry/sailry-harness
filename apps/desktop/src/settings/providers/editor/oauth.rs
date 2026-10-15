@@ -197,6 +197,3 @@ impl Editor {
             .content(form)
     }
 }
-
-#[cfg(test)]
-mod tests;

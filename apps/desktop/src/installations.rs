@@ -125,12 +125,6 @@ pub(crate) fn visible(cx: &App) -> bool {
     cx.has_global::<Badge>() && cx.global::<Badge>().count > 0
 }
 
-#[cfg(test)]
-pub(crate) fn open(window: &mut Window, cx: &mut App) {
-    let queue = registry(cx);
-    queue.update(cx, |queue, cx| queue.open(window, cx));
-}
-
 fn registry(cx: &mut App) -> Entity<Queue> {
     init(cx);
     if !cx.has_global::<Registry>() {

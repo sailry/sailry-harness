@@ -160,11 +160,6 @@ impl Controller {
 }
 
 impl Provider {
-    #[cfg(test)]
-    pub(super) fn stopped(&self) -> bool {
-        self.stop.is_cancelled()
-    }
-
     pub(super) fn pending(&self) -> bool {
         self.attempt.borrow().is_some()
     }

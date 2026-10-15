@@ -7,7 +7,7 @@ use sailry_protocol::{FileUploadSpec, FileWritten, Output, Request};
 #[derive(Clone)]
 pub(super) enum Source {
     Entry {
-        access: Access,
+        access: Box<Access>,
         path: String,
         kind: sailry_protocol::EntryKind,
         cut: bool,
@@ -61,7 +61,7 @@ pub(super) async fn run(
     }
     let destination = path.clone();
     let origin = match &source {
-        Source::Entry { access, cut, .. } => Some((access.clone(), *cut)),
+        Source::Entry { access, cut, .. } => Some((access.as_ref().clone(), *cut)),
         _ => None,
     };
     let staged = async {
@@ -243,7 +243,7 @@ pub(super) async fn run(
                             .map(|pending| {
                                 Some(Prepared::Move(Box::new(Move {
                                     pending,
-                                    source: access,
+                                    source: *access,
                                 })))
                             })
                     } else {

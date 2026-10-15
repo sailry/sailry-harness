@@ -45,15 +45,8 @@ mod ssh_transfers;
 mod terminals;
 #[cfg(test)]
 mod tests;
-
-#[cfg(all(test, feature = "design-capture"))]
-pub(crate) fn capture_design() {
-    tests::task_plaza::rendering::run();
-}
-mod tree;
-#[cfg(test)]
-pub(crate) use tests::diagnostics;
 mod theme;
+mod tree;
 mod view;
 mod window;
 pub(crate) mod workspace;

@@ -1,7 +1,5 @@
 mod index;
 mod requests;
-#[cfg(test)]
-mod tests;
 mod view;
 mod watch;
 

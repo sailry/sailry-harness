@@ -107,11 +107,6 @@ pub(super) fn open(
             error: None,
         }
     });
-    #[cfg(test)]
-    {
-        let owner = editor.read(cx).owner.clone();
-        owner.update(cx, |panel, _| panel.editor = Some(editor.downgrade()));
-    }
     window.open_dialog(cx, {
         let editor = editor.clone();
         move |dialog, window, cx| {

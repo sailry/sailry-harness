@@ -14,6 +14,7 @@ mod transfer;
 #[cfg(any(target_os = "windows", test))]
 mod windows;
 
+pub(crate) use config::Channel;
 pub(crate) use panel::Panel;
 pub(crate) use service::init;
 use std::fmt;
@@ -54,7 +55,8 @@ pub(crate) fn run_helper() -> bool {
         if let Some(result) = windows::run_if_requested(&args, |archive, proof, staging| {
             let selection: manifest::Selection = serde_json::from_value(proof.clone())
                 .map_err(|_| "invalid staged update proof".to_owned())?;
-            let config = config::Config::release().map_err(|error| error.to_string())?;
+            let config =
+                config::Config::release(selection.channel).map_err(|error| error.to_string())?;
             manifest::revalidate(&selection, &config).map_err(|error| error.to_string())?;
             package::verify_archive(archive, &selection.release, &config.keys)
                 .map_err(|error| error.to_string())?;

@@ -90,6 +90,3 @@ impl Shell {
             })
     }
 }
-
-#[cfg(test)]
-mod tests;

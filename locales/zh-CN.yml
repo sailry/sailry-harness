@@ -1,5 +1,8 @@
 app: Sailry
 updates: "更新"
+updates_channel: "更新通道"
+updates_channel_stable: "正式版"
+updates_channel_experience: "体验版"
 updates_version: "版本"
 updates_check: "检查更新"
 updates_download: "下载"

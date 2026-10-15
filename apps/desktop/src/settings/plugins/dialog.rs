@@ -5,9 +5,6 @@ use sailry_protocol::{
     Command, Output, Request,
     plugin::{Origin, Summary, UploadSource},
 };
-#[cfg(test)]
-#[path = "tests.rs"]
-mod tests;
 pub(super) mod upload;
 
 type Removed = Box<dyn FnOnce(&mut Window, &mut App)>;

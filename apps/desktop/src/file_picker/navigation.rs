@@ -215,33 +215,31 @@ impl Picker {
                 self.mode,
                 Mode::Directory | Mode::Files { multiple: false } | Mode::Save { .. }
             )
-        {
-            if let Some((anchor, position)) = self
+            && let Some((anchor, position)) = self
                 .anchor
                 .and_then(|anchor| self.visible.iter().position(|value| *value == anchor))
                 .zip(self.visible.iter().position(|value| *value == index))
-            {
-                if !modifiers.platform && !modifiers.control {
-                    self.selected.clear();
-                }
-                let range: Vec<_> = self.visible[anchor.min(position)..=anchor.max(position)]
-                    .iter()
-                    .copied()
-                    .filter(|index| {
-                        matches!(
-                            self.entries()[*index].kind,
-                            EntryKind::Directory | EntryKind::File
-                        )
-                    })
-                    .collect();
-                self.selected.extend(range);
-                self.focused = Some(index);
-                self.focus.focus(window, cx);
-                self.error = None;
-                self.sync_table(cx);
-                cx.notify();
-                return;
+        {
+            if !modifiers.platform && !modifiers.control {
+                self.selected.clear();
             }
+            let range: Vec<_> = self.visible[anchor.min(position)..=anchor.max(position)]
+                .iter()
+                .copied()
+                .filter(|index| {
+                    matches!(
+                        self.entries()[*index].kind,
+                        EntryKind::Directory | EntryKind::File
+                    )
+                })
+                .collect();
+            self.selected.extend(range);
+            self.focused = Some(index);
+            self.focus.focus(window, cx);
+            self.error = None;
+            self.sync_table(cx);
+            cx.notify();
+            return;
         }
         self.choose(index, modifiers.platform || modifiers.control, window, cx);
     }

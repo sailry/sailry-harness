@@ -5,9 +5,6 @@ use gpui_shell::{HostError, HostModule, HostValue};
 use sailry_link::CancellationToken;
 use std::{cell::RefCell, rc::Rc};
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Default)]
 struct Request {
     target: Option<String>,

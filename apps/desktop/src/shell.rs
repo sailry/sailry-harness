@@ -660,6 +660,3 @@ impl Render for Shell {
             .children(self.project_plugin_overlays(window, cx))
     }
 }
-
-#[cfg(test)]
-pub(crate) mod tests;

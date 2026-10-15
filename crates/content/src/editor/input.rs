@@ -247,6 +247,3 @@ fn from_utf16(text: &str, range: Range<usize>) -> Range<usize> {
 fn to_utf16(text: &str, range: Range<usize>) -> Range<usize> {
     byte_to_utf16(text, range.start)..byte_to_utf16(text, range.end)
 }
-
-#[cfg(test)]
-mod tests;

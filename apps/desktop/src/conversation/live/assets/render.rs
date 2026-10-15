@@ -218,12 +218,6 @@ impl Assets {
                             panel.load(panel.retry_more, window, cx)
                         })),
                 );
-            #[cfg(test)]
-            let retry = retry.on_children_prepainted(|bounds, window, cx| {
-                if let Some(bounds) = bounds.first() {
-                    tests::record_retry(*bounds, window, cx);
-                }
-            });
             body = body.child(retry);
         } else if self.before.is_some() && !self.loading {
             body = body.child(

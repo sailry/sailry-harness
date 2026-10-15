@@ -215,11 +215,6 @@ impl Workspace {
         );
     }
 
-    #[cfg(test)]
-    pub(crate) fn plugin_settings_panel(&self) -> Option<Entity<Panel>> {
-        self.extensions.panel.clone()
-    }
-
     pub(crate) fn header(
         &mut self,
         _window: &mut Window,

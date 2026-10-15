@@ -80,14 +80,7 @@ impl View {
                                         }),
                                 ),
                         );
-                    #[cfg(test)]
-                    {
-                        content.child(user::observe(turn, bubble))
-                    }
-                    #[cfg(not(test))]
-                    {
-                        content.bubble(bubble)
-                    }
+                    content.bubble(bubble)
                 },
             )
     }
@@ -379,7 +372,7 @@ impl View {
                     .debug_selector(move || format!("live-turn-text-{turn}"))
                     .child(self.markdown_at(
                         format!("{turn}-{key}"),
-                        citations::presentation(&text).into_owned().into(),
+                        citations::presentation(&text).into_owned(),
                         self.turn_worktree(turn),
                         true,
                         cx,

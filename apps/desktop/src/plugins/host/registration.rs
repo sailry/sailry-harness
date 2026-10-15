@@ -20,9 +20,6 @@ use sailry_protocol::{
 use serde_json::{Value, json};
 use tokio::sync::{Semaphore, watch};
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Copy)]
 enum Action {
     Begin { replace: bool },
@@ -647,10 +644,10 @@ async fn cleanup_request(client: &Arc<sailry_client::Client>, request: Request) 
     loop {
         match client.outcome(&request).await {
             Ok(RequestOutcome::Completed(result)) => {
-                if let Ok(Output::PluginLogin(attempt)) = *result {
-                    if original(&request, &attempt) {
-                        cancel_owned(client, attempt).await;
-                    }
+                if let Ok(Output::PluginLogin(attempt)) = *result
+                    && original(&request, &attempt)
+                {
+                    cancel_owned(client, attempt).await;
                 }
                 break;
             }

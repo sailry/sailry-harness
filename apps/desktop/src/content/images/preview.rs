@@ -13,16 +13,6 @@ type CloseHandler = Box<dyn FnOnce(&mut Window, &mut App)>;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-pub(super) fn open(
-    images: &Entity<Images>,
-    source: impl Into<ImageSource>,
-    window: &mut Window,
-    cx: &mut App,
-) -> Entity<Preview> {
-    open_gallery(images, vec![source.into()], 0, window, cx)
-}
-
 pub(super) fn open_gallery(
     images: &Entity<Images>,
     sources: Vec<ImageSource>,

@@ -5,7 +5,7 @@ use crate::plugins::navigation::Entry;
 #[derive(Clone)]
 pub(in crate::shell) enum Destination {
     Page(Page),
-    Plugin(Entry),
+    Plugin(Box<Entry>),
 }
 
 #[derive(Clone)]
@@ -34,7 +34,7 @@ impl From<Entry> for Feature {
             icon: crate::assets::icons::icon(&entry.icon),
             default_pin: entry.navigation.pinned,
             default_order: entry.navigation.order,
-            destination: Destination::Plugin(entry),
+            destination: Destination::Plugin(Box::new(entry)),
         }
     }
 }
@@ -87,7 +87,7 @@ impl Feature {
     pub fn open(&self, shell: &mut Shell, window: &mut Window, cx: &mut Context<Shell>) {
         match &self.destination {
             Destination::Page(page) => shell.navigate(*page, window, cx),
-            Destination::Plugin(entry) => shell.open_extension(entry.clone(), window, cx),
+            Destination::Plugin(entry) => shell.open_extension(entry.as_ref().clone(), window, cx),
         }
     }
 

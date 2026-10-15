@@ -1,15 +1,50 @@
 //! Release-owned trust configuration. Runtime environment variables cannot replace its keys.
 use super::{Failure, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use serde::{Deserialize, Serialize};
 
-pub(super) const SOURCE: &str =
+pub(super) const STABLE_SOURCE: &str =
     "https://raw.githubusercontent.com/sailry/sailry-harness/main/update-v1.json";
+pub(super) const PREVIEW_SOURCE: &str =
+    "https://raw.githubusercontent.com/sailry/sailry-harness/main/update-v1-preview.json";
+const PUBLIC_KEYS: &str = include_str!("../../../../release/update-public-keys.txt");
 pub(super) const MAX_MANIFEST: usize = 1024 * 1024;
 pub(super) const MAX_ARCHIVE: u64 = 2 * 1024 * 1024 * 1024;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Channel {
+    Stable,
+    Experience,
+}
+
+impl Channel {
+    pub(crate) const ALL: [Self; 2] = [Self::Stable, Self::Experience];
+
+    pub(crate) fn initial(version: &str) -> Self {
+        if semver::Version::parse(version).is_ok_and(|version| !version.pre.is_empty()) {
+            Self::Experience
+        } else {
+            Self::Stable
+        }
+    }
+
+    pub(super) fn accepts(self, version: &semver::Version) -> bool {
+        self == Self::Experience || version.pre.is_empty()
+    }
+
+    pub(super) fn sources(self) -> &'static [&'static str] {
+        match self {
+            Self::Stable => &[STABLE_SOURCE],
+            Self::Experience => &[STABLE_SOURCE, PREVIEW_SOURCE],
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(super) struct Config {
-    pub source: String,
+    pub sources: Vec<String>,
+    pub channel: Channel,
     pub keys: Vec<self_update::VerifyingKey>,
     pub target: String,
     pub version: String,
@@ -17,54 +52,69 @@ pub(super) struct Config {
 }
 
 impl Config {
-    pub fn release() -> Result<Self> {
-        let source = option_env!("SAILRY_UPDATE_SOURCE")
-            .unwrap_or(SOURCE)
-            .to_owned();
-        let encoded = option_env!("SAILRY_UPDATE_PUBLIC_KEYS").unwrap_or_default();
-        let mut keys = Vec::new();
-        for value in encoded.split(',').filter(|value| !value.trim().is_empty()) {
-            let bytes = STANDARD.decode(value.trim()).map_err(|_| {
-                Failure::new(
-                    "updates_source_unready",
-                    "invalid configured update public key",
-                )
-            })?;
-            let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
-                Failure::new(
-                    "updates_source_unready",
-                    "update public keys must have 32 bytes",
-                )
-            })?;
-            let key = ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|_| {
-                Failure::new(
-                    "updates_source_unready",
-                    "invalid configured update public key",
-                )
-            })?;
-            if key.is_weak() {
-                return Err(Failure::new(
-                    "updates_source_unready",
-                    "weak update public key",
-                ));
-            }
-            keys.push(bytes);
-        }
-        if keys.is_empty() {
-            return Err(Failure::new(
-                "updates_source_unready",
-                "no trusted update public key is configured",
-            ));
-        }
-        validate_url(&source)?;
+    pub fn release(channel: Channel) -> Result<Self> {
+        let sources = channel
+            .sources()
+            .iter()
+            .map(|source| {
+                validate_url(source)?;
+                Ok((*source).to_owned())
+            })
+            .collect::<Result<Vec<_>>>()?;
         Ok(Self {
-            source,
-            keys,
+            sources,
+            channel,
+            keys: trusted_keys()?,
             target: self_update::get_target().into(),
             version: env!("CARGO_PKG_VERSION").into(),
             system: system_version()?,
         })
     }
+}
+
+pub(super) fn trusted_keys() -> Result<Vec<self_update::VerifyingKey>> {
+    parse_keys(PUBLIC_KEYS)
+}
+
+pub(super) fn parse_keys(encoded: &str) -> Result<Vec<self_update::VerifyingKey>> {
+    let mut keys = Vec::new();
+    for value in encoded
+        .split(|character: char| character == ',' || character.is_whitespace())
+        .filter(|value| !value.is_empty())
+    {
+        let bytes = STANDARD.decode(value).map_err(|_| {
+            Failure::new(
+                "updates_source_unready",
+                "invalid configured update public key",
+            )
+        })?;
+        let bytes: [u8; 32] = bytes.try_into().map_err(|_| {
+            Failure::new(
+                "updates_source_unready",
+                "update public keys must have 32 bytes",
+            )
+        })?;
+        let key = ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|_| {
+            Failure::new(
+                "updates_source_unready",
+                "invalid configured update public key",
+            )
+        })?;
+        if key.is_weak() {
+            return Err(Failure::new(
+                "updates_source_unready",
+                "weak update public key",
+            ));
+        }
+        keys.push(bytes);
+    }
+    if keys.is_empty() {
+        return Err(Failure::new(
+            "updates_source_unready",
+            "no trusted update public key is configured",
+        ));
+    }
+    Ok(keys)
 }
 
 pub(super) fn validate_url(value: &str) -> Result<()> {

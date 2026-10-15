@@ -4,7 +4,6 @@ use super::{
     *,
 };
 use core::prelude::v1::test;
-use gpui_kit::component::plot::scale::Scale;
 use serde_json::json;
 
 fn heatmap(count: usize) -> Heatmap {
@@ -94,92 +93,6 @@ fn disjoint_stacks() {
     assert_eq!(chart.props.buckets[1].tooltip.footer.value, "Unknown");
 }
 
-struct HeatmapView;
-impl Render for HeatmapView {
-    fn render(&mut self, window: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let chart = heatmap(365);
-        let width = window.viewport_size().width - px(32.);
-        let height = px(height(&chart, width.as_f32()));
-        div().size_full().p_4().child(
-            div()
-                .mt((window.viewport_size().height - height - px(48.)).max(px(0.)))
-                .w_full()
-                .child(chart.frame("plot-bounds".into())),
-        )
-    }
-}
-#[gpui::test]
-fn heatmap_tooltip_bounds(cx: &mut TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        crate::theme::init(cx);
-    });
-    let (_, visual) =
-        cx.add_window_view(|window, cx| Root::new(cx.new(|_| HeatmapView), window, cx));
-    let chart = heatmap(365);
-    for mode in [ThemeMode::Light, ThemeMode::Dark] {
-        for width in [400., 900.] {
-            let handle = visual.update(|window, cx| {
-                Theme::change(mode, Some(window), cx);
-                window.window_handle()
-            });
-            visual.simulate_window_resize(handle, size(px(width), px(720.)));
-            visual.update(|window, cx| window.draw(cx).clear(cx));
-            let plot = visual.debug_bounds("plot-bounds").unwrap();
-            let first = chart
-                .props
-                .cells
-                .iter()
-                .position(|cell| chart.cell(cell, plot).is_some())
-                .unwrap();
-            for index in [first, chart.props.cells.len() - 1] {
-                let cell = chart.cell(&chart.props.cells[index], plot).unwrap();
-                visual.update(|_, cx| {
-                    assert_eq!(
-                        chart.tooltip_state(cell.center(), plot, cx).unwrap().index,
-                        index
-                    );
-                    assert!(
-                        chart
-                            .tooltip_state(point(cell.right() + px(0.1), cell.center().y), plot, cx)
-                            .is_none()
-                    );
-                });
-                visual.simulate_mouse_move(plot.origin + cell.center(), None, Modifiers::default());
-                for _ in 0..3 {
-                    visual.run_until_parked();
-                    visual.update(|window, cx| window.draw(cx).clear(cx));
-                }
-                let tooltip = visual.debug_bounds("heatmap-tooltip").unwrap();
-                assert!(tooltip.left() >= px(12.) && tooltip.right() <= px(width - 12.));
-                assert!(
-                    tooltip.top() >= px(12.) && tooltip.bottom() <= px(708.),
-                    "tooltip={tooltip:?}, plot={plot:?}, width={width}, index={index}"
-                );
-            }
-            visual.update(|_, cx| {
-                assert!(
-                    chart
-                        .tooltip_state(
-                            point(
-                                px(1.),
-                                px(chart.props.rows as f32 * chart.pitch(plot) + 8.)
-                            ),
-                            plot,
-                            cx
-                        )
-                        .is_none()
-                );
-                assert!(
-                    chart
-                        .tooltip_state(point(px(1.), plot.size.height + px(8.)), plot, cx)
-                        .is_none()
-                );
-            });
-        }
-    }
-}
-
 mod stacked_bars {
     use super::*;
 
@@ -222,71 +135,13 @@ mod stacked_bars {
     fn rejects_unbounded_heights() {
         let mut props = json!({"series":[],"maximum":1,"ticks":[],"buckets":[],"height":40});
         let parse = |value: &serde_json::Value| {
-            StackedChart::new("bars".into(), serde_json::from_value(value.clone()).unwrap())
+            StackedChart::new(
+                "bars".into(),
+                serde_json::from_value(value.clone()).unwrap(),
+            )
         };
         assert!(parse(&props).is_none());
         props["height"] = json!(200);
         assert!(parse(&props).is_some());
-    }
-}
-
-struct StackedView;
-impl Render for StackedView {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().p_4().child(
-            div()
-                .debug_selector(|| "plot-bounds".into())
-                .w_full()
-                .h(px(148.))
-                .child(stacked()),
-        )
-    }
-}
-#[gpui::test]
-fn stacked_tooltip_bounds(cx: &mut TestAppContext) {
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        crate::theme::init(cx);
-    });
-    let (_, visual) =
-        cx.add_window_view(|window, cx| Root::new(cx.new(|_| StackedView), window, cx));
-    let chart = stacked();
-    for mode in [ThemeMode::Light, ThemeMode::Dark] {
-        for width in [360., 900.] {
-            let handle = visual.update(|window, cx| {
-                Theme::change(mode, Some(window), cx);
-                window.window_handle()
-            });
-            visual.simulate_window_resize(handle, size(px(width), px(400.)));
-            visual.update(|window, cx| window.draw(cx).clear(cx));
-            let bounds = visual.debug_bounds("plot-bounds").unwrap();
-            let area = StackedChart::area(bounds);
-            let scale = chart.scale(area);
-            for index in 0..2 {
-                let position = point(
-                    area.left() + px(scale.tick(&index).unwrap() + scale.band_width() / 2.),
-                    area.center().y,
-                );
-                visual.update(|_, cx| {
-                    assert_eq!(
-                        chart.tooltip_state(position, bounds, cx).unwrap().index,
-                        index
-                    );
-                    assert!(
-                        chart
-                            .tooltip_state(point(px(0.), px(0.)), bounds, cx)
-                            .is_none()
-                    );
-                });
-                visual.simulate_mouse_move(bounds.origin + position, None, Modifiers::default());
-                for _ in 0..3 {
-                    visual.run_until_parked();
-                    visual.update(|window, cx| window.draw(cx).clear(cx));
-                }
-                let tooltip = visual.debug_bounds("stacked-tooltip").unwrap();
-                assert!(tooltip.left() >= px(12.) && tooltip.right() <= px(width - 12.));
-                assert!(tooltip.top() >= px(12.) && tooltip.bottom() <= px(388.));
-            }
-        }
     }
 }

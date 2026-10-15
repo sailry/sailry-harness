@@ -3,8 +3,6 @@ use super::*;
 use crate::plugins::contributions::{Entry, Form};
 use sailry_protocol::plugin::ui::{self, Align, Contribution, Slot};
 mod native;
-#[cfg(test)]
-mod tests;
 
 struct Native {
     declaration: Contribution,
@@ -36,32 +34,6 @@ impl View {
             return Vec::new();
         }
         self.contributions.read(cx).renderer_shortcuts(cx)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn plugin_panel(
-        &self,
-        name: &str,
-        cx: &App,
-    ) -> Option<Entity<crate::plugins::Panel>> {
-        self.contributions.read(cx).test_panel(name)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn contribution_enabled(
-        &self,
-        package: &str,
-        id: &str,
-        slot: Slot,
-        cx: &App,
-    ) -> bool {
-        self.contributions
-            .read(cx)
-            .entries(slot, cx)
-            .iter()
-            .any(|entry| {
-                entry.key.package.name == package && entry.key.id == id && entry.state.enabled
-            })
     }
 
     pub(super) fn registered_statistics(&self, cx: &App) -> Vec<super::super::usage::Group> {

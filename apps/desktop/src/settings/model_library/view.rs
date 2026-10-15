@@ -7,18 +7,6 @@ use gpui_kit::component::{
     select::Select,
 };
 
-impl Library {
-    /// The first read has no rows yet, so the list region shows the overlay.
-    pub(super) fn first_read(&self) -> bool {
-        self.loading && self.searched.is_none()
-    }
-
-    /// The header spinner covers refreshes over existing rows, never the overlay state.
-    pub(super) fn header_loading(&self) -> bool {
-        self.loading && self.repository.is_none() && !self.first_read()
-    }
-}
-
 impl Render for Library {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let locked = !self.available(cx);

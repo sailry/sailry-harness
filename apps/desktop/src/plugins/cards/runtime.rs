@@ -19,7 +19,7 @@ impl Mounted {
     ) -> gpui_shell::anyhow::Result<Self> {
         let runtime = gpui_component_shell::new_isolated_runtime()?;
         let policy = Policy::new()
-            .with_application(&format!(
+            .with_application(format!(
                 "card-{}-{}",
                 host.summary.receipt.call, host.summary.receipt.block
             ))

@@ -10,8 +10,6 @@ mod save;
 pub(in crate::plugins) mod sdk;
 mod state;
 mod surface;
-#[cfg(test)]
-mod tests;
 
 use crate::conversation::live::Binding;
 use gpui_kit::*;

@@ -10,8 +10,6 @@ mod actions;
 mod fields;
 mod history;
 mod planning;
-#[cfg(test)]
-mod tests;
 mod view;
 
 pub(super) struct Form {

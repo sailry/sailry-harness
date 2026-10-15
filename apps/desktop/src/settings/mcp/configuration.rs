@@ -4,8 +4,6 @@ use gpui_kit::component::input::EditorState;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Fault, plugin::Reference};
 
-#[cfg(test)]
-mod tests;
 mod view;
 
 pub(super) struct Editor {

@@ -27,9 +27,6 @@ pub(crate) fn toast(
     cx: &mut App,
 ) {
     deliver(window, message, cx);
-    #[cfg(test)]
-    tests::record(window, summary, cx);
-    #[cfg(not(test))]
     let _ = summary;
 }
 
@@ -70,8 +67,6 @@ pub(crate) fn info(title: &str, detail: &str, window: &mut Window, cx: &mut App)
             }),
         cx,
     );
-    #[cfg(test)]
-    tests::record(window, detail.to_owned().into(), cx);
 }
 
 struct Info;
@@ -90,8 +85,6 @@ pub(crate) fn error(title: &str, detail: &str, window: &mut Window, cx: &mut App
         }),
         cx,
     );
-    #[cfg(test)]
-    tests::record(window, detail.to_owned().into(), cx);
 }
 
 pub(crate) fn diagnostic(message: SharedString) -> Notification {
@@ -168,9 +161,6 @@ pub(crate) fn observe_with<T: 'static, Errors>(
         _ = owner.update(cx, |_, cx| cx.notify());
     });
 }
-
-#[cfg(test)]
-pub(crate) mod tests;
 
 mod node;
 pub(crate) use node::observe as observe_node;

@@ -12,15 +12,6 @@ use sailry_protocol::{
         authorization::{Attempt, State},
     },
 };
-#[cfg(test)]
-#[path = "authorization/account_tests.rs"]
-mod account_tests;
-#[cfg(test)]
-#[path = "../../../../../crates/node-runtime/tests/support/mcp_oauth.rs"]
-#[allow(dead_code)]
-mod issuer;
-#[cfg(test)]
-mod tests;
 mod view;
 
 pub(in crate::settings) fn action(

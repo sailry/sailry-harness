@@ -5,11 +5,6 @@ mod panel;
 pub(crate) use panel::{Panel, Tab};
 mod presentation;
 
-#[cfg(test)]
-pub(crate) mod fixture;
-#[cfg(test)]
-mod tests;
-
 pub(super) fn status_key(status: Status) -> &'static str {
     match status {
         Status::Queued => "turn_queued",

@@ -325,8 +325,6 @@ pub(super) fn module() -> HostModule {
                         cx,
                     ),
                 );
-            #[cfg(test)]
-            let view = view.debug_selector(|| args.id().to_owned());
             view.into_any_element()
         });
     date::extend(module).declarations(include_str!("forms/api.d.ts"))

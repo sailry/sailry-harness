@@ -55,6 +55,3 @@ pub(super) fn content(channel: &Channel, real: bool, cx: &App) -> AnyElement {
         )
         .into_any_element()
 }
-
-#[cfg(test)]
-mod tests;

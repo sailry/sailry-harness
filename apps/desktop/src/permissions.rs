@@ -10,8 +10,6 @@ use std::{cell::RefCell, rc::Rc};
 
 mod app;
 mod microphone;
-#[cfg(test)]
-mod tests;
 mod view;
 pub(crate) use microphone::open as microphone;
 

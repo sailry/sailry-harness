@@ -125,9 +125,6 @@ fn form_popup(
         .into_any_element()
 }
 
-#[cfg(test)]
-mod tests;
-
 pub(super) fn module(cx: &mut App) -> HostModule {
     let state = Rc::new(RefCell::new(State {
         open: false,
@@ -143,21 +140,9 @@ pub(super) fn module(cx: &mut App) -> HostModule {
             let text = args.props().get("text").and_then(HostValue::as_str).unwrap_or_default().to_owned();
             let trigger = div().id(args.id().to_owned()).size_full()
                 .tooltip(move |window, cx| {
-                    #[cfg(not(test))]
-                    let tooltip = component::tooltip::Tooltip::new(text.clone());
-                    #[cfg(test)]
-                    let tooltip = component::tooltip::Tooltip::element({
-                        let text = text.clone();
-                        move |_, _| div().debug_selector({
-                            let text = text.clone();
-                            move || format!("plugin-tooltip-{text}")
-                        }).child(text.clone()).into_any_element()
-                    });
-                    tooltip.build(window, cx)
+                    component::tooltip::Tooltip::new(text.clone()).build(window, cx)
                 })
                 .children(args.take_children());
-            #[cfg(test)]
-            let trigger = trigger.debug_selector(|| args.id().to_owned());
             trigger.into_any_element()
         })
         .component("Modal", move |mut args, window, cx| {

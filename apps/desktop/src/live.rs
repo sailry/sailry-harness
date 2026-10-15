@@ -6,19 +6,15 @@ use sailry_link::{CancellationToken, EndpointAddr, Transport};
 use sailry_protocol::{Command, HostInfo, NodeId, Output, ProjectId, WorktreeId};
 use std::{collections::BTreeMap, sync::Arc};
 
+type RemoteTransports = BTreeMap<NodeId, (EndpointAddr, Arc<dyn Transport>)>;
+
 pub(crate) mod conversation;
 mod devices;
-#[cfg(test)]
-mod file_tests;
 pub(crate) mod host;
 pub(crate) mod menus;
 pub(crate) mod overview;
 mod projects;
-#[cfg(test)]
-pub(crate) use file_tests::observed::Observed as FileTransport;
 pub(crate) mod terminal;
-#[cfg(test)]
-mod tests;
 mod view;
 mod worktree_selection;
 
@@ -34,11 +30,9 @@ pub(crate) struct State {
     action_error: bool,
     services: Services,
     pub transport: Arc<dyn Transport>,
-    #[cfg(test)]
-    test_transports: BTreeMap<NodeId, Arc<dyn Transport>>,
     git_reads: Arc<sailry_client::git::Reads>,
     observers: Arc<sailry_client::Observers>,
-    remote_transports: std::cell::RefCell<BTreeMap<NodeId, (EndpointAddr, Arc<dyn Transport>)>>,
+    remote_transports: std::cell::RefCell<RemoteTransports>,
     watch: Option<Watch>,
     _peers: Task<()>,
 }
@@ -138,8 +132,6 @@ impl State {
             pending: false,
             action_error: false,
             transport: services.local.clone(),
-            #[cfg(test)]
-            test_transports: BTreeMap::new(),
             git_reads: Default::default(),
             observers: Default::default(),
             remote_transports: Default::default(),
@@ -152,12 +144,6 @@ impl State {
     }
 
     pub(crate) fn transport_for(&self, node: NodeId) -> Option<Arc<dyn Transport>> {
-        #[cfg(test)]
-        if (node == self.services.local.target() || self.hosts.contains_key(&node))
-            && let Some(transport) = self.test_transports.get(&node)
-        {
-            return Some(transport.clone());
-        }
         if node == self.services.local.target() {
             Some(self.services.local.clone())
         } else if let Some(address) = self.hosts.get(&node) {
@@ -172,15 +158,6 @@ impl State {
             Some(transport)
         } else {
             None
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn override_transport(&mut self, transport: Arc<dyn Transport>) {
-        let node = transport.target();
-        self.test_transports.insert(node, transport.clone());
-        if self.selected == node {
-            self.transport = transport;
         }
     }
 

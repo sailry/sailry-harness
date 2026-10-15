@@ -181,7 +181,10 @@ fn exports_fragments_without_template_columns() {
 
 #[gpui_kit::test]
 fn keeps_semantic_colors_in_both_modes(cx: &mut TestAppContext) {
-    super::super::super::tests::init(cx);
+    cx.update(|cx| {
+        gpui_kit::init(cx);
+        crate::theme::init(cx);
+    });
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
         cx.update(|cx| {
             Theme::change(mode, None, cx);

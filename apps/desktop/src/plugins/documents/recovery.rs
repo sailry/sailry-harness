@@ -76,15 +76,4 @@ impl Controller {
         })
         .detach();
     }
-
-    #[cfg(test)]
-    pub(crate) fn editor(
-        &self,
-        path: &str,
-    ) -> Option<Entity<gpui_kit::component::input::EditorState>> {
-        self.documents
-            .values()
-            .find(|document| document.path == path && !document.dismissed)
-            .map(|document| document.input.clone())
-    }
 }

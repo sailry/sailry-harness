@@ -3,12 +3,7 @@ use gpui_kit::{App, AppContext as _, Entity, IntoElement, Styled, StyledImage as
 use gpui_shell::{ShellRoot, ShellRuntime, policy::Policy};
 use std::{rc::Rc, sync::Arc};
 
-#[cfg(test)]
-mod continuity;
-
 pub(super) struct Mounted {
-    #[cfg(test)]
-    pub conversations: super::conversation::Conversations,
     pub terminals: super::terminals::Terminals,
     host: Arc<Host>,
     pub root: Entity<ShellRoot>,
@@ -54,11 +49,6 @@ impl Mounted {
 
     pub(super) fn close(&self) {
         self.host.close();
-    }
-
-    #[cfg(test)]
-    pub(super) fn cache_root(&self) -> &std::path::Path {
-        self._cache.root()
     }
 
     pub(super) fn new(
@@ -155,34 +145,10 @@ impl Mounted {
                         {
                             image = image.rounded_full();
                         }
-                        #[cfg(test)]
-                        {
-                            use gpui_kit::InteractiveElement as _;
-                            image = image.debug_selector(|| args.id().to_owned());
-                        }
                         image.into_any_element()
                     }
                     None => gpui_kit::div().into_any_element(),
                 }
-            });
-        #[cfg(test)]
-        let anchors = gpui_shell::HostModule::new("sailry/test")
-            .component("Anchor", |mut args, _, _| {
-                use gpui_kit::{InteractiveElement as _, ParentElement as _};
-                gpui_kit::div()
-                    .debug_selector(|| args.id().to_owned())
-                    .children(args.take_children())
-                    .into_any_element()
-            })
-            .component("Bounds", |args, _, _| {
-                use gpui_kit::{InteractiveElement as _, Styled as _};
-                // A transparent absolute probe measures its relative parent
-                // without replacing the parent's script styling or controls.
-                gpui_kit::div()
-                    .absolute()
-                    .inset_0()
-                    .debug_selector(|| args.id().to_owned())
-                    .into_any_element()
             });
         let ui = super::notifications::module(
             super::navigation::ui(
@@ -257,8 +223,6 @@ impl Mounted {
             .with_host_module(artifacts)?
             .with_host_module(super::forms::bound(host.clone(), configuration_binding))?
             .with_host_module(super::panes::module(ui, owner, host.clone(), pane))?;
-        #[cfg(test)]
-        let policy = policy.with_host_module(anchors)?;
         // In b79f4ce, try_load captures the default policy synchronously and
         // carries it on every later call. No await or per-frame policy switch.
         // The public loader has no explicit-policy parameter at this revision.
@@ -270,8 +234,6 @@ impl Mounted {
         let _reset = DefaultPolicy(previous);
         let root = runtime.try_load(cache.root(), window, cx)?;
         Ok(Self {
-            #[cfg(test)]
-            conversations,
             terminals,
             host,
             root,

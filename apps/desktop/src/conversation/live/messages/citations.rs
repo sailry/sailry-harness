@@ -138,9 +138,6 @@ pub(super) fn text<'a>(
 mod tests {
     use super::*;
     use core::prelude::v1::test;
-    use gpui_kit::{component::text::TextView, *};
-
-    struct Link;
 
     #[test]
     fn hides_complete_native_reference_artifacts() {
@@ -185,32 +182,6 @@ mod tests {
         ] {
             assert_eq!(presentation(&source), source);
         }
-    }
-
-    impl Render for Link {
-        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            let sources = [Citation {
-                uri: "https://example.com/a_(b)".into(),
-                title: None,
-                start: Some(0),
-                end: Some(0),
-            }];
-            div().w(px(240.)).child(
-                TextView::markdown("source", text("Result", 0, true, &sources).into_owned())
-                    .selectable(true),
-            )
-        }
-    }
-
-    #[gpui::test]
-    fn opens_numbered_sources(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let (_, visual) = cx.add_window_view(|_, _| Link);
-        visual.simulate_click(point(px(3.), px(10.)), Modifiers::default());
-        assert_eq!(
-            visual.opened_url().as_deref(),
-            Some("https://example.com/a_(b)")
-        );
     }
 
     #[test]

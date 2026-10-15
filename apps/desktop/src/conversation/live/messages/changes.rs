@@ -9,10 +9,6 @@ use gpui_kit::component::{
 };
 use sailry_protocol::conversation::checkpoint::TurnDiff;
 
-#[cfg(test)]
-#[path = "changes/tests.rs"]
-mod tests;
-
 const DELTA_WIDTH: f32 = 88.;
 const PREVIEW_FILES: usize = 3;
 

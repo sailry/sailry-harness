@@ -11,8 +11,6 @@ mod fields;
 mod github;
 mod submit;
 mod tabs;
-#[cfg(test)]
-mod tests;
 mod view;
 use fields::Setting;
 

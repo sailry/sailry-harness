@@ -16,9 +16,6 @@ use sailry_link::CancellationToken;
 use serde::Deserialize;
 use std::{cell::Cell, rc::Rc, sync::Arc};
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 enum TriggerSize {

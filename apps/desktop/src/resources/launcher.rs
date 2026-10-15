@@ -267,30 +267,6 @@ impl Shell {
             .into_any_element()
     }
 
-    #[cfg(test)]
-    pub(crate) fn open_plugin_panel(
-        &mut self,
-        source: Entity<crate::conversation::live::View>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.page != Page::Conversation || self.current_chat() != Some(&source) {
-            return;
-        }
-        let original = source.clone();
-        if self.guard_file_navigation(window, cx, move |shell, window, cx| {
-            shell.open_plugin_panel(original.clone(), window, cx)
-        }) {
-            return;
-        }
-        let panel = cx.new(|cx| crate::plugins::Panel::new(source, cx));
-        Self::observe_plugin_conversations(&panel, window, cx);
-        cx.observe(&panel, |_, _, cx| cx.notify()).detach();
-        self.side_resource = Some(SideResource::Plugin(panel));
-        self.layout.panel_open[0] = true;
-        cx.notify();
-    }
-
     pub(super) fn resource_tool_preview(
         &self,
         destination: Destination,

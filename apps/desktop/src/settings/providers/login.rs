@@ -15,11 +15,9 @@ use sailry_protocol::{
 };
 
 mod browser;
-mod view;
-#[cfg(test)]
-use super::authorization_support as support;
 #[cfg(test)]
 mod tests;
+mod view;
 
 fn binding(owner: &Entity<Workspace>, id: usize, cx: &App) -> Option<(Binding, Provider)> {
     let live = owner.read(cx).provider_link.as_ref()?;

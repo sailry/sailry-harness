@@ -122,12 +122,12 @@ impl Render for Browser {
         #[cfg(target_os = "macos")]
         {
             self.native.update(cx, |native, _| native.show());
-            return div()
+            div()
                 .size_full()
                 .min_w_0()
                 .min_h_0()
                 .child(self.native.clone())
-                .into_any_element();
+                .into_any_element()
         }
         #[cfg(not(target_os = "macos"))]
         div().into_any_element()

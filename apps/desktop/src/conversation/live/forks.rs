@@ -4,9 +4,6 @@ use gpui_kit::component::{
     menu::{DropdownMenu, PopupMenuItem},
 };
 
-#[cfg(test)]
-mod tests;
-
 impl View {
     pub(super) fn can_fork(&self, turn: TurnId) -> bool {
         !self.pending

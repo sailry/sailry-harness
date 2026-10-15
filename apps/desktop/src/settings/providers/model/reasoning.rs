@@ -228,6 +228,3 @@ impl Editor {
         view.into_any_element()
     }
 }
-
-#[cfg(test)]
-mod tests;

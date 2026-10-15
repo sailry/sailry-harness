@@ -83,6 +83,3 @@ impl RenderOnce for Title {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

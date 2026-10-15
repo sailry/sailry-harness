@@ -29,24 +29,6 @@ impl Shell {
         );
     }
 
-    #[cfg(test)]
-    pub(crate) fn reveal_file_in_system(
-        &mut self,
-        scope: (NodeId, WorktreeId),
-        path: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.show_file_in_system(
-            scope,
-            path,
-            false,
-            crate::plugins::file_transfers::system::Action::Reveal,
-            window,
-            cx,
-        );
-    }
-
     fn show_file_in_system(
         &mut self,
         scope: (NodeId, WorktreeId),

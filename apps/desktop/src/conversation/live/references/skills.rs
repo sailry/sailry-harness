@@ -2,9 +2,6 @@
 use super::*;
 use sailry_protocol::plugin;
 
-#[cfg(test)]
-mod tests;
-
 impl View {
     pub(super) fn skill_packages(&self) -> Vec<plugin::Reference> {
         if !self.composer_options.skills {

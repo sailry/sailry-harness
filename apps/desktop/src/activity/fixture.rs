@@ -41,6 +41,10 @@ impl Fixture {
                     .block_on(client.execute(client.prepare(command)))
                     .unwrap()
             };
+            execute(Command::InstallBundledPlugin {
+                name: "progress".into(),
+                expected_revision: 0,
+            });
             // Keep model fixtures independent of shipped external services.
             for name in ["context7", "github"] {
                 execute(Command::SetPluginEnabled {
@@ -112,25 +116,6 @@ impl Fixture {
             sessions,
             servers,
         }
-    }
-    pub fn services(&self) -> crate::backend::Services {
-        crate::backend::Services {
-            profile: self.nodes[0].profile().to_path_buf(),
-            runtime: self.runtime.clone(),
-            link: self.nodes[0].link(),
-            local: self.nodes[0].local(),
-            relay_enabled: false,
-        }
-    }
-    pub fn submit(&self, index: usize) {
-        let client = Client::new(self.nodes[index].local());
-        self.runtime
-            .block_on(client.execute(client.prepare(Command::SubmitTurn {
-                session: self.sessions[index].id,
-                expected_revision: 1,
-                message: format!("Review workspace changes {index}").into(),
-            })))
-            .unwrap();
     }
     pub fn answer(&self, index: usize) {
         let client = Client::new(self.nodes[index].local());

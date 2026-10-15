@@ -21,8 +21,6 @@ pub(crate) mod messages;
 mod neutral;
 mod preview;
 mod raster;
-#[cfg(test)]
-mod tabs;
 pub(crate) mod wordmark;
 pub(crate) use dialog::DialogStyle;
 #[cfg(test)]

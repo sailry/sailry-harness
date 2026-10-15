@@ -177,6 +177,19 @@ impl Default for State {
 }
 
 impl State {
+    pub(crate) fn recent_sessions(&self, host: usize) -> Vec<(Key, &Session)> {
+        let mut sessions: Vec<_> = self
+            .sessions
+            .iter()
+            .filter(|(key, session)| {
+                key.0 == host && !session.archived && self.contains(session.owner)
+            })
+            .map(|(key, session)| (*key, session))
+            .collect();
+        sessions.sort_by_key(|(key, _)| std::cmp::Reverse(key.1));
+        sessions
+    }
+
     pub fn save_project(
         &mut self,
         host: usize,

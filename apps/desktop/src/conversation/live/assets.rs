@@ -4,8 +4,6 @@ use crate::content::images::{ImageSource, Images};
 use sailry_protocol::conversation::assets::{Group, Kind, Query, Target};
 mod overview;
 mod render;
-#[cfg(test)]
-pub(super) mod tests;
 
 impl View {
     pub(crate) fn open_file_image(

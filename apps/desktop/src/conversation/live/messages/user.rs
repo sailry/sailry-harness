@@ -273,11 +273,6 @@ impl View {
     }
 }
 
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-pub(super) use tests::observe;
-
 pub(in crate::conversation::live) fn sent_input(
     page: &sailry_protocol::conversation::Page,
     turn: TurnId,

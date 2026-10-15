@@ -256,9 +256,7 @@ pub(in crate::plugins) fn module(fields: Entity<Store>) -> HostModule {
                     Text::Input(input)=>Input::new(input).aria_label(draft.label.clone()).mask_toggle().disabled(disabled).into_any_element(),
                     Text::Area(input)=>Textarea::new(input).aria_label(draft.label.clone()).disabled(disabled).into_any_element(),
                 };
-                let view=div().w_full().child(content);
-                #[cfg(test)] let view=view.debug_selector({let id=args.id().to_owned();move||id.clone()});
-                view.into_any_element()
+                div().w_full().child(content).into_any_element()
             })
         }).declarations(include_str!("credentials/api.d.ts"))
 }

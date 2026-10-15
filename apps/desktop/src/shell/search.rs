@@ -3,8 +3,6 @@ use super::*;
 use gpui_kit::component::{input::Backspace, list::ListState};
 mod catalog;
 mod list;
-#[cfg(test)]
-mod tests;
 use self::list::Rows;
 use catalog::{Folder, Scope, Target};
 

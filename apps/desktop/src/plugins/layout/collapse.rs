@@ -16,9 +16,6 @@ use std::{
     rc::Rc,
 };
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
     Header,

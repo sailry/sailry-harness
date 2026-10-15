@@ -1,19 +1,14 @@
-use super::{provider, support, wait};
+use super::{provider, support};
 use crate::conversation::live::*;
-use gpui_kit::test::TestWindowExt as _;
 use sailry_link::{Link, NetworkScope, Transport};
 use sailry_node_runtime::Node;
-use std::time::Duration;
 
 pub(crate) struct Fixture {
     pub(crate) directory: tempfile::TempDir,
     pub(crate) runtime: Arc<tokio::runtime::Runtime>,
     pub(crate) node: Node,
     pub(crate) controller: Option<Link>,
-    pub(crate) transport: Arc<dyn Transport>,
     pub(crate) binding: Binding,
-    pub(crate) session: Session,
-    pub(crate) server: support::Server,
 }
 
 impl Fixture {
@@ -42,16 +37,6 @@ impl Fixture {
             surface: Default::default(),
         }
     }
-    pub(crate) fn task_requests(&self) -> usize {
-        self.server
-            .requests
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|request| !support::compaction::is_summary(request))
-            .count()
-    }
-
     pub(crate) fn with_tools(remote: bool, tools: Vec<(String, serde_json::Value)>) -> Self {
         Self::with_server(remote, |runtime| {
             runtime.block_on(support::Server::tools(tools))
@@ -165,10 +150,7 @@ impl Fixture {
             runtime,
             node,
             controller,
-            transport,
             binding,
-            session,
-            server,
         }
     }
 
@@ -179,14 +161,6 @@ impl Fixture {
             .unwrap()
     }
 
-    pub(crate) fn start(&self) {
-        self.execute(Command::SubmitTurn {
-            session: self.session.id,
-            expected_revision: 1,
-            message: "Run the fixture tools".into(),
-        });
-    }
-
     pub(crate) fn close(self) {
         self.runtime.block_on(self.node.shutdown()).unwrap();
         if let Some(controller) = self.controller {
@@ -194,144 +168,3 @@ impl Fixture {
         }
     }
 }
-
-pub(crate) struct Harness(pub(crate) Entity<View>);
-impl Render for Harness {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().size_full().child(self.0.clone())
-    }
-}
-
-pub(crate) fn init(cx: &mut TestAppContext) {
-    cx.executor().allow_parking();
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        crate::theme::init(cx);
-    });
-    rust_i18n::set_locale("en");
-}
-
-pub(crate) fn open(
-    cx: &mut TestAppContext,
-    binding: Binding,
-    session: Session,
-) -> (Entity<View>, &mut VisualTestContext) {
-    open_session(cx, binding, Some(session))
-}
-
-pub(crate) fn open_session(
-    cx: &mut TestAppContext,
-    binding: Binding,
-    session: Option<Session>,
-) -> (Entity<View>, &mut VisualTestContext) {
-    let mut entity = None;
-    let (_, visual) = cx.add_window_view(|window, cx| {
-        let view = cx.new(|cx| View::new(binding, session, window, cx));
-        entity = Some(view.clone());
-        let harness = cx.new(|_| Harness(view));
-        Root::new(harness, window, cx)
-    });
-    (entity.unwrap(), visual)
-}
-
-pub(crate) fn hover(cx: &mut VisualTestContext, selector: &'static str) {
-    let observed = cx.update(|window, cx| {
-        window.render_frame(cx);
-        if window.try_find(selector).is_some() {
-            window.hover(selector, cx);
-            true
-        } else {
-            false
-        }
-    });
-    if observed {
-        for _ in 0..12 {
-            cx.executor().advance_clock(Duration::from_millis(100));
-            wait(cx, |_| true);
-        }
-    } else {
-        let bounds = cx.debug_bounds(selector).unwrap();
-        move_pointer(cx, bounds.center());
-    }
-}
-
-pub(crate) fn leave(cx: &mut VisualTestContext) {
-    move_pointer(cx, point(px(1.), px(1.)));
-}
-
-fn move_pointer(cx: &mut VisualTestContext, position: Point<Pixels>) {
-    cx.simulate_mouse_move(position, None, Modifiers::default());
-    for _ in 0..12 {
-        cx.executor().advance_clock(Duration::from_millis(100));
-        wait(cx, |_| true);
-    }
-}
-
-pub(crate) fn tap(cx: &mut VisualTestContext, selector: &str) {
-    if matches!(
-        selector,
-        "chat-retry"
-            | "asset-retry"
-            | "chat-sync-retry"
-            | "live-approval-retry"
-            | "queue-retry"
-            | "live-search-retry"
-            | "live-load-older"
-    ) {
-        crate::feedback::tests::settle(cx);
-    }
-    let observed = cx.update(|window, cx| {
-        window.render_frame(cx);
-        if window
-            .try_find(SharedString::from(selector.to_owned()))
-            .is_some()
-        {
-            window.click(SharedString::from(selector.to_owned()), cx);
-            true
-        } else {
-            false
-        }
-    });
-    if observed {
-        cx.run_until_parked();
-        cx.update(|window, cx| window.render_frame(cx));
-        return;
-    }
-    // Legacy debug-only anchors retain native hit testing until their owning feature migrates.
-    let selector = Box::leak(selector.to_owned().into_boxed_str());
-    let bounds = cx
-        .debug_bounds(selector)
-        .unwrap_or_else(|| panic!("missing {selector}"));
-    cx.simulate_mouse_move(bounds.center(), None, Modifiers::default());
-    cx.run_until_parked();
-    cx.update(|window, cx| {
-        window.refresh();
-        window.draw(cx).clear(cx);
-    });
-    let bounds = cx
-        .debug_bounds(selector)
-        .expect("control after pointer layout");
-    press(cx, bounds.center());
-    cx.run_until_parked();
-    cx.update(|window, cx| {
-        window.refresh();
-        window.draw(cx).clear(cx);
-    });
-    cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
-}
-
-pub(crate) fn press(cx: &mut VisualTestContext, position: Point<Pixels>) {
-    use gpui_kit::test::TestWindowExt;
-
-    // Debug selectors and script anchors are not observed Kit ElementIds.
-    // Keep native hit testing, with the same inter-event frames as Kit's click.
-    cx.simulate_mouse_down(position, MouseButton::Left, Modifiers::default());
-    cx.update(|window, cx| window.render_frame(cx));
-    cx.simulate_mouse_up(position, MouseButton::Left, Modifiers::default());
-    cx.update(|window, cx| window.render_frame(cx));
-}
-
-pub(crate) use crate::conversation::live::attachments::image_testing::{
-    ImageView, finish_download,
-};

@@ -22,11 +22,6 @@ impl Panel {
             .flatten()
     }
 
-    #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
-    pub(crate) fn file_preview(&self, cx: &App) -> Option<AnyView> {
-        self.preview.read(cx).file_preview()
-    }
-
     pub(crate) fn new(
         source: Entity<Chat>,
         mut binding: Binding,

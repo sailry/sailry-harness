@@ -173,7 +173,7 @@ impl Controller {
                     self.insert(
                         access.clone(),
                         worker::Source::Entry {
-                            access,
+                            access: Box::new(access),
                             path: source,
                             kind: sailry_protocol::EntryKind::Other,
                             cut: true,
@@ -286,7 +286,7 @@ impl Controller {
                     self.insert(
                         access,
                         worker::Source::Entry {
-                            access: clipboard.access.clone(),
+                            access: Box::new(clipboard.access.clone()),
                             path: source,
                             kind,
                             cut: clipboard.cut,

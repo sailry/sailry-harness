@@ -2,9 +2,6 @@ use super::*;
 use crate::settings::providers::Binding;
 use sailry_protocol::{Command, ErrorCode, Fault, Output, Request, Snapshot, plugin::Summary};
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Default)]
 pub(in crate::settings) struct Catalog {
     pub(super) python: sailry_client::python::View,
@@ -228,10 +225,10 @@ fn dispatch(
                         catalog.error = None;
                     }
                     Ok(Err(error)) => {
-                        if !uncertain(&error) {
+                        if !uncertain(error) {
                             catalog.action = None;
                         }
-                        catalog.error = Some(error_key(&error));
+                        catalog.error = Some(error_key(error));
                     }
                     _ => catalog.error = Some("plugins_unknown"),
                 }

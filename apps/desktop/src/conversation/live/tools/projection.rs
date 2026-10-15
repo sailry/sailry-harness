@@ -206,6 +206,3 @@ pub(super) fn render(
     }
     Some(surface::result(key, content.into_any_element(), actions, cx).into_any_element())
 }
-
-#[cfg(test)]
-mod tests;

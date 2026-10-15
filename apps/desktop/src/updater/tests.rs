@@ -1,3 +1,4 @@
+mod config;
 pub(super) mod fixture;
 mod install;
 mod manifest;

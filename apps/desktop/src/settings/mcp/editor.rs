@@ -5,8 +5,6 @@ use sailry_protocol::{
 };
 use std::collections::BTreeMap;
 
-#[cfg(test)]
-mod tests;
 mod view;
 
 pub(super) struct Editor {

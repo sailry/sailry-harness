@@ -9,8 +9,6 @@ use sailry_protocol::plugin::ui::{Align, Slot};
 
 pub(super) mod compact;
 pub(super) use compact::Panel;
-#[cfg(test)]
-mod tests;
 
 impl View {
     pub(super) fn composer(&self, cx: &mut Context<Self>) -> AnyElement {

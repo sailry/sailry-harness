@@ -63,47 +63,6 @@ impl Filter {
     }
 }
 impl Header {
-    #[cfg(test)]
-    pub(in crate::plugins) fn filter_id(&self, id: &str) -> Option<ElementId> {
-        self.filters
-            .fields
-            .get(id)
-            .map(|field| ("select", field.state.entity_id()).into())
-    }
-
-    #[cfg(test)]
-    pub(in crate::plugins) fn filter_interaction(
-        &self,
-        id: &str,
-        window: &Window,
-        cx: &App,
-    ) -> Option<(Option<usize>, Option<String>, bool)> {
-        self.filters.fields.get(id).map(|field| {
-            let state = field.state.read(cx);
-            (
-                state.selected_index(cx).map(|index| index.row),
-                state.selected_value().cloned(),
-                state.focus_handle(cx).is_focused(window),
-            )
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::plugins) fn filter_ready(&self, id: &str, cx: &App) -> bool {
-        self.filters.fields.get(id).is_some_and(|field| {
-            !field.props.disabled
-                && field.state.read(cx).selected_value() == Some(&field.props.selected)
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::plugins) fn filter_selected(&self, id: &str) -> Option<&str> {
-        self.filters
-            .fields
-            .get(id)
-            .map(|field| field.props.selected.as_str())
-    }
-
     pub(super) fn sync_filters(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.filters.fields.retain(|id, field| {
             self.content

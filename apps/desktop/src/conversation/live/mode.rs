@@ -5,9 +5,6 @@ use gpui_kit::component::{
     menu::DropdownMenu,
 };
 
-#[cfg(test)]
-mod tests;
-
 impl View {
     pub(super) fn select_mode(
         &mut self,

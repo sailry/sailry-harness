@@ -9,11 +9,6 @@ mod render;
 mod source;
 pub(super) use render::{image_links, links, source_links};
 use source::Source;
-#[cfg(test)]
-#[path = "tests/fixture/images.rs"]
-pub(crate) mod image_testing;
-#[cfg(test)]
-pub(in crate::conversation::live) mod tests;
 mod transfer;
 use transfer::Status;
 

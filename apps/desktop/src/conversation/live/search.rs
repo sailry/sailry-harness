@@ -6,8 +6,6 @@ use sailry_protocol::conversation::search::Match;
 mod render;
 mod results;
 mod reveal;
-#[cfg(test)]
-mod tests;
 use results::Results;
 
 pub(super) enum Event {

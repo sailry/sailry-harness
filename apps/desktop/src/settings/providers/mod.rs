@@ -1,19 +1,13 @@
 use super::entry::Entry;
-#[cfg(test)]
-use crate::provider_fixture as authorization_support;
 mod catalog;
 mod data;
-mod families;
-mod vendors;
-#[cfg(test)]
-use crate::discovery_fixture as discovery_server;
 mod editor;
-#[cfg(test)]
-pub(in crate::settings) mod fixture;
+mod families;
 mod list;
 mod live;
 mod login;
 mod model;
+mod vendors;
 use gpui_kit::prelude::FluentBuilder as _;
 pub(super) use live::Binding;
 pub(super) use live::Live;

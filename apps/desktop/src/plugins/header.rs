@@ -157,23 +157,6 @@ impl Header {
     pub(super) fn min_content_height(&self) -> Pixels {
         px(self.content.min_content_height)
     }
-
-    #[cfg(test)]
-    pub(super) fn action_disabled(&self, id: &str) -> Option<bool> {
-        self.content
-            .actions
-            .iter()
-            .find(|action| action.id == id)
-            .map(|action| action.disabled)
-    }
-
-    #[cfg(test)]
-    pub(super) fn value(&self, index: usize) -> Option<&str> {
-        self.content
-            .items
-            .get(index)
-            .map(|item| item.value.as_str())
-    }
 }
 
 impl Render for Header {

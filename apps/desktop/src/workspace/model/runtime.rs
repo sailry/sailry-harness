@@ -26,19 +26,6 @@ impl Snapshot {
             ),
         ]
     }
-
-    #[cfg(test)]
-    pub fn sample(host: usize) -> Self {
-        Self {
-            version: Some("0.1.0-preview".into()),
-            system: Some(if host == 0 { "macOS 15.0" } else { "Linux 6.8" }.into()),
-            timezone: Some(if host == 0 { "Asia/Shanghai" } else { "UTC" }.into()),
-            uptime: Some(if host == 0 { 93780 } else { 3660 }),
-            protocol_min: Some(1),
-            protocol_max: Some(if host == 0 { 1 } else { 3 }),
-            ..Self::default()
-        }
-    }
 }
 
 fn optional(value: Option<&str>) -> SharedString {

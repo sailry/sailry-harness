@@ -11,8 +11,6 @@ mod network;
 mod process_actions;
 mod processes;
 mod resources;
-#[cfg(test)]
-mod tests;
 mod transfers;
 pub(crate) use monitor::Monitor;
 

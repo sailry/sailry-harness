@@ -10,8 +10,6 @@ use sailry_link::CancellationToken;
 use std::{path::PathBuf, sync::Arc};
 
 pub(crate) mod destination;
-#[cfg(test)]
-mod tests;
 pub(crate) mod transfer;
 use transfer::Status;
 

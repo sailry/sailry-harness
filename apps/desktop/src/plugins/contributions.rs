@@ -115,10 +115,6 @@ impl Registry {
             .any(|info| super::previews::accepts(info, mime))
     }
 
-    #[cfg(test)]
-    pub(crate) fn test_panel(&self, name: &str) -> Option<Entity<Panel>> {
-        self.mounted.get(name).map(|mounted| mounted.panel.clone())
-    }
     pub fn new(
         binding: &Binding,
         source: WeakEntity<crate::conversation::live::View>,

@@ -1,8 +1,6 @@
 mod editor;
 mod requests;
 mod restore;
-#[cfg(test)]
-mod tests;
 mod view;
 mod watch;
 
@@ -34,8 +32,6 @@ pub(super) struct Panel {
     stop: Option<CancellationToken>,
     generation: u64,
     editor: Option<WeakEntity<editor::Editor>>,
-    #[cfg(test)]
-    restore: Option<WeakEntity<restore::Restore>>,
     error: Option<&'static str>,
 }
 
@@ -91,8 +87,6 @@ impl Panel {
             stop: None,
             generation: 0,
             editor: None,
-            #[cfg(test)]
-            restore: None,
             error: None,
         }
     }

@@ -29,48 +29,6 @@ impl State {
 }
 
 impl Shell {
-    pub(crate) fn project_contribution(
-        &mut self,
-        project: ProjectId,
-        intent: sailry_protocol::plugin::ui::Intent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(registry) = self.project_plugins(project, window, cx) else {
-            return;
-        };
-        let Some(live) = self.live.as_ref() else {
-            return;
-        };
-        let node = live.selected;
-        let Some(tree) = live.project_worktree(project).map(|tree| tree.id) else {
-            return;
-        };
-        let next = std::rc::Rc::new(
-            move |shell: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
-                let Some(live) = shell.live.as_mut().filter(|live| live.selected == node) else {
-                    return;
-                };
-                live.select_project_worktree(project, tree);
-                let task = contributions::intents::request(
-                    registry.clone(),
-                    intent,
-                    Some(serde_json::Value::Null),
-                    window,
-                    cx,
-                );
-                cx.spawn(async move |_, _| {
-                    let _ = task.await;
-                })
-                .detach();
-                cx.notify();
-            },
-        );
-        if !self.guard_document_navigation(window, cx, next.clone()) {
-            next(self, window, cx);
-        }
-    }
-
     pub(crate) fn project_plugins(
         &mut self,
         project: ProjectId,

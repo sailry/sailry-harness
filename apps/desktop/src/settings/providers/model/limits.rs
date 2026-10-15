@@ -55,6 +55,3 @@ impl Editor {
             .into_any_element()
     }
 }
-
-#[cfg(test)]
-mod tests;

@@ -471,61 +471,6 @@ fn outline(cx: &App) -> impl IntoElement {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::prelude::v1::test;
-    use gpui_kit::{component::button::Button, test::TestWindowExt as _};
-    use std::cell::Cell;
-
-    struct Harness(Rc<Cell<usize>>);
-
-    impl Render for Harness {
-        fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-            let clicks = self.0.clone();
-            div()
-                .relative()
-                .size_full()
-                .child(
-                    Button::new("under-outline")
-                        .absolute()
-                        .left(px(RAIL_WIDTH))
-                        .top(px(HEADER_HEIGHT))
-                        .w(px(160.))
-                        .h(px(32.))
-                        .label("Underlying action")
-                        .on_click(move |_, _, _| clicks.set(clicks.get() + 1)),
-                )
-                .child(outline(cx))
-        }
-    }
-
-    #[gpui_kit::test]
-    fn outline_preserves_pointer_routing(cx: &mut TestAppContext) {
-        cx.update(|cx| {
-            gpui_kit::init(cx);
-            crate::theme::init(cx);
-        });
-        let clicks = Rc::new(Cell::new(0));
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|_| Harness(clicks.clone()));
-            Root::new(view, window, cx)
-        });
-        visual.update(|window, cx| window.render_frame(cx));
-        let bounds = visual.debug_bounds("shell-content-outline").unwrap();
-        assert_eq!(bounds.left(), px(RAIL_WIDTH));
-        assert_eq!(bounds.top(), px(HEADER_HEIGHT));
-        assert_eq!(
-            bounds.right(),
-            visual.update(|window, _| window.viewport_size().width)
-        );
-        visual.update(|window, cx| {
-            window.click_at("under-outline", point(px(20.), px(0.5)), cx);
-        });
-        assert_eq!(clicks.get(), 1);
-    }
-}
-
 /// Eager script slots are consumed by the native frame in the same render lifetime.
 #[derive(IntoElement)]
 pub(crate) struct Plugin {

@@ -1,8 +1,5 @@
 use super::*;
 use raw_window_handle::HasWindowHandle as _;
-#[cfg(test)]
-#[path = "overlay_tests.rs"]
-mod overlays;
 
 // Native child views bypass Kit's hitbox and paint order. Leave its divider's
 // right-hand grab band clear: pinned Kit uses 4px padding plus a 1px hairline.

@@ -47,7 +47,7 @@ enum Reader {
         host: Arc<Host>,
         owner: sailry_protocol::SessionId,
     },
-    Card(Resource),
+    Card(Box<Resource>),
 }
 
 impl Reader {
@@ -163,7 +163,7 @@ pub(super) fn choose_card(
             revision: resource.artifact.revision,
             format,
         },
-        reader: Reader::Card(resource.clone()),
+        reader: Reader::Card(Box::new(resource.clone())),
         live: None,
     };
     if source.reader.check(&source.options, cx).is_err() {

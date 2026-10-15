@@ -14,8 +14,6 @@ mod menu;
 mod pointer;
 pub(crate) mod serialize;
 mod source;
-#[cfg(test)]
-mod tests;
 
 use crate::markdown::{
     self, Block, BlockKind, BlockLayouts, Cursor, Doc, Editing, Mark, Selection, doc::Text,
@@ -83,21 +81,6 @@ pub struct State {
 }
 
 impl State {
-    #[cfg(test)]
-    pub fn new(
-        source: impl Into<SharedString>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let source = source.into();
-        let input = cx.new(|cx| {
-            EditorState::new(window, cx)
-                .language("markdown")
-                .default_value(source)
-        });
-        Self::from_input(&input, cx)
-    }
-
     /// Attach to the existing resource editor; drafts and saves use this buffer.
     pub fn from_input(input: &Entity<EditorState>, cx: &mut Context<Self>) -> Self {
         Self::from_buffer(Buffer::Editor(input.clone()), cx)

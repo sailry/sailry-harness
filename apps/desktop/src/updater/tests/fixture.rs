@@ -1,5 +1,5 @@
 use super::super::{
-    config::Config,
+    config::{Channel, Config},
     manifest::{Release, Selection},
     transfer::Staged,
 };
@@ -13,7 +13,8 @@ use std::{
 
 pub(in crate::updater) fn config() -> Config {
     Config {
-        source: "https://example.test/update-v1.json".into(),
+        sources: vec!["https://example.test/update-v1.json".into()],
+        channel: Channel::Experience,
         keys: vec![
             ed25519_dalek::SigningKey::from_bytes(&[7; 32])
                 .verifying_key()
@@ -25,7 +26,7 @@ pub(in crate::updater) fn config() -> Config {
     }
 }
 
-pub(super) fn release() -> Release {
+pub(in crate::updater) fn release() -> Release {
     let config = config();
     let (bundle, executable) = super::super::manifest::layout(&config.target).unwrap();
     Release {
@@ -145,6 +146,10 @@ pub(in crate::updater) fn staged() -> Staged {
     Staged {
         directory,
         archive,
-        selection: Selection { manifest, release },
+        selection: Selection {
+            manifest,
+            channel: Channel::Experience,
+            release,
+        },
     }
 }

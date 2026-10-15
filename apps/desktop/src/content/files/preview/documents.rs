@@ -325,27 +325,3 @@ pub(super) fn edit_context(view: &AnyView, cx: &App) -> Option<(u32, String)> {
         && source.read(cx).can_request_file_edit(view.binding.worktree))
     .then(|| (view.status.page, view.status.selection.clone()))
 }
-
-#[cfg(test)]
-pub(super) fn set_edit_context(view: &AnyView, page: u32, selection: &str, cx: &mut App) -> bool {
-    let Ok(view) = view.clone().downcast::<Document>() else {
-        return false;
-    };
-    view.update(cx, |view, cx| {
-        if view.error.is_none() {
-            return false;
-        }
-        // The test window cannot create a native Office renderer. Seed its IPC
-        // state after the real download settles, on the same retained owner.
-        view.status = Status {
-            pages: page,
-            page,
-            scale: 1.,
-            selection: selection.into(),
-            ..Default::default()
-        };
-        view.error = None;
-        cx.notify();
-        true
-    })
-}

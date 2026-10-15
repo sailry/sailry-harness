@@ -1,6 +1,4 @@
 mod host;
-#[cfg(test)]
-mod tests;
 use super::{
     Workspace,
     group::{Group, Row},

@@ -43,12 +43,6 @@ impl Group {
         self
     }
 
-    #[cfg(test)]
-    pub fn loading(mut self, loading: bool) -> Self {
-        self.loading = loading;
-        self
-    }
-
     pub fn heading(mut self, visible: bool) -> Self {
         self.heading = visible;
         self
@@ -194,9 +188,6 @@ impl RenderOnce for Group {
             .child(surface)
     }
 }
-
-#[cfg(test)]
-mod tests;
 
 #[derive(IntoElement)]
 pub struct Row {

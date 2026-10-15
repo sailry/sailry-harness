@@ -261,15 +261,6 @@ impl Conversations {
                 .into_any_element()
         })
     }
-
-    #[cfg(test)]
-    pub fn first(&self) -> Option<Entity<Chat>> {
-        self.0
-            .borrow()
-            .values()
-            .next()
-            .map(|(_, chat)| chat.clone())
-    }
 }
 
 fn unavailable(cx: &App) -> AnyElement {

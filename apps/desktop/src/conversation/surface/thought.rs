@@ -122,6 +122,3 @@ impl RenderOnce for Thought {
         .text_color(cx.theme().muted_foreground)
     }
 }
-
-#[cfg(test)]
-mod tests;

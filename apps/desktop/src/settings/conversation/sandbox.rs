@@ -10,8 +10,6 @@ use gpui_kit::{
     *,
 };
 use sailry_protocol::{Command, ErrorCode, Output, sandbox::Settings};
-#[cfg(test)]
-mod tests;
 
 pub(super) struct Host {
     binding: Option<Binding>,

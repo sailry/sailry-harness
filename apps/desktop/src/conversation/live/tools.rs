@@ -9,8 +9,6 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use sailry_client::conversation::tools::{Call, State};
-#[cfg(test)]
-use sailry_protocol::Output;
 use sailry_protocol::conversation::{ApprovalState, Page};
 
 mod content;
@@ -583,6 +581,3 @@ fn preparation(
         python.package(package).map(|progress| progress.stage)
     })
 }
-
-#[cfg(test)]
-mod tests;

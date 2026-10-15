@@ -254,10 +254,8 @@ impl Browser {
                         let show = visible && index == self.selected && !tab.background;
                         // The selected stock element shows the current page.
                         // Inactive tabs retain their page while hidden.
-                        if !show {
-                            if page.visible() {
-                                page.hide();
-                            }
+                        if !show && page.visible() {
+                            page.hide();
                         }
                     });
                 }

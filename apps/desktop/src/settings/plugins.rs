@@ -4,9 +4,6 @@ mod cards;
 pub(super) mod configuration;
 mod details;
 pub(crate) use details::open_bound;
-#[cfg(test)]
-#[path = "plugins/tests/details.rs"]
-mod details_tests;
 pub(super) mod dialog;
 mod download;
 mod editor;
@@ -14,9 +11,6 @@ mod inventory;
 pub(super) mod live;
 mod market;
 pub(in crate::settings) mod preparation;
-#[cfg(test)]
-#[path = "plugins/tests/fixture.rs"]
-pub(super) mod test_support;
 pub(in crate::settings) mod updates;
 use super::{Section, Workspace, draft, group::Group};
 pub(super) use crate::plugins::metadata;

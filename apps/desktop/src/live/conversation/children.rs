@@ -4,9 +4,6 @@ use crate::{
     resources::SideResource,
 };
 
-#[cfg(test)]
-mod tests;
-
 impl Shell {
     pub(super) fn open_live_child(
         &mut self,

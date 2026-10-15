@@ -2,7 +2,10 @@
 use super::{Failure, Result, config};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
-use std::path::{Component, Path};
+use std::{
+    cmp::Ordering,
+    path::{Component, Path},
+};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -36,7 +39,15 @@ pub(super) struct Release {
 #[serde(deny_unknown_fields)]
 pub(super) struct Selection {
     pub manifest: Vec<u8>,
+    pub channel: config::Channel,
     pub release: Release,
+}
+
+pub(super) struct Candidate {
+    pub selection: Option<Selection>,
+    pub has_release: bool,
+    pub has_target: bool,
+    pub incompatible: bool,
 }
 
 pub(super) fn parse(bytes: &[u8], keys: &[self_update::VerifyingKey]) -> Result<Vec<Release>> {
@@ -101,6 +112,10 @@ pub(super) fn parse(bytes: &[u8], keys: &[self_update::VerifyingKey]) -> Result<
 }
 
 pub(super) fn select(bytes: &[u8], config: &config::Config) -> Result<Option<Selection>> {
+    finish(candidate(bytes, config)?)
+}
+
+pub(super) fn candidate(bytes: &[u8], config: &config::Config) -> Result<Candidate> {
     let releases = parse(bytes, &config.keys)?;
     let current = semver::Version::parse(&config.version).map_err(|_| {
         Failure::new(
@@ -108,39 +123,82 @@ pub(super) fn select(bytes: &[u8], config: &config::Config) -> Result<Option<Sel
             "invalid current application version",
         )
     })?;
-    let matching: Vec<_> = releases
-        .into_iter()
-        .filter(|release| release.target == config.target)
-        .collect();
-    if matching.is_empty() {
-        return Err(Failure::new(
-            "updates_platform",
-            "the manifest has no package for this target",
-        ));
+    let system = numeric_version(&config.system)?;
+    let mut result = Candidate {
+        selection: None,
+        has_release: !releases.is_empty(),
+        has_target: false,
+        incompatible: false,
+    };
+    for release in releases {
+        if release.target != config.target {
+            continue;
+        }
+        result.has_target = true;
+        let version =
+            semver::Version::parse(&release.version).expect("release version was validated");
+        if !config.channel.accepts(&version)
+            || version.cmp_precedence(&current) != Ordering::Greater
+        {
+            continue;
+        }
+        if system < numeric_version(&release.minimum_system)? {
+            result.incompatible = true;
+            continue;
+        }
+        result.selection = prefer(
+            result.selection,
+            Selection {
+                manifest: bytes.to_vec(),
+                channel: config.channel,
+                release,
+            },
+        );
     }
-    let latest = matching
-        .into_iter()
-        .max_by_key(|release| {
-            semver::Version::parse(&release.version).expect("release version was validated")
-        })
-        .expect("matching releases are not empty");
-    let version = semver::Version::parse(&latest.version).expect("release version was validated");
-    if version <= current {
-        return Ok(None);
+    Ok(result)
+}
+
+pub(super) fn finish(candidate: Candidate) -> Result<Option<Selection>> {
+    if candidate.selection.is_some() {
+        return Ok(candidate.selection);
     }
-    if numeric_version(&config.system)? < numeric_version(&latest.minimum_system)? {
+    if candidate.incompatible {
         return Err(Failure::new(
             "updates_system_old",
             "the update requires a newer operating system",
         ));
     }
-    Ok(Some(Selection {
-        manifest: bytes.to_vec(),
-        release: latest,
-    }))
+    if candidate.has_release && !candidate.has_target {
+        return Err(Failure::new(
+            "updates_platform",
+            "the manifest has no package for this target",
+        ));
+    }
+    Ok(None)
+}
+
+pub(super) fn prefer(current: Option<Selection>, candidate: Selection) -> Option<Selection> {
+    let Some(current) = current else {
+        return Some(candidate);
+    };
+    let current_version = semver::Version::parse(&current.release.version)
+        .expect("selected release version was validated");
+    let candidate_version = semver::Version::parse(&candidate.release.version)
+        .expect("selected release version was validated");
+    if candidate_version.cmp_precedence(&current_version) == Ordering::Greater {
+        Some(candidate)
+    } else {
+        Some(current)
+    }
 }
 
 pub(super) fn revalidate(selection: &Selection, config: &config::Config) -> Result<()> {
+    if selection.channel != config.channel {
+        return Err(Failure::new(
+            "updates_manifest_invalid",
+            "the staged update channel changed",
+        ));
+    }
     let Some(current) = select(&selection.manifest, config)? else {
         return Err(Failure::new(
             "updates_version_old",

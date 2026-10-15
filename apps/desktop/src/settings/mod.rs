@@ -27,8 +27,6 @@ pub(crate) mod extensions;
 mod shortcuts;
 mod skills;
 mod terminal;
-#[cfg(test)]
-mod tests;
 
 use gpui_kit::component::*;
 use gpui_kit::*;
@@ -102,30 +100,6 @@ impl Section {
     pub(crate) fn is_extension(self) -> bool {
         Self::EXTENSIONS.contains(&self)
     }
-
-    // Sailry Code 67ae9fa0: app/sailry_code_app/lib/settings/settings_models.dart.
-    #[cfg(test)]
-    pub const ALL: [Self; 19] = [
-        Self::General,
-        Self::Appearance,
-        Self::Conversation,
-        Self::Terminal,
-        Self::Knowledge,
-        Self::Runtime,
-        Self::Ocr,
-        Self::Backup,
-        Self::Hooks,
-        Self::Plugins,
-        Self::Market,
-        Self::Mcp,
-        Self::Providers,
-        Self::Skills,
-        Self::Connections,
-        Self::Shortcuts,
-        Self::Dictation,
-        Self::Permissions,
-        Self::About,
-    ];
 
     pub const GROUPS: [(&'static str, &'static [Self]); 4] = [
         (

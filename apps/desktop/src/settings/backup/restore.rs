@@ -42,11 +42,6 @@ pub(super) fn open(owner: Entity<Panel>, record: Record, window: &mut Window, cx
             error: None,
         }
     });
-    #[cfg(test)]
-    form.read(cx)
-        .owner
-        .clone()
-        .update(cx, |panel, _| panel.restore = Some(form.downgrade()));
     window.open_dialog(cx, move |dialog, window, cx| {
         let restore = form.clone();
         dialog

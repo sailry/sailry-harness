@@ -71,57 +71,80 @@ pub(super) async fn check(
     stop: &CancellationToken,
 ) -> Result<Option<Selection>> {
     let request = async {
-        let mut response = client
-            .get(&config.source)
-            .timeout(Duration::from_secs(45))
-            .send()
-            .await
-            .map_err(|_| {
-                Failure::new(
-                    "updates_network_failed",
-                    "the update metadata request failed",
-                )
-            })?;
-        if !response.status().is_success() {
-            return Err(Failure::new(
-                "updates_source_unready",
-                format!(
-                    "the update metadata server returned HTTP {}",
-                    response.status().as_u16()
-                ),
-            ));
-        }
-        if response
-            .content_length()
-            .is_some_and(|size| size > MAX_MANIFEST as u64)
-        {
-            return Err(Failure::new(
-                "updates_manifest_invalid",
-                "update metadata exceeds its size limit",
-            ));
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| {
-            Failure::new(
-                "updates_network_failed",
-                "the update metadata transfer was interrupted",
-            )
-        })? {
-            if bytes.len().saturating_add(chunk.len()) > MAX_MANIFEST {
-                return Err(Failure::new(
-                    "updates_manifest_invalid",
-                    "update metadata exceeds its size limit",
-                ));
+        let mut combined = manifest::Candidate {
+            selection: None,
+            has_release: false,
+            has_target: false,
+            incompatible: false,
+        };
+        for source in &config.sources {
+            let candidate = fetch(&client, source, config).await?;
+            if let Some(selection) = candidate.selection {
+                combined.selection = manifest::prefer(combined.selection, selection);
             }
-            bytes.extend_from_slice(&chunk);
+            combined.has_release |= candidate.has_release;
+            combined.has_target |= candidate.has_target;
+            combined.incompatible |= candidate.incompatible;
         }
-        manifest::select(&bytes, config)
+        manifest::finish(combined)
     };
     tokio::select! {
         biased;
         _ = stop.cancelled() => Err(cancelled()),
         result = request => result,
     }
+}
+
+async fn fetch(
+    client: &reqwest::Client,
+    source: &str,
+    config: &Config,
+) -> Result<manifest::Candidate> {
+    let mut response = client
+        .get(source)
+        .timeout(Duration::from_secs(45))
+        .send()
+        .await
+        .map_err(|_| {
+            Failure::new(
+                "updates_network_failed",
+                "the update metadata request failed",
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err(Failure::new(
+            "updates_source_unready",
+            format!(
+                "the update metadata server returned HTTP {}",
+                response.status().as_u16()
+            ),
+        ));
+    }
+    if response
+        .content_length()
+        .is_some_and(|size| size > MAX_MANIFEST as u64)
+    {
+        return Err(Failure::new(
+            "updates_manifest_invalid",
+            "update metadata exceeds its size limit",
+        ));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| {
+        Failure::new(
+            "updates_network_failed",
+            "the update metadata transfer was interrupted",
+        )
+    })? {
+        if bytes.len().saturating_add(chunk.len()) > MAX_MANIFEST {
+            return Err(Failure::new(
+                "updates_manifest_invalid",
+                "update metadata exceeds its size limit",
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    manifest::candidate(&bytes, config)
 }
 
 pub(super) async fn download(

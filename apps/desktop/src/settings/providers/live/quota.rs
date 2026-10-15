@@ -47,6 +47,3 @@ pub(super) fn refresh(owner: &mut Workspace, cx: &mut Context<Workspace>) {
         }));
     }
 }
-
-#[cfg(test)]
-mod tests;

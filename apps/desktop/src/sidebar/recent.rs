@@ -25,18 +25,7 @@ impl Shell {
                 })
                 .collect()
         } else {
-            let mut sessions: Vec<_> = self
-                .workspace
-                .sessions
-                .iter()
-                .filter(|(key, session)| {
-                    key.0 == self.host
-                        && !session.archived
-                        && self.workspace.contains(session.owner)
-                })
-                .map(|(key, session)| (*key, session))
-                .collect();
-            sessions.sort_by_key(|(key, _)| std::cmp::Reverse(key.1));
+            let sessions = self.workspace.recent_sessions(self.host);
             let count = sessions.len();
             sessions
                 .into_iter()

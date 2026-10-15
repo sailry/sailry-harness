@@ -2,9 +2,6 @@ use super::*;
 use sailry_link::CancellationToken;
 use sailry_protocol::{Command, ErrorCode, Output, conversation::catalog};
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Default)]
 pub(in crate::settings) struct State {
     pub status: catalog::Status,

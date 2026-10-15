@@ -27,11 +27,6 @@ pub(crate) fn show(action: Action, path: &std::path::Path, cx: &mut App) {
 struct Observed(Vec<(Action, PathBuf)>);
 #[cfg(test)]
 impl Global for Observed {}
-#[cfg(test)]
-pub(crate) fn take(cx: &mut App) -> Vec<(Action, PathBuf)> {
-    std::mem::take(&mut cx.default_global::<Observed>().0)
-}
-
 pub(crate) struct Opened {
     pub path: PathBuf,
     pub copy: Option<tempfile::TempDir>,

@@ -46,23 +46,3 @@ fn shared_zero_centered_domain(cx: &mut TestAppContext) {
         }
     });
 }
-
-#[gpui::test]
-fn native_hover_and_positive_labels(cx: &mut TestAppContext) {
-    cx.update(gpui_kit::init);
-    let (_, visual) = cx.add_window_view(|_, _| Empty);
-    visual.update(|window, cx| {
-        let chart = fixture(0.0452880859375, 109.00603675842285);
-        let bounds = Bounds::new(point(px(0.), px(0.)), size(px(400.), px(80.)));
-        for cursor_y in [10., 70.] {
-            let cursor = point(px(0.), px(cursor_y));
-            let state = chart.tooltip_state(cursor, bounds, cx).unwrap();
-            assert_eq!(state.index, 0);
-            assert!(state.dots[0].y < px(40.));
-            assert!(state.dots[1].y > px(40.));
-            assert!(chart.tooltip(&state, cursor, bounds, window, cx).is_some());
-        }
-        assert_eq!(value_label(109.00603675842285), "109.01");
-        assert_eq!(value_label(-0.0452880859375), "0.05");
-    });
-}

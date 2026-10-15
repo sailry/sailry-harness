@@ -1,7 +1,5 @@
 mod consent;
 pub(super) mod requests;
-#[cfg(test)]
-pub(super) mod tests;
 mod view;
 mod watch;
 
@@ -40,8 +38,6 @@ pub(super) struct Panel {
     error: Option<&'static str>,
     stop: Option<CancellationToken>,
     generation: u64,
-    #[cfg(test)]
-    pub(super) library: Option<WeakEntity<super::model_library::Library>>,
 }
 
 #[derive(Clone)]
@@ -142,8 +138,6 @@ impl Panel {
             error: None,
             stop: None,
             generation: 0,
-            #[cfg(test)]
-            library: None,
         }
     }
 
@@ -245,11 +239,6 @@ impl Panel {
             window,
             cx,
         );
-        #[cfg(test)]
-        {
-            self.library = Some(library.downgrade());
-        }
-        #[cfg(not(test))]
         {
             drop(library);
         }

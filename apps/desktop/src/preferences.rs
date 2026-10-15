@@ -5,7 +5,6 @@ pub(crate) mod artifacts;
 mod composer;
 mod dictation;
 pub(crate) mod plugins;
-pub(crate) mod recent;
 pub(crate) mod sessions;
 pub(crate) use composer::{Composer, Model};
 pub(crate) use dictation::{Dictation, Language};
@@ -38,7 +37,6 @@ pub(crate) struct Data {
     pub surfaces: Option<Surfaces>,
     pub shortcuts: Option<std::collections::BTreeMap<String, String>>,
     pub dictation: Option<Dictation>,
-    pub recent: Option<Vec<recent::Visit>>,
     pub sessions: Option<std::collections::BTreeMap<String, sessions::State>>,
     pub artifact_drafts: Option<std::collections::BTreeMap<String, artifacts::Draft>>,
     pub plugin_directories: Option<std::collections::BTreeMap<String, plugins::Directory>>,
@@ -46,6 +44,7 @@ pub(crate) struct Data {
     pub message_text_size: Option<u8>,
     pub file_picker: Option<FilePicker>,
     pub language: Option<crate::locale::Language>,
+    pub update_channel: Option<crate::updater::Channel>,
     #[serde(default)]
     pub sidebar_metrics: bool,
 }
@@ -125,11 +124,11 @@ impl Default for Data {
             sessions: None,
             plugin_directories: None,
             artifact_drafts: None,
-            recent: None,
             message_display: None,
             message_text_size: None,
             file_picker: None,
             language: None,
+            update_channel: None,
             sidebar_metrics: false,
         }
     }
@@ -263,6 +262,11 @@ pub(crate) fn data(cx: &App) -> Data {
     cx.try_global::<Preferences>()
         .map(|preferences| preferences.data.clone())
         .unwrap_or_default()
+}
+pub(crate) fn update_channel(cx: &App) -> crate::updater::Channel {
+    data(cx)
+        .update_channel
+        .unwrap_or_else(|| crate::updater::Channel::initial(env!("CARGO_PKG_VERSION")))
 }
 pub(crate) fn update(cx: &mut App, change: impl FnOnce(&mut Data)) {
     init(cx);

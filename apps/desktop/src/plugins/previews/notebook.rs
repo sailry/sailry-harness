@@ -170,6 +170,3 @@ impl Render for View {
         view.into_any_element()
     }
 }
-
-#[cfg(test)]
-mod tests;

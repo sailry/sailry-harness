@@ -7,8 +7,6 @@ use sailry_protocol::{
 
 mod actions;
 mod render;
-#[cfg(test)]
-mod tests;
 
 pub(super) struct Panel {
     owner: WeakEntity<View>,

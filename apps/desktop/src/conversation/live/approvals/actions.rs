@@ -15,20 +15,6 @@ pub(in crate::conversation::live) struct Actions {
 }
 
 impl Actions {
-    #[cfg(test)]
-    pub(in crate::conversation::live) fn pending_children(&self) -> usize {
-        self.children
-            .values()
-            .filter(|child| {
-                child.history.calls.iter().any(|call| {
-                    call.approval
-                        .as_ref()
-                        .is_some_and(|approval| approval.state == ApprovalState::Pending)
-                })
-            })
-            .count()
-    }
-
     pub(in crate::conversation::live) fn observe(&mut self, history: &History) {
         let captured: Vec<_> = history
             .snapshot
@@ -69,83 +55,6 @@ impl Actions {
 
     pub(super) fn resolved(&self, id: ApprovalId) -> bool {
         self.settled.contains(&id)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sailry_protocol::conversation::{ApprovalSource, Snapshot};
-
-    #[core::prelude::v1::test]
-    fn confirmed_receipt_bridges_pending_stream() {
-        let session = sailry_protocol::SessionId::new();
-        let approval = Approval {
-            id: ApprovalId::new(),
-            session,
-            turn: sailry_protocol::TurnId::new(),
-            entry: "entry".into(),
-            index: 0,
-            state: ApprovalState::Pending,
-            source: ApprovalSource::User,
-            access: None,
-            startup: None,
-            ssh: None,
-            can_remember: false,
-            prefix: None,
-            choice: None,
-            reason: None,
-        };
-        let mut history = History::default();
-        history.snapshot = Some(std::sync::Arc::new(Snapshot {
-            node: sailry_protocol::NodeId([1; 32]),
-            sequence: 1,
-            page: std::sync::Arc::new(Page {
-                session,
-                revision: 1,
-                entries: Vec::new(),
-                runs: Vec::new(),
-                next_before: None,
-                queue: Default::default(),
-                approvals: vec![approval.clone()],
-                questions: Vec::new(),
-                children: Vec::new(),
-            }),
-            missing: Vec::new(),
-            drafts: Vec::new(),
-            statistics: Default::default(),
-            artifacts: Default::default(),
-        }));
-        let mut actions = Actions::default();
-        actions.observe(&history);
-        assert!(actions.open);
-        assert!(!actions.resolved(approval.id));
-        actions.attempt = Some(Request::new(
-            sailry_protocol::NodeId([1; 32]),
-            Command::ResolveApproval {
-                session,
-                approval: approval.id,
-                decision: Decision::Approve,
-            },
-        ));
-        actions.observe(&history);
-        assert!(!actions.resolved(approval.id));
-
-        actions.settled.insert(approval.id);
-        actions.attempt = None;
-        actions.observe(&history);
-        assert!(actions.resolved(approval.id));
-        assert!(!actions.open);
-        assert_eq!(
-            history.snapshot.as_ref().unwrap().page.approvals[0],
-            approval
-        );
-
-        let snapshot = std::sync::Arc::make_mut(history.snapshot.as_mut().unwrap());
-        std::sync::Arc::make_mut(&mut snapshot.page).approvals[0].state = ApprovalState::Approved;
-        actions.observe(&history);
-        assert!(!actions.resolved(approval.id));
-        assert!(!actions.open);
     }
 }
 
@@ -299,5 +208,84 @@ impl View {
             });
         }));
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sailry_protocol::conversation::{ApprovalSource, Snapshot};
+
+    #[core::prelude::v1::test]
+    fn confirmed_receipt_bridges_pending_stream() {
+        let session = sailry_protocol::SessionId::new();
+        let approval = Approval {
+            id: ApprovalId::new(),
+            session,
+            turn: sailry_protocol::TurnId::new(),
+            entry: "entry".into(),
+            index: 0,
+            state: ApprovalState::Pending,
+            source: ApprovalSource::User,
+            access: None,
+            startup: None,
+            ssh: None,
+            can_remember: false,
+            prefix: None,
+            choice: None,
+            reason: None,
+        };
+        let mut history = History {
+            snapshot: Some(std::sync::Arc::new(Snapshot {
+                node: sailry_protocol::NodeId([1; 32]),
+                sequence: 1,
+                page: std::sync::Arc::new(Page {
+                    session,
+                    revision: 1,
+                    entries: Vec::new(),
+                    runs: Vec::new(),
+                    next_before: None,
+                    queue: Default::default(),
+                    approvals: vec![approval.clone()],
+                    questions: Vec::new(),
+                    children: Vec::new(),
+                }),
+                missing: Vec::new(),
+                drafts: Vec::new(),
+                statistics: Default::default(),
+                artifacts: Default::default(),
+            })),
+            ..Default::default()
+        };
+        let mut actions = Actions::default();
+        actions.observe(&history);
+        assert!(actions.open);
+        assert!(!actions.resolved(approval.id));
+        actions.attempt = Some(Request::new(
+            sailry_protocol::NodeId([1; 32]),
+            Command::ResolveApproval {
+                session,
+                approval: approval.id,
+                decision: Decision::Approve,
+            },
+        ));
+        actions.observe(&history);
+        assert!(!actions.resolved(approval.id));
+
+        actions.settled.insert(approval.id);
+        actions.attempt = None;
+        actions.observe(&history);
+        assert!(actions.resolved(approval.id));
+        assert!(!actions.open);
+        assert_eq!(
+            history.snapshot.as_ref().unwrap().page.approvals[0],
+            approval
+        );
+
+        let snapshot = std::sync::Arc::make_mut(history.snapshot.as_mut().unwrap());
+        std::sync::Arc::make_mut(&mut snapshot.page).approvals[0].state = ApprovalState::Approved;
+        actions.observe(&history);
+        assert!(!actions.resolved(approval.id));
+        assert!(!actions.open);
     }
 }

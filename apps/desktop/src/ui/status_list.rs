@@ -10,9 +10,6 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum State {

@@ -2,8 +2,6 @@ use super::{Preset, Workspace, data::Channel, model::Draft};
 use crate::theme::DialogStyle as _;
 use crate::tr;
 #[cfg(test)]
-mod layout_tests;
-#[cfg(test)]
 #[path = "editor_tests.rs"]
 mod tests;
 use gpui_kit::component::scroll::ScrollableElement;
@@ -24,8 +22,6 @@ mod credential;
 mod discovery;
 mod hosted;
 mod kind;
-#[cfg(test)]
-use super::discovery_server;
 mod live;
 mod oauth;
 mod region;

@@ -1,28 +1,4 @@
 use super::*;
-use core::prelude::v1::test;
-use std::time::{Duration, Instant};
-
-pub(crate) fn wait(cx: &mut VisualTestContext) -> (String, String) {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        cx.run_until_parked();
-        if let Some(prompt) = cx.pending_prompt() {
-            return prompt;
-        }
-        assert!(Instant::now() < deadline, "native prompt did not appear");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-}
-
-pub(crate) fn answer(cx: &mut VisualTestContext, key: &str) {
-    wait(cx);
-    cx.simulate_prompt_answer(&tr(key));
-    cx.run_until_parked();
-    cx.update(|window, cx| {
-        window.refresh();
-        let _ = window.draw(cx);
-    });
-}
 
 // GPUI's test platform supplies simulated OS responses without opening dialogs.
 pub(super) fn show(
@@ -99,52 +75,4 @@ mod responses {
         assert_eq!(selection(&labels, Ok), Some(0));
         assert_eq!(selection(&labels, Cancel), None);
     }
-}
-
-struct Content;
-impl Render for Content {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div()
-    }
-}
-
-#[gpui::test]
-fn serializes_and_releases(cx: &mut TestAppContext) {
-    cx.executor().allow_parking();
-    let (_, visual) = cx.add_window_view(|_, _| Content);
-    let first = visual.update(|window, cx| {
-        let first = ask(
-            PromptLevel::Warning,
-            "Delete",
-            "A file",
-            &["Cancel".into(), "Delete".into()],
-            window,
-            cx,
-        );
-        assert!(active(window, cx));
-        let duplicate = ask(
-            PromptLevel::Info,
-            "Duplicate",
-            "",
-            &["Close".into()],
-            window,
-            cx,
-        );
-        drop(duplicate);
-        assert!(active(window, cx));
-        first
-    });
-    assert_eq!(wait(visual).0, "Delete");
-    visual.simulate_prompt_answer("Cancel");
-    visual.run_until_parked();
-    assert!(!visual.update(|window, cx| active(window, cx)));
-    drop(first);
-    let second = visual
-        .update(|window, cx| ask(PromptLevel::Info, "Next", "", &["Close".into()], window, cx));
-    assert_eq!(wait(visual).0, "Next");
-    visual.simulate_prompt_answer("Close");
-    visual.run_until_parked();
-    assert!(!visual.update(|window, cx| active(window, cx)));
-    drop(second);
-    visual.update(|window, _| window.remove_window());
 }

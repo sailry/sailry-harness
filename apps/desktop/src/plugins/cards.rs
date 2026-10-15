@@ -223,16 +223,15 @@ impl Card {
         // Session changes still release cards through the explicit suspend path.
         if !painted && !self.authorization.keeps_alive() {
             self.suspend();
-        } else if let Some(mounted) = &self.mounted {
-            if let Ok(view) = mounted
+        } else if let Some(mounted) = &self.mounted
+            && let Ok(view) = mounted
                 .root
                 .read(cx)
                 .content()
                 .clone()
                 .downcast::<gpui_shell::ScriptView>()
-            {
-                view.update(cx, |view, cx| view.refresh(cx));
-            }
+        {
+            view.update(cx, |view, cx| view.refresh(cx));
         }
     }
 

@@ -3,11 +3,6 @@ use super::*;
 use sailry_protocol::plugin::{self, card};
 
 impl View {
-    #[cfg(test)]
-    pub(crate) fn card_instances(&self) -> Vec<Entity<crate::plugins::cards::Card>> {
-        self.cards.borrow().values().cloned().collect()
-    }
-
     pub(crate) fn suspend_cards(&self, cx: &mut App) {
         for card in self.cards.borrow().values() {
             card.update(cx, |card, cx| {

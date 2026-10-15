@@ -2,7 +2,7 @@
 use super::*;
 mod strip;
 use sailry_client::activity::{Lane, lane};
-use sailry_protocol::{NodeId, Session, Snapshot, projects::Appearance};
+use sailry_protocol::{NodeId, Session, Snapshot};
 
 impl Shell {
     pub(crate) fn session_lane(&self, node: NodeId, session: &Session) -> Lane {
@@ -56,18 +56,5 @@ impl Shell {
                     .map(|session| (*node, session.clone()))
             })
             .collect()
-    }
-
-    pub(crate) fn session_appearance(&self, node: NodeId, session: &Session) -> Appearance {
-        let snapshot = self.activity_snapshot(node);
-        snapshot
-            .and_then(|snapshot| {
-                snapshot
-                    .projects
-                    .iter()
-                    .find(|project| Some(project.id) == session.project)
-            })
-            .map(|project| project.appearance.clone())
-            .unwrap_or_default()
     }
 }

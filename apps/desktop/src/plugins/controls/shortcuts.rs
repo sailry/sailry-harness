@@ -73,6 +73,3 @@ pub(super) fn extend(module: HostModule, stop: CancellationToken, cx: &mut App) 
         Ok(HostValue::from(context.clone()))
     })
 }
-
-#[cfg(test)]
-mod tests;

@@ -75,16 +75,6 @@ impl Panel {
             None
         }
     }
-
-    #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
-    pub(crate) fn file_preview(&self) -> Option<AnyView> {
-        self.mounted
-            .as_ref()
-            .filter(|mounted| mounted.active())?
-            .preview
-            .borrow()
-            .clone()
-    }
 }
 
 pub(super) fn accepts(info: &sailry_protocol::plugin::Info, mime: &str) -> bool {

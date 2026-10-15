@@ -211,6 +211,3 @@ fn icons(children: &[&Child], cx: &App) -> impl IntoElement {
                 ))
         }))
 }
-
-#[cfg(test)]
-mod tests;

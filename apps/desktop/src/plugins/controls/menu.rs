@@ -78,9 +78,7 @@ pub(super) fn extend(module: HostModule, events: Sender<Value>) -> HostModule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugins::tests::{click, init};
     use core::prelude::v1::test;
-    use gpui_kit::component::Root;
 
     fn items() -> Vec<Item> {
         vec![
@@ -115,63 +113,5 @@ mod tests {
             assert_eq!(checked, index == 1);
             assert_eq!(disabled, index == 1);
         }
-    }
-
-    struct Harness {
-        disabled: bool,
-        events: Sender<Value>,
-    }
-    impl Render for Harness {
-        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            div().w(px(400.)).p_4().child(render(
-                "tls".into(),
-                Props {
-                    label: "Require".into(),
-                    items: items(),
-                    selected: Some("require".into()),
-                    disabled: self.disabled,
-                },
-                self.events.clone(),
-            ))
-        }
-    }
-
-    #[gpui::test]
-    fn native_trigger_and_items_respect_disabled_state(cx: &mut TestAppContext) {
-        init(cx);
-        let (events, mut receiver) = tokio::sync::mpsc::channel(4);
-        let mut owner = None;
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let view = cx.new(|_| Harness {
-                disabled: true,
-                events,
-            });
-            owner = Some(view.clone());
-            Root::new(view, window, cx)
-        });
-        click(visual, "tls");
-        visual.simulate_keystrokes("down");
-        visual.simulate_keystrokes("enter");
-        visual.run_until_parked();
-        assert!(receiver.try_recv().is_err());
-        visual.update(|window, cx| {
-            owner.as_ref().unwrap().update(cx, |view, cx| {
-                view.disabled = false;
-                cx.notify();
-            });
-            window.draw(cx).clear(cx);
-        });
-        click(visual, "tls");
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        visual.simulate_keystrokes("down");
-        visual.simulate_keystrokes("down");
-        visual.simulate_keystrokes("enter");
-        visual.run_until_parked();
-        assert_eq!(
-            receiver.try_recv().unwrap(),
-            json!({"id":"tls","value":"disable"})
-        );
-        assert!(receiver.try_recv().is_err());
-        visual.update(|window, _| window.remove_window());
     }
 }

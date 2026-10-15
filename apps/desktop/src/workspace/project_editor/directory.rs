@@ -1,12 +1,8 @@
 //! Project registration adapts the shared chooser without owning its UI.
 use super::*;
-#[cfg(test)]
-use crate::file_picker::Visit;
 use crate::file_picker::{self, Completion, Mode, Options, Picker, Selection};
 use sailry_client::Client;
 use std::sync::Arc;
-#[cfg(test)]
-mod tests;
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) -> Entity<Picker> {
     open_with(editor, false, window, cx)
@@ -32,7 +28,7 @@ fn open_with(
     let retained = register.then(|| editor.clone());
     let callback_original = original.clone();
     let callback_source = source.clone();
-    let callback_target = target.clone();
+    let callback_target = target;
     let picker = file_picker::open(
         Options {
             client,

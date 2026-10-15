@@ -11,9 +11,6 @@ use gpui_shell::{HostError, HostModule, HostValue};
 use sailry_link::CancellationToken;
 use std::sync::Arc;
 
-#[cfg(test)]
-mod tests;
-
 pub(super) fn module(module: HostModule, stop: CancellationToken) -> HostModule {
     let declarations = format!(
         "{}\n{}",

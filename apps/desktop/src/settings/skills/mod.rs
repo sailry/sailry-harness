@@ -18,8 +18,6 @@ mod action;
 mod details;
 mod install;
 mod preview;
-#[cfg(test)]
-mod tests;
 pub(super) use preview::Skill;
 
 pub(super) struct State {

@@ -10,7 +10,6 @@ use gpui_kit::{
     WindowOptions, point, px, size, transparent_black,
 };
 
-#[cfg(not(all(test, feature = "design-capture")))]
 pub(crate) fn launch() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     if updater::run_helper() {

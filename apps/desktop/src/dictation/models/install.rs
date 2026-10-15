@@ -36,7 +36,7 @@ impl Manager {
                 .get(&id)
                 .filter(|job| matches!(job.state, State::Downloading(_)))
                 .and_then(|_| data.requests.get(&id).copied())
-                .unwrap_or_else(RequestId::new)
+                .unwrap_or_default()
         };
         self.start_request(id, mirror, request, runtime)
     }

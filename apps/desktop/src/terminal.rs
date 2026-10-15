@@ -89,11 +89,6 @@ pub(crate) struct View {
 }
 
 impl View {
-    #[cfg(test)]
-    pub(crate) fn info(&self) -> Option<&protocol::Info> {
-        self.state.snapshot.as_ref().map(|snapshot| &snapshot.info)
-    }
-
     pub fn new(binding: Binding, window: &mut Window, cx: &mut Context<Self>) -> Self {
         crate::feedback::observe(window, cx, |view: &Self, _| {
             view.message.into_iter().collect()

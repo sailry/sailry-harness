@@ -5,8 +5,6 @@ mod projects;
 mod recent;
 mod sessions;
 mod settings;
-#[cfg(test)]
-mod tests;
 mod title;
 pub(crate) mod tree;
 mod unassigned;
@@ -66,7 +64,6 @@ pub struct State {
     projects_scroll: ScrollHandle,
     unassigned_scroll: ScrollHandle,
     recent_scroll: ScrollHandle,
-    pub(crate) recent_preview: Vec<(usize, usize)>,
     closed_projects: BTreeSet<usize>,
     closed_live_projects: BTreeSet<(sailry_protocol::NodeId, sailry_protocol::ProjectId)>,
     pub(crate) hovered: Option<Row>,

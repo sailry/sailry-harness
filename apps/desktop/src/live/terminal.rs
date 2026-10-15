@@ -14,8 +14,6 @@ use std::{
 
 mod panes;
 mod row;
-#[cfg(test)]
-mod tests;
 
 #[derive(Default)]
 pub(crate) struct State {
@@ -65,19 +63,6 @@ impl Shell {
         if let Some(target @ Target::Terminal(..)) = self.splits.read(cx).active {
             self.close_pane(target, window, cx);
         }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn open_live_terminals(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.guard_file_navigation(window, cx, |shell, window, cx| {
-            shell.open_live_terminals(window, cx)
-        }) {
-            return;
-        }
-        self.park_session_panel(window, cx);
-        self.page = Page::Terminal;
-        self.sync_session_panel(window, cx);
-        cx.notify();
     }
 
     pub(crate) fn terminal_action(

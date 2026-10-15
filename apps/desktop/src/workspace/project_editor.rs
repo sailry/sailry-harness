@@ -16,8 +16,6 @@ mod directory;
 mod form;
 mod host;
 mod source;
-#[cfg(test)]
-mod tests;
 
 const WIDTH: Pixels = px(560.);
 

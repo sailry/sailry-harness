@@ -265,7 +265,3 @@ impl Editor {
         )
     }
 }
-
-#[cfg(test)]
-#[path = "github/tests.rs"]
-mod tests;

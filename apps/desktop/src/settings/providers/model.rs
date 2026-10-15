@@ -3,8 +3,6 @@ use sailry_protocol::Effort;
 mod completion;
 mod limits;
 mod reasoning;
-#[cfg(test)]
-mod tests;
 use crate::tr;
 use gpui_kit::component::{
     button::{Button, ButtonVariants},

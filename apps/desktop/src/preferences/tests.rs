@@ -18,8 +18,10 @@ mod picker {
     }
     #[test]
     fn round_trip_preserves_other_choices() {
-        let mut data = Data::default();
-        data.toast_seconds = 8;
+        let mut data = Data {
+            toast_seconds: 8,
+            ..Default::default()
+        };
         data.notifications[0] = false;
         data.file_picker = Some(FilePicker {
             grid: true,
@@ -70,6 +72,52 @@ mod message_size {
         assert_eq!(preferences.error, Some("preferences_read_failed"));
         preferences.save();
         assert_eq!(std::fs::read(path).unwrap(), bytes);
+    }
+}
+
+mod update_channel {
+    use super::*;
+    use crate::updater::Channel;
+
+    #[test]
+    fn defaults_from_installed_version() {
+        assert_eq!(Channel::initial("0.1.0-alpha.1"), Channel::Experience);
+        assert_eq!(Channel::initial("0.1.0"), Channel::Stable);
+        assert_eq!(Channel::initial("0.1.0+build.2"), Channel::Stable);
+        assert_eq!(Data::default().update_channel, None);
+    }
+
+    #[test]
+    fn preserves_explicit_choice_across_versions() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("preferences.json");
+        let mut preferences = Preferences::open(path.clone());
+        preferences.data.update_channel = Some(Channel::Stable);
+        preferences.save();
+        assert_eq!(preferences.error, None);
+        assert_eq!(
+            Preferences::open(path).data.update_channel,
+            Some(Channel::Stable)
+        );
+    }
+
+    #[test]
+    fn alpha_choice_survives_stable_reload() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("preferences.json");
+        let mut preferences = Preferences::open(path.clone());
+        let initial = Channel::initial("0.1.0-alpha.1");
+        preferences.data.update_channel = Some(initial);
+        preferences.save();
+
+        let restored = Preferences::open(path);
+        assert_eq!(
+            restored
+                .data
+                .update_channel
+                .unwrap_or_else(|| Channel::initial("0.1.0")),
+            Channel::Experience
+        );
     }
 }
 
@@ -159,13 +207,14 @@ fn rejects_invalid_opacity() {
 }
 
 #[test]
-fn ignores_obsolete_workspace_layout() {
+fn ignores_obsolete_fields() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("preferences.json");
     let mut data = Data::default();
     data.terminal.font_size = 18;
     let mut value = serde_json::to_value(data).unwrap();
     value["workspaces"] = serde_json::json!({"invalid": "layout"});
+    value["recent"] = serde_json::json!([{"invalid": "history"}]);
     std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
 
     let mut preferences = Preferences::open(path.clone());
@@ -180,6 +229,7 @@ fn ignores_obsolete_workspace_layout() {
     assert_eq!(restored.data.terminal.font_size, 18);
     let saved = serde_json::to_value(restored.data).unwrap();
     assert!(saved.get("workspaces").is_none());
+    assert!(saved.get("recent").is_none());
 }
 
 #[gpui_kit::test]

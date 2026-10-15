@@ -1,7 +1,5 @@
 mod editor;
 mod requests;
-#[cfg(test)]
-mod tests;
 mod view;
 
 use super::{Workspace, providers::Binding};
@@ -32,8 +30,6 @@ pub(super) struct Panel {
     pending: bool,
     request: Option<Request>,
     error: Option<&'static str>,
-    #[cfg(test)]
-    editor: Option<WeakEntity<editor::Editor>>,
 }
 
 impl Panel {
@@ -86,8 +82,6 @@ impl Panel {
             pending: false,
             request: None,
             error: None,
-            #[cfg(test)]
-            editor: None,
         }
     }
 

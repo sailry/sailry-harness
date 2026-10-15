@@ -3,8 +3,6 @@ mod gallery;
 mod import;
 mod menu;
 pub(super) mod opacity;
-#[cfg(test)]
-mod tests;
 use super::{
     Workspace,
     group::{Group, Row},

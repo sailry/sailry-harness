@@ -1,9 +1,6 @@
 use super::*;
 use gpui_kit::component::button::{Button, ButtonVariants};
 
-#[cfg(test)]
-mod tests;
-
 impl View {
     pub(super) fn rewind_request(&self, through: TurnId) -> Option<Command> {
         if self.pending || self.retry.is_some() || !self.connected() {

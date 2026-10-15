@@ -147,24 +147,17 @@ pub(super) fn entries(shell: &Shell, scope: Scope, folder: Folder, cx: &App) -> 
 
 fn sessions(shell: &Shell, scope: Scope, cx: &App) -> Vec<Choice> {
     match scope {
-        Scope::Node(node) => {
+        Scope::Node(_) => {
             let Some(snapshot) = scope.snapshot(shell) else {
                 return Vec::new();
             };
-            let recent = crate::preferences::data(cx).recent.unwrap_or_default();
-            let mut sessions: Vec<_> = snapshot
-                .sessions
-                .iter()
-                .filter(|session| {
-                    !session.archived
-                        && session.delegation.is_none()
-                        && snapshot.worktrees.iter().any(|tree| {
+            let sessions: Vec<_> =
+                sailry_client::sessions::recent(snapshot)
+                    .into_iter()
+                    .filter(|session| {
+                        snapshot.worktrees.iter().any(|tree| {
                             tree.id == session.worktree && tree.project == session.project
-                        })
-                        && session.project.is_none_or(|id| {
-                            snapshot.projects.iter().any(|project| project.id == id)
-                        })
-                        && session
+                        }) && session
                             .config
                             .resource
                             .is_none_or(|resource| match resource {
@@ -175,15 +168,8 @@ fn sessions(shell: &Shell, scope: Scope, cx: &App) -> Vec<Choice> {
                                     snapshot.ssh.iter().any(|profile| profile.id == id)
                                 }
                             })
-                })
-                .collect();
-            // Stable sorting preserves the authoritative snapshot order for unvisited sessions.
-            sessions.sort_by_key(|session| {
-                recent
-                    .iter()
-                    .position(|visit| visit.node == node && visit.session == session.id)
-                    .unwrap_or(usize::MAX)
-            });
+                    })
+                    .collect();
             sessions
                 .into_iter()
                 .map(|session| {
@@ -206,34 +192,18 @@ fn sessions(shell: &Shell, scope: Scope, cx: &App) -> Vec<Choice> {
                 })
                 .collect()
         }
-        Scope::Preview(host) => {
-            let mut sessions: Vec<_> = shell
-                .workspace
-                .sessions
-                .iter()
-                .filter(|((node, _), session)| {
-                    *node == host && !session.archived && shell.workspace.contains(session.owner)
-                })
-                .collect();
-            sessions.sort_by_key(|(key, _)| {
-                shell
-                    .sidebar
-                    .recent_preview
-                    .iter()
-                    .position(|visit| visit == *key)
-                    .unwrap_or(usize::MAX)
-            });
-            sessions
-                .into_iter()
-                .map(|(key, session)| {
-                    Choice::new(
-                        session.title.clone(),
-                        session_icon(),
-                        Target::PreviewSession(*key),
-                    )
-                })
-                .collect()
-        }
+        Scope::Preview(host) => shell
+            .workspace
+            .recent_sessions(host)
+            .into_iter()
+            .map(|(key, session)| {
+                Choice::new(
+                    session.title.clone(),
+                    session_icon(),
+                    Target::PreviewSession(key),
+                )
+            })
+            .collect(),
     }
 }
 

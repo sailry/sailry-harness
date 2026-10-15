@@ -279,6 +279,17 @@ fn decode_logged(
     Ok(result)
 }
 
+fn decode_kind(
+    bytes: &[u8],
+    kind: source::Kind,
+    side: u32,
+) -> Result<Arc<RenderImage>, &'static str> {
+    match kind {
+        source::Kind::Raster(format) => decode::decode(bytes, format, side),
+        source::Kind::Svg => decode::svg(bytes, side),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,16 +346,5 @@ mod tests {
             .err(),
             Some("chat_image_unavailable")
         );
-    }
-}
-
-fn decode_kind(
-    bytes: &[u8],
-    kind: source::Kind,
-    side: u32,
-) -> Result<Arc<RenderImage>, &'static str> {
-    match kind {
-        source::Kind::Raster(format) => decode::decode(bytes, format, side),
-        source::Kind::Svg => decode::svg(bytes, side),
     }
 }

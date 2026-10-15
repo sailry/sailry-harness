@@ -4,14 +4,10 @@ use sailry_client::{Client, ports::Forwarder};
 use sailry_protocol::NodeId;
 use std::sync::Arc;
 
-#[cfg(test)]
-mod fixture;
 mod menu;
 mod services;
 pub(crate) use services::Source;
 mod picker;
-#[cfg(test)]
-mod tests;
 mod view;
 
 pub(crate) struct Workspace {

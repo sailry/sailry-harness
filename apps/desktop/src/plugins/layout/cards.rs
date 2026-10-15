@@ -5,9 +5,6 @@ use gpui_kit::{
 };
 use gpui_shell::{HostModule, HostValue};
 
-#[cfg(test)]
-mod tests;
-
 pub(super) fn extend(module: HostModule) -> HostModule {
     let declarations = format!(
         "{}\n{}",

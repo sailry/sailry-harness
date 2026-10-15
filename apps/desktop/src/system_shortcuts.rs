@@ -3,22 +3,23 @@
 mod selection;
 #[cfg(test)]
 mod tests;
+use crate::shell::Shell;
 #[cfg(not(test))]
 use crate::shell::closing;
-use crate::{shell::Shell, tr};
+#[cfg(not(test))]
+use crate::tr;
 #[cfg(not(test))]
 use futures::{StreamExt, channel::mpsc};
 #[cfg(not(test))]
 use global_hotkey::{GlobalHotKeyEvent, HotKeyState};
 use global_hotkey::{GlobalHotKeyManager, hotkey::HotKey};
-use gpui_kit::{
-    component::{
-        button::{Button, ButtonVariants},
-        scroll::ScrollableElement,
-        *,
-    },
+#[cfg(not(test))]
+use gpui_kit::component::{
+    button::{Button, ButtonVariants},
+    scroll::ScrollableElement,
     *,
 };
+use gpui_kit::*;
 use std::collections::BTreeMap;
 
 struct Service {
@@ -35,6 +36,7 @@ impl Drop for Service {
 }
 
 #[derive(Clone)]
+#[cfg(not(test))]
 struct Composer {
     view: Entity<crate::conversation::live::View>,
     node: sailry_protocol::NodeId,
@@ -42,6 +44,7 @@ struct Composer {
     session: Option<sailry_protocol::SessionId>,
 }
 
+#[cfg(not(test))]
 impl Composer {
     fn capture(view: Entity<crate::conversation::live::View>, cx: &App) -> Self {
         let binding = view.read(cx).binding();
@@ -217,6 +220,7 @@ fn dispatch(id: &str, cx: &mut App) {
     }
 }
 
+#[cfg(not(test))]
 fn show(text: String, chat: Option<Composer>, window: &mut Window, cx: &mut App) {
     use crate::theme::DialogStyle as _;
     if window.has_active_dialog(cx) {

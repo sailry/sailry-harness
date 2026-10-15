@@ -2,8 +2,6 @@ pub(crate) mod appearance;
 mod cli;
 mod host;
 pub(crate) use host::metrics::Metrics;
-#[cfg(test)]
-pub(crate) use host::metrics::Snapshot as MetricsSnapshot;
 mod menus;
 mod model;
 mod preview_worktrees;
@@ -15,10 +13,6 @@ mod terminal;
 mod trust;
 
 pub(crate) use menus::{Command, Dispatch, Target};
-#[cfg(test)]
-pub(crate) use model::runtime::Snapshot as RuntimeSnapshot;
-#[cfg(test)]
-pub(crate) use model::updates::State as UpdateSnapshot;
 pub(crate) use model::{Owner, Repository, State};
 pub(crate) use trust::Pending;
 

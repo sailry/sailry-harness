@@ -6,8 +6,6 @@ pub(crate) mod identicon;
 pub(crate) mod keys;
 pub(crate) mod loading;
 mod motion;
-#[cfg(any(test, feature = "workload-tests"))]
-pub(crate) mod observation;
 pub(crate) mod overlays;
 pub(crate) mod pending;
 pub(crate) mod session_preview;

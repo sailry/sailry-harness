@@ -112,10 +112,10 @@ impl Host {
         self.stop.cancel();
     }
     pub(super) fn reference(&self, reference: plugin::Reference) {
-        if let Ok(mut context) = self.context.lock() {
-            if reference.settings_revision >= context.package.settings_revision {
-                context.package = reference;
-            }
+        if let Ok(mut context) = self.context.lock()
+            && reference.settings_revision >= context.package.settings_revision
+        {
+            context.package = reference;
         }
     }
     pub(super) fn request(&self, command: Command) -> Result<Request, HostError> {

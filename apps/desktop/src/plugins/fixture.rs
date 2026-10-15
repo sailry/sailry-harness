@@ -1,7 +1,5 @@
 use crate::conversation::live::Binding;
 
-#[cfg(unix)]
-pub(crate) mod code;
 use sailry_client::Client;
 use sailry_link::{Admission, CancellationToken, Pending, Subscription, Transport};
 use sailry_node_runtime::Node;
@@ -312,19 +310,8 @@ impl Fixture {
         Self::with_git(remote, true)
     }
 
-    pub fn directory(remote: bool) -> Self {
-        Self::with_git(remote, false)
-    }
-
     fn with_git(remote: bool, initialized: bool) -> Self {
         Self::with_setup(remote, initialized, |_| None)
-    }
-
-    pub(crate) fn with_environment(
-        remote: bool,
-        setup: impl FnOnce(&std::path::Path) -> sailry_node_runtime::EnvironmentFixture,
-    ) -> Self {
-        Self::with_setup(remote, true, |directory| Some(setup(directory)))
     }
 
     fn with_setup(
@@ -364,6 +351,10 @@ impl Fixture {
                 .block_on(client.execute(client.prepare(command)))
                 .unwrap()
         };
+        execute(Command::InstallBundledPlugin {
+            name: "progress".into(),
+            expected_revision: 0,
+        });
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         if initialized {
@@ -480,27 +471,6 @@ impl Fixture {
         info
     }
 
-    pub fn configure(
-        &self,
-        package: &sailry_protocol::plugin::Info,
-        include: bool,
-    ) -> sailry_protocol::plugin::Info {
-        self.execute(Command::SavePluginSettings {
-            package: package.summary.reference(),
-            values: std::collections::BTreeMap::from([(
-                "include_untracked".into(),
-                serde_json::json!(include),
-            )]),
-            secrets: std::collections::BTreeMap::new(),
-        });
-        let Output::Plugin(info) = self.execute(Command::ReadPlugin {
-            name: package.summary.name.clone(),
-        }) else {
-            panic!("plugin expected")
-        };
-        info
-    }
-
     #[track_caller]
     pub fn execute(&self, command: Command) -> Output {
         self.runtime
@@ -510,17 +480,6 @@ impl Fixture {
                     .execute(self.binding.client.prepare(command)),
             )
             .unwrap()
-    }
-
-    pub fn services(&self, remote: bool) -> crate::backend::Services {
-        let node = if remote { &self.controller } else { &self.node };
-        crate::backend::Services {
-            profile: node.profile().to_path_buf(),
-            runtime: self.runtime.clone(),
-            local: node.local(),
-            link: node.link(),
-            relay_enabled: false,
-        }
     }
 
     pub fn close(self) {

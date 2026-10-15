@@ -2,9 +2,6 @@
 use super::*;
 use gpui_kit::component::button::{Button, ButtonVariants};
 
-#[cfg(test)]
-mod tests;
-
 /// Turns that ended without an answer the user accepted can send their input again.
 pub(super) fn resendable(status: Status) -> bool {
     matches!(

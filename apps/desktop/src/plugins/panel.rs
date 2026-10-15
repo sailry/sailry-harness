@@ -451,11 +451,6 @@ impl Panel {
             })
     }
 
-    #[cfg(test)]
-    pub(super) fn load_token(&self) -> CancellationToken {
-        self.load_stop.clone()
-    }
-
     pub(crate) fn enter(
         &mut self,
         package: Reference,
@@ -562,16 +557,6 @@ impl Panel {
         self.reload = false;
         self.connected = false;
         self.source_error = None;
-        self.error = None;
-        cx.notify();
-    }
-
-    #[cfg(test)]
-    pub(super) fn back(&mut self, cx: &mut Context<Self>) {
-        self.release();
-        self.reload = false;
-        self.selected = None;
-        self.target = None;
         self.error = None;
         cx.notify();
     }

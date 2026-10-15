@@ -48,7 +48,18 @@ pub(in crate::conversation) fn row(
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
-    frame(id, key, label, attached, draggable, true, actions, cx)
+    frame(
+        id,
+        key,
+        label,
+        FrameOptions {
+            attached,
+            draggable,
+            drag_enabled: true,
+        },
+        actions,
+        cx,
+    )
 }
 
 pub(in crate::conversation) fn pending(
@@ -59,16 +70,31 @@ pub(in crate::conversation) fn pending(
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
-    frame(id, key, label, attached, true, false, actions, cx)
+    frame(
+        id,
+        key,
+        label,
+        FrameOptions {
+            attached,
+            draggable: true,
+            drag_enabled: false,
+        },
+        actions,
+        cx,
+    )
+}
+
+struct FrameOptions {
+    attached: bool,
+    draggable: bool,
+    drag_enabled: bool,
 }
 
 fn frame(
     id: impl Into<ElementId>,
     key: SharedString,
     label: SharedString,
-    attached: bool,
-    draggable: bool,
-    drag_enabled: bool,
+    options: FrameOptions,
     actions: impl IntoIterator<Item = AnyElement>,
     cx: &App,
 ) -> ListItem {
@@ -84,7 +110,7 @@ fn frame(
                 .w_full()
                 .min_w_0()
                 .gap_2()
-                .when(draggable, |row| {
+                .when(options.draggable, |row| {
                     row.child(
                         div()
                             .id(SharedString::from(format!("queue-drag-{key}")))
@@ -92,7 +118,7 @@ fn frame(
                             .flex()
                             .items_center()
                             .justify_center()
-                            .when(drag_enabled, |handle| handle.cursor_grab())
+                            .when(options.drag_enabled, |handle| handle.cursor_grab())
                             .debug_selector(move || format!("queue-drag-{key}"))
                             .aria_label(tr("queue_drag"))
                             .child(Icon::new(IconName::EllipsisVertical).size_4()),
@@ -107,7 +133,7 @@ fn frame(
                         .text_sm()
                         .child(label),
                 )
-                .when(attached, |row| {
+                .when(options.attached, |row| {
                     row.child(Icon::new(IconName::File).size_4())
                 })
                 .children(actions),

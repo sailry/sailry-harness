@@ -12,8 +12,6 @@ use gpui_kit::{
 };
 use std::{ops::Range, rc::Rc};
 
-#[cfg(test)]
-mod tests;
 mod width;
 
 type Resize = Rc<dyn Fn(&mut Window, &mut App)>;

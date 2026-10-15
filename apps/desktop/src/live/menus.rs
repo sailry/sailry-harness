@@ -4,8 +4,6 @@ use crate::shell::session_scope::Key;
 use gpui_kit::component::{native_menu::NativeMenu, notification::Notification, *};
 use sailry_protocol::{SessionId, TerminalId};
 
-#[cfg(test)]
-mod capture;
 pub(crate) mod export;
 mod project;
 mod rename;
@@ -39,13 +37,8 @@ pub(crate) enum Command {
     NewWindow,
     AddProject,
     Ports,
-    OpenPort {
-        port: u16,
-    },
+    OpenPort { port: u16 },
     NewSession,
-    #[cfg(test)]
-    Branches,
-    Worktrees,
     Edit,
     Remove,
     Copy,
@@ -273,20 +266,6 @@ impl Shell {
                 cx.write_to_clipboard(ClipboardItem::new_string(value));
             }
             return;
-        }
-        if let Target::Project(project) = action.target {
-            let intent = match action.command {
-                command if command == Command::Worktrees => {
-                    Some(sailry_protocol::plugin::ui::Intent::Worktrees)
-                }
-                #[cfg(test)]
-                Command::Branches => Some(sailry_protocol::plugin::ui::Intent::GitBranches),
-                _ => None,
-            };
-            if let Some(intent) = intent {
-                self.project_contribution(project, intent, window, cx);
-                return;
-            }
         }
         let deferred = action.clone();
         if self.guard_file_navigation(window, cx, move |shell, window, cx| {

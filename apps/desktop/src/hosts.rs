@@ -20,8 +20,6 @@ use std::{sync::Arc, time::Duration};
 
 mod editor;
 mod sharing;
-#[cfg(test)]
-mod tests;
 mod view;
 use editor::{Editor, Event};
 

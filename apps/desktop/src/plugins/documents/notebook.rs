@@ -189,16 +189,6 @@ impl Notebook {
         }
     }
 
-    #[cfg(test)]
-    pub(in crate::plugins) fn count(&self) -> usize {
-        self.cells.len()
-    }
-
-    #[cfg(test)]
-    pub(in crate::plugins) fn source(&self, index: usize, cx: &App) -> String {
-        self.cells[index].source.read(cx).value().to_string()
-    }
-
     pub(super) fn focus(&self, window: &mut Window, cx: &mut App) {
         if let Some(cell) = self.cells.first() {
             if let Some(markdown) = &cell.markdown {

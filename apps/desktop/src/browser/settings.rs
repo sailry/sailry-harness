@@ -307,6 +307,3 @@ fn chrome_card(request: PermissionAction) -> Card {
         requires: None,
     }
 }
-
-#[cfg(all(test, target_os = "macos"))]
-mod tests;

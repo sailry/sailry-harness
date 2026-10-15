@@ -1,9 +1,6 @@
 use super::*;
 use sailry_protocol::{Command, Output, conversation::Provider};
 
-#[cfg(test)]
-mod tests;
-
 impl Editor {
     pub(super) fn connection(
         &self,

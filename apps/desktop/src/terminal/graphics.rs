@@ -21,11 +21,6 @@ impl Cache {
             let _ = window.drop_image(image);
         }
     }
-    #[cfg(test)]
-    pub fn image(&self, id: u32) -> Option<Arc<RenderImage>> {
-        self.images.get(&id).map(|(_, image)| image.clone())
-    }
-
     pub fn prepare(
         &mut self,
         screen: &protocol::Screen,

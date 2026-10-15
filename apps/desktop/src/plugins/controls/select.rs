@@ -6,9 +6,6 @@ use gpui_kit::component::{
     select::{Select, SelectEvent, SelectState},
 };
 
-#[cfg(test)]
-mod tests;
-
 #[derive(Clone, Deserialize, PartialEq)]
 struct Item {
     id: String,

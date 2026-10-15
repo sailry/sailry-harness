@@ -19,6 +19,10 @@ use gpui_kit::{
 use sailry_link::CancellationToken;
 use std::{fs, path::PathBuf, sync::Arc};
 
+#[cfg(test)]
+#[path = "tests/service.rs"]
+mod tests;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum State {
     Idle,
@@ -46,6 +50,7 @@ pub(super) struct Service {
     restart: Option<(PathBuf, Vec<std::ffi::OsString>)>,
     stop: CancellationToken,
     task: Option<Task<()>>,
+    operation: u64,
 }
 impl EventEmitter<Notice> for Service {}
 impl Drop for Service {
@@ -69,10 +74,6 @@ enum Update {
 }
 
 impl Service {
-    #[cfg(test)]
-    pub(super) fn cancelled(&self) -> bool {
-        self.stop.is_cancelled()
-    }
     pub(super) fn shared(cx: &mut App) -> Entity<Self> {
         if !cx.has_global::<Shared>() {
             let service = cx.new(|_| Self {
@@ -86,6 +87,7 @@ impl Service {
                 restart: None,
                 stop: CancellationToken::new(),
                 task: None,
+                operation: 0,
             });
             cx.set_global(Shared(service));
         }
@@ -102,15 +104,23 @@ impl Service {
         };
         self.stop = CancellationToken::new();
         self.failure = None;
+        let operation = self.advance();
+        let channel = crate::preferences::update_channel(cx);
         let stop = self.stop.clone();
         self.state = State::Checking;
         #[cfg(test)]
         let configured = self.fixture.clone();
         let job = services.runtime.spawn(async move {
             #[cfg(test)]
-            let config = configured.map(Ok).unwrap_or_else(Config::release)?;
+            let config = match configured {
+                Some(mut config) => {
+                    config.channel = channel;
+                    config
+                }
+                None => Config::release(channel)?,
+            };
             #[cfg(not(test))]
-            let config = Config::release()?;
+            let config = Config::release(channel)?;
             let selection = transfer::check(transfer::client()?, &config, &stop).await?;
             Ok((config, selection))
         });
@@ -121,7 +131,9 @@ impl Service {
                     "update check task failed",
                 ))
             });
-            let _ = owner.update(cx, |this, cx| this.accept(Update::Checked(result), cx));
+            let _ = owner.update(cx, |this, cx| {
+                this.accept(operation, Update::Checked(result), cx)
+            });
         }));
         cx.notify();
     }
@@ -143,6 +155,7 @@ impl Service {
         };
         self.stop = CancellationToken::new();
         self.failure = None;
+        let operation = self.advance();
         let stop = self.stop.clone();
         self.state = State::Downloading(Progress::Downloading {
             copied: 0,
@@ -171,7 +184,7 @@ impl Service {
             while let Some(update) = receiver.recv().await {
                 let ended = matches!(update, Update::Downloaded(_));
                 if owner
-                    .update(cx, |this, cx| this.accept(update, cx))
+                    .update(cx, |this, cx| this.accept(operation, update, cx))
                     .is_err()
                     || ended
                 {
@@ -189,7 +202,10 @@ impl Service {
         cx.notify();
     }
 
-    fn accept(&mut self, update: Update, cx: &mut Context<Self>) {
+    fn accept(&mut self, operation: u64, update: Update, cx: &mut Context<Self>) {
+        if operation != self.operation {
+            return;
+        }
         match update {
             Update::Progress(value) => self.state = State::Downloading(value),
             Update::Checked(Ok((config, selection))) => {
@@ -224,6 +240,35 @@ impl Service {
             }
         }
         cx.notify();
+    }
+
+    pub(super) fn channel_changed(&mut self, cx: &mut Context<Self>) -> bool {
+        if matches!(
+            self.state,
+            State::Installing | State::Restarting | State::Stopped
+        ) {
+            return false;
+        }
+        let recheck = self.config.is_some()
+            || matches!(
+                self.state,
+                State::Checking | State::Available(_) | State::Downloading(_) | State::Ready(_)
+            );
+        self.stop.cancel();
+        self.advance();
+        self.task.take();
+        self.selection = None;
+        self.config = None;
+        self.staged = None;
+        self.failure = None;
+        self.state = State::Idle;
+        cx.notify();
+        recheck
+    }
+
+    fn advance(&mut self) -> u64 {
+        self.operation = self.operation.wrapping_add(1);
+        self.operation
     }
 
     pub(super) fn install(&mut self, window: &mut Window, cx: &mut Context<Self>) {

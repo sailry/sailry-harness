@@ -47,12 +47,6 @@ impl Drop for Panel {
     }
 }
 
-#[cfg(test)]
-enum Update {
-    Progress(dictation::model::DownloadProgress),
-    Finished(dictation::Result<()>),
-}
-
 impl Panel {
     pub(in crate::settings) fn model_status(
         &self,
@@ -450,20 +444,6 @@ impl Panel {
                 window.push_notification(tr("knowledge_deleted"), cx);
             }
             Err(error) => crate::feedback::info("", tr(error).as_ref(), window, cx),
-        }
-        cx.notify();
-    }
-
-    #[cfg(test)]
-    fn accept(&mut self, update: Update, window: &mut Window, cx: &mut Context<Self>) {
-        match update {
-            Update::Progress(value) => self.state = State::Downloading(value),
-            Update::Finished(Ok(())) => self.state = State::Ready,
-            Update::Finished(Err("dictation_cancelled")) => self.state = State::Missing,
-            Update::Finished(Err(error)) => {
-                self.state = State::Failed;
-                crate::feedback::info("", tr(error).as_ref(), window, cx);
-            }
         }
         cx.notify();
     }
