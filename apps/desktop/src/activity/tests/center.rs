@@ -53,6 +53,9 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
     }
     cx.update(|cx| {
         gpui_kit::init(cx);
+        gpui_kit::component::tooltip::TooltipDefaults::new()
+            .with_show_delay(Duration::ZERO)
+            .install(cx);
         crate::theme::init(cx);
         crate::shell::init(cx);
         cx.set_global(fixture.services());
@@ -93,7 +96,7 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
     assert!(panel.bottom() <= viewport.height);
     let actions_right = visual.debug_bounds("notifications-clear").unwrap().right();
     for index in 0..2 {
-        let selector = Box::leak(format!("notification-{index}").into_boxed_str());
+        let selector: &'static str = Box::leak(format!("notification-{index}").into_boxed_str());
         let row = visual.debug_bounds(selector).unwrap();
         let label = visual
             .debug_bounds(Box::leak(format!("{selector}-label").into_boxed_str()))
@@ -119,6 +122,38 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
                 .debug_bounds(Box::leak(format!("{selector}-unread").into_boxed_str()))
                 .is_some()
         );
+        let title = shell.read_with(visual, |shell, _| {
+            shell.activity.inbox.notices()[index].title.clone()
+        });
+        visual.update(|window, cx| window.hover(selector, cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            let tooltip = window.find("tooltip-popup");
+            assert!(tooltip.visible());
+            let style = TextStyle {
+                font_family: cx.theme().font_family.clone(),
+                ..Default::default()
+            };
+            let width = window
+                .text_system()
+                .shape_line(
+                    title.clone().into(),
+                    cx.theme().typography_tokens().sm.size,
+                    &[style.to_run(title.len())],
+                    None,
+                )
+                .width;
+            // Kit exposes popup geometry, not its text. Its padding is px_2 and border is 1 px.
+            let expected = width + window.rem_size() + px(2.);
+            let actual = tooltip.bounds().size.width;
+            assert!(
+                (actual - expected).abs() <= px(1.),
+                "{title:?}: {actual:?} != {expected:?}"
+            );
+            assert!(window.find(selector).label().unwrap().starts_with(&title));
+            assert_ne!(window.find(selector).label(), Some(title.as_str()));
+        });
     }
     click(visual, "notification-0");
     wait(visual, |cx| shell.read(cx).activity.inbox.unread() == 1);
