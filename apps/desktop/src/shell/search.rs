@@ -1,6 +1,6 @@
 //! The global command surface only navigates to existing resources and pages.
 use super::*;
-use gpui_kit::component::list::ListState;
+use gpui_kit::component::{input::Backspace, list::ListState};
 mod catalog;
 mod list;
 #[cfg(test)]
@@ -56,18 +56,26 @@ impl Palette {
         cx.notify();
     }
 
-    fn cancel(
-        &mut self,
-        _: &gpui_kit::base::actions::Cancel,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.folder == Folder::Root {
-            cx.propagate();
-        } else {
+    fn back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.folder != Folder::Root {
             self.enter(Folder::Root, window, cx);
-            cx.stop_propagation();
         }
+    }
+
+    fn backspace(&mut self, _: &Backspace, window: &mut Window, cx: &mut Context<Self>) {
+        let has_query = window
+            .focused_input(cx)
+            .is_some_and(|input| !input.value(cx).is_empty());
+        if has_query || self.folder == Folder::Root {
+            cx.propagate();
+            return;
+        }
+        self.back(window, cx);
+        cx.stop_propagation();
+    }
+
+    fn click_back(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.back(window, cx);
     }
 
     fn confirm(&mut self, target: Target, window: &mut Window, cx: &mut Context<Self>) {
@@ -103,11 +111,39 @@ impl Render for Palette {
             });
         }
         let rows = self.list.read(cx).delegate();
-        let height = crate::command_picker::height(rows.count(), rows.headings(), window);
+        let focus = self.list.focus_handle(cx);
+        let show_back = self.folder != Folder::Root;
+        let height = crate::command_picker::height(rows.count(), rows.headings(), window)
+            + if show_back {
+                px(crate::command_picker::ROW_HEIGHT)
+            } else {
+                px(0.)
+            };
         v_flex()
             .h(height)
             .min_h_0()
-            .on_action(cx.listener(Self::cancel))
+            .track_focus(&focus)
+            .capture_action(cx.listener(Self::backspace))
+            .when(show_back, |palette| {
+                palette.child(
+                    h_flex()
+                        .h(px(crate::command_picker::ROW_HEIGHT))
+                        .flex_shrink_0()
+                        .px_2()
+                        .border_b_1()
+                        .border_color(cx.theme().border)
+                        .child(
+                            div().debug_selector(|| "command-back".into()).child(
+                                Button::new("command-back")
+                                    .text()
+                                    .compact()
+                                    .icon(IconName::ArrowLeft)
+                                    .label(tr("reference_back"))
+                                    .on_click(cx.listener(Self::click_back)),
+                            ),
+                        ),
+                )
+            })
             .child(div().flex_1().min_h_0().child(crate::command_picker::list(
                 &self.list,
                 tr("search"),

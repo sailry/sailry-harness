@@ -1,6 +1,7 @@
 use super::*;
 use crate::{plugins::fixture::Fixture, settings::Section};
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use sailry_protocol::{Command as Request, Output, plugin::Scope as PluginScope};
 use std::time::{Duration, Instant};
 
@@ -93,6 +94,21 @@ fn root_count(shell: &Entity<Shell>, cx: &VisualTestContext) -> usize {
     })
 }
 
+fn input_bounds(visual: &mut VisualTestContext) -> Bounds<Pixels> {
+    visual.update(|window, cx| {
+        let input = window
+            .focused_input(cx)
+            .expect("the command search input must be focused");
+        let input = input
+            .as_input()
+            .expect("the command search input must be single-line");
+        window
+            .try_find(("input", input.entity_id()))
+            .expect("the command search input must be visible")
+            .bounds()
+    })
+}
+
 fn targets(shell: &Shell, scope: Scope, folder: Folder, cx: &App) -> Vec<Target> {
     catalog::entries(shell, scope, folder, cx)
         .into_iter()
@@ -105,7 +121,7 @@ mod hierarchy {
     use super::*;
 
     #[gpui::test]
-    fn root_and_escape(cx: &mut TestAppContext) {
+    fn escape_clears_search_then_closes(cx: &mut TestAppContext) {
         let (shell, mut visual) = crate::shell::tests::setup(cx);
         visual.simulate_keystrokes("secondary-k");
         visual.run_until_parked();
@@ -140,12 +156,12 @@ mod hierarchy {
             visual.update(|window, cx| { window.focused_input(cx).unwrap().value(cx).is_empty() })
         );
         enter(&mut visual, "shell_sessions");
-        assert!(visual.debug_bounds("command-back").is_none());
+        assert!(visual.debug_bounds("command-back").is_some());
         visual.simulate_input("no matching session");
         visual.simulate_keystrokes("escape");
         visual.run_until_parked();
         assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
-        assert!(visual.debug_bounds("command-back").is_none());
+        assert!(visual.debug_bounds("command-back").is_some());
         assert!(
             visual.update(|window, cx| { window.focused_input(cx).unwrap().value(cx).is_empty() })
         );
@@ -153,13 +169,41 @@ mod hierarchy {
         assert!(visual.debug_bounds("global-command-item-0-0").is_some());
         visual.simulate_keystrokes("escape");
         visual.run_until_parked();
-        visual.update(|window, cx| window.draw(cx).clear(cx));
-        assert!(visual.update(|window, cx| window.has_active_dialog(cx)));
-        assert!(visual.debug_bounds("command-back").is_none());
-        assert_eq!(root_rows(&mut visual), root_count(&shell, &visual).min(6));
-        visual.simulate_keystrokes("escape");
-        visual.run_until_parked();
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
+    }
+
+    #[gpui::test]
+    fn backspace_and_button_return_to_root(cx: &mut TestAppContext) {
+        let (shell, mut visual) = crate::shell::tests::setup(cx);
+        visual.simulate_keystrokes("secondary-k");
+        enter(&mut visual, "shell_sessions");
+        assert!(visual.debug_bounds("command-back").is_some());
+
+        visual.simulate_input("x");
+        visual.simulate_keystrokes("backspace");
+        visual.run_until_parked();
+        visual.update(|window, cx| window.draw(cx).clear(cx));
+        assert!(visual.debug_bounds("command-back").is_some());
+        assert!(
+            visual.update(|window, cx| { window.focused_input(cx).unwrap().value(cx).is_empty() })
+        );
+
+        visual.simulate_keystrokes("backspace");
+        visual.run_until_parked();
+        assert!(visual.update(|window, cx| {
+            window.render_frame(cx);
+            window.try_find("command-back").is_none()
+        }));
+        assert_eq!(root_rows(&mut visual), root_count(&shell, &visual).min(6));
+
+        enter(&mut visual, "settings");
+        visual.update(|window, cx| window.click("command-back", cx));
+        visual.run_until_parked();
+        assert!(visual.update(|window, cx| {
+            window.render_frame(cx);
+            window.try_find("command-back").is_none()
+        }));
+        assert_eq!(root_rows(&mut visual), root_count(&shell, &visual).min(6));
     }
 
     #[gpui::test]
@@ -179,7 +223,21 @@ mod hierarchy {
                 window.draw(cx).clear(cx);
             });
             let surface = visual.debug_bounds("dialog-0").unwrap();
-            let native = crate::ui::overlays::tests::panel(&mut visual, "dialog-0");
+            let native = visual.update(|window, cx| {
+                let bounds = Bounds::from_corners(
+                    surface.origin.map(|value| window.pixel_snap(value)),
+                    surface.bottom_right().map(|value| window.pixel_snap(value)),
+                )
+                .scale(window.scale_factor());
+                window
+                    .painted_quads()
+                    .into_iter()
+                    .find(|quad| {
+                        quad.bounds == bounds
+                            && quad.background.as_solid() == Some(cx.theme().popover)
+                    })
+                    .expect("the dialog surface must paint the theme popover")
+            });
             visual.update(|window, cx| {
                 assert_eq!(
                     native.corner_radii,
@@ -188,21 +246,21 @@ mod hierarchy {
             });
             assert!(native.background.as_solid().is_some());
             let content = visual.debug_bounds("global-command").unwrap();
-            let search = visual.debug_bounds("list-search").unwrap();
+            let search = input_bounds(&mut visual);
             let row = visual.debug_bounds("global-command-item-0-0").unwrap();
             assert_eq!(surface.size.width, px(480.));
             assert_eq!(content.left() - surface.left(), px(1.));
             assert_eq!(surface.right() - content.right(), px(1.));
-            assert_eq!(search.left(), content.left());
-            assert_eq!(search.right(), content.right());
+            assert_eq!(search.left() - content.left(), px(8.));
+            assert_eq!(content.right() - search.right(), px(8.));
             assert_eq!(search.top(), content.top());
             assert_eq!(
                 search.size.height,
-                visual.update(|window, _| window.rem_size() * 2.75 + px(1.)),
+                visual.update(|window, _| window.rem_size() * 2.75),
             );
             assert_eq!(row.left() - content.left(), px(8.));
             assert_eq!(content.right() - row.right(), px(8.));
-            assert_eq!(row.top() - search.bottom(), px(8.));
+            assert_eq!(row.top() - search.bottom(), px(9.));
             assert_eq!(row.size.height, px(crate::command_picker::ROW_HEIGHT));
             assert_eq!(
                 content.size.height,
@@ -219,13 +277,16 @@ mod hierarchy {
         }
         enter(&mut visual, "settings");
         let content = visual.debug_bounds("global-command").unwrap();
-        assert!(visual.debug_bounds("command-back").is_none());
-        let search = visual.debug_bounds("list-search").unwrap();
+        assert!(visual.debug_bounds("command-back").is_some());
+        let search = input_bounds(&mut visual);
         assert!(content.size.height <= px(600.) * 0.6);
-        assert_eq!(search.top(), content.top());
-        assert_eq!(search.left(), content.left());
-        assert_eq!(search.right(), content.right());
-        visual.simulate_keystrokes("escape escape");
+        assert_eq!(
+            search.top() - content.top(),
+            px(crate::command_picker::ROW_HEIGHT)
+        );
+        assert_eq!(search.left() - content.left(), px(8.));
+        assert_eq!(content.right() - search.right(), px(8.));
+        visual.simulate_keystrokes("escape");
         visual.run_until_parked();
         assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     }
