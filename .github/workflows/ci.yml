@@ -26,18 +26,17 @@ env:
 
 jobs:
   source:
-    name: Source and services
+    name: Source
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
-      backend: ${{ steps.scope.outputs.backend }}
+      shared: ${{ steps.scope.outputs.shared }}
+      host: ${{ steps.scope.outputs.host }}
       desktop: ${{ steps.scope.outputs.desktop }}
       mobile: ${{ steps.scope.outputs.mobile }}
+      mobile_ffi: ${{ steps.scope.outputs.mobile_ffi }}
       android: ${{ steps.scope.outputs.android }}
       services: ${{ steps.scope.outputs.services }}
-      services_result: ${{ steps.pairing.outcome }}
-      rust: ${{ steps.scope.outputs.rust }}
-      rust_matrix: ${{ steps.scope.outputs.rust_matrix }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -50,27 +49,14 @@ jobs:
       - name: Select affected checks
         id: scope
         run: python3 scripts/ci.py select
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
-        with:
-          node-version: '22.22.1'
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.0.0
         with:
           go-version: '1.26.1'
           cache: false
-      - name: Public source and fixtures
-        run: |
-          python3 -m unittest discover -s scripts/tests -v
-          python3 -m unittest discover -s apps/desktop/src/content/files/preview/web -v
-      - name: Theme catalog and fixtures
-        run: |
-          python3 themes/scripts/catalog.py --check
-          python3 -m unittest discover -s themes/scripts/tests -v
-      - name: Offline visual styling
-        run: node --test crates/content/src/markdown/visuals/render.test.mjs
+      - name: Common source fixtures
+        run: python3 scripts/ci.py fixtures shared
       - name: Concise function and test names
         run: python3 scripts/check-names.py
-      - name: Localization coverage and placeholders
-        run: python3 scripts/check-locales.py
       - name: Workflow syntax and expressions
         run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
@@ -79,9 +65,21 @@ jobs:
         run: |
           git ls-files -z '*.sh' | xargs -0 -r -n 1 bash -n
           python3 -m compileall -q scripts
+
+  services:
+    name: Pairing service
+    needs: source
+    if: needs.source.outputs.services == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '22.22.1'
       - name: Pairing service
-        id: pairing
-        if: steps.scope.outputs.services == 'true'
         working-directory: services/pairing-relay
         run: |
           npm install --global pnpm@10.31.0
@@ -91,22 +89,14 @@ jobs:
           pnpm build
           pnpm build:edgeone
 
-  rust:
-    # GitHub runs only a few macOS jobs at once; extra jobs queue for hours.
-    # Keep Checks to three macOS jobs: lint+backend, desktop, mobile+iOS.
-    # Intel macOS is built and packaged by the release workflow.
+  shared:
+    name: Shared Node
     needs: source
-    if: needs.source.outputs.rust == 'true'
-    name: Rust ${{ matrix.kind }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.source.outputs.rust_matrix) }}
+    if: needs.source.outputs.shared == 'true'
     runs-on: macos-15
     timeout-minutes: 150
     env:
-      # CLI job limits keep this cache-hashed environment shared with Mobile.
       CARGO_BUILD_JOBS: '2'
-      # Large Rust targets can exceed the standard ARM runner's 7 GB RAM.
       BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       RUSTC_WRAPPER: sccache
@@ -143,59 +133,224 @@ jobs:
           # sccache holds compiled objects; multi-GB target archives would
           # exceed the repository cache quota and evict each other.
           shared-key: macos-cargo-home
-          save-if: ${{ matrix.kind == 'backend' && github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-targets: false
           cache-bin: false
+      - name: Speech cache identity
+        id: speech-key
+        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
       - name: Speech native libraries
         id: speech-cache
         uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: target/sherpa-onnx-prebuilt
-          key: speech-aarch64-apple-darwin-${{ hashFiles('Cargo.lock') }}
+          key: ${{ steps.speech-key.outputs.key }}
       - name: Prepare uncached speech libraries
         if: steps.speech-cache.outputs.cache-hit != 'true'
         run: cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
       - name: Save speech native libraries
-        if: steps.speech-cache.outputs.cache-hit != 'true' && matrix.kind == 'desktop'
+        if: steps.speech-cache.outputs.cache-hit != 'true'
         # Save before later checks fail.
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Formatting
-        if: matrix.kind == 'backend' || needs.source.outputs.backend != 'true'
         run: cargo fmt --all -- --check
-      - name: Backend strict lint
-        if: matrix.kind == 'backend'
-        run: cargo clippy --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -p sailry-speech -p sailry-embedding -p sailry-model-assets -p sailry-ocr -p sailry-release --all-targets --jobs "$BUILD_JOBS" -- -D warnings
-      - name: Desktop strict lint
-        if: matrix.kind == 'desktop'
-        run: cargo clippy --locked -p sailry-content -p sailry-desktop --all-targets --jobs "$BUILD_JOBS" -- -D warnings
-      - name: Backend unit and local/remote integration
-        if: matrix.kind == 'backend'
-        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -p sailry-release --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
+      - name: Shared strict lint
+        run: cargo clippy --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-speech -p sailry-embedding -p sailry-model-assets -p sailry-ocr -p sailry-release --all-targets --jobs "$BUILD_JOBS" -- -D warnings
+      - name: Shared unit and local/remote integration
+        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-release --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
       - name: Isolated database engines
-        if: matrix.kind == 'backend'
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
-          cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host --build-jobs "$BUILD_JOBS" --profile databases --run-ignored only --filterset 'binary(databases)' --test-threads=1
+          cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime --build-jobs "$BUILD_JOBS" --profile databases --run-ignored only --filterset 'binary(databases)' --test-threads=1
+      - name: Compilation timings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cargo-timings-shared
+          path: |
+            target/cargo-timings
+            target/nextest/ci/junit.xml
+            target/nextest/databases/junit.xml
+            target/nextest/lifecycle/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Compiler cache statistics
+        if: always()
+        run: sccache --show-stats
+
+  desktop:
+    name: Desktop
+    needs: source
+    if: needs.source.outputs.desktop == 'true'
+    runs-on: macos-15
+    timeout-minutes: 150
+    env:
+      CARGO_BUILD_JOBS: '2'
+      BUILD_JOBS: '1'
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_IDLE_TIMEOUT: '0'
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - name: Pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+      - name: Search prerequisite
+        run: brew install ripgrep
+      - name: Compiler cache
+        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
+        with:
+          version: v0.18.0
+      - name: Process-isolated test runner
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest@0.9.143
+          fallback: none
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # sccache holds compiled objects; multi-GB target archives would
+          # exceed the repository cache quota and evict each other.
+          shared-key: macos-cargo-home
+          save-if: false
+          cache-targets: false
+          cache-bin: false
+      - name: Speech cache identity
+        id: speech-key
+        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
+      - name: Speech native libraries
+        id: speech-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: target/sherpa-onnx-prebuilt
+          key: ${{ steps.speech-key.outputs.key }}
+      - name: Prepare uncached speech libraries
+        if: steps.speech-cache.outputs.cache-hit != 'true'
+        run: cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
+      - name: Save speech native libraries
+        if: steps.speech-cache.outputs.cache-hit != 'true'
+        # Save before later checks fail.
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: target/sherpa-onnx-prebuilt
+          key: ${{ steps.speech-cache.outputs.cache-primary-key }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '22.22.1'
+      - name: Desktop source fixtures
+        run: |
+          python3 scripts/ci.py fixtures desktop
+          python3 -m unittest discover -s apps/desktop/src/content/files/preview/web -v
+          python3 themes/scripts/catalog.py --check
+          python3 -m unittest discover -s themes/scripts/tests -v
+          node --test crates/content/src/markdown/visuals/render.test.mjs
+          python3 scripts/check-locales.py --product desktop
+      - name: Formatting
+        if: needs.source.outputs.shared != 'true'
+        run: cargo fmt --all -- --check
+      - name: Desktop strict lint
+        run: cargo clippy --locked -p sailry-content -p sailry-desktop --all-targets --jobs "$BUILD_JOBS" -- -D warnings
       - name: Desktop logic and service contracts
-        if: matrix.kind == 'desktop'
         # Process isolation permits bounded concurrency without shared global state.
         run: cargo nextest run --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --timings --build-jobs "$BUILD_JOBS" --profile ci
-      - name: Desktop and Host without test features
-        if: matrix.kind == 'desktop'
+      - name: Desktop without test features
         # Tests enable test-support features; type-check the shipped feature set.
-        run: cargo check --locked -p sailry-desktop -p sailry-host --jobs "$BUILD_JOBS"
+        run: cargo check --locked -p sailry-desktop --jobs "$BUILD_JOBS"
       - name: Desktop process lifecycle
-        if: matrix.kind == 'desktop'
         run: cargo nextest run --locked -p sailry-desktop --test lifecycle --build-jobs "$BUILD_JOBS" --profile lifecycle
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: cargo-timings-${{ matrix.kind }}
+          name: cargo-timings-desktop
+          path: |
+            target/cargo-timings
+            target/nextest/ci/junit.xml
+            target/nextest/databases/junit.xml
+            target/nextest/lifecycle/junit.xml
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Compiler cache statistics
+        if: always()
+        run: sccache --show-stats
+
+  host:
+    name: Host
+    needs: source
+    if: needs.source.outputs.host == 'true'
+    runs-on: macos-15
+    timeout-minutes: 150
+    env:
+      CARGO_BUILD_JOBS: '2'
+      BUILD_JOBS: '1'
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_IDLE_TIMEOUT: '0'
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - name: Pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = aarch64-apple-darwin
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+      - name: Search prerequisite
+        run: brew install ripgrep
+      - name: Compiler cache
+        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
+        with:
+          version: v0.18.0
+      - name: Process-isolated test runner
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-nextest@0.9.143
+          fallback: none
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # sccache holds compiled objects; multi-GB target archives would
+          # exceed the repository cache quota and evict each other.
+          shared-key: macos-cargo-home
+          save-if: false
+          cache-targets: false
+          cache-bin: false
+      - name: Host source fixtures
+        run: python3 scripts/ci.py fixtures host
+      - name: Formatting
+        if: needs.source.outputs.shared != 'true' && needs.source.outputs.desktop != 'true'
+        run: cargo fmt --all -- --check
+      - name: Host strict lint
+        run: cargo clippy --locked -p sailry-host --all-targets --jobs "$BUILD_JOBS" -- -D warnings
+      - name: Host logic and service contracts
+        run: cargo nextest run --locked -p sailry-host --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
+      - name: Host without test features
+        run: cargo check --locked -p sailry-host --jobs "$BUILD_JOBS"
+      - name: Compilation timings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cargo-timings-host
           path: |
             target/cargo-timings
             target/nextest/ci/junit.xml
@@ -247,12 +402,15 @@ jobs:
           save-if: false
           cache-targets: false
           cache-bin: false
+      - name: Speech cache identity
+        id: speech-key
+        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
       - name: Speech native libraries
         id: speech-cache
         uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: target/sherpa-onnx-prebuilt
-          key: speech-aarch64-apple-darwin-${{ hashFiles('Cargo.lock') }}
+          key: ${{ steps.speech-key.outputs.key }}
       - name: Prepare uncached speech libraries
         if: steps.speech-cache.outputs.cache-hit != 'true'
         run: cargo build --locked -p sailry-speech --jobs 1 -vv
@@ -262,6 +420,10 @@ jobs:
         with:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
+      - name: Mobile source fixtures
+        run: |
+          python3 scripts/ci.py fixtures mobile
+          python3 scripts/check-locales.py --product mobile
       - name: Flutter analysis and widget tests
         working-directory: apps/mobile
         run: |
@@ -269,21 +431,12 @@ jobs:
           flutter analyze --no-pub
           flutter test --no-pub
       - name: Formatting
-        if: needs.source.outputs.rust != 'true'
+        if: needs.source.outputs.shared != 'true' && needs.source.outputs.desktop != 'true' && needs.source.outputs.host != 'true'
         run: cargo fmt --all -- --check
       - name: Mobile strict lint
         run: cargo clippy --locked -p sailry-mobile-bridge --all-targets --jobs 1 -- -D warnings
       - name: Native shared bridge
         run: cargo build --locked -p sailry-mobile-bridge --lib
-      - name: Dart FFI contract fixtures
-        run: |
-          brew install postgresql@17 mysql@8.4
-          export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
-          cd tests/mobile-contract
-          dart pub get --enforce-lockfile
-          dart analyze
-          cd ../..
-          cargo test --locked -p sailry-mobile-bridge --test dart --timings -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
       - name: Flutter controls a real remote Node
         run: cargo test --locked -p sailry-mobile-bridge --test flutter controls_remote_node -- --ignored --exact --nocapture
       - name: iOS Rust dependency boundary
@@ -297,6 +450,76 @@ jobs:
         run: |
           flutter build ios --release --no-codesign --build-name="$(python3 ../../scripts/package/versions.py --apple)"
           git diff --exit-code -- pubspec.lock
+      - name: Compiler cache statistics
+        if: always()
+        run: sccache --show-stats
+
+  mobile_ffi:
+    name: Mobile Dart FFI contracts
+    needs: source
+    if: needs.source.outputs.mobile_ffi == 'true'
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      CARGO_BUILD_JOBS: '2'
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+      SCCACHE_IDLE_TIMEOUT: '0'
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: '0.16.0'
+          use-cache: false
+      - uses: subosito/flutter-action@fd55f4c5af5b953cc57a2be44cb082c8f6635e8e # v2.21.0
+        with:
+          flutter-version: '3.44.7'
+          channel: stable
+      - name: Search prerequisite
+        run: brew install ripgrep
+      - name: Compiler cache
+        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
+        with:
+          version: v0.18.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: macos-cargo-home
+          save-if: false
+          cache-targets: false
+          cache-bin: false
+      - name: Speech cache identity
+        id: speech-key
+        run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
+      - name: Speech native libraries
+        id: speech-cache
+        uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: target/sherpa-onnx-prebuilt
+          key: ${{ steps.speech-key.outputs.key }}
+      - name: Prepare uncached speech libraries
+        if: steps.speech-cache.outputs.cache-hit != 'true'
+        run: cargo build --locked -p sailry-speech --jobs 1 -vv
+      - name: Save speech native libraries
+        if: steps.speech-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: target/sherpa-onnx-prebuilt
+          key: ${{ steps.speech-cache.outputs.cache-primary-key }}
+      - name: Native shared bridge
+        run: cargo build --locked -p sailry-mobile-bridge --lib --jobs 1
+      - name: Dart FFI contract fixtures
+        run: |
+          brew install postgresql@17 mysql@8.4
+          export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
+          cd tests/mobile-contract
+          dart pub get --enforce-lockfile
+          dart analyze
+          cd ../..
+          cargo test --locked -p sailry-mobile-bridge --test dart --timings -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
       - name: Compiler cache statistics
         if: always()
         run: sccache --show-stats
@@ -352,10 +575,61 @@ jobs:
             --version "$(python3 scripts/package/versions.py)" \
             --code "$(python3 scripts/package/versions.py --android-code)"
 
+  desktop_ready:
+    name: Desktop ready
+    if: >-
+      !cancelled() && needs.source.result == 'success' &&
+      needs.shared.result == 'success' && needs.desktop.result == 'success'
+    needs: [source, shared, desktop]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Require product results
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci.py report desktop
+
+  host_ready:
+    name: Host ready
+    if: >-
+      !cancelled() && needs.source.result == 'success' &&
+      needs.shared.result == 'success' && needs.host.result == 'success'
+    needs: [source, shared, host]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Require product results
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci.py report host
+
+  mobile_ready:
+    name: Mobile ready
+    if: >-
+      !cancelled() && needs.source.result == 'success' &&
+      needs.shared.result == 'success' && needs.mobile.result == 'success' && needs.mobile_ffi.result == 'success' && needs.android.result == 'success'
+    needs: [source, shared, mobile, mobile_ffi, android]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Require product results
+        env:
+          CHECK_RESULTS: ${{ toJSON(needs) }}
+        run: python3 scripts/ci.py report mobile
+
   checks:
     name: Checks passed
     if: ${{ !cancelled() }}
-    needs: [source, rust, mobile, android]
+    needs: [source, shared, desktop, host, mobile, mobile_ffi, android, services]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

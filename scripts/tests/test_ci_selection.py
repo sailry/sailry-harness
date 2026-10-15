@@ -37,23 +37,23 @@ class Selection(unittest.TestCase):
         examples = (
             ("apps/desktop/src/pages.rs", {"desktop"}),
             ("crates/content/assets/visuals/render.js", {"desktop"}),
-            ("apps/host/src/main.rs", {"backend"}),
-            ("tools/release/src/main.rs", {"backend"}),
-            ("crates/node-runtime/src/store.rs", {"backend", "desktop", "mobile"}),
-            ("crates/embedding/Cargo.toml", {"backend", "desktop", "mobile"}),
-            ("crates/ocr/src/lib.rs", {"backend", "desktop", "mobile"}),
+            ("apps/host/src/main.rs", {"host"}),
+            ("tools/release/src/main.rs", {"shared"}),
+            ("crates/node-runtime/src/store.rs", {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
+            ("crates/embedding/Cargo.toml", {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
+            ("crates/ocr/src/lib.rs", {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
             ("crates/protocol/Cargo.toml", ci.NATIVE),
             ("crates/link/src/lib.rs", ci.NATIVE),
             ("crates/client/src/lib.rs", ci.NATIVE),
             ("crates/speech/build.rs", ci.NATIVE),
             ("crates/model-assets/src/lib.rs", ci.NATIVE),
-            ("crates/mobile-bridge/src/lib.rs", {"mobile", "android"}),
+            ("crates/mobile-bridge/src/lib.rs", {"mobile", "mobile_ffi", "android"}),
             ("apps/mobile/pubspec.lock", {"mobile", "android"}),
             ("vendor/flutter-markdown-plus/lib/src/builder.dart", {"mobile", "android"}),
             ("vendor/flutter-markdown-plus/pubspec.yaml", {"mobile", "android"}),
             ("vendor/flutter-markdown-plus/LICENSE", {"mobile", "android"}),
             ("vendor/flutter-markdown-plus/SAILRY.md", {"mobile", "android"}),
-            ("tests/mobile-contract/lib/client.dart", {"mobile"}),
+            ("tests/mobile-contract/lib/client.dart", {"mobile_ffi"}),
             ("services/pairing-relay/pnpm-lock.yaml", {"services"}),
             ("services/pairing-relay/src/server.ts", {"services"}),
             ("plugins", ci.NATIVE),
@@ -61,7 +61,7 @@ class Selection(unittest.TestCase):
             ("themes", set()),
             ("themes/catalog.json", set()),
             ("themes/great-sage/theme.json", set()),
-            ("crates/node-runtime/src/agent/prompt.txt", {"backend", "desktop", "mobile"}),
+            ("crates/node-runtime/src/agent/prompt.txt", {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
             ("sdk/api.d.ts", ci.NATIVE),
             ("schemas/plugins/v1/extension.schema.json", ci.NATIVE),
         )
@@ -83,13 +83,12 @@ class Selection(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(ci.select_paths([path]), ci.LANES)
 
-    def test_keeps_nonempty_matrix_when_skipped(self):
-        for selected, kinds in ((set(), ["backend"]), ({"desktop"}, ["desktop"]),
-                                ({"backend"}, ["backend"]), (ci.LANES, ["backend", "desktop"])):
+    def test_reports_each_selected_lane(self):
+        for selected in (set(), {"desktop"}, {"shared"}, {"host"}, ci.LANES):
             with self.subTest(selected=selected):
                 output = ci.outputs(selected)
-                self.assertEqual(json.loads(output["rust_matrix"]), {"kind": kinds})
-                self.assertEqual(output["rust"], "true" if selected & {"backend", "desktop"} else "false")
+                self.assertEqual(set(output), ci.LANES)
+                self.assertEqual({name for name, value in output.items() if value == "true"}, selected)
 
     def test_push_and_manual_runs_are_full(self):
         for event in ("push", "workflow_dispatch", None):
@@ -123,7 +122,7 @@ class Revisions(unittest.TestCase):
             payload = root / "event.json"
             payload.write_text(json.dumps({"pull_request": {"base": {"sha": base}, "head": {"sha": head}}}))
             self.assertEqual(set(ci.changed_paths(root, base, head)), {old, deleted, new, unusual})
-            self.assertEqual(ci.select_event("pull_request", payload, root), {"backend", "desktop"})
+            self.assertEqual(ci.select_event("pull_request", payload, root), {"host", "desktop"})
 
     def test_unavailable_changes_require_every_lane(self):
         with tempfile.TemporaryDirectory() as directory:

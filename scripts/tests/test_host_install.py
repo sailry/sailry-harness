@@ -146,6 +146,23 @@ shutil.copyfile(source, destination)
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.log.exists())
 
+    def test_unavailable_host_preserves_running_installation(self):
+        self.assertEqual(self.install().returncode, 0)
+        profile = self.home / ".sailry-host"
+        marker = profile / "user-data"
+        marker.write_bytes(b"preserve")
+        version = "0.1.0-alpha.2"
+        self.release(version)
+        archive = self.assets / f"sailry-host-{version}-x86_64-unknown-linux-gnu.tar.gz"
+        archive.unlink()
+        result = self.command("update", "--version", version)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(f"Host {version} is not available", result.stderr)
+        self.assertEqual(self.command("version").stdout.strip(), f"Sailry Host {VERSION}")
+        self.assertEqual(marker.read_bytes(), b"preserve")
+        self.assertNotIn("--user stop", self.log.read_text())
+        self.assertFalse(list((self.home / ".local/lib").glob(".sailry-previous-*")))
+
 
 if __name__ == "__main__":
     unittest.main()

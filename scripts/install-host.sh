@@ -65,8 +65,11 @@ trap 'rm -rf -- "$task_stage"' EXIT
 task_archive="sailry-host-$task_version-$task_target.tar.gz"
 task_release="$task_repository/releases/download/v$task_version"
 for task_asset in "$task_archive" "SHA256SUMS-$task_target"; do
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-    "$task_release/$task_asset" --output "$task_stage/$task_asset"
+  if ! curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    "$task_release/$task_asset" --output "$task_stage/$task_asset"; then
+    echo "Host $task_version is not available for $task_target" >&2
+    exit 1
+  fi
 done
 task_expected="$(awk -v name="$task_archive" '$2 == name || $2 == "./" name {print $1}' "$task_stage/SHA256SUMS-$task_target")"
 test "${#task_expected}" = 64

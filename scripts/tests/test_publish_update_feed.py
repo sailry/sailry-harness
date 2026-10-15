@@ -15,6 +15,7 @@ spec = importlib.util.spec_from_file_location(
 publisher = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = publisher
 spec.loader.exec_module(publisher)
+import publication
 
 
 def event(version="1.0.0", draft=False, prerelease=False, action="published"):
@@ -30,6 +31,13 @@ def event(version="1.0.0", draft=False, prerelease=False, action="published"):
 
 
 class ReleaseOwnership(unittest.TestCase):
+    def test_accepts_verified_dispatch_event(self):
+        release = event("0.1.0-alpha.1", prerelease=True)["release"]
+        dispatched = publication.event(release, "sailry/sailry-harness")
+        result = publisher.publication(dispatched, "sailry/sailry-harness")
+        self.assertEqual(result.tag, "v0.1.0-alpha.1")
+        self.assertTrue(result.preview)
+
     def test_accepts_matching_stable_and_preview(self):
         stable = publisher.publication(event(), "sailry/sailry-harness")
         preview = publisher.publication(

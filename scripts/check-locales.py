@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check Sailry translation coverage, placeholders and literal resource references."""
 
+import argparse
 from collections import Counter
 import json
 from pathlib import Path
@@ -118,20 +119,26 @@ def references(source):
             break
 
 
-def check(root):
+def check(root, product='all'):
     issues = []
-    desktop = catalogs(root, 'en')
+    desktop = catalogs(root, 'en') if product != 'mobile' else {}
     mobile_root = root / 'apps/mobile/lib/l10n'
-    mobile = messages(mobile_root / 'app_en.arb')
+    mobile = messages(mobile_root / 'app_en.arb') if product != 'desktop' else {}
     for locale in LOCALES:
-        issues.extend(compare(desktop, catalogs(root, locale), f'Desktop {locale}'))
-        path = mobile_root / f'app_{ARB.get(locale, locale)}.arb'
-        if not path.exists():
-            issues.append(f'Mobile {locale}: missing resource file')
-        else:
-            issues.extend(compare(mobile, mobile_catalog(mobile_root, locale), f'Mobile {locale}'))
-    for directory, suffix, keys in [(root / 'apps/desktop/src', '.rs', desktop),
-                                     (root / 'apps/mobile/lib', '.dart', mobile)]:
+        if product != 'mobile':
+            issues.extend(compare(desktop, catalogs(root, locale), f'Desktop {locale}'))
+        if product != 'desktop':
+            path = mobile_root / f'app_{ARB.get(locale, locale)}.arb'
+            if not path.exists():
+                issues.append(f'Mobile {locale}: missing resource file')
+            else:
+                issues.extend(compare(mobile, mobile_catalog(mobile_root, locale), f'Mobile {locale}'))
+    sources = []
+    if product != 'mobile':
+        sources.append((root / 'apps/desktop/src', '.rs', desktop))
+    if product != 'desktop':
+        sources.append((root / 'apps/mobile/lib', '.dart', mobile))
+    for directory, suffix, keys in sources:
         for path in sorted(directory.rglob(f'*{suffix}')):
             if 'generated' in path.parts:
                 continue
@@ -139,7 +146,7 @@ def check(root):
                 if key not in keys:
                     issues.append(f'{path.relative_to(root)}:{line}: unknown localization {key}')
     preview_root = root / 'apps/mobile/preview'
-    if preview_root.exists():
+    if product != 'desktop' and preview_root.exists():
         preview = messages(preview_root / 'l10n/app_en.arb')
         for locale in LOCALES:
             issues.extend(compare(preview, mobile_catalog(preview_root / 'l10n', locale),
@@ -154,8 +161,11 @@ def check(root):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--product', choices=('all', 'desktop', 'mobile'), default='all')
+    args = parser.parse_args()
     try:
-        issues, desktop, mobile = check(ROOT)
+        issues, desktop, mobile = check(ROOT, args.product)
     except (ValueError, OSError) as error:
         print(error, file=sys.stderr)
         return 1

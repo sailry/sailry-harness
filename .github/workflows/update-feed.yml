@@ -3,6 +3,12 @@ name: Published update feeds
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published version tag selected as the workflow ref'
+        type: string
+        required: true
 
 permissions:
   contents: write
@@ -14,21 +20,27 @@ concurrency:
 jobs:
   publish:
     name: Verify release and advance feeds
-    if: github.event.action == 'published' && !github.event.release.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+      - name: Verify the published tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          python3 scripts/check-release.py --tag "$RELEASE_TAG" --published \
+            --event "$RUNNER_TEMP/published-release.json"
       - name: Build pinned release producer
         run: cargo build --locked --release -p sailry-release
       - name: Download published updater assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
           mkdir "$RUNNER_TEMP/update-assets"
           gh release download "$RELEASE_TAG" --repo "$GH_REPO" \
@@ -42,7 +54,7 @@ jobs:
           python3 scripts/publish-update-feed.py \
             --assets "$RUNNER_TEMP/update-assets" \
             --binary target/release/sailry-release \
-            --event "$GITHUB_EVENT_PATH" \
+            --event "$RUNNER_TEMP/published-release.json" \
             --keys release/update-public-keys.txt \
             --repository "$GITHUB_REPOSITORY" \
             --stage "$RUNNER_TEMP/update-feed"

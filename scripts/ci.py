@@ -7,11 +7,35 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tomllib
+import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LANES = {"backend", "desktop", "mobile", "android", "services"}
+LANES = {"shared", "desktop", "host", "mobile", "mobile_ffi", "android", "services"}
 NATIVE = LANES - {"services"}
+PRODUCTS = {
+    "desktop": {"shared", "desktop"},
+    "host": {"shared", "host"},
+    "mobile": {"shared", "mobile", "mobile_ffi", "android"},
+}
+FIXTURES = {
+    "shared": {
+        "test_ci_resources", "test_ci_selection", "test_locales", "test_macos_package",
+        "test_names", "test_onnx_runtime", "test_public_source", "test_publish_packages",
+        "test_python_launcher", "test_python_runtime", "test_release_notes",
+        "test_release_versions", "test_suites",
+    },
+    "desktop": {
+        "test_app_icons", "test_desktop_launch", "test_publish_update_feed",
+        "test_theme_audit", "test_ui_tasks",
+    },
+    "host": {
+        "test_acp_wrapper", "test_host_install", "test_host_service", "test_host_tasks",
+        "test_linux_sysroot",
+    },
+    "mobile": {"test_android_package"},
+}
 DOCS = {
     "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CONTRIBUTING.md",
     "README.md", "README.zh-CN.md", "LICENSE", "NOTICE",
@@ -19,16 +43,16 @@ DOCS = {
 }
 # Node is also exercised by Desktop and Mobile's real-Node contract fixtures.
 DEPENDENTS = (
-    (("tools/release/",), {"backend"}),
+    (("tools/release/",), {"shared"}),
     (("apps/desktop/", "crates/content/"), {"desktop"}),
-    (("apps/host/",), {"backend"}),
+    (("apps/host/",), {"host"}),
     (("crates/node-runtime/", "crates/embedding/", "crates/ocr/"),
-     {"backend", "desktop", "mobile"}),
+     {"shared", "desktop", "host", "mobile", "mobile_ffi"}),
     (("crates/protocol/", "crates/link/", "crates/client/",
       "crates/speech/", "crates/model-assets/", "sdk/", "schemas/", "plugins/"), NATIVE),
-    (("apps/mobile/", "crates/mobile-bridge/", "vendor/flutter-markdown-plus/"),
-     {"mobile", "android"}),
-    (("tests/mobile-contract/",), {"mobile"}),
+    (("apps/mobile/", "vendor/flutter-markdown-plus/"), {"mobile", "android"}),
+    (("crates/mobile-bridge/",), {"mobile", "mobile_ffi", "android"}),
+    (("tests/mobile-contract/",), {"mobile_ffi"}),
     (("services/pairing-relay/",), {"services"}),
 )
 
@@ -80,17 +104,50 @@ def select_event(event, event_path, root=ROOT):
 
 
 def outputs(selected):
-    kinds = [kind for kind in ("backend", "desktop") if kind in selected]
-    return {
-        **{lane: str(lane in selected).lower() for lane in sorted(LANES)},
-        "rust": str(bool(kinds)).lower(),
-        # Job-level gating skips Rust when empty; GitHub still needs a valid matrix.
-        "rust_matrix": json.dumps({"kind": kinds or ["backend"]}, separators=(",", ":")),
-    }
+    return {lane: str(lane in selected).lower() for lane in sorted(LANES)}
 
 
-def require_results(results):
-    jobs = ("source", "rust", "mobile", "android")
+def fixture_names(root, owner):
+    registered = [name for names in FIXTURES.values() for name in names]
+    actual = {path.stem for path in (root / "scripts/tests").glob("test_*.py")}
+    if len(registered) != len(set(registered)) or set(registered) != actual:
+        raise ValueError("Every script fixture must have exactly one CI owner")
+    return sorted(FIXTURES[owner])
+
+
+def run_fixtures(owner):
+    suite = unittest.TestSuite()
+    loader = unittest.TestLoader()
+    for name in fixture_names(ROOT, owner):
+        suite.addTests(loader.discover(str(ROOT / "scripts/tests"), pattern=f"{name}.py"))
+    return unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful()
+
+
+def locked_version(root, name):
+    packages = tomllib.loads((root / "Cargo.lock").read_text(encoding="utf-8"))["package"]
+    versions = [package["version"] for package in packages if package.get("name") == name]
+    if len(versions) != 1:
+        raise ValueError(f"Expected one locked {name} package")
+    return versions[0]
+
+
+def speech_cache_key(root, target, mode):
+    if not re.fullmatch(r"[a-z0-9_]+(?:-[a-z0-9_]+)+", target):
+        raise ValueError("Invalid speech target")
+    if mode not in {"shared", "static"}:
+        raise ValueError("Invalid speech link mode")
+    sherpa = locked_version(root, "sherpa-onnx")
+    system = locked_version(root, "sherpa-onnx-sys")
+    workspace = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+    dependency = workspace["workspace"]["dependencies"]["sherpa-onnx"]
+    if not isinstance(dependency, dict) or dependency.get("version") != f"={sherpa}":
+        raise ValueError("sherpa-onnx must remain pinned to its locked version")
+    return f"speech-native-v1-sherpa-{sherpa}-sys-{system}-{target}-{mode}"
+
+
+def require_results(results, product=None):
+    required = PRODUCTS[product] if product else LANES
+    jobs = ("source", *sorted(required))
     if not isinstance(results, dict) or any(not isinstance(results.get(job), dict) for job in jobs):
         raise ValueError("Missing check results")
     source = results["source"]
@@ -100,19 +157,11 @@ def require_results(results):
     if not isinstance(selection, dict) or any(selection.get(lane) not in ("true", "false") for lane in LANES):
         raise ValueError("Missing check selection")
     selected = {lane for lane in LANES if selection[lane] == "true"}
-    expected = outputs(selected)
-    if selection.get("rust") != expected["rust"]:
-        raise ValueError("Inconsistent Rust selection")
-    try:
-        matrix = json.loads(selection["rust_matrix"])
-    except (ValueError, TypeError, KeyError) as error:
-        raise ValueError("Missing Rust matrix") from error
-    if matrix != json.loads(expected["rust_matrix"]):
-        raise ValueError("Inconsistent Rust matrix")
-    for name in ("services", *jobs[1:]):
-        result = selection.get("services_result") if name == "services" else results[name].get("result")
-        required = expected[name] == "true"
-        if result != "success" and (required or result != "skipped"):
+    for name in jobs[1:]:
+        result = results[name].get("result")
+        if product and (name not in selected or result != "success"):
+            raise ValueError(f"{name}: product prerequisite did not pass ({result})")
+        if result != "success" and (name in selected or result != "skipped"):
             raise ValueError(f"{name}: required check did not pass ({result})")
 
 
@@ -122,18 +171,32 @@ def main():
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
             target.writelines(f"{key}={value}\n" for key, value in selection.items())
         print("Selected checks: " + ", ".join(lane for lane in sorted(LANES) if selection[lane] == "true"))
-    elif sys.argv[1:] == ["report"]:
+    elif len(sys.argv) == 4 and sys.argv[1] == "speech-key":
+        try:
+            key = speech_cache_key(ROOT, sys.argv[2], sys.argv[3])
+            with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
+                target.write(f"key={key}\n")
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise SystemExit(str(error)) from error
+        print(key)
+    elif len(sys.argv) == 3 and sys.argv[1] == "fixtures" and sys.argv[2] in FIXTURES:
+        raise SystemExit(0 if run_fixtures(sys.argv[2]) else 1)
+    elif sys.argv[1:] == ["report"] or (
+        len(sys.argv) == 3 and sys.argv[1] == "report" and sys.argv[2] in PRODUCTS
+    ):
         try:
             results = json.loads(os.environ["CHECK_RESULTS"])
-            require_results(results)
+            require_results(results, sys.argv[2] if len(sys.argv) == 3 else None)
         except (ValueError, KeyError) as error:
             raise SystemExit(str(error)) from error
         for name, job in results.items():
             print(f"{name}: {job['result']}")
-        print(f"services: {results['source']['outputs']['services_result']}")
-        print("Checks passed")
+        print(f"{sys.argv[2].title()} ready" if len(sys.argv) == 3 else "Checks passed")
     else:
-        raise SystemExit("Usage: ci.py select|report")
+        raise SystemExit(
+            "Usage: ci.py select|report [desktop|host|mobile]|fixtures <owner>|"
+            "speech-key <target> <shared|static>"
+        )
 
 
 if __name__ == "__main__":

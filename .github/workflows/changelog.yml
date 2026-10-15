@@ -3,6 +3,12 @@ name: Release changelog
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Published version tag selected as the workflow ref'
+        type: string
+        required: true
 
 permissions:
   contents: write
@@ -21,12 +27,19 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+      - name: Verify the published tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          python3 scripts/check-release.py --tag "$RELEASE_TAG" --published \
+            --event "$RUNNER_TEMP/published-release.json"
       - name: Update changelog
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
           python3 - <<'PY'
           import base64, json, os, pathlib, subprocess

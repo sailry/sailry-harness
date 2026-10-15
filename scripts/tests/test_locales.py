@@ -90,5 +90,27 @@ class Preview(unittest.TestCase):
                                 for issue in checking.check(root)[0]))
 
 
+class Products(unittest.TestCase):
+    def test_desktop_does_not_read_mobile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalogs = root / 'locales'
+            catalogs.mkdir()
+            for locale in checking.LOCALES:
+                (catalogs / f'{locale}.yml').write_text('save: Save\n')
+            self.assertEqual(checking.check(root, 'desktop'), ([], 1, 0))
+
+    def test_mobile_does_not_read_desktop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            catalogs = root / 'apps/mobile/lib/l10n'
+            catalogs.mkdir(parents=True)
+            for locale in checking.LOCALES:
+                name = checking.ARB.get(locale, locale)
+                (catalogs / f'app_{name}.arb').write_text('{"save":"Save"}')
+            (catalogs / 'app_pt.arb').write_text('{"save":"Save"}')
+            self.assertEqual(checking.check(root, 'mobile'), ([], 0, 1))
+
+
 if __name__ == '__main__':
     unittest.main()

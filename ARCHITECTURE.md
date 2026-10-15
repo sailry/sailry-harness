@@ -514,6 +514,13 @@ headless process, using a private profile and explicit network/pairing options.
 Only one process may own that profile. Pairing is opt-in for Host; established
 peer trust survives restart. Host release archives are independent from Desktop;
 the official installer verifies versioned assets and starts systemd or launchd.
+Release admission uses each product's successful readiness gate from full main
+Checks at the tag's exact commit. Desktop publishes signed and notarized macOS
+arm64 and x64 packages first, then dispatches Host for the same tag. Host appends
+macOS and Linux arm64 and x64 archives to that published release and can retry
+independently. Published tags and existing assets are preserved; GitHub release
+immutability remains disabled so Host can append assets. Host installation is
+available once those assets appear. Mobile distribution remains manual.
 The release-only `sailry-release` tool owns Desktop archive and update-feed
 signing; it is not linked into Desktop, Host or Node. Desktop embeds the public
 publisher ring and verifies the exact v1 feed payload plus the final archive's

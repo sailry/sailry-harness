@@ -1,52 +1,101 @@
 #!/usr/bin/env python3
-"""Attach verified package assets to a version's draft without publishing it."""
+"""Publish Desktop once, then append verified Host assets to that same release."""
 
 import argparse
-import json
+import hashlib
 from pathlib import Path
-import subprocess
+import os
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent / "package"))
+import publication
 import versions
 
+MACOS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
+LINUX = ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu")
 
-def invoke(*arguments):
-    return subprocess.run(["gh", *arguments], capture_output=True, text=True)
+
+def filenames(component, version):
+    if component == "desktop":
+        return {name for target in MACOS for name in (
+            f"Sailry-{version}-{target}.dmg", f"Sailry-{version}-{target}.zip",
+            f"Sailry-{version}-{target}.zip.update.json", f"SHA256SUMS-desktop-{target}")}
+    return {"install-host.sh", "SHA256SUMS-installer"} | {
+        name for target in (*MACOS, *LINUX) for name in (
+            f"sailry-host-{version}-{target}.tar.gz", f"SHA256SUMS-{target}")}
 
 
-def draft(tag, notes, assets):
+def digest(path):
+    with path.open("rb") as file:
+        return "sha256:" + hashlib.file_digest(file, "sha256").hexdigest()
+
+
+def verify_assets(component, tag, assets):
     versions.parse(tag.removeprefix("v"))
-    if not tag.startswith("v") or not assets:
-        raise ValueError("A version tag and verified package assets are required")
-    query = ("release", "view", tag, "--json", "isDraft,tagName")
-    release = invoke(*query)
-    if release.returncode:
-        created = invoke("release", "create", tag, "--verify-tag", "--draft",
-                         "--title", f"Sailry Harness {tag[1:]}", "--notes-file", str(notes),
-                         *versions.release_flags(tag[1:]))
-        # Other platform publishers may have created this same draft concurrently.
-        release = invoke(*query)
-        if release.returncode:
-            raise RuntimeError(created.stderr.strip() or release.stderr.strip() or "Release draft is unavailable")
-    metadata = json.loads(release.stdout)
-    if not metadata.get("isDraft") or metadata.get("tagName") != tag:
-        raise ValueError("Refusing to change a published release")
-    # Existing assets are not replaced: a rerun must use a new version or remove
-    # its conflicting draft assets explicitly after review.
-    result = invoke("release", "upload", tag, *(str(asset) for asset in assets))
-    if result.returncode:
-        raise RuntimeError(result.stderr.strip() or "Release asset upload failed")
+    if not tag.startswith("v") or {path.name for path in assets} != filenames(component, tag[1:]):
+        raise ValueError(f"The complete {component.title()} asset set for this tag is required")
+    if any(not path.is_file() or path.is_symlink() for path in assets):
+        raise ValueError("Release assets must be regular files")
+
+
+def append(client, repository, tag, metadata, assets):
+    existing = {asset["name"]: asset for asset in metadata.get("assets", [])}
+    missing = []
+    for path in assets:
+        asset = existing.get(path.name)
+        if asset is None:
+            missing.append(path)
+            continue
+        if asset.get("state") != "uploaded" or asset.get("size") != path.stat().st_size:
+            raise ValueError(f"Release asset collision: {path.name}; existing assets cannot be replaced")
+        actual = asset.get("digest") or client.digest(repository, asset)
+        if actual != digest(path):
+            raise ValueError(f"Release asset collision: {path.name}; existing assets cannot be replaced")
+    if missing:
+        client.upload(tag, missing)
+
+
+def publish(component, tag, notes, assets, repository, commit, client=None):
+    client = client or publication.GitHub()
+    verify_assets(component, tag, assets)
+    metadata = publication.release(client, repository, tag, commit, published=component == "host")
+    endpoint = f"repos/{repository}/releases"
+    if metadata is None:
+        if notes is None:
+            raise ValueError("Desktop publication requires release notes")
+        metadata = client.api("POST", endpoint, {
+            "tag_name": tag, "target_commitish": commit, "name": f"Sailry Harness {tag[1:]}",
+            "body": notes.read_text(), "draft": True,
+            "prerelease": versions.parse(tag[1:]).group("preview") is not None,
+        })
+    if metadata.get("immutable"):
+        raise ValueError("The release is immutable; Host assets require a mutable published release")
+    if component == "host" and not filenames("desktop", tag[1:]).issubset(
+            {asset["name"] for asset in metadata.get("assets", [])}):
+        raise ValueError("Host assets require a complete published Desktop release")
+    if component == "desktop" and not metadata.get("draft"):
+        existing = {asset["name"] for asset in metadata.get("assets", [])}
+        if not filenames(component, tag[1:]).issubset(existing):
+            raise ValueError("A published Desktop release cannot acquire missing Desktop assets")
+    append(client, repository, tag, metadata, assets)
+    if component == "desktop" and metadata.get("draft"):
+        client.api("PATCH", f"{endpoint}/{metadata['id']}", {
+            "draft": False,
+            "make_latest": "false" if versions.parse(tag[1:]).group("preview") else "true",
+        })
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--component", choices=("desktop", "host"), required=True)
     parser.add_argument("--tag", required=True)
-    parser.add_argument("--notes", type=Path, required=True)
+    parser.add_argument("--notes", type=Path)
     parser.add_argument("--directory", type=Path, required=True)
     arguments = parser.parse_args()
-    assets = sorted(path for path in arguments.directory.iterdir() if path.is_file())
-    draft(arguments.tag, arguments.notes, assets)
+    commit = publication.tagged_commit(arguments.tag)
+    assets = sorted(arguments.directory.iterdir())
+    publish(arguments.component, arguments.tag, arguments.notes, assets,
+            os.environ["GITHUB_REPOSITORY"], commit)
 
 
 if __name__ == "__main__":

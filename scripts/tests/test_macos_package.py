@@ -28,6 +28,39 @@ dmg = load("dmg", "dmg.py")
 
 
 class CodeSigning(unittest.TestCase):
+    def test_selects_one_package_without_its_counterpart(self):
+        for desktop in (True, False):
+            with self.subTest(desktop=desktop), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                app = root / "Sailry.app" if desktop else None
+                host = None if desktop else root / "host"
+                output = app / "Contents/MacOS" if desktop else host
+                executable = output / ("sailry-desktop" if desktop else "sailry-host")
+                output.mkdir(parents=True)
+                executable.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
+                with patch.object(signing.python_runtime, "unlock") as unlock, \
+                        patch.object(signing.python_runtime, "signing_options", return_value=[]), \
+                        patch.object(signing.python_runtime, "finalize") as python_finalize, \
+                        patch.object(signing.runtime, "finalize") as finalize, \
+                        patch.object(signing, "run") as run, patch.object(signing, "verify") as verify:
+                    signing.sign(app, host, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
+                unlock.assert_called_once_with(output)
+                finalize.assert_called_once_with("aarch64-apple-darwin", output, speech=desktop)
+                python_finalize.assert_called_once_with("aarch64-apple-darwin", output)
+                verify.assert_any_call(executable, "FIXTURE")
+                self.assertEqual(run.call_count, 2 if desktop else 1)
+                if desktop:
+                    verify.assert_any_call(app, "FIXTURE", deep=True)
+                    self.assertIn("--entitlements", run.call_args_list[-1].args)
+                    self.assertFalse((root / "host").exists())
+                else:
+                    self.assertNotIn("--entitlements", run.call_args_list[-1].args)
+                    self.assertFalse((root / "Sailry.app").exists())
+
+    def test_requires_a_package(self):
+        with self.assertRaisesRegex(RuntimeError, "Select"):
+            signing.sign(None, None, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
+
     def test_finds_macho_without_symlinks_or_linux(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -152,6 +185,25 @@ class CodeSigning(unittest.TestCase):
 
 
 class Notarization(unittest.TestCase):
+    def test_submits_only_the_selected_package(self):
+        for desktop in (True, False):
+            with self.subTest(desktop=desktop), patch.object(notary, "run") as run, \
+                    patch.object(notary, "submit") as submit:
+                app = Path("Sailry.app") if desktop else None
+                host = None if desktop else Path("host")
+                notary.notarize(app, host, ["--key", "fixture.p8"])
+                self.assertEqual(submit.call_count, 1)
+                selected = app if desktop else host
+                self.assertEqual(run.call_args_list[0].args[-2], selected)
+                self.assertEqual(submit.call_args.args[0].name, f"{selected.name}.zip")
+                self.assertEqual(run.call_count, 5 if desktop else 1)
+                if desktop:
+                    self.assertEqual(run.call_args_list[-1].args[-1], app)
+
+    def test_requires_a_package(self):
+        with self.assertRaisesRegex(ValueError, "Select"):
+            notary.notarize(None, None, [])
+
     def test_staples_and_verifies_distribution_disk_image(self):
         image = Path("Sailry.dmg")
         with patch.object(notary, "run") as run, patch.object(notary, "submit") as submit:
@@ -235,6 +287,42 @@ class DiskImage(unittest.TestCase):
             self.assertIn("--keychain", calls[1])
 
 
+class Components(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (ROOT / "scripts/package-macos.sh").read_text()
+
+    def test_defaults_to_both_and_selects_independently(self):
+        selection = self.source.split('task_component="${2:-all}"', 1)[1]
+        selection = 'task_component="${2:-all}"' + selection.split('test "$(uname -s)"', 1)[0]
+        script = f'set -euo pipefail\n{selection}\nprintf "%s %s" "$task_desktop" "$task_host"\n'
+        for component, expected in ((None, "1 1"), ("all", "1 1"), ("desktop", "1 0"), ("host", "0 1")):
+            with self.subTest(component=component):
+                arguments = ["bash", "-c", script, "fixture", "release"]
+                if component:
+                    arguments.append(component)
+                result = subprocess.run(arguments, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+        invalid = subprocess.run(["bash", "-c", script, "fixture", "release", "invalid"], capture_output=True)
+        self.assertNotEqual(invalid.returncode, 0)
+
+    def test_requires_only_the_selected_executable(self):
+        checks = self.source.split('test -n "$task_version"\n', 1)[1].split('mkdir -p "$task_root/dist"', 1)[0]
+        for desktop in (True, False):
+            with self.subTest(desktop=desktop), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                executable = root / ("sailry-desktop" if desktop else "sailry-host")
+                executable.write_bytes(b"fixture")
+                executable.chmod(0o755)
+                environment = os.environ | {"task_build": str(root), "task_desktop": str(int(desktop)),
+                                            "task_host": str(int(not desktop))}
+                result = subprocess.run(["bash", "-c", f"set -eu\n{checks}"], env=environment)
+                self.assertEqual(result.returncode, 0)
+                environment.update({"task_desktop": "1", "task_host": "1"})
+                self.assertNotEqual(subprocess.run(["bash", "-c", f"set -eu\n{checks}"], env=environment).returncode, 0)
+
+
 class UpdateArchive(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -252,7 +340,7 @@ class UpdateArchive(unittest.TestCase):
         )[1].split("# Package existing builds", 1)[0]
         setup = self.source.split('task_signing="${SAILRY_SIGNING:-ad-hoc}"', 1)[1]
         setup = 'task_signing="${SAILRY_SIGNING:-ad-hoc}"' + setup.split("esac", 1)[0] + "esac"
-        script = f"set -euo pipefail\n{capture}\ntask_root=\"$FIXTURE_ROOT\"\n{setup}\n"
+        script = f"set -euo pipefail\n{capture}\ntask_root=\"$FIXTURE_ROOT\"\ntask_desktop=1\n{setup}\n"
         environment = os.environ.copy()
         for name in (
             "APPLE_SIGNING_IDENTITY",
@@ -284,6 +372,20 @@ class UpdateArchive(unittest.TestCase):
         environment["SAILRY_NOTARIZE"] = "1"
         self.assertEqual(subprocess.run(["bash", "-c", script], env=environment).returncode, 0)
 
+    def test_host_does_not_require_update_signing(self):
+        capture = self.source.split(
+            "# Keep the update publisher seed out of every unrelated packaging child.", 1
+        )[1].split("# Package existing builds", 1)[0]
+        setup = self.source.split('task_signing="${SAILRY_SIGNING:-ad-hoc}"', 1)[1]
+        setup = 'task_signing="${SAILRY_SIGNING:-ad-hoc}"' + setup.split("esac", 1)[0] + "esac"
+        script = f"set -euo pipefail\n{capture}\ntask_desktop=0\n{setup}\n"
+        environment = os.environ.copy()
+        environment.pop("SAILRY_UPDATE_SIGNING_KEY", None)
+        environment.update({"APPLE_SIGNING_IDENTITY": "Fixture identity", "APPLE_TEAM_ID": "FIXTURE",
+                            "SAILRY_SIGNING": "developer-id", "SAILRY_NOTARIZE": "1",
+                            "SAILRY_RELEASE_TOOL": str(ROOT / "missing-release-tool")})
+        self.assertEqual(subprocess.run(["bash", "-c", script], env=environment).returncode, 0)
+
     def test_ad_hoc_never_signs_updates(self):
         package = self.source.split("# Automatic updates", 1)[1]
         package = package.split("tar -czf", 1)[0]
@@ -297,7 +399,7 @@ class UpdateArchive(unittest.TestCase):
         package = self.source.split("# Automatic updates", 1)[1]
         self.assertIn(
             'SAILRY_UPDATE_SIGNING_KEY="$task_update_signing_key" \\\n'
-            '    "$task_release_tool" sign-archive',
+            '      "$task_release_tool" sign-archive',
             package,
         )
         describe = package.split('"$task_release_tool" describe', 1)[0]

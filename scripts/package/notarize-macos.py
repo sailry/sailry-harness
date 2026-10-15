@@ -32,19 +32,24 @@ def submit(archive, credentials):
 
 
 def notarize(app, host, credentials):
+    if app is None and host is None:
+        raise ValueError("Select an application or Host package")
     with tempfile.TemporaryDirectory(prefix="sailry-notary-") as directory:
         stage = Path(directory)
         for item in (app, host):
+            if item is None:
+                continue
             archive = stage / f"{item.name}.zip"
             run("ditto", "-c", "-k", "--keepParent", item, archive)
             submit(archive, credentials)
     # Tickets cannot be stapled to a ZIP or standalone executable. The final
     # Desktop DMG is created by package-macos.sh only after stapling its app.
-    run("xcrun", "stapler", "staple", app)
-    run("xcrun", "stapler", "validate", app)
-    run("codesign", "--verify", "--deep", "--strict", app)
-    run("spctl", "--assess", "--type", "execute", "--verbose=2", app)
-    print("Desktop ticket and Gatekeeper assessment verified")
+    if app is not None:
+        run("xcrun", "stapler", "staple", app)
+        run("xcrun", "stapler", "validate", app)
+        run("codesign", "--verify", "--deep", "--strict", app)
+        run("spctl", "--assess", "--type", "execute", "--verbose=2", app)
+        print("Desktop ticket and Gatekeeper assessment verified")
 
 
 def main():
@@ -53,8 +58,8 @@ def main():
     parser.add_argument("--host", type=Path)
     parser.add_argument("--dmg", type=Path)
     args = parser.parse_args()
-    if not (args.dmg and not args.app and not args.host) and not (args.app and args.host and not args.dmg):
-        parser.error("Choose --dmg or both --app and --host")
+    if bool(args.dmg) == bool(args.app or args.host):
+        parser.error("Choose --dmg, or --app and/or --host")
     names = ("APPLE_API_KEY_PATH", "APPLE_API_KEY_ID", "APPLE_API_ISSUER_ID")
     values = [os.environ.get(name) for name in names]
     if not all(values):

@@ -1,0 +1,36 @@
+name: Mobile release readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version tag selected as the workflow ref'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mobile-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    name: Verify manual Mobile readiness
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Verify version and Mobile gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          test "$INPUT_TAG" = "$GITHUB_REF_NAME"
+          python3 scripts/check-release.py --tag "$INPUT_TAG" --component mobile --published
+      - name: Report manual distribution status
+        run: echo 'Mobile distribution remains manual; no artifacts are published'

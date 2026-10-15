@@ -50,39 +50,47 @@ def verify(path, team, deep=False):
 
 
 def sign(app, host, target, identity, team, keychain=None):
-    if not app.is_dir() or not (host / "sailry-host").is_file():
-        raise RuntimeError("Expected a complete Sailry application package")
+    if app is None and host is None:
+        raise RuntimeError("Select an application or Host package")
+    if app is not None and not app.is_dir():
+        raise RuntimeError("Expected a Sailry application package")
+    if host is not None and not (host / "sailry-host").is_file():
+        raise RuntimeError("Expected a Host executable")
     options = ["--force", "--sign", identity, "--timestamp", "--options", "runtime"]
     if keychain:
         options.extend(["--keychain", str(keychain)])
-    python_runtime.unlock(app / "Contents/MacOS")
-    python_runtime.unlock(host)
-    objects = mach_objects(app)
-    if not objects:
-        raise RuntimeError("The application contains no Mach-O code")
-    for path in objects:
-        run("codesign", *options, *python_runtime.signing_options(path, app / "Contents/MacOS"), path)
-        verify(path, team)
-    runtime.finalize(target, app / "Contents/MacOS", speech=True)
-    python_runtime.finalize(target, app / "Contents/MacOS")
-    run("codesign", *options, "--entitlements", ROOT / "apps/desktop/macos/entitlements.plist", app)
-    verify(app, team, deep=True)
-    # Host is a separate release asset, never a remote deployment payload inside Desktop.
-    for path in mach_objects(host):
-        run("codesign", *options, *python_runtime.signing_options(path, host), path)
-        verify(path, team)
-    runtime.finalize(target, host, speech=False)
-    python_runtime.finalize(target, host)
-    print(f"Developer ID signing verified: {len(objects)} Mach-O files and Sailry.app")
+    if app is not None:
+        python_runtime.unlock(app / "Contents/MacOS")
+        objects = mach_objects(app)
+        if not objects:
+            raise RuntimeError("The application contains no Mach-O code")
+        for path in objects:
+            run("codesign", *options, *python_runtime.signing_options(path, app / "Contents/MacOS"), path)
+            verify(path, team)
+        runtime.finalize(target, app / "Contents/MacOS", speech=True)
+        python_runtime.finalize(target, app / "Contents/MacOS")
+        run("codesign", *options, "--entitlements", ROOT / "apps/desktop/macos/entitlements.plist", app)
+        verify(app, team, deep=True)
+    if host is not None:
+        # Host is a separate asset, never a deployment payload inside Desktop.
+        python_runtime.unlock(host)
+        for path in mach_objects(host):
+            run("codesign", *options, *python_runtime.signing_options(path, host), path)
+            verify(path, team)
+        runtime.finalize(target, host, speech=False)
+        python_runtime.finalize(target, host)
+    print("Developer ID signing verified")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--app", type=Path, required=True)
-    parser.add_argument("--host", type=Path, required=True)
+    parser.add_argument("--app", type=Path)
+    parser.add_argument("--host", type=Path)
     parser.add_argument("--target", required=True)
     parser.add_argument("--keychain", type=Path, default=os.environ.get("APPLE_SIGNING_KEYCHAIN"))
     args = parser.parse_args()
+    if args.app is None and args.host is None:
+        parser.error("Select --app, --host or both")
     identity = os.environ.get("APPLE_SIGNING_IDENTITY")
     team = os.environ.get("APPLE_TEAM_ID")
     if not identity or not team:

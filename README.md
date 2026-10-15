@@ -200,6 +200,9 @@ Store.
 Filename-bound ZIP assets on the same release serve Desktop's automatic updater.
 The Stable channel receives final releases; Experience also receives previews
 and can advance to a newer stable version by SemVer precedence.
+Desktop packages publish first. Host packages for macOS and Linux follow on the
+same version's release; retry installation once the Host assets are available.
+Mobile distribution remains manual.
 
 Screenshots show a fresh English-language demo workspace with illustrative
 conversations, not personal data or previous test sessions.
@@ -225,8 +228,8 @@ The installer verifies the archive's release checksum and starts a persistent
 service. Run it as the account that should own the Host; root uses a system
 service, other accounts use a user service with lingering enabled, which may
 require administrator access. Existing Host files and profiles are not
-overwritten. Draft release assets are unavailable to the installer until the
-release is published.
+overwritten. Host assets become available after the Desktop release is published
+and Host packaging succeeds.
 
 ```sh
 sailry version

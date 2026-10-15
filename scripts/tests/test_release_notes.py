@@ -1,10 +1,14 @@
 """Release notes use isolated Git histories, never product tags or remote writes."""
 
 import importlib.util
+import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
+import textwrap
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("release_notes", ROOT / "scripts/release-notes.py")
@@ -77,90 +81,135 @@ class ChangelogText(unittest.TestCase):
 
 
 class ReleaseWorkflows(unittest.TestCase):
-    def test_manual_and_automatic_builds_require_version_tags(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+    def workflow(self, name):
+        return (ROOT / f".github/workflows/{name}.yml").read_text()
+
+    def test_desktop_requires_tag_and_own_gate(self):
+        workflow = self.workflow("release")
         trigger = workflow.split("permissions:", 1)[0]
         self.assertIn("tags: ['v*']", trigger)
         self.assertIn("workflow_dispatch", trigger)
-        self.assertIn("options: [all, host, desktop]", trigger)
+        self.assertNotIn("component:", trigger)
         self.assertIn('test "$GITHUB_REF_TYPE" = tag', workflow)
-        self.assertNotIn("branches:", trigger)
+        self.assertIn('--component desktop', workflow)
         self.assertNotIn("pull_request", trigger)
         self.assertNotIn("--generate-notes", workflow)
 
-    def test_packaging_keeps_release_private(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        self.assertIn("scripts/publish-packages.py", workflow)
-        self.assertNotIn("contents/CHANGELOG.md", workflow)
-
-    def test_changelog_waits_for_publication(self):
-        workflow = (ROOT / ".github/workflows/changelog.yml").read_text()
-        trigger = workflow.split("permissions:", 1)[0]
-        self.assertIn("types: [published]", trigger)
-        self.assertNotIn("created", trigger)
-        self.assertIn("ref: ${{ github.event.release.tag_name }}", workflow)
-        self.assertIn("contents/CHANGELOG.md", workflow)
-        self.assertIn("--tag \"$RELEASE_TAG\"", workflow)
-        self.assertNotIn("release', 'create'", workflow)
-
-    def test_publishes_macos_desktop_without_mobile_artifacts(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        desktop = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
-        publisher = workflow.split("  publish:\n", 1)[1].split("  publish-host:\n", 1)[0]
-        self.assertIn("aarch64-apple-darwin", desktop)
-        self.assertIn("x86_64-apple-darwin", desktop)
-        self.assertIn("*.dmg", desktop)
-        self.assertIn("needs: build", publisher)
-        self.assertNotIn("android", workflow.lower())
+    def test_desktop_publishes_without_host_or_mobile(self):
+        workflow = self.workflow("release")
+        build = workflow.split("  build:\n", 1)[1].split("  publish:\n", 1)[0]
+        publish = workflow.split("  publish:\n", 1)[1]
+        self.assertIn("-p sailry-desktop -p sailry-release", build)
+        self.assertNotIn("-p sailry-host", build)
+        self.assertIn("scripts/package-macos.sh release desktop", build)
+        self.assertIn("fixtures shared", build)
+        self.assertIn("fixtures desktop", build)
+        self.assertIn("needs: build", publish)
+        self.assertNotIn("needs: [", publish)
+        self.assertIn("*.dmg", build)
+        self.assertIn("*.zip.update.json", build)
+        self.assertNotIn("*.tar.gz", build)
         self.assertNotIn("*.apk", workflow)
+        self.assertNotIn("windows", workflow.lower())
+        self.assertIn("--component desktop", publish)
 
-    def test_host_publication_covers_macos_and_linux(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        desktop = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
-        host = workflow.split("  host:\n", 1)[1].split("  publish:\n", 1)[0]
-        publisher = workflow.split("  publish-host:\n", 1)[1]
-        self.assertNotIn("scripts/build-hosts.sh", desktop)
-        self.assertNotIn("cargo-zigbuild", desktop)
-        self.assertIn("*.dmg", desktop)
-        self.assertIn("name: host-macos-${{ matrix.target }}", desktop)
-        self.assertIn("SHA256SUMS-host-", desktop)
-        self.assertIn("ubuntu-24.04-arm", host)
-        self.assertIn("x86_64-unknown-linux-gnu", host)
-        self.assertIn("aarch64-unknown-linux-gnu", host)
-        self.assertIn("scripts/build-host.sh release", host)
-        self.assertIn("scripts/check-host.py", host)
-        self.assertIn("scripts/check-host-install.py", host)
-        self.assertNotIn("scripts/check-host-install.py", desktop)
-        self.assertIn("needs: [build, host]", publisher)
-        self.assertIn("pattern: host-*", publisher)
-        self.assertIn("SHA256SUMS-installer", publisher)
+    def test_publication_dispatches_exact_tag_followups(self):
+        workflow = self.workflow("release")
+        publish = workflow.split("  publish:\n", 1)[1]
+        self.assertIn("contents: write", publish)
+        self.assertIn("actions: write", publish)
+        self.assertIn("'release-host.yml', 'update-feed.yml', 'changelog.yml'", publish)
+        self.assertIn("{'ref': tag, 'inputs': {'tag': tag}}", publish)
+        self.assertIn('--tag "$GITHUB_REF_NAME" --published', publish)
+        self.assertLess(publish.index("scripts/publish-packages.py"), publish.index("dispatches"))
+        self.assertNotIn("release-mobile.yml", publish)
 
-    def test_component_routing_does_not_cross_publish(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        desktop = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
-        publish = workflow.split("  publish:\n", 1)[1].split("  publish-host:\n", 1)[0]
-        publish_host = workflow.split("  publish-host:\n", 1)[1]
-        self.assertIn("inputs.component == 'host'", desktop.split("strategy:", 1)[0])
-        self.assertIn("inputs.component == 'desktop'", publish.split("needs:", 1)[0])
-        self.assertNotIn("inputs.component == 'host'", publish.split("needs:", 1)[0])
-        self.assertIn("inputs.component == 'host'", publish_host.split("needs:", 1)[0])
-        self.assertNotIn("inputs.component == 'desktop'", publish_host.split("needs:", 1)[0])
-        packages = desktop.split("name: packages-${{ matrix.target }}", 1)[1].split(
-            "name: host-macos-${{ matrix.target }}", 1)[0]
-        self.assertNotIn("*.tar.gz", packages)
+    def test_dispatch_failure_still_attempts_all_followups(self):
+        workflow = self.workflow("release").split("Dispatch same-tag Host, feeds and changelog", 1)[1]
+        script = textwrap.dedent(workflow.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        results = [subprocess.CompletedProcess([], code) for code in (1, 0, 0)]
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product", "GITHUB_REF_NAME": "v0.1.0-alpha.1"}), \
+                patch.object(subprocess, "run", side_effect=results) as run:
+            with self.assertRaisesRegex(SystemExit, "release-host.yml"):
+                exec(script, {})
+        self.assertEqual(run.call_count, 3)
+        for call in run.call_args_list:
+            self.assertEqual(json.loads(call.kwargs["input"]), {
+                "ref": "v0.1.0-alpha.1", "inputs": {"tag": "v0.1.0-alpha.1"}})
 
-    def test_native_builds_install_pinned_zig(self):
-        workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        for job, following, build in (
-            ("build", "host", "Build native Desktop and standalone Host"),
-            ("host", "publish", "Build one Host architecture"),
-        ):
-            with self.subTest(job=job):
-                steps = workflow.split(f"  {job}:\n", 1)[1].split(f"  {following}:\n", 1)[0]
-                setup = steps.split("mlugg/setup-zig@", 1)[1].split("      - ", 1)[0]
-                self.assertIn("8d6198c65fb0feaa111df26e6b467fea8345e46f", setup)
-                self.assertIn("version: '0.16.0'", setup)
-                self.assertLess(steps.index("mlugg/setup-zig@"), steps.index(build))
+    def test_host_appends_independently_on_four_targets(self):
+        workflow = self.workflow("release-host")
+        trigger = workflow.split("permissions:", 1)[0]
+        self.assertIn("workflow_dispatch", trigger)
+        self.assertNotIn("push:", trigger)
+        self.assertNotIn("release:", trigger)
+        self.assertIn("group: host-release-${{ github.ref }}", workflow)
+        self.assertIn("--component host --published", workflow)
+        mac = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
+        linux = workflow.split("  host:\n", 1)[1].split("  publish:\n", 1)[0]
+        publish = workflow.split("  publish:\n", 1)[1]
+        self.assertIn("-p sailry-host", mac)
+        self.assertNotIn("sailry-desktop", mac)
+        self.assertNotIn("sailry-release", mac)
+        self.assertNotIn("SAILRY_UPDATE_SIGNING_KEY", mac)
+        self.assertIn("scripts/package-macos.sh release host", mac)
+        self.assertNotIn("*.dmg", mac)
+        self.assertIn('SHA256SUMS-${{ matrix.target }}', mac)
+        self.assertIn("ubuntu-24.04-arm", linux)
+        self.assertIn("x86_64-unknown-linux-gnu", linux)
+        self.assertIn("aarch64-unknown-linux-gnu", linux)
+        self.assertIn("scripts/build-host.sh release", linux)
+        self.assertIn("scripts/check-host.py", linux)
+        self.assertIn("scripts/check-host-install.py", linux)
+        self.assertIn("needs: [build, host]", publish)
+        self.assertIn("pattern: host-*", publish)
+        self.assertIn("SHA256SUMS-installer", publish)
+        self.assertIn("--component host", publish)
+        self.assertNotIn("release-notes.py", publish)
+        self.assertNotIn("actions: write", publish)
+
+    def test_native_cache_and_toolchains_match(self):
+        desktop = self.workflow("release").split("  build:\n", 1)[1].split("  publish:\n", 1)[0]
+        host = self.workflow("release-host").split("  build:\n", 1)[1].split("  host:\n", 1)[0]
+        for build in (desktop, host):
+            with self.subTest(build=build[:80]):
+                self.assertIn("macos-15-intel", build)
+                self.assertIn("runner: macos-15", build)
+                self.assertIn("Xcode_26.3.app", build)
+                self.assertIn("target/release", build)
+                self.assertIn("target/sherpa-onnx-prebuilt", build)
+                self.assertIn("key: packages-${{ matrix.target }}-${{ hashFiles", build)
+                self.assertNotIn("github.sha", build)
+                self.assertNotIn("--target", build)
+                self.assertIn("version: '0.16.0'", build)
+                self.assertIn("fixtures shared", build)
+        self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release"))
+        self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release-host"))
+
+    def test_mobile_entry_is_manual_readiness_only(self):
+        workflow = self.workflow("release-mobile")
+        self.assertIn("workflow_dispatch", workflow)
+        self.assertIn("--component mobile --published", workflow)
+        self.assertIn("distribution remains manual", workflow)
+        self.assertNotIn("upload-artifact", workflow)
+        self.assertNotIn("contents: write", workflow)
+        self.assertNotIn("push:", workflow)
+
+    def test_followups_verify_publication_for_both_triggers(self):
+        for name in ("changelog", "update-feed"):
+            workflow = self.workflow(name)
+            with self.subTest(name=name):
+                self.assertIn("types: [published]", workflow)
+                self.assertIn("workflow_dispatch", workflow)
+                self.assertIn("ref: ${{ inputs.tag || github.event.release.tag_name }}", workflow)
+                self.assertIn('scripts/check-release.py --tag "$RELEASE_TAG" --published', workflow)
+                self.assertNotIn("created", workflow.split("permissions:", 1)[0])
+        changelog = self.workflow("changelog")
+        self.assertIn("contents/CHANGELOG.md", changelog)
+        feed = self.workflow("update-feed")
+        self.assertIn('--event "$RUNNER_TEMP/published-release.json"', feed)
+        self.assertIn("--pattern 'Sailry-*.zip' --pattern 'Sailry-*.zip.update.json'", feed)
+        self.assertNotIn("sailry-host", feed)
 
 
 if __name__ == "__main__":

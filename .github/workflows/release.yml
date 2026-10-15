@@ -1,47 +1,50 @@
-name: Release packages
+name: Release Desktop
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
-      component:
-        description: 'Build from a version tag'
-        type: choice
+      tag:
+        description: 'Version tag selected as the workflow ref'
+        type: string
         required: true
-        default: all
-        options: [all, host, desktop]
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: packages-${{ github.ref }}
+  group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
   CARGO_BUILD_JOBS: '2'
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
 
 jobs:
   version:
-    name: Verify immutable release tag
+    name: Verify Desktop readiness and tag
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
-      - name: Require a matching version tag
+      - name: Require a matching version tag and Desktop gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           test "$GITHUB_REF_TYPE" = tag
-          python3 scripts/package/versions.py --tag "$GITHUB_REF_NAME"
+          test "$GITHUB_EVENT_NAME" != workflow_dispatch || test "$INPUT_TAG" = "$GITHUB_REF_NAME"
+          python3 scripts/check-release.py --tag "$GITHUB_REF_NAME" --component desktop
 
   build:
-    name: Signed ${{ matrix.target }}
+    name: Desktop ${{ matrix.target }}
     needs: version
-    if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'desktop' || inputs.component == 'host'
     strategy:
       fail-fast: false
       matrix:
@@ -111,11 +114,13 @@ jobs:
       - name: Build prerequisites
         run: |
           brew install llvm@21 ripgrep
-      - name: Packaging fixtures
-        run: python3 -m unittest discover -s scripts/tests -v
-      - name: Build native Desktop and standalone Host
+      - name: Desktop packaging fixtures
         run: |
-          cargo build --locked --release --timings -p sailry-desktop -p sailry-host -p sailry-release
+          python3 scripts/ci.py fixtures shared
+          python3 scripts/ci.py fixtures desktop
+      - name: Build native Desktop
+        run: |
+          cargo build --locked --release --timings -p sailry-desktop -p sailry-release
       - name: Save compilation before signing
         if: always() && steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -182,18 +187,16 @@ jobs:
           SAILRY_RELEASE_TOOL: target/release/sailry-release
         run: |
           set -o pipefail
-          bash scripts/package-macos.sh release | tee "$RUNNER_TEMP/package.log"
+          bash scripts/package-macos.sh release desktop | tee "$RUNNER_TEMP/package.log"
           task_package="$(sed -n 's/^Local package: //p' "$RUNNER_TEMP/package.log")"
           test -d "$task_package"
           (
             cd "$task_package"
             shasum -a 256 ./*.dmg ./*.zip ./*.zip.update.json > "SHA256SUMS-desktop-${{ matrix.target }}"
-            shasum -a 256 ./*.tar.gz > "SHA256SUMS-host-${{ matrix.target }}"
             rm SHA256SUMS
           )
           printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'desktop'
         with:
           name: packages-${{ matrix.target }}
           path: |
@@ -201,15 +204,6 @@ jobs:
             ${{ steps.package.outputs.directory }}/*.zip.update.json
             ${{ steps.package.outputs.directory }}/*.dmg
             ${{ steps.package.outputs.directory }}/SHA256SUMS-desktop-*
-          if-no-files-found: error
-          retention-days: 14
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'host'
-        with:
-          name: host-macos-${{ matrix.target }}
-          path: |
-            ${{ steps.package.outputs.directory }}/*.tar.gz
-            ${{ steps.package.outputs.directory }}/SHA256SUMS-host-*
           if-no-files-found: error
           retention-days: 14
       - name: Remove temporary signing credentials
@@ -225,85 +219,14 @@ jobs:
               (stage / name).unlink(missing_ok=True)
           PY
 
-  host:
-    name: Linux Host ${{ matrix.target }}
-    needs: version
-    if: github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'host'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 180
-    steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
-        with:
-          python-version: '3.12'
-      - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
-        with:
-          version: '0.16.0'
-          use-cache: false
-      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/host-cross
-            target/host-sysroots
-            target/tooling
-          # One entry per dependency set; per-commit keys add multi-GB entries
-          # that evict the Checks compiler cache.
-          key: host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}
-          restore-keys: |
-            host-${{ matrix.target }}-
-      - name: Host prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes llvm pkg-config ripgrep jq libx11-6 libxi6
-          rustup target add '${{ matrix.target }}'
-          if ! test -x target/tooling/bin/cargo-zigbuild; then
-            cargo install cargo-zigbuild --version 0.23.4 --locked --root target/tooling
-          fi
-      - name: Build one Host architecture
-        run: bash scripts/build-host.sh release '${{ matrix.target }}'
-      - name: Verify headless startup and shutdown
-        run: python3 scripts/check-host.py 'target/host-artifacts/${{ matrix.target }}/sailry-host'
-      - name: Package standalone Host
-        id: package
-        run: |
-          set -o pipefail
-          bash scripts/package-host.sh release '${{ matrix.target }}' | tee "$RUNNER_TEMP/host-package.log"
-          task_package="$(sed -n 's/^Host package: //p' "$RUNNER_TEMP/host-package.log")"
-          test -d "$task_package"
-          printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
-      - name: Verify installation and systemd lifecycle
-        run: sudo python3 scripts/check-host-install.py '${{ steps.package.outputs.directory }}'
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: host-${{ matrix.target }}
-          path: |
-            ${{ steps.package.outputs.directory }}/*.tar.gz
-            ${{ steps.package.outputs.directory }}/SHA256SUMS-*
-          if-no-files-found: error
-          retention-days: 14
-
   publish:
-    name: GitHub release draft
-    if: >-
-      always() && !cancelled() && needs.build.result == 'success' &&
-      (github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'desktop')
+    name: Publish Desktop and start follow-ups
     needs: build
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -314,48 +237,34 @@ jobs:
           pattern: packages-*
           path: packages
           merge-multiple: true
-      - name: Verify archives and create draft
+      - name: Verify archives and publish Desktop
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          (cd packages && sha256sum --check SHA256SUMS-*)
+          (cd packages && sha256sum --check SHA256SUMS-desktop-*)
           python3 scripts/release-notes.py --tag "$GITHUB_REF_NAME" \
             --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
-          python3 scripts/publish-packages.py --tag "$GITHUB_REF_NAME" \
+          python3 scripts/publish-packages.py --component desktop --tag "$GITHUB_REF_NAME" \
             --notes "$RUNNER_TEMP/release-notes.md" --directory packages
-
-  publish-host:
-    name: Independent Host release draft
-    if: >-
-      always() && !cancelled() &&
-      (github.event_name == 'push' || inputs.component == 'all' || inputs.component == 'host') &&
-      needs.build.result == 'success' && needs.host.result == 'success'
-    needs: [build, host]
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: host-*
-          path: packages
-          merge-multiple: true
-      - name: Verify Host archives and stage installer
+      - name: Dispatch same-tag Host, feeds and changelog
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
         run: |
-          (cd packages && sha256sum --check SHA256SUMS-*)
-          cp scripts/install-host.sh packages/install-host.sh
-          (cd packages && sha256sum install-host.sh > SHA256SUMS-installer)
-          python3 scripts/release-notes.py --tag "$GITHUB_REF_NAME" \
-            --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
-            --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
-          python3 scripts/publish-packages.py --tag "$GITHUB_REF_NAME" \
-            --notes "$RUNNER_TEMP/release-notes.md" --directory packages
+          python3 scripts/check-release.py --tag "$GITHUB_REF_NAME" --published
+          python3 - <<'PY'
+          import json, os, subprocess
+          repository = os.environ['GITHUB_REPOSITORY']
+          tag = os.environ['GITHUB_REF_NAME']
+          failed = []
+          for workflow in ('release-host.yml', 'update-feed.yml', 'changelog.yml'):
+              result = subprocess.run(['gh', 'api', '--method', 'POST',
+                                       f'repos/{repository}/actions/workflows/{workflow}/dispatches',
+                                       '--input', '-'], input=json.dumps({'ref': tag, 'inputs': {'tag': tag}}),
+                                      text=True)
+              if result.returncode:
+                  failed.append(workflow)
+          if failed:
+              raise SystemExit('Follow-up dispatch failed: ' + ', '.join(failed))
+          PY
