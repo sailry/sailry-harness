@@ -68,7 +68,7 @@ fn accounts_for_replaced_images() {
 }
 
 #[gpui::test]
-fn keeps_floating_bodies_opaque(cx: &mut TestAppContext) {
+fn normalizes_floating_alpha(cx: &mut TestAppContext) {
     use crate::theme::DialogStyle as _;
 
     let directory = tempfile::tempdir().unwrap();
@@ -101,7 +101,9 @@ fn keeps_floating_bodies_opaque(cx: &mut TestAppContext) {
             crate::theme::select(Some(mode), window, cx);
             apply_colors(package.clone(), Some(window), cx);
             let theme = cx.theme();
-            let expected = Hsla::parse_hex(expected).unwrap();
+            let expected = Hsla::parse_hex(expected)
+                .unwrap()
+                .alpha(crate::theme::FLOATING_ALPHA);
             assert_eq!(theme.popover, expected);
             assert_eq!(theme.tokens.popover.color, expected);
             assert_eq!(theme.tokens.popover.background.as_solid(), Some(expected));

@@ -250,9 +250,12 @@ fn sync_editor(cx: &mut App) {
     style.editor_active_line = Some(active);
 }
 
+/// Floating surfaces (popovers, menus, overlays, dialogs) share one near-opaque fill so they
+/// stay readable while letting content beneath show faintly, independent of window material.
+const FLOATING_ALPHA: f32 = 0.95;
+
 fn sync_window(cx: &mut App) {
-    // Floating bodies share one opaque semantic surface, independent of window material.
-    let color = cx.theme().popover.alpha(1.);
+    let color = cx.theme().popover.alpha(FLOATING_ALPHA);
     let token = color.into();
     if cx.theme().popover != color || cx.theme().tokens.popover != token {
         Theme::update(cx, |theme| {
@@ -502,7 +505,7 @@ mod tests {
                 assert!((0.01..0.03).contains(&navigation_contrast));
                 assert!(sidebar_background(cx).a < 1.);
                 assert!(theme.muted.a > 0. && theme.muted.a < 1.);
-                assert!(theme.popover.is_opaque());
+                assert!((theme.popover.a - FLOATING_ALPHA).abs() < f32::EPSILON);
                 if mode == ThemeMode::Dark {
                     assert!(navigation.to_rgb().r > main.to_rgb().r);
                     let popover = theme.background.blend(theme.popover).to_rgb().r;
@@ -513,7 +516,7 @@ mod tests {
                     assert!(composer - card > 0.02);
                 } else {
                     assert!(navigation.to_rgb().r < main.to_rgb().r);
-                    assert_eq!(theme.popover, theme.background);
+                    assert_eq!(theme.popover, theme.background.alpha(FLOATING_ALPHA));
                     assert_eq!(theme.group_box.a, 0.);
                     assert_eq!(card, background);
                     assert!(background - composer > 0.02);
