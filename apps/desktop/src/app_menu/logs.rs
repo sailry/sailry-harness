@@ -1,7 +1,37 @@
 use gpui_kit::{App, Window};
 use std::{io, path::PathBuf};
 
+#[cfg(test)]
+struct Mock {
+    path: PathBuf,
+    failed: bool,
+    opened: Vec<PathBuf>,
+}
+#[cfg(test)]
+impl gpui_kit::Global for Mock {}
+
 pub(super) fn open(window: &mut Window, cx: &mut App) {
+    #[cfg(test)]
+    if cx.has_global::<Mock>() {
+        let (path, failed) = {
+            let mock = cx.global_mut::<Mock>();
+            mock.opened.push(mock.path.clone());
+            (mock.path.clone(), mock.failed)
+        };
+        debug_assert_eq!(
+            path.extension().and_then(|extension| extension.to_str()),
+            Some("log")
+        );
+        if failed {
+            crate::feedback::error(
+                &crate::tr("menu_logs"),
+                &crate::tr("files_open_failed"),
+                window,
+                cx,
+            );
+        }
+        return;
+    }
     let job = cx.background_executor().spawn(async {
         let path = sailry_node_runtime::logging::current_file()?
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "log file is unavailable"))?
@@ -36,6 +66,20 @@ pub(super) fn open(window: &mut Window, cx: &mut App) {
             });
         })
         .detach();
+}
+
+#[cfg(test)]
+pub(super) fn mock(path: PathBuf, failed: bool, cx: &mut App) {
+    cx.set_global(Mock {
+        path,
+        failed,
+        opened: Vec::new(),
+    });
+}
+
+#[cfg(test)]
+pub(super) fn opened(cx: &App) -> &[PathBuf] {
+    &cx.global::<Mock>().opened
 }
 
 #[cfg(target_os = "macos")]

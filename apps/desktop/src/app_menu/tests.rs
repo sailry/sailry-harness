@@ -92,6 +92,27 @@ fn registers_help_actions() {
     );
 }
 
+#[gpui::test]
+fn opens_log_file_and_reports_platform_failure(cx: &mut TestAppContext) {
+    let (_, mut visual) = setup(cx);
+    let path = std::path::PathBuf::from("/isolated profile/logs/desktop/2026-10-15.log");
+    visual.cx.update(|cx| logs::mock(path.clone(), false, cx));
+    invoke(&mut visual, Logs);
+    visual
+        .cx
+        .update(|cx| assert_eq!(logs::opened(cx), [path.clone()]));
+
+    visual.cx.update(|cx| logs::mock(path.clone(), true, cx));
+    invoke(&mut visual, Logs);
+    visual.cx.update(|cx| assert_eq!(logs::opened(cx), [path]));
+    visual.update(|window, cx| {
+        assert_eq!(
+            crate::feedback::tests::summary(window, cx),
+            crate::tr("files_open_failed")
+        );
+    });
+}
+
 #[test]
 fn uses_focused_editing_actions() {
     let menus = menus("en", &[]);

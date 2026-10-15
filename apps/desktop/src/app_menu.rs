@@ -69,11 +69,6 @@ pub(crate) fn init(cx: &mut App) {
     shortcuts(cx);
     cx.on_action(|_: &Website, cx| cx.open_url("https://sailry.dev"));
     cx.on_action(|_: &Feedback, cx| cx.open_url("https://github.com/sailry/sailry-harness/issues"));
-    cx.on_action(|_: &Logs, cx| {
-        if let Some(window) = cx.active_window() {
-            let _ = window.update(cx, |_, window, cx| logs::open(window, cx));
-        }
-    });
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
@@ -216,6 +211,7 @@ pub(crate) fn bind(element: Stateful<Div>, cx: &Context<Shell>) -> Stateful<Div>
         .on_action(cx.listener(|shell, _: &OpenFolder, window, cx| {
             shell.open_folder(window, cx);
         }))
+        .on_action(|_: &Logs, window, cx| logs::open(window, cx))
         .on_action(cx.listener(Shell::open_feature))
         .on_action(cx.listener(Shell::close_window))
         .on_action(|_: &Minimize, window, _| window.minimize_window())
