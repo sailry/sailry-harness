@@ -17,7 +17,6 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("memory", true),
     ("files", true),
     ("code", true),
-    ("progress", true),
     ("delegation", true),
     ("statistics", true),
     ("databases", true),

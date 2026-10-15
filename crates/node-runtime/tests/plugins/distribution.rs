@@ -521,6 +521,76 @@ async fn removed_default(name: &str, enabled: bool) {
     }
 }
 
+#[tokio::test]
+async fn activity_board_is_optional() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, _) = fixture(remote).await;
+        let Output::Plugins(entries) = execute(&client, Command::ListPlugins).await else {
+            panic!("inventory expected")
+        };
+        assert!(!entries.iter().any(|entry| entry.name == "progress"));
+        let available = info(
+            execute(
+                &client,
+                Command::ReadCatalogPluginInfo {
+                    source: plugin::catalog::Source::Official,
+                    id: "progress".into(),
+                    bundled: true,
+                },
+            )
+            .await,
+        );
+        assert_eq!(available.summary.name, "progress");
+        assert_eq!(available.summary.revision, 0);
+        let installed = info(
+            execute(
+                &client,
+                Command::InstallBundledPlugin {
+                    name: "progress".into(),
+                    expected_revision: 0,
+                },
+            )
+            .await,
+        );
+        assert_eq!(installed.origin, Some(plugin::Origin::Bundled));
+        assert_eq!(installed.summary.digest, available.summary.digest);
+        let disabled = info(
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: "progress".into(),
+                    expected_revision: installed.summary.revision,
+                    enabled: false,
+                },
+            )
+            .await,
+        );
+        assert!(!disabled.summary.enabled);
+        drop(client);
+        node.shutdown().await.unwrap();
+        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        assert_eq!(
+            info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "progress".into(),
+                    },
+                )
+                .await,
+            ),
+            disabled
+        );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
 mod removed_defaults {
     async fn service_only(client: &super::Client) {
         use super::*;
@@ -619,7 +689,6 @@ mod removed_defaults {
         memory => ("memory", true),
         files => ("files", true),
         code => ("code", true),
-        progress => ("progress", true),
         delegation => ("delegation", true),
         statistics => ("statistics", true),
         databases => ("databases", true),

@@ -102,7 +102,6 @@ async fn inventory(client: &Client) -> Vec<Summary> {
                 "memory",
                 "files",
                 "code",
-                "progress",
                 "delegation",
                 "statistics",
                 "databases",
