@@ -317,18 +317,13 @@ pub(super) fn open(
             window,
             |library: &mut Library, _, event, window, cx| {
                 if matches!(event, SelectEvent::Confirm(_)) {
-                    library.cancel();
-                    library.items.clear();
-                    library.repository = None;
-                    library.definition = None;
-                    library.cursor = None;
-                    library.searched = None;
-                    library.pages.clear();
-                    library
-                        .version
-                        .update(cx, |state, cx| state.set_items(Vec::new(), window, cx));
-                    library.search(false, window, cx);
-                    cx.notify();
+                    let requested = library.hub(cx);
+                    if let Some((committed, _)) = &library.searched {
+                        library.hub.update(cx, |state, cx| {
+                            state.set_selected_value(committed, window, cx)
+                        });
+                    }
+                    library.search_hub(requested, false, window, cx);
                 }
             },
         )
@@ -338,9 +333,19 @@ pub(super) fn open(
             window,
             |library: &mut Library, _, event, window, cx| {
                 if let SelectEvent::Confirm(Some(_)) = event {
-                    library.cancel();
-                    library.definition = None;
-                    library.resolve(window, cx);
+                    let Some(revision) = library.version.read(cx).selected_value().cloned() else {
+                        return;
+                    };
+                    if let Some(committed) = library
+                        .definition
+                        .as_ref()
+                        .map(|definition| &definition.source.revision)
+                    {
+                        library.version.update(cx, |state, cx| {
+                            state.set_selected_value(committed, window, cx)
+                        });
+                    }
+                    library.resolve_revision(revision, window, cx);
                 }
             },
         )

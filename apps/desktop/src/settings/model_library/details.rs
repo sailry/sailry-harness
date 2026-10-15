@@ -16,7 +16,7 @@ struct Details {
 
 pub(super) fn open(library: Entity<Library>, index: usize, window: &mut Window, cx: &mut App) {
     let state = library.read(cx);
-    if state.loading || !state.available(cx) {
+    if !state.available(cx) {
         return;
     }
     let Some(item) = state.items.get(index).cloned() else {
@@ -43,7 +43,7 @@ pub(super) fn open(library: Entity<Library>, index: usize, window: &mut Window, 
             status,
             Some(ModelStatus::Downloading(_) | ModelStatus::Checking)
         );
-        let locked = state.loading || !state.available(cx) || state.target.busy(cx);
+        let locked = !state.available(cx) || state.target.busy(cx);
         let download = library.clone();
         let close = library.clone();
         dialog
@@ -97,7 +97,7 @@ pub(super) fn open(library: Entity<Library>, index: usize, window: &mut Window, 
 impl Render for Details {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let library = self.library.read(cx);
-        let locked = library.loading || !library.available(cx) || library.target.busy(cx);
+        let locked = !library.available(cx) || library.target.busy(cx);
         let mut information = Group::new("knowledge_model_details")
             .outline()
             .heading(false)

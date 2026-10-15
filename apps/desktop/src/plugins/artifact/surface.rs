@@ -11,6 +11,24 @@ use std::rc::Rc;
 #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
 pub(super) mod tests;
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+struct PreparedNative {
+    native: Rc<crate::content::files::html::surface::Native>,
+    theme: Option<Value>,
+    writable: Option<bool>,
+    dirty: bool,
+    events: Option<tokio::sync::mpsc::Receiver<String>>,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+struct PendingNative {
+    generation: u64,
+    content: Content,
+    prepared: PreparedNative,
+    ready: bool,
+    mounted: bool,
+}
+
 pub(super) struct View {
     resource: Resource,
     host: Arc<Host>,
@@ -31,6 +49,8 @@ pub(super) struct View {
     capture_id: u64,
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     native: Option<Rc<crate::content::files::html::surface::Native>>,
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    pending_native: Option<PendingNative>,
     stop: CancellationToken,
     load: Option<Task<()>>,
     _watch: Task<()>,
@@ -148,6 +168,8 @@ impl View {
             capture_id: 0,
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             native: None,
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            pending_native: None,
             stop,
             load: None,
             _watch: watch,
@@ -175,6 +197,10 @@ impl View {
         self.generation += 1;
         self.load = None;
         self.loading = false;
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            self.pending_native = None;
+        }
         if revision.is_some_and(|revision| {
             self.content
                 .as_ref()
@@ -240,17 +266,31 @@ impl View {
                             }
                             return;
                         }
-                        owner.content = Some(content);
-                        owner.source = None;
-                        owner.error = None;
-                        if let Some((_, sender)) = owner.export.take() {
-                            let _ = sender.send(Err(HostError::new("artifact revision changed")));
-                        }
                         #[cfg(any(target_os = "macos", target_os = "windows"))]
-                        {
-                            owner.native = None;
+                        if owner.native.is_some() {
+                            let (ready, receiver) = tokio::sync::mpsc::channel(1);
+                            match owner.prepare_native(&content, Some(ready), window, cx) {
+                                Ok(prepared) => {
+                                    owner.loading = true;
+                                    owner.pending_native = Some(PendingNative {
+                                        generation,
+                                        content,
+                                        prepared,
+                                        ready: false,
+                                        mounted: false,
+                                    });
+                                    owner.wait_until_ready(generation, receiver, window, cx);
+                                    cx.notify();
+                                    return;
+                                }
+                                Err(()) => {
+                                    owner.error = Some("artifact_preview_failed");
+                                    cx.notify();
+                                    return;
+                                }
+                            }
                         }
-                        owner.theme = None;
+                        owner.replace_content(content);
                     }
                     Err(_) => owner.error = Some("artifact_preview_failed"),
                 }
@@ -295,18 +335,49 @@ impl View {
         let _ = cx;
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
-    fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.native.is_some() {
-            return;
+    fn replace_content(&mut self, content: Content) {
+        self.content = Some(content);
+        self.source = None;
+        self.error = None;
+        if let Some((_, sender)) = self.export.take() {
+            let _ = sender.send(Err(HostError::new("artifact revision changed")));
         }
-        let Some(content) = &self.content else { return };
+        self.theme = None;
+        self.writable.set(None);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn prepare_native(
+        &self,
+        content: &Content,
+        ready: Option<tokio::sync::mpsc::Sender<bool>>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Result<PreparedNative, ()> {
         if content.artifact.kind == sailry_protocol::artifact::Kind::Preview {
-            match crate::content::files::html::surface::Native::new(&content.html, window, cx) {
-                Ok(native) => self.native = Some(Rc::new(native)),
-                Err(_) => self.error = Some("artifact_preview_failed"),
-            }
-            return;
+            let builder = wry::WebViewBuilder::new()
+                .with_html(crate::content::files::html::surface::document(
+                    &content.html,
+                    cx,
+                ))
+                .with_navigation_handler(|url| url == "about:blank" || url == "about:srcdoc");
+            let builder = if let Some(ready) = ready {
+                builder.with_on_page_load_handler(move |event, _| {
+                    if matches!(event, wry::PageLoadEvent::Finished) {
+                        let _ = ready.try_send(true);
+                    }
+                })
+            } else {
+                builder
+            };
+            let native = crate::content::files::html::surface::Native::build(builder, window, cx)?;
+            return Ok(PreparedNative {
+                native: Rc::new(native),
+                theme: None,
+                writable: None,
+                dirty: false,
+                events: None,
+            });
         }
         let theme = page::theme(cx);
         let writable =
@@ -329,41 +400,65 @@ impl View {
             content.artifact.revision,
             cx,
         );
-        self.dirty |= !drafts.is_empty();
-        let Ok(html) = page::document(content, theme.clone(), labels, writable, drafts) else {
-            self.error = Some("artifact_preview_failed");
-            return;
-        };
-        let (sender, mut receiver) = tokio::sync::mpsc::channel::<String>(4);
+        let dirty = !drafts.is_empty();
+        let html =
+            page::document(content, theme.clone(), labels, writable, drafts).map_err(|_| ())?;
+        let (sender, receiver) = tokio::sync::mpsc::channel::<String>(4);
         let builder = wry::WebViewBuilder::new()
             .with_html(html)
             .with_navigation_handler(|url| url == "about:blank")
             .with_ipc_handler(move |request| {
                 if request.body().len() <= 16 * 1024 * 1024 {
-                    let export = serde_json::from_str::<Value>(request.body())
-                        .ok()
-                        .is_some_and(|value| {
-                            value
-                                .get("kind")
-                                .and_then(Value::as_str)
-                                .is_some_and(|kind| matches!(kind, "export" | "export_error"))
-                        });
+                    let value = serde_json::from_str::<Value>(request.body()).ok();
+                    let kind = value
+                        .as_ref()
+                        .and_then(|value| value.get("kind"))
+                        .and_then(Value::as_str);
+                    if kind == Some("surface_ready") {
+                        if let Some(ready) = &ready {
+                            let _ = ready.try_send(true);
+                        }
+                        return;
+                    }
+                    if kind == Some("surface_failed") {
+                        if let Some(ready) = &ready {
+                            let _ = ready.try_send(false);
+                        }
+                        return;
+                    }
+                    let export = kind.is_some_and(|kind| matches!(kind, "export" | "export_error"));
                     if export || request.body().len() <= 32 * 1024 {
                         let _ = sender.try_send(request.body().clone());
                     }
                 }
             });
-        let native = crate::content::files::html::surface::Native::build(builder, window, cx);
-        let Ok(native) = native else {
-            self.error = Some("artifact_preview_failed");
+        let native = crate::content::files::html::surface::Native::build(builder, window, cx)?;
+        Ok(PreparedNative {
+            native: Rc::new(native),
+            theme: Some(theme),
+            writable: Some(writable),
+            dirty,
+            events: Some(receiver),
+        })
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn install_native(
+        &mut self,
+        mut prepared: PreparedNative,
+        revision: u32,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.native = Some(prepared.native);
+        self.theme = prepared.theme;
+        self.writable.set(prepared.writable);
+        self.dirty |= prepared.dirty;
+        self.epoch += 1;
+        let Some(mut receiver) = prepared.events.take() else {
             return;
         };
-        self.native = Some(Rc::new(native));
-        self.theme = Some(theme);
-        self.writable.set(Some(writable));
-        self.epoch += 1;
         let stop = self.stop.clone();
-        let revision = content.artifact.revision;
         let epoch = self.epoch;
         cx.spawn_in(window, async move |owner, cx| {
             loop {
@@ -383,6 +478,87 @@ impl View {
             }
         })
         .detach();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn wait_until_ready(
+        &self,
+        generation: u64,
+        mut receiver: tokio::sync::mpsc::Receiver<bool>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn_in(window, async move |owner, cx| {
+            let Some(ready) = receiver.recv().await else {
+                return;
+            };
+            let _ = owner.update_in(cx, |owner, window, cx| {
+                if owner.generation != generation
+                    || owner
+                        .pending_native
+                        .as_ref()
+                        .is_none_or(|pending| pending.generation != generation)
+                {
+                    return;
+                }
+                if ready {
+                    owner.pending_native.as_mut().unwrap().ready = true;
+                } else {
+                    owner.pending_native = None;
+                    owner.loading = false;
+                    owner.error = Some("artifact_preview_failed");
+                    if owner.reload {
+                        owner.reload = false;
+                        owner.refresh(window, cx);
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn publish_pending(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .pending_native
+            .as_ref()
+            .is_none_or(|pending| !pending.ready || !pending.mounted)
+        {
+            return;
+        }
+        let pending = self.pending_native.take().unwrap();
+        if pending.prepared.native.set_visible(true, cx).is_err() {
+            self.loading = false;
+            self.error = Some("artifact_preview_failed");
+            cx.notify();
+            return;
+        }
+        if let Some(native) = &self.native {
+            let _ = native.set_visible(false, cx);
+        }
+        let revision = pending.content.artifact.revision;
+        self.replace_content(pending.content);
+        self.install_native(pending.prepared, revision, window, cx);
+        self.loading = false;
+        cx.notify();
+        if self.reload {
+            self.reload = false;
+            self.refresh(window, cx);
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    fn mount(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.native.is_some() {
+            return;
+        }
+        let Some(content) = &self.content else { return };
+        let revision = content.artifact.revision;
+        match self.prepare_native(content, None, window, cx) {
+            Ok(prepared) => self.install_native(prepared, revision, window, cx),
+            Err(()) => self.error = Some("artifact_preview_failed"),
+        }
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -624,6 +800,7 @@ impl Render for View {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
+            self.publish_pending(window, cx);
             self.mount(window, cx);
             if let Some(native) = &self.native {
                 let theme = page::theme(cx);
@@ -643,7 +820,25 @@ impl Render for View {
                     self.theme = Some(theme);
                 }
                 self.writable(window, cx);
-                return crate::content::files::html::surface::render(native.clone(), window, cx);
+                let current =
+                    crate::content::files::html::surface::render(native.clone(), window, cx);
+                if let Some(pending) = &mut self.pending_native {
+                    let replacement = crate::content::files::html::surface::render_hidden(
+                        pending.prepared.native.clone(),
+                        cx,
+                    );
+                    pending.mounted = true;
+                    if pending.ready {
+                        cx.notify();
+                    }
+                    return div()
+                        .relative()
+                        .size_full()
+                        .child(div().absolute().inset_0().child(current))
+                        .child(div().absolute().inset_0().child(replacement))
+                        .into_any_element();
+                }
+                return current;
             }
         }
         if self.source.is_none()

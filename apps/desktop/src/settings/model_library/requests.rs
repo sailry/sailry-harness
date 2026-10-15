@@ -83,11 +83,20 @@ impl Library {
     }
 
     pub(super) fn search(&mut self, more: bool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.loading || !self.available(cx) {
+        self.search_hub(self.hub(cx), more, window, cx);
+    }
+
+    pub(super) fn search_hub(
+        &mut self,
+        hub: Hub,
+        more: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if (more && self.loading) || !self.available(cx) {
             return;
         }
         let query = self.query.read(cx).value().trim().to_owned();
-        let hub = self.hub(cx);
         let cursor = if more { self.cursor.clone() } else { None };
         if more {
             if !self.has_more(cx) {
@@ -95,9 +104,6 @@ impl Library {
             }
             self.pages
                 .insert(cursor.clone().expect("pagination cursor is present"));
-        } else {
-            self.pages.clear();
-            self.cursor = None;
         }
         self.installing = None;
         let searched = (hub, query.clone());
@@ -117,6 +123,10 @@ impl Library {
                         library.items.clear();
                         library.repository = None;
                         library.definition = None;
+                        library.pages.clear();
+                        library
+                            .version
+                            .update(cx, |state, cx| state.set_items(Vec::new(), window, cx));
                     }
                     for item in page.items {
                         if !library
@@ -128,6 +138,9 @@ impl Library {
                         }
                     }
                     library.cursor = page.next_cursor;
+                    library.hub.update(cx, |state, cx| {
+                        state.set_selected_value(&searched.0, window, cx)
+                    });
                     library.searched = Some(searched);
                     if page.partial {
                         crate::feedback::info("", tr("model_library_partial").as_ref(), window, cx);
@@ -146,7 +159,7 @@ impl Library {
     }
 
     pub(super) fn install(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
-        if self.loading || !self.available(cx) || self.target.busy(cx) {
+        if !self.available(cx) || self.target.busy(cx) {
             return;
         }
         let Some(item) = self.items.get(index) else {
@@ -204,7 +217,7 @@ impl Library {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.loading || !self.available(cx) {
+        if !self.available(cx) {
             return;
         }
         self.installing = None;
@@ -236,16 +249,27 @@ impl Library {
     }
 
     pub(super) fn resolve(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.loading || !self.available(cx) {
+        if !self.available(cx) {
+            return;
+        }
+        let Some(revision) = self.version.read(cx).selected_value().cloned() else {
+            return;
+        };
+        self.resolve_revision(revision, window, cx);
+    }
+
+    pub(super) fn resolve_revision(
+        &mut self,
+        revision: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.available(cx) {
             return;
         }
         let Some(repository) = self.repository.clone() else {
             return;
         };
-        let Some(revision) = self.version.read(cx).selected_value().cloned() else {
-            return;
-        };
-        self.definition = None;
         let expected = Source {
             hub: self.hub(cx),
             repository,
@@ -263,8 +287,12 @@ impl Library {
                     if definition.format.kind() == library.target.kind()
                         && definition.source.hub == expected.hub
                         && definition.source.repository == expected.repository
+                        && definition.source.revision == expected.revision
                         && definition.validate().is_ok() =>
                 {
+                    library.version.update(cx, |state, cx| {
+                        state.set_selected_value(&expected.revision, window, cx)
+                    });
                     library.query_prefix.update(cx, |state, cx| {
                         state.set_value(
                             definition.query_prefix.clone().unwrap_or_default(),

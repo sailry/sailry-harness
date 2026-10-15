@@ -97,7 +97,7 @@ impl ListDelegate for Rows {
         let item = library.items.get(row)?;
         let status = library.target.source_status(&item.source, cx);
         let installed = matches!(status, ModelStatus::Installed);
-        let locked = library.loading || !library.available(cx);
+        let locked = !library.available(cx);
         let installing = matches!(status, ModelStatus::Downloading(_) | ModelStatus::Checking)
             || (library.installing.as_ref() == Some(&item.source)
                 && (library.loading || library.target.busy(cx)));

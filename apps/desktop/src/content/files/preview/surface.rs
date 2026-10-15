@@ -45,7 +45,6 @@ impl Native {
         Ok(Self { page, view })
     }
 
-    #[cfg(feature = "workload-tests")]
     pub(crate) fn set_visible(&self, visible: bool, cx: &mut App) -> wry::Result<()> {
         self.view.update(cx, |page, _| page.set_visible(visible))
     }
@@ -66,6 +65,17 @@ pub(crate) fn render(native: Rc<Native>, window: &mut Window, cx: &mut App) -> A
         Mount
     });
     native.view.update(cx, |page, _| page.show());
+    div()
+        .size_full()
+        .min_w_0()
+        .min_h_0()
+        .pl(RESIZE_CLEARANCE)
+        .child(native.view.clone())
+        .into_any_element()
+}
+
+pub(crate) fn render_hidden(native: Rc<Native>, cx: &mut App) -> AnyElement {
+    let _ = native.set_visible(false, cx);
     div()
         .size_full()
         .min_w_0()

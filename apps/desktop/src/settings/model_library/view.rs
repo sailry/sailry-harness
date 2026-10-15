@@ -21,7 +21,7 @@ impl Library {
 
 impl Render for Library {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let locked = self.loading || !self.available(cx);
+        let locked = !self.available(cx);
         let controls = h_flex()
             .w_full()
             .items_center()
@@ -53,7 +53,6 @@ impl Render for Library {
                     .icon(IconName::Search)
                     .accessibility_label(tr("model_library_search"))
                     .tooltip(tr("model_library_search"))
-                    .loading(self.header_loading())
                     .debug_selector(|| "model-library-search".into())
                     .disabled(locked)
                     .on_click(

@@ -304,7 +304,7 @@ impl View {
                     ),
                 )
             })
-            .when(!state.loading || commands, |body| {
+            .when(!state.loading || count > 0 || commands, |body| {
                 body.child(div().h(px(height)).child(List::new(&state.list).h_full()))
             })
             .when(state.loading, |body| {
@@ -321,7 +321,6 @@ impl View {
                         } else {
                             "files_load_more"
                         }))
-                        .disabled(state.loading)
                         .debug_selector(|| "live-reference-more".into())
                         .on_click(cx.listener(move |view, _, window, cx| {
                             if commands {

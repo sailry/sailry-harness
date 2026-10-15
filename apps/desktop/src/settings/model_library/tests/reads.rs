@@ -154,9 +154,10 @@ fn consumes_each_cursor_once(cx: &mut TestAppContext) {
             assert_eq!(delayed.held.lock().unwrap().len(), 1);
             tap(visual, "model-library-search");
             wait(visual, |_| delayed.held.lock().unwrap().len() == 2);
-            assert!(library.read_with(visual, |library, _| library.pages.is_empty()));
+            assert!(library.read_with(visual, |library, _| library.pages.contains("next")));
             assert!(delayed.complete(1));
             wait(visual, |cx| !library.read(cx).loading);
+            assert!(library.read_with(visual, |library, _| library.pages.is_empty()));
             fixture.close(visual);
         }
     }
@@ -423,10 +424,13 @@ fn replaces_reads_when_source_changes(cx: &mut TestAppContext) {
         wait(visual, |_| {
             delayed.closed(0) && delayed.held.lock().unwrap().len() == 2
         });
-        assert!(visual.debug_bounds("model-library-loading").is_some());
-        assert!(visual.debug_bounds("model-library-result-0").is_none());
-        assert!(library.read_with(visual, |library, _| {
-            library.first_read() && !library.header_loading()
+        assert!(visual.debug_bounds("model-library-loading").is_none());
+        assert!(visual.debug_bounds("model-library-result-0").is_some());
+        assert!(library.read_with(visual, |library, cx| {
+            !library.first_read()
+                && library.header_loading()
+                && library.hub(cx) == Hub::HuggingFace
+                && library.items[0].name == definition().name
         }));
         assert!(visual.debug_bounds("empty-model_library_empty").is_none());
         assert!(!delayed.complete(0));

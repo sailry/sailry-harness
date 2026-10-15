@@ -105,7 +105,7 @@ pub(super) fn document(
         .unwrap()
         .replace('<', "\\u003c");
     script.push_str(&format!(
-        "\nwindow.sailryDocumentReady=window.sailryDocument.mount({input});\n"
+        "\nwindow.sailryDocumentReady=Promise.resolve().then(()=>window.sailryDocument.mount({input}));\nwindow.sailryDocumentReady.then(()=>window.sailryDocumentPost({{kind:'surface_ready'}}),()=>window.sailryDocumentPost({{kind:'surface_failed'}}));\n"
     ));
     let policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'\">";
     let styles: String = view

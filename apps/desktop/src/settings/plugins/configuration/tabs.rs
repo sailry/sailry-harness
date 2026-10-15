@@ -39,7 +39,6 @@ impl Editor {
                                 .unwrap_or(&section.title)
                                 .clone(),
                         )
-                        .disabled(self.pending || self.loading)
                         .debug_selector(move || format!("plugin-settings-tab-{id}"))
                 }))
                 .on_click(cx.listener(|editor, &index, _, cx| {

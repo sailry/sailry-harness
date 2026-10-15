@@ -57,8 +57,21 @@ fn confines_content_and_preserves_capture() {
     assert!(page.contains("\"revision\":1"));
     assert!(page.contains("\"writable\":false"));
     assert!(page.contains("\\u003c/script>"));
+    assert!(page.contains("window.sailryDocumentReady.then("));
+    assert!(page.contains("kind:'surface_ready'"));
+    assert!(page.contains("kind:'surface_failed'"));
     assert_eq!(page.matches("<script>").count(), 1);
     assert_eq!(page.matches("</script>").count(), 1);
+}
+
+#[test]
+fn reports_synchronous_mount_failure() {
+    let mut content = content();
+    content.view.as_mut().unwrap().scripts =
+        vec!["window.sailryDocument={mount:()=>{throw Error('mount failed')}};".into()];
+    let page = document(&content, json!({}), json!({}), false, vec![]).unwrap();
+    assert!(page.contains("Promise.resolve().then(()=>window.sailryDocument.mount("));
+    assert!(page.contains("()=>window.sailryDocumentPost({kind:'surface_failed'})"));
 }
 
 #[test]

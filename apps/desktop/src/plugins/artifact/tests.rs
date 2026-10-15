@@ -988,7 +988,11 @@ mod cards {
             visual.update(|window, cx| source.update(cx, |source, cx| source.focus(window, cx)));
             visual.simulate_input("Keep the existing draft");
             let captured = visual.update(|_, cx| resource(&source, &first, cx));
+            wait(visual, |_| {
+                fixture.server.requests.lock().unwrap().len() == 2
+            });
             let model_requests = fixture.server.requests.lock().unwrap().len();
+            assert_eq!(model_requests, 2);
             let cancelled = choose(captured.clone(), visual);
             visual.simulate_new_path_selection(|_| None);
             assert!(!result(cancelled, visual));
