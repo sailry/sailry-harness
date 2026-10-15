@@ -1,8 +1,10 @@
 use super::*;
 use crate::dictation::Update;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::speech::{SpeechEvent, SpeechState, SpeechStatus, SpeechWaveform};
+use gpui_kit::component::speech::{SpeechEvent, SpeechState, SpeechStatus};
 use gpui_kit::prelude::FluentBuilder as _;
+
+mod waveform;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub(super) enum Phase {
@@ -48,13 +50,12 @@ impl View {
                 button.icon(Icon::default().path("icons/reicon/microphone.svg"))
             })
             .when(phase == Phase::Recording, |button| {
-                button.children(self.dictation.speech.as_ref().map(|speech| {
-                    div()
-                        .id("dictation-waveform")
-                        .test_support()
-                        .size_4()
-                        .child(SpeechWaveform::new(speech).small().w_full())
-                }))
+                button.children(
+                    self.dictation
+                        .speech
+                        .as_ref()
+                        .map(|speech| waveform::render(speech, cx)),
+                )
             })
             .when(
                 matches!(phase, Phase::Preparing | Phase::Transcribing),

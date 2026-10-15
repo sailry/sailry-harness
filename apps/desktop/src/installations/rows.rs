@@ -168,6 +168,7 @@ impl ListDelegate for Rows {
             Location::Node(_) => "installation_node",
             Location::Controller => "installation_controller",
         });
+        let summary = format!("{phase} · {location}");
         let status = progress.map_or_else(
             || format!("{phase} · {location}"),
             |progress| format!("{phase} · {location} · {}", measurement(progress)),
@@ -177,7 +178,7 @@ impl ListDelegate for Rows {
         let remove = self.owner.clone();
         let remove_action = remove.clone();
         let spacing = cx.theme().spacing_tokens();
-        let height = window.rem_size() * 2.75;
+        let height = window.rem_size() * 3.5;
         let running = matches!(
             row.status,
             Presentation::Starting | Presentation::Observed(Status::Running { .. })
@@ -254,11 +255,24 @@ impl ListDelegate for Rows {
                                         .aria_label(title.clone())
                                         .w_full()
                                         .min_w_0()
+                                        .text_size(cx.theme().typography_tokens().sm.size)
                                         .truncate()
                                         .debug_selector(move || {
                                             format!("installation-title-{}", key.1)
                                         })
                                         .child(title),
+                                )
+                                .child(
+                                    div()
+                                        .w_full()
+                                        .min_w_0()
+                                        .text_size(cx.theme().typography_tokens().sm.size)
+                                        .truncate()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .debug_selector(move || {
+                                            format!("installation-status-{}", key.1)
+                                        })
+                                        .child(summary),
                                 )
                                 .when(running, |view| {
                                     view.child(
@@ -291,7 +305,7 @@ impl ListDelegate for Rows {
                                     .role(Role::Label)
                                     .aria_label(measurement(progress))
                                     .flex_shrink_0()
-                                    .text_xs()
+                                    .text_size(cx.theme().typography_tokens().sm.size)
                                     .text_color(cx.theme().muted_foreground)
                                     .debug_selector(move || {
                                         format!("installation-measurement-{}", key.1)
@@ -337,30 +351,6 @@ impl ListDelegate for Rows {
                                     .debug_selector(move || {
                                         format!("installation-actions-{}", key.1)
                                     })
-                                    .when(row.retryable, |view| {
-                                        view.child(
-                                            Button::new(("installation-retry", index.row))
-                                                .ghost()
-                                                .xsmall()
-                                                .icon(IconName::Redo)
-                                                .text_color(tone)
-                                                .tooltip(tr("installation_retry"))
-                                                .accessibility_label(tr("installation_retry"))
-                                                .debug_selector(move || {
-                                                    format!("installation-retry-{}", key.1)
-                                                })
-                                                .on_action(move |_: &Confirm, window, cx| {
-                                                    let _ = retry_action.update(cx, |queue, cx| {
-                                                        queue.retry(key, window, cx)
-                                                    });
-                                                })
-                                                .on_click(move |_, window, cx| {
-                                                    let _ = retry.update(cx, |queue, cx| {
-                                                        queue.retry(key, window, cx)
-                                                    });
-                                                }),
-                                        )
-                                    })
                                     .child(
                                         Button::new(("installation-remove", index.row))
                                             .ghost()
@@ -386,7 +376,31 @@ impl ListDelegate for Rows {
                                                     queue.remove(key, window, cx)
                                                 });
                                             }),
-                                    ),
+                                    )
+                                    .when(row.retryable, |view| {
+                                        view.child(
+                                            Button::new(("installation-retry", index.row))
+                                                .ghost()
+                                                .xsmall()
+                                                .icon(IconName::Redo)
+                                                .text_color(tone)
+                                                .tooltip(tr("installation_retry"))
+                                                .accessibility_label(tr("installation_retry"))
+                                                .debug_selector(move || {
+                                                    format!("installation-retry-{}", key.1)
+                                                })
+                                                .on_action(move |_: &Confirm, window, cx| {
+                                                    let _ = retry_action.update(cx, |queue, cx| {
+                                                        queue.retry(key, window, cx)
+                                                    });
+                                                })
+                                                .on_click(move |_, window, cx| {
+                                                    let _ = retry.update(cx, |queue, cx| {
+                                                        queue.retry(key, window, cx)
+                                                    });
+                                                }),
+                                        )
+                                    }),
                             )
                         }),
                 ),

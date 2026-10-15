@@ -262,6 +262,17 @@ fn stops_and_transcribes(cx: &mut TestAppContext) {
             let speech = view.read(cx).dictation.speech.as_ref().unwrap();
             assert!(speech.read(cx).levels().any(|level| level > 0.5));
         });
+        let bars: Vec<_> = (0..4)
+            .map(|index| {
+                visual
+                    .debug_bounds(Box::leak(
+                        format!("dictation-waveform-bar-{index}").into_boxed_str(),
+                    ))
+                    .unwrap()
+            })
+            .collect();
+        assert!(bars[2].size.height > bars[0].size.height);
+        assert!(bars[3].size.height > bars[1].size.height);
         assert!(visual.debug_bounds("live-chat-send").is_none());
         fixture::tap(visual, "dictation-toggle");
         assert!(view.read_with(visual, |view, _| view.dictation.phase

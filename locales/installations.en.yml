@@ -1,4 +1,5 @@
 installation_title: "Installations"
+installation_empty: "No installations"
 installation_hide: "Hide"
 installation_waiting: "Waiting"
 installation_starting: "Starting"

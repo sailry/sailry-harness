@@ -330,11 +330,14 @@ fn frames_each_resource_task(cx: &mut TestAppContext) {
             };
             let row = bounds("row");
             let title = bounds("title");
+            let status_text = bounds("status");
             let icon = bounds("icon");
-            assert_eq!(row.size.height, rem * 2.75);
+            assert_eq!(row.size.height, rem * 3.5);
             assert!(row.left() >= list.left() && row.right() <= list.right());
             assert!(title.left() >= icon.right());
             assert!(title.right() <= row.right());
+            assert_eq!(status_text.left(), title.left());
+            assert!(title.bottom() <= status_text.top());
             assert!((icon.center().y - row.center().y).abs() <= px(1.));
             let amount = (*request == tasks[1]).then(|| bounds("measurement"));
             let progress = visual.debug_bounds(Box::leak(
@@ -351,7 +354,7 @@ fn frames_each_resource_task(cx: &mut TestAppContext) {
                 );
             } else {
                 let progress = progress.unwrap();
-                assert!(title.bottom() <= progress.top());
+                assert!(status_text.bottom() <= progress.top());
                 assert_eq!(progress.size.height, px(2.));
                 assert!(progress.left() == title.left() && progress.right() == title.right());
                 assert!(progress.bottom() <= row.bottom());
@@ -501,7 +504,7 @@ fn icon_actions_preserve_completion_gates(cx: &mut TestAppContext) {
             });
             if retryable {
                 let retry = visual.debug_bounds(selector("retry")).unwrap();
-                assert!(retry.right() <= remove.left());
+                assert!(remove.right() <= retry.left());
                 assert!((retry.center().y - row.center().y).abs() <= px(1.));
                 visual.simulate_click(retry.center(), Modifiers::default());
                 visual.run_until_parked();
@@ -636,7 +639,17 @@ fn hide_reopens_the_same_list(cx: &mut TestAppContext) {
     visual.simulate_click(trigger.center(), Modifiers::default());
     visual.run_until_parked();
     visual.update(|window, cx| window.render_frame(cx));
-    assert!(visual.debug_bounds("installation-empty").is_some());
+    assert!(visual.debug_bounds("empty-installation_empty").is_some());
+    assert!(
+        visual
+            .debug_bounds("empty-icon-installation_empty")
+            .is_some()
+    );
+    assert!(
+        visual
+            .debug_bounds("empty-title-installation_empty")
+            .is_some()
+    );
     assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
     visual.simulate_keystrokes("escape");
     visual.run_until_parked();

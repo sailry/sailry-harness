@@ -1,8 +1,10 @@
 use super::*;
+use gpui_kit::base::StyledExt as _;
 use gpui_kit::component::{
     ActiveTheme as _, Icon, Selectable as _,
     badge::Badge,
     button::{Button, ButtonVariants},
+    h_flex,
     popover::Popover,
     v_flex,
 };
@@ -61,7 +63,8 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
             });
         })
         .w(px(320.).min(window.viewport_size().width - px(32.)))
-        .p_2()
+        .p_0()
+        .rounded(cx.theme().radius_lg)
         .trigger(
             Button::new("installations-open")
                 .ghost()
@@ -120,29 +123,33 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
                 .test_support()
                 .w_full()
                 .debug_selector(|| "installation-panel".into())
-                .gap_2()
+                .p_2()
+                .overflow_hidden()
                 .child(
-                    div()
+                    h_flex()
+                        .w_full()
+                        .h_10()
+                        .flex_shrink_0()
                         .px_2()
-                        .py_1()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(tr("installation_title")),
+                        .gap_1()
+                        .child(
+                            div()
+                                .flex_1()
+                                .text_size(cx.theme().typography_tokens().sm.size)
+                                .font_semibold()
+                                .child(tr("installation_title")),
+                        ),
                 )
                 .child(
                     div()
                         .debug_selector(|| "installation-list".into())
                         .when(queue.entries.is_empty(), |panel| {
-                            panel.child(
-                                div()
-                                    .debug_selector(|| "installation-empty".into())
-                                    .px_2()
-                                    .py_5()
-                                    .text_sm()
-                                    .text_center()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(tr("composer_todo_empty")),
-                            )
+                            panel.child(crate::empty_state::list_with_text_size(
+                                Icon::new(gpui_kit::assets::IconName::Download),
+                                "installation_empty",
+                                cx.theme().typography_tokens().sm.size,
+                                cx,
+                            ))
                         })
                         .when(!queue.entries.is_empty(), |panel| {
                             panel.child(

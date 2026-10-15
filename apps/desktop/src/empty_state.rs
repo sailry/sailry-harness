@@ -15,18 +15,35 @@ pub(crate) fn content(icon: Icon, label: SharedString, id: SharedString, cx: &Ap
         .items_center()
         .justify_center()
         .p_6()
-        .child(message(icon, label, id, cx).max_w_80())
+        .child(message(icon, label, id, None, cx).max_w_80())
 }
 
 pub(crate) fn list(icon: IconName, label: &'static str, cx: &App) -> Div {
     list_content(icon.into(), crate::tr(label), label.into(), cx)
 }
 
-pub(crate) fn list_content(icon: Icon, label: SharedString, id: SharedString, cx: &App) -> Div {
-    message(icon, label, id, cx).flex_shrink_0().py_10()
+pub(crate) fn list_with_text_size(
+    icon: Icon,
+    label: &'static str,
+    text_size: Pixels,
+    cx: &App,
+) -> Div {
+    message(icon, crate::tr(label), label.into(), Some(text_size), cx)
+        .flex_shrink_0()
+        .py_10()
 }
 
-fn message(icon: Icon, label: SharedString, id: SharedString, cx: &App) -> Div {
+pub(crate) fn list_content(icon: Icon, label: SharedString, id: SharedString, cx: &App) -> Div {
+    message(icon, label, id, None, cx).flex_shrink_0().py_10()
+}
+
+fn message(
+    icon: Icon,
+    label: SharedString,
+    id: SharedString,
+    text_size: Option<Pixels>,
+    cx: &App,
+) -> Div {
     let title_id = id.clone();
     let icon_id = id.clone();
     v_flex()
@@ -59,6 +76,7 @@ fn message(icon: Icon, label: SharedString, id: SharedString, cx: &App) -> Div {
                     )
                     .title(
                         EmptyTitle::new()
+                            .when_some(text_size, |title, text_size| title.text_size(text_size))
                             .font_weight(FontWeight::NORMAL)
                             .text_color(cx.theme().muted_foreground)
                             .child(

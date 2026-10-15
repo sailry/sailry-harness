@@ -1,6 +1,28 @@
 use super::*;
 use sailry_model_assets::Download;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct AttemptFailure {
+    key: &'static str,
+    stage: &'static str,
+}
+
+impl AttemptFailure {
+    pub(super) fn acquisition(key: &'static str) -> Self {
+        Self {
+            key,
+            stage: "acquisition",
+        }
+    }
+
+    pub(super) fn validation(failure: validation::Failure) -> Self {
+        Self {
+            key: failure.key(),
+            stage: failure.stage(),
+        }
+    }
+}
+
 impl Manager {
     pub fn start(
         self: &Arc<Self>,
@@ -112,7 +134,7 @@ impl Manager {
                     .await
                     .map_err(error_key)
             };
-            let result = match result {
+            let result = match result.map_err(AttemptFailure::acquisition) {
                 Ok(_) if !stopping.is_cancelled() => {
                     manager.progress(
                         id,
@@ -129,11 +151,18 @@ impl Manager {
                     let tokens = path.join("tokens.txt");
                     tokio::task::spawn_blocking(move || validation::check(&graph, &tokens))
                         .await
-                        .unwrap_or(Err("dictation_model_invalid"))
+                        .unwrap_or_else(|_| Err(validation::Failure::worker()))
+                        .map_err(AttemptFailure::validation)
                 }
-                Ok(_) => Err("dictation_cancelled"),
+                Ok(_) => Err(AttemptFailure::acquisition("dictation_cancelled")),
                 Err(error) => Err(error),
             };
+            let result = result.map_err(|failure| {
+                if failure.key != "dictation_cancelled" {
+                    diagnostic(request, id, failure).emit();
+                }
+                failure.key
+            });
             manager.finish(id, result, &stopping);
         });
         Ok(cancel)
@@ -236,4 +265,25 @@ impl Manager {
         drop(data);
         self.changed();
     }
+}
+
+pub(super) fn diagnostic(
+    request: RequestId,
+    id: Option<ModelId>,
+    failure: AttemptFailure,
+) -> sailry_node_runtime::logging::Entry {
+    use sailry_node_runtime::logging::{Area, Entry, Phase};
+    use sailry_protocol::ErrorCode;
+
+    let mut entry = Entry::new(Area::Model, Phase::Failed);
+    entry.context.request = Some(request);
+    entry.context.model = Some(id.map_or_else(|| "sensevoice-int8".into(), |id| id.to_string()));
+    entry.source_kind = Some("speech_installation");
+    entry.reason = Some(failure.stage);
+    entry.code = Some(if failure.key == "dictation_download" {
+        ErrorCode::Unavailable
+    } else {
+        ErrorCode::Internal
+    });
+    entry
 }

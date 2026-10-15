@@ -133,6 +133,12 @@ impl Manager {
         self.data.lock().unwrap().outcomes.get(&request).copied()
     }
 
+    pub fn latest_outcome(&self, id: Option<ModelId>) -> Option<(RequestId, Result<()>)> {
+        let data = self.data.lock().unwrap();
+        let request = *data.requests.get(&id)?;
+        Some((request, *data.outcomes.get(&request)?))
+    }
+
     pub fn dismiss(&self, request: RequestId) -> Result<()> {
         let mut data = self.data.lock().unwrap();
         if data

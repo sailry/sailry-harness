@@ -137,10 +137,10 @@ impl Queue {
         };
         let manager = source.manager.clone();
         let runtime = source.runtime.clone();
-        // Only the controller's own final native validation/index result removes
-        // a successful task; a missing feed row does not establish an outcome.
-        self.entries.retain(|key, _| {
-            key.0 != Location::Controller || manager.outcome(key.1) != Some(Ok(()))
+        // A final controller result removes its row. A newer success for the
+        // same model also supersedes an older failed attempt; disappearance alone does not.
+        self.entries.retain(|key, entry| {
+            key.0 != Location::Controller || !completed(&manager, &entry.resource, key.1)
         });
         self.accept(
             Location::Controller,
@@ -154,20 +154,8 @@ impl Queue {
             if key.0 != Location::Controller {
                 continue;
             }
-            let Resource::Model {
-                kind: Kind::Speech,
-                id,
-            } = &entry.resource
-            else {
+            let Some(id) = model(&entry.resource) else {
                 continue;
-            };
-            let id: Option<ModelId> = if id == "sensevoice-int8" {
-                None
-            } else {
-                let Ok(id) = id.parse() else {
-                    continue;
-                };
-                Some(id)
             };
             let retry_manager = manager.clone();
             let retry_runtime = runtime.clone();
@@ -203,6 +191,30 @@ impl Queue {
             Err(error) => crate::feedback::info("", tr(error).as_ref(), window, cx),
         }
     }
+}
+
+fn model(resource: &Resource) -> Option<Option<ModelId>> {
+    let Resource::Model {
+        kind: Kind::Speech,
+        id,
+    } = resource
+    else {
+        return None;
+    };
+    if id == "sensevoice-int8" {
+        Some(None)
+    } else {
+        id.parse().ok().map(Some)
+    }
+}
+
+fn completed(manager: &Manager, resource: &Resource, request: RequestId) -> bool {
+    if manager.outcome(request) == Some(Ok(())) {
+        return true;
+    }
+    model(resource)
+        .and_then(|id| manager.latest_outcome(id))
+        .is_some_and(|(latest, outcome)| latest != request && outcome.is_ok())
 }
 
 fn start(

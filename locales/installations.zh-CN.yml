@@ -1,4 +1,5 @@
 installation_title: "安装任务"
+installation_empty: "暂无安装任务"
 installation_hide: "隐藏"
 installation_waiting: "等待"
 installation_starting: "启动中"
