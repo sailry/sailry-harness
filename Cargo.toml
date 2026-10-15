@@ -45,11 +45,11 @@ sailry-content = { path = "crates/content" }
 objc2-application-services = { version = "=0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXUIElement", "AXError", "AXAttributeConstants", "AXRoleConstants", "AXActionConstants", "AXValue"] }
 objc2-core-graphics = { version = "=0.3.2", features = ["CGWindow"] }
 rfd = { version = "=0.17.2", default-features = false, features = ["gtk3", "common-controls-v6"] }
-gpui-kit = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["tree-sitter-languages", "gpui-fast"] }
-gpui-fps = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["gpui-fast"] }
-gpui-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["gpui-fast"] }
-gpui-component-shell = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["gpui-fast"] }
-gpui-webview = { package = "gpui-wry", git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab", features = ["gpui-fast"] }
+gpui-kit = { git = "https://github.com/dux-web/gpui-component", rev = "bcb886288b2b1435e201c98fd99fd5675b3d15ad", features = ["tree-sitter-languages", "gpui-fast"] }
+gpui-fps = { git = "https://github.com/dux-web/gpui-component", rev = "bcb886288b2b1435e201c98fd99fd5675b3d15ad", features = ["gpui-fast"] }
+gpui-shell = { git = "https://github.com/dux-web/gpui-component", rev = "bcb886288b2b1435e201c98fd99fd5675b3d15ad", features = ["gpui-fast"] }
+gpui-component-shell = { git = "https://github.com/dux-web/gpui-component", rev = "bcb886288b2b1435e201c98fd99fd5675b3d15ad", features = ["gpui-fast"] }
+gpui-webview = { package = "gpui-wry", git = "https://github.com/dux-web/gpui-component", rev = "bcb886288b2b1435e201c98fd99fd5675b3d15ad", features = ["gpui-fast"] }
 wry = { package = "lb-wry", version = "=0.53.3", features = ["transparent", "devtools"] }
 rust-i18n = "=4.2.0"
 sys-locale = "=0.3.2"

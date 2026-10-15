@@ -197,7 +197,6 @@ impl Shell {
                                     .child(super::surface::result(
                                         &format!("{block_id}-{call}"),
                                         div()
-                                            .px_3()
                                             .py_2()
                                             .child(self.linked_message(
                                                 format!("{block_id}-{call}-result"),
@@ -254,7 +253,7 @@ impl Shell {
                             .child(crate::ui::thinking::render(
                                 format!("{id}-orb"),
                                 turn.status.phase_label(),
-                                px(20.),
+                                super::disclosure::ICON_SIZE.to_pixels(cx.theme().font_size),
                             )),
                     )
                     .when(matches!(turn.status, Status::Running(_)), |row| {
@@ -459,7 +458,14 @@ impl Shell {
                     shell.expand_transcript_group(location, block_index, !open, cx);
                 })),
             )
-            .content(div().min_w_0().pt_1().pb_2().child(content))
+            .content(
+                if matches!(&turn.blocks[block_index], Block::Reasoning(_)) {
+                    // Reasoning already owns the same shared disclosure rail.
+                    div().min_w_0().pt_1().pb_2().child(content)
+                } else {
+                    super::disclosure::body(content, cx).pt_1().pb_2()
+                },
+            )
             .into_any_element()
     }
 

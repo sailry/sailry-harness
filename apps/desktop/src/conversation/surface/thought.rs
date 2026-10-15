@@ -60,72 +60,66 @@ impl RenderOnce for Thought {
         let viewport_id = self.id.clone();
         let content_id = self.id.clone();
         let follow_id = self.id.clone();
-        div()
-            .min_w_0()
-            .w_full()
-            .ml(px(10.))
-            .pl(px(12.))
-            .border_l_1()
-            .border_color(cx.theme().border)
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
-            .child(
-                div()
-                    .relative()
-                    .w_full()
-                    .min_w_0()
-                    .child(
-                        div()
-                            .id(self.id.clone())
-                            .debug_selector(move || format!("{viewport_id}-scroll"))
-                            .w_full()
-                            .min_w_0()
-                            .max_h(px(160.))
-                            .overflow_y_scroll()
-                            .track_scroll(&scroll)
-                            .child(
-                                div()
-                                    .w_full()
-                                    .min_w_0()
-                                    .debug_selector(move || format!("{content_id}-content"))
-                                    .child(self.content.scroll_handle(scroll.clone())),
-                            ),
+        crate::conversation::disclosure::body(
+            div()
+                .relative()
+                .w_full()
+                .min_w_0()
+                .child(
+                    div()
+                        .id(self.id.clone())
+                        .debug_selector(move || format!("{viewport_id}-scroll"))
+                        .w_full()
+                        .min_w_0()
+                        .max_h(px(160.))
+                        .overflow_y_scroll()
+                        .track_scroll(&scroll)
+                        .child(
+                            div()
+                                .w_full()
+                                .min_w_0()
+                                .debug_selector(move || format!("{content_id}-content"))
+                                .child(self.content.scroll_handle(scroll.clone())),
+                        ),
+                )
+                .vertical_scrollbar(&scroll)
+                // Kit implements this observer as an absolute canvas child.
+                // Keep it outside the tracked content: GPUI includes child
+                // bounds in the scroll extent, even for absolute children.
+                .on_prepaint(move |_, _, cx| {
+                    if measure.update(cx, |state, _| state.update_extent()) {
+                        // Notify outside drawing so the keyed state's
+                        // observer invalidates its owner after clamping.
+                        cx.defer(move |cx| measure.update(cx, |_, cx| cx.notify()));
+                    }
+                })
+                .child(ScrollableMask::new(Axis::Vertical, &scroll).id(self.id.clone()))
+                .when(paused, |pane| {
+                    pane.child(
+                        div().absolute().bottom_1().right_2().child(
+                            Button::new((ElementId::from(self.id), "follow"))
+                                .debug_selector(move || format!("{follow_id}-follow"))
+                                .ghost()
+                                .small()
+                                .icon(IconName::ArrowDown)
+                                .accessibility_label(tr("turn_latest"))
+                                .on_click(move |_, _, cx| {
+                                    state.update(cx, |state, cx| {
+                                        state.paused = false;
+                                        state.scroll.set_offset(point(
+                                            state.scroll.offset().x,
+                                            -state.maximum,
+                                        ));
+                                        cx.notify();
+                                    })
+                                }),
+                        ),
                     )
-                    .vertical_scrollbar(&scroll)
-                    // Kit implements this observer as an absolute canvas child.
-                    // Keep it outside the tracked content: GPUI includes child
-                    // bounds in the scroll extent, even for absolute children.
-                    .on_prepaint(move |_, _, cx| {
-                        if measure.update(cx, |state, _| state.update_extent()) {
-                            // Notify outside drawing so the keyed state's
-                            // observer invalidates its owner after clamping.
-                            cx.defer(move |cx| measure.update(cx, |_, cx| cx.notify()));
-                        }
-                    })
-                    .child(ScrollableMask::new(Axis::Vertical, &scroll).id(self.id.clone()))
-                    .when(paused, |pane| {
-                        pane.child(
-                            div().absolute().bottom_1().right_2().child(
-                                Button::new((ElementId::from(self.id), "follow"))
-                                    .debug_selector(move || format!("{follow_id}-follow"))
-                                    .ghost()
-                                    .small()
-                                    .icon(IconName::ArrowDown)
-                                    .accessibility_label(tr("turn_latest"))
-                                    .on_click(move |_, _, cx| {
-                                        state.update(cx, |state, cx| {
-                                            state.paused = false;
-                                            state.scroll.set_offset(point(
-                                                state.scroll.offset().x,
-                                                -state.maximum,
-                                            ));
-                                            cx.notify();
-                                        })
-                                    }),
-                            ),
-                        )
-                    }),
-            )
+                }),
+            cx,
+        )
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
     }
 }
 

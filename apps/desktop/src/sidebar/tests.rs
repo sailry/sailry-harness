@@ -1,6 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::Root;
+use gpui_kit::test::TestWindowExt as _;
 use std::time::Duration;
 
 mod scroll;
@@ -160,24 +161,37 @@ fn preview_locations_stay_inline(cx: &mut TestAppContext) {
         .debug_bounds("recent-preview-2-guide-vertical")
         .unwrap();
     assert!(guide.left() > recent.left() && guide.right() < recent.left() + px(30.));
-    assert!(vertical.bottom() <= recent.center().y + px(1.));
+    assert!(vertical.bottom() > recent.center().y);
+    let older = visual.debug_bounds("recent-preview-1").unwrap();
+    assert!(recent.top() < older.top());
+    visual.simulate_click(older.center(), Modifiers::default());
+    visual.run_until_parked();
+    visual.update(|window, cx| window.draw(cx).clear(cx));
+    assert!(
+        visual.debug_bounds("recent-preview-2").unwrap().top()
+            < visual.debug_bounds("recent-preview-1").unwrap().top()
+    );
     for (row, branch) in [
         ("session-2", "session-branch-2"),
         ("recent-preview-2", "recent-preview-2-branch"),
     ] {
         let bounds = visual.debug_bounds(row).unwrap();
-        assert!(visual.debug_bounds(branch).is_none());
+        assert!(visual.update(|window, _| window.try_find(branch).is_none()));
         visual.simulate_mouse_move(bounds.center(), None, Modifiers::default());
         visual.executor().advance_clock(Duration::from_secs(1));
         visual.run_until_parked();
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        assert!(visual.debug_bounds(branch).is_some());
+        assert!(visual.update(|window, _| {
+            window
+                .try_find(branch)
+                .is_some_and(|branch| branch.visible())
+        }));
         assert!(visual.debug_bounds("tooltip-popup").is_none());
         assert_eq!(visual.debug_bounds(row), Some(bounds));
         visual.simulate_mouse_move(point(px(1.), px(1.)), None, Modifiers::default());
         visual.run_until_parked();
         visual.update(|window, cx| window.draw(cx).clear(cx));
-        assert!(visual.debug_bounds(branch).is_none());
+        assert!(visual.update(|window, _| window.try_find(branch).is_none()));
     }
     visual.update(|window, _| window.remove_window());
 }

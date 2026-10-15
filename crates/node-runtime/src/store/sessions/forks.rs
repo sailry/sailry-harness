@@ -57,12 +57,13 @@ fn create(
     // but must not prevent preserving or branching read-only history.
     let mut session = Session {
         id: SessionId::new(),
+        creation_order: 0,
         archived: false,
         revision: 1,
         fork: None,
         ..previous
     };
-    insert(db, &session)?;
+    session.creation_order = insert(db, &session)?;
     db.execute(
         "INSERT INTO agent_state(owner,key,body) SELECT ?1,key,body FROM agent_state WHERE owner=?2 AND key=?3",
         params![session.id.to_string(), source.to_string(), agent::SESSION_TITLE],

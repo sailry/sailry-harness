@@ -219,8 +219,8 @@ pub(super) fn admit(
         let (session, role) = reuse::restore(&tx, &run, &previous, &args, has_role)?;
         (session, role, false)
     } else {
-        let (session, role) = fresh::capture(&tx, database.node, &run, &previous, &args)?;
-        super::super::sessions::insert(&tx, &session)?;
+        let (mut session, role) = fresh::capture(&tx, database.node, &run, &previous, &args)?;
+        session.creation_order = super::super::sessions::insert(&tx, &session)?;
         super::super::media::freeze(&tx, session.id, Some(run.session))?;
         (session, role, true)
     };

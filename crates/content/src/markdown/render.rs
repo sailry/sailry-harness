@@ -17,10 +17,12 @@ use gpui::{
     TextLayout, TextRun, Window, canvas, div, font, img, point, prelude::*, px, quad, size,
 };
 use gpui_kit as gpui;
+use gpui_kit::base::TestSupportExt as _;
 use gpui_kit::component::{
     ActiveTheme, Sizable,
     attachment::AttachmentGroup,
     button::{Button, ButtonVariants},
+    scroll::ScrollableElement as _,
 };
 use theme::{TextStyle, Theme, Typeset};
 
@@ -1093,6 +1095,37 @@ fn text_element(
 
 fn visual(kind: super::visuals::Kind, source: &str, overlay: Overlay) -> Option<AnyElement> {
     let prepared = overlay.visuals?.get(&(kind, source.to_owned()))?;
+    if kind == super::visuals::Kind::Mermaid {
+        // Preserve the authored diagram's readable native scale. Kit scrolls
+        // wide diagrams instead of shrinking every label to fit the column.
+        let image_id = format!("markdown-diagram-image-{}", overlay.block);
+        return Some(
+            div()
+                .id(("diagram-viewport", overlay.block))
+                .test_support()
+                .w_full()
+                .min_w_0()
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(prepared.height))
+                        .min_w_0()
+                        .flex()
+                        .justify_center()
+                        .child(
+                            img(prepared.image.clone())
+                                .debug_selector(move || image_id.clone())
+                                .w(px(prepared.width))
+                                .h(px(prepared.height))
+                                .flex_shrink_0()
+                                .object_fit(ObjectFit::Contain),
+                        )
+                        .overflow_x_scrollbar()
+                        .id(("diagram-scroll", overlay.block)),
+                )
+                .into_any_element(),
+        );
+    }
     Some(
         div()
             .w_full()

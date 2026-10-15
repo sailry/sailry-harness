@@ -161,15 +161,24 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.readonly() || self.busy() {
+        if self.readonly() || self.configuration_blocked() {
             return;
         }
         config.resource = self.resource;
         config.assistant = self.assistant.clone();
         if let Some(session) = &self.session {
+            if self.config.as_ref() == Some(&config) {
+                return;
+            }
+            if self.saving_config() {
+                self.config = Some(config);
+                cx.notify();
+                return;
+            }
             if session.config == config {
                 return;
             }
+            self.config = Some(config.clone());
             self.execute(
                 Command::SetSessionConfig {
                     session: session.id,
@@ -238,8 +247,13 @@ impl View {
         let Some(attempt) = self.retry.clone() else {
             return;
         };
-        let client = attempt.client.clone();
         let submission = attempt.is_submission();
+        let configuring = attempt.is_configure();
+        let Attempt {
+            request,
+            client,
+            action,
+        } = attempt;
         self.pending = true;
         if submission {
             self.scroller.update(cx, |scroller, cx| {
@@ -247,8 +261,8 @@ impl View {
             });
         }
         self.error = None;
-        let request_id = attempt.request.id;
-        let rewind = match &attempt.request.command {
+        let request_id = request.id;
+        let rewind = match &request.command {
             Command::RewindConversation {
                 session,
                 through,
@@ -262,12 +276,13 @@ impl View {
         let job = self
             .binding
             .runtime
-            .spawn(async move { client.execute(attempt.request).await });
+            .spawn(async move { client.execute(request).await });
         self.action = Some(cx.spawn_in(window, async move |view, cx| {
             let result = job.await;
             let _ = view.update_in(cx, |view, window, cx| {
+                let config_draft = configuring.then(|| view.config.clone()).flatten();
                 view.pending = false;
-                if let Action::Document(status) = &attempt.action {
+                if let Action::Document(status) = &action {
                     let definite = match &result {
                         Ok(Ok(Output::QueuedTurn(turn)))
                             if turn.request == request_id
@@ -293,7 +308,7 @@ impl View {
                 }
                 match result {
                     Ok(Ok(Output::TurnReplaced { history, .. }))
-                        if matches!(attempt.action, Action::Replace) =>
+                        if matches!(action, Action::Replace) =>
                     {
                         view.retry = None;
                         view.editing = None;
@@ -301,10 +316,8 @@ impl View {
                             view.rewound(backup, window, cx);
                         }
                     }
-                    Ok(Ok(Output::Rewound(result)))
-                        if matches!(attempt.action, Action::Rewind(_)) =>
-                    {
-                        let Action::Rewind(through) = attempt.action else {
+                    Ok(Ok(Output::Rewound(result))) if matches!(action, Action::Rewind(_)) => {
+                        let Action::Rewind(through) = action else {
                             unreachable!()
                         };
                         if Some(result.session) == view.session()
@@ -318,9 +331,9 @@ impl View {
                         }
                     }
                     Ok(Ok(Output::Session(session)))
-                        if matches!(attempt.action, Action::Move(_) | Action::ForkAt(_)) =>
+                        if matches!(action, Action::Move(_) | Action::ForkAt(_)) =>
                     {
-                        let (worktree, fork) = match attempt.action {
+                        let (worktree, fork) = match action {
                             Action::Move(tree) => (tree, false),
                             Action::ForkAt(tree) => (tree, true),
                             _ => unreachable!(),
@@ -353,10 +366,8 @@ impl View {
                             view.error = Some("chat_action_unknown");
                         }
                     }
-                    Ok(Ok(Output::Session(session)))
-                        if matches!(attempt.action, Action::Fork(_)) =>
-                    {
-                        let Action::Fork(through) = attempt.action else {
+                    Ok(Ok(Output::Session(session))) if matches!(action, Action::Fork(_)) => {
+                        let Action::Fork(through) = action else {
                             unreachable!()
                         };
                         if session.project == view.binding.project
@@ -382,15 +393,27 @@ impl View {
                                     current.id == session.id && current.revision > session.revision
                                 })
                             })
-                            .unwrap_or(&session);
+                            .cloned()
+                            .unwrap_or_else(|| session.clone());
+                        let advanced = current.revision > session.revision;
                         view.config = Some(current.config.clone());
                         view.session = Some(current.clone());
                         view.sync_location(cx);
                         view.refresh_config(cx);
-                        if matches!(attempt.action, Action::Configure) {
-                            view.remember_config(&session.config, cx);
+                        if matches!(action, Action::Configure) {
+                            if let Some(config) =
+                                config_draft.filter(|config| config != &current.config)
+                            {
+                                if advanced {
+                                    view.error = Some("chat_config_changed");
+                                } else {
+                                    view.configure(config, window, cx);
+                                }
+                            } else {
+                                view.remember_config(&current.config, cx);
+                            }
                         }
-                        if matches!(attempt.action, Action::Create(_)) {
+                        if matches!(action, Action::Create(_)) {
                             view.bind_submission();
                             view.defaults_stop.cancel();
                             view._defaults = None;
@@ -405,7 +428,7 @@ impl View {
                             view.subscription = Some(subscription);
                             view.older = Some(older);
                             cx.emit(Event::Created(Box::new(session.clone())));
-                            let Action::Create(message) = attempt.action else {
+                            let Action::Create(message) = action else {
                                 unreachable!()
                             };
                             if !view.references_valid(&message.references) {
@@ -439,19 +462,17 @@ impl View {
                             outgoing.turn = Some(turn.id);
                         }
                         view.retry = None;
-                        if let Action::Send(message) = attempt.action {
+                        if let Action::Send(message) = action {
                             view.accept_submission(&message.attachments);
                         }
                         view.scroller
                             .update(cx, |scroller, cx| scroller.scroll_to_end(cx));
                     }
                     Ok(Ok(Output::Run(_))) => view.retry = None,
-                    Ok(Ok(Output::PluginResult(result)))
-                        if matches!(attempt.action, Action::Send(_)) =>
-                    {
+                    Ok(Ok(Output::PluginResult(result))) if matches!(action, Action::Send(_)) => {
                         view.retry = None;
                         view.outgoing = None;
-                        if let Action::Send(_) = attempt.action {
+                        if let Action::Send(_) = action {
                             view.submissions.active = None;
                             if let Some(intent) =
                                 result.get("ui_intent").and_then(|value| value.as_str())
@@ -462,8 +483,8 @@ impl View {
                         }
                     }
                     Ok(Err(error)) => {
-                        view.error = Some(
-                            if matches!(attempt.action, Action::Move(_) | Action::ForkAt(_)) {
+                        view.error =
+                            Some(if matches!(action, Action::Move(_) | Action::ForkAt(_)) {
                                 match error.code {
                                     ErrorCode::Busy => "location_busy",
                                     ErrorCode::NotFound => "worktree_unavailable",
@@ -472,8 +493,7 @@ impl View {
                                     }
                                     _ => error_key(&error),
                                 }
-                            } else if matches!(attempt.action, Action::Rewind(_) | Action::Replace)
-                            {
+                            } else if matches!(action, Action::Rewind(_) | Action::Replace) {
                                 match error.code {
                                     ErrorCode::RevisionConflict
                                     | ErrorCode::Conflict
@@ -482,20 +502,19 @@ impl View {
                                     _ => error_key(&error),
                                 }
                             } else if error.code == ErrorCode::InvalidRequest
-                                && matches!(&attempt.action,
+                                && matches!(&action,
                             Action::Send(message) if !message.attachments.is_empty())
                             {
                                 "chat_attachment_rejected"
                             } else {
                                 error_key(&error)
-                            },
-                        );
+                            });
                         if !(matches!(
                             error.code,
                             ErrorCode::OutcomeUnknown | ErrorCode::Unavailable
                         ) || error.code == ErrorCode::Busy
                             && !matches!(
-                                attempt.action,
+                                action,
                                 Action::Fork(_)
                                     | Action::ForkAt(_)
                                     | Action::Move(_)
@@ -505,14 +524,17 @@ impl View {
                         {
                             view.retry = None;
                             if matches!(
-                                attempt.action,
+                                action,
                                 Action::Send(_) | Action::Create(_) | Action::Document(..)
                             ) {
                                 view.outgoing = None;
-                                if matches!(attempt.action, Action::Send(_) | Action::Create(_)) {
+                                if matches!(action, Action::Send(_) | Action::Create(_)) {
                                     view.fail_submission(view.error.unwrap(), window, cx);
                                 }
                             }
+                        }
+                        if configuring && view.retry.is_none() {
+                            view.refresh_config(cx);
                         }
                     }
                     _ => view.error = Some("chat_action_unknown"),

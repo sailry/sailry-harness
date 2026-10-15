@@ -315,8 +315,6 @@ impl RenderOnce for Content {
                         .w_full()
                         .flex_shrink_0()
                         .pt_2()
-                        .border_t_1()
-                        .border_color(cx.theme().border)
                         .gap_2()
                         .justify_end()
                         .children(self.footer),

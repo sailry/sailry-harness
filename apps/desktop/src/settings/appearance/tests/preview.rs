@@ -46,9 +46,12 @@ fn actions(visual: &mut VisualTestContext) -> [Bounds<Pixels>; 2] {
     let content = visual.debug_bounds("theme-preview-details").unwrap();
     assert!(cancel.size.width > px(0.));
     assert!(confirm.size.width > px(0.));
-    assert_eq!(cancel.left(), content.left());
+    assert!(cancel.left() > content.left());
     assert_eq!(confirm.right(), content.right());
-    assert!(cancel.right() < confirm.left());
+    assert_eq!(
+        confirm.left() - cancel.right(),
+        visual.update(|window, _| gpui_kit::rems(0.5).to_pixels(window.rem_size()))
+    );
     assert_eq!(cancel.top(), confirm.top());
     assert_eq!(cancel.size.height, confirm.size.height);
     for button in buttons {
@@ -64,7 +67,7 @@ fn arranges_details_responsively(cx: &mut TestAppContext) {
     let source = theme::fixture::write(directory.path(), "tide");
     let visual = mount(cx, directory.path());
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
-        let mut action_widths: Option<([Pixels; 2], Pixels)> = None;
+        let mut action_sizes = None;
         for width in [420., 960.] {
             let handle = visual.update(|window, cx| {
                 Theme::change(mode, Some(window), cx);
@@ -121,17 +124,14 @@ fn arranges_details_responsively(cx: &mut TestAppContext) {
                     "right overflow: {selector}"
                 );
             }
-            let widths = actions(visual).map(|button| button.size.width);
-            let content_width = visual
-                .debug_bounds("theme-preview-details")
-                .unwrap()
-                .size
-                .width;
-            if let Some((previous, previous_content)) = action_widths {
-                assert_eq!(widths[1], previous[1]);
-                assert_eq!(widths[0] - previous[0], content_width - previous_content);
+            let sizes = actions(visual).map(|button| button.size);
+            if let Some(previous) = action_sizes {
+                assert_eq!(
+                    sizes, previous,
+                    "footer actions changed size at width {width}"
+                );
             }
-            action_widths = Some((widths, content_width));
+            action_sizes = Some(sizes);
             click(visual, "theme-import-cancel");
             assert!(!visual.update(|window, cx| window.has_active_dialog(cx)));
             assert_eq!(

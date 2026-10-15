@@ -144,7 +144,7 @@ pub(super) fn configure(colors: &mut ThemeConfigColors, dark: bool) {
     colors.tab_active_foreground = Some(if dark { "#ffffff" } else { "#181818" }.into());
     colors.link_hover = Some(if dark { "#ffffff" } else { "#000000" }.into());
     // Overlays need stronger fills to separate their text from content underneath.
-    colors.popover = Some(if dark { "#242424f5" } else { base }.into());
+    colors.popover = Some(if dark { "#242424" } else { base }.into());
     colors.tab = Some("#00000000".into());
     colors.scrollbar = Some("#00000000".into());
     colors.scrollbar_thumb = Some(border.into());

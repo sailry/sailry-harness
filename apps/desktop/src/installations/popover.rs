@@ -50,7 +50,7 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
     let pending = visible(cx);
     let change = owner.downgrade();
     Popover::new("installations-popover")
-        .anchor(Anchor::BottomLeft)
+        .anchor(Anchor::LeftCenter)
         .open(open)
         .on_open_change(move |open, window, cx| {
             let _ = change.update(cx, |queue, cx| {
@@ -112,6 +112,8 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
         .content(move |_, window, cx| {
             let queue = owner.read(cx);
             v_flex()
+                .id("installation-panel")
+                .test_support()
                 .w_full()
                 .debug_selector(|| "installation-panel".into())
                 .gap_2()

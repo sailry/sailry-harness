@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::DialogStyle as _;
 use crate::{plugins::host::sdk::confirmed, tr};
 use gpui_kit::component::{
     WindowExt,
@@ -146,10 +147,11 @@ impl Controller {
         cx: &mut Context<Self>,
     ) {
         let owner = cx.entity().downgrade();
-        window.open_dialog(cx, move |dialog, _, _| {
+        window.open_dialog(cx, move |dialog, _, cx| {
             let owner = owner.clone();
             let captured = startup.clone();
             dialog
+                .floating_surface(cx)
                 .title(tr("editor_code_start"))
                 .child(
                     rust_i18n::t!(

@@ -1,6 +1,7 @@
 use super::*;
 use crate::conversation::live::tests::{fixture, wait};
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use serde_json::json;
 
 mod commands;
@@ -10,7 +11,7 @@ mod status;
 
 fn redraw(visual: &mut VisualTestContext) {
     visual.run_until_parked();
-    visual.update(|window, cx| window.draw(cx).clear(cx));
+    visual.update(|window, cx| window.render_frame(cx));
 }
 
 #[gpui_kit::test]
@@ -100,7 +101,11 @@ fn manual_activity_disclosure(cx: &mut TestAppContext) {
         redraw(visual);
         assert!(bounds(visual, &group).is_some());
         assert!(bounds(visual, &row).is_none());
-        assert!(bounds(visual, &format!("{group}-summary-shimmer")).is_some());
+        assert!(visual.update(|window, _| {
+            window
+                .try_find(format!("{group}-summary-shimmer"))
+                .is_some()
+        }));
         assert!(bounds(visual, &format!("live-turn-phase-{turn}-turn_generating")).is_none());
         let summaries = [&running.calls[0], &running.calls[1]];
         let heading = group_summary(&summaries, &completed.snapshot.as_ref().unwrap().page);
@@ -133,10 +138,20 @@ fn manual_activity_disclosure(cx: &mut TestAppContext) {
             });
         view.update(visual, |view, cx| view.update_history(gap, cx));
         redraw(visual);
-        assert!(bounds(visual, &format!("{group}-summary-shimmer")).is_some());
-        assert!(bounds(visual, &format!("{row}-summary-shimmer")).is_none());
+        assert!(visual.update(|window, _| {
+            window
+                .try_find(format!("{group}-summary-shimmer"))
+                .is_some()
+        }));
+        assert!(
+            visual.update(|window, _| window.try_find(format!("{row}-summary-shimmer")).is_none())
+        );
         let last_row = format!("live-{turn}-tools-{}", completed.calls[1].source.key());
-        assert!(bounds(visual, &format!("{last_row}-summary-shimmer")).is_some());
+        assert!(visual.update(|window, _| {
+            window
+                .try_find(format!("{last_row}-summary-shimmer"))
+                .is_some()
+        }));
         assert!(
             bounds(
                 visual,
@@ -150,7 +165,11 @@ fn manual_activity_disclosure(cx: &mut TestAppContext) {
         view.update(visual, |view, cx| view.update_history(running, cx));
         redraw(visual);
         assert!(bounds(visual, &output).is_some());
-        assert!(bounds(visual, &format!("{group}-summary-shimmer")).is_none());
+        assert!(visual.update(|window, _| {
+            window
+                .try_find(format!("{group}-summary-shimmer"))
+                .is_none()
+        }));
         assert!(bounds(visual, &format!("live-turn-phase-{turn}-turn_generating")).is_some());
         fixture::tap(visual, &group);
         view.update(visual, |view, cx| {

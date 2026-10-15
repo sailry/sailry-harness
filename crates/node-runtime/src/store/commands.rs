@@ -1107,12 +1107,13 @@ pub(super) fn defaults(db: &Connection) -> Result<Defaults, Fault> {
 }
 
 pub(super) fn session(db: &Connection, id: SessionId) -> Result<Session, Fault> {
-    type StoredSession = (Option<String>, i64, Vec<u8>, String, bool);
-    let row: Option<StoredSession> = db.query_row("SELECT s.project,s.revision,r.config,s.worktree,s.state='archived' FROM sessions s JOIN session_revisions r ON r.session=s.id AND r.revision=s.revision WHERE s.id=?1 AND s.state!='removed'", [id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))).optional().map_err(storage_error)?;
-    let (project, revision, config, worktree, archived) =
+    type StoredSession = (i64, Option<String>, i64, Vec<u8>, String, bool);
+    let row: Option<StoredSession> = db.query_row("SELECT s.rowid,s.project,s.revision,r.config,s.worktree,s.state='archived' FROM sessions s JOIN session_revisions r ON r.session=s.id AND r.revision=s.revision WHERE s.id=?1 AND s.state!='removed'", [id.to_string()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))).optional().map_err(storage_error)?;
+    let (creation_order, project, revision, config, worktree, archived) =
         row.ok_or_else(|| Fault::new(ErrorCode::NotFound, "session does not exist on this Node"))?;
     Ok(Session {
         id,
+        creation_order: creation_order.try_into().map_err(storage_error)?,
         archived,
         activity: super::agent::activity::read(db, id)?,
         project: project

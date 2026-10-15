@@ -21,6 +21,8 @@ pub(crate) struct Sessions {
     groupings: std::collections::BTreeMap<String, sailry_protocol::tool::Grouping>,
     presentations: std::collections::BTreeMap<String, sailry_protocol::tool::Presentation>,
     displays: std::collections::BTreeMap<String, sailry_protocol::tool::Display>,
+    bindings: std::collections::BTreeMap<String, ApprovalBinding>,
+    connections: Vec<sailry_protocol::connection::Resource>,
 }
 
 impl Sessions {
@@ -33,6 +35,8 @@ impl Sessions {
             presentations: Default::default(),
             groupings: Default::default(),
             displays: Default::default(),
+            bindings: Default::default(),
+            connections: Default::default(),
         }
     }
 
@@ -69,6 +73,96 @@ impl Sessions {
         self.displays = displays;
         self
     }
+
+    pub(crate) fn with_connection_context(
+        mut self,
+        bindings: std::collections::BTreeMap<String, ApprovalBinding>,
+        connections: Vec<sailry_protocol::connection::Resource>,
+    ) -> Self {
+        self.bindings = bindings;
+        self.connections = connections;
+        self
+    }
+
+    async fn current_displays(
+        &self,
+        event: &AdkEvent,
+    ) -> adk_core::Result<std::collections::BTreeMap<String, sailry_protocol::tool::Display>> {
+        use sailry_protocol::{connection::Resource, tool::Operation};
+
+        let mut displays = self.displays.clone();
+        let mut pending = Vec::new();
+        for part in event
+            .content()
+            .into_iter()
+            .flat_map(|content| &content.parts)
+        {
+            let adk_core::Part::FunctionCall { name, args, .. } = part else {
+                continue;
+            };
+            let Some(field) = displays
+                .get(name)
+                .and_then(|display| display.input.as_ref())
+                .and_then(|input| input.summary.as_ref())
+                .filter(|field| {
+                    field.format == Some(sailry_protocol::tool::InputFormat::Connection)
+                })
+            else {
+                continue;
+            };
+            let Some(id) = field.read(args) else {
+                continue;
+            };
+            if field.names.contains_key(id) {
+                continue;
+            }
+            let Some(binding) = self.bindings.get(name) else {
+                continue;
+            };
+            let target = match binding.operation {
+                Some(Operation::RunSsh | Operation::TransferSsh) => {
+                    id.parse().ok().map(Resource::Ssh)
+                }
+                Some(
+                    Operation::BrowseDatabase
+                    | Operation::QueryDatabase
+                    | Operation::ExecuteDatabase,
+                ) => id.parse().ok().map(Resource::Database),
+                _ => None,
+            };
+            if let Some(target) = target {
+                pending.push((name.clone(), id.to_owned(), binding.owner.clone(), target));
+            }
+        }
+        if pending.is_empty() {
+            return Ok(displays);
+        }
+        let names = self
+            .ingress
+            .connection_names(
+                self.turn,
+                pending
+                    .iter()
+                    .map(|(_, _, package, target)| (package.clone(), *target))
+                    .collect(),
+                self.connections.clone(),
+            )
+            .await
+            .map_err(adk_error)?;
+        for ((tool, id, _, _), name) in pending.into_iter().zip(names) {
+            let Some(name) = name else {
+                continue;
+            };
+            if let Some(field) = displays
+                .get_mut(&tool)
+                .and_then(|display| display.input.as_mut())
+                .and_then(|input| input.summary.as_mut())
+            {
+                field.names.insert(id, name);
+            }
+        }
+        Ok(displays)
+    }
 }
 
 #[async_trait]
@@ -104,6 +198,7 @@ impl SessionService for Sessions {
             .map_err(|_| AdkError::session("Node storage is closed"))?
     }
     async fn append_event(&self, session_id: &str, mut event: AdkEvent) -> adk_core::Result<()> {
+        let displays = self.current_displays(&event).await?;
         let mut aliases = Vec::new();
         if let Some(home) = self.ingress.environment.home() {
             aliases.push(sailry_protocol::tool::Alias {
@@ -119,7 +214,7 @@ impl SessionService for Sessions {
                 let adk_core::Part::FunctionCall { name, args, .. } = part else {
                     return None;
                 };
-                let field = self.displays.get(name)?.input.as_ref()?.summary.as_ref()?;
+                let field = displays.get(name)?.input.as_ref()?.summary.as_ref()?;
                 (field.format == Some(sailry_protocol::tool::InputFormat::Command))
                     .then(|| field.read(args))
                     .flatten()
@@ -144,7 +239,7 @@ impl SessionService for Sessions {
             &mut event,
             &self.presentations,
             &self.groupings,
-            &self.displays,
+            &displays,
             &aliases,
         )?;
         if event.author == "user" {

@@ -21,8 +21,6 @@ impl View {
         let text = !self.input.read(cx).value().trim().is_empty() || self.has_attachments();
         let busy = self.busy();
         let dictating = self.dictation.phase != super::dictation::Phase::Idle;
-        // Keep configuration writes from briefly dimming otherwise available controls.
-        let saving = self.saving_config() && self.connected() && !self.readonly();
         let send_blocked = !self.connected()
             || (!active
                 && (!text
@@ -45,7 +43,6 @@ impl View {
                                 .rounded_full()
                                 .icon(IconName::Plus)
                                 .disabled(self.attachments_blocked())
-                                .when(saving, |button| button.text_color(cx.theme().foreground))
                                 .tooltip(tr("composer_attachment"))
                                 .debug_selector(|| "live-attach".into())
                                 .accessibility_label(tr("composer_attachment"))
@@ -116,11 +113,6 @@ impl View {
                             .flex_shrink_0()
                             .rounded_full()
                             .debug_selector(|| "live-chat-send".into())
-                            .when(saving && !send_blocked, |button| {
-                                button
-                                    .bg(cx.theme().tokens.button_primary.background)
-                                    .text_color(cx.theme().button_primary_foreground)
-                            })
                             .tooltip(tr(if active { "chat_stop" } else { "send" }))
                             .accessibility_label(tr(if active { "chat_stop" } else { "send" }))
                             .on_click(cx.listener(

@@ -44,6 +44,11 @@ impl Native {
         let page = view.read(cx).handle();
         Ok(Self { page, view })
     }
+
+    #[cfg(feature = "workload-tests")]
+    pub(crate) fn set_visible(&self, visible: bool, cx: &mut App) -> wry::Result<()> {
+        self.view.update(cx, |page, _| page.set_visible(visible))
+    }
 }
 
 struct Mount;

@@ -53,7 +53,6 @@ pub(crate) struct Picker {
     scroll: ScrollHandle,
     current_effort: Option<sailry_protocol::Effort>,
     disabled: bool,
-    saving: bool,
 }
 
 pub(crate) struct Picked {
@@ -80,7 +79,6 @@ impl Picker {
             scroll: ScrollHandle::new(),
             current_effort: None,
             disabled: false,
-            saving: false,
         }
     }
 
@@ -211,14 +209,11 @@ impl Picker {
         &mut self,
         effort: sailry_protocol::Effort,
         disabled: bool,
-        saving: bool,
         cx: &mut Context<Self>,
     ) {
-        if self.current_effort != Some(effort) || self.disabled != disabled || self.saving != saving
-        {
+        if self.current_effort != Some(effort) || self.disabled != disabled {
             self.current_effort = Some(effort);
             self.disabled = disabled;
-            self.saving = saving;
             cx.notify();
         }
     }

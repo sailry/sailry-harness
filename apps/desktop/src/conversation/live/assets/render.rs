@@ -298,14 +298,34 @@ impl Assets {
         let target = target.clone();
         let worktree = group.worktree;
         let kind = group.kind;
+        let label = if kind == Kind::Resource {
+            std::path::Path::new(&name)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(&name)
+                .to_owned()
+        } else {
+            name.clone()
+        };
         let key = format!("asset-{}-{index}", group.sequence);
         let selector = key.clone();
-        let mut row = h_flex().w_full().min_w_0().gap_2();
-        if let Some(source) = source.filter(|source| source.kind().is_some()) {
-            row = row.child(Images::media(&self.images, source, cx).size_8());
+        let icon = if let Some(source) =
+            source.filter(|source| kind == Kind::Artifact && source.kind().is_some())
+        {
+            Images::media(&self.images, source, cx)
+                .size_8()
+                .into_any_element()
         } else {
-            row = row.child(crate::ui::file_icon::render(&name, &mime, rems(1.)));
-        }
+            crate::ui::file_icon::render(&name, &mime, rems(1.))
+        };
+        let icon_selector = format!("{key}-icon");
+        let label_selector = format!("{key}-name");
+        let row = h_flex().w_full().min_w_0().gap_2().child(
+            div()
+                .flex_shrink_0()
+                .debug_selector(move || icon_selector.clone())
+                .child(icon),
+        );
         Button::new(key)
             .debug_selector(move || selector.clone())
             .ghost()
@@ -314,7 +334,18 @@ impl Assets {
             .p_2()
             .justify_start()
             .accessibility_label(name.clone())
-            .child(row.child(div().flex_1().min_w_0().truncate().text_left().child(name)))
+            .when(kind == Kind::Resource, |button| button.tooltip(name))
+            .child(
+                row.child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_left()
+                        .debug_selector(move || label_selector.clone())
+                        .child(label),
+                ),
+            )
             .on_click(cx.listener(move |panel, _, window, cx| {
                 panel.select(target.clone(), kind, worktree, window, cx)
             }))

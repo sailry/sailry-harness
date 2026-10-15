@@ -4,6 +4,7 @@ use sailry_protocol::{conversation::question, *};
 fn session() -> Session {
     Session {
         id: SessionId::new(),
+        creation_order: 1,
         archived: false,
         activity: Default::default(),
         project: Some(ProjectId::new()),

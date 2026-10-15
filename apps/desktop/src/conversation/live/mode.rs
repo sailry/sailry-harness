@@ -4,7 +4,6 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     menu::DropdownMenu,
 };
-use gpui_kit::prelude::FluentBuilder as _;
 
 #[cfg(test)]
 mod tests;
@@ -16,7 +15,10 @@ impl View {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.readonly() || self.busy() || (self.session.is_some() && !self.connected()) {
+        if self.readonly()
+            || self.configuration_blocked()
+            || (self.session.is_some() && !self.connected())
+        {
             return;
         }
         self.replace_mode_marker(mode, window, cx);
@@ -103,17 +105,16 @@ impl View {
             .or(self.draft_mode);
         let current = selected.unwrap_or(sailry_protocol::WorkMode::Code);
         let owner = cx.entity().downgrade();
-        let button = Button::new("live-mode")
+        let button = Button::new("live-chat-mode")
             .custom(crate::theme::subtle_button(cx))
             .icon(mode::icon(current))
             .rounded_full()
             .label(tr(mode::label(current)))
             .dropdown_caret(false)
             .debug_selector(|| "live-chat-mode".into())
-            .when(self.saving_config() && self.connected(), |button| {
-                button.text_color(cx.theme().foreground)
-            })
-            .disabled(self.busy() || (self.session.is_some() && !self.connected()));
+            .disabled(
+                self.configuration_blocked() || (self.session.is_some() && !self.connected()),
+            );
         button
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                 mode::MODES

@@ -164,11 +164,16 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
             .child(details.clone())
             .footer(
                 DialogFooter::new()
-                    .child(DialogClose::new().trigger(|button| {
-                        button
-                            .label(tr("settings_cancel"))
-                            .debug_selector(|| "plugin-details-cancel".into())
-                    }))
+                    .child(
+                        h_flex()
+                            .w_auto()
+                            .flex_shrink_0()
+                            .child(DialogClose::new().trigger(|button| {
+                                button
+                                    .label(tr("settings_cancel"))
+                                    .debug_selector(|| "plugin-details-cancel".into())
+                            })),
+                    )
                     .when(
                         installed
                             && state

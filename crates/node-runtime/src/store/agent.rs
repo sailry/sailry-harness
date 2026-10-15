@@ -97,6 +97,12 @@ pub(super) enum Operation {
             Result<std::collections::BTreeMap<sailry_protocol::connection::Resource, bool>, Fault>,
         >,
     },
+    ConnectionNames {
+        turn: TurnId,
+        entries: Vec<(plugin::Reference, sailry_protocol::connection::Resource)>,
+        captured: Vec<sailry_protocol::connection::Resource>,
+        reply: oneshot::Sender<Result<Vec<Option<String>>, Fault>>,
+    },
     ConnectionTrust {
         turn: TurnId,
         package: plugin::Reference,
@@ -519,6 +525,19 @@ pub(super) fn execute(
                 turn,
                 &package,
                 &targets,
+                &captured,
+            ));
+        }
+        Operation::ConnectionNames {
+            turn,
+            entries,
+            captured,
+            reply,
+        } => {
+            let _ = reply.send(connections::names(
+                &database.connection,
+                turn,
+                &entries,
                 &captured,
             ));
         }

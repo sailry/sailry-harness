@@ -83,11 +83,12 @@ pub(in crate::store) fn fork_at(
         session = fork;
     } else {
         session.id = SessionId::new();
+        session.creation_order = 0;
         session.archived = false;
         session.revision = 1;
         session.fork = None;
         session.worktree = worktree;
-        insert(db, &session)?;
+        session.creation_order = insert(db, &session)?;
         db.execute(
             "INSERT INTO agent_state(owner,key,body) SELECT ?1,key,body FROM agent_state WHERE owner=?2 AND key=?3",
             params![session.id.to_string(), id.to_string(), crate::store::agent::SESSION_TITLE],

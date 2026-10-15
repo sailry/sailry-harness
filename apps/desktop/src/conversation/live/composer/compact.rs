@@ -110,7 +110,10 @@ impl View {
                     ))
                     .selected(current == mode)
                     .toggled(current == mode)
-                    .disabled(self.busy() || (self.session.is_some() && !self.connected()))
+                    .disabled(
+                        self.configuration_blocked()
+                            || (self.session.is_some() && !self.connected()),
+                    )
                     .debug_selector(move || format!("{}-option", mode::label(mode)))
                     .on_click(cx.listener(move |view, _, window, cx| {
                         view.select_mode(mode, window, cx);
@@ -156,7 +159,10 @@ impl View {
                         .when(mode == sailry_protocol::Permission::Full, |button| {
                             button.text_color(cx.theme().danger)
                         })
-                        .disabled(self.busy() || (self.session.is_some() && !self.connected()))
+                        .disabled(
+                            self.configuration_blocked()
+                                || (self.session.is_some() && !self.connected()),
+                        )
                         .debug_selector(move || format!("{}-option", permission::label(mode)))
                         .on_click(cx.listener(move |view, _, window, cx| {
                             view.select_permission(mode, window, cx);

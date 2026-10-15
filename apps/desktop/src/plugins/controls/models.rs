@@ -71,7 +71,7 @@ pub(super) fn extend(module: HostModule, events: tokio::sync::mpsc::Sender<Value
         };
         field.picker.update(cx, |picker, cx| {
             picker.catalog(&catalog, props.selected.as_deref(), cx);
-            picker.composer(props.effort, props.disabled, false, cx);
+            picker.composer(props.effort, props.disabled, cx);
         });
         let title = catalog
             .models

@@ -61,6 +61,7 @@ pub(super) fn open(owner: Entity<Workspace>, window: &mut Window, cx: &mut App) 
                     }
                 }),
             window,
+            cx,
         )
     });
     window.defer(cx, move |window, cx| {

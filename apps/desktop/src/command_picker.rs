@@ -1,4 +1,5 @@
 //! Shared command-style search surface for Git targets and conversation matches.
+use crate::theme::DialogStyle as _;
 use gpui_kit::{
     component::{
         ActiveTheme as _, IconName, Sizable as _,
@@ -59,8 +60,15 @@ pub(crate) fn dialog<D: ListDelegate>(
     list: &Entity<ListState<D>>,
     placeholder: SharedString,
     window: &Window,
+    cx: &App,
 ) -> Dialog {
-    frame(dialog, id, self::list(list, placeholder, window), window)
+    frame(
+        dialog,
+        id,
+        self::list(list, placeholder, window),
+        window,
+        cx,
+    )
 }
 
 pub(crate) fn body_height(window: &Window) -> Pixels {
@@ -80,8 +88,10 @@ pub(crate) fn frame(
     id: &'static str,
     content: impl IntoElement,
     window: &Window,
+    cx: &App,
 ) -> Dialog {
     dialog
+        .floating_surface(cx)
         .close_button(false)
         .min_h_0()
         .p_0()

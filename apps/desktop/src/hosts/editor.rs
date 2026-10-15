@@ -251,6 +251,8 @@ impl Render for Editor {
             )
             .children(methods.into_iter().enumerate().map(|(index, auth)| {
                 Tab::new()
+                    .flex_1()
+                    .min_w_0()
                     .label(tr(match auth {
                         Authentication::KeyPath => "ssh_key_file",
                         Authentication::Agent => "ssh_agent_short",

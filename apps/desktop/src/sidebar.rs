@@ -171,14 +171,17 @@ pub(crate) fn branch_empty(id: &'static str, label: SharedString, cx: &App) -> D
 }
 
 fn location(id: String, label: SharedString, cx: &App) -> impl IntoElement {
+    let selector = id.clone();
     h_flex()
+        .id(SharedString::from(id))
+        .test_support()
         .max_w_20()
         .min_w_0()
         .flex_shrink_0()
         .gap_1()
         .text_xs()
         .text_color(cx.theme().muted_foreground)
-        .debug_selector(move || id.clone())
+        .debug_selector(move || selector.clone())
         .child(Icon::new(IconName::Network).size_3().flex_shrink_0())
         .child(div().min_w_0().truncate().child(label))
 }

@@ -1,5 +1,5 @@
-//! Kit owns native composition; the mount adapter applies the content mask and
-//! hides retained previews when their painted frame is released. Windows keeps
+//! Kit owns native composition and bounds; the mount adapter hides retained
+//! previews when their painted frame is released. Windows keeps
 //! an image fallback because its native child cannot compose with GPUI overlays.
 use super::*;
 use sailry_link::CancellationToken;

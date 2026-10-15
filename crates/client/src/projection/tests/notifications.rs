@@ -11,6 +11,7 @@ fn retains_canonical_failure_details() {
     let mut state = snapshot(0);
     let session = sailry_protocol::Session {
         id: SessionId::new(),
+        creation_order: 1,
         archived: false,
         activity: Default::default(),
         project: None,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::theme::DialogStyle as _;
 use gpui_kit::base::{Presence, Transition, spring};
 use gpui_kit::component::{button::Button, dialog::DialogEntrance, progress::Progress};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -64,11 +65,12 @@ pub(super) fn open_sources(
     view.update(cx, |view, cx| view.reload(window, cx));
     let content = view.clone();
     let viewport = window.viewport_size();
-    window.open_dialog(cx, move |dialog, _, _| {
+    window.open_dialog(cx, move |dialog, _, cx| {
         let body = content.clone();
         let close = content.clone();
         let cancel = content.clone();
         dialog
+            .floating_surface(cx)
             .close_button(false)
             .p_0()
             .w(viewport.width)

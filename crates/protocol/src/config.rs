@@ -69,6 +69,9 @@ pub struct Defaults {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: SessionId,
+    /// Node-local immutable creation sequence. Historical stored receipts default to zero.
+    #[serde(default)]
+    pub creation_order: u64,
     pub archived: bool,
     pub activity: crate::activity::Summary,
     /// Project conversations have a project; connection conversations use config.resource.

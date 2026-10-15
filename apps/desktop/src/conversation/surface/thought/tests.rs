@@ -2,6 +2,7 @@ use super::*;
 use core::prelude::v1::test;
 use gpui_kit as gpui;
 use gpui_kit::component::Root;
+use gpui_kit::test::TestWindowExt as _;
 
 struct Fixture {
     content: Entity<markdown::State>,
@@ -51,7 +52,15 @@ fn setup(cx: &mut TestAppContext, lines: usize) -> (Entity<Fixture>, &mut Visual
 
 fn draw(cx: &mut VisualTestContext) {
     cx.run_until_parked();
-    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.update(|window, cx| window.render_frame(cx));
+}
+
+fn follow_bounds(cx: &mut VisualTestContext) -> Option<Bounds<Pixels>> {
+    cx.update(|window, _| {
+        window
+            .try_find((ElementId::from("activity"), "follow"))
+            .map(|button| button.bounds())
+    })
 }
 
 fn grow(cx: &mut VisualTestContext, fixture: &Entity<Fixture>, lines: usize) {
@@ -101,7 +110,7 @@ fn follows_tail(cx: &mut TestAppContext) {
     grow(visual, &fixture, 36);
     at_tail(visual);
     draw(visual);
-    assert!(visual.debug_bounds("activity-follow").is_none());
+    assert!(follow_bounds(visual).is_none());
     assert_eq!(
         fixture.read_with(visual, |fixture, _| fixture.outer.offset().y),
         px(0.)
@@ -112,7 +121,7 @@ fn follows_tail(cx: &mut TestAppContext) {
     let (viewport, content) = bounds(visual);
     assert!(viewport.size.height < px(160.));
     assert_eq!(content.top(), viewport.top());
-    assert!(visual.debug_bounds("activity-follow").is_none());
+    assert!(follow_bounds(visual).is_none());
 }
 
 #[gpui::test]
@@ -123,23 +132,23 @@ fn pauses_following(cx: &mut TestAppContext) {
     let viewport = bounds(visual).0;
     wheel(visual, 64.);
     let paused = bounds(visual).1.top();
-    assert!(visual.debug_bounds("activity-follow").is_some());
+    assert!(follow_bounds(visual).is_some());
     assert_eq!(bounds(visual).0, viewport);
     grow(visual, &fixture, 36);
     assert_eq!(bounds(visual).1.top(), paused);
 
-    let button = visual.debug_bounds("activity-follow").unwrap();
+    let button = follow_bounds(visual).unwrap();
     visual.simulate_click(button.center(), Modifiers::default());
     draw(visual);
     at_tail(visual);
-    assert!(visual.debug_bounds("activity-follow").is_none());
+    assert!(follow_bounds(visual).is_none());
     grow(visual, &fixture, 42);
     at_tail(visual);
 
     wheel(visual, 64.);
-    assert!(visual.debug_bounds("activity-follow").is_some());
+    assert!(follow_bounds(visual).is_some());
     wheel(visual, -10_000.);
-    assert!(visual.debug_bounds("activity-follow").is_none());
+    assert!(follow_bounds(visual).is_none());
     grow(visual, &fixture, 48);
     at_tail(visual);
     assert_eq!(
@@ -180,7 +189,7 @@ fn preserves_masked_interactions(cx: &mut TestAppContext) {
     wheel(visual, 10_000.);
     let (viewport, content) = bounds(visual);
     assert_eq!(content.top(), viewport.top());
-    assert!(visual.debug_bounds("activity-follow").is_some());
+    assert!(follow_bounds(visual).is_some());
     grow(visual, &fixture, 40);
     assert_eq!(bounds(visual).1.top(), viewport.top());
 }

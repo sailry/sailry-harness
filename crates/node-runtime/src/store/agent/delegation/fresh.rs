@@ -88,6 +88,7 @@ pub(super) fn capture(
     Ok((
         Session {
             id: SessionId::new(),
+            creation_order: 0,
             archived: false,
             activity: Default::default(),
             project: previous.project,

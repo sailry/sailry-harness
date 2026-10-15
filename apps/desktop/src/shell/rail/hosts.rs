@@ -41,7 +41,7 @@ impl Shell {
             .tooltip(tr("hosts"))
             .accessibility_label(tr("hosts"))
             .debug_selector(|| "sidebar-host".into())
-            .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
+            .dropdown_menu_with_anchor(Anchor::LeftCenter, move |menu, _, _| {
                 hosts.iter().fold(
                     menu.max_h(px(480.)).scrollable(true),
                     |menu, (host, label, selected)| {

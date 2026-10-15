@@ -93,7 +93,6 @@ impl Shell {
             return;
         }
         if let Key::Session(node, id) = key {
-            crate::preferences::recent::record(node, id, cx);
             self.mark_session_read(node, id, window, cx);
         }
         self.park_session_panel(window, cx);

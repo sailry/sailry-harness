@@ -229,6 +229,79 @@ fn prepares_once_and_replaces_changed_source(cx: &mut TestAppContext) {
     });
 }
 
+#[gpui::test]
+fn preserves_diagram_scale_and_direction(cx: &mut TestAppContext) {
+    use super::visuals::{Kind, Renderer, Svg};
+    use gpui_kit::{point, test::TestWindowExt as _};
+    use std::{cell::RefCell, rc::Rc};
+
+    let requests = Rc::new(RefCell::new(Vec::new()));
+    let recorded = requests.clone();
+    cx.update(|cx| {
+        // Prepared geometry exercises the app viewport, not Mermaid's layout engine.
+        cx.set_global(Renderer(Rc::new(move |request, _, _| {
+            let width = if request.source.starts_with("flowchart LR") {
+                1200.
+            } else {
+                160.
+            };
+            recorded.borrow_mut().push((request.kind, request.source));
+            gpui_kit::Task::ready(Ok(Svg {
+                source: format!(
+                    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"120\"><path d=\"M0 0L{width} 120\"/></svg>"
+                ),
+                width,
+                height: 120.,
+                baseline: None,
+            }))
+        })));
+    });
+    let source = "```mermaid\nflowchart LR\nA-->B\n```\n\n```mermaid\nflowchart TD\nC-->D\n```";
+    let (state, visual) = setup(cx, source);
+    for _ in 0..2 {
+        visual.run_until_parked();
+        visual.update(|window, cx| window.render_frame(cx));
+    }
+    assert_eq!(
+        *requests.borrow(),
+        [
+            (Kind::Mermaid, "flowchart LR\nA-->B".into()),
+            (Kind::Mermaid, "flowchart TD\nC-->D".into()),
+        ]
+    );
+    let viewport = visual.update(|window, _| window.find(("diagram-viewport", 0usize)).bounds());
+    let wide = visual.debug_bounds("markdown-diagram-image-0").unwrap();
+    let narrow = visual.debug_bounds("markdown-diagram-image-1").unwrap();
+    let second = visual.update(|window, _| window.find(("diagram-viewport", 1usize)).bounds());
+    assert!(viewport.size.width < wide.size.width);
+    assert_eq!(wide.size, gpui_kit::size(px(1200.), px(120.)));
+    assert_eq!(narrow.size, gpui_kit::size(px(160.), px(120.)));
+    assert_eq!(narrow.center().x, second.center().x);
+    assert!(narrow.left() >= second.left() && narrow.right() <= second.right());
+    assert!(narrow.top() >= second.top() && narrow.bottom() <= second.bottom());
+    visual.update(|window, cx| {
+        window.scroll(
+            ("diagram-viewport", 0usize),
+            gpui_kit::ScrollDelta::Pixels(point(px(-600.), px(0.))),
+            cx,
+        );
+    });
+    visual.run_until_parked();
+    visual.update(|window, cx| window.render_frame(cx));
+    let scrolled = visual.debug_bounds("markdown-diagram-image-0").unwrap();
+    assert!(scrolled.left() < wide.left() - px(100.));
+    assert_eq!(scrolled.size, wide.size);
+    assert_eq!(
+        visual.debug_bounds("markdown-diagram-image-1").unwrap(),
+        narrow
+    );
+    assert_eq!(
+        state.read_with(visual, |state, _| state.source().to_owned()),
+        source
+    );
+    assert_eq!(requests.borrow().len(), 2);
+}
+
 struct ImageFixture(Entity<State>);
 impl Render for ImageFixture {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

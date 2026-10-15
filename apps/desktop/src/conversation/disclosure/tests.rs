@@ -1,6 +1,7 @@
 use super::*;
 use core::prelude::v1::test;
 use gpui_kit::component::collapsible::Collapsible;
+use gpui_kit::test::TestWindowExt as _;
 
 #[test]
 fn preserves_full_wrapped_accessible_labels() {
@@ -158,7 +159,142 @@ fn long_details_fit_the_column(cx: &mut TestAppContext) {
     assert_eq!(trigger.size.height, px(24.));
 }
 
+#[gpui::test]
+fn settling_preserves_caption_geometry(cx: &mut TestAppContext) {
+    crate::conversation::live::tests::fixture::init(cx);
+    let mut entity = None;
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| Harness {
+            open: false,
+            detail: "analysis.ipynb".into(),
+            failed: false,
+            running: true,
+        });
+        entity = Some(view.clone());
+        Root::new(view, window, cx)
+    });
+    let entity = entity.unwrap();
+    let bounds = |visual: &mut VisualTestContext| {
+        [
+            "activity",
+            "activity-summary",
+            "activity-summary-label",
+            "activity-summary-detail",
+        ]
+        .map(|selector| visual.debug_bounds(selector).unwrap())
+    };
+    for mode in [ThemeMode::Light, ThemeMode::Dark] {
+        for reduced in [false, true] {
+            entity.update(visual, |view, cx| {
+                view.running = true;
+                view.open = false;
+                cx.notify();
+            });
+            visual.update(|window, cx| {
+                Theme::change(mode, Some(window), cx);
+                cx.set_reduce_motion(reduced);
+                window.render_frame(cx);
+            });
+            let running = bounds(visual);
+            assert!(running[3].left() > running[2].right());
+            entity.update(visual, |view, cx| {
+                view.running = false;
+                cx.notify();
+            });
+            visual.update(|window, cx| window.render_frame(cx));
+            assert_eq!(
+                bounds(visual),
+                running,
+                "mode: {mode:?}, reduced: {reduced}"
+            );
+            visual.simulate_click(running[0].center(), Modifiers::default());
+            visual.run_until_parked();
+            visual.update(|window, cx| window.render_frame(cx));
+            assert!(visual.debug_bounds("output").is_some());
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+}
+
 struct Typography;
+
+struct Rail;
+
+impl Render for Rail {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        v_flex()
+            .w(px(560.))
+            .child(trigger(
+                "rail-tool".into(),
+                IconName::Settings2,
+                "Read".into(),
+                Detail::mono("analysis.ipynb"),
+                true,
+                cx,
+            ))
+            .child(
+                body(
+                    div()
+                        .debug_selector(|| "rail-output".into())
+                        .h_20()
+                        .child("Literal tool output"),
+                    cx,
+                )
+                .debug_selector(|| "rail-body".into()),
+            )
+            .children(["turn_thinking", "turn_generating"].map(|phase| {
+                h_flex()
+                    .gap_2()
+                    .child(crate::ui::thinking::render(
+                        phase,
+                        phase,
+                        ICON_SIZE.to_pixels(cx.theme().font_size),
+                    ))
+                    .child("Loading")
+            }))
+    }
+}
+
+#[gpui::test]
+fn aligns_rails_and_loading_icons(cx: &mut TestAppContext) {
+    crate::conversation::live::tests::fixture::init(cx);
+    let (_, visual) = cx.add_window_view(|window, cx| {
+        let view = cx.new(|_| Rail);
+        Root::new(view, window, cx)
+    });
+    for rem in [16., 18.] {
+        for reduced in [false, true] {
+            visual.update(|window, cx| {
+                Theme::global_mut(cx).font_size = px(rem);
+                cx.set_reduce_motion(reduced);
+                let mut rail = body(div(), cx);
+                assert!(rail.style().background.is_none());
+                let mut output = crate::conversation::surface::result(
+                    "plain-output",
+                    div().into_any_element(),
+                    [],
+                    cx,
+                );
+                assert!(output.style().background.is_none());
+                window.render_frame(cx);
+            });
+            let icon = visual.debug_bounds("rail-tool-summary-icon").unwrap();
+            let rail = visual.debug_bounds("rail-body").unwrap();
+            let output = visual.debug_bounds("rail-output").unwrap();
+            let label = visual.debug_bounds("rail-tool-summary-label").unwrap();
+            assert_eq!(icon.size, size(px(rem), px(rem)));
+            assert_eq!(rail.left() + px(0.5), icon.center().x);
+            assert_eq!(output.left(), label.left());
+            assert!(rail.right() <= px(560.));
+            for phase in ["turn_thinking", "turn_generating"] {
+                let loading = visual.debug_bounds(phase).unwrap();
+                assert_eq!(loading.size, icon.size);
+                assert_eq!(loading.center().x, icon.center().x);
+            }
+        }
+    }
+    visual.update(|window, _| window.remove_window());
+}
 
 impl Render for Typography {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -211,7 +347,7 @@ fn uses_small_type_for_all_summary_text(cx: &mut TestAppContext) {
     });
     for mode in [ThemeMode::Light, ThemeMode::Dark] {
         for rem in [16., 18.] {
-            let (label, plain, mono, combined) = visual.update(|window, cx| {
+            let (label, plain, mono) = visual.update(|window, cx| {
                 Theme::change(mode, Some(window), cx);
                 Theme::global_mut(cx).font_size = px(rem);
                 cx.set_reduce_motion(true);
@@ -237,11 +373,7 @@ fn uses_small_type_for_all_summary_text(cx: &mut TestAppContext) {
                 (
                     width(label.clone(), &[label_run]),
                     width(detail.clone(), &[plain_run]),
-                    width(detail.clone(), &[mono_run.clone()]),
-                    width(
-                        format!("{label} {detail}").into(),
-                        &[style.to_run(label.len() + 1), mono_run],
-                    ),
+                    width(detail.clone(), &[mono_run]),
                 )
             });
             for (label_id, detail_id, detail_width) in [
@@ -251,6 +383,11 @@ fn uses_small_type_for_all_summary_text(cx: &mut TestAppContext) {
                     plain,
                 ),
                 ("type-true-summary-label", "type-true-summary-detail", mono),
+                (
+                    "type-running-summary-label",
+                    "type-running-summary-detail",
+                    mono,
+                ),
                 (
                     "type-summary-summary-label",
                     "type-summary-summary-detail",
@@ -268,15 +405,6 @@ fn uses_small_type_for_all_summary_text(cx: &mut TestAppContext) {
                     "detail: {detail_id}, rem: {rem}"
                 );
             }
-            assert_eq!(
-                visual
-                    .debug_bounds("type-running-summary-shimmer")
-                    .unwrap()
-                    .size
-                    .width,
-                combined,
-                "running summary, rem: {rem}"
-            );
         }
     }
     visual.update(|window, _| window.remove_window());

@@ -40,9 +40,6 @@ impl Picker {
                     .h_8()
                     .px_2()
                     .disabled(self.disabled)
-                    .when(self.saving, |button| {
-                        button.text_color(cx.theme().foreground)
-                    })
                     .accessibility_label(model.label.clone())
                     .debug_selector(move || format!("composer-model-option-{id}-{model_id}"))
                     .child(
@@ -89,11 +86,6 @@ impl Picker {
                             )
                             .dropdown_caret(true)
                             .disabled(self.disabled)
-                            .when(self.saving, |button| {
-                                button
-                                    .bg(cx.theme().secondary_active)
-                                    .text_color(cx.theme().foreground)
-                            })
                             .debug_selector(|| "composer-model-effort".into())
                             .dropdown_menu(move |menu, _, _| {
                                 choices.iter().fold(menu, |menu, choice| {

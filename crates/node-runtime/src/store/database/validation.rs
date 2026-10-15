@@ -749,6 +749,54 @@ mod tests {
         }
 
         #[test]
+        fn accepts_session_receipts_before_creation_order() {
+            use sailry_protocol::{Permission, Session, SessionId, WorkMode, WorktreeId, role};
+
+            let (_directory, path, node, database) = fixture();
+            let session = Session {
+                id: SessionId::new(),
+                creation_order: 9,
+                archived: false,
+                activity: Default::default(),
+                project: None,
+                worktree: WorktreeId::new(),
+                revision: 1,
+                config: SessionConfig {
+                    assistant: None,
+                    resource: None,
+                    provider: ProviderId::new(),
+                    model: "fixture".into(),
+                    effort: Effort::Default,
+                    mode: WorkMode::Code,
+                    permission: Permission::Ask,
+                    credential: None,
+                },
+                roles: role::Snapshot::default(),
+                profile: None,
+                fork: None,
+                delegation: None,
+            };
+            let result: Result<Output, Fault> = Ok(Output::Session(session));
+            let mut value = serde_json::to_value(result).unwrap();
+            value["Ok"]["data"]
+                .as_object_mut()
+                .unwrap()
+                .remove("creation_order");
+            let decoded = serde_json::from_value::<Result<Output, Fault>>(value.clone()).unwrap();
+            assert!(matches!(decoded, Ok(Output::Session(session)) if session.creation_order == 0));
+            database.connection.execute(
+                "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)",
+                params![&node.0[..], RequestId::new().to_string(), b"fixture".as_slice(), value.to_string()],
+            ).unwrap();
+            accepts_without_rewrites(
+                database,
+                &path,
+                node,
+                "SELECT CAST(result AS BLOB) FROM requests WHERE result IS NOT NULL",
+            );
+        }
+
+        #[test]
         fn reads_metadata_without_changing_records() {
             for (owner, field) in [
                 ("inventory", "future_metadata"),

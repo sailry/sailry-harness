@@ -138,6 +138,31 @@ const request = (dark = false) => ({kind: 'mermaid', source: 'flowchart LR\nA-->
 
 for (const [name, path] of scripts) {
   const source = readFileSync(path, 'utf8');
+  if (name === 'desktop') {
+    test('desktop preserves intrinsic diagram geometry', async () => {
+      for (const [diagramSource, box, width, height] of [
+        ['flowchart LR\nA[Long label]-->B[Another label]', '0 0 1200 220', 1200, 220],
+        ['flowchart TD\nA-->B', '-8 -12 160 600', 160, 600],
+      ]) {
+        const view = setup(source, () => {
+          const value = diagram(); value.svg.setAttribute('viewBox', box); return value;
+        });
+        const result = await view.render({...request(true), source: diagramSource});
+        assert.equal(view.rendered.at(-1).source, diagramSource);
+        assert.equal(result.width, width);
+        assert.equal(result.height, height);
+        assert(result.source.includes(`viewBox="${box}"`));
+        assert(result.source.includes(`width="${width}"`));
+        assert(result.source.includes(`height="${height}"`));
+      }
+      for (const box of ['0 0 NaN 220', '0 0 -1 220', '0 0 0 220', '0 0 5000 220', '0 0 1200']) {
+        const view = setup(source, () => {
+          const value = diagram(); value.svg.setAttribute('viewBox', box); return value;
+        });
+        await assert.rejects(view.render(request()), /Rendered visual exceeds the supported size/);
+      }
+    });
+  }
   test(`${name} serializes solid themed diagram paint`, async () => {
     const view = setup(source);
     for (const dark of [false, true]) {

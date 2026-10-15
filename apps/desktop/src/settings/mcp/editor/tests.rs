@@ -4,7 +4,28 @@ use crate::settings::{
     plugins::test_support::{Fixture, draw, init, input, shown, tap, wait},
 };
 use core::prelude::v1::test;
+use gpui_kit::test::TestWindowExt as _;
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
+
+#[track_caller]
+fn shown_editor(cx: &mut VisualTestContext, expected: bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        draw(cx);
+        // Paint-debug bounds may outlive a dismissed dialog on retained frames.
+        let observed = cx.update(|window, _| window.try_find("mcp-editor").is_some());
+        if observed == expected {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "MCP editor presence deadline: expected {expected}, observed {observed}, dialog={}",
+            cx.update(|window, cx| window.has_active_dialog(cx)),
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
 
 #[gpui::test]
 fn cards_open_owned_configuration(cx: &mut TestAppContext) {
@@ -44,13 +65,13 @@ fn cards_open_owned_configuration(cx: &mut TestAppContext) {
         assert!(second.left() < first.left());
         assert!((first.size.width - last.size.width).abs() < px(1.));
         tap(visual, "mcp-edit-mcp-alpha");
-        shown(visual, "mcp-editor", true);
+        shown_editor(visual, true);
         tap(visual, "mcp-authorize");
         shown(visual, "mcp-oauth-connect", true);
         tap(visual, "mcp-oauth-cancel");
-        shown(visual, "mcp-editor", true);
+        shown_editor(visual, true);
         tap(visual, "mcp-cancel");
-        shown(visual, "mcp-editor", false);
+        shown_editor(visual, false);
         crate::settings::plugins::test_support::menu(visual, "mcp-menu-mcp-alpha", 1);
         crate::prompts::tests::answer(visual, "plugins_uninstall");
         shown(visual, "mcp-card-mcp-alpha", false);
@@ -75,6 +96,7 @@ fn mount(
     let editor = cx.update(|window, cx| open(binding, original, window, cx));
     wait(cx, |cx| !editor.read(cx).loading);
     draw(cx);
+    shown_editor(cx, true);
     editor
 }
 
@@ -120,14 +142,24 @@ fn edits_private_slots(cx: &mut TestAppContext) {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);
         let (owner, visual) = fixture.mount(cx);
+        visual.update(|window, _| window.activate_window());
+        draw(visual);
+        assert!(visual.update(|window, _| window.is_window_active()));
         owner.update(visual, |owner, cx| owner.select(Section::Mcp, cx));
         shown(visual, "mcp-add", true);
         let editor = mount(&owner, None, visual);
+        visual.update(|window, cx| window.render_frame(cx));
         let bar = visual.debug_bounds("mcp-name").unwrap();
         let tabs = ["mcp-transport-0", "mcp-transport-1", "mcp-transport-2"]
             .map(|id| visual.debug_bounds(id).unwrap());
-        assert!((tabs[0].size.width - tabs[1].size.width).abs() <= px(1.));
-        assert!((tabs[1].size.width - tabs[2].size.width).abs() <= px(1.));
+        assert!(
+            (tabs[0].size.width - tabs[1].size.width).abs() <= px(1.),
+            "equal-width transport tabs: {tabs:?}"
+        );
+        assert!(
+            (tabs[1].size.width - tabs[2].size.width).abs() <= px(1.),
+            "equal-width transport tabs: {tabs:?}"
+        );
         assert!(bar.right() - tabs[2].right() <= px(8.));
         input(visual, "mcp-name", "search");
         input(visual, "mcp-command", "fixture_mcp_server");
@@ -140,8 +172,76 @@ fn edits_private_slots(cx: &mut TestAppContext) {
         input(visual, "mcp-slot-value-0", "fixture-private-token");
         let command = editor.read_with(visual, |editor, cx| editor.prepare(cx).unwrap());
         assert!(!format!("{command:?}").contains("fixture-private-token"));
+        assert!(matches!(
+            &command,
+            Command::InstallMcp {
+                name,
+                definition: Definition::Stdio { command: program, args, env },
+                ..
+            } if name == "mcp-search"
+                && program == "fixture_mcp_server"
+                && args == &["an argument with spaces"]
+                && env == &["TOKEN"]
+        ));
+        let before = visual.update(|window, cx| {
+            (
+                window.try_find("mcp-save").map(|button| {
+                    (
+                        button.bounds(),
+                        button.visible(),
+                        button.focused(),
+                        button.disabled(),
+                    )
+                }),
+                editor.read(cx).dialog.focused(window, cx),
+            )
+        });
         tap(visual, "mcp-save");
-        shown(visual, "mcp-editor", false);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            draw(visual);
+            if visual.update(|window, _| window.try_find("mcp-editor").is_none()) {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "first MCP save deadline: remote={remote}, before={before:?}, state={:?}, button={:?}, packages={}, notifications={}",
+                visual.update(|window, cx| {
+                    let editor = editor.read(cx);
+                    (
+                        editor.transport,
+                        editor.loaded,
+                        editor.loading,
+                        editor.closed,
+                        editor.submission.pending,
+                        editor.submission.request.is_some(),
+                        editor.submission.error,
+                        editor.dialog.focused(window, cx),
+                        editor
+                            .slots
+                            .iter()
+                            .map(|slot| {
+                                (
+                                    slot.name.read(cx).value() == "TOKEN",
+                                    !slot.value.read(cx).value().is_empty(),
+                                )
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                }),
+                visual.update(|window, _| window.try_find("mcp-save").map(|button| {
+                    (
+                        button.bounds(),
+                        button.visible(),
+                        button.focused(),
+                        button.disabled(),
+                    )
+                })),
+                fixture.plugins().len(),
+                visual.update(|window, cx| window.notifications(cx).len()),
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
         let initial = info(&fixture);
         assert_eq!(
             initial.mcp_source,
@@ -177,7 +277,7 @@ fn edits_private_slots(cx: &mut TestAppContext) {
             matches!(editor.read_with(visual, |editor, cx| editor.prepare(cx).unwrap()), Command::InstallMcp { secrets, .. } if secrets["TOKEN"] == SecretUpdate::Keep)
         );
         tap(visual, "mcp-save");
-        shown(visual, "mcp-editor", false);
+        shown_editor(visual, false);
         assert_eq!(state(&fixture).configured.len(), 1);
         let editor = mount(&owner, Some(info(&fixture)), visual);
         scroll(visual);
@@ -193,7 +293,7 @@ fn edits_private_slots(cx: &mut TestAppContext) {
             matches!(editor.read_with(visual, |editor, cx| editor.prepare(cx).unwrap()), Command::InstallMcp { secrets, .. } if secrets["TOKEN"] == SecretUpdate::Clear)
         );
         tap(visual, "mcp-save");
-        shown(visual, "mcp-editor", false);
+        shown_editor(visual, false);
         assert!(state(&fixture).configured.is_empty());
         let revision = fixture.plugins()[0].revision;
         wait(visual, |cx| {
@@ -254,7 +354,7 @@ fn retries_on_captured_node(cx: &mut TestAppContext) {
             visual,
             Box::leak(format!("installation-retry-{id}").into_boxed_str()),
         );
-        shown(visual, "mcp-editor", false);
+        shown_editor(visual, false);
         assert_eq!(*fixture.transport.requests.lock().unwrap(), [id, id]);
         assert_eq!(state(&fixture).configured.len(), 1);
         assert!(matches!(

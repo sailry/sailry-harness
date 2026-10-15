@@ -32,6 +32,7 @@ impl Editor {
                 .children(sections.iter().map(|section| {
                     let id = section.id.clone();
                     Tab::new()
+                        .when(!self.embedded, |tab| tab.flex_1().min_w_0())
                         .label(
                             labels
                                 .and_then(|labels| labels.get(&section.id))
