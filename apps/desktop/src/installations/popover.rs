@@ -4,7 +4,6 @@ use gpui_kit::component::{
     badge::Badge,
     button::{Button, ButtonVariants},
     popover::Popover,
-    progress::ProgressCircle,
     v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -76,17 +75,22 @@ pub(crate) fn button(window: &mut Window, cx: &mut App) -> AnyElement {
                         .relative()
                         .when(active, |icon| {
                             icon.child(
-                                ProgressCircle::new("installations-progress")
+                                gpui_kit::base::Progress::new("installations-progress")
                                     .absolute()
                                     .inset_0()
-                                    .size_8()
-                                    .loading(measured.is_empty())
+                                    .size_full()
+                                    .indeterminate(measured.is_empty())
                                     .value(value)
-                                    .color(cx.theme().foreground)
                                     .accessibility_label(format!(
                                         "{} · {}",
                                         tr("installation_title"),
                                         tr("installation_installing")
+                                    ))
+                                    .child(crate::ui::status_ring::progress(
+                                        "installations-ring".into(),
+                                        cx.theme().progress_bar,
+                                        px(2.),
+                                        (!measured.is_empty()).then_some(value / 100.),
                                     )),
                             )
                         })

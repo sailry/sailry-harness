@@ -2,6 +2,9 @@
 //! one-shot transitions of opacity and box geometry, so the looping highlight
 //! that travels around a running ring is painted by this native canvas. It
 //! shares the bounded redraw clock, so clipped or inactive rings stay idle.
+//! Progress rings reuse the same stroked geometry. Kit's `ProgressCircle`
+//! fills a thick annulus whose full track is one contour closed by a
+//! sub-pixel seam; in the activity rail it rendered as a filled half-disc.
 use gpui_kit::*;
 
 /// Seconds for the running highlight to travel once around the ring.
@@ -11,6 +14,8 @@ const SEGMENT: f32 = 0.24;
 /// Track opacity under the running highlight.
 const TRACK: f32 = 0.35;
 const STEPS: f32 = 64.;
+/// Start offset, in turns, that places an arc's origin at 12 o'clock.
+const TOP: f32 = -0.25;
 
 pub(crate) fn render(id: String, color: Hsla, line: Pixels, running: bool) -> AnyElement {
     div()
@@ -38,6 +43,44 @@ pub(crate) fn render(id: String, color: Hsla, line: Pixels, running: bool) -> An
             .size_full(),
         )
         .into_any_element()
+}
+
+/// A progress ring: a faint track plus a clockwise arc from 12 o'clock that
+/// covers `fraction` of a turn. Unknown progress shows the running highlight.
+pub(crate) fn progress(id: String, color: Hsla, line: Pixels, fraction: Option<f32>) -> AnyElement {
+    let Some(fraction) = fraction else {
+        return render(id, color, line, true);
+    };
+    div()
+        .debug_selector(move || id.clone())
+        .size_full()
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds, (), window, _| {
+                    for (path, color) in measured(bounds, line, fraction, color) {
+                        window.paint_path(path, color);
+                    }
+                },
+            )
+            .size_full(),
+        )
+        .into_any_element()
+}
+
+/// The track and value arcs of a determinate progress ring.
+fn measured(
+    bounds: Bounds<Pixels>,
+    line: Pixels,
+    fraction: f32,
+    color: Hsla,
+) -> impl Iterator<Item = (Path<Pixels>, Hsla)> {
+    [
+        (arc(bounds, line, 0., 1.), color.opacity(TRACK)),
+        (arc(bounds, line, TOP, fraction.clamp(0., 1.)), color),
+    ]
+    .into_iter()
+    .filter_map(|(path, color)| Some((path?, color)))
 }
 
 /// Strokes `length` turns of the ellipse inscribed in `bounds`, starting at
@@ -87,6 +130,39 @@ mod tests {
                 assert!(outer.contains(&vertex.xy_position), "{vertex:?}");
             }
         }
+    }
+
+    fn square() -> Bounds<Pixels> {
+        Bounds::new(point(px(8.), px(700.)), size(px(32.), px(32.)))
+    }
+
+    #[test]
+    fn progress_starts_at_top() {
+        let line = px(2.);
+        let rings: Vec<_> = measured(square(), line, 0.07, Hsla::red()).collect();
+        assert_eq!(rings.len(), 2);
+        let center = square().center();
+        let outer = square().dilate(px(0.1));
+        for vertex in &rings[1].0.vertices {
+            let at = vertex.xy_position;
+            assert!(outer.contains(&at), "{vertex:?}");
+            // 7% sweeps about 25 degrees clockwise from 12 o'clock, so the
+            // stroke stays in the top of the ring, right of its vertical axis.
+            assert!(at.y < center.y - px(10.), "{vertex:?}");
+            assert!(at.x > center.x - line, "{vertex:?}");
+        }
+        // Stroked arcs leave the ring's interior uncovered.
+        let hole = Bounds::centered_at(center, size(px(16.), px(16.)));
+        for (path, _) in &rings {
+            for vertex in &path.vertices {
+                assert!(!hole.contains(&vertex.xy_position), "{vertex:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn empty_progress_shows_track() {
+        assert_eq!(measured(square(), px(2.), 0., Hsla::red()).count(), 1);
     }
 
     #[test]
