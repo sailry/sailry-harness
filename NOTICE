@@ -18,7 +18,7 @@ Original snapshots, checksums, provenance and license copies: crates/node-runtim
 
 GPUI Kit integrations and editor overlays
 Sailry uses GPUI Kit 0.7.3 from https://github.com/dux-web/gpui-component at
-bcb886288b2b1435e201c98fd99fd5675b3d15ad (Apache-2.0), based on the official
+ee02d7de35215faa68cf31534841c861d02a99cc (Apache-2.0), based on the official
 stable sources at https://github.com/longbridge/gpui-kit, commit
 67265a36e260ffe03c5aaebdcd8d654dbf892eab. The fork backports the macOS GPUI Fast
 WebView composition adapter from official commit
@@ -27,19 +27,24 @@ https://github.com/longbridge/gpui-kit/pull/3389, submitted as the stable backpo
 at https://github.com/longbridge/gpui-kit/pull/3519. The fork also honors explicit
 Tab flex-shrink and minimum-size styles on indicator wrappers, from source commit
 91dfcff2ddb10c0ca3be45bb4ca8739cc4fc607f, submitted separately at
-https://github.com/longbridge/gpui-kit/pull/3522. It preserves the stable Kit
-APIs and editor overlay routing; it does not include the later inherited-mask
-clipping change or add Windows composition or Linux hosting. The Kit packages
-select GPUI Fast 0.1.8 through Kit's gpui-fast feature. All nine Fast
-packages use the compatibility distribution at
+https://github.com/longbridge/gpui-kit/pull/3522. It also releases tooltip
+overlay ownership when a trigger unmounts without hiding a newer trigger's
+tooltip, submitted at https://github.com/longbridge/gpui-kit/pull/3528. It
+preserves the stable Kit APIs and editor overlay routing; it does not include
+the later inherited-mask clipping change or add Windows composition or Linux
+hosting. The Kit packages select GPUI Fast 0.1.8 through Kit's gpui-fast
+feature. All nine Fast packages use the compatibility distribution at
 https://github.com/dux-web/gpui-fast, commit
-7c3cdde8cd7ba8b1695e0bae10261513bce20ed9. It is generated with the official
-release exporter from source commit 8f238ac038dc7ce926801c0369effbd78a8f855d,
+a2de5859345c314077b8b81cfe6b34d6d013dcb1. It is generated with the official
+release exporter from source commit 90f1ec3153638082560f74a49440cf86bf7a893d,
 based on upstream v0.1.8 at d599978f0ecf794b16cb6ec0b5875f818b822507.
-The sole source correction restores retained child links after reparenting;
-it is submitted at https://github.com/longbridge/gpui-fast/pull/68. The
-distribution retains Apache-2.0 licenses and upstream attribution, with Sailry
-modification notices in the two changed files and distribution NOTICE files.
+The source corrections restore retained child links after reparenting, submitted
+at https://github.com/longbridge/gpui-fast/pull/68, and limit the default macOS
+overlay's input to interactive GPUI hit regions while preserving native
+descendants and custom GPUI surface input, submitted at
+https://github.com/longbridge/gpui-fast/pull/69. The distribution retains
+Apache-2.0 licenses and upstream attribution, with Sailry modification notices
+in the five changed files and distribution NOTICE files.
 GPUI WebView owns native composition on macOS with GPUI Fast. Upstream packages retain their license files;
 Sailry's current dependency notices and license copies remain in
 third_party_licenses/.
