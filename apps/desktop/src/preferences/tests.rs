@@ -159,14 +159,14 @@ fn rejects_invalid_opacity() {
 }
 
 #[test]
-fn isolates_unreadable_layout() {
+fn ignores_obsolete_workspace_layout() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("preferences.json");
     let mut data = Data::default();
-    let layout = serde_json::json!({"invalid": "layout"});
-    data.workspaces = Some(layout.clone());
     data.terminal.font_size = 18;
-    std::fs::write(&path, serde_json::to_vec(&data).unwrap()).unwrap();
+    let mut value = serde_json::to_value(data).unwrap();
+    value["workspaces"] = serde_json::json!({"invalid": "layout"});
+    std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
 
     let mut preferences = Preferences::open(path.clone());
     assert_eq!(preferences.error, None);
@@ -178,7 +178,8 @@ fn isolates_unreadable_layout() {
     let restored = Preferences::open(path);
     assert_eq!(restored.data.toast_seconds, 8);
     assert_eq!(restored.data.terminal.font_size, 18);
-    assert_eq!(restored.data.workspaces, Some(layout));
+    let saved = serde_json::to_value(restored.data).unwrap();
+    assert!(saved.get("workspaces").is_none());
 }
 
 #[gpui_kit::test]
@@ -230,7 +231,6 @@ mod plugin_directories {
                 data.toast_seconds = 8;
                 data.notifications[2] = false;
                 data.terminal.font_size = 18;
-                data.workspaces = Some(serde_json::json!({"fixture": "layout"}));
             });
             let baseline = data(cx);
             assert_eq!(plugins::directory(node, "example", "digest", cx), None);

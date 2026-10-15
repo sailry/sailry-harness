@@ -32,7 +32,6 @@ pub(crate) struct Data {
     pub appearance: crate::theme::Selection,
     pub theme_effects: Option<bool>,
     pub composer: Option<Composer>,
-    pub workspaces: Option<serde_json::Value>,
     pub feature_pins: Option<std::collections::BTreeMap<String, bool>>,
     pub feature_order: Option<Vec<String>>,
     pub browser_persistent: Option<bool>,
@@ -117,7 +116,6 @@ impl Default for Data {
             appearance: crate::theme::Selection::default(),
             theme_effects: None,
             composer: None,
-            workspaces: None,
             feature_pins: None,
             feature_order: None,
             browser_persistent: None,
@@ -155,8 +153,6 @@ impl Data {
         if self.version != 1 {
             return Err("unsupported desktop preferences version".into());
         }
-        // Workspace restoration validates its opaque payload independently so an
-        // unreadable layout does not discard unrelated desktop preferences.
         if !crate::theme::package::valid_id(&self.appearance.package) {
             return Err("invalid theme selection".into());
         }

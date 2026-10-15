@@ -1,7 +1,7 @@
 use super::*;
 
 #[gpui::test]
-fn append_and_restore(cx: &mut TestAppContext) {
+fn append_and_detach(cx: &mut TestAppContext) {
     let (workspaces, visual) = mount(cx);
     let targets: Vec<_> = (0..=LIMIT).map(|index| session(index as u8)).collect();
     for target in &targets {
@@ -27,33 +27,21 @@ fn append_and_restore(cx: &mut TestAppContext) {
                 expected.push(*target);
                 assert_eq!(spaces.ordered_members(targets[0], cx), expected);
                 assert!(!spaces.can_append(targets[0], *target, cx));
-                spaces.saved(cx).validate().unwrap();
             })
         });
     }
-    let saved = visual.update(|window, cx| {
+    visual.update(|window, cx| {
         workspaces.update(cx, |spaces, cx| {
             assert!(!spaces.append(targets[0], targets[LIMIT], window, cx));
             assert!(!spaces.can_append(targets[0], Target::Draft, cx));
             assert_eq!(spaces.ordered_members(targets[LIMIT], cx), [targets[LIMIT]]);
-            spaces.saved(cx)
         })
     });
-    let restored = visual.update(|window, cx| {
-        let restored = cx.new(|_| Workspaces::new());
-        restored.update(cx, |spaces, cx| spaces.restore(&saved, window, cx));
-        restored
-    });
-    restored.read_with(visual, |spaces, cx| {
-        assert_eq!(spaces.ordered_members(targets[0], cx), expected);
-        spaces.saved(cx).validate().unwrap();
-    });
     visual.update(|window, cx| {
-        restored.update(cx, |spaces, cx| {
+        workspaces.update(cx, |spaces, cx| {
             spaces.detach(targets[2], window, cx);
             expected.retain(|target| *target != targets[2]);
             assert_eq!(spaces.ordered_members(targets[0], cx), expected);
-            spaces.saved(cx).validate().unwrap();
         })
     });
 }

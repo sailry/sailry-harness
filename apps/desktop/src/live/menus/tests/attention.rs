@@ -179,7 +179,6 @@ fn session_actions(cx: &mut TestAppContext) {
                 .pinned
         );
         let before = visual.read(|cx| cx.windows());
-        let saved = visual.update(|_, cx| crate::preferences::data(cx).workspaces);
         dispatch(Command::NewWindow, visual);
         let new_window = visual.read(|cx| {
             cx.windows()
@@ -196,14 +195,8 @@ fn session_actions(cx: &mut TestAppContext) {
                     Key::Session(node, session.id)
                 );
                 assert_eq!(child.read(cx).live.as_ref().unwrap().selected, node);
-                let splits = child.read(cx).splits.clone();
-                splits.update(cx, |splits, cx| splits.persist(cx));
             })
             .unwrap();
-        assert_eq!(
-            visual.update(|_, cx| crate::preferences::data(cx).workspaces),
-            saved
-        );
         // Quitting from a clean secondary window must still notice drafts in the main window.
         std::fs::write(std::path::Path::new(&path).join("draft.txt"), "Saved").unwrap();
         visual.update(|window, cx| {

@@ -205,7 +205,6 @@ fn groups_and_headings(cx: &mut TestAppContext) {
         shell.read_with(visual, |shell, cx| {
             let splits = shell.splits.read(cx);
             assert_eq!(splits.pane(root).unwrap().entity_id(), split_id);
-            splits.saved(cx).validate().unwrap();
             assert_eq!(shell.chats.views[&(node, original.id)], chat);
         });
         assert_eq!(

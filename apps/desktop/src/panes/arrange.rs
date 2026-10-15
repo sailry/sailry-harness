@@ -67,7 +67,6 @@ impl Workspaces {
             .area
             .update(cx, |area, cx| area.remove_panel(pane, window, cx));
         self.hierarchy.attach(target, destination);
-        self.saving = true;
         area.update(cx, |area, cx| area.set_center(rows, window, cx));
         self.prune(cx);
         self.focus(target, cx);

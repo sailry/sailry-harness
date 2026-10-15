@@ -25,31 +25,12 @@ impl Shell {
         let target = Target::Terminal(node, tree, info.id);
         self.terminals.remember(live.selected, info.id, project);
         if self.splits.read(cx).contains(target) {
-            if self.recovery.contains(target) {
-                self.restore_pane(target, window, cx);
-            }
             self.splits
                 .update(cx, |splits, cx| splits.focus(target, cx));
         } else if let Some(snapshot) = live.view.snapshot.clone() {
             self.open_resource_pane(target, live.transport.clone(), &snapshot, window, cx);
         }
         self.focus_terminal_pane(node, info.id, window, cx);
-    }
-
-    pub(crate) fn restore_terminal_pane(
-        &mut self,
-        target: Target,
-        transport: Arc<dyn Transport>,
-        snapshot: &sailry_protocol::Snapshot,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let extension = self
-            .splits
-            .read(cx)
-            .pane(target)
-            .and_then(|pane| pane.read(cx).extension.clone());
-        self.restore_resource_pane(target, transport, snapshot, extension, window, cx)
     }
 
     pub(crate) fn restore_terminal_scope(

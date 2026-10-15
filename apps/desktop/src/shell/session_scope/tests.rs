@@ -11,6 +11,7 @@ mod browser;
 mod header_activity;
 mod panels;
 mod recent;
+mod runtime;
 mod sidebar;
 mod unassigned;
 
@@ -715,4 +716,3 @@ fn indented_title_spacing(cx: &mut TestAppContext) {
 }
 
 mod attention;
-mod recovery;

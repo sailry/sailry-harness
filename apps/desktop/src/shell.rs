@@ -67,7 +67,6 @@ pub struct Shell {
     pub(crate) extensions: Option<crate::plugins::navigation::Navigation>,
     pub(crate) session_scope: session_scope::State,
     pub(crate) splits: Entity<crate::panes::Workspaces>,
-    pub(crate) recovery: splits::recovery::State,
     pub(crate) plugin_panes: crate::plugins::panes::State,
     pub(crate) project_plugins: crate::plugins::projects::State,
     pub(crate) host_metrics: Option<Entity<crate::workspace::Metrics>>,
@@ -94,14 +93,14 @@ pub struct Shell {
 
 impl Shell {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::build(true, window, cx)
+        Self::build(window, cx)
     }
 
     pub(crate) fn secondary(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        Self::build(false, window, cx)
+        Self::build(window, cx)
     }
 
-    fn build(restore: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn build(window: &mut Window, cx: &mut Context<Self>) -> Self {
         closing::install(window, cx);
         crate::preferences::init(cx);
         crate::installations::init(cx);
@@ -162,13 +161,7 @@ impl Shell {
             },
         )
         .detach();
-        let splits = cx.new(|_| {
-            let mut spaces = crate::panes::Workspaces::new();
-            if !restore {
-                spaces.suspend_saving();
-            }
-            spaces
-        });
+        let splits = cx.new(|_| crate::panes::Workspaces::new());
         cx.subscribe_in(&splits, window, |shell, _, event, window, cx| {
             shell.split_event(event, window, cx)
         })
@@ -204,7 +197,6 @@ impl Shell {
             side_resource: None,
             extensions: None,
             plugin_panes: Default::default(),
-            recovery: Default::default(),
             project_plugins: Default::default(),
             session_scope: Default::default(),
             splits,
@@ -234,9 +226,6 @@ impl Shell {
             shell
                 .session_scope
                 .open(session_scope::Key::Preview(shell.host, shell.session));
-        }
-        if restore && shell.live.is_some() {
-            shell.restore_split_workspaces(window, cx);
         }
         shell
     }

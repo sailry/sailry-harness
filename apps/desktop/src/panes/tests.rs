@@ -415,235 +415,31 @@ fn split_capacity(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
-fn preserves_unreadable_layout(cx: &mut TestAppContext) {
+fn layout_changes_stay_in_memory(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preferences.json");
+    cx.update(|cx| {
+        cx.set_global(crate::preferences::Preferences::open(path.clone()));
+        crate::preferences::update(cx, |data| data.toast_seconds = 8);
+    });
+    let before = std::fs::read(&path).unwrap();
     let (workspaces, visual) = mount(cx);
-    let original = serde_json::json!({ "invalid": true });
-    visual.update(|_, cx| {
-        crate::preferences::update(cx, |data| data.workspaces = Some(original.clone()));
-        workspaces.update(cx, |workspaces, _| workspaces.suspend_saving());
-    });
-    let a = session(1);
-    let b = session(2);
-    open(&workspaces, a, visual);
-    open(&workspaces, b, visual);
-    visual.update(|_, cx| {
-        workspaces.update(cx, |workspaces, cx| {
-            workspaces.persist(cx);
-            assert!(workspaces.save.is_none());
-            assert_eq!(crate::preferences::data(cx).workspaces, Some(original));
-        })
-    });
-    assert!(drop_on(&workspaces, b, a, Some(Placement::Right), visual));
-    visual.update(|_, cx| {
-        workspaces.update(cx, |workspaces, cx| {
-            assert!(workspaces.saving);
-            workspaces.saved(cx).validate().unwrap();
-        })
-    });
-}
-
-#[gpui::test]
-fn restores_saved_hierarchy(cx: &mut TestAppContext) {
-    let (workspaces, visual) = mount(cx);
-    let a = session(1);
-    let b = session(2);
-    let terminal = Target::Terminal(HostId([2; 32]), WorktreeId::new(), TerminalId::new());
-    for target in [a, b, terminal] {
-        open(&workspaces, target, visual);
-    }
-    assert!(drop_on(&workspaces, b, a, Some(Placement::Right), visual));
+    let first = session(1);
+    let second = session(2);
+    open(&workspaces, first, visual);
+    open(&workspaces, second, visual);
     assert!(drop_on(
         &workspaces,
-        terminal,
-        b,
-        Some(Placement::Bottom),
+        second,
+        first,
+        Some(Placement::Right),
         visual
     ));
-    visual.update(|window, cx| window.draw(cx).clear(cx));
-    let saved = workspaces.read_with(visual, |workspaces, cx| workspaces.saved(cx));
-    assert_eq!(saved.targets(), [a, b, terminal]);
-    let encoded = serde_json::to_string(&saved).unwrap();
-    assert!(encoded.contains("Terminal"));
-    let saved: Saved = serde_json::from_str(&encoded).unwrap();
-    saved.validate().unwrap();
-    let mut duplicate = saved.clone();
-    duplicate.groups.extend(saved.groups.clone());
-    assert!(duplicate.validate().is_err());
-    let mut cyclic = saved.clone();
-    cyclic.parents.push((a, terminal));
-    assert!(cyclic.validate().is_err());
-    visual.update(|window, cx| {
-        let restored = cx.new(|_| Workspaces::new());
-        restored.update(cx, |restored, cx| {
-            restored.restore(&saved, window, cx);
-            assert_eq!(restored.workspace(a, cx), restored.workspace(b, cx));
-            assert_eq!(restored.workspace(a, cx), restored.workspace(terminal, cx));
-            assert_eq!(restored.parent(b), Some(a));
-            assert_eq!(restored.parent(terminal), Some(b));
-            assert_eq!(restored.panes.len(), 3);
-            let original = restored.panes[&a].entity_id();
-            let content = cx.new(|_| Content);
-            restored.open(
-                a,
-                "Reconnected".into(),
-                "Project".into(),
-                content.clone().into(),
-                window,
-                cx,
-            );
-            assert_eq!(restored.panes[&a].entity_id(), original);
-            assert_eq!(
-                restored.panes[&a].read(cx).content.entity_id(),
-                content.entity_id()
-            );
-            assert_eq!(restored.workspace(a, cx), restored.workspace(b, cx));
-        });
-    });
-}
-
-#[gpui::test]
-fn restores_active_terminal(cx: &mut TestAppContext) {
-    use crate::{activity::fixture::Fixture, preview::Page, shell::Shell};
-    use sailry_client::Client;
-    use sailry_protocol::{
-        Command, Output,
-        terminal::{Launch, Status, Viewport},
-    };
-    use std::time::{Duration, Instant};
-
-    cx.executor().allow_parking();
-    let fixture = Fixture::new();
-    for index in 0..2 {
-        let (workspaces, visual) = mount(cx);
-        let node = fixture.nodes[index].id();
-        let session = Target::Session(node, fixture.sessions[index].id);
-        let tree = fixture.sessions[index].worktree;
-        let client = Client::new(if index == 0 {
-            fixture.nodes[0].local()
-        } else {
-            fixture.nodes[0]
-                .link()
-                .remote(fixture.nodes[1].link().address())
-        });
-        let appearance = visual.update(|_, cx| crate::theme::terminal(cx));
-        let Output::Terminal(info) = fixture
-            .runtime
-            .block_on(
-                client.execute(client.prepare(Command::CreateTerminal(Launch {
-                    access: sailry_protocol::process::Access::Workspace,
-                    worktree: tree,
-                    viewport: Viewport {
-                        columns: 80,
-                        rows: 24,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    },
-                    appearance,
-                }))),
-            )
-            .unwrap()
-        else {
-            panic!("terminal expected")
-        };
-        let terminal = Target::Terminal(node, tree, info.id);
-        for target in [session, terminal] {
-            open(&workspaces, target, visual);
-        }
-        assert!(drop_on(
-            &workspaces,
-            terminal,
-            session,
-            Some(Placement::Right),
-            visual
-        ));
-        let saved = workspaces.read_with(visual, |workspaces, cx| workspaces.saved(cx));
-        assert_eq!(saved.active, Some(terminal));
-        visual.update(|window, _| window.remove_window());
-        drop(workspaces);
-
-        cx.update(|cx| {
-            crate::shell::init(cx);
-            cx.set_global(fixture.services());
-            crate::preferences::update(cx, |preferences| {
-                preferences.workspaces = Some(serde_json::to_value(&saved).unwrap());
-            });
-        });
-        let mut entity = None;
-        let (_, visual) = cx.add_window_view(|window, cx| {
-            let shell = cx.new(|cx| Shell::new(window, cx));
-            entity = Some(shell.clone());
-            Root::new(shell, window, cx)
-        });
-        let shell = entity.unwrap();
-        let placeholder = shell.read_with(visual, |shell, cx| {
-            shell.splits.read(cx).panes[&terminal].entity_id()
-        });
-        let deadline = Instant::now() + Duration::from_secs(15);
-        loop {
-            visual.run_until_parked();
-            let ready = visual.update(|window, cx| {
-                window.draw(cx).clear(cx);
-                let shell = shell.read(cx);
-                let splits = shell.splits.read(cx);
-                assert_eq!(shell.page, Page::Terminal);
-                assert_eq!(splits.active, Some(terminal));
-                assert!(
-                    !splits.contains(Target::Draft),
-                    "render must not replace the restored terminal with a draft"
-                );
-                assert_eq!(splits.panes[&terminal].entity_id(), placeholder);
-                assert_eq!(
-                    splits.workspace(session, cx),
-                    splits.workspace(terminal, cx)
-                );
-                assert_eq!(splits.parent(terminal), Some(session));
-                let package_ready = splits.panes[&terminal]
-                    .read(cx)
-                    .content
-                    .clone()
-                    .downcast::<crate::plugins::Panel>()
-                    .ok()
-                    .is_some_and(|panel| {
-                        Some(panel.entity_id()) == shell.plugin_panes.panel_id(terminal)
-                    });
-                let terminal_ready = package_ready
-                    && shell
-                        .plugin_panes
-                        .terminal(terminal, cx)
-                        .is_some_and(|view| {
-                            view.read(cx).info().is_some_and(|current| {
-                                current.id == info.id
-                                    && current.worktree == Some(tree)
-                                    && current.status == Status::Running
-                            })
-                        });
-                let conversation_ready = shell
-                    .chats
-                    .views
-                    .get(&(node, fixture.sessions[index].id))
-                    .is_some_and(|view| view.read(cx).connected());
-                let live = shell.live.as_ref().unwrap();
-                terminal_ready && conversation_ready && live.selected == node && live.view.connected
-            });
-            if ready {
-                break;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "active terminal hydration deadline"
-            );
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        shell.read_with(visual, |shell, cx| {
-            let live = shell.live.as_ref().unwrap();
-            assert_eq!(live.project, fixture.sessions[index].project);
-            assert_eq!(live.selected_worktree().unwrap().id, tree);
-            shell.splits.read(cx).saved(cx).validate().unwrap();
-        });
-        visual.update(|window, _| window.remove_window());
-        drop(shell);
-    }
-    fixture.close();
+    visual
+        .executor()
+        .advance_clock(std::time::Duration::from_secs(1));
+    visual.run_until_parked();
+    assert_eq!(std::fs::read(path).unwrap(), before);
 }
 
 #[gpui::test]
@@ -668,7 +464,6 @@ fn detach_and_replace(cx: &mut TestAppContext) {
         assert_eq!(workspaces.parent(b), Some(d));
         assert_eq!(workspaces.parent(c), Some(b));
         assert_ne!(workspaces.workspace(a, cx), workspaces.workspace(d, cx));
-        workspaces.saved(cx).validate().unwrap();
     });
     let entity = workspaces.read_with(visual, |workspaces, _| workspaces.panes[&b].entity_id());
     visual.update(|window, cx| {
@@ -678,15 +473,13 @@ fn detach_and_replace(cx: &mut TestAppContext) {
             assert_eq!(workspaces.parent(b), None);
             assert_eq!(workspaces.parent(c), Some(d));
             assert_ne!(workspaces.workspace(b, cx), workspaces.workspace(d, cx));
-            workspaces.saved(cx).validate().unwrap();
         })
     });
     // Moving an ancestor next to its child never creates a sidebar cycle.
     assert!(drop_on(&workspaces, d, c, Some(Placement::Right), visual));
-    workspaces.read_with(visual, |workspaces, cx| {
+    workspaces.read_with(visual, |workspaces, _| {
         assert_eq!(workspaces.parent(c), None);
         assert_eq!(workspaces.parent(d), Some(c));
-        workspaces.saved(cx).validate().unwrap();
     });
 }
 
@@ -1045,28 +838,6 @@ fn drag_and_terminal_close(cx: &mut TestAppContext) {
     let b = Target::Session(fixture.nodes[1].id(), fixture.sessions[1].id);
     let splits = shell.read_with(visual, |shell, _| shell.splits.clone());
     assert!(drop_on(&splits, b, a, Some(Placement::Right), visual));
-    let saved = splits.read_with(visual, |splits, cx| {
-        serde_json::to_value(splits.saved(cx)).unwrap()
-    });
-    let restored = visual.update(|window, cx| {
-        crate::preferences::update(cx, |preferences| preferences.workspaces = Some(saved));
-        cx.new(|cx| Shell::new(window, cx))
-    });
-    wait(visual, |cx| restored.read(cx).chats.views.len() == 2);
-    restored.read_with(visual, |shell, cx| {
-        let splits = shell.splits.read(cx);
-        assert_eq!(splits.workspace(a, cx), splits.workspace(b, cx));
-        for index in 0..2 {
-            let view = shell.chats.views[&(fixture.nodes[index].id(), fixture.sessions[index].id)]
-                .read(cx);
-            assert_eq!(view.binding().client.target(), fixture.nodes[index].id());
-            assert_eq!(
-                view.binding().worktree,
-                Some(fixture.sessions[index].worktree)
-            );
-        }
-    });
-    drop(restored);
     visual.update(|window, cx| {
         let focus = splits.read(cx).panes[&b].read(cx).focus.clone();
         focus.focus(window, cx);

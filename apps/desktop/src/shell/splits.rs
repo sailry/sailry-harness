@@ -3,8 +3,6 @@ use super::*;
 use crate::panes::{self, Target};
 use session_scope::Key;
 
-pub(super) mod recovery;
-
 impl Shell {
     pub(crate) fn open_session_pane(
         &mut self,
@@ -149,7 +147,6 @@ impl Shell {
                 self.activate_pane(item.target, window, cx);
             }
             panes::Event::Changed => {
-                self.splits.update(cx, |splits, cx| splits.persist(cx));
                 cx.notify();
             }
         }
@@ -213,7 +210,6 @@ impl Shell {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.recovery.cancel(target);
         let visible = self.page == Page::Conversation
             || self.page == Page::Terminal && self.terminal_workspace_visible(cx);
         self.release_plugin_pane(target);

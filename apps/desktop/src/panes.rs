@@ -3,7 +3,6 @@ mod arrange;
 mod hierarchy;
 mod skin;
 mod state;
-pub(crate) use state::Saved;
 #[cfg(test)]
 mod tests;
 
@@ -149,8 +148,6 @@ pub(crate) struct Workspaces {
     pub active: Option<Target>,
     recent: Vec<Target>,
     next: u64,
-    save: Option<Task<()>>,
-    saving: bool,
 }
 impl EventEmitter<Event> for Workspaces {}
 
@@ -163,8 +160,6 @@ impl Workspaces {
             active: None,
             recent: Vec::new(),
             next: 0,
-            save: None,
-            saving: true,
         }
     }
     pub fn controls(&mut self, target: Target, search: AnyView, cx: &mut Context<Self>) {
@@ -176,24 +171,6 @@ impl Workspaces {
                 }
             });
         }
-    }
-    pub fn persist(&mut self, cx: &mut Context<Self>) {
-        if !self.saving {
-            return;
-        }
-        self.save = Some(cx.spawn(async move |workspaces, cx| {
-            cx.background_executor()
-                .timer(std::time::Duration::from_millis(350))
-                .await;
-            let _ = workspaces.update(cx, |workspaces, cx| {
-                let saved = serde_json::to_value(workspaces.saved(cx)).unwrap();
-                crate::preferences::update(cx, |preferences| preferences.workspaces = Some(saved));
-            });
-        }));
-    }
-    pub fn suspend_saving(&mut self) {
-        self.save = None;
-        self.saving = false;
     }
     pub fn contains(&self, target: Target) -> bool {
         self.panes.contains_key(&target)
@@ -407,7 +384,6 @@ impl Workspaces {
         if self.members(group, cx).len() < 2 {
             return;
         }
-        self.saving = true;
         let pane = self.panes[&target].clone();
         self.groups[&group]
             .area
@@ -493,8 +469,6 @@ impl Workspaces {
         if displaced == target {
             return false;
         }
-        // An explicit layout edit may replace an unreadable saved layout; startup may not.
-        self.saving = true;
         let pane = self.panes[&target].clone();
         if let Some(placement) = placement {
             self.hierarchy.attach(target, displaced);
