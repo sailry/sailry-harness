@@ -489,8 +489,10 @@ mod tests {
         cx.update(|cx| {
             gpui_kit::init(cx);
             init(cx);
-            for mode in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::Dark] {
-                Theme::change(mode, None, cx);
+        });
+        for mode in [ThemeMode::Dark, ThemeMode::Light, ThemeMode::Dark] {
+            cx.update(|cx| Theme::change(mode, None, cx));
+            cx.update(|cx| {
                 let theme = cx.theme();
                 let background = theme.background.to_rgb().r;
                 let composer = theme.background.blend(theme.muted).to_rgb().r;
@@ -519,8 +521,8 @@ mod tests {
                     assert_eq!(card, background);
                     assert!(background - composer > 0.02);
                 }
-            }
-        });
+            });
+        }
     }
 
     #[gpui::test]

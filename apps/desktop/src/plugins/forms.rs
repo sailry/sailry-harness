@@ -334,7 +334,11 @@ pub(super) fn bound(
     host: Arc<super::host::Host>,
     binding: crate::conversation::live::Binding,
 ) -> HostModule {
-    configuration::extend(module(), host, binding)
+    configuration::extend(module(), host, binding).declarations(format!(
+        "{}\n{}",
+        include_str!("forms/api.d.ts"),
+        include_str!("forms/configuration/api.d.ts")
+    ))
 }
 
 fn observe<T: EventEmitter<InputEvent> + 'static>(

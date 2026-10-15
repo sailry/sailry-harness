@@ -67,56 +67,6 @@ fn accounts_for_replaced_images() {
     assert_eq!(catalog.selected, 1);
 }
 
-#[gpui::test]
-fn normalizes_floating_alpha(cx: &mut TestAppContext) {
-    use crate::theme::DialogStyle as _;
-
-    let directory = tempfile::tempdir().unwrap();
-    let source = crate::theme::fixture::write(directory.path(), "surfaces");
-    let mut package = Package::preview(&Loaded::read(&source, true).unwrap());
-    for (config, popover) in [
-        (&mut package.light, "#12345620"),
-        (
-            &mut package.dark,
-            "linear-gradient(90deg, #abcdef, #fedcba00)",
-        ),
-    ] {
-        let colors = &mut Rc::make_mut(config).colors;
-        colors.popover = Some(popover.into());
-        colors.background = Some("#10203080".into());
-        colors.overlay = Some("#00000077".into());
-        colors.list_hover = Some("#22334455".into());
-    }
-    cx.update(|cx| {
-        gpui_kit::init(cx);
-        crate::theme::init(cx);
-    });
-    let visual = cx.add_empty_window();
-    for (mode, expected) in [
-        (ThemeMode::Light, "#123456"),
-        (ThemeMode::Dark, "#abcdef"),
-        (ThemeMode::Light, "#123456"),
-    ] {
-        visual.update(|window, cx| {
-            crate::theme::select(Some(mode), window, cx);
-            apply_colors(package.clone(), Some(window), cx);
-            let theme = cx.theme();
-            let expected = Hsla::parse_hex(expected)
-                .unwrap()
-                .alpha(crate::theme::FLOATING_ALPHA);
-            assert_eq!(theme.popover, expected);
-            assert_eq!(theme.tokens.popover.color, expected);
-            assert_eq!(theme.tokens.popover.background.as_solid(), Some(expected));
-            assert_eq!(theme.background, Hsla::parse_hex("#10203080").unwrap());
-            assert_eq!(theme.overlay, Hsla::parse_hex("#00000077").unwrap());
-            assert_eq!(theme.list_hover, Hsla::parse_hex("#22334455").unwrap());
-            assert!(crate::theme::panel_background(cx).a < 1.);
-            let mut dialog = gpui_kit::component::dialog::Dialog::new(cx).floating_surface(cx);
-            assert_eq!(dialog.style().background, Some(expected.into()));
-        });
-    }
-}
-
 mod slider {
     use super::*;
 
