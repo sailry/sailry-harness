@@ -56,7 +56,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use crate::Error;
 use database::Database;
 
-const CAPACITY: usize = 64;
+const CAPACITY: usize = 128;
 
 enum Job {
     #[cfg(test)]

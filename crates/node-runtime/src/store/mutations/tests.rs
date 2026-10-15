@@ -5,7 +5,7 @@ use sailry_link::{Identity, Link, Local, NetworkScope, Response};
 use sailry_protocol::*;
 use tokio::sync::mpsc;
 
-use super::super::{CAPACITY, Store, mutations};
+use super::super::{CAPACITY, Job, Store, mutations};
 
 mod entries;
 mod outcomes;
@@ -261,6 +261,78 @@ async fn capacity_includes_running() {
         ErrorCode::Busy
     );
     assert!(!fixture.directory.path().join("project/rejected").exists());
+    fixture.store.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn ingress_rejects_overflow() {
+    assert_eq!(CAPACITY, 128);
+    let fixture = Fixture::start(mutations::execute).await;
+    let (entered, waiting) = mpsc::unbounded_channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let mut gate = Gate {
+        entered: waiting,
+        release,
+    };
+    fixture
+        .store
+        .ingress
+        .sender
+        .send(Job::Barrier {
+            entered,
+            release: released,
+        })
+        .await
+        .unwrap();
+    gate.entered.recv().await.unwrap();
+
+    let client = Arc::new(Client::new(Arc::new(Local::new(
+        fixture.identity.id(),
+        fixture.identity.id(),
+        fixture.store.ingress.clone(),
+    ))));
+    let mut queued = Vec::with_capacity(CAPACITY);
+    for index in 0..CAPACITY {
+        let client = client.clone();
+        let request = client.prepare(Command::WriteFile {
+            worktree: fixture.worktree,
+            path: format!("queued-{index}"),
+            text: "queued".into(),
+            expected_revision: None,
+        });
+        queued.push(tokio::spawn(async move { client.dispatch(request).await }));
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while fixture.store.ingress.sender.capacity() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+
+    let overflow = client.prepare(Command::WriteFile {
+        worktree: fixture.worktree,
+        path: "overflow".into(),
+        text: "not written".into(),
+        expected_revision: None,
+    });
+    let error = match client.dispatch(overflow).await {
+        Ok(_) => panic!("overflow request was accepted"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code, ErrorCode::Busy);
+
+    gate.release.send(()).unwrap();
+    for task in queued {
+        task.await
+            .unwrap()
+            .unwrap()
+            .completion
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    assert!(!fixture.directory.path().join("project/overflow").exists());
     fixture.store.shutdown().await.unwrap();
 }
 
