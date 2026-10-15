@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::conversation::{Page, Status};
+use sailry_protocol::conversation::{Page, Part, Status};
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[path = "execution/oauth.rs"]
 mod oauth;
@@ -274,12 +274,13 @@ pub(super) async fn finished(client: &Client, turn: &QueuedTurn, status: Status)
     finished_within(client, turn, status, Duration::from_secs(10)).await
 }
 
-async fn finished_within(
+pub(super) async fn finished_within(
     client: &Client,
     turn: &QueuedTurn,
     status: Status,
     budget: Duration,
 ) -> Page {
+    let mut last = None;
     tokio::time::timeout(budget, async {
         loop {
             let Output::Conversation(history) = client
@@ -293,22 +294,29 @@ async fn finished_within(
             else {
                 panic!("history expected")
             };
-            if let Some(run) = history.page.runs.iter().find(|run| run.turn == turn.id)
-                && matches!(
+            if let Some(run) = history.page.runs.iter().find(|run| run.turn == turn.id) {
+                last = Some((
+                    run.status,
+                    run.error.as_ref().map(|error| error.code),
+                    history.page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| {
+                        matches!(part, Part::Resource(value) if value["type"] == "model_retry")
+                    }).count(),
+                ));
+                if matches!(
                     run.status,
                     Status::Completed | Status::Failed | Status::Cancelled | Status::Interrupted
-                )
-            {
-                assert_eq!(run.status, status, "{run:?}");
-                no_secrets(&history);
-                assert!(!serde_json::to_string(&history).unwrap().contains(ROTATED));
-                return history.page;
+                ) {
+                    assert_eq!(run.status, status, "{run:?}");
+                    no_secrets(&history);
+                    assert!(!serde_json::to_string(&history).unwrap().contains(ROTATED));
+                    return history.page;
+                }
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
-    .expect("authorization execution deadline")
+    .unwrap_or_else(|error| panic!("authorization execution deadline: {error:?}; last={last:?}"))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

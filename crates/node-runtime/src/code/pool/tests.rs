@@ -490,7 +490,7 @@ async fn cancels_initialization_before_disable_completes() {
             .start(&startup, &root, &CancellationToken::new())
             .await
     });
-    tokio::time::timeout(Duration::from_secs(2), async {
+    tokio::time::timeout(fixture.plan().timeout, async {
         while !fixture.root.join("pid").exists() {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }

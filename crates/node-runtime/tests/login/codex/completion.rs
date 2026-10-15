@@ -13,10 +13,12 @@ async fn requires_a_completed_answer() {
             "failed",
             "empty",
         ] {
+            eprintln!("completion case: remote={remote}, outcome={outcome}");
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
                 if request.path != "/responses" {
                     return server::standard(request, 3600);
                 }
+                eprintln!("completion inference: remote={remote}, outcome={outcome}");
                 server::input(
                     request,
                     &Options::defaults(Authentication::ChatGptOAuth).unwrap(),
@@ -53,16 +55,22 @@ async fn requires_a_completed_answer() {
             let provider = configured(&fixture, None).await;
             let session = super::super::execution::session(&fixture, &provider).await;
             let (_, turn) = super::super::execution::submit(&fixture.client, &session).await;
-            let page = super::super::execution::finished(
-                &fixture.client,
-                &turn,
-                if outcome == "completed" {
-                    Status::Completed
-                } else {
-                    Status::Failed
-                },
-            )
-            .await;
+            let status = if outcome == "completed" {
+                Status::Completed
+            } else {
+                Status::Failed
+            };
+            let page = if matches!(outcome, "eof" | "done") {
+                super::super::execution::finished_within(
+                    &fixture.client,
+                    &turn,
+                    status,
+                    crate::retry_fixture::budget(),
+                )
+                .await
+            } else {
+                super::super::execution::finished(&fixture.client, &turn, status).await
+            };
             if outcome == "completed" {
                 assert_eq!(answer(&page, turn.id), "Authorized Codex response");
             } else {
