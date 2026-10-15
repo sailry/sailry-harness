@@ -83,7 +83,6 @@ pub(crate) fn result(
         .w_full()
         .min_w_0()
         .items_start()
-        .py_3()
         .text_color(cx.theme().muted_foreground)
         .child(div().w_full().min_w_0().child(body))
         .child(Actions {
@@ -311,6 +310,22 @@ mod tests {
                     Some(cx.theme().muted_foreground)
                 );
             }
+        });
+    }
+
+    #[gpui::test]
+    fn result_defers_vertical_padding_to_body(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            crate::theme::init(cx);
+            let mut output = result(
+                "output",
+                div().into_any_element(),
+                std::iter::empty::<AnyElement>(),
+                cx,
+            );
+            assert_eq!(output.style().padding.top, None);
+            assert_eq!(output.style().padding.bottom, None);
         });
     }
 
