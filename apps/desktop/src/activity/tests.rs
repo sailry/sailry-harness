@@ -27,6 +27,25 @@ fn wait(cx: &mut VisualTestContext, ready: impl Fn(&App) -> bool) {
     }
 }
 
+#[track_caller]
+fn notification_bounds(cx: &mut VisualTestContext) -> Bounds<Pixels> {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        cx.run_until_parked();
+        let bounds = cx.update(|window, cx| {
+            window.render_frame(cx);
+            window
+                .try_find("notification")
+                .map(|notification| notification.bounds())
+        });
+        if let Some(bounds) = bounds {
+            return bounds;
+        }
+        assert!(Instant::now() < deadline, "notification render deadline");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn click(cx: &mut VisualTestContext, selector: &'static str) {
     crate::conversation::live::tests::fixture::tap(cx, selector);
 }
@@ -143,12 +162,14 @@ fn background_host_navigation(cx: &mut TestAppContext) {
         let marker = visual
             .debug_bounds(Box::leak(format!("{selector}-marker").into_boxed_str()))
             .unwrap();
+        let actions_right = visual.debug_bounds("notifications-clear").unwrap().right();
         assert_eq!(bounds.size.height, px(40.));
         assert!(label.size.height <= px(24.));
         assert!(icon.right() < label.left());
         assert!(label.right() < time.left());
         assert!(time.right() < marker.left());
-        assert_eq!(marker.right(), bounds.right() - px(8.));
+        assert_eq!(time.right(), actions_right);
+        assert_eq!(marker.left(), bounds.right());
         assert!((label.center().y - icon.center().y).abs() < px(1.));
         click(visual, selector);
         wait(visual, |cx| {

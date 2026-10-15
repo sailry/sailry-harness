@@ -8,7 +8,7 @@ fn settle(visual: &mut VisualTestContext) {
 }
 
 #[gpui::test]
-fn group_icons_and_window_background(cx: &mut TestAppContext) {
+fn group_headings_and_window_background(cx: &mut TestAppContext) {
     let fixture = Fixture::new();
     cx.executor().allow_parking();
     let directory = tempfile::tempdir().unwrap();
@@ -79,18 +79,12 @@ fn group_icons_and_window_background(cx: &mut TestAppContext) {
                 let trigger = match key {
                     "hosts" => "hosts-toggle",
                     "activity" => "active-toggle",
+                    "unassigned" => "unassigned-toggle",
                     "projects" => "projects-toggle",
                     "recent" => "recent-toggle",
                     _ => selector,
                 };
-                if key == "unassigned" {
-                    assert_eq!(
-                        visual.debug_bounds(selector).unwrap().size,
-                        size(px(16.), px(16.))
-                    );
-                } else {
-                    assert!(visual.debug_bounds(selector).is_none());
-                }
+                assert!(visual.debug_bounds(selector).is_none());
                 let before = shell.read_with(visual, |shell, _| match key {
                     "hosts" => shell.sidebar.hosts_closed,
                     "activity" => shell.sidebar.active_closed,
@@ -127,14 +121,7 @@ fn group_icons_and_window_background(cx: &mut TestAppContext) {
             }
             for key in ["hosts", "activity", "unassigned", "projects", "recent"] {
                 let selector = Box::leak(format!("theme-icon.group.{key}").into_boxed_str());
-                if key == "unassigned" {
-                    assert_eq!(
-                        visual.debug_bounds(selector).unwrap().size,
-                        size(px(16.), px(16.))
-                    );
-                } else {
-                    assert!(visual.debug_bounds(selector).is_none());
-                }
+                assert!(visual.debug_bounds(selector).is_none());
             }
         }
     }

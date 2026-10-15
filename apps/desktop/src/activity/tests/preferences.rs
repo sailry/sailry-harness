@@ -86,16 +86,24 @@ fn persists_and_updates_shortcuts(cx: &mut TestAppContext) {
     );
     assert!(visual.debug_bounds("notification-open").is_none());
     crate::feedback::tests::settle(visual);
-    let card = visual.debug_bounds("notification-card").unwrap();
-    visual.simulate_mouse_move(card.center(), None, Modifiers::default());
-    visual.update(|window, cx| window.render_frame(cx));
     visual.update(|window, cx| {
-        window.hover("close", cx);
-        window.render_frame(cx);
+        assert!(window.find("notification").visible());
+        assert!(!window.within("notification").find("close").visible());
+        window.hover("notification", cx);
     });
-    let card = visual.debug_bounds("notification-card").unwrap();
-    let close = visual.debug_bounds("notification-close").unwrap();
+    let (card, close) = visual.update(|window, _| {
+        let card = window.find("notification").bounds();
+        let close = window.within("notification").find("close");
+        assert!(close.visible());
+        let close = close.bounds();
+        (card, close)
+    });
     assert_eq!(card.right() - close.right(), px(5.));
+    visual.simulate_mouse_move(Point::default(), None, Modifiers::default());
+    visual.update(|window, cx| {
+        window.render_frame(cx);
+        assert!(!window.within("notification").find("close").visible());
+    });
     visual.executor().advance_clock(Duration::from_secs(4));
     visual.run_until_parked();
     visual.executor().advance_clock(Duration::from_millis(500));

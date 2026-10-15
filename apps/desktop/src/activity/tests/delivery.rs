@@ -59,7 +59,6 @@ fn publish_with(
 #[gpui::test]
 fn persistent_notices_open_the_publishing_panel(cx: &mut TestAppContext) {
     cx.executor().allow_parking();
-    rust_i18n::set_locale("zh-CN");
     let fixture = fixture::Fixture::new();
     cx.update(|cx| {
         gpui_kit::init(cx);
@@ -97,6 +96,8 @@ fn persistent_notices_open_the_publishing_panel(cx: &mut TestAppContext) {
             .unwrap();
         visual.update(|window, cx| window.clear_notifications(cx));
         let prior = visual.delivered_system_notifications().len();
+        // The locale is process-global, so select it at the exercised boundary.
+        rust_i18n::set_locale("zh-CN");
         publish_with(
             &fixture,
             index,
@@ -139,6 +140,7 @@ fn persistent_notices_open_the_publishing_panel(cx: &mut TestAppContext) {
             visual.update(|window, cx| window.notifications(cx).len()),
             1
         );
+        notification_bounds(visual);
         visual.executor().advance_clock(Duration::from_secs(1000));
         visual.run_until_parked();
         visual.executor().advance_clock(Duration::from_millis(500));
@@ -148,7 +150,10 @@ fn persistent_notices_open_the_publishing_panel(cx: &mut TestAppContext) {
             1
         );
         assert!(visual.debug_bounds("notification-open").is_none());
-        click(visual, "notification-card");
+        notification_bounds(visual);
+        visual.update(|window, cx| window.click("notification", cx));
+        visual.run_until_parked();
+        visual.update(|window, cx| window.render_frame(cx));
         wait(visual, |cx| {
             shell.read(cx).page == Page::Plugin
                 && shell

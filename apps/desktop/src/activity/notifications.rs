@@ -274,6 +274,7 @@ fn entry(
                 .w_full()
                 .min_w_0()
                 .gap_2()
+                .relative()
                 .child(
                     div()
                         .flex_shrink_0()
@@ -302,7 +303,10 @@ fn entry(
                 .child(
                     div()
                         .size_1p5()
-                        .flex_shrink_0()
+                        .absolute()
+                        .right(-rems(0.875))
+                        .top(relative(0.5))
+                        .mt(-rems(0.1875))
                         .debug_selector(move || marker_selector.clone())
                         .child(div().size_full().rounded_full().when(!read, |marker| {
                             marker

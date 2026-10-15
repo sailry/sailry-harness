@@ -91,6 +91,7 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
     assert!(panel.top() >= px(0.));
     assert!(panel.right() <= viewport.width);
     assert!(panel.bottom() <= viewport.height);
+    let actions_right = visual.debug_bounds("notifications-clear").unwrap().right();
     for index in 0..2 {
         let selector = Box::leak(format!("notification-{index}").into_boxed_str());
         let row = visual.debug_bounds(selector).unwrap();
@@ -111,12 +112,42 @@ fn notice_and_toast_clearing_are_independent(cx: &mut TestAppContext) {
         assert!(icon.right() < label.left());
         assert!(label.right() < time.left());
         assert!(time.right() < marker.left());
-        assert_eq!(marker.right(), row.right() - px(8.));
+        assert_eq!(time.right(), actions_right);
+        assert_eq!(marker.left(), row.right());
         assert!(
             visual
                 .debug_bounds(Box::leak(format!("{selector}-unread").into_boxed_str()))
                 .is_some()
         );
+    }
+    click(visual, "notification-0");
+    wait(visual, |cx| shell.read(cx).activity.inbox.unread() == 1);
+    click(visual, "notifications-open");
+    for rem in [16., 14.] {
+        visual.update(|window, cx| {
+            Theme::update(cx, |theme| theme.font_size = px(rem));
+            window.refresh();
+        });
+        visual.run_until_parked();
+        visual.update(|window, cx| {
+            window.render_frame(cx);
+            assert_eq!(window.rem_size(), px(rem));
+        });
+        let actions_right = visual.debug_bounds("notifications-clear").unwrap().right();
+        for index in 0..2 {
+            let selector = Box::leak(format!("notification-{index}").into_boxed_str());
+            let row = visual.debug_bounds(selector).unwrap();
+            let time = visual
+                .debug_bounds(Box::leak(format!("{selector}-time").into_boxed_str()))
+                .unwrap();
+            let marker = visual
+                .debug_bounds(Box::leak(format!("{selector}-marker").into_boxed_str()))
+                .unwrap();
+            assert_eq!(time.right(), actions_right);
+            assert_eq!(marker.left(), row.right());
+        }
+        assert!(visual.debug_bounds("notification-0-unread").is_none());
+        assert!(visual.debug_bounds("notification-1-unread").is_some());
     }
     let handle = visual.update(|window, _| window.window_handle());
     for viewport in [size(px(900.), px(640.)), size(px(680.), px(480.))] {

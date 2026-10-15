@@ -52,7 +52,6 @@ impl Shell {
                         }
                         cx.notify();
                     }))
-                    .child(group_icon("unassigned", IconName::Inbox, cx))
                     .child(div().flex_1().child(tr("sessions_unassigned")))
                     .child(
                         Button::new("unassigned-add")
