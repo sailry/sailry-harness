@@ -15,11 +15,12 @@ async fn query(fixture: &Fixture, client: &Client, options: FileSearch) -> Searc
 }
 
 #[tokio::test]
-async fn excludes_managed_checkouts() {
+async fn includes_managed_checkouts_for_manual_access() {
     let fixture = Fixture::start().await;
     let child = format!(".sailry/worktrees/{}", WorktreeId::new());
+    let path = format!("{child}/child.txt");
     std::fs::create_dir_all(fixture.root.join(&child)).unwrap();
-    std::fs::write(fixture.root.join(&child).join("child.txt"), "needle child").unwrap();
+    std::fs::write(fixture.root.join(&path), "needle child").unwrap();
     std::fs::write(fixture.root.join(".sailry/notes.txt"), "needle notes").unwrap();
     std::fs::write(fixture.root.join("main.txt"), "needle main").unwrap();
     for client in fixture.clients() {
@@ -38,7 +39,7 @@ async fn excludes_managed_checkouts() {
                 .iter()
                 .map(|row| row.path.as_str())
                 .collect::<Vec<_>>(),
-            [".sailry/notes.txt", "main.txt"]
+            [".sailry/notes.txt", path.as_str(), "main.txt"]
         );
         assert!(!result.partial);
         let Output::FileNames(names) = client
@@ -54,13 +55,8 @@ async fn excludes_managed_checkouts() {
         else {
             panic!("file names expected")
         };
-        assert_eq!(names.paths.len(), 2);
-        assert!(
-            names
-                .paths
-                .iter()
-                .all(|path| !path.starts_with(".sailry/worktrees/"))
-        );
+        assert_eq!(names.paths.len(), 3);
+        assert!(names.paths.contains(&path));
         let Output::Directory(directory) = client
             .execute(client.prepare(Command::ListDirectory {
                 worktree: fixture.worktree,
@@ -78,51 +74,64 @@ async fn excludes_managed_checkouts() {
                 .iter()
                 .map(|entry| entry.name.as_str())
                 .collect::<Vec<_>>(),
-            ["notes.txt"]
+            ["worktrees", "notes.txt"]
         );
         assert_eq!(directory.unsupported_names, 0);
-        client
-            .execute(client.prepare(Command::ReadFile {
-                worktree: fixture.worktree,
-                path: ".sailry/notes.txt".into(),
-            }))
-            .await
-            .unwrap();
-        for command in [
-            Command::ReadFile {
-                worktree: fixture.worktree,
-                path: format!("{child}/child.txt"),
-            },
-            Command::WriteFile {
-                worktree: fixture.worktree,
-                path: format!("{child}/crossed.txt"),
-                text: "crossed".into(),
-                expected_revision: None,
-            },
-            Command::ListDirectory {
+        let Output::Directory(directory) = client
+            .execute(client.prepare(Command::ListDirectory {
                 worktree: fixture.worktree,
                 path: ".sailry/worktrees".into(),
                 after: None,
-            },
-            Command::SearchFiles {
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("directory expected")
+        };
+        assert_eq!(directory.entries.len(), 1);
+        let Output::FileContent(content) = client
+            .execute(client.prepare(Command::ReadFile {
                 worktree: fixture.worktree,
-                options: FileSearch {
-                    query: "needle".into(),
-                    path: child.clone(),
-                    ..Default::default()
-                },
+                path: path.clone(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("file content expected")
+        };
+        assert_eq!(content.text, "needle child");
+        let Output::FileWritten(written) = client
+            .execute(client.prepare(Command::WriteFile {
+                worktree: fixture.worktree,
+                path: path.clone(),
+                text: "needle manual edit".into(),
+                expected_revision: content.revision,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("written file expected")
+        };
+        assert_eq!(written.path, path);
+        let scoped = query(
+            &fixture,
+            &client,
+            FileSearch {
+                query: "needle manual edit".into(),
+                path: child.clone(),
+                ..Default::default()
             },
-        ] {
-            assert_eq!(
-                client
-                    .execute(client.prepare(command))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::PermissionDenied
-            );
-        }
-        assert!(!fixture.root.join(&child).join("crossed.txt").exists());
+        )
+        .await;
+        assert_eq!(scoped.matches.len(), 1);
+        assert_eq!(scoped.matches[0].path, path);
+        assert_eq!(scoped.matches[0].line, "needle manual edit");
+        assert!(!scoped.partial);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join(&path)).unwrap(),
+            "needle manual edit"
+        );
+        std::fs::write(fixture.root.join(&path), "needle child").unwrap();
     }
     fixture.close().await;
 }

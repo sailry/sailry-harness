@@ -204,7 +204,8 @@ async fn recovers_lagged_subscriber() {
     projection
         .apply(1, subscription.next().await.unwrap())
         .unwrap();
-    for revision in 0..70 {
+    let revisions = (super::CAPACITY + 1) as u64;
+    for revision in 0..revisions {
         client
             .execute(client.prepare(Command::SetDefaults {
                 expected_revision: revision,
@@ -215,7 +216,7 @@ async fn recovers_lagged_subscriber() {
     }
     assert_eq!(subscription.next().await.unwrap(), Update::ResetRequired);
     client.recover(&mut projection, 1).await.unwrap();
-    assert_eq!(projection.snapshot().unwrap().defaults.revision, 70);
+    assert_eq!(projection.snapshot().unwrap().defaults.revision, revisions);
     assert_eq!(
         projection
             .apply(1, subscription.next().await.unwrap())

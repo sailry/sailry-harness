@@ -52,7 +52,7 @@ enum Reply {
     },
     Anthropic(anthropic::Reply),
     Compaction {
-        fail_summary: bool,
+        failure_status: Option<u16>,
         text: Arc<String>,
         usage: Arc<Vec<i32>>,
     },
@@ -224,19 +224,21 @@ impl Server {
     pub async fn compaction_sequence(fail_summary: bool, text: String, usage: Vec<i32>) -> Self {
         assert!(!usage.is_empty());
         Self::serve(Reply::Compaction {
-            fail_summary,
+            failure_status: fail_summary.then_some(501),
             text: Arc::new(text),
             usage: Arc::new(usage),
         })
         .await
     }
     pub async fn automatic_compaction(fail_summary: bool) -> Self {
-        Self::compaction_usage(
-            fail_summary,
-            "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂"
-                .into(),
-            14000,
-        )
+        Self::serve(Reply::Compaction {
+            failure_status: fail_summary.then_some(500),
+            text: Arc::new(
+                "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂"
+                    .into(),
+            ),
+            usage: Arc::new(vec![14000]),
+        })
         .await
     }
     pub async fn summary(usage: i32) -> Self {
@@ -474,7 +476,7 @@ async fn respond(
         return goals::respond_reasoning(stream, &body, turns, state, &count).await;
     }
     if let Reply::Compaction {
-        fail_summary,
+        failure_status,
         text,
         usage,
     } = reply
@@ -493,7 +495,7 @@ async fn respond(
         } else {
             usage[index.min(usage.len() - 1)]
         };
-        return compaction::respond_usage(stream, &body, fail_summary, &text, input_tokens).await;
+        return compaction::respond_usage(stream, &body, failure_status, &text, input_tokens).await;
     }
     if let Reply::Summary(usage) = reply {
         records.lock().unwrap().push(body.clone());

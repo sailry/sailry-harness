@@ -1,5 +1,6 @@
 use super::*;
 use sailry_protocol::plugin::Reference;
+use std::sync::atomic::Ordering;
 
 fn requirements(name: &str, content: &str) -> Requirements {
     Requirements::new(
@@ -47,6 +48,98 @@ fn manager() -> (tempfile::TempDir, Manager) {
     let runtime = Runtime::open(&root).unwrap();
     let manager = Manager::new(profile, runtime, Arc::new(Environment::ambient())).unwrap();
     (directory, manager)
+}
+
+#[tokio::test]
+async fn reuses_ready_fixture() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().canonicalize().unwrap();
+    let requirements = requirements("fixture", "example==1.0 --hash=sha256:abcd\n");
+    let environment = Arc::new(Environment::ambient());
+    let progress = Arc::new(watch::channel(Vec::new()).0);
+    let (manager, installations) = Manager::ready_fixture(
+        profile.clone(),
+        &requirements,
+        environment.clone(),
+        progress.clone(),
+    )
+    .unwrap();
+    let key = requirements.key(&manager.runtime.identity);
+    let root = manager.root.join("environments").join(key);
+    let paths = [
+        manager.runtime.python.clone(),
+        manager.runtime.root.join("python-runtime.json"),
+        runtime::python(&root),
+        root.join(".sailry-requirements.txt"),
+        root.join(integrity::MARKER),
+    ];
+    let snapshot = || {
+        paths
+            .iter()
+            .map(|path| std::fs::read(path).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let before = snapshot();
+    let stop = CancellationToken::new();
+    let ready = manager.ensure(Some(&requirements), &stop).await.unwrap();
+    assert_eq!(ready.environment, root);
+    assert_eq!(installations.load(Ordering::Relaxed), 0);
+    drop(ready);
+    drop(manager);
+    let (manager, installations) =
+        Manager::ready_fixture(profile, &requirements, environment, progress).unwrap();
+    let ready = manager.ensure(Some(&requirements), &stop).await.unwrap();
+    assert_eq!(ready.environment, root);
+    assert_eq!(installations.load(Ordering::Relaxed), 0);
+    assert_eq!(snapshot(), before);
+}
+
+#[test]
+fn rejects_corrupt_fixture_without_changes() {
+    for base in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = directory.path().canonicalize().unwrap();
+        let requirements = requirements("fixture", "example==1.0 --hash=sha256:abcd\n");
+        let environment = Arc::new(Environment::ambient());
+        let progress = Arc::new(watch::channel(Vec::new()).0);
+        let (manager, installations) = Manager::ready_fixture(
+            profile.clone(),
+            &requirements,
+            environment.clone(),
+            progress.clone(),
+        )
+        .unwrap();
+        let key = requirements.key(&manager.runtime.identity);
+        let root = manager.root.join("environments").join(key);
+        let python = runtime::python(&root);
+        let paths = [
+            manager.runtime.python.clone(),
+            manager.runtime.root.join("python-runtime.json"),
+            python.clone(),
+            root.join(".sailry-requirements.txt"),
+            root.join(integrity::MARKER),
+        ];
+        std::fs::write(
+            if base {
+                &manager.runtime.python
+            } else {
+                &python
+            },
+            b"corrupted fixture interpreter",
+        )
+        .unwrap();
+        let snapshot = || {
+            paths
+                .iter()
+                .map(|path| std::fs::read(path).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let before = snapshot();
+        drop(manager);
+        assert!(Manager::ready_fixture(profile, &requirements, environment, progress).is_err());
+        assert_eq!(snapshot(), before);
+        assert_eq!(installations.load(Ordering::Relaxed), 0);
+    }
 }
 
 #[test]

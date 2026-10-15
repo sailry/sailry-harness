@@ -65,6 +65,13 @@ def remote_commit(client, repository, tag):
 
 def release(client, repository, tag, commit, published=False):
     metadata = client.api("GET", f"repos/{repository}/releases/tags/{quote(tag, safe='')}", missing=True)
+    page = 1
+    while metadata is None:
+        releases = client.api("GET", f"repos/{repository}/releases?per_page=100&page={page}")
+        metadata = next((entry for entry in releases if entry.get("tag_name") == tag), None)
+        if metadata is not None or len(releases) < 100:
+            break
+        page += 1
     if remote_commit(client, repository, tag) != commit:
         raise ValueError("The remote release tag differs from the verified commit")
     if metadata is None:

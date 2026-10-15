@@ -569,8 +569,9 @@ async fn admission_preserves_scope() {
         let foreign = info(
             execute(
                 &client,
-                Command::ReadPlugin {
+                Command::InstallBundledPlugin {
                     name: "progress".into(),
+                    expected_revision: 0,
                 },
             )
             .await,

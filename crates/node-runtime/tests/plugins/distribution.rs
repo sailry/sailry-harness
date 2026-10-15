@@ -296,6 +296,9 @@ fn db_count(path: &std::path::Path) -> i64 {
 async fn removed_default(name: &str, enabled: bool) {
     for remote in [false, true] {
         let (directory, node, controller, client, _) = fixture(remote).await;
+        if name == "office" {
+            node.register_python_environment_fixture(name).unwrap();
+        }
         let installed = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);
         assert_eq!(installed.origin, Some(plugin::Origin::Bundled));
         assert_eq!(installed.summary.enabled, enabled);
@@ -481,6 +484,9 @@ async fn removed_default(name: &str, enabled: bool) {
         drop(client);
         node.shutdown().await.unwrap();
         let node = Node::start(directory.path().join("node")).await.unwrap();
+        if name == "office" {
+            node.register_python_environment_fixture(name).unwrap();
+        }
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

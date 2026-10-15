@@ -41,14 +41,12 @@ async fn separates_inventory_from_scoped_lifecycle() {
             (plugin_tool("code", "code_servers"), json!({})),
         ]);
         let turn = fixture.submit().await;
-        let page = fixture.finish(turn).await;
+        let mut page = fixture.finish(turn).await;
+        page.entries.retain(|entry| entry.turn == turn);
         let output = results(&page);
-        let catalog = output
-            .iter()
-            .find(|result| result["kind"] == "code_catalog")
-            .unwrap();
+        assert_eq!(output.len(), 3);
         assert!(
-            catalog["data"]
+            output[0]
                 .as_array()
                 .unwrap()
                 .iter()
@@ -56,24 +54,19 @@ async fn separates_inventory_from_scoped_lifecycle() {
                 .any(|candidate| candidate["server"] == "rust-analyzer"
                     && candidate["status"] == "stopped")
         );
-        assert!(output.iter().any(|result| result["kind"] == "code_installations" && result["data"] == json!([])));
-        assert!(
-            output
-                .iter()
-                .any(|result| result["kind"] == "code_servers" && result["data"] == json!([]))
-        );
+        assert_eq!(output[1], &json!([]));
+        assert_eq!(output[2], &json!([]));
         assert!(!fixture.root.join("pid").exists());
         server.replace_tools(vec![(
             plugin_tool("code", "code_start"),
             serde_json::to_value(&startup).unwrap(),
         )]);
         let turn = fixture.submit().await;
-        let page = fixture.finish(turn).await;
-        assert!(
-            results(&page)
-                .iter()
-                .any(|result| result["kind"] == "code_server")
-        );
+        let mut page = fixture.finish(turn).await;
+        page.entries.retain(|entry| entry.turn == turn);
+        let output = results(&page);
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0]["status"], "ready");
         assert!(
             page.approvals
                 .iter()
@@ -91,13 +84,11 @@ async fn separates_inventory_from_scoped_lifecycle() {
             serde_json::to_value(&startup).unwrap(),
         )]);
         let turn = fixture.submit().await;
-        let page = fixture.finish(turn).await;
-        assert!(
-            results(&page)
-                .iter()
-                .any(|result| result["kind"] == "code_server"
-                    && result["data"]["status"] == "stopped")
-        );
+        let mut page = fixture.finish(turn).await;
+        page.entries.retain(|entry| entry.turn == turn);
+        let output = results(&page);
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0]["status"], "stopped");
         assert!(servers(&fixture).await.is_empty());
         assert_eq!(
             fixture
@@ -114,7 +105,9 @@ async fn separates_inventory_from_scoped_lifecycle() {
             serde_json::to_value(forged).unwrap(),
         )]);
         let turn = fixture.submit().await;
-        let page = fixture.finish(turn).await;
+        let mut page = fixture.finish(turn).await;
+        page.entries.retain(|entry| entry.turn == turn);
+        assert_eq!(results(&page).len(), 1);
         assert!(
             results(&page)
                 .iter()

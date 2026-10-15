@@ -198,6 +198,14 @@ async fn rejects_changed_worktree_content() {
 async fn unavailable_official_source() {
     for remote in [false, true] {
         let (_directory, node, controller, client, _) = fixture(remote).await;
+        execute(
+            &client,
+            Command::InstallBundledPlugin {
+                name: "progress".into(),
+                expected_revision: 0,
+            },
+        )
+        .await;
         let stored = packages(&node);
         for name in ["files", "progress", "ssh", "databases"] {
             let current = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);

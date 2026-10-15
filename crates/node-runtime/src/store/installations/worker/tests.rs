@@ -98,7 +98,11 @@ async fn fixture() -> (tempfile::TempDir, Store, Arc<Ingress>, mpsc::Receiver<Jo
     let _ = rustls::crypto::ring::default_provider().install_default();
     let directory = tempfile::tempdir().unwrap();
     let store = Store::start(
-        directory.path().join("node.sqlite3"),
+        directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("node.sqlite3"),
         NodeId([3; 32]),
         None,
         Default::default(),

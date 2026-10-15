@@ -225,6 +225,20 @@ async fn respond(
         return Ok(());
     }
     match api {
+        ModelApi::Responses => {
+            assert!(matches!(reply, Reply::Text));
+            let event = json!({"type":"response.completed", "sequence_number":1,
+                "response":{"id":"native-response", "object":"response", "created_at":0,
+                    "model":"fixture-a", "status":"completed",
+                    "output":[{"type":"message", "id":"native-answer", "role":"assistant",
+                        "status":"completed", "content":[{"type":"output_text",
+                            "text":ANSWER, "annotations":[]}]}]}});
+            event_bytes(
+                &mut stream,
+                format!("event: response.completed\ndata: {event}\n\n"),
+            )
+            .await?;
+        }
         ModelApi::ChatCompletions
         | ModelApi::DeepSeek
         | ModelApi::AzureAi

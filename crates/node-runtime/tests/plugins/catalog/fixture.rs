@@ -14,6 +14,12 @@ use tokio::{
 pub(super) const FIRST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 pub(super) const SECOND: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
+pub(super) fn bundled_version() -> String {
+    let manifest: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../../plugins/reminders/plugin.json")).unwrap();
+    manifest["version"].as_str().unwrap().to_owned()
+}
+
 pub(super) struct Catalog {
     pub endpoint: String,
     pub updated: Arc<AtomicBool>,
@@ -39,8 +45,9 @@ impl Catalog {
     }
 
     pub async fn with_content_updates(reminders: &str) -> Self {
-        let catalog = Self::with_versions(reminders, "0.1.0", false).await;
-        *catalog.version.lock().unwrap() = Some("0.1.0".into());
+        let version = bundled_version();
+        let catalog = Self::with_versions(reminders, &version, false).await;
+        *catalog.version.lock().unwrap() = Some(version);
         catalog
     }
 

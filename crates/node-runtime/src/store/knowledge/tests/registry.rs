@@ -123,24 +123,48 @@ fn rejects_invalid_definitions_without_writes() {
 }
 
 #[test]
-fn requires_controller_registration() {
-    let db = database();
-    let owner = package(&db, "owner", 'a', &["knowledge.read", "knowledge.write"]);
+fn requires_model_install_grant() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("node.sqlite3");
+    let node = NodeId([19; 32]);
+    let db = Database::open(&path, node, None).unwrap();
+    let owner = package(
+        &db.connection,
+        "owner",
+        'a',
+        &["knowledge.read", "knowledge.write"],
+    );
+    let request = captured(
+        &owner,
+        Command::RegisterKnowledgeModel {
+            definition: metadata(),
+        },
+    );
     assert_eq!(
-        execute(
-            &db,
-            &captured(
-                &owner,
-                Command::RegisterKnowledgeModel {
-                    definition: metadata()
-                }
-            )
-        )
-        .unwrap_err()
-        .code,
+        db.check_plugin(node, &request).unwrap_err().code,
         ErrorCode::PermissionDenied
     );
-    assert!(rows(&db).is_empty());
+    assert!(rows(&db.connection).is_empty());
+    let owner = package(&db.connection, "owner", 'b', &["models.install"]);
+    let request = captured(
+        &owner,
+        Command::RegisterKnowledgeModel {
+            definition: metadata(),
+        },
+    );
+    db.check_plugin(node, &request).unwrap();
+    let (Output::KnowledgeModel { model }, event) = execute(&db.connection, &request).unwrap()
+    else {
+        panic!("registered model expected")
+    };
+    assert!(matches!(model, Model::Registered { .. }));
+    assert!(event.is_none());
+    assert_eq!(rows(&db.connection).len(), 1);
+    db.close().unwrap();
 }
 
 #[test]

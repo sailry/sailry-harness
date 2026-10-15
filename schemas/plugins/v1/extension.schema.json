@@ -820,6 +820,13 @@
         "path": {
           "description": "JSON Pointer into the original, authoritative arguments.",
           "type": "string"
+        },
+        "result_path": {
+          "description": "Optional result name for the summary, falling back to the original argument.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -982,7 +989,8 @@
     "InputFormat": {
       "enum": [
         "command",
-        "session"
+        "session",
+        "connection"
       ],
       "type": "string"
     },

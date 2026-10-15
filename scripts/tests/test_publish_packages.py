@@ -33,6 +33,8 @@ class FakeGitHub:
         self.calls.append((method, endpoint, payload))
         if "/commits/" in endpoint:
             return {"sha": COMMIT}
+        if "/releases?" in endpoint:
+            return [copy.deepcopy(self.release)] if self.release else []
         if method == "GET":
             return copy.deepcopy(self.release)
         if method == "POST":
@@ -166,6 +168,31 @@ class PackagePublication(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "channel"):
             self.publish("host", client)
         self.assertFalse(client.uploads)
+
+
+class ReleaseLookup(unittest.TestCase):
+    def test_finds_exact_draft_on_later_page(self):
+        client = Mock()
+        unrelated = {**metadata(draft=True), "tag_name": "v0.1.0-alpha.2"}
+        expected = metadata(draft=True)
+        client.api.side_effect = [None, [unrelated] * 100, [unrelated, expected], {"sha": COMMIT}]
+        self.assertEqual(publication.release(client, REPOSITORY, TAG, COMMIT), expected)
+        self.assertTrue(client.api.call_args_list[0].kwargs["missing"])
+        self.assertIn("per_page=100&page=2", client.api.call_args_list[2].args[1])
+        self.assertTrue(all(call.args[0] == "GET" for call in client.api.call_args_list))
+
+    def test_missing_tag_preserves_publication_requirement(self):
+        for published in (False, True):
+            client = Mock()
+            unrelated = {**metadata(draft=True), "tag_name": "v0.1.0-alpha.2"}
+            client.api.side_effect = [None, [unrelated], {"sha": COMMIT}]
+            if published:
+                with self.assertRaisesRegex(ValueError, "Desktop must publish"):
+                    publication.release(client, REPOSITORY, TAG, COMMIT, published=True)
+            else:
+                self.assertIsNone(publication.release(client, REPOSITORY, TAG, COMMIT))
+            self.assertEqual(client.api.call_count, 3)
+            self.assertTrue(all(call.args[0] == "GET" for call in client.api.call_args_list))
 
 
 class Readiness(unittest.TestCase):

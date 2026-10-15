@@ -5,16 +5,12 @@ use crate::code::tests::Fixture;
 async fn cancels_requests_and_bounds_stderr() {
     let fixture = Fixture::new().await;
     fixture.settings(json!({"hang":true,"stderr":70000}));
-    let rpc = Rpc::spawn(
-        &fixture.plan(),
-        &fixture.environment,
-        CancellationToken::new(),
-    )
-    .unwrap();
+    let plan = fixture.plan();
+    let rpc = Rpc::spawn(&plan, &fixture.environment, CancellationToken::new()).unwrap();
     rpc.request(
         "initialize",
         json!({"rootUri":url::Url::from_directory_path(&fixture.root).unwrap()}),
-        Duration::from_secs(2),
+        plan.timeout,
         &CancellationToken::new(),
     )
     .await
@@ -51,16 +47,12 @@ async fn cancels_requests_and_bounds_stderr() {
 async fn times_out_without_retaining_a_pending_request() {
     let fixture = Fixture::new().await;
     fixture.settings(json!({"hang":true}));
-    let rpc = Rpc::spawn(
-        &fixture.plan(),
-        &fixture.environment,
-        CancellationToken::new(),
-    )
-    .unwrap();
+    let plan = fixture.plan();
+    let rpc = Rpc::spawn(&plan, &fixture.environment, CancellationToken::new()).unwrap();
     rpc.request(
         "initialize",
         json!({"rootUri":url::Url::from_directory_path(&fixture.root).unwrap()}),
-        Duration::from_secs(2),
+        plan.timeout,
         &CancellationToken::new(),
     )
     .await
@@ -95,16 +87,12 @@ async fn times_out_without_retaining_a_pending_request() {
 async fn kills_descendants_when_shutdown_stalls() {
     let fixture = Fixture::new().await;
     fixture.settings(json!({"child":true,"hang_shutdown":true}));
-    let rpc = Rpc::spawn(
-        &fixture.plan(),
-        &fixture.environment,
-        CancellationToken::new(),
-    )
-    .unwrap();
+    let plan = fixture.plan();
+    let rpc = Rpc::spawn(&plan, &fixture.environment, CancellationToken::new()).unwrap();
     rpc.request(
         "initialize",
         json!({"rootUri":url::Url::from_directory_path(&fixture.root).unwrap()}),
-        Duration::from_secs(2),
+        plan.timeout,
         &CancellationToken::new(),
     )
     .await

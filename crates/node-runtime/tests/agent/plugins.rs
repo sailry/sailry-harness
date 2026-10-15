@@ -50,6 +50,8 @@ async fn scopes_tool_switches_to_the_execution_node() {
             node.local()
         });
         let origin = Client::new(other.local());
+        progress::install(&client).await;
+        progress::install(&origin).await;
         let server = Server::tools(vec![]).await;
         let session = approvals::prepare(&client, &server, &root).await;
         let mut plugins: Vec<(String, Vec<String>)> = Vec::new();
@@ -144,7 +146,7 @@ async fn scopes_tool_switches_to_the_execution_node() {
             let instructions = requests.last().unwrap()["messages"][0].to_string();
             for rule in [
                 "Use update_plan for substantial multi-step tasks",
-                "Before project work that could depend on prior decisions or preferences",
+                "Before writing code, tests or other output with style preferences",
             ] {
                 assert_eq!(instructions.contains(rule), enabled, "{rule}");
             }

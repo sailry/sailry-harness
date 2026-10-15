@@ -84,12 +84,22 @@ async fn selects_the_highest_newer_version() {
             assert!(batch.failures.is_empty());
             match batch.reports[0].available.as_ref().unwrap() {
                 Candidate::Package(info) => {
-                    assert_eq!(available, "0.0.2");
+                    assert!(
+                        semver::Version::parse(bundled.version.as_deref().unwrap())
+                            .unwrap()
+                            .cmp_precedence(&semver::Version::parse(available).unwrap())
+                            .is_gt()
+                    );
                     assert_eq!(info.summary.version, bundled.version);
                     assert_eq!(info.origin, Some(plugin::Origin::Bundled));
                 }
                 Candidate::Official(entry) => {
-                    assert_ne!(available, "0.0.2");
+                    assert!(
+                        !semver::Version::parse(bundled.version.as_deref().unwrap())
+                            .unwrap()
+                            .cmp_precedence(&semver::Version::parse(available).unwrap())
+                            .is_gt()
+                    );
                     assert_eq!(entry.version.as_deref(), Some(available));
                 }
             }
@@ -115,11 +125,16 @@ async fn selects_the_highest_newer_version() {
 
 #[tokio::test]
 async fn skips_same_and_older_content_versions() {
+    let version = fixture::bundled_version();
+    let mut newer = semver::Version::parse(&version).unwrap();
+    newer.minor += 1;
+    newer.patch = 0;
+    let newer = newer.to_string();
     for (remote, initial) in [
-        (false, "0.1.0"),
-        (true, "0.1.0"),
-        (false, "0.3.0"),
-        (true, "0.3.0"),
+        (false, version.as_str()),
+        (true, version.as_str()),
+        (false, newer.as_str()),
+        (true, newer.as_str()),
     ] {
         let catalog = Catalog::with_content_updates(initial).await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
@@ -185,7 +200,7 @@ async fn skips_same_and_older_content_versions() {
         catalog.status.store(200, Ordering::SeqCst);
         // Explicit reinstallation remains available; it is not update detection.
         let updated = install_official(&client, &current.summary).await;
-        assert_eq!(updated.summary.version.as_deref(), Some("0.1.0"));
+        assert_eq!(updated.summary.version.as_deref(), Some(version.as_str()));
         assert_ne!(updated.summary.digest, current.summary.digest);
         assert!(!updated.summary.enabled);
         assert_eq!(
@@ -214,8 +229,9 @@ async fn skips_same_and_older_content_versions() {
 
 #[tokio::test]
 async fn skips_same_version_bundled_content() {
+    let version = fixture::bundled_version();
     for remote in [false, true] {
-        let catalog = Catalog::with_content_updates("0.1.0").await;
+        let catalog = Catalog::with_content_updates(&version).await;
         let (_directory, node, controller, client) = connection(remote, &catalog).await;
         let bundled = installed(&client)
             .await

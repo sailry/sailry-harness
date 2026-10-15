@@ -11,6 +11,7 @@ async fn new_turn_installation_preserves_admitted_resources() {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let node = Node::start(directory.path().join("node")).await.unwrap();
+        node.register_python_environment_fixture("office").unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

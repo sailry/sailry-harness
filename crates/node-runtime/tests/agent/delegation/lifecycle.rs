@@ -66,7 +66,14 @@ async fn drains_with_full_root_pool() {
             assert_eq!(turn.roles, session.roles);
             parents.push(turn);
         }
-        // All eight root workers are occupied; children still start outside that queue.
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while parent.requests.lock().unwrap().len() < 8 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("all root workers must reach the model");
+        // Child startup has its own deadline after all root workers are occupied.
         let ready = tokio::time::timeout(Duration::from_secs(10), async {
             while child.requests.lock().unwrap().len() < 16 {
                 tokio::time::sleep(Duration::from_millis(10)).await;

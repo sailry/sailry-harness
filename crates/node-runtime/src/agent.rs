@@ -33,6 +33,7 @@ use crate::{
 };
 use adk_core::RunConfig;
 use adk_runner::Runner;
+use adk_session::SessionService;
 use diagnostics::{Diagnostics, Phase};
 use futures::StreamExt;
 use sailry_link::CancellationToken;
@@ -492,24 +493,25 @@ async fn execute_with(
         agent = agent.tool(tool);
     }
     let agent = agent.build().map_err(model::error)?;
+    let sessions = Arc::new(
+        crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
+            .with_input_source(if invocation.child.is_some() {
+                "parent"
+            } else if invocation.automatic {
+                "plugin"
+            } else {
+                "user"
+            })
+            .with_references(invocation.message.references.clone())
+            .with_groupings(catalog.groupings())
+            .with_displays(catalog.displays())
+            .with_connection_context(bindings.clone(), invocation.connections.resources())
+            .with_presentations(catalog.presentations()),
+    );
     let runner = Runner::builder()
         .app_name(APP)
         .agent(Arc::new(agent))
-        .session_service(Arc::new(
-            crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
-                .with_input_source(if invocation.child.is_some() {
-                    "parent"
-                } else if invocation.automatic {
-                    "plugin"
-                } else {
-                    "user"
-                })
-                .with_references(invocation.message.references.clone())
-                .with_groupings(catalog.groupings())
-                .with_displays(catalog.displays())
-                .with_connection_context(bindings.clone(), invocation.connections.resources())
-                .with_presentations(catalog.presentations()),
-        ))
+        .session_service(sessions.clone())
         .compaction_config(compaction_config)
         .run_config(RunConfig {
             tool_confirmation_handler: Some(Arc::new(approval::Handler {
@@ -581,7 +583,14 @@ async fn execute_with(
                     ingress.agents.model_settled(turn);
                 }
                 if event.llm_response.partial {
-                    ingress.partial(target, turn, event).await?;
+                    if let Some(started) = durable_tool_start(&event) {
+                        sessions
+                            .append_event(&session, started)
+                            .await
+                            .map_err(model::error)?;
+                    } else {
+                        ingress.partial(target, turn, event).await?;
+                    }
                 } else if capture_output && let Some(content) = event.content() {
                     let text = content
                         .parts
@@ -624,6 +633,132 @@ async fn execute_with(
                 return Ok(Outcome { output, review });
             }
         }
+    }
+}
+
+fn durable_tool_start(event: &adk_core::Event) -> Option<adk_core::Event> {
+    let metadata = event.provider_metadata.get("adk_tool_started")?;
+    let metadata = serde_json::from_str::<serde_json::Value>(metadata).ok()?;
+    let fields = metadata.as_object()?;
+    let id = fields.get("id")?;
+    let name = fields.get("name")?.as_str()?;
+    if !event.llm_response.partial
+        || fields.len() != 2
+        || !(id.is_null() || id.is_string())
+        || name.is_empty()
+        || event.provider_metadata.len() != 1
+        || event.content().is_some()
+        || event.llm_response.usage_metadata.is_some()
+        || event.llm_response.finish_reason.is_some()
+        || event.llm_response.citation_metadata.is_some()
+        || event.llm_response.turn_complete
+        || event.llm_response.interrupted
+        || event.llm_response.error_code.is_some()
+        || event.llm_response.error_message.is_some()
+        || event.llm_response.provider_metadata.is_some()
+        || event.llm_response.interaction_id.is_some()
+        || !event.actions.state_delta.is_empty()
+        || !event.actions.artifact_delta.is_empty()
+        || event.actions.skip_summarization
+        || event.actions.transfer_to_agent.is_some()
+        || event.actions.escalate
+        || event.actions.tool_confirmation.is_some()
+        || event.actions.tool_confirmation_decision.is_some()
+        || event.actions.compaction.is_some()
+        || event.actions.route.is_some()
+        || !event.long_running_tool_ids.is_empty()
+        || event.llm_request.is_some()
+    {
+        return None;
+    }
+    let mut started = event.clone();
+    started.llm_response.partial = false;
+    Some(started)
+}
+
+#[cfg(test)]
+mod tool_starts {
+    use super::*;
+
+    fn event(id: serde_json::Value) -> adk_core::Event {
+        let mut event = adk_core::Event::new("invocation");
+        event.author = "assistant".into();
+        event.branch = "branch".into();
+        event.llm_response.partial = true;
+        event.provider_metadata.insert(
+            "adk_tool_started".into(),
+            serde_json::json!({"id": id, "name": "ask_user"}).to_string(),
+        );
+        event
+    }
+
+    #[test]
+    fn normalizes_nullable_id() {
+        for id in [serde_json::Value::Null, serde_json::json!("call")] {
+            let event = event(id);
+            let started = durable_tool_start(&event).unwrap();
+            let mut expected = event.clone();
+            expected.llm_response.partial = false;
+            assert!(event.llm_response.partial);
+            assert_eq!(
+                serde_json::to_value(started).unwrap(),
+                serde_json::to_value(expected).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_metadata() {
+        for metadata in [
+            "not-json".into(),
+            serde_json::json!({"name": "ask_user"}).to_string(),
+            serde_json::json!({"id": 1, "name": "ask_user"}).to_string(),
+            serde_json::json!({"id": null, "name": ""}).to_string(),
+            serde_json::json!({"id": null, "name": "ask_user", "extra": true}).to_string(),
+        ] {
+            let mut event = event(serde_json::Value::Null);
+            event
+                .provider_metadata
+                .insert("adk_tool_started".into(), metadata);
+            assert!(durable_tool_start(&event).is_none());
+        }
+    }
+
+    #[test]
+    fn rejects_lifecycle_payloads() {
+        let plain = event(serde_json::Value::Null);
+        let mut cases = Vec::new();
+        let mut content = plain.clone();
+        content.set_content(adk_core::Content::new("model").with_text("unexpected"));
+        cases.push(content);
+        let mut completed = plain.clone();
+        completed.llm_response.turn_complete = true;
+        cases.push(completed);
+        let mut state = plain.clone();
+        state
+            .actions
+            .state_delta
+            .insert("unexpected".into(), serde_json::json!(true));
+        cases.push(state);
+        let mut metadata = plain;
+        metadata
+            .provider_metadata
+            .insert("unexpected".into(), "value".into());
+        cases.push(metadata);
+        assert!(
+            cases
+                .iter()
+                .all(|event| durable_tool_start(event).is_none())
+        );
+    }
+
+    #[test]
+    fn preserves_other_partials() {
+        let mut event = adk_core::Event::new("invocation");
+        event.llm_response.partial = true;
+        event.set_content(adk_core::Content::new("model").with_text("draft"));
+        assert!(durable_tool_start(&event).is_none());
+        assert!(event.llm_response.partial);
     }
 }
 

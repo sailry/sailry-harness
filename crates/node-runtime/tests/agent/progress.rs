@@ -51,6 +51,7 @@ async fn restores_without_replay() {
         ])
         .await;
         let mut fixture = Fixture::new(remote, &server).await;
+        install(&fixture.client).await;
         std::fs::write(fixture.root.join("source.txt"), "Evidence 中文 🙂").unwrap();
         planning::configure(&mut fixture, WorkMode::Plan).await;
         let request = fixture.client.prepare(Command::SubmitTurn {
@@ -147,6 +148,7 @@ async fn preserves_valid_updates() {
         ])
         .await;
         let fixture = Fixture::new(remote, &server).await;
+        install(&fixture.client).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs[0].status, Status::Completed);
@@ -163,4 +165,18 @@ async fn preserves_valid_updates() {
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
+}
+
+pub(super) async fn install(client: &Client) {
+    let Output::Plugin(progress) = client
+        .execute(client.prepare(Command::InstallBundledPlugin {
+            name: "progress".into(),
+            expected_revision: 0,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("progress plugin expected")
+    };
+    assert!(progress.summary.enabled && progress.issues.is_empty());
 }

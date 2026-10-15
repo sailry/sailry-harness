@@ -74,25 +74,40 @@ async fn requires_a_completed_answer() {
                         .error
                         .is_some()
                 );
-                if matches!(outcome, "incomplete" | "absent" | "unknown") {
+                if outcome == "incomplete" {
                     assert_eq!(answer(&page, turn.id), "Authorized Codex response");
                 }
-                if outcome == "empty" {
+                if matches!(outcome, "absent" | "unknown" | "empty") {
                     assert!(answer(&page, turn.id).is_empty());
                 }
             }
             no_secrets(&page);
-            assert_eq!(
-                server
-                    .requests
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .filter(|request| request.path == "/responses")
-                    .count(),
-                1,
-                "{outcome}: inference must not replay"
-            );
+            let retries: Vec<_> = page
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter_map(|part| match part {
+                    Part::Resource(value) if value["type"] == "model_retry" => {
+                        assert_eq!(value["limit"], 5);
+                        Some(value["attempt"].as_u64().unwrap())
+                    }
+                    _ => None,
+                })
+                .collect();
+            let requests = server
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| request.path == "/responses")
+                .count();
+            if matches!(outcome, "eof" | "done") {
+                assert_eq!(retries, [1, 2, 3, 4, 5], "{outcome}");
+                assert_eq!(requests, retries.len() + 1, "{outcome}");
+            } else {
+                assert!(retries.is_empty(), "{outcome}");
+                assert_eq!(requests, 1, "{outcome}: inference must not replay");
+            }
             fixture.close().await;
         }
     }

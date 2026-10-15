@@ -224,7 +224,6 @@ async fn reads_bound_worktree() {
                     "uninstall_ocr_model",
                 ],
             ),
-            ("progress", &["update_plan"]),
             ("brief", &["read_brief", "list_briefs", "write_brief"]),
             (
                 "delegation",

@@ -200,7 +200,11 @@ async fn captures_and_recovers() {
         else {
             panic!("snapshot expected")
         };
-        assert_eq!(snapshot.sessions.len(), 3);
+        let mut ids: Vec<_> = snapshot.sessions.iter().map(|entry| entry.id).collect();
+        ids.sort();
+        let mut expected = [session.id, branch.id];
+        expected.sort();
+        assert_eq!(ids, expected);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
         let node = Node::start(fixture.path().join("node")).await.unwrap();

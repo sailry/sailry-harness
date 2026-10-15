@@ -38,7 +38,11 @@ async fn installs_and_configures_declared_connectors() {
             if ["notion", "linear", "slack", "feishu", "tencent-docs"].contains(&name) {
                 assert_eq!(info.mcp.len(), 1);
                 assert_eq!(info.mcp[0].transport, McpTransport::StreamableHttp);
-                assert!(extension.host.is_none());
+                if name == "notion" {
+                    assert!(extension.host.as_ref().unwrap().valid());
+                } else {
+                    assert!(extension.host.is_none());
+                }
             } else {
                 assert!(extension.host.as_ref().unwrap().valid());
                 assert_eq!(extension.tools.len(), 1);

@@ -94,7 +94,7 @@ jobs:
     needs: source
     if: needs.source.outputs.shared == 'true'
     runs-on: macos-15
-    timeout-minutes: 150
+    timeout-minutes: 240
     env:
       CARGO_BUILD_JOBS: '2'
       BUILD_JOBS: '1'

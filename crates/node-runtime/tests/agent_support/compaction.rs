@@ -17,19 +17,26 @@ pub async fn respond(
     fail_summary: bool,
     text: &str,
 ) -> std::io::Result<()> {
-    respond_usage(stream, body, fail_summary, text, 100).await
+    respond_usage(stream, body, fail_summary.then_some(501), text, 100).await
 }
 
 pub async fn respond_usage(
     mut stream: TcpStream,
     body: &Value,
-    fail_summary: bool,
+    failure_status: Option<u16>,
     text: &str,
     input_tokens: i32,
 ) -> std::io::Result<()> {
     let summary = is_summary(body);
-    if summary && fail_summary {
-        stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await?;
+    if summary && let Some(status) = failure_status {
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 {status} Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await?;
         return stream.shutdown().await;
     }
     let messages = body["messages"].as_array().unwrap();
@@ -76,7 +83,7 @@ pub async fn respond_loop(
         return respond_usage(
             stream,
             body,
-            fail_summary,
+            fail_summary.then_some(501),
             "Context summary fixture: earlier tool evidence retained",
             summary_input,
         )

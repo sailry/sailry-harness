@@ -492,7 +492,7 @@ async fn applies_retrieval_configuration() {
 async fn separates_archive_capacity() {
     for remote in [false, true] {
         let (_directory, node, controller, client) = fixture(remote).await;
-        // Production mutations build the complete private catalog, in bounded fixture callbacks.
+        // Bounded fixture transactions seed the real catalog before production capacity mutations.
         let mut values = Vec::new();
         for index in 0..512 + 2048 - 1 {
             let mut value = entry(None, "Capacity fixture");

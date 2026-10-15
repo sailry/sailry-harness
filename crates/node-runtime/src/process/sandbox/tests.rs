@@ -16,6 +16,10 @@ const INJECTIONS: [&str; 7] = [
 #[path = "tests/repositories.rs"]
 mod repositories;
 
+fn tempdir() -> tempfile::TempDir {
+    tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap()
+}
+
 async fn environment(home: &Path) -> Environment {
     Environment::capture(super::super::environment::Source::Fixture(
         super::super::environment::EnvironmentFixture {
@@ -85,7 +89,7 @@ fn roots(profile: &Path) -> Vec<(PathBuf, PathBuf)> {
 
 #[tokio::test]
 async fn grants_only_worktree_and_scratch_writes() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempdir();
     let home = directory.path().join("home");
     let root = directory.path().join("work");
     let profile = directory.path().join("node");
@@ -160,7 +164,7 @@ async fn grants_only_worktree_and_scratch_writes() {
 
 #[tokio::test]
 async fn rejects_protected_workspace_roots() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempdir();
     let home = directory.path().join("home");
     let profile = directory.path().join("node");
     std::fs::create_dir_all(home.join(".ssh/project")).unwrap();
@@ -194,7 +198,7 @@ async fn rejects_protected_workspace_roots() {
 
 #[tokio::test]
 async fn confines_managed_workspace_grants() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempdir();
     let home = directory.path().join("home");
     let profile = directory.path().join("node");
     for (root, sibling) in roots(&profile) {
@@ -265,7 +269,7 @@ async fn runs_inside_managed_workspaces() {
     use sailry_protocol::process::Outcome;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempdir();
     let home = directory.path().join("home");
     let profile = directory.path().join("node");
     for (root, sibling) in roots(&profile) {
@@ -385,7 +389,7 @@ async fn preserves_login_arguments_through_wrapper() {
         })
         .unwrap();
     let device = pair.master.tty_name();
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempdir();
     let root = directory.path().join("work");
     let profile = directory.path().join("node");
     std::fs::create_dir(&root).unwrap();
@@ -425,7 +429,7 @@ async fn confines_terminal_loader_environment() {
         })
         .unwrap();
     let device = pair.master.tty_name();
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempdir();
     let root = directory.path().join("work");
     let profile = directory.path().join("node");
     std::fs::create_dir(&root).unwrap();
@@ -473,7 +477,7 @@ async fn confines_terminal_loader_environment() {
 
 #[tokio::test]
 async fn confines_command_loader_environment() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = tempdir();
     let root = directory.path().join("work");
     let profile = directory.path().join("node");
     std::fs::create_dir(&root).unwrap();

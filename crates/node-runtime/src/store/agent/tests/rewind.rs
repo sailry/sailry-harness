@@ -105,12 +105,17 @@ fn preserves_shared_history() {
             through: turns[2]
         })
     );
-    assert_eq!(original.activity.run.as_ref(), before.runs.last());
+    let mut latest = before.runs.last().unwrap().clone();
+    assert!(latest.input.is_some());
+    latest.input = None;
+    assert_eq!(original.activity.run, Some(latest));
+    let mut retained = before.runs[0].clone();
+    retained.input = None;
     assert_eq!(
         crate::store::commands::session(&fixture.database.connection, source).unwrap(),
         Session {
             activity: sailry_protocol::activity::Summary {
-                run: Some(before.runs[0].clone()),
+                run: Some(retained),
                 ..original.activity.clone()
             },
             ..original

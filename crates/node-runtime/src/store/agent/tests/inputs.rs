@@ -144,7 +144,12 @@ fn preserves_records_when_adding_capture_column() {
         &fixture.events,
     )
     .unwrap();
-    let path = fixture._root.path().join("node.sqlite3");
+    let path = fixture
+        ._root
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("node.sqlite3");
     let node = fixture.database.node;
     let body: Vec<u8> = fixture
         .database
@@ -216,7 +221,12 @@ fn rejects_invalid_capture_before_upgrade() {
         &fixture.events,
     )
     .unwrap();
-    let path = fixture._root.path().join("node.sqlite3");
+    let path = fixture
+        ._root
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("node.sqlite3");
     let node = fixture.database.node;
     fixture
         .database

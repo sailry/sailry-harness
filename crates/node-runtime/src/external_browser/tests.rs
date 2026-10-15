@@ -28,6 +28,7 @@ fn package_preserves_actions_and_schemas() {
     }
     let native =
         adk_browser::BrowserToolset::new(Arc::new(BrowserSession::new(BrowserConfig::default())))
+            .with_evaluate_js(true)
             .all_tools();
     let local = [
         "browser_close_session",

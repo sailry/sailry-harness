@@ -185,7 +185,7 @@ async fn preserves_context_on_failure() {
                 .count(),
             7
         );
-        // The pinned model adapter classifies this HTTP 500 as nonretryable.
+        // The fixture returns a nonretryable HTTP 501.
         // Later tool batches must not start another summary request.
         let summaries: Vec<_> = requests
             .iter()

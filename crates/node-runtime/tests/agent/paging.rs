@@ -11,6 +11,7 @@ pub(super) mod transport;
 use transport::Observed;
 
 fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
+    assert!(statistics.first_token_us.is_some());
     assert_eq!(
         statistics,
         &Statistics {
@@ -24,6 +25,7 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
                 reasoning: 0
             }),
             generation: statistics.generation.clone(),
+            first_token_us: statistics.first_token_us,
             ..Default::default()
         }
     );
@@ -120,7 +122,7 @@ async fn restores_streamed_turns() {
             }))
             .await
             .unwrap();
-        let finished = finished(&client, session.id, first).await;
+        let finished = finished_within(&client, session.id, first, Duration::from_secs(30)).await;
         assert_eq!(
             finished.runs[0].status,
             Status::Completed,
