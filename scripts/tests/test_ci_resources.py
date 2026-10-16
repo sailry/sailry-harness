@@ -290,6 +290,16 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("python3 scripts/ci.py speech-key x86_64-unknown-linux-gnu", workflow)
 
 
+    def test_always_builds_with_compiler_caching(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        build = job_section(workflow, "build")
+        compilation = build.split("      - name: Build native Desktop\n", 1)[1].split("      - ", 1)[0]
+        self.assertNotIn("if:", compilation)
+        self.assertIn("cargo build --locked --release --timings", compilation)
+        for legacy in ("reuse_build_run", "reusable-build", "native-cache", "target/release\n"):
+            self.assertNotIn(legacy, workflow)
+        self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", build)
+
     def test_reuses_sources_without_extracted_duplicates(self):
         action = (ROOT / ".github/actions/rust-cache/action.yml").read_text()
         workflows = [(ROOT / f".github/workflows/{name}.yml").read_text()
