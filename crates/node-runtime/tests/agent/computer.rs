@@ -82,6 +82,8 @@ struct Fixture {
     turn: TurnId,
     server: Server,
     worker: driver::Worker,
+    record_start: usize,
+    call_start: usize,
 }
 
 impl Fixture {
@@ -137,15 +139,42 @@ impl Fixture {
         } else {
             node.local()
         });
-        let session = super::approvals::prepare(&client, &server, &root).await;
-        let Output::Providers(mut providers) = client
+        let (session, turn) =
+            Self::configure(&client, &server, &root, mode, permission, enabled).await;
+        Self {
+            _directory: directory,
+            node,
+            controller,
+            client,
+            session,
+            turn,
+            server,
+            worker,
+            record_start: 0,
+            call_start: 0,
+        }
+    }
+
+    async fn configure(
+        client: &Client,
+        server: &Server,
+        root: &std::path::Path,
+        mode: WorkMode,
+        permission: Permission,
+        enabled: bool,
+    ) -> (SessionId, TurnId) {
+        let session = super::approvals::prepare(client, server, root).await;
+        let Output::Providers(providers) = client
             .execute(client.prepare(Command::ListProviders))
             .await
             .unwrap()
         else {
             panic!("providers expected")
         };
-        let mut provider = providers.remove(0);
+        let mut provider = providers
+            .into_iter()
+            .find(|provider| provider.id == session.config.provider)
+            .unwrap();
         provider.models[0].vision = true;
         client
             .execute(client.prepare(Command::PutProvider {
@@ -168,7 +197,7 @@ impl Fixture {
         else {
             panic!("session expected")
         };
-        set_enabled(&client, enabled).await;
+        set_enabled(client, enabled).await;
         let Output::QueuedTurn(turn) = client
             .execute(client.prepare(Command::SubmitTurn {
                 session: session.id,
@@ -180,16 +209,64 @@ impl Fixture {
         else {
             panic!("turn expected")
         };
-        Self {
-            _directory: directory,
-            node,
-            controller,
-            client,
-            session: session.id,
-            turn: turn.id,
-            server,
-            worker,
-        }
+        (session.id, turn.id)
+    }
+
+    async fn next(
+        mut self,
+        server: Server,
+        mode: WorkMode,
+        permission: Permission,
+        enabled: bool,
+    ) -> Self {
+        let Output::Session(previous) = self
+            .client
+            .execute(self.client.prepare(Command::ReadSession {
+                session: self.session,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        self.client
+            .execute(self.client.prepare(Command::RemoveSession {
+                session: previous.id,
+                expected_revision: previous.revision,
+            }))
+            .await
+            .unwrap();
+        // Observe each independent session after the previous owner's real cleanup.
+        let records = self.worker.records();
+        self.record_start = records.len();
+        self.call_start = records
+            .iter()
+            .filter(|record| record["operation"] == "call" && record["name"] != "end_session")
+            .count();
+        let root = self._directory.path().join(SessionId::new().to_string());
+        std::fs::create_dir(&root).unwrap();
+        let (session, turn) =
+            Self::configure(&self.client, &server, &root, mode, permission, enabled).await;
+        self.session = session;
+        self.turn = turn;
+        self.server = server;
+        self
+    }
+
+    fn records(&self) -> Vec<Value> {
+        self.worker
+            .records()
+            .into_iter()
+            .skip(self.record_start)
+            .collect()
+    }
+
+    fn calls(&self) -> Vec<Value> {
+        self.worker
+            .calls()
+            .into_iter()
+            .skip(self.call_start)
+            .collect()
     }
 
     async fn shutdown(self) {

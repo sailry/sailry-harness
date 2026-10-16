@@ -57,20 +57,31 @@ async fn rejects_public_session_substitution() {
     let refusal = json!({"error":{"code":"invalid_request",
         "message":"computer argument session is not supported"},"isError":true});
     for remote in [false, true] {
+        let mut retained: Option<Fixture> = None;
         for label in ["wechat-hello", ""] {
             let arguments = json!({"session":label});
-            let fixture = Fixture::new(
-                remote,
+            let server = Server::tools(
                 names
                     .iter()
                     .map(|name| ((*name).into(), arguments.clone()))
                     .collect(),
-                WorkMode::Plan,
-                Permission::Ask,
-                true,
-                json!({"list_apps":success,"list_windows":success}),
             )
             .await;
+            let fixture = if let Some(previous) = retained.take() {
+                previous
+                    .next(server, WorkMode::Plan, Permission::Ask, true)
+                    .await
+            } else {
+                Fixture::with_server(
+                    remote,
+                    server,
+                    WorkMode::Plan,
+                    Permission::Ask,
+                    true,
+                    json!({"list_apps":success,"list_windows":success}),
+                )
+                .await
+            };
             let page = super::super::questions::finish_plan(
                 &fixture.client,
                 fixture.session,
@@ -83,9 +94,10 @@ async fn rejects_public_session_substitution() {
                 assert_eq!(tool_result(&fixture, page.revision, name).await, refusal);
             }
             // Admission rejects the label before the SDK sees the call.
-            assert!(fixture.worker.calls().is_empty());
-            fixture.shutdown().await;
+            assert!(fixture.calls().is_empty());
+            retained = Some(fixture);
         }
+        retained.unwrap().shutdown().await;
     }
 }
 
@@ -155,27 +167,35 @@ async fn preserves_arguments_and_mcp_outcomes() {
 async fn waits_for_exact_input_authority() {
     let arguments = json!({"target":{"kind":"window","pid":314,"window_id":271},"delivery_mode":"background","x":12,"y":34});
     for remote in [false, true] {
+        let mut retained: Option<Fixture> = None;
         for (disable, decision) in [
             (false, Decision::Deny),
             (false, Decision::Approve),
             (true, Decision::Approve),
         ] {
-            let fixture = Fixture::new(
-                remote,
-                vec![("click".into(), arguments.clone())],
-                WorkMode::Code,
-                Permission::Ask,
-                true,
-                json!({}),
-            )
-            .await;
+            let server = Server::tools(vec![("click".into(), arguments.clone())]).await;
+            let fixture = if let Some(previous) = retained.take() {
+                previous
+                    .next(server, WorkMode::Code, Permission::Ask, true)
+                    .await
+            } else {
+                Fixture::with_server(
+                    remote,
+                    server,
+                    WorkMode::Code,
+                    Permission::Ask,
+                    true,
+                    json!({}),
+                )
+                .await
+            };
             let (page, approval) =
                 super::super::approvals::pending(&fixture.client, fixture.session).await;
             assert!(
                 matches!(&page.entries.iter().find(|entry| entry.id == approval.entry).unwrap().parts[approval.index],
                 Part::ToolCall { name, arguments: actual, .. } if name == "click" && actual == &arguments)
             );
-            assert!(fixture.worker.calls().is_empty());
+            assert!(fixture.calls().is_empty());
             if disable {
                 set_enabled(&fixture.client, false).await;
             }
@@ -193,17 +213,18 @@ async fn waits_for_exact_input_authority() {
             let result = tool_result(&fixture, page.revision, "click").await;
             if !disable && decision == Decision::Approve {
                 assert_eq!(result, driver::action());
-                assert_eq!(fixture.worker.calls().len(), 1);
-                assert_eq!(fixture.worker.calls()[0]["arguments"], arguments);
+                assert_eq!(fixture.calls().len(), 1);
+                assert_eq!(fixture.calls()[0]["arguments"], arguments);
             } else {
                 assert!(result.get("error").is_some(), "{result}");
                 assert!(
-                    fixture.worker.calls().is_empty(),
+                    fixture.calls().is_empty(),
                     "denied or disabled calls must not reach the worker"
                 );
             }
-            fixture.shutdown().await;
+            retained = Some(fixture);
         }
+        retained.unwrap().shutdown().await;
     }
 }
 

@@ -30,10 +30,16 @@ async fn preserves_host_bound_native_definitions() {
     );
     assert!(definitions.iter().any(|tool| tool["name"] == "click"));
     for remote in [false, true] {
+        let mut retained: Option<Fixture> = None;
         for enabled in [false, true] {
             for mode in [WorkMode::Code, WorkMode::Plan] {
-                let fixture =
-                    Fixture::new(remote, vec![], mode, Permission::Full, enabled, json!({})).await;
+                let server = Server::tools(vec![]).await;
+                let fixture = if let Some(previous) = retained.take() {
+                    previous.next(server, mode, Permission::Full, enabled).await
+                } else {
+                    Fixture::with_server(remote, server, mode, Permission::Full, enabled, json!({}))
+                        .await
+                };
                 let page = if mode == WorkMode::Plan {
                     super::super::questions::finish_plan(
                         &fixture.client,
@@ -96,12 +102,13 @@ async fn preserves_host_bound_native_definitions() {
                     );
                 }
                 assert!(
-                    fixture.worker.records().is_empty(),
+                    fixture.records().is_empty(),
                     "catalog inspection must not start a worker"
                 );
-                fixture.shutdown().await;
+                retained = Some(fixture);
             }
         }
+        retained.unwrap().shutdown().await;
     }
 }
 
