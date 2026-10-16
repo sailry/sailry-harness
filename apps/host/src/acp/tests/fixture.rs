@@ -40,7 +40,7 @@ impl Fixture {
         let root = directory.path().join("project 中文");
         std::fs::create_dir(&root).unwrap();
         let root = root.canonicalize().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         let (controller, direct): (Option<Link>, Arc<dyn Transport>) = if remote {
@@ -59,23 +59,19 @@ impl Fixture {
             (None, node.local())
         };
         let client = Arc::new(Client::new(direct.clone()));
-        for name in ["context7", "github", "code-review"] {
-            let Output::Plugin(info) =
-                execute(&client, Command::ReadPlugin { name: name.into() }).await
+        for name in ["files", "delegation", "commands"] {
+            let Output::Plugin(info) = execute(
+                &client,
+                Command::InstallBundledPlugin {
+                    name: name.into(),
+                    expected_revision: 0,
+                },
+            )
+            .await
             else {
-                panic!("plugin expected")
+                panic!("fixture package expected")
             };
-            if info.summary.enabled {
-                execute(
-                    &client,
-                    Command::SetPluginEnabled {
-                        name: name.into(),
-                        expected_revision: info.summary.revision,
-                        enabled: false,
-                    },
-                )
-                .await;
-            }
+            assert!(info.issues.is_empty(), "{:?}", info.issues);
         }
         let provider = provider(&client, &model.endpoint).await;
         let config = SessionConfig {

@@ -69,7 +69,9 @@ async fn dropping_owner_releases_profile() {
 async fn pairs_without_hosting_node() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("controller");
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let link = Link::controller(&path, NetworkScope::default())
         .await
         .unwrap();
@@ -142,7 +144,7 @@ async fn pairs_without_hosting_node() {
 async fn preserves_existing_profiles() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     node.shutdown().await.unwrap();
     assert!(
         Link::controller(&profile, NetworkScope::default())

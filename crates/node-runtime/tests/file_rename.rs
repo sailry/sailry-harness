@@ -44,7 +44,7 @@ async fn shares_idempotent_rename() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("project");
     std::fs::create_dir(&project).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, &project).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -145,7 +145,7 @@ async fn shares_idempotent_rename() {
 #[tokio::test]
 async fn protects_owned_roots() {
     let temp = tempfile::tempdir().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, temp.path()).await;
     let nested = temp.path().join("nested");
@@ -207,7 +207,7 @@ async fn preserves_uncertain_results() {
     let project = temp.path().join("project");
     std::fs::create_dir(&project).unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, &project).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -238,7 +238,7 @@ async fn preserves_uncertain_results() {
     db.execute_batch("DROP TRIGGER lose_result").unwrap();
     drop(db);
     node.shutdown().await.unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let local = Client::new(node.local());
     let remote = Client::new(controller.handle().remote(node.link().address()));
     for (index, client) in [&local, &remote].into_iter().enumerate() {

@@ -8,7 +8,9 @@ use crate::Node;
 
 async fn node() -> (TempDir, Node, Client) {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("profile")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("profile"))
+        .await
+        .unwrap();
     let client = Client::new(node.local());
     (directory, node, client)
 }
@@ -248,7 +250,7 @@ async fn preserves_interrupted_admission() {
         )
         .unwrap();
     drop(connection);
-    let node = Node::start(path).await.unwrap();
+    let node = Node::start_empty(path).await.unwrap();
     let client = Client::new(node.local());
     assert_eq!(
         client.execute(request.clone()).await.unwrap_err().code,
@@ -291,7 +293,7 @@ async fn interrupted_command_preserves_uncertainty() {
         )
         .unwrap();
     drop(connection);
-    let node = Node::start(path).await.unwrap();
+    let node = Node::start_empty(path).await.unwrap();
     let client = Client::new(node.local());
     for _ in 0..2 {
         assert_eq!(

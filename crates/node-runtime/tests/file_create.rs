@@ -26,7 +26,7 @@ async fn shares_exclusive_creation() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("project");
     std::fs::create_dir(&project).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, &project).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -125,7 +125,7 @@ async fn preserves_lost_completion() {
     let project = temp.path().join("project");
     std::fs::create_dir(&project).unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let worktree = register(&client, &project).await;
     let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
@@ -143,7 +143,7 @@ async fn preserves_lost_completion() {
     drop(db);
     node.shutdown().await.unwrap();
     std::fs::rename(project.join("created"), project.join("moved")).unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     assert_eq!(
         client.execute(request).await.unwrap_err().code,

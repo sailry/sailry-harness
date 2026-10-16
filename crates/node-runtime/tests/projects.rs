@@ -22,7 +22,7 @@ async fn creation_and_clone() {
         .branch("fixture", &repository.find_commit(commit).unwrap(), false)
         .unwrap();
     let profile = root.join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let controller = Link::controller(root.join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -101,7 +101,7 @@ async fn creation_and_clone() {
     }
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let Output::Snapshot(snapshot) = client
         .execute(client.prepare(Command::Snapshot))

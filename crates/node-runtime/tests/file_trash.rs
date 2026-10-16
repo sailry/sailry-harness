@@ -41,7 +41,7 @@ fn command(worktree: WorktreeId, path: &str) -> Command {
 #[tokio::test]
 async fn preserves_owned_roots_and_storage() {
     let temp = tempfile::tempdir().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, temp.path()).await;
     std::fs::create_dir(temp.path().join("nested")).unwrap();

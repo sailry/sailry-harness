@@ -511,7 +511,7 @@ mod catalog {
             let project = root.join("project");
             let profile = root.join("node");
             std::fs::create_dir(&project).unwrap();
-            let node = crate::Node::start_isolated(&profile).await.unwrap();
+            let node = crate::Node::start_empty(&profile).await.unwrap();
             node.shutdown().await.unwrap();
             let manifest = source(&project);
             let mut info = crate::plugins::Host::new(Some(profile.clone()))
@@ -539,7 +539,7 @@ mod catalog {
             )
             .unwrap();
             drop(db);
-            let node = crate::Node::start_isolated(&profile).await.unwrap();
+            let node = crate::Node::start_empty(&profile).await.unwrap();
             let controller = Link::controller(root.join("controller"), NetworkScope::default())
                 .await
                 .unwrap();

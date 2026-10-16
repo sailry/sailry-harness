@@ -40,7 +40,7 @@ async fn shares_read_only_worktree_access() {
     std::fs::create_dir_all(project.join("src")).unwrap();
     std::fs::write(project.join("src/main.rs"), "fn main() {}\n").unwrap();
     std::fs::write(project.join("README.md"), "# Fixture\n").unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &project).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -134,7 +134,7 @@ async fn bounds_utf8_previews() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("project");
     std::fs::create_dir(&project).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &project).await;
     let text = "€".repeat(MAX_FILE_BYTES);
@@ -186,7 +186,7 @@ async fn confines_links_and_special_files() {
     let fifo = CString::new(project.join("pipe").to_str().unwrap()).unwrap();
     // SAFETY: fifo is a live terminated C string naming a path in the isolated test directory.
     assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &project).await;
     for path in ["outside/secret.txt", "secret.txt", "pipe"] {

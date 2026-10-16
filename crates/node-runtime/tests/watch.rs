@@ -81,7 +81,7 @@ async fn shares_projection_until_cancelled() {
 async fn recovers_and_revokes() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("host");
-    let host = Node::start(&path).await.unwrap();
+    let host = Node::start_empty(&path).await.unwrap();
     let address = host.link().address();
     let socket = *address.ip_addrs().next().unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -100,7 +100,7 @@ async fn recovers_and_revokes() {
     wait(&mut updates, |view| view.connected).await;
     host.shutdown().await.unwrap();
     wait(&mut updates, |view| !view.connected && view.error.is_some()).await;
-    let host = Node::start_with_network(&path, NetworkScope::Direct(socket))
+    let host = Node::start_empty_with_network(&path, NetworkScope::Direct(socket))
         .await
         .unwrap();
     wait(&mut updates, |view| view.connected && view.error.is_none()).await;

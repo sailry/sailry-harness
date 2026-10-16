@@ -12,7 +12,7 @@ async fn serializes_refresh_and_obeys_revocation() {
     use sailry_link::CancellationToken;
     use sailry_protocol::{Command, Output};
     let directory = tempfile::tempdir().unwrap();
-    let node = crate::Node::start_with_plugin_catalog(
+    let node = crate::Node::start_empty_with_plugin_catalog(
         directory.path().join("node"),
         "http://127.0.0.1:9/",
     )

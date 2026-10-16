@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn confines_owned_roots() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let (destination, worktree) = destination(&fixture).await;
     let clients = fixture.clients();
     let enclosing = register(&clients[0], fixture._temp.path()).await;

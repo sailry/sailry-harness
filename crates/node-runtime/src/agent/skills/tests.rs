@@ -21,7 +21,7 @@ async fn binds_captured_resources_without_plugin_identity() {
         .unwrap();
     assert_eq!(package.skills.len(), 1);
     let stop = CancellationToken::new();
-    let node = crate::Node::start_isolated(directory.path().join("node"))
+    let node = crate::Node::start_empty(directory.path().join("node"))
         .await
         .unwrap();
     let turn = sailry_protocol::TurnId::new();

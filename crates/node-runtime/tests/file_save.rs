@@ -39,7 +39,7 @@ async fn local_and_remote() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("project");
     std::fs::create_dir(&project).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let worktree = setup(&local, &project).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -157,7 +157,7 @@ async fn lost_result_is_not_replayed() {
     let project = temp.path().join("project");
     std::fs::create_dir(&project).unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let worktree = setup(&client, &project).await;
     let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
@@ -175,7 +175,7 @@ async fn lost_result_is_not_replayed() {
     drop(db);
     node.shutdown().await.unwrap();
     std::fs::write(project.join("file.txt"), "external after crash").unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     assert_eq!(
         client.execute(request).await.unwrap_err().code,

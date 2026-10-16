@@ -7,7 +7,7 @@ mod schema;
 async fn restores_config_revisions() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("profile");
-    let node = crate::Node::start(&profile).await.unwrap();
+    let node = crate::Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let Output::Project(project) = client
         .execute(client.prepare(Command::RegisterProject {
@@ -49,7 +49,7 @@ async fn restores_config_revisions() {
         1
     );
     drop(db);
-    let node = crate::Node::start(&profile).await.unwrap();
+    let node = crate::Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let Output::Snapshot(snapshot) = client
         .execute(client.prepare(Command::Snapshot))
