@@ -5,6 +5,38 @@ use serde_json::json;
 mod support;
 use support::{Entry, Kind, MemoryId, Summary};
 
+async fn fixture(remote: bool, server: &Server) -> Fixture {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(if remote {
+        controller.handle().remote(address)
+    } else {
+        node.local()
+    });
+    let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
+    let session = approvals::prepare_model(&client, session, provider).await;
+    Fixture {
+        directory,
+        root,
+        node,
+        controller,
+        client,
+        session,
+    }
+}
+
 async fn install(fixture: &Fixture) {
     support::prepare(&fixture.root.join("memory"));
     support::install(&fixture.client, fixture.session.worktree, "memory").await;
@@ -22,7 +54,7 @@ async fn preserves_reads_in_plan() {
             (plugin_tool("memory", "review_memories"), json!({})),
         ];
         let server = Server::tools(calls.clone()).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server).await;
         install(&fixture).await;
         support::save_settings(
             &fixture.client,
@@ -142,7 +174,7 @@ async fn curates_scoped_memory() {
             ),
         ];
         let server = Server::tools(calls.clone()).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server).await;
         install(&fixture).await;
         support::save_settings(
             &fixture.client,
@@ -293,7 +325,7 @@ async fn applies_tool_settings() {
                 vec![]
             };
             let server = Server::tools(calls).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = fixture(remote, &server).await;
             install(&fixture).await;
             support::save_settings(
                 &fixture.client,
@@ -387,7 +419,7 @@ async fn consolidates_with_scoped_authority() {
             (plugin_tool("memory", "consolidate_memories"),json!({"id":target,"expected_revision":1,"title":"Language preference","body":"Use concise Chinese replies","sources":[{"id":source,"revision":1}]})),
             (plugin_tool("memory", "search_memory"),json!({"query":"Chinese"})),
         ]).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         install(&fixture).await;
         assert_ne!(fixture.session.config.permission, Permission::Full);
         support::save_settings(
@@ -489,7 +521,7 @@ async fn rejects_unread_replacement() {
             } else {
                 Server::tools(calls).await
             };
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = fixture(remote, &server).await;
             install(&fixture).await;
             support::save_settings(
                 &fixture.client,
@@ -582,7 +614,7 @@ async fn rejects_unread_replacement() {
 async fn leaves_tool_use_optional() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = fixture(remote, &server).await;
         install(&fixture).await;
         support::save_settings(
             &fixture.client,

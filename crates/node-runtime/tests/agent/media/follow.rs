@@ -27,7 +27,9 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -42,7 +44,8 @@ impl Fixture {
         } else {
             node.local()
         });
-        let (base, mut provider) = configured(&client, &server.endpoint, &root).await;
+        let package = install(&client).await;
+        let (base, mut provider) = configured_session(&client, &server.endpoint, &root).await;
         provider.api = api;
         provider.options = None;
         provider.models = ["follow-a", "follow-b"]
@@ -84,18 +87,6 @@ impl Fixture {
         else {
             panic!("session expected")
         };
-        let Output::Plugin(package) = client
-            .execute(client.prepare(Command::ReadPlugin {
-                name: "media".into(),
-            }))
-            .await
-            .unwrap()
-        else {
-            panic!("media package expected")
-        };
-        assert!(package.issues.is_empty(), "{:?}", package.issues);
-        assert!(package.summary.enabled);
-        assert!(package.skills.iter().any(|skill| skill.name == "imagegen"));
         Self {
             _directory: directory,
             root,

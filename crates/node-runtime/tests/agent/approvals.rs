@@ -33,7 +33,11 @@ pub(super) async fn prepare_files(
     prepare_model(client, session, provider).await
 }
 
-async fn prepare_model(client: &Client, session: Session, mut provider: Provider) -> Session {
+pub(super) async fn prepare_model(
+    client: &Client,
+    session: Session,
+    mut provider: Provider,
+) -> Session {
     provider.default_model = "fixture-a".into();
     provider.models = vec![Model {
         id: "fixture-a".into(),

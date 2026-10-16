@@ -6,6 +6,23 @@ mod follow;
 #[path = "media/server.rs"]
 mod server;
 
+async fn install(client: &Client) -> plugin::Info {
+    let Output::Plugin(package) = client
+        .execute(client.prepare(Command::InstallBundledPlugin {
+            name: "media".into(),
+            expected_revision: 0,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("media package expected")
+    };
+    assert!(package.issues.is_empty(), "{:?}", package.issues);
+    assert!(package.summary.enabled);
+    assert!(package.skills.iter().any(|skill| skill.name == "imagegen"));
+    package
+}
+
 pub(super) fn model(id: &str) -> Model {
     Model {
         id: id.into(),
@@ -83,7 +100,7 @@ async fn restores_frozen_execution() {
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("input.png"), server::image()).unwrap();
         let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -98,6 +115,7 @@ async fn restores_frozen_execution() {
         } else {
             node.local()
         });
+        install(&client).await;
         let server = Server::tools(vec![
             (
                 plugin_tool("media", "inspect_image"),
@@ -121,7 +139,7 @@ async fn restores_frozen_execution() {
             ),
         ])
         .await;
-        let (base, mut provider) = configured(&client, &server.endpoint, &root).await;
+        let (base, mut provider) = configured_session(&client, &server.endpoint, &root).await;
         provider.models = vec![model("fixture-a")];
         provider.default_model = "fixture-a".into();
         client
@@ -350,7 +368,7 @@ async fn restores_frozen_execution() {
         assert_eq!(original, copied);
         drop(db);
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
