@@ -165,7 +165,7 @@ jobs:
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
-          cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime --build-jobs "$BUILD_JOBS" --profile databases --run-ignored only --filterset 'binary(databases)' --test-threads=1
+          cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-release --build-jobs "$BUILD_JOBS" --profile databases --run-ignored only --filterset 'binary(databases)' --test-threads=1
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

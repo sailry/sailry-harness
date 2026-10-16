@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from types import SimpleNamespace
 import unittest
 
 
@@ -35,18 +36,33 @@ class CheckResults(unittest.TestCase):
         }
 
     def summarize(self, results, product=None):
-        return subprocess.run(
-            [sys.executable, str(ROOT / "scripts/ci.py"), "report", *([product] if product else [])],
-            env={**os.environ, "CHECK_RESULTS": json.dumps(results)},
-            text=True,
-            capture_output=True,
-        )
+        try:
+            ci.require_results(results, product)
+        except ValueError as error:
+            return SimpleNamespace(returncode=1, stderr=str(error))
+        return SimpleNamespace(returncode=0, stderr="")
+
+    def test_report_cli(self):
+        for product in (None, *ci.PRODUCTS):
+            for results in (self.results(ci.LANES), {}):
+                with self.subTest(product=product, results=bool(results)):
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts/ci.py"), "report",
+                         *([product] if product else [])],
+                        env={**os.environ, "CHECK_RESULTS": json.dumps(results)},
+                        text=True, capture_output=True,
+                    )
+                    self.assertEqual(result.returncode == 0, bool(results), result.stderr)
+                    if results:
+                        self.assertIn(f"{product.title()} ready" if product else "Checks passed",
+                                      result.stdout)
+                    else:
+                        self.assertIn("Missing check results", result.stderr)
 
     def test_requires_all_jobs(self):
         results = self.results(ci.LANES)
         result = self.summarize(results)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Checks passed", result.stdout)
         for name in JOBS:
             for status in ("failure", "cancelled", "skipped"):
                 with self.subTest(job=name, status=status):
@@ -213,6 +229,15 @@ class Workflow(unittest.TestCase):
         self.assertIn("cargo check --locked -p sailry-desktop --jobs", desktop)
         self.assertIn("cargo check --locked -p sailry-host --jobs", host)
         self.assertIn("cargo nextest run --locked -p sailry-host", host)
+
+    def test_database_reuses_shared_package_graph(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        shared = job_section(workflow, "shared")
+        commands = [line for line in shared.splitlines() if "cargo nextest run" in line]
+        self.assertEqual(len(commands), 2)
+        packages = [re.findall(r"-p ([\w-]+)", command) for command in commands]
+        self.assertEqual(packages[0], packages[1])
+        self.assertIn("sailry-release", packages[1])
 
     def test_source_fixtures_follow_product_owners(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
