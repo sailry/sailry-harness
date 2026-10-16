@@ -508,30 +508,18 @@ async fn separates_archive_capacity() {
             value.summary.archived = index >= 512;
             values.push(value);
         }
-        let mut seeded = Vec::new();
         let context = support::context(&client).await;
-        let mut rows = Vec::new();
-        let mut catalog = Value::Null;
-        let mut head = String::new();
-        for batch in values.chunks(256) {
-            let result: Value = support::run(
-                &client,
-                &context,
-                json!({"action":"seedPlan","entries":batch,"catalog":catalog}),
-            )
-            .await
-            .unwrap();
-            if seeded.is_empty() {
-                seeded = serde_json::from_value::<Vec<Entry>>(result["saved"].clone())
-                    .unwrap()
-                    .into_iter()
-                    .take(2)
-                    .collect();
-            }
-            rows.extend(result["rows"].as_array().unwrap().iter().cloned());
-            catalog = result["catalog"].clone();
-            head = result["head"].as_str().unwrap().to_owned();
-        }
+        let plan: Value = support::run(
+            &client,
+            &context,
+            json!({"action":"seedPlan","entries":values}),
+        )
+        .await
+        .unwrap();
+        let seeded: Vec<Entry> = serde_json::from_value(plan["saved"].clone()).unwrap();
+        let rows = plan["rows"].as_array().unwrap();
+        let catalog = &plan["catalog"];
+        let head = plan["head"].as_str().unwrap();
         drop(client);
         node.shutdown().await.unwrap();
         let profile = directory.path().join("node");
@@ -557,7 +545,7 @@ async fn separates_archive_capacity() {
             transaction
                 .execute(
                     "INSERT INTO plugin_values(name,key,revision,value) VALUES('memory',?1,1,?2)",
-                    rusqlite::params![head, serde_json::to_vec(&catalog).unwrap()],
+                    rusqlite::params![head, serde_json::to_vec(catalog).unwrap()],
                 )
                 .unwrap();
             transaction.commit().unwrap();

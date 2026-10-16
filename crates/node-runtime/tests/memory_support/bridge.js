@@ -43,7 +43,21 @@ async function seedPlan(entries, previous) {
         tags:[`state:${entry.summary.archived ? 'archived' : 'active'}`,scopeTag(entry.summary.project),`equivalent:${equivalence(entry.body)}`],order:entry.summary.updated_at_ms}});
   }
   rows.push(...Array.from(pages,([page,value])=>({key:bodyKey(page),value,index:null})));
-  return {saved,rows,catalog:catalog(current),head:headKey};
+  return {saved:saved.slice(0,2),rows,catalog:catalog(current),head:headKey};
+}
+
+async function seed(entries) {
+  if (!Array.isArray(entries) || entries.length < 1 || entries.length > limits.active+limits.archived) {
+    throw Object.assign(new Error('invalid memory seed'),{code:'invalid_request'});
+  }
+  const result={saved:[],rows:[],catalog:null,head:headKey};
+  for (let offset=0;offset < entries.length;offset+=256) {
+    const batch=await seedPlan(entries.slice(offset,offset+256),result.catalog);
+    if (!result.saved.length) result.saved=batch.saved;
+    result.rows.push(...batch.rows);
+    result.catalog=batch.catalog;
+  }
+  return result;
 }
 
 export async function fixture(input) {
@@ -58,7 +72,7 @@ export async function fixture(input) {
       case 'read': value=await readMemory(input.id,input.project); break;
       case 'prepare': value=await putOperations(input.entry,input.expected_revision,input.project); break;
       case 'seedPlan':
-        value=await seedPlan(input.entries,input.catalog);
+        value=await seed(input.entries);
         break;
       case 'put':
         await commit(await putOperations(input.entry,input.expected_revision,input.project));

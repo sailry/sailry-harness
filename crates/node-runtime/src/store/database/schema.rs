@@ -58,13 +58,15 @@ pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Res
     }
     let mut preview = Connection::open_in_memory()?;
     backup::copy(connection, &mut preview)?;
-    let plan = plan::Plan::prepare(&preview, path)?;
-    plan.apply(&preview)?;
-    verify_owned(&preview, path, DDL)?;
-    upgrades::reconcile(&preview)?;
-    verify(&preview, path, DDL)?;
-    super::validation::stored(&preview)?;
-    identity(&preview, path, node)?;
+    let transaction = preview.transaction()?;
+    let plan = plan::Plan::prepare(&transaction, path)?;
+    plan.apply(&transaction)?;
+    verify_owned(&transaction, path, DDL)?;
+    upgrades::reconcile(&transaction)?;
+    verify(&transaction, path, DDL)?;
+    super::validation::stored(&transaction)?;
+    identity(&transaction, path, node)?;
+    transaction.commit()?;
     backup::save(connection, path)?;
     Ok(Schema(State::Upgrade {
         plan,
