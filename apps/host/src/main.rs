@@ -6,6 +6,8 @@ mod acp;
 #[cfg(unix)]
 mod control;
 #[cfg(all(test, unix))]
+mod history_fixture;
+#[cfg(all(test, unix))]
 #[path = "../../../crates/node-runtime/tests/agent_support/mod.rs"]
 #[allow(dead_code)]
 mod models;

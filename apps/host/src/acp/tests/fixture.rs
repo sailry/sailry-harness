@@ -3,7 +3,8 @@ use futures::{SinkExt, StreamExt, channel::mpsc as lines};
 use sailry_link::{Admission, Link, NetworkScope, Pending, Subscription, Transport};
 use sailry_node_runtime::Node;
 use sailry_protocol::{
-    Authentication, Effort, Permission, ProviderId, SessionConfig, WorkMode, conversation,
+    Authentication, Effort, Permission, ProviderId, SessionConfig, Update, WorkMode,
+    conversation::{self, Change, Status},
 };
 use std::{
     sync::atomic::{AtomicBool, Ordering},
@@ -20,7 +21,7 @@ pub(super) struct Fixture {
     pub session: Session,
     pub model: models::Server,
     pub loss: Arc<std::sync::Mutex<Option<Request>>>,
-    controller: Link,
+    controller: Option<Link>,
     stop: CancellationToken,
     control: JoinHandle<()>,
 }
@@ -42,19 +43,20 @@ impl Fixture {
         let node = Node::start_isolated(directory.path().join("node"))
             .await
             .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
+        let (controller, direct): (Option<Link>, Arc<dyn Transport>) = if remote {
+            let controller =
+                Link::controller(directory.path().join("controller"), NetworkScope::default())
+                    .await
+                    .unwrap();
+            let address = controller
+                .handle()
+                .pair(node.link().invite().unwrap().ticket())
                 .await
                 .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let direct = if remote {
-            controller.handle().remote(address)
+            let direct = controller.handle().remote(address);
+            (Some(controller), direct)
         } else {
-            node.local()
+            (None, node.local())
         };
         let client = Arc::new(Client::new(direct.clone()));
         for name in ["context7", "github", "code-review"] {
@@ -174,22 +176,36 @@ impl Fixture {
     }
 
     pub async fn settled(&self) -> conversation::Page {
+        let mut updates = self
+            .client
+            .subscribe_conversation(self.session.id)
+            .await
+            .unwrap();
         tokio::time::timeout(Duration::from_secs(15), async {
             loop {
-                let page = self.page().await;
-                if !page.runs.is_empty()
-                    && page.runs.iter().all(|run| {
-                        !matches!(
-                            run.status,
-                            conversation::Status::Queued
-                                | conversation::Status::Running
-                                | conversation::Status::Stopping
-                        )
-                    })
-                {
-                    return page;
+                let terminal = match updates.next().await.unwrap() {
+                    Update::ConversationSnapshot(snapshot) => {
+                        !snapshot.page.runs.is_empty()
+                            && snapshot.page.runs.iter().all(|run| {
+                                !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
+                            })
+                    }
+                    Update::ConversationFrame(frame) => matches!(
+                        frame.change,
+                        Change::Run(run) if !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
+                    ),
+                    _ => false,
+                };
+                if terminal {
+                    let page = self.page().await;
+                    if !page.runs.is_empty()
+                        && page.runs.iter().all(|run| {
+                            !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
+                        })
+                    {
+                        return page;
+                    }
                 }
-                tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })
         .await
@@ -200,7 +216,9 @@ impl Fixture {
         self.stop.cancel();
         self.control.await.unwrap();
         self.node.shutdown().await.unwrap();
-        self.controller.close().await.unwrap();
+        if let Some(controller) = self.controller {
+            controller.close().await.unwrap();
+        }
     }
 }
 

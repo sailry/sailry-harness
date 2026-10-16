@@ -231,14 +231,7 @@ async fn restores_an_older_admitted_turn() {
             .pop()
             .unwrap();
         assert_eq!(original.state, State::Completed);
-        for _ in 0..24 {
-            let later = fixture
-                .exchange(&fixture.submit(RequestId::new(), true))
-                .await
-                .pop()
-                .unwrap();
-            assert_eq!(later.state, State::Completed);
-        }
+        crate::history_fixture::append(&fixture.client, &fixture.session, 24).await;
         let recent = fixture
             .client
             .read_conversation(fixture.session.id, None, 20)
@@ -606,14 +599,7 @@ async fn distinguishes_history_failure_from_task_failure() {
             .pop()
             .unwrap();
         assert_eq!(original.state, State::Completed);
-        for _ in 0..24 {
-            let later = fixture
-                .exchange(&fixture.submit(RequestId::new(), true))
-                .await
-                .pop()
-                .unwrap();
-            assert_eq!(later.state, State::Completed);
-        }
+        crate::history_fixture::append(&fixture.client, &fixture.session, 24).await;
         fixture.loss.as_ref().unwrap().fail_paging();
         let missing = fixture.wait(original.turn.unwrap(), 10).await;
         assert_eq!(missing.state, State::Uncertain);

@@ -303,34 +303,13 @@ async fn restores_complete_history_across_pages() {
             false,
         )
         .await;
-        let mut first = None;
-        for _ in 0..25 {
-            let Output::QueuedTurn(turn) = fixture
-                .execute(Command::SubmitTurn {
-                    session: fixture.session.id,
-                    expected_revision: fixture.session.revision,
-                    message: "Append a completed turn".into(),
-                })
-                .await
-            else {
-                panic!("turn expected")
-            };
-            first.get_or_insert(turn.id);
-            assert!(
-                fixture
-                    .settled()
-                    .await
-                    .runs
-                    .iter()
-                    .all(|run| run.status == Status::Completed)
-            );
-        }
+        let turns = crate::history_fixture::append(&fixture.client, &fixture.session, 25).await;
         let recent = fixture
             .client
             .read_conversation(fixture.session.id, None, 20)
             .await
             .unwrap();
-        assert!(!recent.page.runs.iter().any(|run| Some(run.turn) == first));
+        assert!(!recent.page.runs.iter().any(|run| run.turn == turns[0]));
         let mut editor = fixture.editor().await;
         editor.initialize().await;
         assert!(editor.load(&fixture).await.get("result").is_some());

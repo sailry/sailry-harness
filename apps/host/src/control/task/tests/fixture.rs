@@ -12,7 +12,7 @@ pub(super) struct Fixture {
     pub session: Session,
     pub model: models::Server,
     pub loss: Option<Arc<super::transport::Lost>>,
-    controller: Link,
+    controller: Option<Link>,
     stop: CancellationToken,
     service: JoinHandle<()>,
 }
@@ -33,19 +33,20 @@ impl Fixture {
         let node = Node::start_isolated(directory.path().join("node"))
             .await
             .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
+        let (controller, transport): (Option<Link>, Arc<dyn Transport>) = if remote {
+            let controller =
+                Link::controller(directory.path().join("controller"), NetworkScope::default())
+                    .await
+                    .unwrap();
+            let address = controller
+                .handle()
+                .pair(node.link().invite().unwrap().ticket())
                 .await
                 .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport = if remote {
-            controller.handle().remote(address)
+            let transport = controller.handle().remote(address);
+            (Some(controller), transport)
         } else {
-            node.local()
+            (None, node.local())
         };
         let loss = lose.then(|| Arc::new(super::transport::Lost::new(transport.clone())));
         let transport: Arc<dyn Transport> = match &loss {
@@ -201,7 +202,9 @@ impl Fixture {
         self.stop.cancel();
         self.service.await.unwrap();
         self.node.shutdown().await.unwrap();
-        self.controller.close().await.unwrap();
+        if let Some(controller) = self.controller {
+            controller.close().await.unwrap();
+        }
     }
 }
 
