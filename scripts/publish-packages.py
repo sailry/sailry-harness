@@ -77,9 +77,18 @@ def publish(component, tag, notes, assets, repository, commit, client=None):
         existing = {asset["name"] for asset in metadata.get("assets", [])}
         if not filenames(component, tag[1:]).issubset(existing):
             raise ValueError("A published Desktop release cannot acquire missing Desktop assets")
+    if component == "desktop" and metadata.get("draft"):
+        if notes is None:
+            raise ValueError("Desktop publication requires release notes")
+        allowed = filenames("desktop", tag[1:]) | filenames("host", tag[1:])
+        unexpected = {asset["name"] for asset in metadata.get("assets", [])} - allowed
+        if unexpected:
+            raise ValueError("Remove unsupported draft assets before publication: " + ", ".join(sorted(unexpected)))
     append(client, repository, tag, metadata, assets)
     if component == "desktop" and metadata.get("draft"):
         client.api("PATCH", f"{endpoint}/{metadata['id']}", {
+            "name": f"Sailry Harness {tag[1:]}", "body": notes.read_text(),
+            "target_commitish": commit,
             "draft": False,
             "make_latest": "false" if versions.parse(tag[1:]).group("preview") else "true",
         })

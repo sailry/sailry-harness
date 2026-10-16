@@ -93,7 +93,10 @@ class PackagePublication(unittest.TestCase):
         self.assertTrue(creation[2]["draft"])
         self.assertTrue(creation[2]["prerelease"])
         self.assertEqual(len(client.uploads), 8)
-        self.assertEqual(client.calls[-1][2], {"draft": False, "make_latest": "false"})
+        self.assertEqual(client.calls[-1][2], {
+            "name": "Sailry Harness 0.1.0-alpha.1", "body": "Release notes",
+            "target_commitish": COMMIT, "draft": False, "make_latest": "false",
+        })
 
     def test_desktop_retry_preserves_published_assets(self):
         client = FakeGitHub(self.public_desktop())
@@ -115,9 +118,25 @@ class PackagePublication(unittest.TestCase):
     def test_draft_retry_skips_matching_assets(self):
         release = metadata(draft=True)
         release["assets"] = [asset(self.desktop[0])]
+        release.update(name="Old candidate", body="Old notes", target_commitish="b" * 40)
         client = FakeGitHub(release)
         self.publish("desktop", client)
         self.assertEqual(len(client.uploads), 7)
+        self.assertEqual(client.release["name"], "Sailry Harness 0.1.0-alpha.1")
+        self.assertEqual(client.release["body"], "Release notes")
+        self.assertEqual(client.release["target_commitish"], COMMIT)
+
+    def test_draft_requires_current_notes_and_supported_assets(self):
+        release = metadata(draft=True)
+        client = FakeGitHub(release)
+        with self.assertRaisesRegex(ValueError, "release notes"):
+            publisher.publish("desktop", TAG, None, self.desktop, REPOSITORY, COMMIT, client)
+        release["assets"] = [{"name": f"Sailry-{TAG[1:]}-android-arm64.apk"}]
+        client = FakeGitHub(release)
+        with self.assertRaisesRegex(ValueError, "unsupported draft assets"):
+            self.publish("desktop", client)
+        self.assertFalse(client.uploads)
+        self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
     def test_collision_fails_before_any_upload(self):
         for field, value in (("size", 0), ("digest", "sha256:" + "0" * 64), ("state", "open")):

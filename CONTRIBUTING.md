@@ -199,19 +199,18 @@ Flutter run do not establish iOS or Android device acceptance.
 ## Release packages
 
 [The release workflow](.github/workflows/release.yml) runs when a `v*` tag is
-pushed. Manual dispatch can select `host`, `desktop` or `all`, but must
-also run from a version tag. The tag must match every application's version,
-such as `v0.1.0` for version `0.1.0`; branch pushes and pull requests do not build releases.
-A tag starts signed packaging into a draft, which can run alongside candidate
-validation. It does not publish an unverified candidate. Publish the draft only
-after the required candidate checks and all signed packages pass:
-
-```sh
-gh release edit v0.1.0-alpha.1 --draft=false
-```
-
-This changes visibility without rebuilding the packages. Mobile publication is
-not part of this workflow.
+pushed. Manual dispatch of Desktop or [Host](.github/workflows/release-host.yml)
+must select a version tag and supply that same tag as its `tag` input. The tag
+must match every application's version, such as `v0.1.0` for version `0.1.0`;
+branch pushes and pull requests do not build releases.
+Before packaging, each product requires its successful readiness gate from full
+main Checks at the tag's exact commit. Desktop publishes automatically after
+both signed macOS packages pass, then starts Host packaging, update feeds and
+the changelog for the same tag. Host appends its verified macOS and Linux assets
+to that published release and can be retried independently. Mobile publication
+is not part of this workflow. Published tags and existing public assets are never
+replaced. Before reusing an unpublished candidate draft, remove unsupported
+attachments; Desktop refreshes its title and notes from the final tagged source.
 
 Configure these repository secrets through GitHub's encrypted secret storage:
 
@@ -230,15 +229,15 @@ files after packaging. The Apple account must have accepted current agreements
 and the API key must have notarization access.
 
 The packaging workflow signs the final notarized updater ZIP with its published
-filename before calculating checksums. Publishing the reviewed draft triggers
+filename before calculating checksums. Desktop publication starts
 the update-feed workflow, which downloads the published ZIPs and metadata,
 verifies their version, target, digest and both publisher signatures, then
 advances the root feeds with one non-forced compare-and-swap commit. The stable
 feed accepts final versions only. The experience feed accepts both final and
 prerelease versions, and a stable publication advances both feeds. GitHub does
-not normally start another workflow for events created with `GITHUB_TOKEN`; keep
-the existing manual release publication, or have any future publisher invoke the
-same verified feed handoff explicitly.
+not normally start another workflow for events created with `GITHUB_TOKEN`, so
+Desktop publication explicitly dispatches the same verified feed and changelog
+handoffs. Manual dispatch can retry those follow-ups for a published version tag.
 
 Apple silicon and Intel runners build native Desktop DMGs, updater ZIPs and
 standalone macOS Host archives. Desktop contains its local Node, not remote Host
@@ -268,9 +267,9 @@ and verifies Gatekeeper before creating archives. Standalone executables cannot
 carry stapled tickets. The DMG is separately signed, notarized, stapled and checked
 before distribution. The Desktop publisher attaches only macOS Desktop assets.
 The Host publisher waits for the macOS and Linux Host packages, then
-attaches their verified assets to the same draft. They never overwrite public
-releases or existing assets. Review all required platform and candidate checks
-before publishing a full-product draft.
+attaches their verified assets to the same published release. Neither publisher
+overwrites public tags or existing assets. Verify both products' completed
+packaging workflows before reporting the full Desktop and Host release complete.
 
 To build and package one Linux Host locally, install the pinned Zig 0.16.0,
 cargo-zigbuild 0.23.4 tools plus LLVM ar/strip, then run:
