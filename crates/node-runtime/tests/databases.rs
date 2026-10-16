@@ -556,7 +556,7 @@ async fn exercise_transport(
                 || count.rows[0][0] == Value::Text("3".into())
         );
         if matches!(connection, Connection::Sqlite { .. }) {
-            checks::cancels_writes(&client, &profile, &table).await;
+            checks::cancels_writes(&client, &profile, table).await;
         }
         let mut watcher = client.subscribe().await.unwrap();
         let revision = profile.revision;
