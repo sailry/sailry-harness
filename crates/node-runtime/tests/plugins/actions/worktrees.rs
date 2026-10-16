@@ -17,7 +17,7 @@ fn initial(root: &Path) -> String {
 #[tokio::test]
 async fn confines_management_and_retains_admitted_results() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let head = initial(&root);
         let context = install_actions(

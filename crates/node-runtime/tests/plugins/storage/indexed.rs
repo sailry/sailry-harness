@@ -69,7 +69,7 @@ fn keys(page: &SearchPage) -> Vec<&str> {
 #[tokio::test]
 async fn invalidates_without_values() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -184,7 +184,7 @@ async fn invalidates_without_values() {
 #[tokio::test]
 async fn scopes_corpus_filters_and_literal_terms() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let source = directory.path().join("source");
         let context = actions::install_actions(
             &client,
@@ -338,7 +338,7 @@ async fn scopes_corpus_filters_and_literal_terms() {
 #[tokio::test]
 async fn updates_indexes_atomically_and_recovers_receipts() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -446,7 +446,12 @@ async fn updates_indexes_atomically_and_recovers_receipts() {
         assert_eq!(read(&client, &context, "indexed").await.revision, 5);
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

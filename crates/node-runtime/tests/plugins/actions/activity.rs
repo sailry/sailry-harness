@@ -8,7 +8,7 @@ fn request(client: &Client, context: &Context, command: Command) -> Request {
 #[tokio::test]
 async fn catalog_matches_canonical_resources() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -134,7 +134,7 @@ async fn catalog_matches_canonical_resources() {
 #[tokio::test]
 async fn capability_is_explicit_and_revalidated() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let package = directory.path().join("source/package");
         let mut previous =
             install_actions(&client, &package, worktree, 0, &[Action::ReadConversation]).await;

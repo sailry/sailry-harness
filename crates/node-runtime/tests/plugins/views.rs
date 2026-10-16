@@ -46,7 +46,7 @@ fn bundle(output: Output) -> Bundle {
 #[tokio::test]
 async fn reads_declared_resources() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         declare(&root, b"export default class Example {}\n");
         let first = info(execute(&client, install(worktree, 0)).await);
@@ -180,7 +180,7 @@ async fn reads_declared_resources() {
 #[tokio::test]
 async fn rejects_invalid_resources() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         let mut revision = 0;
         for (bytes, missing, code) in [
@@ -224,8 +224,8 @@ async fn rejects_invalid_resources() {
 
 #[tokio::test]
 async fn recovers_host_versions() {
-    let first = fixture(false).await;
-    let second = fixture(true).await;
+    let first = support::empty(false).await;
+    let second = support::empty(true).await;
     declare(&first.0.path().join("source/package"), b"Host one");
     declare(&second.0.path().join("source/package"), b"Host two");
     let one = info(execute(&first.3, install(first.4, 0)).await);
@@ -255,7 +255,10 @@ async fn recovers_host_versions() {
     );
     let expected = bundle(execute(&first.3, read(&one)).await);
     first.1.shutdown().await.unwrap();
-    let reopened = Node::start(first.0.path().join("node")).await.unwrap();
+    let reopened =
+        Node::start_empty_with_plugin_catalog(first.0.path().join("node"), "http://127.0.0.1:9/")
+            .await
+            .unwrap();
     let client = Client::new(reopened.local());
     assert_eq!(bundle(execute(&client, read(&one)).await), expected);
     reopened.shutdown().await.unwrap();
@@ -267,7 +270,7 @@ async fn recovers_host_versions() {
 #[tokio::test]
 async fn reads_disabled_settings() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         declare(&root, b"export default class Workspace {}\n");
         let mut manifest: serde_json::Value =

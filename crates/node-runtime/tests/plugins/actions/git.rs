@@ -59,7 +59,7 @@ fn commit(client: &Client, context: &Context, status: &GitStatus) -> Request {
 #[cfg(unix)]
 async fn shares_index_commit_and_recovery() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let repository = repository(&root);
         let context = install_actions(
@@ -132,7 +132,12 @@ async fn shares_index_commit_and_recovery() {
         );
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -152,7 +157,7 @@ async fn shares_index_commit_and_recovery() {
 #[tokio::test]
 async fn requires_write_grant_and_captured_worktree() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let repository = repository(&root);
         let read = install_actions(
@@ -218,7 +223,7 @@ async fn requires_write_grant_and_captured_worktree() {
 #[tokio::test]
 async fn manages_branches_with_captured_revisions() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let repository = repository(&root);
         let context = install_actions(

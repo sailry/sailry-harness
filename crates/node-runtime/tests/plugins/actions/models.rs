@@ -4,7 +4,7 @@ use sailry_protocol::conversation::{Model, ModelApi, Provider};
 #[tokio::test]
 async fn requires_explicit_models() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -182,7 +182,7 @@ async fn scopes_real_model_installation() {
     use sha2::{Digest, Sha256};
 
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let source = Source {
             hub: Hub::HuggingFace,
             repository: "fixture/ocr".into(),

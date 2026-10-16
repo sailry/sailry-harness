@@ -4,7 +4,7 @@ use rusqlite::Connection;
 #[tokio::test]
 async fn retains_unicode_phrases_and_scope() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let source = directory.path().join("source");
         let context = actions::install_actions(
             &client,
@@ -83,7 +83,7 @@ async fn retains_unicode_phrases_and_scope() {
 #[tokio::test]
 async fn preserves_weights_filters_and_memory_tokens() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -161,7 +161,7 @@ fn previous(db: &Connection, name: &str) -> String {
 #[tokio::test]
 async fn rebuilds_at_restart_without_source_changes() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -194,7 +194,7 @@ async fn rebuilds_at_restart_without_source_changes() {
         let original = records(&db, &context.package.name);
         let definition = previous(&db, &context.package.name);
         db.close().unwrap();
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        let node = Node::start_empty_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
         let client = Client::new(if remote {

@@ -39,7 +39,7 @@ fn appearance() -> Appearance {
 #[tokio::test]
 async fn scopes_control_and_replays() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = install_actions(
             &client,
             &directory.path().join("source/package"),

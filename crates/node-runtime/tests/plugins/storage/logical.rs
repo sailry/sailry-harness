@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn inline_schemas_project_and_validate() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         let original = actions::install_actions(
             &client,

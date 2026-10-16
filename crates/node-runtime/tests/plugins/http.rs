@@ -21,7 +21,7 @@ async fn binds_credentials_and_keeps_durable_results() {
     for remote in [false, true] {
         let server = server::Server::start().await;
         let other = server::Server::start().await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         actions::declare(&root, &[Action::Http]);
         let manifest = root.join("plugin.json");
@@ -165,7 +165,12 @@ async fn binds_credentials_and_keeps_durable_results() {
         let count = server.requests.lock().unwrap().len();
         drop(client);
         node.shutdown().await.unwrap();
-        let restarted = Node::start(directory.path().join("node")).await.unwrap();
+        let restarted = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let retry = Client::new(if remote {
             controller.handle().remote(restarted.link().address())
         } else {

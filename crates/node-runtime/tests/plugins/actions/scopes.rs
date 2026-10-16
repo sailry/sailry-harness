@@ -74,7 +74,7 @@ pub(super) async fn session(client: &Client, worktree: WorktreeId) -> Session {
 #[tokio::test]
 async fn reads_captured_session() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let mut context = install_actions(
             &client,

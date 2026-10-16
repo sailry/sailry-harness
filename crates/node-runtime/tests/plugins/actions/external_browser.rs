@@ -14,7 +14,7 @@ fn command(session: SessionId, worktree: WorktreeId, action: BrowserAction) -> C
 #[tokio::test]
 async fn scopes_control_and_recovers_receipts() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -123,7 +123,12 @@ async fn scopes_control_and_recovers_receipts() {
         );
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -144,7 +149,7 @@ async fn scopes_control_and_recovers_receipts() {
 #[tokio::test]
 async fn checks_grants_and_arguments_before_provisioning() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),

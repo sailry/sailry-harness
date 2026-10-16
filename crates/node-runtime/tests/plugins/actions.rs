@@ -86,7 +86,7 @@ fn write(client: &Client, context: &Context, path: &str) -> Request {
 #[tokio::test]
 async fn uses_shared_handlers() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         git2::Repository::init(&root).unwrap();
         fs::write(root.join("notes.txt"), "Original 中文 🙂").unwrap();
@@ -194,7 +194,12 @@ async fn uses_shared_handlers() {
         );
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -215,7 +220,7 @@ async fn uses_shared_handlers() {
 #[tokio::test]
 async fn rejects_scope_escape() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let context = install_actions(
             &client,

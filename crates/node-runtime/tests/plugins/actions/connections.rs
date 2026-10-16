@@ -54,7 +54,7 @@ async fn scoped(client: &Client, context: &Context, command: Command) -> Result<
 #[tokio::test]
 async fn confines_connection_resources() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -162,7 +162,7 @@ async fn confines_connection_resources() {
 #[tokio::test]
 async fn recovers_database_receipts_without_replaying_effects() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -239,7 +239,7 @@ async fn recovers_database_receipts_without_replaying_effects() {
 #[tokio::test]
 async fn cancellation_keeps_the_original_plugin_scope() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = install_actions(
             &client,
             &directory.path().join("source/package"),

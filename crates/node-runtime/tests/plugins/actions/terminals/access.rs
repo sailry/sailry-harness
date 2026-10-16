@@ -17,7 +17,7 @@ async fn distinguishes_user_control_from_plugin_execution() {
         .into_iter()
         .flat_map(|remote| [Surface::Workspace, Surface::Project].map(|surface| (remote, surface)))
     {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -176,7 +176,7 @@ async fn distinguishes_user_control_from_plugin_execution() {
 #[tokio::test]
 async fn callback_context_cannot_forge_desktop_authority() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         declare(&root, &[Action::ReadTerminals, Action::ControlTerminals]);
         let manifest_path = root.join("plugin.json");

@@ -33,7 +33,7 @@ async fn package(client: &Client, root: &Path, worktree: WorktreeId) -> Context 
 #[tokio::test]
 async fn separates_manual_and_callback_access() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let base = ".sailry/worktrees/fixture";
         fs::create_dir_all(root.join(base)).unwrap();

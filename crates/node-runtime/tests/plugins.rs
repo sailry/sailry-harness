@@ -285,7 +285,7 @@ async fn retains_removed_resources() {
 #[tokio::test]
 async fn isolates_resources() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let source = directory.path().join("source/package");
         fs::create_dir_all(source.join("skills/invalid")).unwrap();
         fs::write(

@@ -107,7 +107,7 @@ async fn install_named(
 #[tokio::test]
 async fn isolates_namespaces_and_grants() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let source = directory.path().join("source");
         let first = actions::install_actions(
             &client,
@@ -221,7 +221,7 @@ async fn isolates_namespaces_and_grants() {
 #[tokio::test]
 async fn checks_revisions_receipts_and_pages() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -429,7 +429,7 @@ async fn checks_revisions_receipts_and_pages() {
 #[tokio::test]
 async fn keeps_values_through_restart_update_and_reinstall() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         let context = actions::install_actions(
             &client,
@@ -454,7 +454,12 @@ async fn keeps_values_through_restart_update_and_reinstall() {
         );
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

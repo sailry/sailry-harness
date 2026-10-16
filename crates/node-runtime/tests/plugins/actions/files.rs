@@ -61,7 +61,7 @@ async fn completed(client: &Client, request: &Request) -> Output {
 #[tokio::test]
 async fn scopes_document_streams_and_recovers_publication() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let other_root = directory.path().join("other");
         let other = other_worktree(&client, &other_root).await;
@@ -234,7 +234,7 @@ async fn scopes_document_streams_and_recovers_publication() {
 #[tokio::test]
 async fn confines_directory_changes_to_both_captured_paths() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         let other_root = directory.path().join("other");
         let other = other_worktree(&client, &other_root).await;
@@ -447,7 +447,7 @@ async fn confines_directory_changes_to_both_captured_paths() {
 #[tokio::test]
 async fn office_reads_and_file_writes_require_grants() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source");
         fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("src/office/fixtures/report.docx"),

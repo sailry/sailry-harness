@@ -29,7 +29,7 @@ fn changed(worktree: WorktreeId) -> Command {
 #[tokio::test]
 async fn retains_and_dismisses_without_replaying() {
     for remote in [false, true] {
-        let (_directory, node, controller, client, worktree) = fixture(remote).await;
+        let (_directory, node, controller, client, worktree) = support::empty(remote).await;
         let request = client.prepare(changed(worktree));
         let error = client.execute(request.clone()).await.unwrap_err();
         assert_eq!(error.code, ErrorCode::RevisionConflict);
@@ -110,7 +110,7 @@ async fn retains_and_dismisses_without_replaying() {
 #[tokio::test]
 async fn isolates_authenticated_callers_and_nodes() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let request = client.prepare(changed(worktree));
         client.execute(request.clone()).await.unwrap_err();
         let retained = tasks(&client).await;
@@ -141,7 +141,8 @@ async fn isolates_authenticated_callers_and_nodes() {
             }
         );
         assert_eq!(tasks(&client).await, retained);
-        let (_other_directory, other_node, other_controller, other, _) = fixture(remote).await;
+        let (_other_directory, other_node, other_controller, other, _) =
+            support::empty(remote).await;
         assert_ne!(other.target(), client.target());
         assert!(tasks(&other).await.is_empty());
         assert_eq!(tasks(&client).await, retained);

@@ -47,7 +47,7 @@ async fn wait(client: &Client, context: &Context) -> jobs::Job {
 #[tokio::test]
 async fn delivers_overdue_calendar_after_restart() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -111,7 +111,12 @@ async fn delivers_overdue_calendar_after_restart() {
         );
         database.close().unwrap();
 
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

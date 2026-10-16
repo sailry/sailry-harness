@@ -39,7 +39,7 @@ fn declare(root: &Path, title: &str) {
 #[tokio::test]
 async fn recovers_versioned_forms() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         declare(&root, "First form");
         let request = client.prepare(install(worktree, 0));
@@ -71,7 +71,12 @@ async fn recovers_versioned_forms() {
         );
         assert_eq!(info(client.execute(request.clone()).await.unwrap()), first);
         node.shutdown().await.unwrap();
-        let reopened = Node::start(directory.path().join("node")).await.unwrap();
+        let reopened = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         // Reconnect through the same authenticated path and persistent peer identity.
         let reconnected = Client::new(if remote {
             controller.handle().remote(reopened.link().address())
@@ -98,8 +103,8 @@ async fn recovers_versioned_forms() {
 
 #[tokio::test]
 async fn isolates_forms() {
-    let first = fixture(false).await;
-    let second = fixture(true).await;
+    let first = support::empty(false).await;
+    let second = support::empty(true).await;
     declare(&first.0.path().join("source/package"), "Host one");
     declare(&second.0.path().join("source/package"), "Host two");
     let one = info(execute(&first.3, install(first.4, 0)).await);

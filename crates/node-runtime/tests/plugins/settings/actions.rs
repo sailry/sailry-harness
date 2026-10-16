@@ -12,7 +12,7 @@ fn request(client: &Client, context: &Context) -> Request {
 #[tokio::test]
 async fn reads_public_values() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         declare(&directory.path().join("source/package"), "Settings");
         let package = info(execute(&client, install(worktree, 0)).await);
         assert!(package.extension.as_ref().unwrap().actions.is_empty());
@@ -93,7 +93,7 @@ async fn reads_public_values() {
 #[tokio::test]
 async fn checks_version_and_owner() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         declare(&directory.path().join("source/package"), "Settings");
         let package = info(execute(&client, install(worktree, 0)).await);
         let mut context = Context {
@@ -185,7 +185,7 @@ async fn checks_version_and_owner() {
 #[tokio::test]
 async fn saves_disabled_owned_revision() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         declare(&root, "Settings");
         let mut manifest: serde_json::Value =

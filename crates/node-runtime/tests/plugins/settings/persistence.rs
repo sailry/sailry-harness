@@ -32,7 +32,7 @@ pub(super) async fn read(client: &Client, package: &plugin::Reference) -> State 
 #[tokio::test]
 async fn recovers_saved_values() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         declare(&directory.path().join("source/package"), "Settings");
         let package = info(execute(&client, install(worktree, 0)).await);
         let initial = read(&client, &package.summary.reference()).await;
@@ -141,7 +141,12 @@ async fn recovers_saved_values() {
         drop(query);
         drop(db);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -198,7 +203,7 @@ async fn recovers_saved_values() {
 #[tokio::test]
 async fn rejects_invalid_edits() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         declare(&directory.path().join("source/package"), "Settings");
         let package = info(execute(&client, install(worktree, 0)).await);
         let reference = package.summary.reference();

@@ -96,7 +96,7 @@ async fn complete(client: &Client, context: &Context) -> jobs::Job {
 #[tokio::test]
 async fn local_and_remote_event_delivery() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -158,7 +158,7 @@ async fn local_and_remote_event_delivery() {
 #[tokio::test]
 async fn scheduled_delivery_survives_restart() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -191,7 +191,12 @@ async fn scheduled_delivery_survives_restart() {
         );
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -237,7 +242,7 @@ async fn scheduled_delivery_survives_restart() {
 #[tokio::test]
 async fn callbacks_cannot_expand_resource_scope() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -297,7 +302,7 @@ async fn callbacks_cannot_expand_resource_scope() {
 #[tokio::test]
 async fn callbacks_recheck_declared_permissions() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),

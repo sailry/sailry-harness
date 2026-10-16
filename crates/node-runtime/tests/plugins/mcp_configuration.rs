@@ -19,7 +19,7 @@ async fn read(client: &Client, package: &plugin::Reference) -> State {
 #[tokio::test]
 async fn recovers_standard_configuration() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let source = directory.path().join("source/package/mcp.json");
         fs::write(&source, json!({"$schema":plugin::mcp::SCHEMA,"mcpServers":{
             "service":{"type":"streamable-http","url":"https://example.com/mcp","headers":{"Authorization":""}}
@@ -166,7 +166,12 @@ async fn recovers_standard_configuration() {
         assert!(!serde_json::to_string(&snapshot).unwrap().contains(secret));
         drop(db);
         node.shutdown().await.unwrap();
-        let reopened = Node::start(directory.path().join("node")).await.unwrap();
+        let reopened = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let reconnected = Client::new(if remote {
             controller.handle().remote(reopened.link().address())
         } else {

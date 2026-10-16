@@ -15,7 +15,7 @@ fn request(client: &Client, context: &Context, action: BrowserAction) -> Request
 #[tokio::test]
 async fn recovers_receipts_without_resending_controller_calls() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -102,7 +102,12 @@ async fn recovers_receipts_without_resending_controller_calls() {
         drop(subscription);
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -136,7 +141,7 @@ async fn recovers_receipts_without_resending_controller_calls() {
 #[tokio::test]
 async fn distinguishes_grants_scope_and_uncertain_navigation() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
