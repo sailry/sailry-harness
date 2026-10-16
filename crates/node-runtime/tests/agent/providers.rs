@@ -13,7 +13,9 @@ async fn atomic_save() {
         let fixture = tempfile::tempdir().unwrap();
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(fixture.path().join("node")).await.unwrap();
+        let node = Node::start_empty(fixture.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -30,7 +32,7 @@ async fn atomic_save() {
         };
         let client = Client::new(transport);
         let server = Server::start(false).await;
-        let (session, mut provider) = configured(&client, &server.endpoint, &root).await;
+        let (session, mut provider) = configured_session(&client, &server.endpoint, &root).await;
         provider.models.push(Model {
             id: "fixture-a".into(),
             display_name: None,

@@ -27,7 +27,7 @@ async fn new_input_closes_review_without_execution_consent() {
     for remote in [false, true] {
         for kind in ["submit", "queue", "host"] {
             let server = Server::markdown("The complete plan".into()).await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
             configure(&mut fixture, WorkMode::Plan).await;
             let plan = submit(&fixture).await;
             let (page, question) = questions::pending(&fixture.client, fixture.session.id).await;
@@ -131,7 +131,7 @@ async fn already_admitted_input_closes_review_at_claim() {
     for remote in [false, true] {
         let release = CancellationToken::new();
         let server = Server::markdown_held("The complete plan".into(), release.clone()).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         configure(&mut fixture, WorkMode::Plan).await;
         let plan = submit(&fixture).await;
         tokio::time::timeout(Duration::from_secs(10), async {
@@ -192,7 +192,7 @@ async fn already_admitted_input_closes_review_at_claim() {
 async fn serializes_execution_with_new_input() {
     for remote in [false, true] {
         let server = Server::markdown("The complete plan".into()).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         configure(&mut fixture, WorkMode::Plan).await;
         submit(&fixture).await;
         let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;

@@ -20,7 +20,7 @@ fn init(root: &Path) -> String {
 }
 
 async fn connect(directory: &Path, remote: bool) -> (Node, Link, Client) {
-    let node = Node::start(directory.join("node")).await.unwrap();
+    let node = Node::start_empty(directory.join("node")).await.unwrap();
     let controller = Link::controller(directory.join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -117,7 +117,12 @@ async fn creates_registered_checkout() {
         std::fs::write(retained.join("marker.txt"), "retained").unwrap();
         let (node, controller, client) = connect(dir.path(), remote).await;
         let bootstrap = Server::tools(vec![]).await;
-        let (session, provider) = configured(&client, &bootstrap.endpoint, &root).await;
+        approvals::install(
+            &client,
+            &["worktrees", "files", "commands", "git", "delegation"],
+        )
+        .await;
+        let (session, provider) = configured_session(&client, &bootstrap.endpoint, &root).await;
         let Output::GitStatus(status) = execute(
             &client,
             Command::InspectGit {
@@ -242,7 +247,8 @@ async fn scopes_reads_and_removal() {
         let commit = init(&root);
         let (node, controller, client) = connect(dir.path(), remote).await;
         let bootstrap = Server::tools(vec![]).await;
-        let (session, mut provider) = configured(&client, &bootstrap.endpoint, &root).await;
+        approvals::install(&client, &["git", "worktrees"]).await;
+        let (session, mut provider) = configured_session(&client, &bootstrap.endpoint, &root).await;
         let Output::Worktree(tree) = execute(
             &client,
             Command::CreateWorktree {
@@ -500,7 +506,7 @@ async fn isolates_child_writes() {
         );
         drop(updates);
         node.shutdown().await.unwrap();
-        let node = Node::start(dir.path().join("node")).await.unwrap();
+        let node = Node::start_empty(dir.path().join("node")).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

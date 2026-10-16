@@ -14,7 +14,7 @@ async fn captures_flow_command_access_before_approval() {
             let arguments = json!({"access":"unrestricted"});
             let server =
                 Server::tools(vec![(plugin_tool(PACKAGE, "command"), arguments.clone())]).await;
-            let mut fixture = process::Fixture::new(remote, &server).await;
+            let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
             super::super::super::sandbox::permission(&mut fixture, permission).await;
             install(&fixture, r#"
 export function command({step,outcome}) {

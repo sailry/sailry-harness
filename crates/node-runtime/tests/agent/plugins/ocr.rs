@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 async fn lifecycle_keeps_definitions_and_configuration() {
     for remote in [false, true] {
         let server = Server::scripted_tools(vec![]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &["files"]).await;
         let Output::OcrModels(before) = fixture
             .client
             .execute(fixture.client.prepare(Command::ReadOcrModels))

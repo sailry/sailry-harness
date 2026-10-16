@@ -88,7 +88,7 @@ async fn tools() {
                 (mcp.clone(), json!({"value":"Resource read"})),
             ])
             .await;
-            let fixture = process::Fixture::new(remote, &server).await;
+            let fixture = process::Fixture::packages(remote, &server, &["files"]).await;
             let info = package(&fixture).await;
             let resource = connection(&fixture, kind).await;
             let mut config = fixture.session.config.clone();

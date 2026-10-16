@@ -11,12 +11,22 @@ mod execution;
 mod packages;
 
 async fn fixture(remote: bool, server: &Server) -> Fixture {
-    let fixture = Fixture::new(remote, server).await;
+    let fixture = Fixture::packages(remote, server, &["goals", "files"]).await;
+    let Output::Plugin(package) = fixture
+        .client
+        .execute(fixture.client.prepare(Command::ReadPlugin {
+            name: "goals".into(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("goals package expected")
+    };
     fixture
         .client
         .execute(fixture.client.prepare(Command::SetPluginEnabled {
             name: "goals".into(),
-            expected_revision: 2,
+            expected_revision: package.summary.revision,
             enabled: true,
         }))
         .await

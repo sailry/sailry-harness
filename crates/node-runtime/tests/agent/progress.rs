@@ -50,7 +50,7 @@ async fn restores_without_replay() {
             (plugin_tool("progress", "update_plan"), plan("completed")),
         ])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         install(&fixture.client).await;
         std::fs::write(fixture.root.join("source.txt"), "Evidence 中文 🙂").unwrap();
         planning::configure(&mut fixture, WorkMode::Plan).await;
@@ -114,7 +114,7 @@ async fn restores_without_replay() {
         }
         assert_eq!(inherited.calls, expected);
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {
@@ -147,7 +147,7 @@ async fn preserves_valid_updates() {
             (plugin_tool("progress", "update_plan"), plan("completed")),
         ])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         install(&fixture.client).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;

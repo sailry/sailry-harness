@@ -101,7 +101,7 @@ async fn commits_results_without_duplicate_turns() {
             );
             let profile = fixture.node.profile().to_owned();
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(profile).await.unwrap();
+            let node = Node::start_empty(profile).await.unwrap();
             let client = Client::new(if remote {
                 fixture.controller.handle().remote(node.link().address())
             } else {

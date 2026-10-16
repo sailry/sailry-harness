@@ -20,7 +20,7 @@ async fn explores_history_without_shell_approval() {
                 ),
             ])
             .await;
-            let mut fixture = process::Fixture::new(remote, &server).await;
+            let mut fixture = process::Fixture::packages(remote, &server, &["git"]).await;
             let Output::Plugin(info) = fixture
                 .client
                 .execute(

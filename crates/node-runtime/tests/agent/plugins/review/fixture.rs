@@ -4,7 +4,7 @@ pub(super) const PACKAGE: &str = "code-review";
 
 pub(super) async fn start(remote: bool) -> (Fixture, plugin::Info) {
     let server = Server::turn_tools(vec![]).await;
-    let mut fixture = Fixture::new(remote, &server).await;
+    let mut fixture = Fixture::packages(remote, &server, &["code-review"]).await;
     let Output::Plugin(current) = execute(
         &fixture.client,
         Command::ReadPlugin {

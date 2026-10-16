@@ -3,7 +3,13 @@ use crate::agent_support::{Server as SearchServer, anthropic, web_search as sour
 
 async fn setup(remote: bool, reply: anthropic::Reply, tools: bool) -> (Fixture, SearchServer) {
     let server = SearchServer::anthropic(reply).await;
-    let mut fixture = Fixture::new(remote, ModelApi::Anthropic, &server.endpoint).await;
+    let mut fixture = Fixture::packages(
+        remote,
+        ModelApi::Anthropic,
+        &server.endpoint,
+        &["web-search", "files"],
+    )
+    .await;
     fixture.provider.models[0].web_search = true;
     fixture.provider.models[0]
         .capabilities
@@ -244,7 +250,7 @@ async fn restores_settings_and_encrypted_history() {
         fixture.client.execute(start).await.unwrap();
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let address = fixture
             .controller
             .handle()

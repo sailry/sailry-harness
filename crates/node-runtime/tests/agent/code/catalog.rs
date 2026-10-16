@@ -6,7 +6,7 @@ async fn manages_catalog_without_projects() {
         let directory = tempfile::tempdir().unwrap();
         let bin = directory.path().canonicalize().unwrap().join("bin");
         std::fs::create_dir(&bin).unwrap();
-        let node = Node::start_with_environment(
+        let node = Node::start_empty_with_environment(
             directory.path().join("node"),
             environment(directory.path(), &bin),
         )

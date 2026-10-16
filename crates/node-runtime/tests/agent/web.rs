@@ -61,13 +61,12 @@ async fn binds_anonymous_reads_without_native_search() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         node.set_web_fixture(server::HOST, http.address);
         let (client, controller) = client(&node, directory.path(), remote).await;
-        let session = approvals::prepare(&client, &model, &root).await;
-        disable_tools(&client, &["goals", "office"]).await;
+        let session = approvals::prepare_packages(&client, &model, &root, &["web-search"]).await;
         let Output::Plugin(package) = client
             .execute(client.prepare(Command::ReadPlugin {
                 name: "web-search".into(),
@@ -135,7 +134,7 @@ async fn shares_cached_unicode_and_json_pages() {
     for remote in [false, true] {
         let http = server::Server::start().await;
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         node.set_web_fixture(server::HOST, http.address);
@@ -190,13 +189,12 @@ async fn stops_bound_fetches_with_the_turn() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         node.set_web_fixture(server::HOST, http.address);
         let (client, controller) = client(&node, directory.path(), remote).await;
-        let session = approvals::prepare(&client, &model, &root).await;
-        disable_tools(&client, &["goals", "office"]).await;
+        let session = approvals::prepare_packages(&client, &model, &root, &["web-search"]).await;
         let Output::QueuedTurn(turn) = client
             .execute(client.prepare(Command::SubmitTurn {
                 session: session.id,
@@ -231,7 +229,7 @@ async fn shares_limits_and_explicit_cancellation() {
     for remote in [false, true] {
         let http = server::Server::start().await;
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         node.set_web_fixture(server::HOST, http.address);
@@ -292,7 +290,7 @@ async fn shares_limits_and_explicit_cancellation() {
 async fn reads_public_sources_without_credentials() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         let (client, controller) = client(&node, directory.path(), remote).await;
@@ -365,7 +363,7 @@ async fn decodes_declared_and_fallback_charsets() {
     for remote in [false, true] {
         let http = server::Server::start().await;
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         node.set_web_fixture(server::HOST, http.address);
@@ -423,7 +421,7 @@ async fn proxies_public_reads_and_blocks_private_redirects() {
         let http = server::Server::start().await;
         let proxy = proxy::Proxy::start(vec![http.address]).await;
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         node.set_web_fixture(server::HOST, http.address);

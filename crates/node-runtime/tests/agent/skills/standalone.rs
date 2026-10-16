@@ -10,9 +10,10 @@ async fn executes_retained_import() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         fs::create_dir_all(&root).unwrap();
-        let node = Node::start_with_skill_source(directory.path().join("node"), &github.endpoint)
-            .await
-            .unwrap();
+        let node =
+            Node::start_empty_with_skill_source(directory.path().join("node"), &github.endpoint)
+                .await
+                .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -66,7 +67,7 @@ async fn executes_retained_import() {
             ),
         ];
         let server = Server::tools(calls.clone()).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["commands"]).await;
         enabled_only(&client, &["commands", &installed.summary.name]).await;
         let Output::QueuedTurn(turn) = execute(
             &client,
@@ -127,7 +128,9 @@ async fn executes_retained_import() {
         assert_eq!(github.requests.lock().unwrap().len(), 6);
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

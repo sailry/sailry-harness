@@ -41,7 +41,7 @@ async fn protects_metadata_across_both_paths() {
                 "if printf changed > newly-created/.git/config; then exit 90; fi; \
                  printf cached-protection"})),
         ]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         permission(&mut fixture, Permission::Full).await;
         git(&fixture.root, &["init", "--quiet"]);
         std::fs::write(fixture.root.join("tracked.txt"), "original").unwrap();

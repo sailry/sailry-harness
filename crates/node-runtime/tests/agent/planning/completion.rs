@@ -30,7 +30,7 @@ async fn completes_before_choice_and_recovers() {
                 plugin_tool("files", "write_file"),
                 json!({"path":"planned.txt","text":"Reviewed output 中文 🙂","expected_revision":null}),
             )]).await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
             if !execute {
                 let Output::Providers(mut providers) = fixture
                     .client
@@ -206,7 +206,7 @@ async fn completes_before_choice_and_recovers() {
                 assert!(!model_request["tools"].to_string().contains("plan_review"));
             }
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(fixture.directory.path().join("node"))
+            let node = Node::start_empty(fixture.directory.path().join("node"))
                 .await
                 .unwrap();
             let resumed = Client::new(if remote {
@@ -230,7 +230,7 @@ async fn keeps_review_across_stop_and_restart() {
     for remote in [false, true] {
         for stop in [false, true] {
             let server = Server::markdown(content.clone()).await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
             configure(&mut fixture, WorkMode::Plan).await;
             let plan = submit(&fixture).await;
             let session = fixture.session.id;
@@ -249,7 +249,7 @@ async fn keeps_review_across_stop_and_restart() {
                 finished(&fixture.client, session, plan.id).await;
             }
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(fixture.directory.path().join("node"))
+            let node = Node::start_empty(fixture.directory.path().join("node"))
                 .await
                 .unwrap();
             let resumed = Client::new(if remote {
@@ -303,7 +303,7 @@ async fn keeps_review_across_stop_and_restart() {
 async fn leaves_code_completion_unchanged() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let turn = submit(&fixture).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);

@@ -299,7 +299,7 @@ async fn shares_frozen_runs_after_restart() {
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = fixture.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -317,7 +317,7 @@ async fn shares_frozen_runs_after_restart() {
         let client = Client::new(transport);
         let first = Server::start(false).await;
         let second = Server::start(false).await;
-        let (session, mut provider) = configured(&client, &first.endpoint, &root).await;
+        let (session, mut provider) = configured_session(&client, &first.endpoint, &root).await;
         let queued = client.prepare(Command::QueueTurn {
             session: session.id,
             expected_revision: 1,
@@ -429,7 +429,7 @@ async fn shares_frozen_runs_after_restart() {
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(node.local());
         assert_eq!(history(&client, session.id).await, page);
         // The local caller identity remains stable; remote receipts are checked by
@@ -454,7 +454,7 @@ async fn cancellation_preserves_partial_text() {
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = fixture.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -471,7 +471,7 @@ async fn cancellation_preserves_partial_text() {
         };
         let client = Client::new(transport);
         let server = Server::start(true).await;
-        let (session, _) = configured(&client, &server.endpoint, &root).await;
+        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
         for stop_node in [false, true] {
             let Output::QueuedTurn(turn) = client
                 .execute(client.prepare(Command::SubmitTurn {
@@ -538,7 +538,7 @@ async fn cancellation_preserves_partial_text() {
             .unwrap()
             .unwrap();
         controller.close().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(node.local());
         let page = history(&client, session.id).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Interrupted);
@@ -560,7 +560,9 @@ async fn serializes_turns_per_session() {
         let fixture = tempfile::tempdir().unwrap();
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(fixture.path().join("node")).await.unwrap();
+        let node = Node::start_empty(fixture.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -577,7 +579,7 @@ async fn serializes_turns_per_session() {
         };
         let client = Client::new(transport);
         let server = Server::start(true).await;
-        let (first, _) = configured(&client, &server.endpoint, &root).await;
+        let (first, _) = configured_session(&client, &server.endpoint, &root).await;
         let Output::Session(second) = client
             .execute(client.prepare(Command::CreateSession {
                 project: first.project,
@@ -648,7 +650,9 @@ async fn recovers_live_output() {
         let fixture = tempfile::tempdir().unwrap();
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(fixture.path().join("node")).await.unwrap();
+        let node = Node::start_empty(fixture.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -666,7 +670,7 @@ async fn recovers_live_output() {
         let client = Arc::new(Client::new(transport));
         let slow = Server::start(true).await;
         let fast = Server::start(false).await;
-        let (session, mut provider) = configured(&client, &slow.endpoint, &root).await;
+        let (session, mut provider) = configured_session(&client, &slow.endpoint, &root).await;
         let (updates, mut view) =
             tokio::sync::watch::channel(sailry_client::conversation::View::default());
         let stop = sailry_link::CancellationToken::new();

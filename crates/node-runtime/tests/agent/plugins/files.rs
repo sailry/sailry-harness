@@ -206,7 +206,7 @@ async fn checkpoints_project_writes_and_recovers_receipts() {
             ),
         ])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         let package = install(&fixture).await;
         std::fs::write(fixture.root.join("note.txt"), "Original").unwrap();
         configure(&mut fixture, Permission::Project, WorkMode::Code).await;
@@ -387,7 +387,7 @@ async fn preserves_ask_and_plan_policy() {
             json!({"path":"approved.txt","text":"Approved","expected_revision":null}),
         )])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         let turn = submit(&fixture).await;
         let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
@@ -461,7 +461,7 @@ async fn preserves_maximum_escaped_text() {
             (name("read_file"), json!({"path":"escaped.txt"})),
         ])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         configure(&mut fixture, Permission::Project, WorkMode::Code).await;
         let turn = submit(&fixture).await;
@@ -514,7 +514,7 @@ async fn confines_arguments_and_preserves_large_office_results() {
             ),
         ])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("note.txt"), "needle in captured worktree").unwrap();
         std::fs::write(
@@ -588,7 +588,7 @@ async fn restores_prepared_plugin_content_after_restart() {
         let tool = plugin_tool(package_name, "save");
         let arguments = json!({"text":"Original model argument"});
         let server = Server::tools(vec![(tool.clone(), arguments.clone())]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         let source = fixture.root.join("prepared-plugin");
         std::fs::create_dir_all(source.join(plugin::NAMESPACE)).unwrap();
         let before = "Before prepared write";
@@ -686,7 +686,7 @@ export function save(args) {{
         .await;
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {

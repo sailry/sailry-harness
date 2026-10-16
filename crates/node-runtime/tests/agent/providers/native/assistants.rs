@@ -4,7 +4,7 @@ use sailry_protocol::plugin::conversation::Binding;
 use serde_json::json;
 
 async fn setup(remote: bool, api: ModelApi, endpoint: &str, allow_search: bool) -> Fixture {
-    let mut fixture = Fixture::new(remote, api, endpoint).await;
+    let mut fixture = Fixture::packages(remote, api, endpoint, &[]).await;
     fixture.provider.models[0].web_search = true;
     execute(
         &fixture.client,

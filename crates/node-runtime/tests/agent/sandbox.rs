@@ -48,7 +48,7 @@ async fn explains_sandbox_failures_to_the_agent() {
             ),
         ])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         permission(&mut fixture, Permission::Full).await;
         let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -95,7 +95,7 @@ async fn confines_default_commands_under_every_permission() {
                 (plugin_tool("commands", "run_command"), json!({"command":format!("if {} --silent --max-time 1 http://{address}/ > network.txt; then exit 92; fi; printf offline", quote(&curl))})),
                 (plugin_tool("commands", "run_command"), json!({"command":"printf ready > background.txt; sleep 60", "background":true})),
             ]).await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
             permission(&mut fixture, mode).await;
             let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
             let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -182,7 +182,7 @@ async fn escape_requires_consent_in_ask_and_project() {
                 (plugin_tool("commands", "run_command"), json!({"access":"unrestricted","command":format!("{} --silent --max-time 3 http://{address}/ && printf outside > ../allowed.txt", quote(&curl))})),
                 (plugin_tool("commands", "run_command"), json!({"access":"unrestricted","command":"touch ../denied.txt"})),
             ]).await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
             permission(&mut fixture, mode).await;
             let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
             let (_, first) = approvals::pending(&fixture.client, fixture.session.id).await;
@@ -252,7 +252,7 @@ async fn unrestricted_commands_run_automatically_in_full() {
             (plugin_tool("commands", "run_command"), json!({"access":"unrestricted","command":"printf second >> ../outside.txt; printf repeated"})),
             (plugin_tool("commands", "run_command"), json!({"access":"unrestricted","command":"printf background > ../background.txt; sleep 60", "background":true})),
         ]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         permission(&mut fixture, Permission::Full).await;
         let turn = approvals::rules::submit(&fixture.client, &fixture.session).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
@@ -329,7 +329,7 @@ async fn rejects_outside_working_directory() {
             json!({"command":"touch escaped.txt","cwd":".."}),
         )])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert!(!fixture.directory.path().join("escaped.txt").exists());

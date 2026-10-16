@@ -118,7 +118,7 @@ impl Fixture {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let worker = driver::Worker::new(directory.path(), outcomes);
-        let node = Node::start_with_computer(
+        let node = Node::start_empty_with_computer(
             directory.path().join("node"),
             NetworkScope::default(),
             Some(worker.configuration.clone()),
@@ -139,6 +139,7 @@ impl Fixture {
         } else {
             node.local()
         });
+        super::approvals::install(&client, &["computer"]).await;
         let (session, turn) =
             Self::configure(&client, &server, &root, mode, permission, enabled).await;
         Self {
@@ -163,7 +164,8 @@ impl Fixture {
         permission: Permission,
         enabled: bool,
     ) -> (SessionId, TurnId) {
-        let session = super::approvals::prepare(client, server, root).await;
+        let (session, provider) = configured_session(client, &server.endpoint, root).await;
+        let session = super::approvals::prepare_model(client, session, provider).await;
         let Output::Providers(providers) = client
             .execute(client.prepare(Command::ListProviders))
             .await

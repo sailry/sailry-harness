@@ -32,7 +32,7 @@ async fn starts_one_coding_turn() {
             proposal("Create the file with the revised content 中文 🙂"),
             (plugin_tool("files", "write_file"), json!({"path": "planned.txt", "text": "Reviewed content 中文 🙂", "expected_revision": null})),
         ]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         configure(&mut fixture, WorkMode::Plan).await;
         let plan = submit(&fixture).await;
         let session = fixture.session.id;
@@ -190,7 +190,7 @@ async fn starts_one_coding_turn() {
         drop(inventory);
         drop(updates);
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let resumed = Client::new(if remote {
@@ -210,7 +210,7 @@ async fn starts_one_coding_turn() {
 async fn preserves_feedback_and_finishes() {
     for remote in [false, true] {
         let server = Server::tools(vec![proposal("Create the requested file")]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         configure(&mut fixture, WorkMode::Plan).await;
         let turn = submit(&fixture).await;
         let session = fixture.session.id;
@@ -242,7 +242,7 @@ async fn rejects_closed_plans() {
     for remote in [false, true] {
         for shutdown in [false, true] {
             let server = Server::tools(vec![proposal("Create a file")]).await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
             configure(&mut fixture, WorkMode::Plan).await;
             let turn = submit(&fixture).await;
             let (_, question) = questions::pending(&fixture.client, fixture.session.id).await;
@@ -255,7 +255,7 @@ async fn rejects_closed_plans() {
                 finished(&fixture.client, fixture.session.id, turn.id).await;
             }
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(fixture.directory.path().join("node"))
+            let node = Node::start_empty(fixture.directory.path().join("node"))
                 .await
                 .unwrap();
             let client = Client::new(if remote {

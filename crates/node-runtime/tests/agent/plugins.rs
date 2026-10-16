@@ -37,8 +37,12 @@ async fn scopes_tool_switches_to_the_execution_node() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
-        let other = Node::start(directory.path().join("other")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let other = Node::start_empty(directory.path().join("other"))
+            .await
+            .unwrap();
         let address = other
             .link()
             .pair(node.link().invite().unwrap().ticket())
@@ -50,10 +54,34 @@ async fn scopes_tool_switches_to_the_execution_node() {
             node.local()
         });
         let origin = Client::new(other.local());
+        approvals::install(
+            &client,
+            &[
+                "git",
+                "commands",
+                "files",
+                "memory",
+                "delegation",
+                "worktrees",
+            ],
+        )
+        .await;
+        approvals::install(
+            &origin,
+            &[
+                "git",
+                "commands",
+                "files",
+                "memory",
+                "delegation",
+                "worktrees",
+            ],
+        )
+        .await;
         progress::install(&client).await;
         progress::install(&origin).await;
         let server = Server::tools(vec![]).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &[]).await;
         let mut plugins: Vec<(String, Vec<String>)> = Vec::new();
         for package in [
             "git",

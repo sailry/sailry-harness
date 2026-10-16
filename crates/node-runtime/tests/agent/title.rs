@@ -83,7 +83,7 @@ async fn send(fixture: &Fixture, message: &str) -> TurnId {
 async fn first_message() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &[]).await;
         let first = "Keep the complete first task 中文 🙂 ".repeat(30);
         let turn = send(&fixture, &first).await;
         policy(&server.requests.lock().unwrap()[0], None);
@@ -111,7 +111,7 @@ async fn agent_name_survives_restart() {
     for remote in [false, true] {
         let server =
             Server::tools(vec![("set_session_title".into(), json!({"title": TITLE}))]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &[]).await;
         planning::configure(&mut fixture, WorkMode::Plan).await;
         let turn = send(&fixture, "Give this conversation a short title").await;
         policy(&server.requests.lock().unwrap()[0], None);
@@ -137,7 +137,7 @@ async fn agent_name_survives_restart() {
         };
         assert_eq!(read(&fixture.client, fork.id).await, TITLE);
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {
@@ -156,7 +156,7 @@ async fn agent_name_survives_restart() {
 async fn manual_name() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &[]).await;
         let rename = |revision, title: &str| Command::RenameSession {
             session: fixture.session.id,
             expected_revision: revision,
@@ -257,7 +257,7 @@ async fn manual_name() {
             "Manual 中文 🙂"
         );
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {

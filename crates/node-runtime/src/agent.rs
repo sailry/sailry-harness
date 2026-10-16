@@ -529,6 +529,10 @@ async fn execute_with(
     let user = adk_core::UserId::try_from(USER).map_err(|error| model::error(error.into()))?;
     let session_id = adk_core::SessionId::try_from(session.as_str())
         .map_err(|error| model::error(error.into()))?;
+    // Tool discovery can be interrupted before ADK owns an invocation.
+    if stop.is_cancelled() {
+        return Ok(Outcome::default());
+    }
     let mut runner_span = diagnostics.span(Phase::Runner, None);
     let mut events = runner
         .run(user, session_id, content)

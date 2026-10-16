@@ -37,7 +37,13 @@ async fn combines_search_and_tools() {
     for remote in [false, true] {
         for tools in [false, true] {
             let server = SearchServer::web_search().await;
-            let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+            let mut fixture = Fixture::packages(
+                remote,
+                ModelApi::Responses,
+                &server.endpoint,
+                &["web-search", "files"],
+            )
+            .await;
             fixture.provider.models[0].web_search = true;
             fixture.provider.models[0]
                 .capabilities
@@ -92,7 +98,7 @@ async fn combines_search_and_tools() {
             let profile = fixture.node.profile().to_owned();
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(profile).await.unwrap();
+            let node = Node::start_empty(profile).await.unwrap();
             assert_eq!(
                 history(&Client::new(node.local()), fixture.session.id).await,
                 page
@@ -110,7 +116,13 @@ async fn combines_search_and_tools() {
 async fn freezes_queued_settings() {
     for remote in [false, true] {
         let server = SearchServer::web_search().await;
-        let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let mut fixture = Fixture::packages(
+            remote,
+            ModelApi::Responses,
+            &server.endpoint,
+            &["web-search"],
+        )
+        .await;
         fixture.provider.models[0].web_search = true;
         fixture.provider.models[0]
             .capabilities
@@ -198,7 +210,13 @@ async fn freezes_queued_settings() {
 async fn omits_unavailable_search() {
     for remote in [false, true] {
         let server = SearchServer::web_search().await;
-        let mut fixture = Fixture::new(remote, ModelApi::ChatCompletions, &server.endpoint).await;
+        let mut fixture = Fixture::packages(
+            remote,
+            ModelApi::ChatCompletions,
+            &server.endpoint,
+            &["web-search"],
+        )
+        .await;
         let Output::SearchSettings(mut settings) =
             execute(&fixture.client, Command::ReadSearchSettings).await
         else {
@@ -245,7 +263,13 @@ async fn omits_unavailable_search() {
 async fn supports_compatible_endpoints() {
     for remote in [false, true] {
         let server = SearchServer::web_search().await;
-        let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let mut fixture = Fixture::packages(
+            remote,
+            ModelApi::Responses,
+            &server.endpoint,
+            &["web-search"],
+        )
+        .await;
         let model = "gpt-5.6-luna";
         fixture.provider.models[0].id = model.into();
         fixture.provider.default_model = model.into();
@@ -301,7 +325,13 @@ async fn delivers_text_before_native_response_completes() {
     for remote in [false, true] {
         let finish = Arc::new(tokio::sync::Notify::new());
         let server = SearchServer::web_search_held(finish.clone()).await;
-        let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let mut fixture = Fixture::packages(
+            remote,
+            ModelApi::Responses,
+            &server.endpoint,
+            &["web-search"],
+        )
+        .await;
         fixture.provider.models[0].web_search = true;
         fixture.provider.models[0]
             .capabilities

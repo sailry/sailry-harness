@@ -34,7 +34,7 @@ async fn searches_unloaded_history() {
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = fixture.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -50,7 +50,7 @@ async fn searches_unloaded_history() {
             node.local()
         });
         let server = Server::start(false).await;
-        let (session, _) = configured(&client, &server.endpoint, &root).await;
+        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
         let first = submit(
             &client,
             session.id,
@@ -153,7 +153,7 @@ async fn searches_unloaded_history() {
         let slow = Server::start(true).await;
         let other = fixture.path().join("other-project");
         std::fs::create_dir(&other).unwrap();
-        let (pending, _) = configured(&client, &slow.endpoint, &other).await;
+        let (pending, _) = configured_session(&client, &slow.endpoint, &other).await;
         let mut stream = client.subscribe_conversation(pending.id).await.unwrap();
         let mut projection =
             sailry_client::conversation::Projection::new(client.target(), pending.id, 0);
@@ -224,7 +224,7 @@ async fn searches_unloaded_history() {
         assert_eq!(stopped.matches[0].turn, turn.id);
         drop(stream);
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

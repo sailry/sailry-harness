@@ -63,8 +63,12 @@ async fn turn(client: &Client, session: SessionId) {
 #[tokio::test]
 async fn preserves_partial_node_reports() {
     let directory = tempfile::tempdir().unwrap();
-    let local = Node::start(directory.path().join("local")).await.unwrap();
-    let remote = Node::start(directory.path().join("remote")).await.unwrap();
+    let local = Node::start_empty(directory.path().join("local"))
+        .await
+        .unwrap();
+    let remote = Node::start_empty(directory.path().join("remote"))
+        .await
+        .unwrap();
     local
         .link()
         .pair(remote.link().invite().unwrap().ticket())
@@ -78,7 +82,7 @@ async fn preserves_partial_node_reports() {
     for (index, client) in [&first, &second].into_iter().enumerate() {
         let root = directory.path().join(format!("project-{index}"));
         std::fs::create_dir(&root).unwrap();
-        sessions.push(configured(client, &server.endpoint, &root).await.0);
+        sessions.push(configured_session(client, &server.endpoint, &root).await.0);
     }
     turn(&first, sessions[0].id).await;
     turn(&second, sessions[1].id).await;
@@ -196,7 +200,9 @@ async fn preserves_partial_node_reports() {
             .all(|source| !source.view.connected && !source.view.refreshing)
     );
     remote.shutdown().await.unwrap();
-    let remote = Node::start(directory.path().join("remote")).await.unwrap();
+    let remote = Node::start_empty(directory.path().join("remote"))
+        .await
+        .unwrap();
     let transport = Arc::new(Observed::new(local.link().remote(remote.link().address())));
     transport.mode(2);
     let second = Arc::new(Client::new(transport.clone()));

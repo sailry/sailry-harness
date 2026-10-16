@@ -401,7 +401,7 @@ async fn scope() {
             ),
         ])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &["files"]).await;
         let info = install(&fixture, 0, false).await;
         let unrelated = unrelated(&fixture).await;
         let session = create(&fixture, &info).await;
@@ -527,7 +527,7 @@ async fn scope() {
 async fn recovery() {
     for remote in [false, true] {
         let server = Server::tools(vec![(alias("read_note"), json!({"key":"review"}))]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &["files"]).await;
         let info = install(&fixture, 0, false).await;
         let session = create(&fixture, &info).await;
         seed(&fixture, &session, &info).await;
@@ -582,7 +582,7 @@ async fn recovery() {
         assert_eq!(fault.code, ErrorCode::NotConfigured);
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {

@@ -9,7 +9,7 @@ async fn execute(client: &Client, command: Command) -> Output {
 }
 
 async fn fixture(remote: bool, server: &Server) -> Fixture {
-    let fixture = Fixture::new(remote, server).await;
+    let fixture = Fixture::packages(remote, server, &["goals"]).await;
     let Output::Plugin(package) = execute(
         &fixture.client,
         Command::ReadPlugin {
@@ -312,7 +312,7 @@ async fn requires_explicit_resume_after_restart() {
             if restart {
                 let profile = fixture.node.profile().to_owned();
                 fixture.node.shutdown().await.unwrap();
-                fixture.node = Node::start(profile).await.unwrap();
+                fixture.node = Node::start_empty(profile).await.unwrap();
                 fixture.client = Client::new(if remote {
                     fixture
                         .controller

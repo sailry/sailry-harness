@@ -79,7 +79,7 @@ async fn file(path: &std::path::Path) {
 async fn requires_native_controller_consent() {
     for remote in [false, true] {
         let server = Server::start(false).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
         let settings = Settings {
             enabled: true,
             before_tool: script("printf enabled > enabled.txt"),
@@ -165,7 +165,7 @@ async fn orders_callbacks_in_worktree_scope() {
     for remote in [false, true] {
         let tool = plugin_tool("commands", "run_command");
         let server=Server::tools(vec![(tool.clone(),json!({"command":"printf 'tool\\n' >> order.txt","description":"Write the fixture marker"}))]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         ready(&mut fixture, WorkMode::Code).await;
         let before = format!(
             "test \"$SAILRY_HOOK_EVENT\" = before_tool && test \"$SAILRY_HOOK_TOOL\" = '{tool}' && test \"$SAILRY_HOOK_WORKTREE\" = '{}' && test -z \"${{OPENAI_API_KEY+x}}\" && test -z \"${{SAILRY_HOOK_ARGS+x}}\" && /bin/pwd > cwd.txt && printf 'before\\n' >> order.txt",
@@ -284,7 +284,7 @@ async fn freezes_settings_before_queued_execution() {
             json!({"command":"printf tool >> order.txt"}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         ready(&mut fixture, WorkMode::Code).await;
         let first = save(
             &fixture.client,
@@ -382,7 +382,7 @@ async fn reports_failures_without_replaying_tools() {
                 json!({"command":"printf once >> actual.txt"}),
             )])
             .await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
             ready(&mut fixture, WorkMode::Code).await;
             let failure = script("printf failure >> hooks.txt; exit 9");
             let settings = Settings {
@@ -455,7 +455,7 @@ async fn cancels_and_bounds_hook_processes() {
                 json!({"command":"printf tool > forbidden.txt"}),
             )])
             .await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
             ready(&mut fixture, WorkMode::Code).await;
             save(
                 &fixture.client,
@@ -508,7 +508,7 @@ async fn keeps_planning_turns_read_only() {
             json!({"path":"source.txt"}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         std::fs::write(fixture.root.join("source.txt"), "source").unwrap();
         ready(&mut fixture, WorkMode::Plan).await;
         save(

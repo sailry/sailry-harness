@@ -33,7 +33,9 @@ async fn reads_selected_history_through_tools() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -49,7 +51,7 @@ async fn reads_selected_history_through_tools() {
             node.local()
         });
         let original = Server::start(false).await;
-        let source = approvals::prepare(&client, &original, &root).await;
+        let source = approvals::prepare_packages(&client, &original, &root, &[]).await;
         let first = submit(
             &client,
             &source,

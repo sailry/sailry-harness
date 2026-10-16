@@ -4,7 +4,8 @@ use super::*;
 async fn preserves_metadata_and_answer() {
     for remote in [false, true] {
         let server = Server::start(ModelApi::Gemini, Reply::Grounding).await;
-        let fixture = Fixture::new(remote, ModelApi::Gemini, &server.endpoint).await;
+        let fixture =
+            Fixture::packages(remote, ModelApi::Gemini, &server.endpoint, &["web-search"]).await;
         let mut provider = fixture.provider.clone();
         provider.models[0].web_search = true;
         execute(
@@ -71,7 +72,7 @@ async fn preserves_metadata_and_answer() {
         assert!(timing["elapsed_us"].as_u64().unwrap() > 0);
         assert_eq!(native, server::grounding_metadata());
         drop(db);
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         assert_eq!(
             history(&Client::new(node.local()), fixture.session.id).await,
             page

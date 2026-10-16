@@ -4,7 +4,7 @@ use super::*;
 async fn never_replays_end_after_restart() {
     for remote in [false, true] {
         let server = Server::start(false).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &[]).await;
         ready(&mut fixture, WorkMode::Code).await;
         save(
             &fixture.client,
@@ -48,7 +48,9 @@ async fn never_replays_end_after_restart() {
         node.shutdown().await.unwrap();
         drop(client);
         controller.handle().disconnect(identity).await;
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -103,7 +105,7 @@ async fn confines_scripts_without_granting_tool_access() {
             ),
         ])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         std::fs::write(fixture.root.join("source.txt"), "hook fixture").unwrap();
         let command = format!(
             "if printf outside > ../outside.txt; then exit 91; fi; if '{}' --silent --max-time 1 http://{address}/; then exit 92; fi; printf confined > allowed.txt; printf '%s\\n' \"$SAILRY_HOOK_TOOL\" >> called.txt",
@@ -157,7 +159,7 @@ async fn confines_scripts_without_granting_tool_access() {
 async fn records_end_once_for_each_turn() {
     for remote in [false, true] {
         let server = Server::start(false).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &[]).await;
         ready(&mut fixture, WorkMode::Code).await;
         save(
             &fixture.client,

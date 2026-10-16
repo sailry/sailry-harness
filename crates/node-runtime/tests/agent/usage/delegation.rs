@@ -146,7 +146,7 @@ async fn publishes_child_usage_to_parent() {
             .unwrap();
         }
         drop(db);
-        fixture.node = Node::start(&profile).await.unwrap();
+        fixture.node = Node::start_empty(&profile).await.unwrap();
         fixture.client = Client::new(if remote {
             fixture
                 .controller

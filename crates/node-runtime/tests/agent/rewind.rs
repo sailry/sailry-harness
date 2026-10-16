@@ -37,7 +37,7 @@ async fn recovers_subscribers_after_rewind() {
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = fixture.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -58,7 +58,7 @@ async fn recovers_subscribers_after_rewind() {
             json!({"path":"rewind.txt","text":"Written once 中文 🙂","expected_revision":null}),
         )])
         .await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["files"]).await;
         let mut config = session.config.clone();
         config.permission = Permission::Full;
         let Output::Session(session) = client
@@ -340,7 +340,7 @@ async fn recovers_subscribers_after_rewind() {
         drop(stable);
         drop(direct);
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let reopened = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

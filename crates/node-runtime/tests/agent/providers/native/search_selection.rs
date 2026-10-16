@@ -5,7 +5,13 @@ use sailry_protocol::search::{Selection, Update};
 async fn selects_one_tool() {
     for remote in [false, true] {
         let server = crate::agent_support::Server::start(false).await;
-        let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let mut fixture = Fixture::packages(
+            remote,
+            ModelApi::Responses,
+            &server.endpoint,
+            &["web-search"],
+        )
+        .await;
         for (metadata, summary, prefer_native, enabled, native, fallback) in [
             (Some(true), false, true, true, true, false),
             (Some(false), true, true, true, false, true),

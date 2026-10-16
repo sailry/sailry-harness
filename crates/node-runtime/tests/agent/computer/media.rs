@@ -98,7 +98,7 @@ async fn persists_generic_image_history() {
         drop(client);
         node.shutdown().await.unwrap();
         let calls = worker.calls().len();
-        let node = Node::start_with_computer(
+        let node = Node::start_empty_with_computer(
             directory.path().join("node"),
             NetworkScope::default(),
             Some(worker.configuration.clone()),

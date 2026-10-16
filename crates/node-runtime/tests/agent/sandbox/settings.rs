@@ -30,7 +30,7 @@ async fn toggle(client: &Client, enabled: bool) -> Settings {
 async fn persists_and_publishes_revision_checked_settings() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -81,7 +81,7 @@ async fn persists_and_publishes_revision_checked_settings() {
         expected = saved;
     }
     node.shutdown().await.unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let address = controller
         .handle()
         .pair(node.link().invite().unwrap().ticket())
@@ -111,7 +111,7 @@ async fn disables_confinement_for_existing_sessions() {
                 json!({"command":command}),
             )])
             .await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
             permission(&mut fixture, mode).await;
             assert!(read(&fixture.client).await.enabled);
             toggle(&fixture.client, false).await;

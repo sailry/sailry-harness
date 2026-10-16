@@ -73,7 +73,7 @@ async fn reuses_approved_arguments() {
             (name("run_command"), json!({"access":"unrestricted","command":"touch denied.txt"})),
         ])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
         let info = package(&fixture).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let (_, first) = approvals::pending(&fixture.client, fixture.session.id).await;
@@ -171,7 +171,7 @@ async fn reuses_approved_arguments() {
         );
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {
@@ -201,7 +201,7 @@ async fn retains_background_processes_and_scopes_public_actions() {
             (name("read_command"), json!({"id":"bogus"})),
         ])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         let info = package(&fixture).await;
         planning::configure(&mut fixture, WorkMode::Code).await;
         let Output::QueuedTurn(turn) = execute(
@@ -386,7 +386,7 @@ async fn retains_background_processes_and_scopes_public_actions() {
 async fn plan_mode_excludes_process_writes() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         package(&fixture).await;
         planning::configure(&mut fixture, WorkMode::Plan).await;
         let Output::QueuedTurn(turn) = execute(
@@ -428,7 +428,7 @@ async fn rejects_invalid_inputs_with_typed_errors() {
             (name("read_command"), json!({"id":"invalid-command-id"})),
         ])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         package(&fixture).await;
         planning::configure(&mut fixture, WorkMode::Code).await;
         let Output::QueuedTurn(turn) = execute(

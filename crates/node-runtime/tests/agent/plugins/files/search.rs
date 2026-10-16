@@ -12,7 +12,7 @@ async fn explores_without_shell_approval() {
             (name("find_files"), json!({"globs":["**/*.rs"],"path":"src","limit":1})),
             (name("find_files"), json!({"globs":["**/*.rs"],"path":"src","limit":1,"offset":1})),
         ]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::create_dir(fixture.root.join("src")).unwrap();
         std::fs::write(fixture.root.join(".gitignore"), "src/private.rs\n").unwrap();

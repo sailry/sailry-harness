@@ -6,7 +6,9 @@ async fn retains_reasoning_across_apis() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -24,7 +26,7 @@ async fn retains_reasoning_across_apis() {
         let client = Client::new(transport);
         let first = Server::reasoning().await;
         let second = Server::start(false).await;
-        let (session, mut provider) = configured(&client, &first.endpoint, &root).await;
+        let (session, mut provider) = configured_session(&client, &first.endpoint, &root).await;
         provider.api = ModelApi::Responses;
         client
             .execute(client.prepare(Command::PutProvider {

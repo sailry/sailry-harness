@@ -9,7 +9,7 @@ async fn preserves_outputs_and_restores_cell_edits() {
             (name("read_notebook"),json!({"path":"sample.ipynb"})),
             (name("edit_notebook"),json!({"path":"sample.ipynb","expected_revision":blake3::hash(original.as_bytes()).to_hex().to_string(),"edits":[{"kind":"replace","index":0,"source":"print(2)"},{"kind":"insert","index":1,"cell_type":"markdown","source":"# Added"}]}))
         ]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("sample.ipynb"), &original).unwrap();
         configure(&mut fixture, Permission::Project, WorkMode::Code).await;

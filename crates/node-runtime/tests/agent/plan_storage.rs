@@ -168,7 +168,7 @@ async fn rejects_hidden_writes() {
                     .collect(),
             )
             .await;
-            let mut fixture = process::Fixture::new(remote, &server).await;
+            let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
             let package = install(&fixture).await;
             let ui = scope(&fixture, &package, None);
             seed(&fixture, &ui).await;
@@ -265,7 +265,7 @@ async fn uses_frozen_mode_at_admission() {
             let start = Arc::new(tokio::sync::Notify::new());
             let finish = Arc::new(tokio::sync::Notify::new());
             let server = Server::held(start.clone(), finish.clone()).await;
-            let mut fixture = process::Fixture::new(remote, &server).await;
+            let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
             let package = install(&fixture).await;
             let ui = scope(&fixture, &package, None);
             seed(&fixture, &ui).await;

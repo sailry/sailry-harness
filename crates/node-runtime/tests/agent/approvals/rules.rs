@@ -110,25 +110,12 @@ pub(crate) async fn route(client: &Client, session: &Session, endpoint: &str) {
     .await;
 }
 
-pub(crate) async fn restart(fixture: Fixture, remote: bool) -> Fixture {
-    reopen(fixture, remote, true).await
-}
-
-pub(crate) async fn restart_files(fixture: Fixture, remote: bool) -> Fixture {
-    reopen(fixture, remote, false).await
-}
-
-async fn reopen(mut fixture: Fixture, remote: bool, bundled: bool) -> Fixture {
+pub(crate) async fn restart(mut fixture: Fixture, remote: bool) -> Fixture {
     let profile = fixture.node.profile().to_owned();
     let id = fixture.node.id();
     fixture.node.shutdown().await.unwrap();
     fixture.controller.handle().disconnect(id).await;
-    fixture.node = if bundled {
-        Node::start(profile).await
-    } else {
-        Node::start_empty(profile).await
-    }
-    .unwrap();
+    fixture.node = Node::start_empty(profile).await.unwrap();
     fixture.client = Client::new(if remote {
         fixture
             .controller
@@ -185,7 +172,7 @@ async fn releases_matching_pending_calls() {
             )
         }));
         let server = Server::batch(calls.clone()).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let turn = submit(&fixture.client, &fixture.session).await;
         let unrelated = pending(&fixture.client, fixture.session.id).await;
         let Output::Plugin(package) = execute(
@@ -343,7 +330,7 @@ async fn remembers_across_turns_and_restart() {
             json!({"path":"third.txt","text":"third","expected_revision":null}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &first_server).await;
+        let mut fixture = Fixture::packages(remote, &first_server, &["files"]).await;
         let first = submit(&fixture.client, &fixture.session).await;
         let approval = pending(&fixture.client, fixture.session.id).await;
         assert!(approval.can_remember);
@@ -423,7 +410,7 @@ async fn keeps_plain_approval_once() {
             ),
         ])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let turn = submit(&fixture.client, &fixture.session).await;
         let first = pending(&fixture.client, fixture.session.id).await;
         let (decision, receipt) = process::decide(&fixture.client, &first, Decision::Approve).await;
@@ -458,7 +445,7 @@ async fn isolates_sessions_forks_and_worktrees() {
             json!({"path":"count.txt","text":"x","expected_revision":null}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         let first = submit(&fixture.client, &fixture.session).await;
         let approval = pending(&fixture.client, fixture.session.id).await;
         process::decide(&fixture.client, &approval, Decision::ApproveSession).await;
@@ -593,7 +580,7 @@ async fn binds_package_settings_and_tool() {
             json!({"path":"same.txt","text":"first","expected_revision":null}),
         )])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &[]).await;
         let old = package(&fixture, 0, "0.1.0").await;
         let first = submit(&fixture.client, &fixture.session).await;
         let approval = pending(&fixture.client, fixture.session.id).await;
@@ -696,7 +683,7 @@ async fn isolates_delegated_children() {
             json!({"path":"count.txt","text":"x","expected_revision":null}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files", "delegation"]).await;
         let first = submit(&fixture.client, &fixture.session).await;
         let approval = pending(&fixture.client, fixture.session.id).await;
         process::decide(&fixture.client, &approval, Decision::ApproveSession).await;

@@ -2,7 +2,13 @@ use super::*;
 use crate::agent_support::Server as SearchServer;
 
 async fn prepare(remote: bool, server: &SearchServer) -> Fixture {
-    let mut fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+    let mut fixture = Fixture::packages(
+        remote,
+        ModelApi::Responses,
+        &server.endpoint,
+        &["web-search"],
+    )
+    .await;
     fixture.provider.models[0].web_search = true;
     fixture.provider.models[0]
         .capabilities
@@ -144,7 +150,7 @@ async fn retains_admitted_version_after_update_and_removal() {
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let restored = history(&Client::new(node.local()), fixture.session.id).await;
         assert_eq!(restored, page);
         assert_eq!(label(&restored, queued.id), "Search web");
@@ -257,7 +263,13 @@ async fn ordinary_packages_share_one_provider_capability() {
 async fn ordinary_packages_share_one_fallback_tool() {
     for remote in [false, true] {
         let server = SearchServer::start(false).await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::packages(
+            remote,
+            ModelApi::Responses,
+            &server.endpoint,
+            &["web-search"],
+        )
+        .await;
         execute(
             &fixture.client,
             Command::RemovePlugin {

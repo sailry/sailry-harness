@@ -13,7 +13,7 @@ async fn escape_rejects_remembering_after_restart() {
             json!({"access":"unrestricted","command":"touch first.txt"}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         let first = submit(&fixture.client, &fixture.session).await;
         let approval = pending(&fixture.client, fixture.session.id).await;
         assert_eq!(approval.access, Some(Access::Unrestricted));
@@ -112,7 +112,7 @@ async fn composite_escapes_always_require_fresh_consent() {
             )
         }));
         let server = Server::tools(calls).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
         let turn = submit(&fixture.client, &fixture.session).await;
         let first = pending(&fixture.client, fixture.session.id).await;
         process::decide(&fixture.client, &first, Decision::Approve).await;

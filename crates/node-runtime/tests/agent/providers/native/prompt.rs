@@ -91,7 +91,7 @@ async fn resume(fixture: Fixture, first: Input, second: Input, remote: bool) {
     .unwrap();
     let profile = fixture.node.profile().to_owned();
     fixture.node.shutdown().await.unwrap();
-    let node = Node::start(profile).await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
     let client = Client::new(if remote {
         fixture.controller.handle().remote(node.link().address())
     } else {
@@ -215,7 +215,7 @@ async fn preserves_native_roles_across_resume() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Tool).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::packages(remote, api, &server.endpoint, &["files"]).await;
             prepare(&fixture);
             resume(
                 fixture,
@@ -246,7 +246,7 @@ async fn loads_rules_at_openai_tool_boundary() {
             } else {
                 crate::agent_support::Server::tools(vec![(name, arguments)]).await
             };
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::packages(remote, api, &server.endpoint, &["files"]).await;
             prepare(&fixture);
             resume(fixture, FIRST.into(), referenced(SECOND, false), remote).await;
             let requests = server.requests.lock().unwrap();

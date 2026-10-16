@@ -111,7 +111,7 @@ async fn keeps_login_private_and_does_not_replay() {
         let issuer = issuer::Server::start(&input.endpoint).await;
         let model =
             Server::tools(vec![(plugin_tool("card-fixture", "connection"), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         let package = install(&fixture, &issuer.endpoint).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
@@ -271,7 +271,7 @@ async fn rejects_stale_and_foreign_scopes() {
         let issuer = issuer::Server::start(&input.endpoint).await;
         let model =
             Server::tools(vec![(plugin_tool("card-fixture", "connection"), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         let package = install(&fixture, &issuer.endpoint).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         finished(&fixture.client, fixture.session.id, turn).await;

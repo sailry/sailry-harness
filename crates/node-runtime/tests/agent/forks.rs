@@ -42,7 +42,7 @@ async fn resumes_without_tool_replay() {
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = fixture.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -62,7 +62,7 @@ async fn resumes_without_tool_replay() {
             (plugin_tool("files", "write_file"), json!({"path": "fork.txt", "text": "Original write 中文 🙂", "expected_revision": null})),
             ("ask_user".into(), json!({"prompt": "Describe the task", "input": {"kind": "text", "multiline": true, "max_bytes": 1024}})),
         ]).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["files"]).await;
         let session = revise(&client, &session, Permission::Full).await;
         let first = submit(&client, &session, "Original first 中文 🙂").await;
         let question = tokio::time::timeout(Duration::from_secs(10), async {
@@ -249,7 +249,7 @@ async fn resumes_without_tool_replay() {
         assert_eq!(*projection.snapshot().unwrap().page, branched);
         drop(updates);
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let restored = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

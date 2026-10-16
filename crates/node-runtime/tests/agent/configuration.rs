@@ -30,9 +30,11 @@ async fn independent_resume() {
         let fixture = tempfile::tempdir().unwrap();
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let source = Node::start(fixture.path().join("source")).await.unwrap();
+        let source = Node::start_empty(fixture.path().join("source"))
+            .await
+            .unwrap();
         let target_path = fixture.path().join("target");
-        let target = Node::start(&target_path).await.unwrap();
+        let target = Node::start_empty(&target_path).await.unwrap();
         let source_id = source.id();
         source
             .link()
@@ -56,7 +58,7 @@ async fn independent_resume() {
         let origin = Client::new(source.local());
         let selected = Server::start(false).await;
         let defaults = Server::start(false).await;
-        let (_, mut provider) = configured(&origin, &selected.endpoint, &root).await;
+        let (_, mut provider) = configured_session(&origin, &selected.endpoint, &root).await;
         provider.models.push(Model {
             id: "fixture-a".into(),
             display_name: None,
@@ -96,7 +98,7 @@ async fn independent_resume() {
             credential: provider.credential.clone(),
         };
         let (default_session, default_provider) =
-            configured(&destination, &defaults.endpoint, &root).await;
+            configured_session(&destination, &defaults.endpoint, &root).await;
         destination
             .execute(destination.prepare(Command::SetDefaults {
                 expected_revision: 0,
@@ -174,7 +176,7 @@ async fn independent_resume() {
         source.shutdown().await.unwrap();
         target.shutdown().await.unwrap();
         // A different controller resumes after both execution and source shutdown.
-        let target = Node::start(&target_path).await.unwrap();
+        let target = Node::start_empty(&target_path).await.unwrap();
         let destination = Client::new(if remote {
             controller.handle().remote(target.link().address())
         } else {

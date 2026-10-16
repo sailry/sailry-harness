@@ -158,7 +158,8 @@ async fn fails_without_an_answer() {
 async fn preserves_tools_before_empty_completion() {
     for remote in [false, true] {
         let server = crate::agent_support::Server::empty_after_tool().await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture =
+            Fixture::packages(remote, ModelApi::Responses, &server.endpoint, &["files"]).await;
         std::fs::write(fixture.root.join("phase.txt"), "fixture").unwrap();
         let turn = fixture.submit("Read phase.txt and answer").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;

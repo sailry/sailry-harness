@@ -5,7 +5,7 @@ async fn completes_tools() {
     for &api in APIS {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Tool).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::packages(remote, api, &server.endpoint, &["files"]).await;
             std::fs::write(fixture.root.join("native.txt"), "工具内容 🙂").unwrap();
             let turn = fixture.submit("Read native.txt").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;

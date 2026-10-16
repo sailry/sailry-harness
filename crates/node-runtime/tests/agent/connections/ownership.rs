@@ -5,7 +5,7 @@ async fn survives_without_projects() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let profile_path = directory.path().join("node");
-        let node = Node::start(&profile_path).await.unwrap();
+        let node = Node::start_empty(&profile_path).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -28,6 +28,7 @@ async fn survives_without_projects() {
         } else {
             node.local()
         });
+        approvals::install(&client, &["databases", "ssh"]).await;
         let database = save(&client, &directory.path().join("database.sqlite3"), None).await;
         let ssh = SshId::new();
         client
@@ -241,7 +242,7 @@ async fn survives_without_projects() {
                 .all(|request| request.project.is_none() && !request.scope_name.is_empty())
         );
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile_path).await.unwrap();
+        let node = Node::start_empty(&profile_path).await.unwrap();
         let restored = configuration::snapshot(&Client::new(node.local())).await;
         assert!(restored.projects.is_empty());
         for session in sessions {

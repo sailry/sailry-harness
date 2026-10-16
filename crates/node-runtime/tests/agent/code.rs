@@ -71,7 +71,7 @@ impl Fixture {
         )
         .unwrap();
         std::fs::set_permissions(executable, std::fs::Permissions::from_mode(0o700)).unwrap();
-        let node = Node::start_with_environment(
+        let node = Node::start_empty_with_environment(
             directory.path().join("node"),
             environment(directory.path(), &bin),
         )
@@ -91,8 +91,7 @@ impl Fixture {
         } else {
             node.local()
         });
-        let session = approvals::prepare(&client, server, &root).await;
-        isolate_model_tools(&client).await;
+        let session = approvals::prepare_packages(&client, server, &root, &["code", "files"]).await;
         Self {
             directory,
             root,
@@ -444,7 +443,7 @@ async fn restarts_with_precise_durable_grants() {
         process::decide(&fixture.client, &approval, Decision::Approve).await;
         fixture.finish(turn).await;
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start_with_environment(
+        let node = Node::start_empty_with_environment(
             fixture.directory.path().join("node"),
             environment(fixture.directory.path(), &fixture.bin),
         )
@@ -598,7 +597,7 @@ async fn recovers_original_receipts_after_discovery_changes() {
         );
         fixture.node.shutdown().await.unwrap();
         std::fs::remove_file(fixture.root.join("pid")).unwrap();
-        let node = Node::start_with_environment(
+        let node = Node::start_empty_with_environment(
             fixture.directory.path().join("node"),
             environment(fixture.directory.path(), &fixture.bin),
         )

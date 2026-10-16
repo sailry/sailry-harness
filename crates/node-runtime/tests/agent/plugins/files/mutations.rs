@@ -18,7 +18,7 @@ async fn excludes_managed_paths_from_captured_tools() {
             (name("find_files"), json!({"globs":["**/note.txt"]})),
             (name("search_files"), json!({"query":"Preserve","mode":"files"})),
         ]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::create_dir_all(fixture.root.join(base)).unwrap();
         std::fs::write(fixture.root.join(&path), "Preserve managed file").unwrap();
@@ -63,7 +63,7 @@ async fn uses_dedicated_revision_checked_actions() {
             (name("read_file"), json!({"path":"folder/moved.txt"})),
             (name("delete_file"), json!({"path":"folder/moved.txt","expected_revision":revision})),
         ]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("note.txt"), "Keep content").unwrap();
         std::fs::write(fixture.root.join("occupied.txt"), "Preserve destination").unwrap();
@@ -113,7 +113,7 @@ async fn asks_before_deleting_a_file() {
         let server = Server::tools(vec![(name("delete_file"), json!({
             "path":"note.txt", "expected_revision":blake3::hash(b"Original").to_hex().to_string()
         }))]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("note.txt"), "Original").unwrap();
         let turn = submit(&fixture).await;

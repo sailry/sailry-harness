@@ -73,7 +73,7 @@ async fn reports_errors_and_rejects_partial_transactions() {
                 .collect(),
         )
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         let scope = install(&fixture).await;
         for (handler, message) in [
             ("fail", "No active goal exists"),
@@ -176,7 +176,7 @@ async fn reports_errors_and_rejects_partial_transactions() {
         assert_eq!(value.revision, 0);
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {

@@ -161,7 +161,7 @@ fn result<'a>(page: &'a Page, tool: &str) -> &'a Value {
 async fn qualifies_policy_without_a_loader() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         let info = assistant(&fixture, json!([{"kind":"plugin","name":"read_note"}])).await;
         let session = create(&fixture, &info).await;
         let turn = submit(&fixture.client, &session, false).await;
@@ -318,7 +318,7 @@ async fn selected(remote: bool, unrestricted: bool, permission: Permission) {
         (run.clone(), command),
     ])
     .await;
-    let fixture = process::Fixture::new(remote, &server).await;
+    let fixture = process::Fixture::packages(remote, &server, &["commands"]).await;
     let provider = provider(&fixture, 0, "1.0.0").await;
     let provider = configure(&fixture, &provider, "Captured label").await;
     let owner = assistant(
@@ -460,7 +460,7 @@ async fn retains_admitted_handler_and_settings() {
     for remote in [false, true] {
         let tool = plugin_tool(PROVIDER, "inspect");
         let server = Server::turn_tools(vec![(tool.clone(), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         let first = provider(&fixture, 0, "1.0.0").await;
         let first = configure(&fixture, &first, "First settings").await;
         let owner = assistant(
@@ -543,7 +543,7 @@ async fn requires_an_available_declared_tool() {
     for remote in [false, true] {
         for case in ["missing", "disabled", "unknown_tool", "mcp"] {
             let server = Server::tools(vec![]).await;
-            let fixture = process::Fixture::new(remote, &server).await;
+            let fixture = process::Fixture::packages(remote, &server, &[]).await;
             let package = provider(&fixture, 0, "1.0.0").await;
             if case == "disabled" {
                 execute(

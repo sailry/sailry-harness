@@ -323,6 +323,106 @@ impl Node {
         Ok(node)
     }
 
+    /// Preserves an isolated login environment while fixtures install their required packages.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_environment(
+        path: impl AsRef<Path>,
+        environment: EnvironmentFixture,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                environment: process::environment::Source::Fixture(environment),
+                skip_bundled: true,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Preserves the isolated model catalog without installing unrelated bundled packages.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_catalog(
+        path: impl AsRef<Path>,
+        endpoint: &str,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::new(endpoint.to_owned()),
+                skip_bundled: true,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Preserves the isolated skill source while fixtures install their required packages.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_skill_source(
+        path: impl AsRef<Path>,
+        endpoint: &str,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                skills: crate::plugins::github::Github::fixture(endpoint),
+                skip_bundled: true,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Preserves the injected computer worker without unrelated bundled packages.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_computer(
+        path: impl AsRef<Path>,
+        network: NetworkScope,
+        computer: Option<ComputerWorker>,
+    ) -> Result<Self, Error> {
+        let path = path.as_ref().to_owned();
+        // Startup owns cleanup even if its caller stops waiting midway through storage I/O.
+        tokio::spawn(Self::start_owned(
+            path,
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                skip_bundled: true,
+                network,
+                computer,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Keeps the isolated network scope while fixtures install their required packages.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_network(
+        path: impl AsRef<Path>,
+        network: NetworkScope,
+    ) -> Result<Self, Error> {
+        Self::start_empty_with_computer(path, network, None).await
+    }
+
+    /// Preserves isolated environment and code downloads without unrelated bundled packages.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_code(
+        path: impl AsRef<Path>,
+        environment: EnvironmentFixture,
+        endpoint: &str,
+    ) -> Result<Self, Error> {
+        let node = Self::start_empty_with_environment(path, environment).await?;
+        node.ingress.code.fixture(endpoint);
+        Ok(node)
+    }
+
     /// Pins a public test hostname to an isolated HTTP server after public-IP validation.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_web_fixture(&self, host: &str, address: std::net::SocketAddr) {

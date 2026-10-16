@@ -1,5 +1,5 @@
 #![cfg(unix)]
-use super::rules::{claimed, completed, execute, pending, restart, restart_files, results, submit};
+use super::rules::{claimed, completed, execute, pending, restart, results, submit};
 use super::*;
 use process::Fixture;
 use sailry_protocol::conversation::ApprovalChoice;
@@ -26,7 +26,7 @@ async fn preserves_reasons_without_crossing_turns() {
         let tool = plugin_tool("files", "write_file");
         let arguments = json!({"path":"effect.txt","text":"Approved only in the third turn","expected_revision":null});
         let server = Server::turn_tools(vec![(tool.clone(), arguments)]).await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
         let first = submit(&fixture.client, &fixture.session).await;
         let approval = pending(&fixture.client, fixture.session.id).await;
         process::decide(&fixture.client, &approval, Decision::Deny).await;
@@ -217,7 +217,7 @@ async fn binds_closed_choices_and_durable_retries() {
                     ErrorCode::Conflict
                 );
             }
-            fixture = restart_files(fixture, remote).await;
+            fixture = restart(fixture, remote).await;
             assert_eq!(history(&fixture.client, fixture.session.id).await, page);
             assert_eq!(
                 fixture.client.execute(request.clone()).await.unwrap(),

@@ -34,7 +34,7 @@ async fn persists_explicit_products_without_rewriting_existing() {
     for remote in [false, true] {
         let fixture = tempfile::tempdir().unwrap();
         let profile = fixture.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -110,7 +110,7 @@ async fn persists_explicit_products_without_rewriting_existing() {
         }
         let before = providers(&client).await;
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

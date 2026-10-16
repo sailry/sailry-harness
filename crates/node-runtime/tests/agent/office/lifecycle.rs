@@ -10,7 +10,9 @@ async fn new_turn_installation_preserves_admitted_resources() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         node.register_python_environment_fixture("office").unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
@@ -26,6 +28,7 @@ async fn new_turn_installation_preserves_admitted_resources() {
         } else {
             node.local()
         });
+        approvals::install(&client, &["office"]).await;
         execute(
             &client,
             Command::RemovePlugin {
@@ -43,7 +46,7 @@ async fn new_turn_installation_preserves_admitted_resources() {
         ])
         .await;
         // The session predates installation; each admission must read the current inventory.
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &[]).await;
         // This fixture exercises core skill loading, independent of tool providers.
         let Output::Plugins(providers) = execute(&client, Command::ListPlugins).await else {
             panic!("inventory expected")

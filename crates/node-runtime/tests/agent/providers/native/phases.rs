@@ -4,7 +4,8 @@ use super::*;
 async fn separates_commentary_from_answers() {
     for remote in [false, true] {
         let server = crate::agent_support::Server::phases().await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture =
+            Fixture::packages(remote, ModelApi::Responses, &server.endpoint, &["files"]).await;
         std::fs::write(fixture.root.join("phase.txt"), "fixture").unwrap();
         let turn = fixture.submit("Read phase.txt").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;

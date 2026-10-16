@@ -27,7 +27,9 @@ async fn projects_activity_lifecycle() {
         let fixture = tempfile::tempdir().unwrap();
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(fixture.path().join("node")).await.unwrap();
+        let node = Node::start_empty(fixture.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -46,7 +48,7 @@ async fn projects_activity_lifecycle() {
             (plugin_tool("files", "write_file"), json!({"path":"result.txt","text":"activity fixture","expected_revision":null})),
             ("ask_user".into(), json!({"prompt":"Continue", "input":{"kind":"text","multiline":false,"max_bytes":128}})),
         ]).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["files"]).await;
         let (sender, mut receiver) = watch::channel(View::default());
         let stop = CancellationToken::new();
         let observer = tokio::spawn({

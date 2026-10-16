@@ -38,7 +38,7 @@ async fn shares_frozen_usage_after_recovery() {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -55,7 +55,7 @@ async fn shares_frozen_usage_after_recovery() {
         };
         let writer = Client::new(inner.clone());
         let server = Server::start(false).await;
-        let (session, provider) = configured(&writer, &server.endpoint, &root).await;
+        let (session, provider) = configured_session(&writer, &server.endpoint, &root).await;
         let transport = Arc::new(Observed::new(inner));
         let client = Arc::new(Client::new(transport.clone()));
         let now = chrono::Utc::now().timestamp_millis();
@@ -212,7 +212,7 @@ async fn shares_frozen_usage_after_recovery() {
         assert!(!view.borrow().connected && !view.borrow().refreshing);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let restored = Client::new(node.local())
             .read_usage(query.clone())
             .await

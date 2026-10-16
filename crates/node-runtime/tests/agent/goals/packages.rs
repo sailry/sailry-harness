@@ -63,7 +63,7 @@ async fn retains_captured_code_and_history_after_removal() {
             json!({"description":"Evidence"}),
         )])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &[]).await;
         source(&fixture, name, " original");
         let original = install(&fixture, name, 0).await;
         let Output::Plugins(packages) = execute(&fixture, Command::ListPlugins).await else {
@@ -111,7 +111,7 @@ async fn retains_captured_code_and_history_after_removal() {
         .await;
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {
@@ -135,7 +135,7 @@ async fn retains_captured_code_and_history_after_removal() {
 async fn commands_and_new_turns_follow_enablement() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &[]).await;
         source(&fixture, "outcomes", "");
         install(&fixture, "outcomes", 0).await;
         let command = || {

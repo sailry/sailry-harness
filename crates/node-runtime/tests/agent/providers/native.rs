@@ -65,6 +65,12 @@ impl Fixture {
         Self::start(remote, api, endpoint, false).await
     }
 
+    async fn packages(remote: bool, api: ModelApi, endpoint: &str, packages: &[&str]) -> Self {
+        let fixture = Self::empty(remote, api, endpoint).await;
+        crate::approvals::install(&fixture.client, packages).await;
+        fixture
+    }
+
     async fn start(remote: bool, api: ModelApi, endpoint: &str, bundled: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
@@ -368,7 +374,7 @@ async fn executes_tools_with_adk_history() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Tool).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::packages(remote, api, &server.endpoint, &["files"]).await;
             std::fs::write(fixture.root.join("native.txt"), "工具内容 🙂").unwrap();
             let turn = fixture.submit("Read native.txt").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;

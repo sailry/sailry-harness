@@ -291,6 +291,7 @@ async fn retry(
 async fn retries_parallel_reports_without_lost_receipts() {
     for remote in [false, true] {
         let (mut fixture, package) = start(remote).await;
+        crate::approvals::install(&fixture.client, &["delegation"]).await;
         let repository = Repository::init(&fixture.root).unwrap();
         write(&fixture.root, "alpha/value.rs", "old_alpha();\n");
         write(&fixture.root, "beta/value.py", "old_beta()\n");
@@ -494,6 +495,7 @@ async fn retries_parallel_reports_without_lost_receipts() {
 async fn retries_parallel_group_receipts() {
     for remote in [false, true] {
         let (mut fixture, package) = start(remote).await;
+        crate::approvals::install(&fixture.client, &["delegation"]).await;
         let repository = Repository::init(&fixture.root).unwrap();
         write(&fixture.root, "alpha/value.rs", "old_alpha();\n");
         write(&fixture.root, "beta/value.py", "old_beta()\n");
@@ -614,6 +616,7 @@ async fn retries_parallel_group_receipts() {
 async fn rejects_foreign_sessions_and_worktrees() {
     for remote in [false, true] {
         let (mut fixture, package) = start(remote).await;
+        crate::approvals::install(&fixture.client, &["delegation"]).await;
         let repository = Repository::init(&fixture.root).unwrap();
         write(&fixture.root, "src/value.rs", "old_value();\n");
         commit(&repository, "Initial scope");

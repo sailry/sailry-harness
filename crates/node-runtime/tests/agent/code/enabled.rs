@@ -129,7 +129,7 @@ async fn editor_switch_preserves_shared_servers() {
         drop(events);
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        fixture.node = Node::start_with_environment(
+        fixture.node = Node::start_empty_with_environment(
             profile,
             environment(fixture.directory.path(), &fixture.bin),
         )

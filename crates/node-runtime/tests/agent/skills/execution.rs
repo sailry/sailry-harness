@@ -342,6 +342,7 @@ async fn injects_frozen_roles() {
         )])
         .await;
         let (directory, node, controller, client, session) = fixture(remote, &server).await;
+        approvals::install(&client, &["delegation"]).await;
         let role = role::Profile {
             read_only: false,
             appearance: None,

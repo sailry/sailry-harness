@@ -43,7 +43,9 @@ async fn scopes_database_approvals() {
         let db = rusqlite::Connection::open(&path).unwrap();
         db.execute_batch("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES (7)")
             .unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -83,7 +85,21 @@ async fn scopes_database_approvals() {
             ),
         ])
         .await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(
+            &client,
+            &server,
+            &root,
+            &[
+                "databases",
+                "files",
+                "goals",
+                "commands",
+                "browser",
+                "ssh",
+                "delegation",
+            ],
+        )
+        .await;
         let Output::Session(session) = client
             .execute(client.prepare(Command::BindConnectionSession {
                 session: session.id,
@@ -309,7 +325,9 @@ async fn rechecks_sharing_after_approval() {
         let db = rusqlite::Connection::open(&path).unwrap();
         db.execute_batch("CREATE TABLE items(value INTEGER)")
             .unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -330,7 +348,7 @@ async fn rechecks_sharing_after_approval() {
             json!({"connection":profile.id,"sql":"INSERT INTO items VALUES (1)"}),
         )])
         .await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["databases"]).await;
         profile.sharing = Some(Sharing::Projects(vec![session.project.unwrap()]));
         let Output::DatabaseProfile(mut profile) = client
             .execute(client.prepare(Command::SaveDatabase {
@@ -397,7 +415,9 @@ async fn executes_private_ssh_references() {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let peer = ssh_peer::Server::start(directory.path().into(), 44).await;
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -448,7 +468,7 @@ async fn executes_private_ssh_references() {
             (agent_support::plugin_tool("ssh", "ssh_transfer"),json!({"connection":profile.id,"path":"download.txt","remote_path":directory.path().join("effects"),"direction":"download"})),
             (agent_support::plugin_tool("ssh", "ssh_run"),json!({"connection":profile.id,"command":"printf denied >> effects"})),
         ]).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["ssh"]).await;
         let Output::QueuedTurn(turn) = client
             .execute(client.prepare(Command::SubmitTurn {
                 session: session.id,

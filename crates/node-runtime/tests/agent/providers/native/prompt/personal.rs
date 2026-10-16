@@ -8,7 +8,13 @@ async fn freezes_current_turn_and_refreshes_next() {
             crate::agent_support::plugin_tool("files", "write_file"),
             json!({"path":"result.txt", "text":"Approved fixture change", "expected_revision":null}),
         )]).await;
-        let fixture = Fixture::new(remote, ModelApi::ChatCompletions, &server.endpoint).await;
+        let fixture = Fixture::packages(
+            remote,
+            ModelApi::ChatCompletions,
+            &server.endpoint,
+            &["files"],
+        )
+        .await;
         prepare(&fixture);
         let turn = fixture.submit(FIRST).await;
         let (_, approval) = crate::approvals::pending(&fixture.client, fixture.session.id).await;
@@ -72,7 +78,13 @@ async fn freezes_current_turn_and_refreshes_next() {
 async fn fails_invalid_preferences_before_model_request() {
     for remote in [false, true] {
         let server = Server::start(ModelApi::ChatCompletions, Reply::Text).await;
-        let fixture = Fixture::new(remote, ModelApi::ChatCompletions, &server.endpoint).await;
+        let fixture = Fixture::packages(
+            remote,
+            ModelApi::ChatCompletions,
+            &server.endpoint,
+            &["files"],
+        )
+        .await;
         let path = fixture.node.profile().join("instructions.md");
         let bytes = b"Invalid\0personal instructions";
         std::fs::write(&path, bytes).unwrap();

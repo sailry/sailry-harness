@@ -9,7 +9,7 @@ const OWNER: &str = "search-assistant";
 const TOOL: &str = "lookup";
 
 async fn setup(remote: bool, endpoint: &str, native: bool) -> Fixture {
-    let mut fixture = Fixture::new(remote, ModelApi::Responses, endpoint).await;
+    let mut fixture = Fixture::packages(remote, ModelApi::Responses, endpoint, &[]).await;
     fixture.provider.models[0].web_search = !native;
     fixture.provider.models[0]
         .capabilities

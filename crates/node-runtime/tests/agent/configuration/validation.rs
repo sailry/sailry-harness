@@ -5,8 +5,12 @@ async fn caller_revision_and_atomic_import() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path().join("project");
     std::fs::create_dir(&root).unwrap();
-    let source = Node::start(fixture.path().join("source")).await.unwrap();
-    let target = Node::start(fixture.path().join("target")).await.unwrap();
+    let source = Node::start_empty(fixture.path().join("source"))
+        .await
+        .unwrap();
+    let target = Node::start_empty(fixture.path().join("target"))
+        .await
+        .unwrap();
     source
         .link()
         .pair(target.link().invite().unwrap().ticket())
@@ -16,8 +20,8 @@ async fn caller_revision_and_atomic_import() {
     let destination = Client::new(source.link().remote(target.link().address()));
     let peer = Client::new(target.link().remote(source.link().address()));
     let server = Server::start(false).await;
-    let (local, provider) = configured(&origin, &server.endpoint, &root).await;
-    let (session, _) = configured(&destination, &server.endpoint, &root).await;
+    let (local, provider) = configured_session(&origin, &server.endpoint, &root).await;
+    let (session, _) = configured_session(&destination, &server.endpoint, &root).await;
     let command = Command::CreateSessionAt {
         target: target.id(),
         project: session.project,
@@ -147,8 +151,10 @@ async fn shutdown_keeps_uncertain_admission() {
     let root = fixture.path().join("project");
     std::fs::create_dir(&root).unwrap();
     let source_path = fixture.path().join("source");
-    let source = Node::start(&source_path).await.unwrap();
-    let target = Node::start(fixture.path().join("target")).await.unwrap();
+    let source = Node::start_empty(&source_path).await.unwrap();
+    let target = Node::start_empty(fixture.path().join("target"))
+        .await
+        .unwrap();
     source
         .link()
         .pair(target.link().invite().unwrap().ticket())
@@ -157,8 +163,8 @@ async fn shutdown_keeps_uncertain_admission() {
     let origin = Client::new(source.local());
     let destination = Client::new(target.local());
     let server = Server::start(false).await;
-    let (local, provider) = configured(&origin, &server.endpoint, &root).await;
-    let (session, _) = configured(&destination, &server.endpoint, &root).await;
+    let (local, provider) = configured_session(&origin, &server.endpoint, &root).await;
+    let (session, _) = configured_session(&destination, &server.endpoint, &root).await;
     let lock = rusqlite::Connection::open(target.profile().join("storage/node.sqlite3")).unwrap();
     lock.execute_batch("BEGIN IMMEDIATE").unwrap();
     let request = origin.prepare(Command::CreateSessionAt {
@@ -182,7 +188,7 @@ async fn shutdown_keeps_uncertain_admission() {
     );
     lock.execute_batch("ROLLBACK").unwrap();
     drop(lock);
-    let source = Node::start(&source_path).await.unwrap();
+    let source = Node::start_empty(&source_path).await.unwrap();
     let origin = Client::new(source.local());
     assert_eq!(
         origin.execute(request).await.unwrap_err().code,

@@ -152,7 +152,7 @@ async fn reuses_turn_scratch() {
             ),
         ])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
         let session = fixture.session.id;
         let turn = approvals::submit(&fixture.client, session).await;
         for _ in 0..2 {
@@ -205,7 +205,7 @@ async fn bounds_approved_results() {
             ),
         ])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
         std::fs::create_dir(fixture.root.join("项目")).unwrap();
         let session = fixture.session.id;
         let turn = approvals::submit(&fixture.client, session).await;
@@ -297,7 +297,7 @@ async fn bounds_approved_results() {
             RequestOutcome::Completed(Box::new(Ok(expected.clone())))
         );
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {
@@ -319,7 +319,7 @@ async fn cancellation_reaps_commands() {
     for remote in [false, true] {
         for shutdown in [false, true] {
             let server = Server::start(true).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::packages(remote, &server, &["commands"]).await;
             let session = fixture.session.id;
             let turn = approvals::submit(&fixture.client, session).await;
             server.wait_count(1).await;
@@ -376,7 +376,7 @@ async fn cancellation_reaps_commands() {
             }
             fixture.node.shutdown().await.unwrap();
             gone(pid).await;
-            let node = Node::start(fixture.directory.path().join("node"))
+            let node = Node::start_empty(fixture.directory.path().join("node"))
                 .await
                 .unwrap();
             let client = Client::new(if remote {
@@ -429,7 +429,7 @@ async fn cancellation_reaps_commands() {
 #[tokio::test]
 async fn orders_batch_results() {
     for remote in [false, true] {
-        let server = Server::parallel(vec![
+        let server = Server::batch(vec![
             (
                 plugin_tool("commands", "run_command"),
                 json!({"access":"unrestricted","command":"printf first > first.txt; sleep 1; printf first"}),
@@ -444,7 +444,7 @@ async fn orders_batch_results() {
             ),
         ])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["commands", "files"]).await;
         let session = fixture.session.id;
         let turn = approvals::submit(&fixture.client, session).await;
         let (page, first) = approvals::pending(&fixture.client, session).await;

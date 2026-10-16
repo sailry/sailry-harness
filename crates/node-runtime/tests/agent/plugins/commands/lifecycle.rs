@@ -47,7 +47,7 @@ async fn preserves_frozen_transforms_and_known_results() {
             json!({"command":"printf original >> once.txt"}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         package(&fixture).await;
         let original =
             include_str!("../../../../../../plugins/commands/dev.sailry.platform/host/main.js");
@@ -117,7 +117,7 @@ async fn preserves_frozen_transforms_and_known_results() {
         assert!(!fixture.root.join("changed.txt").exists());
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {
@@ -153,7 +153,7 @@ async fn guards_prepared_escape_before_claiming() {
                     json!({"access":requested,"command":"touch actual.txt"}),
                 )])
                 .await;
-                let mut fixture = Fixture::new(remote, &server).await;
+                let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
                 let original = include_str!(
                     "../../../../../../plugins/commands/dev.sailry.platform/host/main.js"
                 );
@@ -228,7 +228,7 @@ async fn waiting_releases_vm_capacity() {
             json!({"access":"unrestricted","command":"sleep 60 & task_pid=$!; printf '%s' \"$task_pid\" > child.pid; printf started > running.txt; wait \"$task_pid\""}),
         )])
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["commands"]).await;
         let info = package(&fixture).await;
         let other_root = fixture.directory.path().join("other");
         std::fs::create_dir(&other_root).unwrap();

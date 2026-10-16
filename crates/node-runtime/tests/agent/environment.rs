@@ -87,7 +87,7 @@ async fn freezes_login_until_restart() {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = directory.path().join("node");
-        let mut node = Node::start_with_environment(&profile, login.source())
+        let mut node = Node::start_empty_with_environment(&profile, login.source())
             .await
             .unwrap();
         let controller =
@@ -106,7 +106,7 @@ async fn freezes_login_until_restart() {
         ])
         .await;
         let mut client = connect(&node, &controller, remote).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["commands"]).await;
         isolate_model_tools(&client).await;
         assert_eq!(login.captures(), 1);
         for second in [false, true] {
@@ -142,7 +142,7 @@ async fn freezes_login_until_restart() {
         let id = node.id();
         node.shutdown().await.unwrap();
         controller.handle().disconnect(id).await;
-        node = Node::start_with_environment(&profile, login.source())
+        node = Node::start_empty_with_environment(&profile, login.source())
             .await
             .unwrap();
         client = if remote {
@@ -181,9 +181,10 @@ async fn shares_login_with_stdio() {
         }
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start_with_environment(directory.path().join("node"), login.source())
-            .await
-            .unwrap();
+        let node =
+            Node::start_empty_with_environment(directory.path().join("node"), login.source())
+                .await
+                .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -194,7 +195,7 @@ async fn shares_login_with_stdio() {
             json!({}),
         )])
         .await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["commands"]).await;
         let mut config = mcp::peer::config("mcp::peer::stdio_peer", "settings");
         config["env"].as_object_mut().unwrap().remove("PATH");
         config["env"]["SAILRY_MCP_TOKEN"] = json!("explicit-token");

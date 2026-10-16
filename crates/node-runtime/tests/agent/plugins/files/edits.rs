@@ -11,7 +11,7 @@ async fn captures_one_checkpoint_for_batch() {
                 {"old_text":"Repeat","new_text":"中文","replace_all":true},
                 {"old_text":"Header","new_text":"Tail"}]
         }))]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("note.txt"), original).unwrap();
         configure(&mut fixture, Permission::Project, WorkMode::Code).await;
@@ -101,7 +101,7 @@ async fn rejects_batches_without_partial_writes() {
             })
             .collect();
         let server = Server::tools(calls).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("note.txt"), original).unwrap();
         configure(&mut fixture, Permission::Project, WorkMode::Code).await;
@@ -148,7 +148,7 @@ async fn preserves_large_edit_checkpoints() {
             (name("edit_file"), json!({"path":"large.txt","old_text":"Unique target\r\n","new_text":"Replacement\r\n","expected_revision":revision})),
         ])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("large.txt"), &original).unwrap();
         configure(&mut fixture, Permission::Project, WorkMode::Code).await;
@@ -215,7 +215,7 @@ async fn waits_for_edit_approval() {
             }),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("note.txt"), "Original").unwrap();
         let turn = submit(&fixture).await;
@@ -263,7 +263,7 @@ async fn explores_names_and_lines_in_plan() {
             ),
         ])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture).await;
         std::fs::write(fixture.root.join("note.txt"), "First\nSecond\nThird\n").unwrap();
         configure(&mut fixture, Permission::Ask, WorkMode::Plan).await;

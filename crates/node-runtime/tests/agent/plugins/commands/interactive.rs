@@ -33,7 +33,7 @@ async fn writes_to_pipes_and_pty() {
                 json!({"command":command,"background":true,"pty":pty}),
             )])
             .await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
             let mut config = fixture.session.config.clone();
             config.permission = sailry_protocol::Permission::Full;
             let Output::Session(session) = execute(

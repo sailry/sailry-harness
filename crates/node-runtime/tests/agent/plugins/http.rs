@@ -86,7 +86,7 @@ async fn reads_figma_with_private_pat_and_approval() {
             (name.clone(), json!({"action":"file","file_key":"denied-file"})),
             (name.clone(), json!({"action":"nodes","file_key":"file-key","ids":["1:2"]})),
         ]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         install_figma(&fixture, &http.origin).await;
         let mut updates = fixture
             .client
@@ -218,7 +218,7 @@ async fn stopping_figma_read_closes_the_request() {
             json!({"action":"file","file_key":"held-file"}),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         install_figma(&fixture, &http.origin).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let (page, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
@@ -267,7 +267,7 @@ async fn applies_approval_and_turn_cancellation() {
                 }),
             )])
             .await;
-            let fixture = process::Fixture::new(remote, &model).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
             std::fs::create_dir(fixture.root.join("package")).unwrap();
             std::fs::write(
                 fixture.root.join("package/plugin.json"),

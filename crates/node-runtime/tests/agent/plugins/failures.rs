@@ -13,7 +13,7 @@ async fn formatters_cannot_replace_failure_or_replay_operation() {
                 .collect(),
         )
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         let root = fixture.root.join("package");
         std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
         std::fs::write(root.join("dev.sailry.platform/host/main.js"),r#"

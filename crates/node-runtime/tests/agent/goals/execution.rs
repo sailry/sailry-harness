@@ -227,7 +227,7 @@ async fn stops_and_recovers_without_replaying() {
             if restart {
                 let profile = fixture.node.profile().to_owned();
                 fixture.node.shutdown().await.unwrap();
-                fixture.node = Node::start(profile).await.unwrap();
+                fixture.node = Node::start_empty(profile).await.unwrap();
                 fixture.client = Client::new(if remote {
                     fixture
                         .controller
@@ -349,7 +349,7 @@ async fn disable_and_remove_stop_owned_automatic_work() {
             }
             let profile = fixture.node.profile().to_owned();
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(profile).await.unwrap();
+            let node = Node::start_empty(profile).await.unwrap();
             let client = Client::new(if remote {
                 fixture.controller.handle().remote(node.link().address())
             } else {

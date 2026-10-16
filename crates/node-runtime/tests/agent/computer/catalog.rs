@@ -120,7 +120,7 @@ async fn responses_preserves_optional_parameters() {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let worker = driver::Worker::new(directory.path(), json!({}));
-        let node = Node::start_with_computer(
+        let node = Node::start_empty_with_computer(
             directory.path().join("node"),
             NetworkScope::default(),
             Some(worker.configuration.clone()),
@@ -142,7 +142,13 @@ async fn responses_preserves_optional_parameters() {
             node.local()
         });
         let server = Server::web_search().await;
-        let session = super::super::approvals::prepare(&client, &server, &root).await;
+        let session = super::super::approvals::prepare_packages(
+            &client,
+            &server,
+            &root,
+            &["computer", "files"],
+        )
+        .await;
         let Output::Providers(mut providers) = client
             .execute(client.prepare(Command::ListProviders))
             .await

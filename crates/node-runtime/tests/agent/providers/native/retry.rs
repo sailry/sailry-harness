@@ -331,7 +331,13 @@ async fn preserves_committed_tools_without_replay() {
             }])),
         )
         .await;
-        let fixture = Fixture::new(remote, ModelApi::ChatCompletions, &server.endpoint).await;
+        let fixture = Fixture::packages(
+            remote,
+            ModelApi::ChatCompletions,
+            &server.endpoint,
+            &["files"],
+        )
+        .await;
         let turn = fixture.submit("Write once.txt").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {

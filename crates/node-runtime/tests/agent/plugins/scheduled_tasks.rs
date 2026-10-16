@@ -115,7 +115,7 @@ async fn shares_scope_and_config_with_management() {
             (tool.clone(), json!({"action":"update","id":foreign,"revision":"1","name":"Wrong project"})),
             (tool, json!({"action":"delete","id":unassigned,"revision":"1"})),
         ]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &["scheduled-tasks"]).await;
         let context = context(&fixture).await;
         let other_root = fixture.root.join("other");
         std::fs::create_dir(&other_root).unwrap();
@@ -220,7 +220,7 @@ async fn shares_scope_and_config_with_management() {
         let requests = server.requests.lock().unwrap().len();
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {
@@ -241,7 +241,7 @@ async fn denied_creation_leaves_no_record_or_schedule() {
         let server = Server::tools(vec![(plugin_tool("scheduled-tasks", "scheduled_tasks"), json!({
             "action":"create","name":"Not authorized","prompt":"Review","timing":{"kind":"once","data":{"at_ms":chrono::Utc::now().timestamp_millis()+3_600_000}}
         }))]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &["scheduled-tasks"]).await;
         let context = context(&fixture).await;
         let turn = submit(&fixture, "Create a scheduled task").await;
         let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
@@ -267,7 +267,7 @@ async fn denied_creation_leaves_no_record_or_schedule() {
 async fn tool_visibility_follows_package_and_planning_policy() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &["scheduled-tasks"]).await;
         let tool = plugin_tool("scheduled-tasks", "scheduled_tasks");
         for (enabled, mode) in [
             (true, WorkMode::Code),
@@ -321,7 +321,7 @@ async fn due_task_runs_after_the_controller_disconnects() {
     for remote in [false, true] {
         let prompt = "Create the scheduled review";
         let idle = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &idle).await;
+        let mut fixture = process::Fixture::packages(remote, &idle, &["scheduled-tasks"]).await;
         planning::configure(&mut fixture, WorkMode::Code).await;
         let context = context(&fixture).await;
         let due = chrono::Utc::now().timestamp_millis() + 8_000;

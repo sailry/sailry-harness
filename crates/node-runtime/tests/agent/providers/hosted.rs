@@ -298,8 +298,13 @@ async fn replays_tool_continuations() {
             ("fixture-a", false),
         ] {
             let server = Server::start(ModelApi::ChatCompletions, Reply::Tool).await;
-            let mut fixture =
-                Fixture::new(remote, ModelApi::ChatCompletions, &server.endpoint).await;
+            let mut fixture = Fixture::packages(
+                remote,
+                ModelApi::ChatCompletions,
+                &server.endpoint,
+                &["files"],
+            )
+            .await;
             select(&mut fixture, model, Product::Coding).await;
             std::fs::write(fixture.root.join("native.txt"), "工具内容 🙂").unwrap();
             let turn = fixture.submit("Read native.txt").await;

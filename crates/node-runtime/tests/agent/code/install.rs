@@ -98,7 +98,7 @@ pub(super) async fn restart(
     if let Some(remove) = remove {
         std::fs::remove_dir_all(remove).unwrap();
     }
-    let node = Node::start_with_code(
+    let node = Node::start_empty_with_code(
         fixture.directory.path().join("node"),
         environment(fixture.directory.path(), &fixture.bin),
         &sources.endpoint,

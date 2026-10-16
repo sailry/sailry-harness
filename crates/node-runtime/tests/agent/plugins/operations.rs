@@ -115,7 +115,7 @@ async fn keeps_admitted_operations_and_history() {
             (name("progress"), progress.clone()),
         ])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         let info = install(&mut fixture).await;
         planning::configure(&mut fixture, WorkMode::Code).await;
         let turn = submit(&fixture, true).await;
@@ -212,7 +212,7 @@ async fn keeps_admitted_operations_and_history() {
         );
         let path = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(path).await.unwrap();
+        let node = Node::start_empty(path).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {
@@ -233,7 +233,7 @@ async fn uses_storage_authority_and_filters_plan_writes() {
             json!({"key":"review", "value":"approved", "expected_revision":0}),
         )])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&mut fixture).await;
         let turn = submit(&fixture, false).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;

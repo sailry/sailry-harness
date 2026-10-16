@@ -121,7 +121,7 @@ async fn approves_once_and_commits_each_step() {
         let arguments = json!({"key":"note","value":"approved"});
         let server =
             Server::tools(vec![(plugin_tool(PACKAGE, "sequence"), arguments.clone())]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         let package = install(&fixture,r#"
 export function sequence({arguments:args,step,outcome}) {
   if (step === 0) return {call:{operation:'storage.set',arguments:{key:args.key,value:args.value,expected_revision:0}}};
@@ -167,7 +167,7 @@ async fn preserves_failures_and_completed_effects() {
                 .collect(),
         )
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         let package = install(&fixture,r#"
 const write = (key, revision = 0) => ({call:{operation:'storage.set',arguments:{key,value:'changed',expected_revision:revision}}});
 export function tamper({step}) {
@@ -232,7 +232,7 @@ export function broken({step}) {
 async fn uncertain_controller_outcomes_never_resume() {
     for remote in [false, true] {
         let server = Server::tools(vec![(plugin_tool(PACKAGE, "uncertain"), json!({}))]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         let package = install(&fixture,r#"
 export function uncertain({step}) {
   if (step === 0) return {call:{operation:'browser.read',arguments:{action:'tabs',arguments:{}}}};
@@ -284,7 +284,7 @@ export function uncertain({step}) {
 async fn bounds_the_frozen_message_before_each_continuation() {
     for remote in [false, true] {
         let server = Server::tools(vec![(plugin_tool(PACKAGE, "prefix"), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture,r#"
 export function prefix({message,step,state}) {
   if (step === 0) return {call:{operation:'storage.get',arguments:{key:'absent'}},state:{first:message}};

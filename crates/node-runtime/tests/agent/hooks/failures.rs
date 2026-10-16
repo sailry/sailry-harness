@@ -44,7 +44,7 @@ fn failure(page: &Page, turn: TurnId, code: ErrorCode, original: &str) {
 async fn retains_empty_completion_and_hook_failure() {
     for remote in [false, true] {
         let server = Server::empty_after_tool().await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let Output::Providers(providers) = execute(&fixture.client, Command::ListProviders).await
         else {
             panic!("providers expected")
@@ -119,7 +119,7 @@ async fn retains_uncertain_cleanup_and_hook_failure() {
             (mcp::peer::alias("input", "read"), json!({})),
         ])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         ready(&mut fixture, WorkMode::Code).await;
         peer.package(&fixture.root.join("package"));
         let Output::Plugin(_) = execute(
