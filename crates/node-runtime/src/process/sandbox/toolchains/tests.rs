@@ -496,6 +496,9 @@ async fn runs_developer_tools_with_private_cache() {
     ] {
         let mut request = fixture.launch();
         request.command = command.into();
+        if command == "/usr/bin/git --version" {
+            request.timeout_ms = 20_000;
+        }
         let output = execute(
             request,
             &environment,

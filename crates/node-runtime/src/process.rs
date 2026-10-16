@@ -3,6 +3,9 @@
 pub(crate) mod background;
 pub(crate) mod environment;
 mod interactive;
+#[cfg(target_os = "macos")]
+#[path = "process/macos.rs"]
+mod macos;
 pub(crate) mod pty;
 pub(crate) use environment::Environment;
 #[path = "process/output.rs"]
@@ -219,6 +222,8 @@ async fn execute_configured(
         })?,
         armed: true,
     };
+    #[cfg(target_os = "macos")]
+    let group = macos::Group::capture(child.inner.as_ref());
     let stdout = child
         .inner
         .stdout()
@@ -287,6 +292,10 @@ async fn execute_configured(
     if let Err(error) = cleanup {
         #[cfg(unix)]
         let absent = error.raw_os_error() == Some(libc::ESRCH);
+        #[cfg(target_os = "macos")]
+        let absent = absent
+            || error.raw_os_error() == Some(libc::EPERM)
+                && group.as_ref().is_some_and(macos::Group::settled);
         #[cfg(not(unix))]
         let absent = false;
         if !absent {
