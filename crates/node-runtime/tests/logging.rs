@@ -19,18 +19,23 @@ async fn execute(client: &Client, command: Command) -> Output {
 }
 async fn finish(client: &Client, session: SessionId, turn: TurnId) -> Page {
     tokio::time::timeout(Duration::from_secs(10), async {
+        let mut updates = client.subscribe_conversation(session).await.unwrap();
         loop {
-            let history = client.read_conversation(session, None, 100).await.unwrap();
-            if history.page.runs.iter().any(|run| {
-                run.turn == turn
-                    && !matches!(
-                        run.status,
-                        Status::Queued | Status::Running | Status::Stopping
-                    )
-            }) {
-                return history.page;
+            let terminal = match updates.next().await.unwrap() {
+                Update::ConversationSnapshot(snapshot) => snapshot.page.runs.iter().any(|run| {
+                    run.turn == turn && !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
+                }),
+                Update::ConversationFrame(frame) => matches!(frame.change,
+                    Change::Run(run) if run.turn == turn && !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)),
+                Update::ResetRequired => {
+                    updates = client.subscribe_conversation(session).await.unwrap();
+                    false
+                }
+                _ => false,
+            };
+            if terminal {
+                return client.read_conversation(session, None, 100).await.unwrap().page;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await
@@ -143,11 +148,14 @@ async fn observes_shared_lifecycles_without_payloads() {
     assert_eq!(file.extension().unwrap(), "log");
     let mut expected = Vec::new();
     let mut summaries = Vec::new();
+    // Reopen the same isolated profiles so each scenario retains real Node
+    // startup/shutdown logging without reinstalling the same bundled packages.
+    let profiles = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
     for remote in [false, true] {
         for stop in [false, true] {
-            let profile = tempfile::tempdir().unwrap();
-            let root = profile.path().join("project");
-            std::fs::create_dir(&root).unwrap();
+            let profile = &profiles[usize::from(remote)];
+            let root = profile.path().join(format!("project-{stop}"));
+            std::fs::create_dir_all(&root).unwrap();
             let started = std::sync::Arc::new(tokio::sync::Notify::new());
             let held = std::sync::Arc::new(tokio::sync::Notify::new());
             let model = if stop {
@@ -258,8 +266,8 @@ async fn observes_shared_lifecycles_without_payloads() {
             controller.close().await.unwrap();
         }
     }
-    let retry_profile = tempfile::tempdir().unwrap();
-    let retry_root = retry_profile.path().join("project");
+    let retry_profile = &profiles[1];
+    let retry_root = retry_profile.path().join("retry-project");
     std::fs::create_dir(&retry_root).unwrap();
     let retry_model = models::Server::http(1, 429).await;
     let retry_node = Node::start_isolated(retry_profile.path().join("node"))
@@ -295,8 +303,8 @@ async fn observes_shared_lifecycles_without_payloads() {
     retry_node.shutdown().await.unwrap();
     retry_controller.close().await.unwrap();
 
-    let parse_profile = tempfile::tempdir().unwrap();
-    let parse_root = parse_profile.path().join("project");
+    let parse_profile = &profiles[1];
+    let parse_root = parse_profile.path().join("parse-project");
     std::fs::create_dir(&parse_root).unwrap();
     let parse_model = models::Server::responses_parse().await;
     let parse_node = Node::start_isolated(parse_profile.path().join("node"))
@@ -339,8 +347,8 @@ async fn observes_shared_lifecycles_without_payloads() {
     parse_controller.close().await.unwrap();
 
     for (remote, mode, usage) in [(false, "manual", 100), (true, "automatic", 14_000)] {
-        let profile = tempfile::tempdir().unwrap();
-        let root = profile.path().join("project");
+        let profile = &profiles[usize::from(remote)];
+        let root = profile.path().join(format!("summary-{mode}"));
         std::fs::create_dir(&root).unwrap();
         let model = models::Server::summary(usage).await;
         let node = Node::start_isolated(profile.path().join("node"))

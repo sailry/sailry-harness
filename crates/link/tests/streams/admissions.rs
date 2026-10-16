@@ -197,7 +197,10 @@ async fn completion_outlives_the_transport_deadline() {
         admissions.push(admission);
     }
     // The transport's I/O deadline is ten seconds. Both receipts are already safe.
-    tokio::time::sleep(Duration::from_secs(11)).await;
+    tokio::time::pause();
+    tokio::time::advance(Duration::from_secs(11)).await;
+    tokio::task::yield_now().await;
+    tokio::time::resume();
     for admission in &mut admissions {
         assert!(matches!(
             admission.completion.try_recv(),
