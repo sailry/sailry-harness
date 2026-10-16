@@ -187,6 +187,25 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))?
     }
 
+    /// Keeps an isolated plugin catalog while fixtures install only their required packages.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_plugin_catalog(
+        path: impl AsRef<Path>,
+        endpoint: &str,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                skills: crate::plugins::github::Github::catalog_fixture(endpoint),
+                skip_bundled: true,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
     /// Uses an isolated HTTP reference catalog for service and controller acceptance.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn start_with_catalog(path: impl AsRef<Path>, endpoint: &str) -> Result<Self, Error> {
