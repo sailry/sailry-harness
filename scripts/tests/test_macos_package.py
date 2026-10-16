@@ -302,47 +302,66 @@ class Notarization(unittest.TestCase):
 class TicketDownload(unittest.TestCase):
     def test_retries_only_interrupted_ticket_downloads(self):
         failure = RuntimeError('NSURLErrorDomain Code=-1005 "The network connection was lost."')
-        with patch.object(notary, "run", side_effect=[failure, None]) as run, \
-                patch.object(notary.time, "sleep") as sleep:
-            notary.staple(Path("Sailry.dmg"))
-        self.assertEqual(run.call_count, 2)
-        run.assert_called_with("xcrun", "stapler", "staple", Path("Sailry.dmg"))
-        sleep.assert_called_once_with(2)
+        for action in ("staple", "validate"):
+            with self.subTest(action=action), patch.object(notary, "run", side_effect=[failure, None]) as run, \
+                    patch.object(notary.time, "sleep") as sleep:
+                notary.run_stapler(action, Path("Sailry.dmg"))
+            self.assertEqual(run.call_count, 2)
+            run.assert_called_with("xcrun", "stapler", action, Path("Sailry.dmg"))
+            sleep.assert_called_once_with(2)
 
     def test_stops_after_three_attempts(self):
         failure = RuntimeError('NSURLErrorDomain Code=-1005 "The network connection was lost."')
-        with patch.object(notary, "run", side_effect=failure) as run, \
-                patch.object(notary.time, "sleep") as sleep:
-            with self.assertRaises(RuntimeError) as raised:
-                notary.staple(Path("Sailry.dmg"))
-        self.assertIs(raised.exception, failure)
-        self.assertEqual(run.call_count, 3)
-        self.assertEqual([call.args for call in sleep.call_args_list], [(2,), (5,)])
+        for action in ("staple", "validate"):
+            with self.subTest(action=action), patch.object(notary, "run", side_effect=failure) as run, \
+                    patch.object(notary.time, "sleep") as sleep:
+                with self.assertRaises(RuntimeError) as raised:
+                    notary.run_stapler(action, Path("Sailry.dmg"))
+            self.assertIs(raised.exception, failure)
+            self.assertEqual(run.call_count, 3)
+            self.assertEqual([call.args for call in sleep.call_args_list], [(2,), (5,)])
 
     def test_preserves_other_failures(self):
-        for message in ("Invalid signature", "Ticket not found", "NSURLErrorDomain Code=-1001",
-                        "Other domain -1005", "NSURLErrorDomain Code=-1005 invalid ticket",
-                        "NSURLErrorDomain Code=-10050 The network connection was lost"):
-            with self.subTest(message=message), patch.object(notary, "run", side_effect=RuntimeError(message)) as run, \
-                    patch.object(notary.time, "sleep") as sleep:
-                with self.assertRaisesRegex(RuntimeError, message):
-                    notary.staple(Path("Sailry.dmg"))
-            run.assert_called_once()
-            sleep.assert_not_called()
+        for action in ("staple", "validate"):
+            for message in ("Invalid signature", "Ticket not found", "NSURLErrorDomain Code=-1001",
+                            "Other domain -1005", "NSURLErrorDomain Code=-1005 invalid ticket",
+                            "NSURLErrorDomain Code=-10050 The network connection was lost"):
+                with self.subTest(action=action, message=message), \
+                        patch.object(notary, "run", side_effect=RuntimeError(message)) as run, \
+                        patch.object(notary.time, "sleep") as sleep:
+                    with self.assertRaisesRegex(RuntimeError, message):
+                        notary.run_stapler(action, Path("Sailry.dmg"))
+                run.assert_called_once()
+                sleep.assert_not_called()
 
     def test_verifies_after_recovered_ticket_download(self):
         failure = RuntimeError('NSURLErrorDomain Code=-1005 "The network connection was lost."')
         image = Path("Sailry.dmg")
         with patch.object(notary, "submit") as submit, \
-                patch.object(notary, "run", side_effect=[failure, None, None, None, None, None]) as run, \
+                patch.object(notary, "run", side_effect=[failure, None, failure, None, None, None, None]) as run, \
                 patch.object(notary.time, "sleep"):
             notary.notarize_disk_image(image, [])
         submit.assert_called_once_with(image, [])
         self.assertEqual([call.args for call in run.call_args_list], [
             ("xcrun", "stapler", "staple", image), ("xcrun", "stapler", "staple", image),
-            ("xcrun", "stapler", "validate", image), ("codesign", "--verify", "--strict", image),
+            ("xcrun", "stapler", "validate", image), ("xcrun", "stapler", "validate", image),
+            ("codesign", "--verify", "--strict", image),
             ("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", image),
             ("hdiutil", "verify", image)])
+
+    def test_exhaustion_stops_the_validation_chain(self):
+        failure = RuntimeError('NSURLErrorDomain Code=-1005 "The network connection was lost."')
+        for action in ("staple", "validate"):
+            responses = [failure] * 3 if action == "staple" else [None, failure, failure, failure]
+            with self.subTest(action=action), patch.object(notary, "submit"), \
+                    patch.object(notary, "run", side_effect=responses) as run, \
+                    patch.object(notary.time, "sleep"):
+                with self.assertRaises(RuntimeError) as raised:
+                    notary.notarize_disk_image(Path("Sailry.dmg"), [])
+            self.assertIs(raised.exception, failure)
+            self.assertEqual(run.call_count, len(responses))
+            self.assertTrue(all(call.args[:2] == ("xcrun", "stapler") for call in run.call_args_list))
+            self.assertEqual(run.call_args.args[2], action)
 
 
 class DiskImage(unittest.TestCase):
