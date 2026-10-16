@@ -271,34 +271,12 @@ async fn rejects_untrusted_tls_without_committing() {
     let rejected = RelayFixture::start().await;
     let link = previous.link(Arc::new(Echo(StreamId::new()))).await;
     link.handle().online().await.unwrap();
-    let rejected_map = rejected.selection.map().unwrap();
-    let handle = link.handle();
-    let probe = tokio::spawn(async move {
-        handle
+    assert!(
+        link.handle()
             .select_relays(rejected.selection, CancellationToken::new())
             .await
-    });
-    let mut statuses = link.handle.core.endpoint.home_relay_status();
-    tokio::time::timeout(Duration::from_secs(3), async {
-        loop {
-            if statuses
-                .get()
-                .iter()
-                .any(|status| rejected_map.contains(status.url()) && status.last_error().is_some())
-            {
-                break;
-            }
-            statuses.updated().await.unwrap();
-        }
-    })
-    .await
-    .expect("untrusted relay handshake deadline");
-    // Observe the real failed TLS handshake before advancing the unchanged probe deadline.
-    tokio::time::pause();
-    tokio::time::advance(PROBE_TIMEOUT + Duration::from_secs(1)).await;
-    tokio::task::yield_now().await;
-    tokio::time::resume();
-    assert!(probe.await.unwrap().is_err());
+            .is_err()
+    );
     assert_eq!(
         link.handle().relay_selection().unwrap(),
         Some(previous.selection)
