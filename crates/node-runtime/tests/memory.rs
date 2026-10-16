@@ -25,7 +25,9 @@ fn entry(project: Option<ProjectId>, title: &str) -> Entry {
 
 async fn fixture(remote: bool) -> (tempfile::TempDir, Node, Link, Client) {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -260,7 +262,9 @@ async fn restores_scoped_revisions() {
         );
         drop(updates);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -299,7 +303,9 @@ async fn restores_scoped_revisions() {
                 .await
                 .is_empty()
         );
-        let other = Node::start(directory.path().join("other")).await.unwrap();
+        let other = Node::start_empty(directory.path().join("other"))
+            .await
+            .unwrap();
         let other_client = Client::new(other.local());
         let root = directory.path().join("other-fixture");
         support::prepare(&root.join("memory"));
@@ -458,7 +464,9 @@ async fn applies_retrieval_configuration() {
         .await
         .unwrap();
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -501,10 +509,12 @@ async fn separates_archive_capacity() {
             values.push(value);
         }
         let mut seeded = Vec::new();
-        for batch in values.chunks(32) {
-            let result: Vec<Entry> = run(&client, json!({"action":"seed","entries":batch}))
-                .await
-                .unwrap();
+        let context = support::context(&client).await;
+        for batch in values.chunks(256) {
+            let result: Vec<Entry> =
+                support::run(&client, &context, json!({"action":"seed","entries":batch}))
+                    .await
+                    .unwrap();
             if seeded.is_empty() {
                 seeded.extend(result.into_iter().take(2));
             }

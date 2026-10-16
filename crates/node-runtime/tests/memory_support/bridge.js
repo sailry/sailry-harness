@@ -16,7 +16,7 @@ async function complete(id) {
 }
 async function commit(draft) { return complete(prepareTransaction(draft.operations)); }
 
-async function seed(entries) {
+async function seedBatch(entries) {
   if (!Array.isArray(entries) || entries.length < 1 || entries.length > 32
     || entries.some(entry=>entry.summary.project !== null || entry.summary.revision !== 0)
     || new Set(entries.map(entry=>entry.summary.id)).size !== entries.length) {
@@ -44,6 +44,17 @@ async function seed(entries) {
   }
   await commit({operations:[write(current.record,catalog(current.value)),
     ...Array.from(pages.values(),target=>write(target.record,target.value)),...indexes]});
+  return saved;
+}
+
+async function seed(entries) {
+  if (!Array.isArray(entries) || entries.length < 1 || entries.length > 256) {
+    throw Object.assign(new Error('invalid memory seed batch'),{code:'invalid_request'});
+  }
+  const saved=[];
+  for (let offset=0;offset < entries.length;offset+=32) {
+    saved.push(...await seedBatch(entries.slice(offset,offset+32)));
+  }
   return saved;
 }
 
