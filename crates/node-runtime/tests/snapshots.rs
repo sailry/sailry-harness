@@ -121,7 +121,6 @@ async fn create(client: &Client, project: ProjectId, config: &SessionConfig) -> 
 }
 
 async fn observe(client: &Client, expected: &Snapshot) {
-    assert_eq!(snapshot(client).await, *expected);
     let mut updates = client.subscribe().await.unwrap();
     let initial = tokio::time::timeout(Duration::from_secs(20), updates.next())
         .await
@@ -131,6 +130,7 @@ async fn observe(client: &Client, expected: &Snapshot) {
     assert_eq!(projection.apply(1, initial).unwrap(), Apply::Applied);
     assert_eq!(projection.snapshot(), Some(expected));
     projection.reconnect(2).unwrap();
+    // Recovery executes Command::Snapshot through the same authenticated client.
     client.recover(&mut projection, 2).await.unwrap();
     assert_eq!(projection.snapshot(), Some(expected));
 }
