@@ -1,4 +1,5 @@
 use sailry_client::Client;
+use sailry_link::{Link, NetworkScope, Transport};
 use sailry_node_runtime::Node;
 use sailry_protocol::*;
 
@@ -51,27 +52,25 @@ async fn register(client: &Client, path: &std::path::Path) -> Project {
 
 async fn ownership(remote: bool) {
     let directory = tempfile::tempdir().unwrap();
-    let controller = Node::start(directory.path().join("controller"))
-        .await
-        .unwrap();
     let execution = Node::start(directory.path().join("execution"))
         .await
         .unwrap();
-    controller
-        .link()
-        .set_trust(execution.id(), true)
-        .await
-        .unwrap();
-    execution
-        .link()
-        .set_trust(controller.id(), true)
-        .await
-        .unwrap();
-    let client = Client::new(if remote {
-        controller.link().remote(execution.link().address())
+    let (controller, transport): (Option<Link>, std::sync::Arc<dyn Transport>) = if remote {
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(execution.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let transport = controller.handle().remote(address);
+        (Some(controller), transport)
     } else {
-        execution.local()
-    });
+        (None, execution.local())
+    };
+    let client = Client::new(transport);
     let first_path = directory.path().join("first");
     let second_path = directory.path().join("second");
     std::fs::create_dir(&first_path).unwrap();
@@ -117,7 +116,9 @@ async fn ownership(remote: bool) {
         assert_eq!(session.project, Some(first.id));
     }
     let path = execution.profile().to_owned();
-    controller.shutdown().await.unwrap();
+    if let Some(controller) = controller {
+        controller.close().await.unwrap();
+    }
     execution.shutdown().await.unwrap();
     let execution = Node::start(path).await.unwrap();
     let resumed = snapshot(&Client::new(execution.local())).await;

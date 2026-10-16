@@ -1,12 +1,12 @@
 //! Real transport fault injection; these tests do not simulate business execution.
 use iroh::{Endpoint, RelayMode, endpoint::presets};
 use sailry_client::Client;
-use sailry_node_runtime::Node;
+use sailry_link::{Link, NetworkScope};
 use sailry_protocol::{Command, ErrorCode, Fault, NodeId};
 
 async fn response_fault(reply: Option<serde_json::Value>, expected: ErrorCode) {
     let directory = tempfile::tempdir().unwrap();
-    let controller = Node::start(directory.path().join("controller"))
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
     let endpoint = Endpoint::builder(presets::Minimal)
@@ -19,11 +19,11 @@ async fn response_fault(reply: Option<serde_json::Value>, expected: ErrorCode) {
         .await
         .unwrap();
     controller
-        .link()
+        .handle()
         .set_trust(NodeId(*endpoint.id().as_bytes()), true)
         .await
         .unwrap();
-    let client = Client::new(controller.link().remote(endpoint.addr()));
+    let client = Client::new(controller.handle().remote(endpoint.addr()));
     let request = client.prepare(Command::RegisterProject {
         name: "Uncertain".into(),
         path: directory.path().to_str().unwrap().into(),
@@ -58,7 +58,7 @@ async fn response_fault(reply: Option<serde_json::Value>, expected: ErrorCode) {
         };
         assert_eq!(error.code, expected);
         controller
-            .link()
+            .handle()
             .disconnect(NodeId(*endpoint.id().as_bytes()))
             .await;
     };
@@ -68,7 +68,7 @@ async fn response_fault(reply: Option<serde_json::Value>, expected: ErrorCode) {
     .await
     .unwrap();
     endpoint.close().await;
-    controller.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
 
 #[tokio::test]

@@ -1,7 +1,7 @@
 use sailry_client::{Client, View};
-use sailry_link::CancellationToken;
+use sailry_link::{CancellationToken, Link, Transport};
 use sailry_node_runtime::{NetworkScope, Node};
-use sailry_protocol::{Command, ErrorCode};
+use sailry_protocol::{Command, ErrorCode, NodeId};
 use std::{sync::Arc, time::Duration};
 use tokio::sync::watch;
 
@@ -23,16 +23,22 @@ async fn shares_projection_until_cancelled() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let host = Node::start(directory.path().join("host")).await.unwrap();
-        let controller = Node::start(directory.path().join("controller"))
-            .await
-            .unwrap();
-        host.link().set_trust(controller.id(), true).await.unwrap();
-        controller.link().set_trust(host.id(), true).await.unwrap();
-        let client = Arc::new(Client::new(if remote {
-            controller.link().remote(host.link().address())
+        let (controller, transport): (Option<Link>, Arc<dyn Transport>) = if remote {
+            let controller =
+                Link::controller(directory.path().join("controller"), NetworkScope::default())
+                    .await
+                    .unwrap();
+            let address = controller
+                .handle()
+                .pair(host.link().invite().unwrap().ticket())
+                .await
+                .unwrap();
+            let transport = controller.handle().remote(address);
+            (Some(controller), transport)
         } else {
-            host.local()
-        }));
+            (None, host.local())
+        };
+        let client = Arc::new(Client::new(transport));
         let stop = CancellationToken::new();
         let (sender, mut updates) = watch::channel(View::default());
         let run = {
@@ -63,7 +69,9 @@ async fn shares_projection_until_cancelled() {
             .unwrap();
         assert!(!updates.borrow().connected);
         host.shutdown().await.unwrap();
-        controller.shutdown().await.unwrap();
+        if let Some(controller) = controller {
+            controller.close().await.unwrap();
+        }
     }
 }
 
@@ -74,12 +82,17 @@ async fn recovers_and_revokes() {
     let host = Node::start(&path).await.unwrap();
     let address = host.link().address();
     let socket = *address.ip_addrs().next().unwrap();
-    let controller = Node::start(directory.path().join("controller"))
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
-    host.link().set_trust(controller.id(), true).await.unwrap();
-    controller.link().set_trust(host.id(), true).await.unwrap();
-    let client = Client::new(controller.link().remote(address));
+    let controller_id = NodeId(*controller.handle().address().id.as_bytes());
+    host.link().set_trust(controller_id, true).await.unwrap();
+    controller
+        .handle()
+        .set_trust(host.id(), true)
+        .await
+        .unwrap();
+    let client = Client::new(controller.handle().remote(address));
     let (sender, mut updates) = watch::channel(View::default());
     let run = tokio::spawn(async move { client.watch(sender, CancellationToken::new()).await });
     wait(&mut updates, |view| view.connected).await;
@@ -89,7 +102,7 @@ async fn recovers_and_revokes() {
         .await
         .unwrap();
     wait(&mut updates, |view| view.connected && view.error.is_none()).await;
-    host.link().set_trust(controller.id(), false).await.unwrap();
+    host.link().set_trust(controller_id, false).await.unwrap();
     let error = tokio::time::timeout(Duration::from_secs(5), run)
         .await
         .unwrap()
@@ -98,5 +111,5 @@ async fn recovers_and_revokes() {
     assert_eq!(error.code, ErrorCode::PermissionDenied);
     assert!(!updates.borrow().connected);
     host.shutdown().await.unwrap();
-    controller.shutdown().await.unwrap();
+    controller.close().await.unwrap();
 }
