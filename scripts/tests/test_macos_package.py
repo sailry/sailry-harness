@@ -1,5 +1,6 @@
 """macOS packaging fixtures never use developer certificates or Apple services."""
 
+from contextlib import nullcontext
 import hashlib
 import importlib.util
 import json
@@ -57,6 +58,50 @@ class CodeSigning(unittest.TestCase):
                     self.assertNotIn("--entitlements", run.call_args_list[-1].args)
                     self.assertFalse((root / "Sailry.app").exists())
 
+    def test_registers_keychain_and_restores_search_list(self):
+        keychain = Path("/temporary/signing.keychain-db")
+        identity = "A" * 40
+        replies = ['"/login.keychain-db"\n"/system.keychain"\n', "", f'1) {identity} "Fixture"', ""]
+        with patch.object(signing, "run", side_effect=replies) as run:
+            with signing.keychain_scope(keychain, identity):
+                self.assertEqual(run.call_count, 3)
+        self.assertEqual([call.args for call in run.call_args_list], [
+            ("security", "list-keychains", "-d", "user"),
+            ("security", "list-keychains", "-d", "user", "-s", "/login.keychain-db", "/system.keychain", keychain),
+            ("security", "find-identity", "-v", "-p", "codesigning", keychain),
+            ("security", "list-keychains", "-d", "user", "-s", "/login.keychain-db", "/system.keychain"),
+        ])
+
+    def test_missing_identity_restores_before_failure(self):
+        with patch.object(signing, "run", side_effect=['"/login"', "", "0 valid identities found", ""]) as run:
+            with self.assertRaisesRegex(RuntimeError, "identity is unavailable"):
+                with signing.keychain_scope(Path("/temporary"), "A" * 40):
+                    self.fail("An unavailable identity reached signing")
+        self.assertEqual(run.call_args.args, ("security", "list-keychains", "-d", "user", "-s", "/login"))
+
+    def test_restoration_preserves_signing_failure(self):
+        replies = ['"/login"', "", '1) ' + "A" * 40 + ' "Fixture"', RuntimeError("restore failed")]
+        with patch.object(signing, "run", side_effect=replies), patch.object(signing.sys, "stderr"):
+            with self.assertRaisesRegex(RuntimeError, "signing failed"):
+                with signing.keychain_scope(Path("/temporary"), "A" * 40):
+                    raise RuntimeError("signing failed")
+
+    def test_restoration_failure_remains_an_error(self):
+        replies = ['"/login"', "", '1) ' + "A" * 40 + ' "Fixture"', RuntimeError("restore failed")]
+        with patch.object(signing, "run", side_effect=replies):
+            with self.assertRaisesRegex(RuntimeError, "restore failed"):
+                with signing.keychain_scope(Path("/temporary"), "A" * 40):
+                    pass
+
+    def test_existing_keychain_keeps_other_search_entries(self):
+        keychain = Path("/temporary")
+        with patch.object(signing, "run", side_effect=['"/login" "/temporary"', '1) ' + "A" * 40 + ' "Fixture"', ""]) as run:
+            with signing.keychain_scope(keychain, "a" * 40):
+                pass
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(run.call_args.args, ("security", "list-keychains", "-d", "user", "-s", "/login", "/temporary"))
+
+
     def test_requires_a_package(self):
         with self.assertRaisesRegex(RuntimeError, "Select"):
             signing.sign(None, None, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
@@ -112,7 +157,8 @@ class CodeSigning(unittest.TestCase):
                     child = next(file for file in receipt["files"] if file["path"] == "bin/python3.12")
                     self.assertEqual(child["sha256"], signing.python_runtime.digest(python_objects[0]))
                 return ""
-            with patch.object(signing.python_runtime, "LOCK", lock), \
+            with patch.object(signing, "keychain_scope", return_value=nullcontext()), \
+                    patch.object(signing.python_runtime, "LOCK", lock), \
                     patch.object(signing.python_runtime, "urlopen") as request, \
                     patch.object(signing, "run", side_effect=command) as run, \
                     patch.object(signing, "verify") as verify:
@@ -278,13 +324,54 @@ class DiskImage(unittest.TestCase):
             root = Path(directory)
             app = root / "Sailry.app"
             app.mkdir()
-            with patch.object(dmg, "run") as run, patch.dict(dmg.os.environ, {"APPLE_SIGNING_IDENTITY":"Fixture identity", "APPLE_SIGNING_KEYCHAIN":"Fixture keychain"}):
+            with patch.object(dmg, "run") as run, \
+                    patch.object(dmg.signing_tools, "keychain_scope", return_value=nullcontext()) as scope, \
+                    patch.dict(dmg.os.environ, {"APPLE_SIGNING_IDENTITY":"Fixture identity", "APPLE_SIGNING_KEYCHAIN":"Fixture keychain"}):
                 dmg.create(app, root / "Sailry.dmg", "developer-id")
+            scope.assert_called_once_with("Fixture keychain", "Fixture identity")
             calls = [call.args for call in run.call_args_list]
             self.assertEqual([call[0] for call in calls], ["hdiutil", "codesign", "codesign", "hdiutil"])
             self.assertIn("--timestamp", calls[1])
             self.assertIn("ai.sailry.disk-image", calls[1])
             self.assertIn("--keychain", calls[1])
+
+    def test_image_signing_restores_keychain_after_failure(self):
+        for fails in (False, True):
+            with self.subTest(fails=fails), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                app = root / "Sailry.app"
+                app.mkdir()
+                events = []
+                def security(*arguments):
+                    events.append(arguments)
+                    if arguments == ("security", "list-keychains", "-d", "user"):
+                        return '"/login" "/system"'
+                    if arguments[1] == "find-identity":
+                        return '1) ' + "A" * 40 + ' "Fixture identity"'
+                    return ""
+                def command(*arguments):
+                    events.append(arguments)
+                    if fails and arguments[0:2] == ("codesign", "--sign"):
+                        raise RuntimeError("Image signing failed")
+                with patch.object(dmg.signing_tools, "run", side_effect=security), \
+                        patch.object(dmg, "run", side_effect=command), \
+                        patch.dict(dmg.os.environ, {"APPLE_SIGNING_IDENTITY":"A" * 40, "APPLE_SIGNING_KEYCHAIN":"/temporary"}):
+                    if fails:
+                        with self.assertRaisesRegex(RuntimeError, "Image signing failed"):
+                            dmg.create(app, root / "Sailry.dmg", "developer-id")
+                    else:
+                        dmg.create(app, root / "Sailry.dmg", "developer-id")
+                names = [event[0:2] for event in events]
+                self.assertEqual(names[:5], [("hdiutil", "create"), ("security", "list-keychains"),
+                                            ("security", "list-keychains"), ("security", "find-identity"),
+                                            ("codesign", "--sign")])
+                self.assertEqual(events[2], ("security", "list-keychains", "-d", "user", "-s", "/login", "/system", "/temporary"))
+                restore = ("security", "list-keychains", "-d", "user", "-s", "/login", "/system")
+                if fails:
+                    self.assertEqual(events[-1], restore)
+                else:
+                    self.assertEqual(events[-2], restore)
+                    self.assertEqual(names[-3:], [("codesign", "--verify"), ("security", "list-keychains"), ("hdiutil", "verify")])
 
 
 class Components(unittest.TestCase):

@@ -9,6 +9,11 @@ on:
         description: 'Version tag selected as the workflow ref'
         type: string
         required: true
+      reuse_build_run:
+        description: 'Successful native build run to restore after a signing-only fix'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -118,7 +123,30 @@ jobs:
         run: |
           python3 scripts/ci.py fixtures shared
           python3 scripts/ci.py fixtures desktop
+      - name: Verify reusable native build
+        id: reusable-build
+        if: github.event_name == 'workflow_dispatch' && inputs.reuse_build_run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE_BUILD_RUN: ${{ inputs.reuse_build_run }}
+          PACKAGE_TARGET: ${{ matrix.target }}
+          CACHE_HIT: ${{ steps.native-cache.outputs.cache-hit }}
+          CACHE_KEY: ${{ steps.native-cache.outputs.cache-primary-key }}
+          CACHE_MATCHED_KEY: ${{ steps.native-cache.outputs.cache-matched-key }}
+        run: |
+          python3 - <<'PYTHON'
+          import os, sys
+          sys.path.insert(0, 'scripts/package')
+          import publication
+          publication.reuse_build(publication.GitHub(), os.environ['GITHUB_REPOSITORY'],
+              os.environ['GITHUB_SHA'], os.environ['GITHUB_REF_NAME'],
+              os.environ['REUSE_BUILD_RUN'], os.environ['PACKAGE_TARGET'],
+              os.environ['CACHE_HIT'], os.environ['CACHE_KEY'], os.environ['CACHE_MATCHED_KEY'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('verified=true\n')
+          PYTHON
       - name: Build native Desktop
+        if: steps.reusable-build.outputs.verified != 'true'
         run: |
           cargo build --locked --release --timings -p sailry-desktop -p sailry-release
       - name: Save compilation before signing

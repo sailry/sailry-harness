@@ -1,6 +1,8 @@
 """Layered publishers preserve released tags and existing assets without network writes."""
 
+import ast
 import copy
+import subprocess
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -214,6 +216,219 @@ class ReleaseLookup(unittest.TestCase):
             self.assertTrue(all(call.args[0] == "GET" for call in client.api.call_args_list))
 
 
+class SourceReuse(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.git("init", "--quiet")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.git("config", "user.name", "Fixture")
+        for name in {*publication.SIGNING_FIX_FILES, "Cargo.toml", "crates/node-runtime/src/lib.rs"}:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("original\n")
+        self.parent = self.commit()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", str(self.root), *args], stderr=subprocess.PIPE, text=True).strip()
+
+    def commit(self):
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Fixture")
+        return self.git("rev-parse", "HEAD")
+
+    def test_admits_only_modified_signing_tools(self):
+        for name in publication.SIGNING_FIX_FILES:
+            content = "reviewed signing fix\n"
+            if name == ".github/workflows/release.yml":
+                content = "original\n" + publication.REUSE_INPUT + publication.REUSE_STEP + publication.REUSE_CONDITION
+            (self.root / name).write_text(content)
+        commit = self.commit()
+        self.assertEqual(publication.checked_source(commit, self.root), self.parent)
+
+    def test_rejects_product_inputs_and_unlisted_tools(self):
+        for name in ("Cargo.toml", "Cargo.lock", "crates/node-runtime/src/lib.rs", ".github/workflows/other.yml"):
+            with self.subTest(name=name):
+                path = self.root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("unverified input\n")
+                commit = self.commit()
+                self.assertIsNone(publication.checked_source(commit, self.root))
+
+    def test_recovery_preserves_the_original_build_recipe(self):
+        path = self.root / ".github/workflows/release.yml"
+        additions = publication.REUSE_INPUT + publication.REUSE_STEP + publication.REUSE_CONDITION
+        path.write_text("original\n" + additions)
+        self.assertEqual(publication.checked_source(self.commit(), self.root), self.parent)
+        for content in ("changed build flags\n" + additions, "original\n" + additions * 2):
+            path.write_text(content)
+            self.assertIsNone(publication.checked_source(self.commit(), self.root))
+
+    def test_rejects_binary_deletion_and_type_changes(self):
+        path = self.root / "scripts/package/sign-macos.py"
+        path.write_bytes(b"binary\0fixture")
+        self.assertIsNone(publication.checked_source(self.commit(), self.root))
+        path.unlink()
+        self.assertIsNone(publication.checked_source(self.commit(), self.root))
+        path.symlink_to("../../../Cargo.toml")
+        self.assertIsNone(publication.checked_source(self.commit(), self.root))
+
+    def test_rejects_renames_and_gitlinks(self):
+        path = self.root / "scripts/package/sign-macos.py"
+        path.rename(path.with_name("renamed.py"))
+        self.assertIsNone(publication.checked_source(self.commit(), self.root))
+        self.git("update-index", "--add", "--cacheinfo", "160000," + self.parent + ",plugins")
+        self.git("commit", "--quiet", "-m", "Gitlink fixture")
+        self.assertIsNone(publication.checked_source(self.git("rev-parse", "HEAD"), self.root))
+
+    def test_rejects_merges_and_other_checkouts(self):
+        tree = self.git("rev-parse", "HEAD^{tree}")
+        other = self.git("commit-tree", tree, "-p", self.parent, "-m", "Other parent")
+        merge = self.git("commit-tree", tree, "-p", self.parent, "-p", other, "-m", "Merge")
+        self.git("checkout", "--quiet", "--detach", merge)
+        self.assertIsNone(publication.checked_source(merge, self.root))
+        self.assertIsNone(publication.checked_source(self.parent, self.root))
+
+    def test_fetches_only_the_shallow_parent(self):
+        (self.root / "scripts/package/sign-macos.py").write_text("reviewed fix\n")
+        commit = self.commit()
+        clone = self.root / "shallow"
+        subprocess.run(["git", "clone", "--quiet", "--depth=1", "file://" + str(self.root), str(clone)],
+                       capture_output=True, check=True)
+        self.assertEqual(publication.checked_source(commit, clone), self.parent)
+        self.assertEqual(self.git("rev-parse", "HEAD"), commit)
+
+
+
+class NativeBuildReuse(unittest.TestCase):
+    def test_recovery_output_has_a_real_newline(self):
+        source = publication.REUSE_STEP.split("python3 - <<'PYTHON'\n", 1)[1].rsplit("          PYTHON\n", 1)[0]
+        source = "\n".join(line[10:] for line in source.splitlines())
+        writes = [node for node in ast.walk(ast.parse(source)) if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Attribute) and node.func.attr == "write"]
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(ast.literal_eval(writes[0].args[0]), "verified=true\n")
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.target = "aarch64-apple-darwin"
+        self.key = "packages-" + self.target + "-" + "a" * 64
+        self.source = "b" * 40
+        self.run = {"head_sha": self.source, "head_branch": TAG, "event": "push",
+                    "path": ".github/workflows/release.yml", "run_attempt": 1, "status": "completed"}
+        self.job = {"id": 5, "name": "Desktop " + self.target, "steps": [
+            {"name": "Build native Desktop", "conclusion": "success", "completed_at": "2026-10-16T12:00:01Z"},
+            {"name": "Save compilation before signing", "conclusion": "success", "started_at": "2026-10-16T12:00:01Z"},
+            {"name": "Sign, notarize and package", "started_at": "2026-10-16T12:00:05Z"}]}
+        self.cache = {"id": 9, "key": self.key, "ref": "refs/heads/refs/tags/" + TAG,
+                      "version": "c" * 64, "size_in_bytes": 100,
+                      "created_at": "2026-10-16T12:00:03.5Z"}
+        self.log = ("cargo build --locked --release --timings -p sailry-desktop -p sailry-release\n"
+                    "Finished `release` profile [optimized] target(s)\n"
+                    "Sent 100 of 100 (100.0%)\nCache saved with key: " + self.key)
+        for name in ("sailry-desktop", "sailry-release"):
+            path = self.root / "target/release" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"\xcf\xfa\xed\xfe" + (0x100000C).to_bytes(4, "little"))
+            path.chmod(0o755)
+        self.client = Mock()
+        for name, value in (("checked_source", self.source), ("ready_run", 42), ("build_recipe", None)):
+            patcher = patch.object(publication, name, return_value=value)
+            setattr(self, name, patcher.start())
+            self.addCleanup(patcher.stop)
+
+    def recover(self, hit="true", matched=None, entries=None, jobs=None):
+        entries = [self.cache] if entries is None else entries
+        self.client.api.side_effect = [self.run, {"jobs": [self.job] if jobs is None else jobs},
+                                       {"total_count": len(entries), "actions_caches": entries}]
+        self.client.text.return_value = self.log
+        return publication.reuse_build(self.client, REPOSITORY, COMMIT, TAG, "123", self.target,
+                                       hit, self.key, matched or self.key, self.root)
+
+    def test_reuses_only_the_proven_native_cache(self):
+        self.assertEqual(self.recover(), 9)
+        self.checked_source.assert_called_once_with(COMMIT, self.root)
+        self.ready_run.assert_called_once_with(self.client, REPOSITORY, self.source, "desktop")
+        self.build_recipe.assert_called_once_with(self.source, self.root)
+        self.client.text.assert_called_once_with("repos/fixture/product/actions/jobs/5/logs")
+        self.assertTrue(all(call.args[0] == "GET" for call in self.client.api.call_args_list))
+
+    def test_rejects_prefix_restore_and_unchecked_source(self):
+        for hit, matched in (("false", None), ("true", "packages-prefix")):
+            with self.subTest(hit=hit, matched=matched), self.assertRaises(ValueError):
+                self.recover(hit, matched)
+        self.checked_source.return_value = None
+        with self.assertRaises(ValueError):
+            self.recover()
+        self.checked_source.return_value = self.source
+        self.ready_run.return_value = None
+        with self.assertRaises(ValueError):
+            self.recover()
+
+    def test_rejects_other_source_run_or_attempt(self):
+        for field, value in (("head_sha", COMMIT), ("head_branch", "main"), ("event", "pull_request"),
+                             ("path", ".github/workflows/ci.yml"), ("run_attempt", 2), ("status", "in_progress")):
+            with self.subTest(field=field), patch.dict(self.run, {field: value}), self.assertRaises(ValueError):
+                self.recover()
+
+    def test_requires_successful_build_and_saved_cache(self):
+        for index in (0, 1):
+            with self.subTest(index=index), patch.dict(self.job["steps"][index], {"conclusion": "failure"}), self.assertRaises(ValueError):
+                self.recover()
+        with self.assertRaises(ValueError):
+            self.recover(jobs=[self.job, self.job])
+
+    def test_rejects_ambiguous_or_unrelated_cache_metadata(self):
+        for entries in ([], [self.cache, self.cache]):
+            with self.subTest(entries=len(entries)), self.assertRaises(ValueError):
+                self.recover(entries=entries)
+        for field, value in (("ref", "refs/heads/main"), ("version", ""), ("id", 0),
+                             ("size_in_bytes", 0), ("created_at", "2026-10-16T11:59:59Z"),
+                             ("created_at", "2026-10-16T12:00:06Z")):
+            with self.subTest(field=field, value=value), patch.dict(self.cache, {field: value}), self.assertRaises(ValueError):
+                self.recover()
+
+    def test_requires_the_original_success_log(self):
+        for text in ("cargo build", self.log.replace(self.key, "other-key"),
+                     self.log.replace("Sent 100 of 100", "Sent 50 of 100"),
+                     self.log.replace("`release` profile [optimized]", "`dev` profile")):
+            original = self.log
+            self.log = text
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                self.recover()
+            self.log = original
+
+    def test_rejects_modified_build_recipe(self):
+        self.build_recipe.side_effect = ValueError("Changed build recipe")
+        with self.assertRaisesRegex(ValueError, "Changed build recipe"):
+            self.recover()
+        self.client.api.assert_not_called()
+
+    def test_requires_regular_native_executables(self):
+        path = self.root / "target/release/sailry-release"
+        path.chmod(0o644)
+        with self.assertRaises(ValueError):
+            self.recover()
+        path.unlink()
+        path.symlink_to("sailry-desktop")
+        with self.assertRaises(ValueError):
+            self.recover()
+
+    def test_recognizes_both_native_architectures(self):
+        path = self.root / "target/release/sailry-desktop"
+        for target, cpu in ((self.target, 0x100000C), ("x86_64-apple-darwin", 0x1000007)):
+            path.write_bytes(b"\xcf\xfa\xed\xfe" + cpu.to_bytes(4, "little"))
+            publication.native_binary(path, target)
+        with self.assertRaises(ValueError):
+            publication.native_binary(path, self.target)
+        path.write_bytes(b"\x7fELFfixture")
+        with self.assertRaises(ValueError):
+            publication.native_binary(path, self.target)
+
+
 class Readiness(unittest.TestCase):
     def run_fixture(self, gate="success", event="push", branch="main", sha=COMMIT, overall="failure"):
         client = Mock()
@@ -225,6 +440,27 @@ class Readiness(unittest.TestCase):
                      [{"name": "Desktop ready", "status": "completed", "conclusion": gate}]},
         ]
         return client
+
+    def test_exact_checks_take_precedence(self):
+        with patch.object(publication, "checked_source") as source:
+            self.assertEqual(publication.readiness(self.run_fixture(), REPOSITORY, COMMIT, "desktop"), 42)
+        source.assert_not_called()
+
+    def test_reuses_only_successful_direct_parent_checks(self):
+        parent = "b" * 40
+        for gate in ("success", "failure"):
+            with self.subTest(gate=gate):
+                fixture = self.run_fixture(gate=gate, sha=parent)
+                responses = list(fixture.api.side_effect)
+                fixture.api.side_effect = [{"workflow_runs": []}, *responses]
+                with patch.object(publication, "checked_source", return_value=parent) as source:
+                    if gate == "success":
+                        self.assertEqual(publication.readiness(fixture, REPOSITORY, COMMIT, "desktop"), 42)
+                    else:
+                        with self.assertRaises(ValueError):
+                            publication.readiness(fixture, REPOSITORY, COMMIT, "desktop")
+                source.assert_called_once_with(COMMIT)
+                self.assertIn("head_sha=" + parent, fixture.api.call_args_list[1].args[1])
 
     def test_product_success_admits_despite_other_product_failure(self):
         client = self.run_fixture()
