@@ -68,7 +68,7 @@ pub async fn verify(server: &servers::Server, certificates: &Certificates) {
                 let error = PgConnection::connect_with(&options.host("wrong.sailry.test"))
                     .await
                     .unwrap_err();
-                assert!(matches!(error, sqlx::Error::Tls(_)), "{error}");
+                rejects_hostname(&error);
             }
             Engine::Mysql => {
                 use sqlx::mysql::{MySqlConnectOptions, MySqlConnection, MySqlSslMode};
@@ -99,9 +99,33 @@ pub async fn verify(server: &servers::Server, certificates: &Certificates) {
                 let error = MySqlConnection::connect_with(&options.host("wrong.sailry.test"))
                     .await
                     .unwrap_err();
-                assert!(matches!(error, sqlx::Error::Tls(_)), "{error}");
+                rejects_hostname(&error);
             }
             Engine::Sqlite => unreachable!(),
         }
     }
+}
+
+fn rejects_hostname(error: &sqlx::Error) {
+    // rustls reports handshake reads as io::Error; SQLx preserves that typed
+    // source under Io, while TLS configuration failures use its Tls variant.
+    let source = match error {
+        sqlx::Error::Io(source) => source
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<rustls::Error>()),
+        sqlx::Error::Tls(source) => source.downcast_ref::<rustls::Error>(),
+        _ => None,
+    };
+    let Some(rustls::Error::InvalidCertificate(rustls::CertificateError::NotValidForNameContext {
+        expected,
+        presented,
+    })) = source
+    else {
+        panic!("certificate hostname rejection expected: {error:?}");
+    };
+    assert_eq!(expected.to_str(), "wrong.sailry.test");
+    assert!(
+        presented.iter().any(|name| name.contains(HOST)),
+        "{presented:?}"
+    );
 }
