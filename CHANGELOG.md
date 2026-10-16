@@ -3,6 +3,24 @@
 Release entries supply the corresponding GitHub Release notes. When an entry is
 missing, publication generates it from the tagged Git history.
 
+## [0.1.0-alpha.2](https://github.com/sailry/sailry-harness/releases/tag/v0.1.0-alpha.2)
+
+This alpha fixes Linux Host compatibility and improves test and release efficiency.
+
+### Fixed
+
+- Keep background inference workers compatible with Linux systems using glibc 2.28
+
+### Changed
+
+- Reduce repeated Node and package setup in integration tests while preserving real service coverage
+- Share dependency sources and compiler caches across validation and release builds within the repository cache budget
+
+### Downloads
+
+- Desktop: macOS 13 or later, Apple silicon and Intel
+- Host: macOS and Linux, ARM64 and x64
+
 ## [0.1.0-alpha.1](https://github.com/sailry/sailry-harness/releases/tag/v0.1.0-alpha.1)
 
 The first Sailry Harness alpha brings AI conversations and development tools into
