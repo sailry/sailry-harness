@@ -15,18 +15,22 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub(super) async fn new(remote: bool, server: &Server) -> Self {
-        Self::setup(remote, server, false).await
+        Self::setup(remote, server, None).await
     }
 
     pub(super) async fn files(remote: bool, server: &Server) -> Self {
-        Self::setup(remote, server, true).await
+        Self::packages(remote, server, &["files"]).await
     }
 
-    async fn setup(remote: bool, server: &Server, files_only: bool) -> Self {
+    pub(super) async fn packages(remote: bool, server: &Server, packages: &[&str]) -> Self {
+        Self::setup(remote, server, Some(packages)).await
+    }
+
+    async fn setup(remote: bool, server: &Server, packages: Option<&[&str]>) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = if files_only {
+        let node = if packages.is_some() {
             Node::start_empty(directory.path().join("node")).await
         } else {
             Node::start(directory.path().join("node")).await
@@ -46,8 +50,22 @@ impl Fixture {
         } else {
             node.local()
         });
-        let session = if files_only {
-            approvals::prepare_files(&client, server, &root).await
+        let session = if let Some(packages) = packages {
+            for &name in packages {
+                let Output::Plugin(package) = client
+                    .execute(client.prepare(Command::InstallBundledPlugin {
+                        name: name.into(),
+                        expected_revision: 0,
+                    }))
+                    .await
+                    .unwrap()
+                else {
+                    panic!("fixture package expected")
+                };
+                assert!(package.issues.is_empty(), "{:?}", package.issues);
+            }
+            let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
+            approvals::prepare_model(&client, session, provider).await
         } else {
             let session = approvals::prepare(&client, server, &root).await;
             isolate_model_tools(&client).await;
