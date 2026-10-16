@@ -25,7 +25,29 @@ async fn submit_stage(client: &Client, session: SessionId, message: &str, stage:
         panic!("turn expected")
     };
     tokio::time::timeout(Duration::from_secs(10), async {
+        let mut updates = client.subscribe_conversation(session).await.unwrap();
+        let mut projection =
+            sailry_client::conversation::Projection::new(client.target(), session, 0);
         loop {
+            if projection.apply(0, updates.next().await.unwrap()).unwrap()
+                == sailry_client::Apply::Recover
+            {
+                updates = client.subscribe_conversation(session).await.unwrap();
+                projection =
+                    sailry_client::conversation::Projection::new(client.target(), session, 0);
+                continue;
+            }
+            if !projection.snapshot().is_some_and(|snapshot| {
+                snapshot.page.runs.iter().any(|run| {
+                    run.turn == turn.id
+                        && !matches!(
+                            run.status,
+                            Status::Queued | Status::Running | Status::Stopping
+                        )
+                })
+            }) {
+                continue;
+            }
             let Output::Conversation(history) = client
                 .execute(client.prepare(Command::ReadConversation {
                     session,
@@ -38,12 +60,14 @@ async fn submit_stage(client: &Client, session: SessionId, message: &str, stage:
                 panic!("history expected")
             };
             if let Some(run) = history.page.runs.iter().find(|run| run.turn == turn.id)
-                && !matches!(run.status, Status::Queued | Status::Running)
+                && !matches!(
+                    run.status,
+                    Status::Queued | Status::Running | Status::Stopping
+                )
             {
                 assert_eq!(run.status, Status::Completed);
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
     .await
