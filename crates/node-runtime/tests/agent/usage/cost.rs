@@ -14,10 +14,10 @@ async fn restores_catalog_estimates() {
             let root = directory.path().join("project");
             std::fs::create_dir(&root).unwrap();
             let profile = directory.path().join("node");
-            let node = Node::start(&profile).await.unwrap();
+            let node = Node::start_empty(&profile).await.unwrap();
             let server = Server::start(false).await;
             let writer = Client::new(node.local());
-            let (session, _) = configured(&writer, &server.endpoint, &root).await;
+            let (session, _) = configured_session(&writer, &server.endpoint, &root).await;
             for _ in 0..2 {
                 let Output::QueuedTurn(turn) = execute(
                     &writer,
@@ -36,17 +36,22 @@ async fn restores_catalog_estimates() {
             node.shutdown().await.unwrap();
             pricing::seed(&profile);
             seed_metadata(&profile, &session.config.model, authentication, catalog);
-            let node = Node::start(&profile).await.unwrap();
-            let controller =
-                Link::controller(directory.path().join("controller"), NetworkScope::default())
+            let node = Node::start_empty(&profile).await.unwrap();
+            let controller = if remote {
+                Some(
+                    Link::controller(directory.path().join("controller"), NetworkScope::default())
+                        .await
+                        .unwrap(),
+                )
+            } else {
+                None
+            };
+            let client = Arc::new(Client::new(if let Some(controller) = &controller {
+                let address = controller
+                    .handle()
+                    .pair(node.link().invite().unwrap().ticket())
                     .await
                     .unwrap();
-            let address = controller
-                .handle()
-                .pair(node.link().invite().unwrap().ticket())
-                .await
-                .unwrap();
-            let client = Arc::new(Client::new(if remote {
                 controller.handle().remote(address)
             } else {
                 node.local()
@@ -112,7 +117,9 @@ async fn restores_catalog_estimates() {
                 panic!("conversation snapshot expected");
             };
             assert_eq!(snapshot.statistics.cost, report.totals.cost);
-            controller.handle().disconnect(node.id()).await;
+            if let Some(controller) = &controller {
+                controller.handle().disconnect(node.id()).await;
+            }
             refresh.send(()).await.unwrap();
             observed(&mut view, |view| {
                 view.connected && !view.refreshing && view.report.as_deref() == Some(&report)
@@ -122,7 +129,9 @@ async fn restores_catalog_estimates() {
             assert_eq!(server.requests.lock().unwrap().len(), 2);
             stop.cancel();
             worker.await.unwrap().unwrap();
-            controller.close().await.unwrap();
+            if let Some(controller) = controller {
+                controller.close().await.unwrap();
+            }
             node.shutdown().await.unwrap();
         }
     }

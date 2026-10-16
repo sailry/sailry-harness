@@ -12,24 +12,30 @@ async fn follows_latest_target() {
         let root = fixture.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = fixture.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
-        let controller =
-            Link::controller(fixture.path().join("controller"), NetworkScope::default())
+        let node = Node::start_empty(&profile).await.unwrap();
+        let controller = if remote {
+            Some(
+                Link::controller(fixture.path().join("controller"), NetworkScope::default())
+                    .await
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        let transport = if let Some(controller) = &controller {
+            let address = controller
+                .handle()
+                .pair(node.link().invite().unwrap().ticket())
                 .await
                 .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport = if remote {
             controller.handle().remote(address)
         } else {
             node.local()
         };
         let client = Client::new(transport.clone());
         let server = Server::start(false).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
+        let session = approvals::prepare_model(&client, session, provider).await;
         let mut turns = Vec::new();
         let mut completion = Completion::new(&client, session.id).await;
         for index in 0..65 {
@@ -183,9 +189,11 @@ async fn follows_latest_target() {
         stop.cancel();
         worker.await.unwrap().unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), 66);
-        controller.close().await.unwrap();
+        if let Some(controller) = controller {
+            controller.close().await.unwrap();
+        }
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(node.local());
         assert_eq!(
             client

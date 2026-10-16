@@ -113,17 +113,22 @@ async fn restores_streamed_turns() {
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("资料.txt"), "History 中文 🙂").unwrap();
         let profile = fixture.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
-        let controller =
-            Link::controller(fixture.path().join("controller"), NetworkScope::default())
+        let node = Node::start_empty(&profile).await.unwrap();
+        let controller = if remote {
+            Some(
+                Link::controller(fixture.path().join("controller"), NetworkScope::default())
+                    .await
+                    .unwrap(),
+            )
+        } else {
+            None
+        };
+        let transport = if let Some(controller) = &controller {
+            let address = controller
+                .handle()
+                .pair(node.link().invite().unwrap().ticket())
                 .await
                 .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let transport = if remote {
             controller.handle().remote(address)
         } else {
             node.local()
@@ -140,7 +145,7 @@ async fn restores_streamed_turns() {
             )
         }));
         let server = Server::tools(calls).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_files(&client, &server, &root).await;
         // This fixture verifies exact paging/call counts, not automatic summaries.
         // Keep all 51 tool exchanges below the model's compaction threshold.
         let Output::Providers(mut providers) = client
@@ -414,9 +419,11 @@ async fn restores_streamed_turns() {
         };
         stop.cancel();
         worker.await.unwrap().unwrap();
-        controller.close().await.unwrap();
+        if let Some(controller) = controller {
+            controller.close().await.unwrap();
+        }
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(node.local());
         let mut subscription = client.subscribe_conversation(session.id).await.unwrap();
         let Update::ConversationSnapshot(restored) = subscription.next().await.unwrap() else {
