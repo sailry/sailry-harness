@@ -67,7 +67,11 @@ pub fn background() {
 pub fn background() {
     // SAFETY: Linux applies this nice value to the calling worker's native TID.
     unsafe {
-        libc::setpriority(libc::PRIO_PROCESS, libc::gettid() as libc::id_t, 10);
+        libc::setpriority(
+            libc::PRIO_PROCESS,
+            libc::syscall(libc::SYS_gettid) as libc::id_t,
+            10,
+        );
     }
 }
 
