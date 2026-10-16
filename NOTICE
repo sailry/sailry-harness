@@ -57,7 +57,7 @@ third_party_licenses/.
 
 ADK-Rust agent engine and model clients
 The ADK crates use https://github.com/dux-web/adk-rust at
-469c2b9d8c62000aaec583f60e574a5ab437dc8d, based on upstream ADK-Rust
+8fe511f79cd9fe449958301a85d240324c293e29, based on upstream ADK-Rust
 v2.3.0 at 7dd31e2571e0e50ee5039b3edcec1150c106bcc6. The upstream source is
 https://github.com/zavora-ai/adk-rust. Retained notices and licenses are in
 third_party_licenses/adk-model.md.

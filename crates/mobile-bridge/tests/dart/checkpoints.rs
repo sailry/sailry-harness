@@ -59,21 +59,30 @@ fn recovers_restore_receipts() {
         panic!("snapshot expected")
     };
     assert!(status.success());
-    assert_eq!(snapshot.sessions.len(), 4);
+    // The fixture creates two sessions and one explicit fork; rewind makes no backup.
+    assert_eq!(snapshot.sessions.len(), sessions.len() + 1);
     let ids: Vec<_> = snapshot.sessions.iter().map(|session| session.id).collect();
     let pages = runtime.block_on(tools::pages(&client, &ids));
     let source = ids.iter().position(|id| *id == sessions[0]).unwrap();
     assert_eq!(pages[source].revision, 2);
     assert!(pages[source].entries.is_empty());
+    let untouched = ids.iter().position(|id| *id == sessions[1]).unwrap();
+    assert!(pages[untouched].entries.is_empty() && pages[untouched].runs.is_empty());
     let branches: Vec<_> = snapshot
         .sessions
         .iter()
         .filter(|session| session.fork.is_some())
         .collect();
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0].fork.as_ref().unwrap().session, sessions[0]);
     let mut saved = Vec::new();
     for branch in &branches {
         let page = &pages[ids.iter().position(|id| *id == branch.id).unwrap()];
         assert_eq!(page.runs.len(), 1);
+        assert_eq!(
+            branches[0].fork.as_ref().unwrap().through,
+            page.runs[0].turn
+        );
         super::paging::assert_history(page, 1, 1, 4, "ffi-checkpoints");
         let Output::FileCheckpoints(files) = runtime
             .block_on(client.execute(client.prepare(Command::ListFileCheckpoints {
@@ -89,7 +98,6 @@ fn recovers_restore_receipts() {
         assert_eq!(files.files.len(), 4);
         saved.push(files);
     }
-    assert_eq!(saved[0].files, saved[1].files);
     runtime.block_on(node.shutdown()).unwrap();
     let node = runtime
         .block_on(Node::start(directory.path().join("node")))

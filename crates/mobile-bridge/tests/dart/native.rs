@@ -83,7 +83,32 @@ fn resumes_without_source() {
             .unwrap();
         let status = super::wait(child);
         runtime.block_on(target.shutdown()).unwrap();
-        assert!(status.success());
+        if !status.success() {
+            let requests = server.requests.lock().unwrap();
+            eprintln!(
+                "native fixture: api={name}, received_requests={}",
+                requests.len()
+            );
+            for (index, request) in requests.iter().enumerate() {
+                let body = &request.body;
+                let messages = body["messages"].as_array();
+                let blocks = messages
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|message| message["content"].as_array())
+                    .flatten()
+                    .filter_map(|block| block["type"].as_str())
+                    .collect::<Vec<_>>();
+                eprintln!(
+                    "native fixture request {index}: max_tokens={:?}, thinking_budget={:?}, messages={}, tools={}, blocks={blocks:?}",
+                    body["max_tokens"].as_u64(),
+                    body["thinking"]["budget_tokens"].as_u64(),
+                    messages.map_or(0, Vec::len),
+                    body["tools"].as_array().map_or(0, Vec::len),
+                );
+            }
+        }
+        assert!(status.success(), "native fixture failed: {name}");
         let requests = server.requests.lock().unwrap();
         assert_eq!(requests.len(), 3);
         let encoded = base64::engine::general_purpose::STANDARD
@@ -115,7 +140,7 @@ fn resumes_without_source() {
                         request
                             .body
                             .to_string()
-                    .contains("Contents not included; an attachment-capable tool is required to inspect the file")
+                            .contains(r#"Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files"#)
                     );
                 }
             }

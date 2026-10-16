@@ -117,7 +117,8 @@ Future<void> main() async {
             call['arguments']['input']['kind'] == 'plan' &&
             waiting['snapshot']['page']['runs'].single['revision'] ==
                 revision &&
-            waiting['snapshot']['page']['runs'].single['status'] == 'running' &&
+            waiting['snapshot']['page']['runs'].single['status'] ==
+                'completed' &&
             (waiting['snapshot']['page']['approvals'] as List).isEmpty,
         'the frozen planning completion waits for canonical review',
       );

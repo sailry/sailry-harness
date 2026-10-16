@@ -263,12 +263,13 @@ Future<void> main() async {
     'expected_revision': config['revision'],
   }))['data'];
   final waiting = updates.next();
-  final backup = (await execute(connection, 'rewind_conversation', {
+  final rewind = (await execute(connection, 'rewind_conversation', {
     'session': source,
     'through': null,
     'expected_head': turn,
     'expected_revision': original['revision'],
-  }))['data']['backup'];
+  }))['data'];
+  check(rewind['backup'] == null, 'explicit rewind creates no backup');
   final delivered = jsonDecode(await waiting) as Map<String, dynamic>;
   final rewound = delivered['snapshot']?['page']['revision'] == 2
       ? delivered
@@ -282,19 +283,18 @@ Future<void> main() async {
     'session': source,
     'checkpoint': newer['id'],
   }, 'wrong_target');
-  for (final target in [branch['id'], backup['id']]) {
-    check(
-      jsonEncode((await page(target, null, 100))['files']) == jsonEncode(files),
-      'branches reference the original checkpoints',
-    );
-  }
+  check(
+    jsonEncode((await page(branch['id'], null, 100))['files']) ==
+        jsonEncode(files),
+    'branch references the original checkpoints',
+  );
   final large = files.singleWhere((file) => file['path'] == 'large.txt');
   check(
     jsonDecode(
-          await connection.execute(request: await restore(backup['id'], large)),
+          await connection.execute(request: await restore(branch['id'], large)),
         )['Ok'] !=
         null,
-    'backup can explicitly restore a visible checkpoint',
+    'branch can explicitly restore a visible checkpoint',
   );
   check(
     (await read('large.txt'))['text'] == fullBefore,
@@ -348,16 +348,16 @@ Future<void> main() async {
       'reopen does not recycle a replacement',
     );
   }
-  updates = await connection.watchConversation(session: backup['id']);
+  updates = await connection.watchConversation(session: branch['id']);
   final resumed = await until(updates, (_) => true);
   complete(resumed);
   check(
     jsonEncode(resumed['snapshot']['page']['entries']) ==
         jsonEncode(original['entries']),
-    'reopened backup retains every canonical tool event',
+    'reopened branch retains every canonical tool event',
   );
   check(
-    (await content(backup['id'], large['id']))['before'] == fullBefore,
+    (await content(branch['id'], large['id']))['before'] == fullBefore,
     'checkpoint content survives controller reopen',
   );
   check(
@@ -372,6 +372,6 @@ Future<void> main() async {
   controller.dispose();
   RustLib.dispose();
   stdout.writeln(
-    'Dart FFI checkpoint paging, restoration, backups and receipt recovery passed',
+    'Dart FFI checkpoint paging, restoration, branches and receipt recovery passed',
   );
 }

@@ -29,6 +29,15 @@ Future<List<dynamic>> children(Updates updates, String parent) async {
 bool ended(Map<String, dynamic> snapshot, String status) =>
     (snapshot['page']['runs'] as List).single['status'] == status;
 
+bool stopped(Map<String, dynamic> snapshot, Map<String, dynamic> approval) =>
+    ended(snapshot, 'cancelled') &&
+    (snapshot['page']['approvals'] as List).any(
+      (record) =>
+          record['id'] == approval['id'] &&
+          record['turn'] == approval['turn'] &&
+          record['state'] == 'cancelled',
+    );
+
 Future<void> rejects(
   Connection connection,
   String kind,
@@ -306,7 +315,7 @@ Future<void> main() async {
   await execute(connection, 'stop_turn', {'turn': firstPending['turn']});
   final stoppedChild = await until(
     firstUpdates,
-    (snapshot) => ended(snapshot, 'cancelled'),
+    (snapshot) => stopped(snapshot, firstPending),
   );
   check(
     stoppedChild['calls'][1]['approval']['state'] == 'cancelled',
@@ -335,7 +344,7 @@ Future<void> main() async {
   );
   final stoppedSibling = await until(
     secondUpdates,
-    (snapshot) => ended(snapshot, 'cancelled'),
+    (snapshot) => stopped(snapshot, secondPending),
   );
   check(
     stoppedSibling['calls'][1]['approval']['state'] == 'cancelled',

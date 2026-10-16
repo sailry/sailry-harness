@@ -1,7 +1,10 @@
 use super::{configuration::support, tools};
 use sailry_client::Client;
 use sailry_node_runtime::Node;
-use sailry_protocol::conversation::{Part, Status};
+use sailry_protocol::{
+    Command, Output,
+    conversation::{Part, Status},
+};
 use serde_json::json;
 
 #[test]
@@ -30,13 +33,31 @@ fn restores_task_progress() {
         &server.endpoint,
         "ffi-progress",
     ));
+    let client = Client::new(node.local());
+    let Output::Plugin(progress) = runtime
+        .block_on(
+            client.execute(client.prepare(Command::InstallBundledPlugin {
+                name: "progress".into(),
+                expected_revision: 0,
+            })),
+        )
+        .unwrap()
+    else {
+        panic!("progress plugin expected")
+    };
+    assert_eq!(progress.summary.name, "progress");
+    assert!(
+        progress.summary.enabled && progress.issues.is_empty(),
+        "{:?}",
+        progress.issues
+    );
     let invitation = node.link().invite().unwrap();
     let child = super::command("progress.dart", directory.path(), invitation.ticket())
         .env("SAILRY_SESSION", sessions[0].to_string())
         .spawn()
         .unwrap();
     let status = super::wait(child);
-    let pages = runtime.block_on(tools::pages(&Client::new(node.local()), &sessions));
+    let pages = runtime.block_on(tools::pages(&client, &sessions));
     runtime.block_on(node.shutdown()).unwrap();
     assert!(status.success());
     assert_eq!(pages[0].runs.len(), 1);

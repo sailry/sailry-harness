@@ -9,6 +9,10 @@ use serde_json::json;
 use std::time::Duration;
 
 pub(super) async fn submit(client: &Client, session: SessionId, message: &str) -> TurnId {
+    submit_stage(client, session, message, "history").await
+}
+
+async fn submit_stage(client: &Client, session: SessionId, message: &str, stage: &str) -> TurnId {
     let Output::QueuedTurn(turn) = client
         .execute(client.prepare(Command::SubmitTurn {
             session,
@@ -43,7 +47,12 @@ pub(super) async fn submit(client: &Client, session: SessionId, message: &str) -
         }
     })
     .await
-    .unwrap();
+    .unwrap_or_else(|_| {
+        panic!(
+            "FFI paging setup deadline: {stage}, session={session}, turn={}",
+            turn.id
+        )
+    });
     turn.id
 }
 
@@ -114,11 +123,34 @@ fn loads_during_streaming() {
     ));
     let client = Client::new(node.local());
     let (first, slow_config) = runtime.block_on(async {
-        let first = submit(&client, sessions[0], "History 中文 🙂").await;
-        for _ in 0..44 {
-            submit(&client, sessions[0], "History 中文 🙂").await;
+        // Verify exact paging/call counts without automatic context summaries.
+        let Output::Providers(mut providers) = client
+            .execute(client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        let mut provider = providers.remove(0);
+        provider.models[0].context = 128_000;
+        client
+            .execute(client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap();
+        let first = submit_stage(&client, sessions[0], "History 中文 🙂", "first large turn").await;
+        for index in 1..=44 {
+            submit_stage(
+                &client,
+                sessions[0],
+                "History 中文 🙂",
+                &format!("recent turn {index}"),
+            )
+            .await;
         }
-        submit(&client, sessions[1], "History 中文 🙂").await;
+        submit_stage(&client, sessions[1], "History 中文 🙂", "second large turn").await;
         let selected = configuration::provider(&client, &slow.endpoint, "ffi-history-live").await;
         (first, configuration::config(&selected))
     });
