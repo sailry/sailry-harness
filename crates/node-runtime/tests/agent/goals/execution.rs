@@ -314,15 +314,26 @@ async fn disable_and_remove_stop_owned_automatic_work() {
                 .last()
                 .unwrap()
                 .turn;
+            let Output::Plugin(package) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ReadPlugin {
+                    name: "goals".into(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("goals package expected")
+            };
+            let revision = package.summary.revision;
             let command = if remove {
                 Command::RemovePlugin {
                     name: "goals".into(),
-                    expected_revision: 3,
+                    expected_revision: revision,
                 }
             } else {
                 Command::SetPluginEnabled {
                     name: "goals".into(),
-                    expected_revision: 3,
+                    expected_revision: revision,
                     enabled: false,
                 }
             };
@@ -340,7 +351,7 @@ async fn disable_and_remove_stop_owned_automatic_work() {
                     .client
                     .execute(fixture.client.prepare(Command::SetPluginEnabled {
                         name: "goals".into(),
-                        expected_revision: 4,
+                        expected_revision: revision + 1,
                         enabled: true,
                     }))
                     .await

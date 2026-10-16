@@ -14,7 +14,12 @@ async fn delegates_checkout() {
         let expected = uuid::Uuid::new_v4().to_string();
         std::fs::write(root.join("source.txt"), &expected).unwrap();
         let (node, controller, client) = connect(directory.path(), remote).await;
-        let (session, mut selected) = configured(&client, &source.endpoint, &root).await;
+        approvals::install(
+            &client,
+            &["worktrees", "files", "commands", "git", "delegation"],
+        )
+        .await;
+        let (session, mut selected) = configured_session(&client, &source.endpoint, &root).await;
         selected.api = source.api;
         selected.authentication = source.authentication;
         selected.options = source.options.clone();

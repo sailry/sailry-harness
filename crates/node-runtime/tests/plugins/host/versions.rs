@@ -1,4 +1,5 @@
 use super::*;
+use crate::plugins::web::server;
 
 async fn setup(client: &Client, context: &Context) {
     dispatch::run(
@@ -38,15 +39,18 @@ async fn freezes_running_versions_and_updates_future_deliveries() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) =
             crate::plugins::support::empty(remote).await;
+        let http = server::Server::start().await;
+        node.set_web_fixture(server::HOST, http.address);
         let root = directory.path().join("source/package");
         let code = |version: &str| {
             format!(
                 r#"
-            import {{getValue, readSettings, setValue, completeRequest}} from 'sailry/sdk';
+            import {{fetchWeb, getValue, readSettings, setValue, completeRequest}} from 'sailry/sdk';
             export async function run(input) {{
                 if (input.wait) {{
                     await completeRequest(setValue('started', true, '0'));
-                    while (!(await getValue('release')).value) {{}}
+                    await fetchWeb({{url:input.release_url}});
+                    if (!(await getValue('release')).value) throw new Error('Release expected');
                 }}
                 const settings = await readSettings();
                 const result = await completeRequest(setValue(input.key, '{version}-' + settings.values.label, '0'));
@@ -62,14 +66,22 @@ async fn freezes_running_versions_and_updates_future_deliveries() {
             settings("first").to_string(),
         )
         .unwrap();
-        let old = installed(&client, &root, worktree, &code("old"), 0).await;
+        let old = installed_with_actions(
+            &client,
+            &root,
+            worktree,
+            &code("old"),
+            0,
+            &[Action::ReadWeb],
+        )
+        .await;
         setup(&client, &old).await;
         dispatch::run(
             &client,
             &old,
             jobs::Command::Enqueue {
                 handler: "receive".into(),
-                payload: json!({"key":"before","wait":true}),
+                payload: json!({"key":"before","wait":true,"release_url":format!("{}/rebind",http.origin)}),
             },
         )
         .await;
@@ -80,12 +92,23 @@ async fn freezes_running_versions_and_updates_future_deliveries() {
         })
         .await
         .unwrap();
+        tokio::time::timeout(Duration::from_secs(10), http.held.cancelled())
+            .await
+            .unwrap();
         fs::write(
             root.join("dev.sailry.platform/settings.json"),
             settings("second").to_string(),
         )
         .unwrap();
-        let current = installed(&client, &root, worktree, &code("new"), 1).await;
+        let current = installed_with_actions(
+            &client,
+            &root,
+            worktree,
+            &code("new"),
+            1,
+            &[Action::ReadWeb],
+        )
+        .await;
         assert_ne!(old.package.digest, current.package.digest);
         dispatch::run(
             &client,
@@ -132,6 +155,7 @@ async fn freezes_running_versions_and_updates_future_deliveries() {
             )
             .await
             .unwrap();
+        http.release.cancel();
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let jobs::Output::Jobs(page) = dispatch::run(

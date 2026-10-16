@@ -3,7 +3,7 @@ use sailry_protocol::plugin::{Action, Context};
 use serde_json::{Value, json};
 
 #[path = "../support/web.rs"]
-mod server;
+pub(super) mod server;
 
 async fn installed(
     client: &Client,

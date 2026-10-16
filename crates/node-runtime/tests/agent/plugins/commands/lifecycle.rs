@@ -232,7 +232,7 @@ async fn waiting_releases_vm_capacity() {
         let info = package(&fixture).await;
         let other_root = fixture.directory.path().join("other");
         std::fs::create_dir(&other_root).unwrap();
-        let other = approvals::prepare(&fixture.client, &server, &other_root).await;
+        let other = approvals::prepare_packages(&fixture.client, &server, &other_root, &[]).await;
         let mut running = Vec::new();
         for session in [fixture.session.id, other.id] {
             let turn = approvals::submit(&fixture.client, session).await;

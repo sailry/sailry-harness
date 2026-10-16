@@ -15,12 +15,30 @@ async fn installed(
     source: &str,
     revision: u64,
 ) -> Context {
+    installed_with_actions(client, root, worktree, source, revision, &[]).await
+}
+
+async fn installed_with_actions(
+    client: &Client,
+    root: &Path,
+    worktree: WorktreeId,
+    source: &str,
+    revision: u64,
+    additional: &[Action],
+) -> Context {
     fs::create_dir_all(root.join(sailry_protocol::plugin::NAMESPACE)).unwrap();
     let path = root.join("plugin.json");
     let mut manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let mut actions = vec![
+        Action::ReadStorage,
+        Action::WriteStorage,
+        Action::Notify,
+        Action::Dispatch,
+    ];
+    actions.extend_from_slice(additional);
     manifest["extensions"] = json!({"dev.sailry.platform": {
-        "api_version":"v1", "actions":[Action::ReadStorage, Action::WriteStorage, Action::Notify, Action::Dispatch],
+        "api_version":"v1", "actions":actions,
         "host":{"entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"], "handlers":["run"]}
     }});
     if root.join("dev.sailry.platform/settings.json").exists() {

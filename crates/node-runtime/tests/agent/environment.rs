@@ -107,7 +107,6 @@ async fn freezes_login_until_restart() {
         .await;
         let mut client = connect(&node, &controller, remote).await;
         let session = approvals::prepare_packages(&client, &server, &root, &["commands"]).await;
-        isolate_model_tools(&client).await;
         assert_eq!(login.captures(), 1);
         for second in [false, true] {
             login.select(second);

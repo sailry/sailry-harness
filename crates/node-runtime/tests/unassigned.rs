@@ -199,6 +199,18 @@ async fn reports_usage_after_restart() {
         } else {
             node.local()
         });
+        // The shipped turn hook performs the first scoped workspace access.
+        let Output::Plugin(package) = client
+            .execute(client.prepare(Command::InstallBundledPlugin {
+                name: "goals".into(),
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("goals package expected")
+        };
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
         let server = agent_support::Server::start(false).await;
         let Output::Provider(provider) = client
             .execute(client.prepare(Command::PutProvider {
