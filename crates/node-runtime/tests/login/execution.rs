@@ -282,7 +282,33 @@ pub(super) async fn finished_within(
 ) -> Page {
     let mut last = None;
     tokio::time::timeout(budget, async {
+        let mut updates = client.subscribe_conversation(turn.session).await.unwrap();
+        let mut projection =
+            sailry_client::conversation::Projection::new(client.target(), turn.session, 0);
         loop {
+            if projection.apply(0, updates.next().await.unwrap()).unwrap()
+                == sailry_client::Apply::Recover
+            {
+                updates = client.subscribe_conversation(turn.session).await.unwrap();
+                projection =
+                    sailry_client::conversation::Projection::new(client.target(), turn.session, 0);
+                continue;
+            }
+            if !projection.snapshot().is_some_and(|snapshot| {
+                snapshot.page.runs.iter().any(|run| {
+                    run.turn == turn.id
+                        && matches!(
+                            run.status,
+                            Status::Completed
+                                | Status::Failed
+                                | Status::Cancelled
+                                | Status::Interrupted
+                        )
+                })
+            }) {
+                continue;
+            }
+            // A terminal frame can precede other entries from its committed transaction.
             let Output::Conversation(history) = client
                 .execute(client.prepare(Command::ReadConversation {
                     session: turn.session,
@@ -312,7 +338,6 @@ pub(super) async fn finished_within(
                     return history.page;
                 }
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
     .await

@@ -343,51 +343,91 @@ async fn admits_before_rotation() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn confines_generation_credentials() {
-    for remote in [false, true] {
-        for (authentication, api) in [
-            (Authentication::ChatGpt, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::Responses),
-            (Authentication::Copilot, ModelApi::ChatCompletions),
-        ] {
+    let selected = Arc::new(std::sync::Mutex::new((Authentication::ChatGpt, false)));
+    let current = selected.clone();
+    let sink = Server::start_with_request(ModelApi::Anthropic, |_| {
+        panic!("generation redirect must not be followed")
+    })
+    .await;
+    let target = sink.endpoint.clone();
+    let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+        let (authentication, redirect) = *current.lock().unwrap();
+        if exchange(request) { Reply::Json(exchanged(request, authentication, true)) }
+        else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
+            if redirect { Reply::Raw(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}/stolen\r\nContent-Length: 0\r\n\r\n")) }
+            else {
+                let body = json!({"error":{"message":ROTATED,"type":"rate_limit_error","code":"rate_limit_exceeded","param":null}});
+                Reply::Raw(format!("HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nRetry-After: 0\r\nConnection: close\r\n\r\n{body}"))
+            }
+        } else { standard(request) }
+    }).await;
+    let mut fixture = Fixture::new(false, &server).await;
+    let mut credentials = std::collections::BTreeSet::new();
+    for (authentication, api) in [
+        (Authentication::ChatGpt, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::Responses),
+        (Authentication::Copilot, ModelApi::ChatCompletions),
+    ] {
+        *selected.lock().unwrap() = (authentication, false);
+        fixture.client = Arc::new(Client::new(fixture.node.local()));
+        let before = server.requests.lock().unwrap().len();
+        let provider = signed_in(&fixture, authentication, api).await;
+        let authorization_requests = server.requests.lock().unwrap().len() - before;
+        assert_eq!(authorization_requests, 4);
+        assert!(credentials.insert(provider.credential.as_ref().unwrap().id));
+        for remote in [false, true] {
+            fixture.client = Arc::new(Client::new(if remote {
+                fixture
+                    .controller
+                    .handle()
+                    .remote(fixture.node.link().address())
+            } else {
+                fixture.node.local()
+            }));
             for redirect in [false, true] {
-                let sink = Server::start_with_request(ModelApi::Anthropic, |_| {
-                    panic!("generation redirect must not be followed")
-                })
-                .await;
-                let target = sink.endpoint.clone();
-                let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
-                    if exchange(request) { Reply::Json(exchanged(request, authentication, true)) }
-                    else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
-                        if redirect { Reply::Raw(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}/stolen\r\nContent-Length: 0\r\n\r\n")) }
-                        else {
-                            let body = json!({"error":{"message":ROTATED,"type":"rate_limit_error","code":"rate_limit_exceeded","param":null}});
-                            Reply::Raw(format!("HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}"))
-                        }
-                    } else { standard(request) }
-                }).await;
-                let fixture = Fixture::new(remote, &server).await;
-                let provider = signed_in(&fixture, authentication, api).await;
+                *selected.lock().unwrap() = (authentication, redirect);
+                let before = server.requests.lock().unwrap().len();
                 let session = session(&fixture, &provider).await;
                 let (request, turn) = submit(&fixture.client, &session).await;
-                finished_within(
+                let page = finished_within(
                     &fixture.client,
                     &turn,
                     Status::Failed,
                     crate::retry_fixture::budget(),
                 )
                 .await;
+                let retries: Vec<_> = page
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .filter_map(|part| match part {
+                        Part::Resource(value) if value["type"] == "model_retry" => {
+                            assert_eq!(value["limit"], 5);
+                            Some(value["attempt"].as_u64().unwrap())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(
+                    retries,
+                    if redirect {
+                        vec![]
+                    } else {
+                        vec![1, 2, 3, 4, 5]
+                    }
+                );
                 assert_eq!(
                     fixture.client.execute(request).await.unwrap(),
                     Output::QueuedTurn(turn)
                 );
                 assert_eq!(
-                    server.requests.lock().unwrap().len(),
+                    authorization_requests + server.requests.lock().unwrap().len() - before,
                     if redirect { 5 } else { 10 },
                     "{authentication:?} {api:?}, remote={remote}, redirect={redirect}",
                 );
                 assert!(sink.requests.lock().unwrap().is_empty());
-                fixture.close().await;
             }
         }
     }
+    fixture.close().await;
 }
