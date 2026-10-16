@@ -4,10 +4,12 @@ import ast
 import copy
 import subprocess
 import importlib.util
+import io
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("publisher", ROOT / "scripts/publish-packages.py")
@@ -301,6 +303,45 @@ class SourceReuse(unittest.TestCase):
 
 
 
+
+class BuildLogArchive(unittest.TestCase):
+    def archive(self, entries):
+        output = io.BytesIO()
+        with zipfile.ZipFile(output, "w") as archive:
+            for name, content in entries:
+                archive.writestr(name, content)
+        return output.getvalue()
+
+    def download(self, content, returncode=0):
+        result = subprocess.CompletedProcess([], returncode, stdout=content, stderr=b"")
+        with patch.object(publication.subprocess, "run", return_value=result) as run:
+            log = publication.GitHub().build_log(REPOSITORY, "123", "Desktop aarch64-apple-darwin")
+        run.assert_called_once_with(["gh", "api", "repos/fixture/product/actions/runs/123/logs"], capture_output=True)
+        return log
+
+    def test_reads_only_the_original_target_job(self):
+        archive = self.archive([
+            ("1_Desktop x86_64-apple-darwin.txt", "Other target"),
+            ("2_Desktop aarch64-apple-darwin.txt", "Complete ARM log"),
+            ("Desktop aarch64-apple-darwin/system.txt", "Runner metadata")])
+        self.assertEqual(self.download(archive), "Complete ARM log")
+
+    def test_rejects_missing_ambiguous_or_nested_target(self):
+        name = "2_Desktop aarch64-apple-darwin.txt"
+        for entries in ([("1_Desktop x86_64-apple-darwin.txt", "Other")],
+                        [(name, "First"), ("3_Desktop aarch64-apple-darwin.txt", "Second")],
+                        [("nested/" + name, "Nested")]):
+            with self.subTest(entries=entries), self.assertRaisesRegex(ValueError, "missing or ambiguous"):
+                self.download(self.archive(entries))
+
+    def test_rejects_failed_or_invalid_archive(self):
+        for content, returncode in ((b"Forbidden", 1), (b"Not a ZIP", 0), (b"PK\x03\x04broken", 0)):
+            with self.subTest(content=content), self.assertRaises(RuntimeError):
+                self.download(content, returncode)
+        with self.assertRaises(RuntimeError):
+            self.download(self.archive([("2_Desktop aarch64-apple-darwin.txt", b"\xff")]))
+
+
 class NativeBuildReuse(unittest.TestCase):
     def test_recovery_output_has_a_real_newline(self):
         source = publication.REUSE_STEP.split("python3 - <<'PYTHON'\n", 1)[1].rsplit("          PYTHON\n", 1)[0]
@@ -344,7 +385,7 @@ class NativeBuildReuse(unittest.TestCase):
         entries = [self.cache] if entries is None else entries
         self.client.api.side_effect = [self.run, {"jobs": [self.job] if jobs is None else jobs},
                                        {"total_count": len(entries), "actions_caches": entries}]
-        self.client.text.return_value = self.log
+        self.client.build_log.return_value = self.log
         return publication.reuse_build(self.client, REPOSITORY, COMMIT, TAG, "123", self.target,
                                        hit, self.key, matched or self.key, self.root)
 
@@ -353,7 +394,7 @@ class NativeBuildReuse(unittest.TestCase):
         self.checked_source.assert_called_once_with(COMMIT, self.root)
         self.ready_run.assert_called_once_with(self.client, REPOSITORY, self.source, "desktop")
         self.build_recipe.assert_called_once_with(self.source, self.root)
-        self.client.text.assert_called_once_with("repos/fixture/product/actions/jobs/5/logs")
+        self.client.build_log.assert_called_once_with(REPOSITORY, "123", "Desktop " + self.target)
         self.assertTrue(all(call.args[0] == "GET" for call in self.client.api.call_args_list))
 
     def test_rejects_prefix_restore_and_unchecked_source(self):
