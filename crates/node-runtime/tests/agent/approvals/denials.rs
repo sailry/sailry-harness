@@ -1,5 +1,5 @@
 #![cfg(unix)]
-use super::rules::{claimed, completed, execute, pending, restart, results, submit};
+use super::rules::{claimed, completed, execute, pending, restart, restart_files, results, submit};
 use super::*;
 use process::Fixture;
 use sailry_protocol::conversation::ApprovalChoice;
@@ -143,7 +143,7 @@ async fn binds_closed_choices_and_durable_retries() {
                 json!({"path":"effect.txt","text":"approved","expected_revision":null}),
             )])
             .await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::files(remote, &server).await;
             let turn = submit(&fixture.client, &fixture.session).await;
             let approval = pending(&fixture.client, fixture.session.id).await;
             let wrong = fixture.client.prepare(Command::ResolveApproval {
@@ -217,7 +217,7 @@ async fn binds_closed_choices_and_durable_retries() {
                     ErrorCode::Conflict
                 );
             }
-            fixture = restart(fixture, remote).await;
+            fixture = restart_files(fixture, remote).await;
             assert_eq!(history(&fixture.client, fixture.session.id).await, page);
             assert_eq!(
                 fixture.client.execute(request.clone()).await.unwrap(),

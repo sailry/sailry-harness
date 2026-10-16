@@ -9,7 +9,31 @@ mod prefix;
 pub(super) mod rules;
 
 pub(super) async fn prepare(client: &Client, server: &Server, root: &std::path::Path) -> Session {
-    let (session, mut provider) = configured(client, &server.endpoint, root).await;
+    let (session, provider) = configured(client, &server.endpoint, root).await;
+    prepare_model(client, session, provider).await
+}
+
+pub(super) async fn prepare_files(
+    client: &Client,
+    server: &Server,
+    root: &std::path::Path,
+) -> Session {
+    let Output::Plugin(package) = client
+        .execute(client.prepare(Command::InstallBundledPlugin {
+            name: "files".into(),
+            expected_revision: 0,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("files package expected")
+    };
+    assert!(package.issues.is_empty(), "{:?}", package.issues);
+    let (session, provider) = configured_session(client, &server.endpoint, root).await;
+    prepare_model(client, session, provider).await
+}
+
+async fn prepare_model(client: &Client, session: Session, mut provider: Provider) -> Session {
     provider.default_model = "fixture-a".into();
     provider.models = vec![Model {
         id: "fixture-a".into(),
@@ -224,7 +248,9 @@ async fn closes_interrupted_approvals() {
             let fixture = tempfile::tempdir().unwrap();
             let root = fixture.path().join("project");
             std::fs::create_dir(&root).unwrap();
-            let node = Node::start(fixture.path().join("node")).await.unwrap();
+            let node = Node::start_empty(fixture.path().join("node"))
+                .await
+                .unwrap();
             let controller =
                 Link::controller(fixture.path().join("controller"), NetworkScope::default())
                     .await
@@ -244,7 +270,7 @@ async fn closes_interrupted_approvals() {
                 json!({"path": "never.txt", "text": "never", "expected_revision": null}),
             )])
             .await;
-            let session = prepare(&client, &server, &root).await;
+            let session = prepare_files(&client, &server, &root).await;
             let turn = submit(&client, session.id).await;
             let (_, approval) = pending(&client, session.id).await;
             if !shutdown {
@@ -257,7 +283,9 @@ async fn closes_interrupted_approvals() {
             }
             node.shutdown().await.unwrap();
             controller.close().await.unwrap();
-            let node = Node::start(fixture.path().join("node")).await.unwrap();
+            let node = Node::start_empty(fixture.path().join("node"))
+                .await
+                .unwrap();
             let client = Client::new(node.local());
             let page = history(&client, session.id).await;
             assert_eq!(

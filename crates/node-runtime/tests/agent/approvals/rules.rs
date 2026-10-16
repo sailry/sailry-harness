@@ -110,12 +110,25 @@ pub(crate) async fn route(client: &Client, session: &Session, endpoint: &str) {
     .await;
 }
 
-pub(crate) async fn restart(mut fixture: Fixture, remote: bool) -> Fixture {
+pub(crate) async fn restart(fixture: Fixture, remote: bool) -> Fixture {
+    reopen(fixture, remote, true).await
+}
+
+pub(crate) async fn restart_files(fixture: Fixture, remote: bool) -> Fixture {
+    reopen(fixture, remote, false).await
+}
+
+async fn reopen(mut fixture: Fixture, remote: bool, bundled: bool) -> Fixture {
     let profile = fixture.node.profile().to_owned();
     let id = fixture.node.id();
     fixture.node.shutdown().await.unwrap();
     fixture.controller.handle().disconnect(id).await;
-    fixture.node = Node::start(profile).await.unwrap();
+    fixture.node = if bundled {
+        Node::start(profile).await
+    } else {
+        Node::start_empty(profile).await
+    }
+    .unwrap();
     fixture.client = Client::new(if remote {
         fixture
             .controller

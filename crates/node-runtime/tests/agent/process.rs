@@ -15,10 +15,23 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub(super) async fn new(remote: bool, server: &Server) -> Self {
+        Self::setup(remote, server, false).await
+    }
+
+    pub(super) async fn files(remote: bool, server: &Server) -> Self {
+        Self::setup(remote, server, true).await
+    }
+
+    async fn setup(remote: bool, server: &Server, files_only: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = if files_only {
+            Node::start_empty(directory.path().join("node")).await
+        } else {
+            Node::start(directory.path().join("node")).await
+        }
+        .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -33,8 +46,13 @@ impl Fixture {
         } else {
             node.local()
         });
-        let session = approvals::prepare(&client, server, &root).await;
-        isolate_model_tools(&client).await;
+        let session = if files_only {
+            approvals::prepare_files(&client, server, &root).await
+        } else {
+            let session = approvals::prepare(&client, server, &root).await;
+            isolate_model_tools(&client).await;
+            session
+        };
         Self {
             directory,
             root,
