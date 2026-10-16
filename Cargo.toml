@@ -201,3 +201,7 @@ split-debuginfo = "unpacked"
 gpui-base = { opt-level = 3 }
 gpui-fast = { opt-level = 3 }
 taffy = { opt-level = 3 }
+
+# Compile Node test targets without size optimization; release settings stay unchanged.
+[profile.test.package.sailry-node-runtime]
+opt-level = 0
