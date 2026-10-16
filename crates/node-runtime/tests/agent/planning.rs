@@ -45,7 +45,12 @@ async fn preserves_queued_write_authority() {
             }),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(
+            remote,
+            &server,
+            &["files", "git", "worktrees", "delegation", "commands"],
+        )
+        .await;
         configure(&mut fixture, WorkMode::Code).await;
         let Output::QueuedTurn(turn) = fixture
             .client
@@ -102,7 +107,12 @@ async fn freezes_child_mode() {
             }),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(
+            remote,
+            &server,
+            &["files", "git", "worktrees", "delegation", "commands"],
+        )
+        .await;
         configure(&mut fixture, WorkMode::Plan).await;
         let Output::QueuedTurn(turn) = fixture
             .client
@@ -176,7 +186,12 @@ async fn restores_frozen_tools() {
             json!({"path": "read.txt"}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(
+            remote,
+            &server,
+            &["files", "git", "worktrees", "delegation", "commands"],
+        )
+        .await;
         std::fs::write(fixture.root.join("read.txt"), "Planning input 中文 🙂").unwrap();
         configure(&mut fixture, WorkMode::Plan).await;
         let request = fixture.client.prepare(Command::QueueTurn {
@@ -245,7 +260,7 @@ async fn restores_frozen_tools() {
                 .contains("Planning input 中文 🙂")
         );
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let reopened = Client::new(if remote {
@@ -286,7 +301,12 @@ async fn rejects_mutations_before_approval() {
             ),
         ] {
             let server = Server::tools(vec![(name.clone(), args)]).await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(
+                remote,
+                &server,
+                &["files", "git", "worktrees", "delegation", "commands"],
+            )
+            .await;
             configure(&mut fixture, WorkMode::Plan).await;
             let Output::QueuedTurn(turn) = fixture
                 .client

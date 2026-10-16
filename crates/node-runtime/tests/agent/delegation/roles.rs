@@ -17,7 +17,9 @@ async fn inherits_parent_model() {
             let root = directory.path().join("project");
             std::fs::create_dir(&root).unwrap();
             std::fs::write(root.join("AGENTS.md"), "Shared default instructions").unwrap();
-            let node = Node::start(directory.path().join("node")).await.unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
             let controller =
                 Link::controller(directory.path().join("controller"), NetworkScope::default())
                     .await
@@ -41,7 +43,9 @@ async fn inherits_parent_model() {
                 args,
             )])
             .await;
-            let (mut session, mut provider) = configured(&client, &server.endpoint, &root).await;
+            install(&client).await;
+            let (mut session, mut provider) =
+                configured_session(&client, &server.endpoint, &root).await;
             provider.models = vec![model("fixture-a")];
             provider.default_model = "fixture-a".into();
             client
@@ -252,7 +256,9 @@ async fn validates_role_requirements() {
             let directory = tempfile::tempdir().unwrap();
             let root = directory.path().join("project");
             std::fs::create_dir(&root).unwrap();
-            let node = Node::start(directory.path().join("node")).await.unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
             let controller =
                 Link::controller(directory.path().join("controller"), NetworkScope::default())
                     .await

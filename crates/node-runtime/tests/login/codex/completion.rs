@@ -111,7 +111,7 @@ async fn requires_a_completed_answer() {
         }
     })
     .await;
-    let mut fixture = Fixture::new(false, &server).await;
+    let mut fixture = Fixture::empty(false, &server).await;
     let provider = configured(&fixture, None).await;
     let authorization_requests = server.requests.lock().unwrap().len();
     for remote in [false, true] {

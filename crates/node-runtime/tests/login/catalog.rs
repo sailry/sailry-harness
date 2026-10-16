@@ -40,7 +40,7 @@ pub(super) fn models(authentication: Authentication) -> serde_json::Value {
 async fn uses_public_account_catalog() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -129,7 +129,7 @@ async fn shares_refresh() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider =
                 execution::signed_in(&fixture, authentication, ModelApi::Responses).await;
             let mut jobs = Vec::new();
@@ -207,7 +207,7 @@ async fn reads_native_metadata() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = execution::signed_in(&fixture, authentication, api).await;
             let before = fixture
                 .client
@@ -301,7 +301,7 @@ async fn rejects_changed_accounts() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider =
                 execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
             let client = fixture.client.clone();
@@ -366,7 +366,7 @@ async fn bounds_and_cancels_queries() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider =
             execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
         let mut jobs = Vec::new();
@@ -441,7 +441,7 @@ async fn rejects_unsafe_responses() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider =
                 execution::signed_in(&fixture, Authentication::Copilot, ModelApi::Responses).await;
             let error = fixture

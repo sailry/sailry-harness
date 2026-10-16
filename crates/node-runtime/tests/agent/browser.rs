@@ -8,7 +8,9 @@ async fn routes_through_controller() {
             let directory = tempfile::tempdir().unwrap();
             let root = directory.path().join("project");
             std::fs::create_dir(&root).unwrap();
-            let node = Node::start(directory.path().join("node")).await.unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
             let controller =
                 Link::controller(directory.path().join("controller"), NetworkScope::default())
                     .await
@@ -91,7 +93,8 @@ async fn routes_through_controller() {
             }
             let count = calls.len();
             let server = Server::tools(calls.clone()).await;
-            let session = super::approvals::prepare(&client, &server, &root).await;
+            let session =
+                super::approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
             let mut config = session.config.clone();
             config.permission = Permission::Full;
             config.mode = mode;
@@ -214,7 +217,9 @@ async fn publishes_controller_artifact() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -232,7 +237,7 @@ async fn publishes_controller_artifact() {
         let mut subscription = client.subscribe_browser().await.unwrap();
         let name = plugin_tool("browser", "browser_screenshot");
         let server = Server::tools(vec![(name.clone(), json!({"tab":7}))]).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
         let turn = approvals::submit(&client, session.id).await;
         let (_, approval) = approvals::pending(&client, session.id).await;
         assert!(
@@ -355,7 +360,9 @@ async fn rejects_denied_clicks() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -376,7 +383,8 @@ async fn rejects_denied_clicks() {
             json!({"tab":0,"snapshot":"fixture","element":1}),
         )])
         .await;
-        let session = super::approvals::prepare(&client, &server, &root).await;
+        let session =
+            super::approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
         let turn = super::approvals::submit(&client, session.id).await;
         let (_, approval) = super::approvals::pending(&client, session.id).await;
         assert!(
@@ -411,7 +419,9 @@ async fn discards_cancelled_completion() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -432,7 +442,8 @@ async fn discards_cancelled_completion() {
             json!({"tab":0,"condition":{"kind":"text","text":"Pending"},"timeout_ms":20000}),
         )])
         .await;
-        let session = super::approvals::prepare(&client, &server, &root).await;
+        let session =
+            super::approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
         let turn = super::approvals::submit(&client, session.id).await;
         let Update::BrowserCall(call) =
             tokio::time::timeout(Duration::from_secs(5), subscription.next())
@@ -481,7 +492,9 @@ async fn omits_disabled_tools() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -498,7 +511,8 @@ async fn omits_disabled_tools() {
         }));
         let _subscription = client.subscribe_browser().await.unwrap();
         let server = Server::markdown("Ready".into()).await;
-        let session = super::approvals::prepare(&client, &server, &root).await;
+        let session =
+            super::approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
 
         client
             .execute(client.prepare(Command::SetPluginEnabled {
@@ -546,7 +560,9 @@ async fn rechecks_enabled_state() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -567,7 +583,8 @@ async fn rechecks_enabled_state() {
             json!({"tab":0,"snapshot":"fixture","element":1}),
         )])
         .await;
-        let session = super::approvals::prepare(&client, &server, &root).await;
+        let session =
+            super::approvals::prepare_packages(&client, &server, &root, &["browser"]).await;
         let turn = super::approvals::submit(&client, session.id).await;
         let (_, approval) = super::approvals::pending(&client, session.id).await;
         assert!(

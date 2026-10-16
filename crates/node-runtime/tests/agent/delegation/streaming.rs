@@ -8,7 +8,9 @@ async fn recovers_and_preserves_stopped_output() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -179,7 +181,9 @@ async fn recovers_and_preserves_stopped_output() {
         drop(resumed);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         assert_eq!(history(&Client::new(node.local()), child.id).await, page);
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         node.shutdown().await.unwrap();

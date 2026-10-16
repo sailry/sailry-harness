@@ -9,7 +9,7 @@ async fn launches_the_bundled_interpreter() {
     );
     for remote in [false, true] {
         let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         fixture.node.set_python_runtime_fixture(&runtime).unwrap();
         isolate(&fixture.client).await;
         package(

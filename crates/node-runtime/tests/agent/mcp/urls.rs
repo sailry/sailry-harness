@@ -9,7 +9,7 @@ async fn restores_consent_history() {
             let peer =
                 input::Server::url("https://example.invalid/continue?task=fixture", sse).await;
             let model = Server::tools(vec![(alias("input", "read"), json!({})); 3]).await;
-            let fixture = process::Fixture::new(remote, &model).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
             peer.package(&fixture.root.join("package"));
             install(&fixture, 0).await;
 
@@ -78,7 +78,9 @@ async fn restores_consent_history() {
             } = fixture;
             drop(client);
             node.shutdown().await.unwrap();
-            let node = Node::start(directory.path().join("node")).await.unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
             let client = Client::new(if remote {
                 controller.handle().remote(node.link().address())
             } else {

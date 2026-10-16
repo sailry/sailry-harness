@@ -49,7 +49,7 @@ async fn permits_reads() {
                 ),
             ])
             .await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
             std::fs::write(fixture.root.join("read.txt"), "readable").unwrap();
             configure(&mut fixture, permission).await;
             let (_, turn) = submit(&fixture).await;
@@ -70,7 +70,7 @@ async fn freezes_queued_writes() {
             let server = Server::tools(vec![
                 (plugin_tool("files", "write_file"), json!({"path": "资料.txt", "text": "approved by policy 🙂", "expected_revision": null})),
             ]).await;
-            let mut fixture = Fixture::new(remote, &server).await;
+            let mut fixture = Fixture::packages(remote, &server, &["files"]).await;
             configure(&mut fixture, permission).await;
             let request = fixture.client.prepare(Command::QueueTurn {
                 session: fixture.session.id,
@@ -114,7 +114,7 @@ async fn freezes_queued_writes() {
                 .handle()
                 .disconnect(fixture.client.target())
                 .await;
-            let reopened = Node::start(fixture.directory.path().join("node"))
+            let reopened = Node::start_empty(fixture.directory.path().join("node"))
                 .await
                 .unwrap();
             let client = Client::new(if remote {
@@ -151,7 +151,7 @@ async fn confirms_project_commands() {
             ),
         ])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["files", "commands"]).await;
         configure(&mut fixture, Permission::Project).await;
         let (request, turn) = submit(&fixture).await;
         let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
@@ -226,7 +226,7 @@ async fn preserves_queued_full_command_authority() {
             json!({"access":"unrestricted","command": "printf x >> ../outside.txt"}),
         )])
         .await;
-        let mut fixture = Fixture::new(remote, &server).await;
+        let mut fixture = Fixture::packages(remote, &server, &["commands"]).await;
         configure(&mut fixture, Permission::Full).await;
         let request = fixture.client.prepare(Command::QueueTurn {
             session: fixture.session.id,

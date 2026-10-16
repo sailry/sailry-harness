@@ -4,7 +4,7 @@ use super::*;
 async fn retains_complete_exchanges() {
     for remote in [false, true] {
         let server = Server::native_compaction(false).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         for index in 1..=4 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -58,7 +58,7 @@ async fn retains_complete_exchanges() {
 async fn preserves_active_call() {
     for remote in [false, true] {
         let server = Server::native_compaction(false).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
             "Original evidence 中文 🙂\n".repeat(100),
@@ -110,7 +110,7 @@ async fn preserves_unapplied_history() {
     for remote in [false, true] {
         for fail in [false, true] {
             let server = Server::native_compaction(fail).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::files(remote, &server).await;
             if fail {
                 std::fs::write(
                     fixture.root.join("source.txt"),

@@ -123,7 +123,7 @@ async fn image(fixture: &Fixture) -> AttachmentId {
 async fn uses_reported_tokens() {
     for remote in [false, true] {
         let server = Server::loop_usage(vec![Some(84_000)], 100).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         evidence(&fixture, 1000);
         model(&fixture, 1_050_000, 128_000, true).await;
         let attachment = image(&fixture).await;
@@ -211,7 +211,7 @@ async fn earlier_token_boundary() {
                 boundary,
             )
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::files(remote, &server).await;
             model(&fixture, context, output, false).await;
             evidence(&fixture, 1000);
             let (_, _, page) = submit(
@@ -276,7 +276,7 @@ async fn pending_tool_growth() {
     for remote in [false, true] {
         for large in [false, true] {
             let server = Server::loop_usage(vec![Some(100)], 100).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::files(remote, &server).await;
             for index in 1..=6 {
                 let bytes = if large && index == 3 { 64 } else { 48 } * 1024;
                 let mut text = format!("Evidence {index}\n");
@@ -345,7 +345,7 @@ async fn retains_low_usage_summary() {
     for remote in [false, true] {
         let server =
             Server::loop_usage(vec![Some(100), Some(100), Some(14_000), Some(100)], 14_000).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         // Numbered lines add response metadata; pending results must stay below
         // the threshold so this test isolates retaining the first summary.
         evidence(&fixture, 600);

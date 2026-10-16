@@ -13,7 +13,7 @@ fn counts(profile: &Path) -> (i64, i64, i64) {
 async fn keeps_frozen_resources() {
     for remote in [false, true] {
         let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
-        let mut fixture = process::Fixture::new(remote, &model).await;
+        let mut fixture = process::Fixture::packages(remote, &model, &[]).await;
         isolate(&fixture.client).await;
         let profile = fixture.node.profile().to_owned();
         let baseline = counts(&profile);
@@ -71,7 +71,7 @@ async fn keeps_frozen_resources() {
         );
         assert!(packages.join(&first.package.digest).is_dir());
         assert!(!packages.join(&unused.summary.digest).exists());
-        fixture.node = Node::start(&profile).await.unwrap();
+        fixture.node = Node::start_empty(&profile).await.unwrap();
         fixture.client = Client::new(if remote {
             fixture
                 .controller

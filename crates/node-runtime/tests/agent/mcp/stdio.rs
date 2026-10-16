@@ -12,7 +12,7 @@ async fn standalone_credentials() {
             json!({}),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         let Output::Plugins(initial) = execute(&fixture.client, Command::ListPlugins).await else {
             panic!("plugin list expected")
         };
@@ -134,7 +134,7 @@ async fn recovers_frozen_approval() {
             (alias("native", "write"), json!({"value": "denied"})),
         ])
         .await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         let config = json!({"native": peer::config("mcp::peer::stdio_peer", "normal"), "invalid": {"type": "unknown"}, "missing": {"type": "stdio", "command": "sailry_missing_mcp_fixture_executable"}});
         package(&fixture.root, config.clone(), "old version 中文 🙂");
         let manifest = fixture.root.join("package/plugin.json");
@@ -250,7 +250,9 @@ async fn recovers_frozen_approval() {
         drop(client);
         node.shutdown().await.unwrap();
         reaped(&data);
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -275,7 +277,7 @@ async fn recovers_frozen_approval() {
 async fn lost_results_prevent_replay() {
     for remote in [false, true] {
         let model = Server::tools(vec![(alias("native", "fail"), json!({"value": "once"}))]).await;
-        let mut fixture = process::Fixture::new(remote, &model).await;
+        let mut fixture = process::Fixture::packages(remote, &model, &[]).await;
         package(
             &fixture.root,
             json!({"native": peer::config("mcp::peer::stdio_peer", "normal")}),
@@ -320,7 +322,7 @@ async fn closes_children() {
         for mode in ["normal", "slow_handshake"] {
             for shutdown in [false, true] {
                 let model = Server::tools(vec![(alias("native", "hold"), json!({}))]).await;
-                let fixture = process::Fixture::new(remote, &model).await;
+                let fixture = process::Fixture::packages(remote, &model, &[]).await;
                 package(
                     &fixture.root,
                     json!({"native": peer::config("mcp::peer::stdio_peer", mode)}),

@@ -47,10 +47,22 @@ struct Fixture {
 
 impl Fixture {
     async fn new(remote: bool, server: &Server) -> Self {
+        Self::setup(remote, server, false).await
+    }
+
+    async fn empty(remote: bool, server: &Server) -> Self {
+        Self::setup(remote, server, true).await
+    }
+
+    async fn setup(remote: bool, server: &Server, empty: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_with_authorization(directory.path().join("node"), &server.endpoint)
-            .await
-            .unwrap();
+        let node = if empty {
+            Node::start_empty_with_authorization(directory.path().join("node"), &server.endpoint)
+                .await
+        } else {
+            Node::start_with_authorization(directory.path().join("node"), &server.endpoint).await
+        }
+        .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -66,9 +78,15 @@ impl Fixture {
             node.local()
         }));
         // Authorization fixtures must never contact shipped external MCP services.
-        for name in ["context7", "github"] {
+        for name in if empty {
+            &[][..]
+        } else {
+            &["context7", "github"][..]
+        } {
             let Output::Plugin(package) = client
-                .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
+                .execute(client.prepare(Command::ReadPlugin {
+                    name: (*name).into(),
+                }))
                 .await
                 .unwrap()
             else {
@@ -76,7 +94,7 @@ impl Fixture {
             };
             client
                 .execute(client.prepare(Command::SetPluginEnabled {
-                    name: name.into(),
+                    name: (*name).into(),
                     expected_revision: package.summary.revision,
                     enabled: false,
                 }))
@@ -307,7 +325,7 @@ async fn persists_and_recovers() {
     for remote in [false, true] {
         for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
             let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = provider(&fixture.client, authentication).await;
             let (request, attempt) = begin(&fixture.client, &provider).await;
             let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -403,7 +421,7 @@ async fn persists_and_recovers() {
             drop(stream);
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start_with_authorization(&path, &server.endpoint)
+            let node = Node::start_empty_with_authorization(&path, &server.endpoint)
                 .await
                 .unwrap();
             let controller = Link::controller(

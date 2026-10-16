@@ -8,7 +8,7 @@ async fn runs_tools_and_forms() {
     for remote in [false, true] {
         let server = server::Server::with_transport(server::form_schema(), true).await;
         let model = Server::tools(vec![(alias("input", "read"), json!({})); 2]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         server.package(&fixture.root.join("package"));
         let plugin = install(&fixture, 0).await;
         assert!(plugin.issues.is_empty());

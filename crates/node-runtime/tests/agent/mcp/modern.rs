@@ -170,7 +170,7 @@ pub(super) fn assert_lifecycle(data: &Path) {
 }
 
 async fn fixture(remote: bool, model: &Server) -> process::Fixture {
-    let fixture = process::Fixture::new(remote, model).await;
+    let fixture = process::Fixture::packages(remote, model, &[]).await;
     package(
         &fixture.root,
         json!({"native":peer::config("mcp::modern::stdio_peer", "input")}),

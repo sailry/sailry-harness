@@ -9,7 +9,9 @@ async fn uses_destination_inventory() {
         )])
         .await;
         let (directory, source, controller, origin, local) = fixture(false, &server).await;
-        let target = Node::start(directory.path().join("target")).await.unwrap();
+        let target = Node::start_empty(directory.path().join("target"))
+            .await
+            .unwrap();
         source
             .link()
             .pair(target.link().invite().unwrap().ticket())
@@ -27,9 +29,7 @@ async fn uses_destination_inventory() {
         });
         let root = directory.path().join("target-project");
         package(&root, "2.0.0");
-        let (existing, _) = configured(&destination, &server.endpoint, &root).await;
-        isolate_model_tools(&destination).await;
-        disable_tools(&destination, &["commands", "browser", "media"]).await;
+        let (existing, _) = configured_session(&destination, &server.endpoint, &root).await;
         let Output::Snapshot(snapshot) = execute(&origin, Command::Snapshot).await else {
             panic!("snapshot expected")
         };

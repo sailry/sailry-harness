@@ -10,7 +10,7 @@ async fn refreshes_persistent_application_transport() {
         let peer = input::Server::url("https://example.invalid/continue", false).await;
         let issuer = issuer::Server::start(Provider::Feishu, Some(&peer.endpoint)).await;
         let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         fixture.node.set_plugin_application_fixture(
             Provider::Feishu,
             &issuer.token_url,

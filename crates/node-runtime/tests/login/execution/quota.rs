@@ -141,7 +141,7 @@ async fn refreshes_bound_observations() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let mut subscription = fixture.client.subscribe().await.unwrap();
@@ -252,7 +252,7 @@ async fn clears_missing_response_headers() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let (_, turn) = submit(&fixture.client, &session).await;
@@ -290,7 +290,7 @@ async fn clears_revoked_credentials() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let (_, turn) = submit(&fixture.client, &session).await;

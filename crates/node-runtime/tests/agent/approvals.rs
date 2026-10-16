@@ -18,17 +18,32 @@ pub(super) async fn prepare_files(
     server: &Server,
     root: &std::path::Path,
 ) -> Session {
-    let Output::Plugin(package) = client
-        .execute(client.prepare(Command::InstallBundledPlugin {
-            name: "files".into(),
-            expected_revision: 0,
-        }))
-        .await
-        .unwrap()
-    else {
-        panic!("files package expected")
-    };
-    assert!(package.issues.is_empty(), "{:?}", package.issues);
+    prepare_packages(client, server, root, &["files"]).await
+}
+
+pub(super) async fn install(client: &Client, packages: &[&str]) {
+    for &name in packages {
+        let Output::Plugin(package) = client
+            .execute(client.prepare(Command::InstallBundledPlugin {
+                name: name.into(),
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("fixture package expected")
+        };
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
+    }
+}
+
+pub(super) async fn prepare_packages(
+    client: &Client,
+    server: &Server,
+    root: &std::path::Path,
+    packages: &[&str],
+) -> Session {
+    install(client, packages).await;
     let (session, provider) = configured_session(client, &server.endpoint, root).await;
     prepare_model(client, session, provider).await
 }

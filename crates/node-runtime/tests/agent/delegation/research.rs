@@ -9,6 +9,7 @@ async fn loads_the_skill_without_expanding_authority() {
         )]).await;
         let unused = Server::start(false).await;
         let mut fixture = Fixture::start(remote, parent, unused).await;
+        super::super::approvals::install(&fixture.client, &["web-search"]).await;
         let snapshot = fixture.snapshot().await;
         let role = snapshot
             .roles

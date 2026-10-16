@@ -14,7 +14,7 @@ async fn restores_confidential_clients_before_refresh() {
             let issuer =
                 issuer::Server::confidential(&peer.endpoint, registered, authentication).await;
             let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
-            let fixture = process::Fixture::new(remote, &model).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
             package(
                 &fixture.root,
                 json!({"input":{"type":"streamable-http","url":issuer.endpoint}}),
@@ -155,7 +155,9 @@ async fn restores_confidential_clients_before_refresh() {
             }
             drop(database);
             issuer.expire();
-            let node = Node::start(directory.path().join("node")).await.unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
             let client = Client::new(if remote {
                 controller.handle().remote(node.link().address())
             } else {

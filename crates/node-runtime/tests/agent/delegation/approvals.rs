@@ -7,7 +7,9 @@ async fn isolates_call_identity() {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("source.txt"), "Read 中文 🙂").unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

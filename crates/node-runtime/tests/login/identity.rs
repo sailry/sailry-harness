@@ -127,7 +127,7 @@ async fn retains_registration_and_host_after_expired_code() {
                 } else { standard(request) }
             } else { standard(request) }
         }).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         *profile.lock().unwrap() = Some(fixture.node.profile().join("storage/node.sqlite3"));
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let (_, first) = start(&fixture.client, &provider).await;
@@ -210,7 +210,7 @@ async fn requires_durable_registration_before_exchange() {
             panic!("exchange must not start without a durable registration")
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
             .unwrap();
@@ -252,7 +252,7 @@ async fn retains_sign_in_without_plan_permission() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -278,7 +278,7 @@ async fn retains_sign_in_without_plan_permission() {
 async fn reconnects_after_revocation() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider =
             execution::signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let reference = provider.credential.as_ref().unwrap();
@@ -333,7 +333,7 @@ async fn rejects_identity_mismatch_without_replacing_account() {
                 Reply::Json(value)
             } else { standard(request) }
         }).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider =
             execution::signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let before = fixture

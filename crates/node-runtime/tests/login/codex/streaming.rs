@@ -27,7 +27,7 @@ async fn exposes_unlabelled_sse_before_completion() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = configured(&fixture, None).await;
         let session = super::super::execution::session(&fixture, &provider).await;
         let (updates, mut observed) = tokio::sync::watch::channel(View::default());

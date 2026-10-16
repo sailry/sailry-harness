@@ -243,7 +243,9 @@ async fn edits_catalog_and_applies_future_capture() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -262,7 +264,8 @@ async fn edits_catalog_and_applies_future_capture() {
             (tool("add_agent"),json!({"key":"catalog-review","name":"Catalog review","instructions":"Inspect catalog changes","read_only":true,"max_turns":3})),
             (tool("list_agents"),json!({})),
         ]).await;
-        let (session, _) = configured(&client, &server.endpoint, &root).await;
+        install(&client).await;
+        let (session, _) = configured_session(&client, &server.endpoint, &root).await;
         let mut config = session.config.clone();
         config.permission = Permission::Full;
         let Output::Session(mut session) = client

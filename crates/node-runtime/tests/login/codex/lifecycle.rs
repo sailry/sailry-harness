@@ -44,7 +44,7 @@ async fn connects_with_isolated_credentials() {
                 }
                 server::standard(request, 3600)
             }).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
             let (request, attempt) = start(&fixture.client, &provider).await;
             let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();

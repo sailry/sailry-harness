@@ -18,7 +18,7 @@ async fn connects_and_restores_both_callback_flows() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let original = provider(
                 &fixture.client,
                 redirect.is_none().then(|| Options::ClaudeOAuth {
@@ -163,7 +163,7 @@ async fn rejects_callbacks_before_token_dispatch() {
                 panic!("invalid callback must not dispatch HTTP")
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let original = provider(&fixture.client, None).await;
             let (_, attempt, url) = begin(&fixture.client, &original, Some(REDIRECT)).await;
             let callback = match invalid {
@@ -222,7 +222,7 @@ async fn cancels_and_rejects_late_provider_changes() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let original = provider(&fixture.client, None).await;
             let (_, attempt, url) = begin(&fixture.client, &original, Some(REDIRECT)).await;
             let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -294,7 +294,7 @@ async fn rejects_denials_and_expired_grants() {
                     Reply::Raw(format!("HTTP/1.1 401 Unauthorized\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{ACCESS}", ACCESS.len()))
                 } else { Reply::Json(server::tokens(request, false, expiry)) }
             }).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let original = provider(&fixture.client, None).await;
             let (_, attempt, url) = begin(&fixture.client, &original, None).await;
             super::super::complete(&fixture.client, &attempt, callback(&url, None)).await;

@@ -9,7 +9,7 @@ async fn restores() {
             json!({}),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         let package = fixture.root.join("package");
         fs::create_dir(&package).unwrap();
         for (name, text) in [
@@ -89,7 +89,7 @@ async fn restores() {
         assert_eq!(requests, 2);
         let path = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(&path).await.unwrap();
+        let node = Node::start_empty(&path).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {

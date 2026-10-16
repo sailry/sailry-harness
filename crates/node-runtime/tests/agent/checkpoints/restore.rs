@@ -113,7 +113,7 @@ async fn captured_versions() {
         std::fs::write(fixture.root.join("lost.txt"), "replacement").unwrap();
         drop(watch);
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {

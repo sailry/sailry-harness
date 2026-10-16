@@ -6,7 +6,9 @@ async fn drains_with_full_root_pool() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -117,7 +119,9 @@ async fn drains_with_full_root_pool() {
         }
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(node.local());
         for turn in parents.iter().skip(4) {
             assert_eq!(

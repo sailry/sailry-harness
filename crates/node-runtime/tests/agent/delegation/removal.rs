@@ -7,7 +7,7 @@ async fn preserves_active_tasks_and_forks() {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -124,7 +124,7 @@ async fn preserves_active_tasks_and_forks() {
         assert_eq!(history(&client, branch.id).await, inherited);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         assert_eq!(
             history(&Client::new(node.local()), branch.id).await,
             inherited

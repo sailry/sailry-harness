@@ -56,7 +56,7 @@ async fn setup(
     let input = input::Server::with_transport(input::form_schema(), sse).await;
     let issuer = issuer::Server::start(&input.endpoint).await;
     let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
-    let fixture = process::Fixture::new(remote, &model).await;
+    let fixture = process::Fixture::packages(remote, &model, &[]).await;
     package(
         &fixture.root,
         json!({"input":{"type": if sse {"sse"} else {"streamable-http"}, "url":issuer.endpoint}}),
@@ -183,7 +183,9 @@ async fn resumes_authorized_tools() {
             assert!(body.starts_with(b"credential-v1:"));
             assert!(!String::from_utf8(body).unwrap().contains(&callback));
             drop(database);
-            let node = Node::start(directory.path().join("node")).await.unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
             let client = Client::new(if remote {
                 controller.handle().remote(node.link().address())
             } else {

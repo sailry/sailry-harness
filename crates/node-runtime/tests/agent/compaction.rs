@@ -64,7 +64,7 @@ async fn usage_total(client: &Client, responses: u64, input: u64) {
 async fn incorporates_previous_summaries() {
     for remote in [false, true] {
         let server = Server::automatic_compaction(false).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         std::fs::write(fixture.root.join("source.txt"), "Repeated summary evidence").unwrap();
         for index in 1usize..=6 {
             let text = format!("Turn {index} requirement ").repeat(1100);
@@ -106,7 +106,7 @@ async fn resumes_compacted_context() {
             vec![14000, 14000, 14000, 14000, 100],
         )
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
             "Original tool evidence 中文 🙂",
@@ -182,7 +182,7 @@ async fn resumes_compacted_context() {
             panic!("fork expected")
         };
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {
@@ -228,7 +228,7 @@ async fn resumes_compacted_context() {
 async fn failure_preserves_context() {
     for remote in [false, true] {
         let server = Server::automatic_compaction(true).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         std::fs::write(fixture.root.join("source.txt"), "Evidence preserved").unwrap();
         submit(
             &fixture.client,

@@ -24,7 +24,7 @@ async fn binds_reused_inputs() {
                     input::Server::url("https://example.invalid/continue", sse).await
                 };
                 let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
-                let fixture = process::Fixture::new(remote, &model).await;
+                let fixture = process::Fixture::packages(remote, &model, &[]).await;
                 peer.package(&fixture.root.join("package"));
                 install(&fixture, 0).await;
 
@@ -64,7 +64,7 @@ async fn binds_reused_inputs() {
 async fn replaces_changed_connections() {
     for remote in [false, true] {
         let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         let servers = json!({"native":peer::config("mcp::peer::stdio_peer", "normal")});
         package(&fixture.root, servers.clone(), "first");
         install(&fixture, 0).await;
@@ -105,7 +105,7 @@ async fn replaces_changed_connections() {
 #[tokio::test]
 async fn closes_idle_children() {
     let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
-    let mut fixture = process::Fixture::new(false, &model).await;
+    let mut fixture = process::Fixture::packages(false, &model, &[]).await;
     package(
         &fixture.root,
         json!({"native":peer::config("mcp::peer::stdio_peer", "normal")}),

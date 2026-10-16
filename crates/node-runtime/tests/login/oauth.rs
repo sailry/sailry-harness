@@ -60,7 +60,7 @@ async fn discovers_with_unsaved_options() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = execution::signed_in(&fixture, authentication, api).await;
             let draft = options(authentication, "draft");
             let Output::DiscoveredModels(models) = fixture
@@ -108,7 +108,7 @@ async fn rejects_invalid_options_without_http_or_writes() {
     for remote in [false, true] {
         for authentication in [Authentication::ChatGpt, Authentication::Copilot] {
             let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = provider(&fixture.client, authentication).await;
             let mut invalid = options(authentication, "invalid");
             match &mut invalid {
@@ -189,7 +189,7 @@ async fn invalidates_late_draft_after_revision_change() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = execution::signed_in(&fixture, authentication, api).await;
             let client = fixture.client.clone();
             let request =

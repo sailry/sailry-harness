@@ -12,7 +12,7 @@ async fn selects_native_search_from_authorized_contract() {
                 reply(request, metadata)
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
             assert!(provider.models.is_empty());
             let (_, attempt) = begin(&fixture.client, &provider).await;

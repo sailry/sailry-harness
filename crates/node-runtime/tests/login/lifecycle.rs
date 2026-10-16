@@ -19,7 +19,7 @@ async fn preserves_revocation_and_reconnects() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::Copilot).await;
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -97,7 +97,7 @@ async fn preserves_revocation_and_reconnects() {
 async fn rolls_back_failed_save() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
             .unwrap();
@@ -156,7 +156,7 @@ async fn cancels_pending_http() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -212,7 +212,7 @@ async fn rejects_conflicts_and_other_callers() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let mut provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -302,7 +302,7 @@ async fn rejects_conflicts_and_other_callers() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shuts_down_and_reopens() {
     let server = Server::start_with_request(ModelApi::Anthropic, |_| Reply::Hold).await;
-    let fixture = Fixture::new(true, &server).await;
+    let fixture = Fixture::empty(true, &server).await;
     let provider = provider(&fixture.client, Authentication::Copilot).await;
     begin(&fixture.client, &provider).await;
     server.wait_requests(1).await;
@@ -312,7 +312,7 @@ async fn shuts_down_and_reopens() {
         .unwrap()
         .unwrap();
     server.wait_closed(1).await;
-    let node = Node::start_with_authorization(&path, &server.endpoint)
+    let node = Node::start_empty_with_authorization(&path, &server.endpoint)
         .await
         .unwrap();
     let client = Client::new(node.local());
@@ -331,7 +331,7 @@ async fn shuts_down_and_reopens() {
 async fn bounds_attempts_without_observers() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, |_| Reply::Hold).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let mut attempts = Vec::new();
         for _ in 0..4 {
             let provider = provider(&fixture.client, Authentication::Copilot).await;
@@ -385,7 +385,7 @@ async fn bounds_attempts_without_observers() {
 async fn requires_recorded_receipt() {
     for remote in [false, true] {
         let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
             .unwrap();

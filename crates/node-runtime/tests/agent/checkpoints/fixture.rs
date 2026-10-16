@@ -49,7 +49,9 @@ impl Fixture {
                 .commit(Some("HEAD"), &signature, &signature, "Initial", &tree, &[])
                 .unwrap();
         }
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -68,7 +70,7 @@ impl Fixture {
         let server = Server::tools(changes.iter().map(|&(path, before, after)| (
             plugin_tool("files", "write_file"), json!({"path": path, "text": after, "expected_revision": before.map(|text| blake3::hash(text.as_bytes()).to_hex().to_string())}),
         )).collect()).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_files(&client, &server, &root).await;
         let mut config = session.config.clone();
         config.permission = Permission::Full;
         let Output::Session(session) = client

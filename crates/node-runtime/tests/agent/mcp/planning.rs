@@ -4,7 +4,7 @@ use super::*;
 async fn exposes_readonly_tools() {
     for remote in [false, true] {
         let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
-        let mut fixture = process::Fixture::new(remote, &model).await;
+        let mut fixture = process::Fixture::packages(remote, &model, &[]).await;
         package(
             &fixture.root,
             json!({

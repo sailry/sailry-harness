@@ -60,7 +60,7 @@ fn verify(page: &Page, label: &str, secret: &str) {
 async fn releases_frozen_projections() {
     for remote in [false, true] {
         let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         isolate(&fixture.client).await;
         declare(&fixture.root);
         let installed = install(&fixture, 0).await;
@@ -121,8 +121,8 @@ async fn releases_frozen_projections() {
 async fn imports_execution_node_configuration() {
     for remote in [false, true] {
         let model = Server::tools(vec![(alias("native", "read"), json!({}))]).await;
-        let source = process::Fixture::new(false, &model).await;
-        let mut target = process::Fixture::new(remote, &model).await;
+        let source = process::Fixture::packages(false, &model, &[]).await;
+        let mut target = process::Fixture::packages(remote, &model, &[]).await;
         isolate(&source.client).await;
         isolate(&target.client).await;
         declare(&source.root);
@@ -211,7 +211,7 @@ async fn rejects_cleared_credentials() {
             json!({"skill":"example:analysis"}),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         declare(&fixture.root);
         let installed = install(&fixture, 0).await;
         let configured = save(
@@ -264,7 +264,7 @@ async fn releases_failed_initialization() {
                 json!({"skill":"example:analysis"}),
             )])
             .await;
-            let fixture = process::Fixture::new(remote, &model).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
             declare(&fixture.root);
             let path = fixture.root.join("package/mcp.json");
             let mut mcp: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();

@@ -170,7 +170,7 @@ async fn preserves_metadata_read_authority() {
             draft(None, None, "Observed"),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         let package = install(&fixture, 0, "<html><body>Observer template</body></html>").await;
         let turn = submit(&fixture, "Create an observed document").await;
         finished(&fixture.client, fixture.session.id, turn).await;
@@ -317,7 +317,7 @@ async fn supports_bound_connections() {
     use sailry_protocol::{connection::Resource, database, ssh};
     for remote in [false, true] {
         let server = Server::scripted_tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::files(remote, &server).await;
         install(&fixture, 0, "<html><body>Connection template</body></html>").await;
         let path = fixture.directory.path().join("bound.sqlite3");
         drop(rusqlite::Connection::open(&path).unwrap());
@@ -484,7 +484,7 @@ async fn reads_inherited_publications() {
             draft(None, None, "First"),
         )])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         let package = install(&fixture, 0, "<html><body>History template</body></html>").await;
         let first = submit(&fixture, "Write the first revision").await;
         let page = finished(&fixture.client, fixture.session.id, first).await;
@@ -778,7 +778,7 @@ async fn preserves_documents_when_stopped() {
             (plugin_tool(PACKAGE, "write"), draft(None, None, "Not executed")),
         ])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture, 0, "<html><body>Template</body></html>").await;
         let turn = submit(&fixture, "Write the document, then ask for a choice").await;
         let (page, _) = questions::pending(&fixture.client, fixture.session.id).await;
@@ -884,7 +884,7 @@ async fn persists_plan_documents_and_conflicts() {
             draft(None, None, "First"),
         )])
         .await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = process::Fixture::packages(remote, &server, &[]).await;
         let first_package = install(&fixture, 0, "<html><body>First template</body></html>").await;
         planning::configure(&mut fixture, WorkMode::Plan).await;
         let mut stream = fixture
@@ -1120,7 +1120,7 @@ async fn restores_revisions_and_removes_session_files() {
             draft(None, None, "First"),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture, 0, "<html><body>Restore template</body></html>").await;
         let turn = submit(&fixture, "Write the initial document").await;
         finished(&fixture.client, fixture.session.id, turn).await;
@@ -1257,7 +1257,7 @@ async fn restores_revisions_and_removes_session_files() {
         let identity = fixture.node.id();
         fixture.node.shutdown().await.unwrap();
         // Restored identity starts only after the original owner has shut down.
-        let node = Node::start(&target).await.unwrap();
+        let node = Node::start_empty(&target).await.unwrap();
         assert_eq!(node.id(), identity);
         let address = fixture
             .controller

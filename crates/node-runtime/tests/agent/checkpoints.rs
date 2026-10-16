@@ -59,7 +59,9 @@ async fn captures_and_recovers() {
         std::fs::create_dir(&root).unwrap();
         let original = "Original 中文 🙂\n".repeat(4000);
         std::fs::write(root.join("existing.txt"), &original).unwrap();
-        let node = Node::start(fixture.path().join("node")).await.unwrap();
+        let node = Node::start_empty(fixture.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(fixture.path().join("controller"), NetworkScope::default())
                 .await
@@ -81,7 +83,7 @@ async fn captures_and_recovers() {
             (plugin_tool("files", "write_file"), json!({"path": "new.txt", "text": second, "expected_revision": blake3::hash(first.as_bytes()).to_hex().to_string()})),
             (plugin_tool("files", "write_file"), json!({"path": "existing.txt", "text": "Replacement", "expected_revision": blake3::hash(original.as_bytes()).to_hex().to_string()})),
         ]).await;
-        let session = approvals::prepare(&client, &server, &root).await;
+        let session = approvals::prepare_files(&client, &server, &root).await;
         let mut config = session.config.clone();
         config.permission = Permission::Full;
         let Output::Session(session) = client
@@ -207,7 +209,9 @@ async fn captures_and_recovers() {
         assert_eq!(ids, expected);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-        let node = Node::start(fixture.path().join("node")).await.unwrap();
+        let node = Node::start_empty(fixture.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(node.local());
         assert_eq!(
             list(&client, branch.id, turn.id, None, 100).await.files,

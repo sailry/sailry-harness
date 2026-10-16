@@ -25,7 +25,7 @@ async fn preserves_form_until_last_reference() {
             "<section><h1>Storage choices</h1><form data-name='choices'><fieldset data-name='storage'><legend>Storage</legend><label><input type='radio' name='storage' value='node'>Execution Node</label></fieldset><button type='submit'>Send</button></form></section>"
         );
         let server = Server::scripted_tools(vec![(plugin_tool(PACKAGE, "write"), form)]).await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(&fixture, 0, "<html><body>Form template</body></html>").await;
         let publication = submit(&fixture, "Create the requested form").await;
         let page = finished(&fixture.client, fixture.session.id, publication).await;

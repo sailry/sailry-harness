@@ -80,7 +80,23 @@ async fn isolate(client: &Client) {
 }
 
 async fn submit(fixture: &process::Fixture, queued: bool) -> (Request, QueuedTurn) {
-    disable_tools(&fixture.client, &["commands"]).await;
+    let Output::Plugins(packages) = execute(&fixture.client, Command::ListPlugins).await else {
+        panic!("plugin inventory expected")
+    };
+    if let Some(package) = packages
+        .into_iter()
+        .find(|package| package.name == "commands" && package.enabled)
+    {
+        execute(
+            &fixture.client,
+            Command::SetPluginEnabled {
+                name: package.name,
+                expected_revision: package.revision,
+                enabled: false,
+            },
+        )
+        .await;
+    }
     let command = if queued {
         Command::QueueTurn {
             session: fixture.session.id,

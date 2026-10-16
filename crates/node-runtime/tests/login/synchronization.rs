@@ -46,7 +46,7 @@ async fn seeds_and_reconnects() {
     for remote in [false, true] {
         for (authentication, api) in ACCOUNTS {
             let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = create(&fixture.client, authentication, api).await;
             assert!(provider.models.is_empty());
             let (request, attempt) = begin(&fixture.client, &provider).await;
@@ -143,7 +143,7 @@ async fn retains_grants_on_catalog_failure() {
                         _ => Reply::Json(json!({"invalid":"isolated malformed catalog"})),
                     }
                 }).await;
-                let fixture = Fixture::new(remote, &server).await;
+                let fixture = Fixture::empty(remote, &server).await;
                 let provider = create(&fixture.client, authentication, api).await;
                 let (_, attempt) = begin(&fixture.client, &provider).await;
                 let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -202,7 +202,7 @@ async fn completes_from_the_cached_reference() {
                 Reply::Json(native)
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = create(&fixture.client, authentication, api).await;
             let db =
                 rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))

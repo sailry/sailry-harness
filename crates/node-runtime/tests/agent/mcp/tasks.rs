@@ -7,7 +7,7 @@ async fn releases_tasks_during_shutdown() {
     for remote in [false, true] {
         let peer = input::Server::task(input::form_schema(), false).await;
         let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         peer.package(&fixture.root.join("package"));
         install(&fixture, 0).await;
 
@@ -24,7 +24,9 @@ async fn releases_tasks_during_shutdown() {
         drop(client);
         node.shutdown().await.unwrap();
         assert_eq!(peer.tasks.cancelled.load(Ordering::SeqCst), 1);
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -54,7 +56,7 @@ async fn cancels_tasks_before_transport_closure() {
                 .ignore_cancel
                 .store(ignore_cancel, Ordering::SeqCst);
             let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
-            let fixture = process::Fixture::new(remote, &model).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
             peer.package(&fixture.root.join("package"));
             install(&fixture, 0).await;
 
@@ -93,7 +95,7 @@ async fn resumes_input_once() {
             )
             .await;
             let model = Server::tools(vec![(alias("input", "read"), json!({})); 3]).await;
-            let fixture = process::Fixture::new(remote, &model).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
             peer.package(&fixture.root.join("package"));
             install(&fixture, 0).await;
 
@@ -162,7 +164,9 @@ async fn resumes_input_once() {
             } = fixture;
             drop(client);
             node.shutdown().await.unwrap();
-            let node = Node::start(directory.path().join("node")).await.unwrap();
+            let node = Node::start_empty(directory.path().join("node"))
+                .await
+                .unwrap();
             let client = Client::new(if remote {
                 controller.handle().remote(node.link().address())
             } else {

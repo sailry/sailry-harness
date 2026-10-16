@@ -51,21 +51,7 @@ impl Fixture {
             node.local()
         });
         let session = if let Some(packages) = packages {
-            for &name in packages {
-                let Output::Plugin(package) = client
-                    .execute(client.prepare(Command::InstallBundledPlugin {
-                        name: name.into(),
-                        expected_revision: 0,
-                    }))
-                    .await
-                    .unwrap()
-                else {
-                    panic!("fixture package expected")
-                };
-                assert!(package.issues.is_empty(), "{:?}", package.issues);
-            }
-            let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
-            approvals::prepare_model(&client, session, provider).await
+            approvals::prepare_packages(&client, server, &root, packages).await
         } else {
             let session = approvals::prepare(&client, server, &root).await;
             isolate_model_tools(&client).await;

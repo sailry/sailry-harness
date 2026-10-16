@@ -6,7 +6,9 @@ async fn freezes_config_and_history() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -263,7 +265,9 @@ async fn freezes_config_and_history() {
         assert_eq!(parent.requests.lock().unwrap().len(), 2);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(node.local());
         assert_eq!(history(&client, session.id).await, page);
         for (id, page) in histories {

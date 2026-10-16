@@ -86,7 +86,9 @@ async fn fixture(
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("project");
     package(&root, "1.0.0");
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -100,9 +102,8 @@ async fn fixture(
     } else {
         node.local()
     });
-    let (session, mut provider) = configured(&client, &server.endpoint, &root).await;
-    isolate_model_tools(&client).await;
-    disable_tools(&client, &["browser", "media"]).await;
+    super::approvals::install(&client, &["commands"]).await;
+    let (session, mut provider) = configured_session(&client, &server.endpoint, &root).await;
     provider.models = vec![Model {
         id: "fixture-a".into(),
         display_name: None,

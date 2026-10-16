@@ -313,7 +313,9 @@ async fn loads_complete_resources() {
         assert_eq!(result["content"], body);
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

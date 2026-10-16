@@ -12,7 +12,7 @@ async fn retains_code_and_defaults_metadata() {
             json!({"kind":"preview","title":"Interactive checklist","html":SOURCE}),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         install(
             &fixture,
             0,
@@ -95,7 +95,7 @@ async fn retains_code_and_defaults_metadata() {
         let revision = remove_kind(&db, "artifact_revisions", "artifact", document.id);
         drop(db);
 
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         assert_eq!(node.id(), identity);
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
@@ -174,7 +174,7 @@ async fn retains_code_and_defaults_metadata() {
         db.pragma_update(None, "journal_mode", "DELETE").unwrap();
         drop(db);
         let bytes = fs::read(&path).unwrap();
-        let error = Node::start(&profile)
+        let error = Node::start_empty(&profile)
             .await
             .err()
             .expect("invalid artifact kind must fail startup");

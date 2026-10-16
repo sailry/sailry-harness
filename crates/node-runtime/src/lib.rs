@@ -238,6 +238,25 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))?
     }
 
+    /// Routes isolated authorization fixtures without installing unrelated bundled packages.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_authorization(
+        path: impl AsRef<Path>,
+        endpoint: &str,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                authorization: providers::login::Service::fixture(endpoint),
+                skip_bundled: true,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
     /// Routes skill repository reads to an isolated HTTP fixture.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn start_with_skill_source(

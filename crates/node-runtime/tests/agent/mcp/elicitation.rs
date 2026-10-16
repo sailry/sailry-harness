@@ -2,7 +2,7 @@ use super::*;
 use question::{Answer, Response, State};
 
 async fn fixture(remote: bool, model: &Server, mode: &str) -> process::Fixture {
-    let mut fixture = process::Fixture::new(remote, model).await;
+    let mut fixture = process::Fixture::packages(remote, model, &[]).await;
     package(
         &fixture.root,
         json!({"native":peer::config("mcp::peer::stdio_peer", mode)}),
@@ -181,7 +181,9 @@ async fn preserves_resumed_batches() {
         drop(client);
         node.shutdown().await.unwrap();
         reaped(&data);
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

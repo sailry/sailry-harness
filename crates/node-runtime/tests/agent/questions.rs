@@ -49,7 +49,7 @@ async fn separates_answers_from_approvals() {
             ),
         ])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::files(remote, &server).await;
         let session = fixture.session.id;
         let turn = approvals::submit(&fixture.client, session).await;
         let (_, question) = pending(&fixture.client, session).await;
@@ -107,7 +107,9 @@ async fn answers_and_cancels() {
             let fixture = tempfile::tempdir().unwrap();
             let root = fixture.path().join("project");
             std::fs::create_dir(&root).unwrap();
-            let node = Node::start(fixture.path().join("node")).await.unwrap();
+            let node = Node::start_empty(fixture.path().join("node"))
+                .await
+                .unwrap();
             let controller =
                 Link::controller(fixture.path().join("controller"), NetworkScope::default())
                     .await
@@ -123,13 +125,13 @@ async fn answers_and_cancels() {
                 node.local()
             };
             let client = Client::new(transport.clone());
-            let server = Server::parallel(vec![
+            let server = Server::batch(vec![
                 ("ask_user".into(), text_input()),
                 ("ask_user".into(), json!({"prompt": "Pick one", "input": {"kind": "choice", "options": ["One", "Two"], "multiple": false, "allow_other": true}})),
                 ("ask_user".into(), json!({"prompt": "Pick several", "input": {"kind": "choice", "options": ["One", "Two", "Three"], "multiple": true, "allow_other": true}})),
                 ("ask_user".into(), text_input()),
             ]).await;
-            let session = approvals::prepare(&client, &server, &root).await;
+            let session = approvals::prepare_packages(&client, &server, &root, &[]).await;
             let mut config = session.config.clone();
             config.permission = permission;
             client
@@ -305,7 +307,9 @@ async fn answers_and_cancels() {
             drop(stream);
             node.shutdown().await.unwrap();
             controller.close().await.unwrap();
-            let node = Node::start(fixture.path().join("node")).await.unwrap();
+            let node = Node::start_empty(fixture.path().join("node"))
+                .await
+                .unwrap();
             let client = Client::new(node.local());
             assert_eq!(history(&client, session.id).await, page);
             assert_eq!(client.execute(request).await.unwrap(), response);
@@ -322,7 +326,9 @@ async fn stop_and_shutdown() {
             let fixture = tempfile::tempdir().unwrap();
             let root = fixture.path().join("project");
             std::fs::create_dir(&root).unwrap();
-            let node = Node::start(fixture.path().join("node")).await.unwrap();
+            let node = Node::start_empty(fixture.path().join("node"))
+                .await
+                .unwrap();
             let controller =
                 Link::controller(fixture.path().join("controller"), NetworkScope::default())
                     .await
@@ -338,7 +344,7 @@ async fn stop_and_shutdown() {
                 node.local()
             });
             let server = Server::tools(vec![("ask_user".into(), text_input())]).await;
-            let session = approvals::prepare(&client, &server, &root).await;
+            let session = approvals::prepare_packages(&client, &server, &root, &[]).await;
             let turn = approvals::submit(&client, session.id).await;
             let (_, question) = pending(&client, session.id).await;
             if !shutdown {
@@ -351,7 +357,9 @@ async fn stop_and_shutdown() {
             }
             node.shutdown().await.unwrap();
             controller.close().await.unwrap();
-            let node = Node::start(fixture.path().join("node")).await.unwrap();
+            let node = Node::start_empty(fixture.path().join("node"))
+                .await
+                .unwrap();
             let client = Client::new(node.local());
             let page = history(&client, session.id).await;
             assert_eq!(

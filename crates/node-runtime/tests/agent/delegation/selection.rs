@@ -12,7 +12,7 @@ async fn restores_frozen_input() {
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("source.txt"), "Selected workspace contents").unwrap();
         let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -243,7 +243,7 @@ async fn restores_frozen_input() {
             .collect();
         assert_eq!(fork_references, references);
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -274,7 +274,9 @@ async fn accepts_role_without_text() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

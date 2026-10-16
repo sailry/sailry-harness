@@ -24,7 +24,7 @@ fn summaries(page: &Page) -> usize {
 async fn skips_empty_and_small_context() {
     for remote in [false, true] {
         let server = Server::start(false).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         let (_, empty) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, empty.id).await;
         assert_eq!(page.runs[0].status, Status::Completed);
@@ -45,7 +45,7 @@ async fn skips_empty_and_small_context() {
 async fn supports_unknown_usage() {
     for remote in [false, true] {
         let server = Server::loop_usage(vec![None], 100).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -83,7 +83,7 @@ async fn supports_unknown_usage() {
 async fn restores_branch_history() {
     for remote in [false, true] {
         let server = Server::compaction(false).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
             "Exact tool evidence 中文 🙂\n".repeat(200),
@@ -142,7 +142,7 @@ async fn restores_branch_history() {
             branches.push(branch);
         }
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {
@@ -182,7 +182,7 @@ async fn restores_branch_history() {
 async fn preserves_failed_context() {
     for remote in [false, true] {
         let server = Server::compaction(true).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         std::fs::write(fixture.root.join("source.txt"), "Keep evidence").unwrap();
         let (_, _, before) = submit(
             &fixture.client,
@@ -219,7 +219,7 @@ async fn preserves_cancelled_configuration() {
     for remote in [false, true] {
         let server = Server::compaction(false).await;
         let slow = Server::start(true).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         std::fs::write(
             fixture.root.join("source.txt"),
             "Queue evidence\n".repeat(200),
@@ -378,7 +378,7 @@ async fn preserves_cancelled_configuration() {
         assert!(cancelled.queue.paused);
         assert_eq!(cancelled.queue.items[0].turn, queued.id);
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {

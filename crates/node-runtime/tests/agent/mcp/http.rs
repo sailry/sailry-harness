@@ -41,7 +41,7 @@ async fn confines_private_headers() {
                 vec![(alias("remote", "read"), json!({}))]
             })
             .await;
-            let fixture = process::Fixture::new(remote, &model).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
             package(
                 &fixture.root,
                 json!({"remote": {
@@ -290,7 +290,7 @@ async fn cancellation_joins_held_initialization() {
     for remote in [false, true] {
         let http = Http::start(Reply::HeldInitialization).await;
         let model = Server::tools(vec![]).await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         package(
             &fixture.root,
             json!({"remote": {"type":"streamable-http", "url":http.endpoint}}),
@@ -336,7 +336,7 @@ async fn expired_calls_prevent_replay() {
             let content = "完整HTTP🙂".repeat(1200);
             let model =
                 Server::tools(vec![(alias("remote", "write"), json!({"value": content}))]).await;
-            let fixture = process::Fixture::new(remote, &model).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
             package(
                 &fixture.root,
                 json!({"remote": {"type": "streamable-http", "url": http.endpoint, "headers": {"X-Public": "${PLUGIN_ROOT}", "Mcp-Protocol-Version": "invalid-package-override"}}}),
@@ -393,7 +393,7 @@ async fn isolates_redirect_failures() {
             json!({"skill": "example:analysis"}),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &model).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
         package(
             &fixture.root,
             json!({"redirect": {"type": "streamable-http", "url": origin.endpoint, "headers": {"X-Public": "origin-only"}}, "bad-handshake": peer::config("mcp::peer::stdio_peer", "bad_handshake")}),

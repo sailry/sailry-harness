@@ -4,7 +4,7 @@ use super::*;
 async fn resumes_without_replay() {
     for remote in [false, true] {
         let server = Server::loop_compaction(false).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -76,7 +76,7 @@ async fn resumes_without_replay() {
             panic!("fork expected")
         };
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(fixture.directory.path().join("node"))
+        let node = Node::start_empty(fixture.directory.path().join("node"))
             .await
             .unwrap();
         let client = Client::new(if remote {
@@ -108,7 +108,7 @@ async fn resumes_without_replay() {
 async fn cancels_before_next_model_call() {
     for remote in [false, true] {
         let server = Server::pending_loop_compaction().await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -157,7 +157,7 @@ async fn cancels_before_next_model_call() {
 async fn preserves_context_on_failure() {
     for remote in [false, true] {
         let server = Server::loop_compaction(true).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::files(remote, &server).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),

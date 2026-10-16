@@ -245,7 +245,7 @@ async fn isolates_failed_discovery() {
                     vec![(alias("remote", "write"), json!({"value":"once"}))]
                 };
                 let model = Server::tools(calls).await;
-                let fixture = process::Fixture::new(remote, &model).await;
+                let fixture = process::Fixture::packages(remote, &model, &[]).await;
                 package(
                     &fixture.root,
                     json!({"remote":{"type":"streamable-http", "url":http.endpoint}}),

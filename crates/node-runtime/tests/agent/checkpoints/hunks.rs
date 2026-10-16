@@ -416,7 +416,7 @@ async fn recovers_original_receipts_across_restart() {
         std::fs::write(fixture.root.join("source.txt"), replacement).unwrap();
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {

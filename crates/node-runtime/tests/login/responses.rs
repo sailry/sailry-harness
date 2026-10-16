@@ -18,7 +18,7 @@ async fn honors_vendor_pending_and_slow_down() {
             standard(request)
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = provider(&fixture.client, Authentication::Copilot).await;
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -50,7 +50,7 @@ async fn rejects_unsafe_responses() {
                     _ => unreachable!(),
                 }
             }).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = provider(&fixture.client, Authentication::Copilot).await;
             let (_, attempt) = begin(&fixture.client, &provider).await;
             let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();

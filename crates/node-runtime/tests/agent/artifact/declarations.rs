@@ -8,7 +8,7 @@ async fn uses_captured_class_declarations() {
             draft(None, None, "Captured"),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
         let original = install(&fixture, 0, "<html><body>Original renderer</body></html>").await;
         let Output::QueuedTurn(queued) = fixture
             .client
@@ -98,7 +98,7 @@ async fn retains_history_after_brief_removal() {
             draft(None, None, "Historical document"),
         )])
         .await;
-        let fixture = process::Fixture::new(remote, &server).await;
+        let fixture = process::Fixture::packages(remote, &server, &["brief"]).await;
         let Output::Plugin(package) = fixture
             .client
             .execute(fixture.client.prepare(Command::ReadPlugin {

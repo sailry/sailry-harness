@@ -28,7 +28,9 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -44,7 +46,8 @@ impl Fixture {
             node.local()
         };
         let client = Client::new(transport);
-        let (session, provider) = configured(&client, &server.endpoint, &root).await;
+        approvals::install(&client, &["files"]).await;
+        let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
         Self {
             directory,
             node,
@@ -115,7 +118,7 @@ impl Fixture {
         let id = self.node.id();
         self.node.shutdown().await.unwrap();
         self.controller.handle().disconnect(id).await;
-        self.node = Node::start(self.directory.path().join("node"))
+        self.node = Node::start_empty(self.directory.path().join("node"))
             .await
             .unwrap();
         self.client = Client::new(if self.remote {

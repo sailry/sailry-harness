@@ -16,7 +16,7 @@ async fn refreshes_expired_access_after_restart() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let reference = provider.credential.as_ref().unwrap();
@@ -107,9 +107,10 @@ pub(in super::super) async fn restart(fixture: Fixture, server: &Server, remote:
     drop(client);
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
-    let node = Node::start_with_authorization(directory.path().join("node"), &server.endpoint)
-        .await
-        .unwrap();
+    let node =
+        Node::start_empty_with_authorization(directory.path().join("node"), &server.endpoint)
+            .await
+            .unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -149,7 +150,7 @@ async fn refresh_survives_turn_cancellation() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = signed_in(&fixture, authentication, ModelApi::Responses).await;
             let first = session(&fixture, &provider).await;
             let second = session(&fixture, &provider).await;
@@ -208,7 +209,7 @@ async fn preserves_uncertain_rotation() {
                     }
                 } else { standard(request) }
             }).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
             let session = session(&fixture, &provider).await;
             if mode == "save" {
@@ -273,7 +274,7 @@ async fn preserves_revocation_during_refresh() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let (_, turn) = submit(&fixture.client, &session).await;
@@ -322,7 +323,7 @@ async fn admits_before_rotation() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let db =
@@ -361,7 +362,7 @@ async fn confines_generation_credentials() {
             }
         } else { standard(request) }
     }).await;
-    let mut fixture = Fixture::new(false, &server).await;
+    let mut fixture = Fixture::empty(false, &server).await;
     let mut credentials = std::collections::BTreeSet::new();
     for (authentication, api) in [
         (Authentication::ChatGpt, ModelApi::Responses),

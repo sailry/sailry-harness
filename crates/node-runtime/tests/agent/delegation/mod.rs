@@ -23,13 +23,22 @@ pub(super) fn model(id: &str) -> Model {
     }
 }
 
+async fn install(client: &Client) {
+    super::approvals::install(
+        client,
+        &["delegation", "files", "commands", "git", "worktrees"],
+    )
+    .await;
+}
+
 pub(super) async fn setup(
     client: &Client,
     root: &std::path::Path,
     parent: &Server,
     child: &Server,
 ) -> (Session, Provider, role::Profile) {
-    let (session, mut provider) = configured(client, &parent.endpoint, root).await;
+    install(client).await;
+    let (session, mut provider) = configured_session(client, &parent.endpoint, root).await;
     provider.models = vec![model("fixture-a")];
     provider.default_model = "fixture-a".into();
     client

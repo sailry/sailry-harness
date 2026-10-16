@@ -19,7 +19,7 @@ pub(super) async fn session(fixture: &process::Fixture) -> Session {
 async fn refreshes_next_input() {
     for remote in [false, true] {
         let model = Server::turn_tools(vec![(alias("native", "read"), json!({}))]).await;
-        let mut fixture = process::Fixture::new(remote, &model).await;
+        let mut fixture = process::Fixture::packages(remote, &model, &[]).await;
         isolate(&fixture.client).await;
         let original = fixture.session.clone();
         let (_, empty) = submit(&fixture, true).await;

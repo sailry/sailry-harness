@@ -22,6 +22,7 @@ export async function inspect() {
 "#;
 
 pub(super) async fn install(fixture: &Fixture) -> plugin::Info {
+    crate::approvals::install(&fixture.client, &["memory"]).await;
     let root = fixture.root().join("boundary");
     std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
     std::fs::write(root.join("dev.sailry.platform/host/main.js"), SOURCE).unwrap();
