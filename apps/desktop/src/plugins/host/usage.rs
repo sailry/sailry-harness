@@ -392,7 +392,13 @@ mod tests {
     #[test]
     fn selects_only_known_scoped_sources() {
         let fixture = crate::plugins::fixture::Fixture::new(true);
-        let client = Arc::new(Client::new(fixture.controller.local()));
+        let controller = fixture
+            .runtime
+            .block_on(sailry_node_runtime::Node::start_isolated(
+                fixture.directory.path().join("usage-controller"),
+            ))
+            .unwrap();
+        let client = Arc::new(Client::new(controller.local()));
         let Output::Plugin(package) = fixture
             .runtime
             .block_on(client.execute(client.prepare(Command::ReadPlugin {
@@ -434,7 +440,7 @@ mod tests {
                     .block_on(scoped.read_usage(empty_query()))
                     .unwrap()
                     .node,
-                fixture.controller.id()
+                controller.id()
             );
         }
         let selected = HostValue::from(node_key(fixture.node.id()));
@@ -488,6 +494,7 @@ mod tests {
         host.close();
         drop(host);
         drop(scoped);
+        fixture.runtime.block_on(controller.shutdown()).unwrap();
         fixture.close();
     }
 

@@ -1,7 +1,9 @@
 use crate::conversation::live::Binding;
 
 use sailry_client::Client;
-use sailry_link::{Admission, CancellationToken, Pending, Subscription, Transport};
+use sailry_link::{
+    Admission, CancellationToken, Link, NetworkScope, Pending, Subscription, Transport,
+};
 use sailry_node_runtime::Node;
 use sailry_protocol::{Command, Fault, NodeId, Output, Request, Session, Topic, Update};
 use std::sync::{
@@ -299,7 +301,7 @@ pub(crate) struct Fixture {
     pub directory: tempfile::TempDir,
     pub runtime: Arc<tokio::runtime::Runtime>,
     pub node: Node,
-    pub controller: Node,
+    controller: Option<Link>,
     pub transport: Arc<Observed>,
     pub binding: Binding,
     pub session: Session,
@@ -329,20 +331,24 @@ impl Fixture {
             None => runtime.block_on(Node::start_isolated(directory.path().join("node"))),
         }
         .unwrap();
-        let controller = runtime
-            .block_on(Node::start_isolated(directory.path().join("controller")))
-            .unwrap();
-        let address = runtime
-            .block_on(
-                controller
-                    .link()
-                    .pair(node.link().invite().unwrap().ticket()),
-            )
-            .unwrap();
-        let inner = if remote {
-            controller.link().remote(address)
+        let (controller, inner): (Option<Link>, Arc<dyn Transport>) = if remote {
+            let controller = runtime
+                .block_on(Link::controller(
+                    directory.path().join("controller"),
+                    NetworkScope::default(),
+                ))
+                .unwrap();
+            let address = runtime
+                .block_on(
+                    controller
+                        .handle()
+                        .pair(node.link().invite().unwrap().ticket()),
+                )
+                .unwrap();
+            let inner = controller.handle().remote(address);
+            (Some(controller), inner)
         } else {
-            node.local()
+            (None, node.local())
         };
         let transport = Observed::new(inner);
         let client = Arc::new(Client::new(transport.clone()));
@@ -484,7 +490,9 @@ impl Fixture {
 
     pub fn close(self) {
         self.runtime.block_on(self.node.shutdown()).unwrap();
-        self.runtime.block_on(self.controller.shutdown()).unwrap();
+        if let Some(controller) = self.controller {
+            self.runtime.block_on(controller.close()).unwrap();
+        }
     }
 }
 
