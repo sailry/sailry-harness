@@ -15,7 +15,7 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn start() -> Self {
+    async fn empty() -> Self {
         let temp = tempfile::tempdir().unwrap();
         let repository = init(&temp.path().join("repository"));
         let node = Node::start_empty(temp.path().join("node")).await.unwrap();
