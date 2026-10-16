@@ -499,8 +499,8 @@ async fn applies_retrieval_configuration() {
 #[tokio::test]
 async fn separates_archive_capacity() {
     for remote in [false, true] {
-        let (_directory, node, controller, client) = fixture(remote).await;
-        // Bounded fixture transactions seed the real catalog before production capacity mutations.
+        let (directory, node, controller, client) = fixture(remote).await;
+        // Build real package data once, then seed the closed profile in one owner transaction.
         let mut values = Vec::new();
         for index in 0..512 + 2048 - 1 {
             let mut value = entry(None, "Capacity fixture");
@@ -510,15 +510,65 @@ async fn separates_archive_capacity() {
         }
         let mut seeded = Vec::new();
         let context = support::context(&client).await;
+        let mut rows = Vec::new();
+        let mut catalog = Value::Null;
+        let mut head = String::new();
         for batch in values.chunks(256) {
-            let result: Vec<Entry> =
-                support::run(&client, &context, json!({"action":"seed","entries":batch}))
-                    .await
-                    .unwrap();
+            let result: Value = support::run(
+                &client,
+                &context,
+                json!({"action":"seedPlan","entries":batch,"catalog":catalog}),
+            )
+            .await
+            .unwrap();
             if seeded.is_empty() {
-                seeded.extend(result.into_iter().take(2));
+                seeded = serde_json::from_value::<Vec<Entry>>(result["saved"].clone())
+                    .unwrap()
+                    .into_iter()
+                    .take(2)
+                    .collect();
             }
+            rows.extend(result["rows"].as_array().unwrap().iter().cloned());
+            catalog = result["catalog"].clone();
+            head = result["head"].as_str().unwrap().to_owned();
         }
+        drop(client);
+        node.shutdown().await.unwrap();
+        let profile = directory.path().join("node");
+        {
+            let mut database =
+                rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+            assert_eq!(
+                database
+                    .query_row(
+                        "SELECT count(*) FROM plugin_values WHERE name='memory'",
+                        [],
+                        |row| row.get::<_, i64>(0)
+                    )
+                    .unwrap(),
+                0
+            );
+            let transaction = database.transaction().unwrap();
+            for row in rows {
+                let index =
+                    (!row["index"].is_null()).then(|| serde_json::to_vec(&row["index"]).unwrap());
+                transaction.execute("INSERT INTO plugin_values(name,key,revision,value,index_data) VALUES('memory',?1,1,?2,?3)", rusqlite::params![row["key"].as_str().unwrap(),serde_json::to_vec(&row["value"]).unwrap(),index]).unwrap();
+            }
+            transaction
+                .execute(
+                    "INSERT INTO plugin_values(name,key,revision,value) VALUES('memory',?1,1,?2)",
+                    rusqlite::params![head, serde_json::to_vec(&catalog).unwrap()],
+                )
+                .unwrap();
+            transaction.commit().unwrap();
+        }
+        // Startup's existing schema owner rebuilds and validates the derived keyword index.
+        let node = Node::start_empty(profile).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
         assert_eq!(support::list(&client).await.unwrap().len(), 2559);
         let fresh = entry(None, "New constraint");
         assert_eq!(
