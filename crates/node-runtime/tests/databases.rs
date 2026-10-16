@@ -220,7 +220,9 @@ async fn exercise_transport(
                     .unwrap_err();
                 assert_eq!(error.code, ErrorCode::Unavailable);
                 assert!(
-                    error.message.to_ascii_lowercase().contains("tls"),
+                    error
+                        .message
+                        .contains("invalid peer certificate: UnknownIssuer"),
                     "{error:?}"
                 );
                 assert!(!error.message.contains(servers::PASSWORD));
