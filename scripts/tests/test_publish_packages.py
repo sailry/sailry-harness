@@ -1,6 +1,7 @@
 """Layered publishers preserve released tags and existing assets without network writes."""
 
 import copy
+import subprocess
 import importlib.util
 from pathlib import Path
 import tempfile
@@ -214,6 +215,78 @@ class ReleaseLookup(unittest.TestCase):
             self.assertTrue(all(call.args[0] == "GET" for call in client.api.call_args_list))
 
 
+class SourceReuse(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.git("init", "--quiet")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.git("config", "user.name", "Fixture")
+        for name in {*publication.SIGNING_FIX_FILES, "Cargo.toml", "crates/node-runtime/src/lib.rs"}:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("original\n")
+        self.parent = self.commit()
+
+    def git(self, *args):
+        return subprocess.check_output(["git", "-C", str(self.root), *args], stderr=subprocess.PIPE, text=True).strip()
+
+    def commit(self):
+        self.git("add", ".")
+        self.git("commit", "--quiet", "-m", "Fixture")
+        return self.git("rev-parse", "HEAD")
+
+    def test_admits_only_modified_signing_tools(self):
+        for name in publication.SIGNING_FIX_FILES:
+            (self.root / name).write_text("reviewed signing fix\n")
+        commit = self.commit()
+        self.assertEqual(publication.checked_source(commit, self.root), self.parent)
+
+    def test_rejects_product_inputs_and_unlisted_tools(self):
+        for name in ("Cargo.toml", "Cargo.lock", "crates/node-runtime/src/lib.rs", ".github/workflows/release.yml"):
+            with self.subTest(name=name):
+                path = self.root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("unverified input\n")
+                commit = self.commit()
+                self.assertIsNone(publication.checked_source(commit, self.root))
+
+    def test_rejects_binary_deletion_and_type_changes(self):
+        path = self.root / "scripts/package/sign-macos.py"
+        path.write_bytes(b"binary\0fixture")
+        self.assertIsNone(publication.checked_source(self.commit(), self.root))
+        path.unlink()
+        self.assertIsNone(publication.checked_source(self.commit(), self.root))
+        path.symlink_to("../../../Cargo.toml")
+        self.assertIsNone(publication.checked_source(self.commit(), self.root))
+
+    def test_rejects_renames_and_gitlinks(self):
+        path = self.root / "scripts/package/sign-macos.py"
+        path.rename(path.with_name("renamed.py"))
+        self.assertIsNone(publication.checked_source(self.commit(), self.root))
+        self.git("update-index", "--add", "--cacheinfo", "160000," + self.parent + ",plugins")
+        self.git("commit", "--quiet", "-m", "Gitlink fixture")
+        self.assertIsNone(publication.checked_source(self.git("rev-parse", "HEAD"), self.root))
+
+    def test_rejects_merges_and_other_checkouts(self):
+        tree = self.git("rev-parse", "HEAD^{tree}")
+        other = self.git("commit-tree", tree, "-p", self.parent, "-m", "Other parent")
+        merge = self.git("commit-tree", tree, "-p", self.parent, "-p", other, "-m", "Merge")
+        self.git("checkout", "--quiet", "--detach", merge)
+        self.assertIsNone(publication.checked_source(merge, self.root))
+        self.assertIsNone(publication.checked_source(self.parent, self.root))
+
+    def test_fetches_only_the_shallow_parent(self):
+        (self.root / "scripts/package/sign-macos.py").write_text("reviewed fix\n")
+        commit = self.commit()
+        clone = self.root / "shallow"
+        subprocess.run(["git", "clone", "--quiet", "--depth=1", "file://" + str(self.root), str(clone)],
+                       capture_output=True, check=True)
+        self.assertEqual(publication.checked_source(commit, clone), self.parent)
+        self.assertEqual(self.git("rev-parse", "HEAD"), commit)
+
+
 class Readiness(unittest.TestCase):
     def run_fixture(self, gate="success", event="push", branch="main", sha=COMMIT, overall="failure"):
         client = Mock()
@@ -225,6 +298,27 @@ class Readiness(unittest.TestCase):
                      [{"name": "Desktop ready", "status": "completed", "conclusion": gate}]},
         ]
         return client
+
+    def test_exact_checks_take_precedence(self):
+        with patch.object(publication, "checked_source") as source:
+            self.assertEqual(publication.readiness(self.run_fixture(), REPOSITORY, COMMIT, "desktop"), 42)
+        source.assert_not_called()
+
+    def test_reuses_only_successful_direct_parent_checks(self):
+        parent = "b" * 40
+        for gate in ("success", "failure"):
+            with self.subTest(gate=gate):
+                fixture = self.run_fixture(gate=gate, sha=parent)
+                responses = list(fixture.api.side_effect)
+                fixture.api.side_effect = [{"workflow_runs": []}, *responses]
+                with patch.object(publication, "checked_source", return_value=parent) as source:
+                    if gate == "success":
+                        self.assertEqual(publication.readiness(fixture, REPOSITORY, COMMIT, "desktop"), 42)
+                    else:
+                        with self.assertRaises(ValueError):
+                            publication.readiness(fixture, REPOSITORY, COMMIT, "desktop")
+                source.assert_called_once_with(COMMIT)
+                self.assertIn("head_sha=" + parent, fixture.api.call_args_list[1].args[1])
 
     def test_product_success_admits_despite_other_product_failure(self):
         client = self.run_fixture()

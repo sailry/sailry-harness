@@ -16,6 +16,48 @@ PREREQUISITES = {
 }
 
 
+# Product Checks remain valid when only the reviewed signing tool and its
+# provenance checks change. This list deliberately excludes all build inputs.
+SIGNING_FIX_FILES = frozenset({
+    "scripts/package/sign-macos.py",
+    "scripts/package/publication.py",
+    "scripts/tests/test_macos_package.py",
+    "scripts/tests/test_publish_packages.py",
+})
+
+
+def checked_source(commit, root=None):
+    root = root or versions.ROOT
+    def git(*arguments, check=True):
+        result = subprocess.run(["git", "-C", str(root), *arguments], capture_output=True)
+        if check and result.returncode:
+            raise ValueError("The release source could not be verified")
+        return result
+    if git("rev-parse", "HEAD").stdout.decode().strip() != commit:
+        return None
+    header = git("cat-file", "-p", commit).stdout.split(b"\n\n", 1)[0]
+    parents = [line.split(b" ", 1)[1].decode() for line in header.splitlines() if line.startswith(b"parent ")]
+    if len(parents) != 1:
+        return None
+    parent = parents[0]
+    if git("cat-file", "-e", parent + "^{commit}", check=False).returncode:
+        git("fetch", "--quiet", "--no-tags", "--depth=1", "origin", parent)
+    changes = git("diff", "--raw", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", parent, commit, "--").stdout.split(b"\0")
+    if changes == [b""]:
+        return None
+    for index in range(0, len(changes) - 1, 2):
+        fields = changes[index].split()
+        path = changes[index + 1].decode()
+        if (path not in SIGNING_FIX_FILES or fields[-1] != b"M"
+                or fields[0] != b":" + fields[1]
+                or fields[1] not in {b"100644", b"100755"}):
+            return None
+    counts = git("diff", "--numstat", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", "--ignore-submodules=none", parent, commit, "--").stdout
+    if any(row.split(b"\t", 2)[:2] == [b"-", b"-"] for row in counts.split(b"\0") if row):
+        return None
+    return parent
+
+
 class GitHub:
     def api(self, method, endpoint, payload=None, missing=False):
         command = ["gh", "api", "--method", method, endpoint]
@@ -86,7 +128,7 @@ def release(client, repository, tag, commit, published=False):
     return metadata
 
 
-def readiness(client, repository, commit, component):
+def ready_run(client, repository, commit, component):
     gate = f"{component.title()} ready"
     required = {*PREREQUISITES[component], gate}
     page = 1
@@ -104,7 +146,20 @@ def readiness(client, repository, commit, component):
         if len(runs) < 100:
             break
         page += 1
-    raise ValueError(f"The exact release commit needs a successful {gate} gate from full main Checks")
+    return None
+
+
+def readiness(client, repository, commit, component):
+    run = ready_run(client, repository, commit, component)
+    if run is not None:
+        return run
+    source = checked_source(commit)
+    if source is not None:
+        run = ready_run(client, repository, source, component)
+        if run is not None:
+            print(f"Reused product Checks for unchanged source {source}; only signing tools differ")
+            return run
+    raise ValueError(f"The release product needs a successful {component.title()} ready gate from full main Checks")
 
 
 def event(metadata, repository):
