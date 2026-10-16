@@ -27,6 +27,7 @@ PREREQUISITES = {
 SIGNING_FIX_FILES = frozenset({
     ".github/workflows/release.yml",
     "scripts/package/dmg.py",
+    "scripts/package/notarize-macos.py",
     "scripts/package/sign-macos.py",
     "scripts/package/publication.py",
     "scripts/tests/test_macos_package.py",
