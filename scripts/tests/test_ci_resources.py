@@ -290,7 +290,7 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("python3 scripts/ci.py speech-key x86_64-unknown-linux-gnu", workflow)
 
 
-    def test_reuses_only_compressed_dependency_sources(self):
+    def test_reuses_sources_without_extracted_duplicates(self):
         action = (ROOT / ".github/actions/rust-cache/action.yml").read_text()
         workflows = [(ROOT / f".github/workflows/{name}.yml").read_text()
                      for name in ("ci", "release", "release-host")]
@@ -331,16 +331,22 @@ class CacheUsage(unittest.TestCase):
             first = root / "macos/.cargo"
             workspace = root / "workspace"
             workspace.mkdir()
-            for relative in ("registry/cache/crates/example-1.0.crate", "git/db/example/objects/pack/data.pack",
-                             "registry/src/example/src.rs", "git/checkouts/example/src.rs"):
+            for relative in ("registry/index/crates/.cache/ex/am/example",
+                             "registry/index/crates/config.json", "registry/cache/crates/example-1.0.crate",
+                             "git/db/example/objects/pack/data.pack", "registry/src/example/src.rs",
+                             "git/checkouts/example/src.rs"):
                 path = first / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"fixture")
+            metadata = b'\x03\x02\0\0\0etag: "fixture"\0' + b'{"name":"example","vers":"1.0.0"}\0'
+            (first / "registry/index/crates/.cache/ex/am/example").write_bytes(metadata)
             ci.cache_sources("save", workspace, first)
             self.assertFalse((workspace / ".cargo-sources/registry/src").exists())
             self.assertFalse((workspace / ".cargo-sources/git/checkouts").exists())
             second = root / "linux/.cargo"
             ci.cache_sources("restore", workspace, second)
+            self.assertEqual((second / "registry/index/crates/.cache/ex/am/example").read_bytes(), metadata)
+            self.assertEqual((second / "registry/index/crates/config.json").read_bytes(), b"fixture")
             self.assertEqual((second / "registry/cache/crates/example-1.0.crate").read_bytes(), b"fixture")
             self.assertEqual((second / "git/db/example/objects/pack/data.pack").read_bytes(), b"fixture")
 

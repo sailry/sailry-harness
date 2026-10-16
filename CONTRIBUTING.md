@@ -160,11 +160,11 @@ do not establish acceptance. Signed release packaging builds exact version tags.
 Node integration features share eight compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
 appropriate suite; the source check rejects missing or duplicate registrations.
-Rust caches retain compressed registry archives and Git databases; Cargo recreates
-unpacked sources and checkouts. A single backend producer fetches the locked
-workspace sources, shared by Checks and release jobs. Target directories are not
-archived, to leave room within the repository's 10 GiB cache budget. Cargo
-validates fingerprints and rebuilds changed inputs.
+Rust caches retain registry index metadata, compressed crate archives and Git
+databases; Cargo recreates unpacked sources and checkouts. A single backend
+producer fetches the locked workspace sources, shared by Checks and release jobs.
+Target directories are not archived, to leave room within the repository's 10 GiB
+cache budget. Cargo validates fingerprints and rebuilds changed inputs.
 The pinned sccache compiler cache reuses Rust library compilation by content;
 test executables still need linking. Main produces compiler objects; PRs read
 them. SDKs, targets and profile flags remain part of compiler identity; release

@@ -169,7 +169,7 @@ def require_results(results, product=None):
 def cache_sources(mode, workspace, home):
     archive = workspace / ".cargo-sources"
     source, destination = (home, archive) if mode == "save" else (archive, home)
-    for relative in ("registry/cache", "git/db"):
+    for relative in ("registry/index", "registry/cache", "git/db"):
         directory = source / relative
         if directory.is_dir():
             shutil.copytree(directory, destination / relative, dirs_exist_ok=True)
