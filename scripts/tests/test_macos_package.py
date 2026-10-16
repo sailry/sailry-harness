@@ -324,13 +324,54 @@ class DiskImage(unittest.TestCase):
             root = Path(directory)
             app = root / "Sailry.app"
             app.mkdir()
-            with patch.object(dmg, "run") as run, patch.dict(dmg.os.environ, {"APPLE_SIGNING_IDENTITY":"Fixture identity", "APPLE_SIGNING_KEYCHAIN":"Fixture keychain"}):
+            with patch.object(dmg, "run") as run, \
+                    patch.object(dmg.signing_tools, "keychain_scope", return_value=nullcontext()) as scope, \
+                    patch.dict(dmg.os.environ, {"APPLE_SIGNING_IDENTITY":"Fixture identity", "APPLE_SIGNING_KEYCHAIN":"Fixture keychain"}):
                 dmg.create(app, root / "Sailry.dmg", "developer-id")
+            scope.assert_called_once_with("Fixture keychain", "Fixture identity")
             calls = [call.args for call in run.call_args_list]
             self.assertEqual([call[0] for call in calls], ["hdiutil", "codesign", "codesign", "hdiutil"])
             self.assertIn("--timestamp", calls[1])
             self.assertIn("ai.sailry.disk-image", calls[1])
             self.assertIn("--keychain", calls[1])
+
+    def test_image_signing_restores_keychain_after_failure(self):
+        for fails in (False, True):
+            with self.subTest(fails=fails), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                app = root / "Sailry.app"
+                app.mkdir()
+                events = []
+                def security(*arguments):
+                    events.append(arguments)
+                    if arguments == ("security", "list-keychains", "-d", "user"):
+                        return '"/login" "/system"'
+                    if arguments[1] == "find-identity":
+                        return '1) ' + "A" * 40 + ' "Fixture identity"'
+                    return ""
+                def command(*arguments):
+                    events.append(arguments)
+                    if fails and arguments[0:2] == ("codesign", "--sign"):
+                        raise RuntimeError("Image signing failed")
+                with patch.object(dmg.signing_tools, "run", side_effect=security), \
+                        patch.object(dmg, "run", side_effect=command), \
+                        patch.dict(dmg.os.environ, {"APPLE_SIGNING_IDENTITY":"A" * 40, "APPLE_SIGNING_KEYCHAIN":"/temporary"}):
+                    if fails:
+                        with self.assertRaisesRegex(RuntimeError, "Image signing failed"):
+                            dmg.create(app, root / "Sailry.dmg", "developer-id")
+                    else:
+                        dmg.create(app, root / "Sailry.dmg", "developer-id")
+                names = [event[0:2] for event in events]
+                self.assertEqual(names[:5], [("hdiutil", "create"), ("security", "list-keychains"),
+                                            ("security", "list-keychains"), ("security", "find-identity"),
+                                            ("codesign", "--sign")])
+                self.assertEqual(events[2], ("security", "list-keychains", "-d", "user", "-s", "/login", "/system", "/temporary"))
+                restore = ("security", "list-keychains", "-d", "user", "-s", "/login", "/system")
+                if fails:
+                    self.assertEqual(events[-1], restore)
+                else:
+                    self.assertEqual(events[-2], restore)
+                    self.assertEqual(names[-3:], [("codesign", "--verify"), ("security", "list-keychains"), ("hdiutil", "verify")])
 
 
 class Components(unittest.TestCase):
