@@ -128,7 +128,7 @@ jobs:
       - name: Fetch locked workspace sources
         id: workspace-sources
         continue-on-error: true
-        if: github.ref == 'refs/heads/main' && steps.rust-cache.outputs.source-hit != 'true'
+        if: github.ref == 'refs/heads/main' && steps.rust-cache.outputs.source-key != '' && steps.rust-cache.outputs.source-hit != 'true'
         run: cargo fetch --locked
       - name: Speech cache identity
         id: speech-key

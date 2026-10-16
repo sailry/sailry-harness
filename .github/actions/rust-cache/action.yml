@@ -3,7 +3,7 @@ description: Reuse compiler objects and compressed dependency sources without ta
 outputs:
   source-key:
     description: Dependency source archive key
-    value: ${{ steps.sources.outputs.cache-primary-key }}
+    value: ${{ steps.source-key.outputs.key }}
   source-hit:
     description: Whether the exact source archive was restored
     value: ${{ steps.sources.outputs.cache-hit }}
@@ -32,15 +32,21 @@ runs:
       run: |
         echo 'RUSTC_WRAPPER=' >> "$GITHUB_ENV"
         echo '::warning::Compiler cache unavailable; continuing with rustc'
+    - name: Dependency source identity
+      id: source-key
+      continue-on-error: true
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci.py" source-key "$GITHUB_WORKSPACE/Cargo.lock"
     - name: Compressed dependency sources
       id: sources
+      if: steps.source-key.outcome == 'success'
       continue-on-error: true
       uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
       with:
         # A relative staging path keeps tar entries portable between runner HOMEs.
         # Cargo recreates src/checkouts from compressed originals; no OS/profile variants.
         path: .cargo-sources
-        key: cargo-sources-v1-${{ hashFiles('Cargo.lock') }}
+        key: ${{ steps.source-key.outputs.key }}
         restore-keys: cargo-sources-v1-
         enableCrossOsArchive: true
     - name: Restore Cargo originals
