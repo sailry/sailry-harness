@@ -46,6 +46,65 @@ async fn submit(client: &Client, session: SessionId) -> TurnId {
     turn.id
 }
 
+struct Completion<'a> {
+    client: &'a Client,
+    session: SessionId,
+    updates: Box<dyn sailry_link::Subscription>,
+    projection: sailry_client::conversation::Projection,
+}
+
+impl<'a> Completion<'a> {
+    async fn new(client: &'a Client, session: SessionId) -> Self {
+        Self {
+            client,
+            session,
+            updates: client.subscribe_conversation(session).await.unwrap(),
+            projection: sailry_client::conversation::Projection::new(client.target(), session, 0),
+        }
+    }
+
+    async fn wait(&mut self, turn: TurnId) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let applied = self
+                    .projection
+                    .apply(0, self.updates.next().await.unwrap())
+                    .unwrap();
+                assert_ne!(
+                    applied,
+                    sailry_client::Apply::Recover,
+                    "unexpected seed reset"
+                );
+                if let Some(run) = self
+                    .projection
+                    .snapshot()
+                    .and_then(|snapshot| snapshot.page.runs.iter().find(|run| run.turn == turn))
+                    && !matches!(
+                        run.status,
+                        Status::Queued | Status::Running | Status::Stopping
+                    )
+                {
+                    assert_eq!(run.status, Status::Completed, "{run:?}");
+                    break;
+                }
+            }
+            // The terminal frame can precede later entry frames in the same commit.
+            let complete = self
+                .client
+                .read_conversation(self.session, None, 1)
+                .await
+                .unwrap();
+            assert!(complete.missing.is_empty());
+            assert_eq!(complete.page.runs.len(), 1);
+            let latest = &complete.page.runs[0];
+            assert_eq!(latest.turn, turn);
+            assert_eq!(latest.status, Status::Completed);
+        })
+        .await
+        .expect("Agent completion deadline");
+    }
+}
+
 #[tokio::test]
 async fn restores_streamed_turns() {
     for remote in [false, true] {
@@ -193,12 +252,13 @@ async fn restores_streamed_turns() {
         stop.cancel();
         worker.await.unwrap().unwrap();
         let mut turns = vec![first];
+        let mut completion = Completion::new(&client, session.id).await;
         for _ in 0..24 {
             let turn = submit(&client, session.id).await;
-            super::finished(&client, session.id, turn).await;
+            completion.wait(turn).await;
             turns.push(turn);
         }
-
+        drop(completion);
         let observed = Arc::new(Observed::new(transport));
         let watching = Arc::new(Client::new(observed.clone()));
         let (updates, mut view) = watch::channel(View::default());
@@ -294,10 +354,12 @@ async fn restores_streamed_turns() {
                 .unwrap()
                 .page
         );
+        let mut completion = Completion::new(&client, session.id).await;
         for _ in 0..24 {
             let turn = submit(&client, session.id).await;
-            super::finished(&client, session.id, turn).await;
+            completion.wait(turn).await;
         }
+        drop(completion);
         let all = client
             .read_conversation(session.id, None, 100)
             .await

@@ -31,6 +31,7 @@ async fn follows_latest_target() {
         let server = Server::start(false).await;
         let session = approvals::prepare(&client, &server, &root).await;
         let mut turns = Vec::new();
+        let mut completion = Completion::new(&client, session.id).await;
         for index in 0..65 {
             let Output::QueuedTurn(turn) = client
                 .execute(client.prepare(Command::SubmitTurn {
@@ -43,9 +44,10 @@ async fn follows_latest_target() {
             else {
                 panic!("turn expected")
             };
-            super::super::finished(&client, session.id, turn.id).await;
+            completion.wait(turn.id).await;
             turns.push(turn.id);
         }
+        drop(completion);
         let matches = client
             .search_conversation(
                 session.id,
