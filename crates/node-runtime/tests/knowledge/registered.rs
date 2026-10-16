@@ -235,9 +235,10 @@ async fn shares_installation_restore_and_isolated_removal() {
             worktree: _,
         } = fixture;
         node.shutdown().await.unwrap();
-        let node = Node::start_with_plugin_catalog(temp.path().join("node"), "http://127.0.0.1:9/")
-            .await
-            .unwrap();
+        let node =
+            Node::start_empty_with_plugin_catalog(temp.path().join("node"), "http://127.0.0.1:9/")
+                .await
+                .unwrap();
         let client = if remote {
             Client::new(controller.handle().remote(node.link().address()))
         } else {

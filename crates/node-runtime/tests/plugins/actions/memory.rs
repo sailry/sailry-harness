@@ -36,7 +36,8 @@ async fn run<T: serde::de::DeserializeOwned>(
 #[tokio::test]
 async fn confines_scoped_access_and_private_namespace() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         install(&client, directory.path(), worktree).await;
         let mut context = support::context(&client).await;
         let session = scopes::session(&client, worktree).await;
@@ -162,7 +163,8 @@ async fn confines_scoped_access_and_private_namespace() {
 #[tokio::test]
 async fn recovers_receipts_and_rechecks_live_authority() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         install(&client, directory.path(), worktree).await;
         let mut context = support::context(&client).await;
         let session = scopes::session(&client, worktree).await;

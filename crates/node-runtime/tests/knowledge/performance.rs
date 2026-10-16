@@ -390,7 +390,7 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
         drop(client);
         node.shutdown().await.unwrap();
         fs::remove_file(profile.join("storage/knowledge.db")).unwrap();
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        let node = Node::start_empty_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
         let client = Client::new(if remote {

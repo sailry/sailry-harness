@@ -35,7 +35,7 @@ async fn local_and_remote_creation() {
     let root = temp.path().join("repository");
     let repository = init(&root);
     let base = repository.head().unwrap().peel_to_commit().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let project = register(&local, &root).await;
     let other_root = temp.path().join("other");
@@ -152,7 +152,7 @@ async fn local_and_remote_creation() {
     let profile = node.profile().to_owned();
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
-    let node = Node::start(profile).await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
     let after = snapshot(&Client::new(node.local())).await;
     assert_eq!(after.worktrees, before.worktrees);
     assert_eq!(after.sessions, before.sessions);
@@ -165,7 +165,7 @@ async fn preserves_conflicting_entries() {
     let root = temp.path().join("repository");
     let repository = init(&root);
     let head = repository.head().unwrap().target().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let project = register(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -256,7 +256,7 @@ async fn preserves_partial_creation() {
     let root = temp.path().join("repository");
     let repository = init(&root);
     let head = repository.head().unwrap().target().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let project = register(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -302,7 +302,7 @@ async fn recovers_lost_result() {
         let repository = init(&root);
         let head = repository.head().unwrap().target().unwrap();
         let profile = temp.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
             .await
             .unwrap();
@@ -339,7 +339,7 @@ async fn recovers_lost_result() {
         drop(db);
         node.shutdown().await.unwrap();
         std::fs::write(destination.join("file"), "later edit").unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -373,7 +373,7 @@ async fn recovers_lost_result() {
             b"later edit"
         );
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

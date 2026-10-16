@@ -10,7 +10,7 @@ mod server;
 #[tokio::test]
 async fn releases_half_closed_routes() {
     for remote in [false, true] {
-        let fixture = files::Fixture::start().await;
+        let fixture = files::Fixture::empty().await;
         let server = server::Server::start().await;
         let clients = fixture.clients();
         let client = &clients[usize::from(remote)];
@@ -99,7 +99,7 @@ async fn releases_half_closed_routes() {
 async fn belongs_to_host_without_projects() {
     for remote in [false, true] {
         let temp = tempfile::tempdir().unwrap();
-        let node = sailry_node_runtime::Node::start(temp.path().join("node"))
+        let node = sailry_node_runtime::Node::start_empty(temp.path().join("node"))
             .await
             .unwrap();
         let controller = sailry_link::Link::controller(

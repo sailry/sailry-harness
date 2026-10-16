@@ -28,7 +28,9 @@ async fn rejects_unverified_installer_without_replay() {
         )
         .unwrap();
         let server = server::Server::deployment(directory.path().into(), 47).await;
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -90,10 +92,12 @@ async fn deploys_and_pairs() {
         downloads(directory.path());
         release(directory.path());
         let server = server::Server::deployment(directory.path().into(), 46).await;
-        let node =
-            Node::start_with_network(directory.path().join("desktop"), NetworkScope::Internet)
-                .await
-                .unwrap();
+        let node = Node::start_empty_with_network(
+            directory.path().join("desktop"),
+            NetworkScope::Internet,
+        )
+        .await
+        .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::Internet)
                 .await

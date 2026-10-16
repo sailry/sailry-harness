@@ -26,25 +26,6 @@ async fn session(
     endpoint: &str,
     api: ModelApi,
 ) -> (Session, Provider) {
-    for name in ["context7", "github"] {
-        let Output::Plugin(package) = client
-            .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
-            .await
-            .unwrap()
-        else {
-            panic!("shipped package expected")
-        };
-        if package.summary.enabled {
-            client
-                .execute(client.prepare(Command::SetPluginEnabled {
-                    name: package.summary.name,
-                    expected_revision: package.summary.revision,
-                    enabled: false,
-                }))
-                .await
-                .unwrap();
-        }
-    }
     let provider = Provider {
         oauth: None,
         options: match api {

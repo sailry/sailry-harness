@@ -23,7 +23,7 @@ async fn start(client: &Client, turn: &QueuedTurn) {
 
 #[tokio::test]
 async fn verifies_after_approval() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::packages(&["commands"]).await;
     let bytes = vec![0; adk_core::MAX_INLINE_DATA_SIZE + 1];
     for client in fixture.clients() {
         let file = upload(
@@ -89,7 +89,7 @@ async fn verifies_after_approval() {
 async fn releases_copies() {
     for remote in [false, true] {
         for shutdown in [false, true] {
-            let mut fixture = Fixture::start().await;
+            let mut fixture = Fixture::packages(&["commands"]).await;
             let client = fixture
                 .clients()
                 .into_iter()
@@ -131,7 +131,7 @@ async fn releases_copies() {
             if shutdown {
                 let profile = fixture.node.profile().to_owned();
                 fixture.node.shutdown().await.unwrap();
-                fixture.node = Node::start(profile).await.unwrap();
+                fixture.node = Node::start_empty(profile).await.unwrap();
                 let client = fixture
                     .clients()
                     .into_iter()

@@ -7,7 +7,8 @@ use sailry_protocol::{
 #[tokio::test]
 async fn binds_canonical_reads_to_enabled_page_packages() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::packages(remote, &["statistics"]).await;
         let Output::Plugin(package) = execute(
             &client,
             Command::ReadPlugin {

@@ -15,7 +15,7 @@ async fn restores_explicit_shells() {
     let root = temp.path().join("project");
     std::fs::create_dir(&root).unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let local = Client::new(node.local());
     local
         .execute(local.prepare(Command::RegisterProject {
@@ -52,7 +52,7 @@ async fn restores_explicit_shells() {
         .unwrap();
     node.shutdown().await.unwrap();
 
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();

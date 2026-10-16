@@ -11,7 +11,7 @@ async fn refreshes_pages_without_persistence() {
     for index in (0..1200).rev() {
         std::fs::write(project.join(format!("{index:04}.txt")), "fixture").unwrap();
     }
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     local
         .execute(local.prepare(Command::RegisterProject {

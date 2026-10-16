@@ -4,7 +4,7 @@ use serde_json::json;
 #[tokio::test]
 async fn keeps_compatible_pdf_turns_usable() {
     for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
-        let fixture = Fixture::start().await;
+        let fixture = Fixture::packages(&["files"]).await;
         for (index, client) in fixture.clients().into_iter().enumerate() {
             let bytes = include_bytes!("../../../src/office/fixtures/report.pdf");
             let name = if index == 0 {
@@ -130,7 +130,7 @@ async fn keeps_compatible_pdf_turns_usable() {
 
 #[tokio::test]
 async fn reads_visible_document_attachments() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::packages(&["files"]).await;
     let server = server::Server::scripted_tools(vec![]).await;
     for client in fixture.clients() {
         let (session, mut provider) = session(

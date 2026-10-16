@@ -3,7 +3,7 @@ use tokio::io::AsyncWriteExt;
 
 #[tokio::test]
 async fn checks_owners() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let clients = fixture.clients();
     for (index, client) in clients.iter().enumerate() {
         let other = &clients[1 - index];
@@ -106,7 +106,7 @@ async fn checks_owners() {
 
 #[tokio::test]
 async fn rejects_invalid_specs() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for client in fixture.clients() {
         let valid = spec(fixture.worktree, "file", b"bytes");
         for invalid in [
@@ -154,7 +154,7 @@ async fn rejects_invalid_specs() {
 
 #[tokio::test]
 async fn cancels_unpublished_streams() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let database =
         rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3")).unwrap();
     for client in fixture.clients() {

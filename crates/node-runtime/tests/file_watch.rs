@@ -24,7 +24,9 @@ async fn shares_transient_invalidation() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("project");
     std::fs::create_dir(&root).unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let local = Client::new(node.local());
     local
         .execute(local.prepare(Command::RegisterProject {
@@ -111,7 +113,7 @@ async fn reconnects_and_revokes() {
     let path = directory.path().join("node");
     let root = directory.path().join("project");
     std::fs::create_dir(&root).unwrap();
-    let node = Node::start(&path).await.unwrap();
+    let node = Node::start_empty(&path).await.unwrap();
     let local = Client::new(node.local());
     local
         .execute(local.prepare(Command::RegisterProject {
@@ -147,7 +149,7 @@ async fn reconnects_and_revokes() {
     node.shutdown().await.unwrap();
     wait(&mut updates, |view| !view.connected && view.error.is_some()).await;
     std::fs::write(root.join("offline.txt"), "changed while disconnected").unwrap();
-    let node = Node::start_with_network(&path, NetworkScope::Direct(socket))
+    let node = Node::start_empty_with_network(&path, NetworkScope::Direct(socket))
         .await
         .unwrap();
     wait(&mut updates, |view| {

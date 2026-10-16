@@ -74,7 +74,8 @@ async fn state(client: &Client, attempt: &Attempt, ready: impl Fn(&State) -> boo
 async fn persists_credentials_without_public_secrets() {
     for remote in [false, true] {
         let issuer = server::Server::start(vec![]).await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         node.set_plugin_registration_fixture(&issuer.endpoint);
         configure(&directory.path().join("source/package"));
         let package = installed(execute(&client, install(worktree, 0)).await)
@@ -215,7 +216,8 @@ async fn persists_credentials_without_public_secrets() {
 async fn rejects_stale_scopes_and_cancels_polling() {
     for remote in [false, true] {
         let issuer = server::Server::start(vec![]).await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         node.set_plugin_registration_fixture(&issuer.endpoint);
         configure(&directory.path().join("source/package"));
         let package = installed(execute(&client, install(worktree, 0)).await)
@@ -313,7 +315,8 @@ async fn preserves_settings_after_revision_change() {
     for remote in [false, true] {
         for change in ["unrelated", "id", "secret", "cleared", "disabled"] {
             let issuer = server::Server::start(vec![]).await;
-            let (directory, node, controller, client, worktree) = fixture(remote).await;
+            let (directory, node, controller, client, worktree) =
+                crate::plugins::support::empty(remote).await;
             node.set_plugin_registration_fixture(&issuer.endpoint);
             configure(&directory.path().join("source/package"));
             let package = installed(execute(&client, install(worktree, 0)).await)
@@ -525,7 +528,8 @@ async fn preserves_settings_after_revision_change() {
 async fn cancels_original_before_explicit_refresh() {
     for remote in [false, true] {
         let issuer = server::Server::start(vec![]).await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         node.set_plugin_registration_fixture(&issuer.endpoint);
         configure(&directory.path().join("source/package"));
         let package = installed(execute(&client, install(worktree, 0)).await)

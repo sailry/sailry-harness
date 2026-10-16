@@ -103,7 +103,9 @@ async fn shares_shell_lifecycle() {
         let root = directory.path().join("ssh-target");
         std::fs::create_dir(&root).unwrap();
         let server = server::Server::start(root.clone(), 47).await;
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -260,7 +262,9 @@ async fn retains_shell_after_profile_removal() {
         let root = directory.path().join("ssh-target");
         std::fs::create_dir(&root).unwrap();
         let server = server::Server::start(root, 48).await;
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

@@ -52,7 +52,7 @@ async fn retains_capture_through_refresh() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let provider = configured(&fixture, Some(initial.clone())).await;
         let session = super::super::execution::session(&fixture, &provider).await;
         let Output::QueuedTurn(turn) = fixture

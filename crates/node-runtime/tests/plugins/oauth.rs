@@ -114,7 +114,8 @@ async fn binds_account_login_and_revocation() {
     for remote in [false, true] {
         for provider in [Provider::Google, Provider::Microsoft, Provider::Dingtalk] {
             let server = server::Server::start(provider == Provider::Dingtalk, false).await;
-            let (directory, node, controller, client, worktree) = fixture(remote).await;
+            let (directory, node, controller, client, worktree) =
+                crate::plugins::support::empty(remote).await;
             node.set_plugin_oauth_fixture(provider, &server.endpoint);
             configure(&directory.path().join("source/package"), provider);
             let package = info(execute(&client, install(worktree, 0)).await)
@@ -224,7 +225,8 @@ async fn binds_account_login_and_revocation() {
 async fn rejects_stale_and_forged_callbacks() {
     for remote in [false, true] {
         let server = server::Server::start(false, false).await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         node.set_plugin_oauth_fixture(Provider::Google, &server.endpoint);
         configure(&directory.path().join("source/package"), Provider::Google);
         let package = info(execute(&client, install(worktree, 0)).await)

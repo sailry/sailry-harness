@@ -27,7 +27,7 @@ mod tools;
 #[cfg(unix)]
 async fn isolated(profile: &std::path::Path, home: &std::path::Path) -> Node {
     std::fs::create_dir(home).unwrap();
-    Node::start_with_environment(
+    Node::start_empty_with_environment(
         profile,
         sailry_node_runtime::EnvironmentFixture {
             home: home.to_owned(),
@@ -142,7 +142,7 @@ async fn shares_process_and_input_ownership() {
     #[cfg(unix)]
     let node = isolated(&temp.path().join("node"), &temp.path().join("shell-home")).await;
     #[cfg(not(unix))]
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -332,7 +332,7 @@ async fn preserves_stopped_processes() {
     let root = temp.path().join("project");
     std::fs::create_dir(&root).unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     client
         .execute(client.prepare(Command::RegisterProject {
@@ -367,7 +367,7 @@ async fn preserves_stopped_processes() {
             .unwrap()
             .is_err()
     );
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let Output::Terminals(infos) = client
         .execute(client.prepare(Command::ListTerminals { worktree }))

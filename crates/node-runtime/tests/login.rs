@@ -46,23 +46,31 @@ struct Fixture {
 }
 
 impl Fixture {
-    async fn new(remote: bool, server: &Server) -> Self {
-        Self::setup(remote, server, false).await
+    async fn packages(remote: bool, server: &Server, packages: &[&str]) -> Self {
+        let fixture = Self::empty(remote, server).await;
+        for &name in packages {
+            let Output::Plugin(package) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::InstallBundledPlugin {
+                    name: name.into(),
+                    expected_revision: 0,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("fixture package expected")
+            };
+            assert!(package.issues.is_empty(), "{:?}", package.issues);
+        }
+        fixture
     }
 
     async fn empty(remote: bool, server: &Server) -> Self {
-        Self::setup(remote, server, true).await
-    }
-
-    async fn setup(remote: bool, server: &Server, empty: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let node = if empty {
+        let node =
             Node::start_empty_with_authorization(directory.path().join("node"), &server.endpoint)
                 .await
-        } else {
-            Node::start_with_authorization(directory.path().join("node"), &server.endpoint).await
-        }
-        .unwrap();
+                .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -77,30 +85,6 @@ impl Fixture {
         } else {
             node.local()
         }));
-        // Authorization fixtures must never contact shipped external MCP services.
-        for name in if empty {
-            &[][..]
-        } else {
-            &["context7", "github"][..]
-        } {
-            let Output::Plugin(package) = client
-                .execute(client.prepare(Command::ReadPlugin {
-                    name: (*name).into(),
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("shipped package expected")
-            };
-            client
-                .execute(client.prepare(Command::SetPluginEnabled {
-                    name: (*name).into(),
-                    expected_revision: package.summary.revision,
-                    enabled: false,
-                }))
-                .await
-                .unwrap();
-        }
         Self {
             directory,
             node,

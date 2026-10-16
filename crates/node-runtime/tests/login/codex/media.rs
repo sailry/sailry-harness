@@ -69,7 +69,7 @@ async fn publishes_only_completed_image() {
                 }
                 server::stream(vec![completed], true)
             }).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::packages(remote, &server, &["media"]).await;
             let provider = configured(&fixture, None).await;
             assert!(provider.models[0].generates.is_empty());
             let mut companion = provider.clone();

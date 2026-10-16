@@ -53,7 +53,7 @@ async fn put(
 }
 
 async fn fixture(remote: bool) -> (tempfile::TempDir, Node, Link, Client) {
-    let fixture = fresh(remote).await;
+    let fixture = open(remote, false).await;
     clear(&fixture.3).await;
     fixture
 }
@@ -71,8 +71,17 @@ async fn clear(client: &Client) {
 }
 
 async fn fresh(remote: bool) -> (tempfile::TempDir, Node, Link, Client) {
+    open(remote, true).await
+}
+
+async fn open(remote: bool, bundled: bool) -> (tempfile::TempDir, Node, Link, Client) {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = if bundled {
+        Node::start(directory.path().join("node")).await
+    } else {
+        Node::start_empty(directory.path().join("node")).await
+    }
+    .unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -157,7 +166,9 @@ async fn recovers_versioned_receipts() {
         );
         drop(updates);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -190,7 +201,9 @@ async fn recovers_versioned_receipts() {
         let replacement = put(&client, profile("analysis"), 0).await.unwrap();
         assert_eq!(client.execute(remove).await.unwrap(), Output::Roles(vec![]));
         assert_eq!(list(&client).await, [replacement]);
-        let other = Node::start(directory.path().join("other")).await.unwrap();
+        let other = Node::start_empty(directory.path().join("other"))
+            .await
+            .unwrap();
         let shipped = list(&Client::new(other.local())).await;
         assert_eq!(shipped.len(), 2);
         assert_eq!(shipped[0].key, "explore");

@@ -6,12 +6,14 @@ use sailry_protocol::{Command, ErrorCode, Output};
 async fn restores_uncached_trust() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("host");
-    let host = Node::start(&path).await.unwrap();
-    let client = Node::start(directory.path().join("client")).await.unwrap();
+    let host = Node::start_empty(&path).await.unwrap();
+    let client = Node::start_empty(directory.path().join("client"))
+        .await
+        .unwrap();
     host.link().set_trust(client.id(), true).await.unwrap();
     client.link().set_trust(host.id(), true).await.unwrap();
     host.shutdown().await.unwrap();
-    let host = Node::start(&path).await.unwrap();
+    let host = Node::start_empty(&path).await.unwrap();
     assert!(host.link().peers().await.unwrap().is_empty());
     let remote = Client::new(client.link().remote(host.link().address()));
     assert!(
@@ -35,8 +37,8 @@ async fn persists_certified_trust() {
     let directory = tempfile::tempdir().unwrap();
     let host_path = directory.path().join("host");
     let client_path = directory.path().join("client");
-    let host = Node::start(&host_path).await.unwrap();
-    let controller = Node::start(&client_path).await.unwrap();
+    let host = Node::start_empty(&host_path).await.unwrap();
+    let controller = Node::start_empty(&client_path).await.unwrap();
     let controller_address = controller.link().address();
     let host_address = host.link().address();
     let mut invitation = host.link().invite().unwrap();
@@ -61,8 +63,8 @@ async fn persists_certified_trust() {
     drop(invitation);
     host.shutdown().await.unwrap();
     controller.shutdown().await.unwrap();
-    let host = Node::start(host_path).await.unwrap();
-    let controller = Node::start(client_path).await.unwrap();
+    let host = Node::start_empty(host_path).await.unwrap();
+    let controller = Node::start_empty(client_path).await.unwrap();
     assert_eq!(host.link().peers().await.unwrap(), vec![controller_address]);
     assert_eq!(controller.link().peers().await.unwrap(), vec![host_address]);
     let client = Client::new(controller.link().remote(host.link().address()));
@@ -80,9 +82,15 @@ async fn persists_certified_trust() {
 #[tokio::test]
 async fn certifies_one_claimant() {
     let directory = tempfile::tempdir().unwrap();
-    let host = Node::start(directory.path().join("host")).await.unwrap();
-    let first = Node::start(directory.path().join("first")).await.unwrap();
-    let second = Node::start(directory.path().join("second")).await.unwrap();
+    let host = Node::start_empty(directory.path().join("host"))
+        .await
+        .unwrap();
+    let first = Node::start_empty(directory.path().join("first"))
+        .await
+        .unwrap();
+    let second = Node::start_empty(directory.path().join("second"))
+        .await
+        .unwrap();
     let invitation = host.link().invite().unwrap();
     let first_link = first.link();
     let second_link = second.link();
@@ -104,8 +112,12 @@ async fn certifies_one_claimant() {
 #[tokio::test]
 async fn revokes_replaced_or_dropped_tickets() {
     let directory = tempfile::tempdir().unwrap();
-    let host = Node::start(directory.path().join("host")).await.unwrap();
-    let controller = Node::start(directory.path().join("client")).await.unwrap();
+    let host = Node::start_empty(directory.path().join("host"))
+        .await
+        .unwrap();
+    let controller = Node::start_empty(directory.path().join("client"))
+        .await
+        .unwrap();
     let mut previous = host.link().invite().unwrap();
     let current = host.link().invite().unwrap();
     assert!(previous.paired().await.is_err());
@@ -129,8 +141,12 @@ async fn revokes_replaced_or_dropped_tickets() {
 #[tokio::test]
 async fn rejects_invalid_tickets() {
     let directory = tempfile::tempdir().unwrap();
-    let host = Node::start(directory.path().join("host")).await.unwrap();
-    let controller = Node::start(directory.path().join("client")).await.unwrap();
+    let host = Node::start_empty(directory.path().join("host"))
+        .await
+        .unwrap();
+    let controller = Node::start_empty(directory.path().join("client"))
+        .await
+        .unwrap();
     let invitation = host.link().invite().unwrap();
     let mut forged: serde_json::Value = serde_json::from_str(invitation.ticket()).unwrap();
     forged["token"] = serde_json::json!(vec![0; 32]);

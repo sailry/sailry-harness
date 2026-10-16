@@ -36,7 +36,8 @@ async fn setup(client: &Client, context: &Context) {
 #[tokio::test]
 async fn freezes_running_versions_and_updates_future_deliveries() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let root = directory.path().join("source/package");
         let code = |version: &str| {
             format!(
@@ -167,7 +168,12 @@ async fn freezes_running_versions_and_updates_future_deliveries() {
         .unwrap();
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

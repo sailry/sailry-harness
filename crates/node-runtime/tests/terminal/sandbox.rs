@@ -22,7 +22,7 @@ async fn preserves_access_when_reopening_shells() {
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         let profile = directory.path().join("node");
-        let mut node = Node::start(&profile).await.unwrap();
+        let mut node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -77,7 +77,7 @@ async fn preserves_access_when_reopening_shells() {
         let old_id = node.id();
         node.shutdown().await.unwrap();
         controller.handle().disconnect(old_id).await;
-        node = Node::start(&profile).await.unwrap();
+        node = Node::start_empty(&profile).await.unwrap();
         current = if remote {
             Client::new(controller.handle().remote(node.link().address()))
         } else {
@@ -151,7 +151,9 @@ async fn blocks_network_in_workspace_pty() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

@@ -323,7 +323,8 @@ async fn reads_disabled_settings() {
 #[tokio::test]
 async fn settings_only_package_keeps_its_surface() {
     for remote in [false, true] {
-        let (_directory, node, controller, client, _) = fixture(remote).await;
+        let (_directory, node, controller, client, _) =
+            crate::plugins::support::packages(remote, &["computer"]).await;
         let installed = info(
             execute(
                 &client,

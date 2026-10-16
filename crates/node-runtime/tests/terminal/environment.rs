@@ -48,10 +48,10 @@ async fn shares_execution_login_and_setting_overrides() {
         let controller_login = fixture::Login::new(&other);
         controller_login.select(true);
         let profile = directory.path().join("node");
-        let node = Node::start_with_environment(&profile, login.source())
+        let node = Node::start_empty_with_environment(&profile, login.source())
             .await
             .unwrap();
-        let controller = Node::start_with_environment(
+        let controller = Node::start_empty_with_environment(
             directory.path().join("controller"),
             controller_login.source(),
         )
@@ -232,7 +232,7 @@ async fn preserves_full_login_startup_and_workspace_home() {
         } else {
             "/bin/bash"
         };
-        let node = Node::start_with_environment(
+        let node = Node::start_empty_with_environment(
             base.join("node"),
             EnvironmentFixture {
                 home: home.clone(),

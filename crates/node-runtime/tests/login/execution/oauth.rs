@@ -42,7 +42,7 @@ async fn captures_effective_defaults_without_changing_provider() {
             (Authentication::Copilot, ModelApi::ChatCompletions),
         ] {
             let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = signed_in(&fixture, authentication, api).await;
             let session = session(&fixture, &provider).await;
             let turn = queued(&fixture, &session).await;
@@ -102,7 +102,7 @@ async fn keeps_captured_headers_through_restart_and_refresh() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::packages(remote, &server, &["files"]).await;
             let provider = configured(&fixture, authentication, api, Some(options.clone())).await;
             let session = session(&fixture, &provider).await;
             let turn = queued(&fixture, &session).await;

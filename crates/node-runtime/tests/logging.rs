@@ -163,11 +163,11 @@ async fn observes_shared_lifecycles_without_payloads() {
             } else {
                 models::Server::tools(vec![]).await
             };
-            let node = Node::start_isolated(profile.path().join("node"))
+            let node = Node::start_empty(profile.path().join("node"))
                 .await
                 .unwrap();
             assert!(matches!(
-                Node::start_isolated(profile.path().join("node")).await,
+                Node::start_empty(profile.path().join("node")).await,
                 Err(sailry_node_runtime::Error::ProfileInUse(_))
             ));
             let controller =
@@ -270,7 +270,7 @@ async fn observes_shared_lifecycles_without_payloads() {
     let retry_root = retry_profile.path().join("retry-project");
     std::fs::create_dir(&retry_root).unwrap();
     let retry_model = models::Server::http(1, 429).await;
-    let retry_node = Node::start_isolated(retry_profile.path().join("node"))
+    let retry_node = Node::start_empty(retry_profile.path().join("node"))
         .await
         .unwrap();
     let retry_controller = Link::controller(
@@ -307,7 +307,7 @@ async fn observes_shared_lifecycles_without_payloads() {
     let parse_root = parse_profile.path().join("parse-project");
     std::fs::create_dir(&parse_root).unwrap();
     let parse_model = models::Server::responses_parse().await;
-    let parse_node = Node::start_isolated(parse_profile.path().join("node"))
+    let parse_node = Node::start_empty(parse_profile.path().join("node"))
         .await
         .unwrap();
     let parse_controller = Link::controller(
@@ -351,7 +351,7 @@ async fn observes_shared_lifecycles_without_payloads() {
         let root = profile.path().join(format!("summary-{mode}"));
         std::fs::create_dir(&root).unwrap();
         let model = models::Server::summary(usage).await;
-        let node = Node::start_isolated(profile.path().join("node"))
+        let node = Node::start_empty(profile.path().join("node"))
             .await
             .unwrap();
         let controller =

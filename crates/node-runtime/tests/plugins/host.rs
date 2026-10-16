@@ -84,7 +84,8 @@ export async function run(input) {
 #[tokio::test]
 async fn cancellation_keeps_node_running() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let context = installed(
             &client,
             &directory.path().join("source/package"),
@@ -193,7 +194,12 @@ async fn cancellation_keeps_node_running() {
             .await
             .unwrap()
             .unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -215,7 +221,8 @@ async fn cancellation_keeps_node_running() {
 #[tokio::test]
 async fn executes_the_external_summary_package() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let root = directory.path().join("source/summary");
         let source =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/examples/project-summary");
@@ -309,7 +316,8 @@ async fn executes_the_external_summary_package() {
 #[tokio::test]
 async fn executes_without_a_view_and_recovers_receipts() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let context = installed(
             &client,
             &directory.path().join("source/package"),
@@ -334,7 +342,12 @@ async fn executes_without_a_view_and_recovers_receipts() {
         assert_eq!(snapshot.notifications.len(), 1);
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -350,7 +363,8 @@ async fn executes_without_a_view_and_recovers_receipts() {
 #[tokio::test]
 async fn interrupted_admission_is_not_replayed() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let context = installed(
             &client,
             &directory.path().join("source/package"),
@@ -380,7 +394,12 @@ async fn interrupted_admission_is_not_replayed() {
         )
         .unwrap();
         drop(db);
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -399,7 +418,8 @@ async fn interrupted_admission_is_not_replayed() {
 #[tokio::test]
 async fn retains_active_version_and_rejects_forged_scopes() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let root = directory.path().join("source/package");
         let settings = |label: &str| json!({"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,"properties":{"label":{"type":"string","default":label}}});
         fs::write(
@@ -545,7 +565,8 @@ export async function waitForRelease() {{}}
 #[tokio::test]
 async fn scheduled_callbacks_survive_restart() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let context = installed(
             &client,
             &directory.path().join("source/package"),
@@ -602,7 +623,12 @@ async fn scheduled_callbacks_survive_restart() {
         .await;
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

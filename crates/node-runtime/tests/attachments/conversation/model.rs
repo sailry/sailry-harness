@@ -5,7 +5,7 @@ use base64::Engine;
 #[tokio::test]
 async fn preserves_unsupported_pdf_history() {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
-        let fixture = Fixture::start().await;
+        let fixture = Fixture::empty().await;
         let server = server::Server::start(false).await;
         for client in fixture.clients() {
             let (session, _) = session(&client, fixture.worktree, &server.endpoint, api).await;
@@ -67,7 +67,7 @@ async fn materializes_inputs() {
         base64::engine::general_purpose::STANDARD.encode(&bytes)
     );
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
-        let mut fixture = Fixture::start().await;
+        let mut fixture = Fixture::empty().await;
         let server = server::Server::start(false).await;
         let mut records = Vec::new();
         let text = "完整内容 🙂\n".repeat(400);
@@ -175,7 +175,7 @@ async fn materializes_inputs() {
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        fixture.node = Node::start(&profile).await.unwrap();
+        fixture.node = Node::start_empty(&profile).await.unwrap();
         for (client, (session, turn, history, pdf)) in fixture.clients().into_iter().zip(records) {
             assert_eq!(page(&client, session.id).await, history);
             let Output::Session(branch) = client
@@ -270,7 +270,7 @@ async fn materializes_inputs() {
 
 #[tokio::test]
 async fn rejects_damaged_content() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let server = server::Server::start(false).await;
     for client in fixture.clients() {
         for data in [&b"invalid\xff"[..], &b"binary\0text"[..], &b"original"[..]] {
@@ -313,7 +313,7 @@ async fn rejects_damaged_content() {
 
 #[tokio::test]
 async fn restores_rewound_inputs() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let server = server::Server::start(false).await;
     for client in fixture.clients() {
         let (session, _) = session(

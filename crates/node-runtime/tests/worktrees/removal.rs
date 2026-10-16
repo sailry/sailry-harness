@@ -18,7 +18,7 @@ impl Fixture {
     async fn start() -> Self {
         let temp = tempfile::tempdir().unwrap();
         let repository = init(&temp.path().join("repository"));
-        let node = Node::start(temp.path().join("node")).await.unwrap();
+        let node = Node::start_empty(temp.path().join("node")).await.unwrap();
         let local = Client::new(node.local());
         let project = register(&local, repository.workdir().unwrap()).await;
         let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -67,7 +67,7 @@ impl Fixture {
 
 #[tokio::test]
 async fn local_and_remote_removal() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let main = snapshot(&fixture.local).await.worktrees[0].clone();
     for (sequence, client) in [&fixture.local, &fixture.remote].into_iter().enumerate() {
         let name = format!("中文-{sequence}");
@@ -225,7 +225,7 @@ async fn rejects(client: &Client, command: &Command, code: ErrorCode) {
 
 #[tokio::test]
 async fn preserves_protected_worktrees() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for (sequence, client) in [&fixture.local, &fixture.remote].into_iter().enumerate() {
         let name = format!("protected-{sequence}");
         let (tree, command) = fixture.create(&name, client).await;
@@ -298,7 +298,7 @@ async fn preserves_protected_worktrees() {
 
 #[tokio::test]
 async fn preserves_nested_resources() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for (sequence, client) in [&fixture.local, &fixture.remote].into_iter().enumerate() {
         let name = format!("nested-{sequence}");
         let (tree, command) = fixture.create(&name, client).await;
@@ -315,7 +315,7 @@ async fn preserves_nested_resources() {
             .validate()
             .unwrap();
 
-        let nested_node = Node::start(child.join("node")).await.unwrap();
+        let nested_node = Node::start_empty(child.join("node")).await.unwrap();
         let nested_client = Client::new(nested_node.local());
         let project = register(&nested_client, fixture.repository.workdir().unwrap()).await;
         let owned = adopt(&nested_client, project.id, Path::new(&tree.path)).await;
@@ -343,7 +343,7 @@ async fn preserves_nested_resources() {
 #[tokio::test]
 async fn lost_result_is_not_replayed() {
     for remote in [false, true] {
-        let fixture = Fixture::start().await;
+        let fixture = Fixture::empty().await;
         let client = if remote {
             &fixture.remote
         } else {
@@ -366,7 +366,7 @@ async fn lost_result_is_not_replayed() {
         fixture.node.shutdown().await.unwrap();
         std::fs::create_dir(&tree.path).unwrap();
         std::fs::write(Path::new(&tree.path).join("sentinel"), "replacement").unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {

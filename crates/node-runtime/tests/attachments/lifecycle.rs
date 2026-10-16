@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn restores_receipts() {
-    let mut fixture = Fixture::start().await;
+    let mut fixture = Fixture::empty().await;
     let profile = fixture.node.profile().to_owned();
     let mut records = Vec::new();
     for client in fixture.clients() {
@@ -33,7 +33,7 @@ async fn restores_receipts() {
         records.push((request, attachment));
     }
     fixture.node.shutdown().await.unwrap();
-    fixture.node = Node::start(&profile).await.unwrap();
+    fixture.node = Node::start_empty(&profile).await.unwrap();
     for (client, (request, attachment)) in fixture.clients().into_iter().zip(records) {
         assert_eq!(
             client.execute(request).await.unwrap(),
@@ -46,7 +46,7 @@ async fn restores_receipts() {
 
 #[tokio::test]
 async fn discards_without_replaying() {
-    let mut fixture = Fixture::start().await;
+    let mut fixture = Fixture::empty().await;
     let profile = fixture.node.profile().to_owned();
     let mut records = Vec::new();
     for client in fixture.clients() {
@@ -98,7 +98,7 @@ async fn discards_without_replaying() {
                 .exists()
         );
     }
-    fixture.node = Node::start(&profile).await.unwrap();
+    fixture.node = Node::start_empty(&profile).await.unwrap();
     for (client, (request, discard, attachment)) in fixture.clients().into_iter().zip(records) {
         assert_eq!(
             client.execute(request).await.unwrap(),
@@ -122,7 +122,7 @@ async fn discards_without_replaying() {
 
 #[tokio::test]
 async fn preserves_uncertain_inventory() {
-    let mut fixture = Fixture::start().await;
+    let mut fixture = Fixture::empty().await;
     let profile = fixture.node.profile().to_owned();
     let [client, _] = fixture.clients();
     let upload = prepare(&client, spec(fixture.worktree, "retained", b"bytes")).await;
@@ -146,7 +146,7 @@ async fn preserves_uncertain_inventory() {
     drop(database);
     fixture.node.shutdown().await.unwrap();
     assert!(orphan.exists());
-    fixture.node = Node::start(&profile).await.unwrap();
+    fixture.node = Node::start_empty(&profile).await.unwrap();
     assert!(orphan.exists());
     let [client, _] = fixture.clients();
     assert_eq!(download(&client, &attachment).await, b"bytes");

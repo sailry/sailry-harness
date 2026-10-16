@@ -369,7 +369,7 @@ async fn runs_tools_after_refresh() {
                 }
             })
             .await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::packages(remote, &server, &["files"]).await;
             let provider = signed_in(&fixture, authentication, api).await;
             let session = session(&fixture, &provider).await;
             let (request, turn) = submit(&fixture.client, &session).await;
@@ -403,7 +403,7 @@ async fn runs_tools_from_minimal_catalog() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let provider = provider(&fixture.client, Authentication::ChatGpt).await;
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
@@ -459,7 +459,7 @@ async fn continues_after_omitted_terminal_calls() {
             Reply::Raw(reply)
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let (_, turn) = submit(&fixture.client, &session).await;
@@ -482,7 +482,7 @@ async fn reports_account_model_rejection() {
                 standard(request)
             }
         }).await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::empty(remote, &server).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let (_, turn) = submit(&fixture.client, &session).await;

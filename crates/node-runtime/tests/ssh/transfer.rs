@@ -5,7 +5,7 @@ use sailry_protocol::ssh::{Direction, Transfer};
 #[tokio::test]
 async fn copies_confirmed_files() {
     for remote in [false, true] {
-        let fixture = files::Fixture::start().await;
+        let fixture = files::Fixture::empty().await;
         let remote_files = fixture._temp.path().join("ssh");
         std::fs::create_dir(&remote_files).unwrap();
         let server = server::Server::start(remote_files.clone(), 44).await;
@@ -103,7 +103,7 @@ async fn copies_confirmed_files() {
         drop(clients);
         let node_path = fixture._temp.path().join("node");
         fixture.node.shutdown().await.unwrap();
-        let restored = Node::start(node_path).await.unwrap();
+        let restored = Node::start_empty(node_path).await.unwrap();
         let client = Client::new(if remote {
             fixture
                 .controller

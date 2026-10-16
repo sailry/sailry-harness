@@ -72,7 +72,8 @@ fn call(client: &Client, context: &Context, input: Value) -> Request {
 async fn composes_cached_pages_with_private_storage() {
     for remote in [false, true] {
         let http = server::Server::start().await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         node.set_web_fixture(server::HOST, http.address);
         let context = installed(
             &client,
@@ -146,7 +147,8 @@ async fn preserves_grants_and_credential_free_requests() {
     for remote in [false, true] {
         for granted in [false, true] {
             let http = server::Server::start().await;
-            let (directory, node, controller, client, worktree) = fixture(remote).await;
+            let (directory, node, controller, client, worktree) =
+                crate::plugins::support::empty(remote).await;
             node.set_web_fixture(server::HOST, http.address);
             let context = installed(
                 &client,
@@ -216,7 +218,8 @@ async fn preserves_grants_and_credential_free_requests() {
 async fn cancels_held_callback_reads() {
     for remote in [false, true] {
         let http = server::Server::start().await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         node.set_web_fixture(server::HOST, http.address);
         let context = installed(
             &client,

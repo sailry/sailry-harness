@@ -32,7 +32,7 @@ impl Fixture {
     async fn new(remote: bool, actions: &[Action], outcomes: Value) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let worker = driver::Worker::new(directory.path(), outcomes);
-        let node = Node::start_with_computer(
+        let node = Node::start_empty_with_computer(
             directory.path().join("node"),
             NetworkScope::default(),
             Some(worker.configuration.clone()),
@@ -185,7 +185,7 @@ async fn preserves_raw_dispatch_and_recovers_receipts() {
         drop(client);
         node.shutdown().await.unwrap();
         let calls = worker.calls().len();
-        let node = Node::start_with_computer(
+        let node = Node::start_empty_with_computer(
             directory.path().join("node"),
             NetworkScope::default(),
             Some(worker.configuration.clone()),
@@ -466,7 +466,8 @@ async fn keeps_software_actions_separate_from_agent_mode() {
 #[tokio::test]
 async fn reads_permissions_without_prompting() {
     for remote in [false, true] {
-        let (_directory, node, controller, client, _worktree) = super::fixture(remote).await;
+        let (_directory, node, controller, client, _worktree) =
+            crate::plugins::support::packages(remote, &["computer"]).await;
         let package = info(
             execute(
                 &client,

@@ -33,7 +33,7 @@ async fn restores_assistant_images() {
 }
 
 async fn restores(direct: bool) {
-    let mut fixture = Fixture::start().await;
+    let mut fixture = Fixture::packages(&["files"]).await;
     std::fs::write(fixture.root.join("source.txt"), "Fixture input").unwrap();
     let server =
         server::Server::tools(vec![("read_file".into(), json!({"path":"source.txt"}))]).await;
@@ -136,7 +136,7 @@ async fn restores(direct: bool) {
         }
         assert_eq!(count(&db, "attachments"), 0);
     }
-    fixture.node = Node::start(&profile).await.unwrap();
+    fixture.node = Node::start_empty(&profile).await.unwrap();
     let requests = server.requests.lock().unwrap().len();
     let clients = fixture.clients();
     let mut images = Vec::new();
@@ -234,7 +234,7 @@ async fn restores(direct: bool) {
         .unwrap();
     assert_eq!(received, bytes);
     fixture.node.shutdown().await.unwrap();
-    fixture.node = Node::start(&profile).await.unwrap();
+    fixture.node = Node::start_empty(&profile).await.unwrap();
     for (client, ((session, _), expected)) in
         fixture.clients().iter().zip(records.iter().zip(&images))
     {

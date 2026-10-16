@@ -6,10 +6,10 @@ use sailry_protocol::*;
 
 async fn trusted_pair() -> (tempfile::TempDir, Node, Node, Client) {
     let directory = tempfile::tempdir().unwrap();
-    let controller = Node::start(directory.path().join("controller"))
+    let controller = Node::start_empty(directory.path().join("controller"))
         .await
         .unwrap();
-    let execution = Node::start(directory.path().join("execution"))
+    let execution = Node::start_empty(directory.path().join("execution"))
         .await
         .unwrap();
     controller
@@ -75,10 +75,10 @@ async fn routes_to_execution_node() {
 #[tokio::test]
 async fn rejects_unpaired_reads() {
     let directory = tempfile::tempdir().unwrap();
-    let controller = Node::start(directory.path().join("controller"))
+    let controller = Node::start_empty(directory.path().join("controller"))
         .await
         .unwrap();
-    let execution = Node::start(directory.path().join("execution"))
+    let execution = Node::start_empty(directory.path().join("execution"))
         .await
         .unwrap();
     let client = Client::new(controller.link().remote(execution.link().address()));
@@ -118,8 +118,8 @@ async fn restores_pairing_and_requests() {
     let execution_path = execution.profile().to_owned();
     controller.shutdown().await.unwrap();
     execution.shutdown().await.unwrap();
-    let controller = Node::start(controller_path).await.unwrap();
-    let execution = Node::start(execution_path).await.unwrap();
+    let controller = Node::start_empty(controller_path).await.unwrap();
+    let execution = Node::start_empty(execution_path).await.unwrap();
     let client = Client::new(controller.link().remote(execution.link().address()));
     assert_eq!(client.execute(request).await.unwrap(), original);
     controller.shutdown().await.unwrap();

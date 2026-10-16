@@ -38,7 +38,7 @@ impl Fixture {
     async fn new(remote: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let cli = cli::Cli::new(directory.path());
-        let node = Node::start_with_environment(directory.path().join("node"), cli.source())
+        let node = Node::start_empty_with_environment(directory.path().join("node"), cli.source())
             .await
             .unwrap();
         let controller =
@@ -55,6 +55,17 @@ impl Fixture {
         } else {
             node.local()
         });
+        let Output::Plugin(package) = client
+            .execute(client.prepare(Command::InstallBundledPlugin {
+                name: "github".into(),
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("GitHub plugin expected")
+        };
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
         Self {
             directory,
             cli,
@@ -173,7 +184,7 @@ async fn imports_explicitly_and_replays_without_token_output() {
         );
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start_with_environment(&profile, fixture.cli.source())
+        let node = Node::start_empty_with_environment(&profile, fixture.cli.source())
             .await
             .unwrap();
         let address = fixture
@@ -435,7 +446,7 @@ async fn rolls_back_when_completion_cannot_be_recorded() {
         drop(database);
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start_with_environment(profile, fixture.cli.source())
+        let node = Node::start_empty_with_environment(profile, fixture.cli.source())
             .await
             .unwrap();
         let address = fixture

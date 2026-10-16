@@ -61,7 +61,7 @@ async fn shares_binary_lifecycle() {
     std::fs::write(root.join("资料.bin"), &data).unwrap();
     std::fs::write(root.join("empty"), []).unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -195,7 +195,7 @@ async fn shares_binary_lifecycle() {
 #[tokio::test]
 async fn rejects_changed_or_unconfined_sources() {
     let temp = tempfile::tempdir().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, temp.path()).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -295,7 +295,7 @@ async fn closes_streams_on_shutdown() {
     let root = temp.path().join("project");
     std::fs::create_dir(&root).unwrap();
     std::fs::write(root.join("file"), vec![7; 32 * 1024 * 1024]).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let worktree = register(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -326,7 +326,7 @@ async fn closes_streams_on_shutdown() {
         assert!(bytes.len() < 32 * 1024 * 1024);
     }
     assert!(local.open(pending.stream).await.is_err());
-    let restarted = Node::start(temp.path().join("node")).await.unwrap();
+    let restarted = Node::start_empty(temp.path().join("node")).await.unwrap();
     let resumed = Client::new(controller.handle().remote(restarted.link().address()));
     assert!(resumed.open(pending.stream).await.is_err());
     let fresh = prepare(&resumed, worktree, "file").await;

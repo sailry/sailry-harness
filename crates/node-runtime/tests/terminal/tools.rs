@@ -25,8 +25,8 @@ async fn restores_execution_receipt() {
     .unwrap();
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
     let profile = directory.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
-    let controller = Node::start(directory.path().join("controller"))
+    let node = Node::start_empty(&profile).await.unwrap();
+    let controller = Node::start_empty(directory.path().join("controller"))
         .await
         .unwrap();
     let address = controller
@@ -166,7 +166,7 @@ async fn restores_execution_receipt() {
         ErrorCode::NotConfigured
     );
     node.shutdown().await.unwrap();
-    let restored = Node::start(&profile).await.unwrap();
+    let restored = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(restored.local());
     let Output::Terminals(terminals) = client
         .execute(client.prepare(Command::ListTerminals { worktree }))

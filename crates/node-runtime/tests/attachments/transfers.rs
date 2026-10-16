@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn preserves_bytes() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let database =
         rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3")).unwrap();
     let clients = fixture.clients();
@@ -50,7 +50,7 @@ async fn preserves_bytes() {
 
 #[tokio::test]
 async fn checks_integrity() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for client in fixture.clients() {
         for bytes in [b"bad".as_slice(), b"same!", b"too many"] {
             let upload = prepare(&client, spec(fixture.worktree, "image", b"valid")).await;

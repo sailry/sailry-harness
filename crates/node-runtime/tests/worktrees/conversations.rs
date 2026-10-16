@@ -35,7 +35,7 @@ async fn creates_and_relocates() {
     std::fs::write(root.join("file"), "working").unwrap();
     std::fs::write(root.join("untracked"), b"\0binary\xff").unwrap();
     let original_index = std::fs::read(repository.path().join("index")).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let project = register(&local, &root).await;
     let source = snapshot(&local).await.worktrees[0].id;
@@ -163,7 +163,7 @@ async fn creates_and_relocates() {
     let profile = node.profile().to_owned();
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
-    let node = Node::start(profile).await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
     assert_eq!(
         snapshot(&Client::new(node.local())).await.sessions,
         before.sessions

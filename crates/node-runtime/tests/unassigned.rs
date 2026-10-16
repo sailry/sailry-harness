@@ -39,7 +39,7 @@ async fn local_and_remote_lifecycle() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().canonicalize().unwrap();
         let profile = root.join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller = Link::controller(root.join("controller"), NetworkScope::default())
             .await
             .unwrap();
@@ -158,7 +158,7 @@ async fn local_and_remote_lifecycle() {
         drop(client);
         node.shutdown().await.unwrap();
 
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -185,7 +185,7 @@ async fn reports_usage_after_restart() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().canonicalize().unwrap();
         let profile = root.join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller = Link::controller(root.join("controller"), NetworkScope::default())
             .await
             .unwrap();
@@ -200,16 +200,6 @@ async fn reports_usage_after_restart() {
             node.local()
         });
         let server = agent_support::Server::start(false).await;
-        for name in ["context7", "github"] {
-            client
-                .execute(client.prepare(Command::SetPluginEnabled {
-                    name: name.into(),
-                    expected_revision: 1,
-                    enabled: false,
-                }))
-                .await
-                .unwrap();
-        }
         let Output::Provider(provider) = client
             .execute(client.prepare(Command::PutProvider {
                 provider: conversation::Provider {
@@ -347,7 +337,7 @@ async fn reports_usage_after_restart() {
         drop(client);
         node.shutdown().await.unwrap();
 
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {

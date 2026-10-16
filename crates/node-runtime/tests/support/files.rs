@@ -25,6 +25,29 @@ impl Fixture {
         Self::setup(false).await
     }
 
+    #[allow(
+        dead_code,
+        reason = "Selective packages are used by attachment integration fixtures"
+    )]
+    pub async fn packages(packages: &[&str]) -> Self {
+        let fixture = Self::empty().await;
+        let client = Client::new(fixture.node.local());
+        for &name in packages {
+            let Output::Plugin(package) = client
+                .execute(client.prepare(Command::InstallBundledPlugin {
+                    name: name.into(),
+                    expected_revision: 0,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("fixture package expected")
+            };
+            assert!(package.issues.is_empty(), "{:?}", package.issues);
+        }
+        fixture
+    }
+
     async fn setup(bundled: bool) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project");

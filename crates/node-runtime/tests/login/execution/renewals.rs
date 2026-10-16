@@ -86,7 +86,7 @@ async fn retains_rotated_grants() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
         let session = session(&fixture, &provider).await;
         let (_, turn) = submit(&fixture.client, &session).await;

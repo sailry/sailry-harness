@@ -36,7 +36,7 @@ struct Fixture {
 impl Fixture {
     async fn new(remote: bool, server: &Server) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_with_catalog(
+        let node = Node::start_empty_with_catalog(
             directory.path().join("node"),
             &format!("{}/api.json", server.endpoint),
         )
@@ -231,7 +231,7 @@ async fn restores_cached_metadata() {
         drop(subscription);
         let path = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let reopened = Node::start(&path).await.unwrap();
+        let reopened = Node::start_empty(&path).await.unwrap();
         let client = Client::new(reopened.local());
         assert_eq!(status(&client).await, new_status);
         assert_eq!(page(&client, query()).await.models, first.models);
@@ -255,7 +255,9 @@ async fn restores_cached_metadata() {
 #[ignore = "requires the public models.dev reference catalog"]
 async fn refreshes_public_metadata() {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let client = Client::new(node.local());
     let status = refresh(&client).await;
     assert!(status.providers > 0 && status.models > 0 && status.bytes > 0);

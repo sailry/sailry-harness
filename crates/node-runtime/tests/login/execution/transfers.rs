@@ -3,10 +3,10 @@ use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rejects_rotating_grant_copies() {
     let server = Server::start_with_request(ModelApi::Anthropic, standard).await;
-    let fixture = Fixture::new(false, &server).await;
+    let fixture = Fixture::empty(false, &server).await;
     let provider = signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
     let source_session = session(&fixture, &provider).await;
-    let target = Node::start(fixture.directory.path().join("target"))
+    let target = Node::start_empty(fixture.directory.path().join("target"))
         .await
         .unwrap();
     fixture

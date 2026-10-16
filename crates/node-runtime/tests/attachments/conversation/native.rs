@@ -4,7 +4,7 @@ use base64::Engine;
 #[tokio::test]
 async fn cloud_images_survive_restart() {
     for api in [ModelApi::DeepSeek, ModelApi::AzureOpenAi, ModelApi::AzureAi] {
-        let mut fixture = Fixture::start().await;
+        let mut fixture = Fixture::empty().await;
         let server = provider::Server::start(api, provider::Reply::Text).await;
         let bytes = png();
         let mut records = Vec::new();
@@ -23,7 +23,7 @@ async fn cloud_images_survive_restart() {
         }
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        fixture.node = Node::start(profile).await.unwrap();
+        fixture.node = Node::start_empty(profile).await.unwrap();
         for (client, (session, history)) in fixture.clients().into_iter().zip(records) {
             assert_eq!(page(&client, session.id).await, history);
             let turn = queue(&client, &session, "Continue".into()).await;
@@ -68,7 +68,7 @@ async fn restores_native_inputs() {
     let pdf_bytes = pdf();
     let pdf_encoded = base64::engine::general_purpose::STANDARD.encode(&pdf_bytes);
     for api in [ModelApi::Anthropic, ModelApi::Gemini] {
-        let mut fixture = Fixture::start().await;
+        let mut fixture = Fixture::empty().await;
         let server = provider::Server::start(api, provider::Reply::Text).await;
         let mut records = Vec::new();
         for client in fixture.clients() {
@@ -121,7 +121,7 @@ async fn restores_native_inputs() {
         }
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        fixture.node = Node::start(profile).await.unwrap();
+        fixture.node = Node::start_empty(profile).await.unwrap();
         for (client, (session, history)) in fixture.clients().into_iter().zip(records) {
             assert_eq!(page(&client, session.id).await, history);
             let turn = queue(&client, &session, "Continue".into()).await;

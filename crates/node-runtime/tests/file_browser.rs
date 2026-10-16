@@ -17,7 +17,7 @@ async fn manage(client: &Client, action: Action) -> Vec<Outcome> {
 async fn local_and_remote() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();
-    let node = Node::start(root.join("node")).await.unwrap();
+    let node = Node::start_empty(root.join("node")).await.unwrap();
     let controller = Link::controller(root.join("controller"), NetworkScope::default())
         .await
         .unwrap();

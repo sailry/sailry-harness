@@ -13,7 +13,9 @@ async fn publishes_admitted_retries() {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -28,16 +30,6 @@ async fn publishes_admitted_retries() {
         } else {
             node.local()
         }));
-        for name in ["context7", "github"] {
-            client
-                .execute(client.prepare(Command::SetPluginEnabled {
-                    name: name.into(),
-                    expected_revision: 1,
-                    enabled: false,
-                }))
-                .await
-                .unwrap();
-        }
         let Output::Project(project) = client
             .execute(client.prepare(Command::RegisterProject {
                 name: "Request fixture".into(),

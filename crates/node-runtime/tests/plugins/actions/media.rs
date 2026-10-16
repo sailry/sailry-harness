@@ -12,7 +12,7 @@ async fn running(
     endpoint: &str,
     primary: &model_fixture::Server,
 ) -> TurnId {
-    let selected = completion::configure(client, primary.endpoint.clone()).await;
+    let selected = completion::configure_empty(client, primary.endpoint.clone()).await;
     let primary_id = selected.split_once('/').unwrap().0.parse().unwrap();
     let Output::Providers(providers) = execute(client, Command::ListProviders).await else {
         panic!("providers expected")
@@ -137,7 +137,8 @@ async fn outcome(client: &Client, request: &Request) -> Result<Output, Fault> {
 #[tokio::test]
 async fn recovers_without_replaying_jobs() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let root = directory.path().join("source");
         fs::write(root.join("input.png"), server::image()).unwrap();
         let mut context = install_actions(
@@ -265,7 +266,12 @@ async fn recovers_without_replaying_jobs() {
         let count = media.requests.lock().unwrap().len();
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -284,7 +290,8 @@ async fn recovers_without_replaying_jobs() {
 #[tokio::test]
 async fn validates_before_provider_calls() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -355,7 +362,8 @@ async fn validates_before_provider_calls() {
 #[tokio::test]
 async fn disabled_catalog_preserves_scope() {
     for remote in [false, true] {
-        let (_directory, node, controller, client, worktree) = fixture(remote).await;
+        let (_directory, node, controller, client, worktree) =
+            crate::plugins::support::packages(remote, &["media"]).await;
         let package = info(
             execute(
                 &client,

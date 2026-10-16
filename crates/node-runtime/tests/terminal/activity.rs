@@ -6,7 +6,9 @@ async fn restores_reported_activity() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("project");
     std::fs::create_dir(&root).unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();

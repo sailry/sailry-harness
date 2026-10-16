@@ -65,9 +65,10 @@ impl Fixture {
                 fs::copy(source, directory.join(asset.name)).unwrap();
             }
         }
-        let node = Node::start_with_plugin_catalog(temp.path().join("node"), "http://127.0.0.1:9/")
-            .await
-            .unwrap();
+        let node =
+            Node::start_empty_with_plugin_catalog(temp.path().join("node"), "http://127.0.0.1:9/")
+                .await
+                .unwrap();
         let client = Client::new(node.local());
         execute(
             &client,

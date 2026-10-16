@@ -112,7 +112,7 @@ async fn preserves_authenticated_ownership() {
         let directory = tempfile::tempdir().unwrap();
         let server = server::Server::start(directory.path().into(), 41).await;
         let node_path = directory.path().join("node");
-        let node = Node::start(&node_path).await.unwrap();
+        let node = Node::start_empty(&node_path).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -225,7 +225,7 @@ async fn preserves_authenticated_ownership() {
         }
         drop(records);
         drop(db);
-        let node = Node::start(&node_path).await.unwrap();
+        let node = Node::start_empty(&node_path).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -262,7 +262,9 @@ async fn connection_failure_includes_cause() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -306,7 +308,9 @@ async fn reports_authenticated_uncertainty() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let server = server::Server::start(directory.path().into(), 42).await;
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

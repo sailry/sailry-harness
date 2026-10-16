@@ -155,7 +155,7 @@ async fn fills_missing_choices() {
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        let node = Node::start_with_catalog(
+        let node = Node::start_empty_with_catalog(
             _directory.path().join("node"),
             &format!("{}/api.json", server.endpoint),
         )

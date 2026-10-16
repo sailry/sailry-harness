@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn freezes_native_input_support() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let server = server::Server::start(false).await;
     for client in fixture.clients() {
         let (session, mut provider) = session(
@@ -62,7 +62,7 @@ async fn freezes_native_input_support() {
 
 #[tokio::test]
 async fn retains_revisions() {
-    let mut fixture = Fixture::start().await;
+    let mut fixture = Fixture::empty().await;
     let server = server::Server::start(false).await;
     let mut records = Vec::new();
     for client in fixture.clients() {
@@ -142,7 +142,7 @@ async fn retains_revisions() {
     }
     let profile = fixture.node.profile().to_owned();
     fixture.node.shutdown().await.unwrap();
-    fixture.node = Node::start(&profile).await.unwrap();
+    fixture.node = Node::start_empty(&profile).await.unwrap();
     for (client, (turn, attachment, edit, edited)) in fixture.clients().into_iter().zip(records) {
         assert_eq!(client.execute(edit).await.unwrap(), edited);
         let Output::QueuedMessage(message) = client
@@ -172,7 +172,7 @@ async fn retains_revisions() {
 
 #[tokio::test]
 async fn rejects_invalid_inputs() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let server = server::Server::start(false).await;
     for client in fixture.clients() {
         let (session, mut provider) = session(

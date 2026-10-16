@@ -7,7 +7,7 @@ async fn applies_execution_settings() {
     let profile = directory.path().join("node");
     let root = directory.path().join("project");
     std::fs::create_dir(&root).unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -136,7 +136,7 @@ async fn applies_execution_settings() {
     );
     drop(events);
     node.shutdown().await.unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     assert_eq!(
         client

@@ -9,7 +9,8 @@ mod issuer;
 async fn refreshes_application_http() {
     for remote in [false, true] {
         let server = issuer::Server::start(settings::Provider::Dingtalk, None).await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         node.set_plugin_application_fixture(
             settings::Provider::Dingtalk,
             &server.token_url,

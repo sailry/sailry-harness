@@ -42,7 +42,7 @@ async fn restores_rotated_tokens_and_tool_continuations() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let provider = connected(&fixture).await;
         let session = super::super::execution::session(&fixture, &provider).await;
         std::fs::write(fixture.node.profile().join("instructions.md"), INSTRUCTION).unwrap();
@@ -134,7 +134,7 @@ async fn finishes_rotation_after_observer_cancellation() {
             }
         })
         .await;
-        let fixture = Fixture::new(remote, &server).await;
+        let fixture = Fixture::packages(remote, &server, &["files"]).await;
         let provider = connected(&fixture).await;
         let first = super::super::execution::session(&fixture, &provider).await;
         let second = super::super::execution::session(&fixture, &provider).await;
@@ -201,7 +201,7 @@ async fn retains_uncertain_refresh_without_replay() {
                     } else { Reply::Json(server::tokens(request, false, 3600)) }
                 } else { server::standard(request) }
             }).await;
-            let fixture = Fixture::new(remote, &server).await;
+            let fixture = Fixture::empty(remote, &server).await;
             let provider = connected(&fixture).await;
             let session = super::super::execution::session(&fixture, &provider).await;
             expire(&fixture, &provider);

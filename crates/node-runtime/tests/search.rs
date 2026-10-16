@@ -28,7 +28,7 @@ async fn controller(node: &Node, path: &std::path::Path) -> (Link, Arc<dyn Trans
 #[ignore = "uses the public keyless Exa service"]
 async fn searches_public_sources_without_credentials() {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start_isolated(directory.path().join("node"))
+    let node = Node::start_empty(directory.path().join("node"))
         .await
         .unwrap();
     let (controller, remote) = controller(&node, directory.path()).await;
@@ -66,7 +66,7 @@ async fn searches_public_sources_without_credentials() {
 async fn searches_keyless_exa_without_initialization() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         let (controller, transport) = controller(&node, directory.path()).await;
@@ -140,7 +140,7 @@ async fn save(
 async fn preserves_private_credentials_and_revisions() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");
-    let node = Node::start_isolated(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let (controller, remote) = controller(&node, directory.path()).await;
     let mut expected = search::Settings::default();
     for transport in [node.local(), remote] {
@@ -228,7 +228,7 @@ async fn preserves_private_credentials_and_revisions() {
         expected = saved;
     }
     node.shutdown().await.unwrap();
-    let node = Node::start_isolated(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let address = controller
         .handle()
         .pair(node.link().invite().unwrap().ticket())
@@ -261,7 +261,7 @@ async fn preserves_private_credentials_and_revisions() {
 async fn searches_all_saved_drivers_without_task_approval() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         let (controller, transport) = controller(&node, directory.path()).await;
@@ -383,7 +383,7 @@ async fn searches_all_saved_drivers_without_task_approval() {
 async fn shares_fallback_cooldown_and_cancellation() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         let (controller, transport) = controller(&node, directory.path()).await;
@@ -464,7 +464,7 @@ async fn shares_fallback_cooldown_and_cancellation() {
 async fn rejects_invalid_settings_without_storing_keys() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start_isolated(directory.path().join("node"))
+        let node = Node::start_empty(directory.path().join("node"))
             .await
             .unwrap();
         let (controller, transport) = controller(&node, directory.path()).await;

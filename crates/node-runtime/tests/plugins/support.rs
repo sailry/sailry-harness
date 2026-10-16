@@ -43,6 +43,38 @@ pub(crate) async fn empty(remote: bool) -> (tempfile::TempDir, Node, Link, Clien
     start(remote, true).await
 }
 
+pub(crate) async fn packages(
+    remote: bool,
+    packages: &[&str],
+) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
+    let fixture = empty(remote).await;
+    for &name in packages {
+        let package = info(
+            execute(
+                &fixture.3,
+                Command::InstallBundledPlugin {
+                    name: name.into(),
+                    expected_revision: 0,
+                },
+            )
+            .await,
+        );
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
+        if name == "computer" && package.summary.enabled {
+            execute(
+                &fixture.3,
+                Command::SetPluginEnabled {
+                    name: name.into(),
+                    expected_revision: package.summary.revision,
+                    enabled: false,
+                },
+            )
+            .await;
+        }
+    }
+    fixture
+}
+
 async fn start(remote: bool, empty: bool) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");

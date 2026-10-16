@@ -45,7 +45,7 @@ async fn configure(
 #[tokio::test]
 async fn reads_copies_and_restores_receipts() {
     for remote in [false, true] {
-        let mut fixture = Fixture::start().await;
+        let mut fixture = Fixture::packages(&["commands"]).await;
         let client = fixture
             .clients()
             .into_iter()
@@ -208,7 +208,7 @@ async fn reads_copies_and_restores_receipts() {
         );
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        fixture.node = Node::start(profile).await.unwrap();
+        fixture.node = Node::start_empty(profile).await.unwrap();
         let client = fixture
             .clients()
             .into_iter()
@@ -226,7 +226,7 @@ async fn reads_copies_and_restores_receipts() {
 
 #[tokio::test]
 async fn defers_native_support_checks() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::packages(&["files"]).await;
     let server = server::Server::scripted_tools(vec![]).await;
     for client in fixture.clients() {
         let requests_before = server.requests.lock().unwrap().len();

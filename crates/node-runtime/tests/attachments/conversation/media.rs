@@ -3,7 +3,7 @@ use base64::Engine;
 
 #[tokio::test]
 async fn preserves_video_and_audio_references() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let server = provider::Server::start(ModelApi::Gemini, provider::Reply::Text).await;
     for client in fixture.clients() {
         let (session, mut provider) = session(
@@ -111,7 +111,7 @@ async fn preserves_video_and_audio_references() {
 
 #[tokio::test]
 async fn preserves_unsupported_media_history() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let server = provider::Server::start(ModelApi::Anthropic, provider::Reply::Text).await;
     for client in fixture.clients() {
         let (session, mut provider) = session(

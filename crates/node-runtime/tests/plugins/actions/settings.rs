@@ -3,7 +3,8 @@ use super::*;
 #[tokio::test]
 async fn isolates_controller_capabilities() {
     for remote in [false, true] {
-        let (_directory, node, controller, client, worktree) = fixture(remote).await;
+        let (_directory, node, controller, client, worktree) =
+            crate::plugins::support::packages(remote, &["code", "web-search", "media"]).await;
         for (name, command) in [
             ("code", Command::ReadCodeSettings),
             ("web-search", Command::ReadSearchSettings),

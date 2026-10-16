@@ -14,7 +14,7 @@ async fn preserves_lost_registration() {
         let linked = temp.path().join("linked");
         repository.worktree("linked", &linked, None).unwrap();
         let profile = temp.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
             .await
             .unwrap();
@@ -45,7 +45,7 @@ async fn preserves_lost_registration() {
         drop(db);
         node.shutdown().await.unwrap();
         std::fs::write(linked.join("file"), "preserved edit").unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -66,7 +66,7 @@ async fn preserves_lost_registration() {
         let registered = snapshot(&client).await;
         assert_eq!(registered.worktrees.len(), 2);
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -97,7 +97,7 @@ async fn bounded_listing_keeps_contexts() {
             .worktree(&name, &temp.path().join(&name), None)
             .unwrap();
     }
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     register(&client, &root).await;
     let before = snapshot(&client).await;

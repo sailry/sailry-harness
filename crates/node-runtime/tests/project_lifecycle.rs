@@ -50,7 +50,7 @@ async fn edits_and_restores() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().canonicalize().unwrap();
     let profile = root.join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let controller = Link::controller(root.join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -321,7 +321,7 @@ async fn edits_and_restores() {
     }
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     assert!(snapshot(&client).await.projects.is_empty());
     for project in removed {

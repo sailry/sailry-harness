@@ -9,7 +9,9 @@ async fn browses_and_streams_files() {
         std::fs::create_dir(&root).unwrap();
         std::fs::create_dir(root.join("folder")).unwrap();
         let server = server::Server::start(root.clone(), 52).await;
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

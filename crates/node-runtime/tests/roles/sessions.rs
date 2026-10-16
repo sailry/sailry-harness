@@ -311,7 +311,9 @@ async fn preserves_frozen_revisions() {
         };
         assert_eq!(cleared.roles, role::Snapshot::default());
         node.shutdown().await.unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -333,7 +335,9 @@ async fn preserves_frozen_revisions() {
 async fn imports_private_providers() {
     for remote in [false, true] {
         let (directory, target, controller, destination) = fixture(remote).await;
-        let source = Node::start(directory.path().join("source")).await.unwrap();
+        let source = Node::start_empty(directory.path().join("source"))
+            .await
+            .unwrap();
         source
             .link()
             .pair(target.link().invite().unwrap().ticket())
@@ -402,7 +406,9 @@ async fn imports_private_providers() {
         imported.activity = queued_activity(&imported, &queued);
         assert_eq!(queued.roles, imported.roles);
         target.shutdown().await.unwrap();
-        let target = Node::start(directory.path().join("node")).await.unwrap();
+        let target = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let destination = Client::new(if remote {
             controller.handle().remote(target.link().address())
         } else {
@@ -419,7 +425,9 @@ async fn imports_private_providers() {
 #[tokio::test]
 async fn rejects_inconsistent_imports() {
     let (directory, target, controller, destination) = fixture(true).await;
-    let source = Node::start(directory.path().join("source")).await.unwrap();
+    let source = Node::start_empty(directory.path().join("source"))
+        .await
+        .unwrap();
     source
         .link()
         .pair(target.link().invite().unwrap().ticket())

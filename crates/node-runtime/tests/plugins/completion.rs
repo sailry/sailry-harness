@@ -22,6 +22,14 @@ async fn configure_api(client: &Client, endpoint: String, api: conversation::Mod
             .await;
         }
     }
+    configure_model(client, endpoint, api).await
+}
+
+pub(super) async fn configure_empty(client: &Client, endpoint: String) -> String {
+    configure_model(client, endpoint, conversation::ModelApi::ChatCompletions).await
+}
+
+async fn configure_model(client: &Client, endpoint: String, api: conversation::ModelApi) -> String {
     let provider = conversation::Provider {
         oauth: None,
         id: ProviderId::new(),
@@ -78,7 +86,8 @@ async fn completes_before_socket_eof() {
             conversation::ModelApi::DeepSeek,
         ] {
             let server = model_fixture::Server::terminal().await;
-            let (directory, node, controller, client, worktree) = fixture(remote).await;
+            let (directory, node, controller, client, worktree) =
+                crate::plugins::support::empty(remote).await;
             let context = actions::install_actions(
                 &client,
                 &directory.path().join("source/package"),
@@ -87,7 +96,7 @@ async fn completes_before_socket_eof() {
                 &[Action::GenerateText],
             )
             .await;
-            let model = configure_api(&client, server.endpoint.clone(), api).await;
+            let model = configure_model(&client, server.endpoint.clone(), api).await;
             let request = client
                 .prepare(Command::GeneratePluginText {
                     effort: None,
@@ -193,7 +202,8 @@ async fn completes_before_socket_eof() {
 async fn recovers_original_result() {
     for remote in [false, true] {
         let server = model_fixture::Server::markdown("{\"move\":1}".into()).await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let mut context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -203,7 +213,7 @@ async fn recovers_original_result() {
         )
         .await;
         context.worktree = None;
-        let model = configure(&client, server.endpoint.clone()).await;
+        let model = configure_empty(&client, server.endpoint.clone()).await;
         let request = client
             .prepare(Command::GeneratePluginText {
                 effort: None,
@@ -269,7 +279,8 @@ async fn recovers_original_result() {
 
 #[tokio::test]
 async fn rejects_invalid_requests() {
-    let (directory, node, controller, client, worktree) = fixture(false).await;
+    let (directory, node, controller, client, worktree) =
+        crate::plugins::support::empty(false).await;
     let context = actions::install_actions(
         &client,
         &directory.path().join("source/package"),
@@ -342,7 +353,8 @@ async fn rejects_invalid_requests() {
 async fn preserves_failed_attempt() {
     for remote in [false, true] {
         let server = model_fixture::Server::http(1, 503).await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -351,7 +363,7 @@ async fn preserves_failed_attempt() {
             &[Action::GenerateText],
         )
         .await;
-        let model = configure(&client, server.endpoint.clone()).await;
+        let model = configure_empty(&client, server.endpoint.clone()).await;
         let request = client
             .prepare(Command::GeneratePluginText {
                 effort: None,
@@ -374,7 +386,8 @@ async fn requires_available_model() {
     for remote in [false, true] {
         let first = model_fixture::Server::markdown("first".into()).await;
         let second = model_fixture::Server::markdown("second".into()).await;
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let context = actions::install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -383,8 +396,8 @@ async fn requires_available_model() {
             &[Action::GenerateText],
         )
         .await;
-        configure(&client, first.endpoint.clone()).await;
-        let selected = configure(&client, second.endpoint.clone()).await;
+        configure_empty(&client, first.endpoint.clone()).await;
+        let selected = configure_empty(&client, second.endpoint.clone()).await;
         let request = client
             .prepare(Command::ListPluginModels)
             .with_plugin(context.clone());

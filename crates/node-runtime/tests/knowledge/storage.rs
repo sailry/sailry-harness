@@ -343,7 +343,7 @@ async fn rebuilds_deleted_derived_index_after_restart() {
         node.shutdown().await.unwrap();
         let profile = temp.path().join("node");
         fs::remove_file(profile.join("storage/knowledge.db")).unwrap();
-        let node = Node::start_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
+        let node = Node::start_empty_with_plugin_catalog(&profile, "http://127.0.0.1:9/")
             .await
             .unwrap();
         let client = Client::new(if remote {

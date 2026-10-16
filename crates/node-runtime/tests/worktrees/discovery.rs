@@ -48,7 +48,7 @@ async fn local_and_remote_discovery() {
         .unwrap()
         .lock(Some("Fixture"))
         .unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let project = register(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -175,7 +175,7 @@ async fn local_and_remote_discovery() {
     drop(db);
     let profile = node.profile().to_owned();
     node.shutdown().await.unwrap();
-    let node = Node::start(profile).await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
     let resumed = snapshot(&Client::new(
         controller.handle().remote(node.link().address()),
     ))
@@ -198,7 +198,7 @@ async fn rejects_foreign_contexts() {
     let alias = temp.path().join("alias");
     std::fs::create_dir(&alias).unwrap();
     std::fs::copy(linked.join(".git"), alias.join(".git")).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let project = register(&local, &root).await;
     let linked_project = register(&local, &linked).await;
@@ -277,7 +277,7 @@ async fn empty_and_detached_states() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repository");
     std::fs::create_dir(&root).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     register(&client, &root).await;
     let before = snapshot(&client).await;

@@ -261,7 +261,8 @@ async fn capability_is_explicit_and_revalidated() {
 #[tokio::test]
 async fn previews_are_bounded_without_exposing_history() {
     for remote in [false, true] {
-        let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let (directory, node, controller, client, worktree) =
+            crate::plugins::support::empty(remote).await;
         let mut context = install_actions(
             &client,
             &directory.path().join("source/package"),
@@ -273,7 +274,7 @@ async fn previews_are_bounded_without_exposing_history() {
         context.worktree = None;
         let text = "Activity 中文 🙂 ".repeat(80);
         let server = model_fixture::Server::markdown(text.clone()).await;
-        let model = completion::configure(&client, server.endpoint.clone()).await;
+        let model = completion::configure_empty(&client, server.endpoint.clone()).await;
         let Output::Session(session) = execute(
             &client,
             Command::CreateSession {
