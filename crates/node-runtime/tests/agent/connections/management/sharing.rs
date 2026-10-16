@@ -4,7 +4,7 @@ use super::*;
 async fn retains_project_connections_across_turns() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server, None).await;
         install(&fixture).await;
         configure(&mut fixture, Permission::Full).await;
         let private_database =

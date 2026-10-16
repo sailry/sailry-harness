@@ -25,7 +25,9 @@ impl Fixture {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -44,9 +46,8 @@ impl Fixture {
         git.update();
         let next = discovery(&client, git.source()).await;
         let server = Server::tools(calls(&original, &next)).await;
-        let mut session = approvals::prepare(&client, &server, &root).await;
-        isolate_model_tools(&client).await;
-        disable_tools(&client, &["browser", "media"]).await;
+        let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
+        let mut session = approvals::prepare_model(&client, session, provider).await;
         let mut config = session.config.clone();
         config.permission = permission;
         config.mode = mode;
@@ -229,7 +230,7 @@ async fn permissions_and_empty_inventory() {
             }
             // Management belongs to the captured execution Node, not the controller or another Node.
             let other_directory = tempfile::tempdir().unwrap();
-            let other = Node::start(other_directory.path().join("other"))
+            let other = Node::start_empty(other_directory.path().join("other"))
                 .await
                 .unwrap();
             let other_client = Client::new(other.local());
@@ -286,6 +287,18 @@ async fn preserves_identity_and_rejects_feature_packages() {
             },
         )
         .await;
+        let Output::Plugin(files) = execute(
+            &fixture.client,
+            Command::InstallBundledPlugin {
+                name: "files".into(),
+                expected_revision: 0,
+            },
+        )
+        .await
+        else {
+            panic!("files package expected");
+        };
+        assert!(files.issues.is_empty(), "{:?}", files.issues);
         let turn = fixture.submit().await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);

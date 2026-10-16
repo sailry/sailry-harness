@@ -267,7 +267,8 @@ async fn filters_without_provisioning() {
         for enabled in [false, true] {
             for mode in [WorkMode::Code, WorkMode::Plan] {
                 let fixture =
-                    Fixture::configured(remote, vec![], mode, Permission::Full, enabled).await;
+                    Fixture::configured(remote, vec![], mode, Permission::Full, enabled, true)
+                        .await;
                 let page = if mode == WorkMode::Plan {
                     questions::finish_plan(&fixture.client, fixture.session, fixture.turn).await
                 } else {
@@ -329,6 +330,7 @@ async fn requires_provisioning_authority() {
                 WorkMode::Code,
                 Permission::Ask,
                 true,
+                true,
             )
             .await;
             let (_, approval) = super::approvals::pending(&fixture.client, fixture.session).await;
@@ -385,7 +387,7 @@ struct Fixture {
 
 impl Fixture {
     async fn start(remote: bool, calls: Vec<(String, serde_json::Value)>) -> Self {
-        Self::configured(remote, calls, WorkMode::Code, Permission::Full, true).await
+        Self::configured(remote, calls, WorkMode::Code, Permission::Full, true, false).await
     }
 
     async fn configured(
@@ -394,13 +396,19 @@ impl Fixture {
         mode: WorkMode,
         permission: Permission,
         enabled: bool,
+        minimal: bool,
     ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
         std::fs::write(root.join("upload.txt"), "upload fixture").unwrap();
         std::fs::write(directory.path().join("outside.txt"), "outside fixture").unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = if minimal {
+            Node::start_empty(directory.path().join("node")).await
+        } else {
+            Node::start(directory.path().join("node")).await
+        }
+        .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -415,6 +423,29 @@ impl Fixture {
         } else {
             node.local()
         });
+        if minimal {
+            let Output::Plugin(package) = client
+                .execute(client.prepare(Command::InstallBundledPlugin {
+                    name: "external-browser".into(),
+                    expected_revision: 0,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("external browser package expected")
+            };
+            assert!(package.issues.is_empty(), "{:?}", package.issues);
+            // Explicit installation starts enabled; keep the fixture's initial
+            // disabled configuration without installing unrelated packages.
+            client
+                .execute(client.prepare(Command::SetPluginEnabled {
+                    name: package.summary.name,
+                    expected_revision: package.summary.revision,
+                    enabled: false,
+                }))
+                .await
+                .unwrap();
+        }
         let package = package(&client).await;
         assert!(!package.enabled, "managed browser starts disabled");
         if enabled {
@@ -434,7 +465,12 @@ impl Fixture {
                 .collect(),
         )
         .await;
-        let session = super::approvals::prepare(&client, &server, &root).await;
+        let session = if minimal {
+            let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
+            super::approvals::prepare_model(&client, session, provider).await
+        } else {
+            super::approvals::prepare(&client, &server, &root).await
+        };
         let mut config = session.config.clone();
         config.permission = permission;
         config.mode = mode;

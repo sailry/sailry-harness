@@ -11,6 +11,51 @@ fn tool(name: &str) -> String {
     agent_support::plugin_tool(PACKAGE, name)
 }
 
+async fn fixture(remote: bool, server: &Server, bundled: Option<&str>) -> process::Fixture {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let address = controller
+        .handle()
+        .pair(node.link().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let client = Client::new(if remote {
+        controller.handle().remote(address)
+    } else {
+        node.local()
+    });
+    if let Some(name) = bundled {
+        let Output::Plugin(package) = client
+            .execute(client.prepare(Command::InstallBundledPlugin {
+                name: name.into(),
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("connection package expected")
+        };
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
+    }
+    let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
+    let session = approvals::prepare_model(&client, session, provider).await;
+    process::Fixture {
+        directory,
+        root,
+        node,
+        controller,
+        client,
+        session,
+    }
+}
+
 async fn install(fixture: &process::Fixture) -> plugin::Info {
     install_named(fixture, PACKAGE).await
 }
@@ -146,7 +191,7 @@ async fn saves_native_credentials_without_public_secrets() {
     for remote in [false, true] {
         for authentication in ["password", "private_key", "key_path", "agent"] {
             let server = Server::tools(vec![]).await;
-            let mut fixture = process::Fixture::new(remote, &server).await;
+            let mut fixture = fixture(remote, &server, Some("ssh")).await;
             configure(&mut fixture, Permission::Ask).await;
             let path = fixture.directory.path().join("private-path-marker");
             let replacement_path = fixture.directory.path().join("replacement-path-marker");
@@ -307,7 +352,7 @@ async fn saves_native_credentials_without_public_secrets() {
 async fn credential_edits_keep_revision_and_plan_boundaries() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server, None).await;
         install(&fixture).await;
         configure(&mut fixture, Permission::Full).await;
         let server = Server::result_tools(vec![
@@ -405,7 +450,7 @@ async fn credential_edits_keep_revision_and_plan_boundaries() {
 async fn bundled_tools_keep_saved_id() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server, Some("databases")).await;
         let repository = git2::Repository::init(&fixture.root).unwrap();
         std::fs::write(fixture.root.join("seed.txt"), "Connection worktree fixture").unwrap();
         let mut index = repository.index().unwrap();
@@ -527,7 +572,7 @@ async fn bundled_writes_initialize_only_after_approval() {
                 ),
             ])
             .await;
-            let mut fixture = process::Fixture::new(remote, &server).await;
+            let mut fixture = fixture(remote, &server, Some("databases")).await;
             configure(&mut fixture, Permission::Ask).await;
             let path = fixture.root.join("output/data/created.db");
             assert!(!path.exists());
@@ -608,7 +653,7 @@ async fn bundled_writes_initialize_only_after_approval() {
 async fn creates_and_queries_in_one_turn() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server, None).await;
         let info = install(&fixture).await;
         let other = install_named(&fixture, "other-connection-services").await;
         let path = fixture.root.join("created.sqlite3");
@@ -814,7 +859,7 @@ async fn creates_and_queries_in_one_turn() {
 async fn relative_saves_preserve_scope_and_plan() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server, None).await;
         install(&fixture).await;
         configure(&mut fixture, Permission::Full).await;
         let server = Server::tools(vec![
@@ -896,7 +941,7 @@ async fn relative_saves_preserve_scope_and_plan() {
 async fn preserves_credentials_and_reports_missing() {
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server, None).await;
         install(&fixture).await;
         configure(&mut fixture, Permission::Full).await;
         let Output::DatabaseProfile(existing) = fixture
@@ -1001,7 +1046,7 @@ async fn requires_exact_first_use_consent() {
             (ssh::Authentication::Agent, false),
         ] {
             let server = Server::tools(vec![]).await;
-            let mut fixture = process::Fixture::new(remote, &server).await;
+            let mut fixture = fixture(remote, &server, None).await;
             let info = install(&fixture).await;
             configure(&mut fixture, Permission::Full).await;
             let peer = ssh_peer::Server::start(fixture.directory.path().into(), 44).await;
@@ -1157,7 +1202,7 @@ async fn rejects_changed_key_without_authentication() {
     use std::sync::atomic::Ordering;
     for remote in [false, true] {
         let server = Server::tools(vec![]).await;
-        let mut fixture = process::Fixture::new(remote, &server).await;
+        let mut fixture = fixture(remote, &server, None).await;
         install(&fixture).await;
         configure(&mut fixture, Permission::Full).await;
         let peer = ssh_peer::Server::start(fixture.directory.path().into(), 44).await;
