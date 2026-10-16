@@ -33,6 +33,10 @@ pub(crate) async fn append(client: &Client, session: &Session, count: usize) -> 
                         Change::Run(run) if run.turn == turn.id => Some(run),
                         _ => None,
                     },
+                    Update::ResetRequired => {
+                        updates = client.subscribe_conversation(session.id).await.unwrap();
+                        None
+                    }
                     _ => None,
                 };
                 if let Some(run) = completed

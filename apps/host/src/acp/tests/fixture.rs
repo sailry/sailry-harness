@@ -194,6 +194,10 @@ impl Fixture {
                         frame.change,
                         Change::Run(run) if !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)
                     ),
+                    Update::ResetRequired => {
+                        updates = self.client.subscribe_conversation(self.session.id).await.unwrap();
+                        false
+                    }
                     _ => false,
                 };
                 if terminal {
