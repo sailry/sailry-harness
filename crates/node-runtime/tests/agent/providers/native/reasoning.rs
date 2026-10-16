@@ -5,7 +5,7 @@ async fn attempts_explicit_unknown_effort() {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
         for remote in [false, true] {
             let server = crate::agent_support::Server::start(false).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let mut provider = fixture.provider.clone();
             provider.models[0].reasoning = false;
             provider.models[0].efforts.clear();
@@ -152,7 +152,7 @@ async fn accepts_unannotated_responses() {
             Reply::Raw(Arc::new(raw.clone().into_bytes())),
         )
         .await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Compatible response fixture").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(
@@ -183,7 +183,7 @@ async fn preserves_openai_effort() {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
         for remote in [false, true] {
             let server = crate::agent_support::Server::start(false).await;
-            let mut fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let mut fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let choices = vec![
                 Effort::Default,
                 Effort::Disabled,
@@ -257,7 +257,7 @@ async fn restores_native_choices() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Text).await;
-            let mut fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let mut fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let choices = match api {
                 ModelApi::Anthropic => vec![
                     Effort::Default,
@@ -350,7 +350,7 @@ async fn restores_native_choices() {
             .await;
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(fixture.directory.path().join("node"))
+            let node = Node::start_empty(fixture.directory.path().join("node"))
                 .await
                 .unwrap();
             let controller = Link::controller(
@@ -500,7 +500,7 @@ async fn preserves_streamed_whitespace() {
     for api in [ModelApi::DeepSeek, ModelApi::ChatCompletions] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Raw(Arc::new(raw.clone().into_bytes()))).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             for prompt in ["First", "Continue"] {
                 let turn = fixture.submit(prompt).await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;

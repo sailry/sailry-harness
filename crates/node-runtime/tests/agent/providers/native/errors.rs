@@ -16,7 +16,7 @@ async fn retains_status_for_nonstandard_error_bodies() {
             );
             let server =
                 Server::start(ModelApi::Responses, Reply::Raw(Arc::new(raw.into_bytes()))).await;
-            let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Answer the task").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             let run = page.runs.last().unwrap();
@@ -80,7 +80,7 @@ async fn retains_shared_usage_causes_without_replay() {
                 let server =
                     completion::server(vec![created, failure(code, kind), failure(code, "failed")])
                         .await;
-                let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+                let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
                 let turn = fixture.submit("Answer this task").await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;
                 let run = page.runs.last().unwrap();
@@ -104,7 +104,7 @@ async fn retains_shared_usage_causes_without_replay() {
 async fn sanitizes_unknown_stream_causes() {
     for remote in [false, true] {
         let server = completion::server(vec![failure(PRIVATE, "nested")]).await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Answer this task").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();

@@ -19,7 +19,7 @@ async fn restores_frozen_requests() {
     for &api in APIS {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Text).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let turn = fixture.submit("Cloud fixture 🙂").await;
             let history_before = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(
@@ -57,7 +57,7 @@ async fn restores_frozen_requests() {
             .await;
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(fixture.directory.path().join("node"))
+            let node = Node::start_empty(fixture.directory.path().join("node"))
                 .await
                 .unwrap();
             let controller = Link::controller(
@@ -137,7 +137,7 @@ async fn records_usage_and_cancels_requests() {
     for &api in APIS {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Usage).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let turn = fixture.submit("Usage fixture").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);

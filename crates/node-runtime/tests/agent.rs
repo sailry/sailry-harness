@@ -149,6 +149,14 @@ async fn configured(
     // Model fixtures isolate newly shipped dependencies. Their integration
     // suites explicitly enable the packages they exercise.
     disable_tools(client, &["context7", "github", "code-review"]).await;
+    configured_session(client, endpoint, root).await
+}
+
+async fn configured_session(
+    client: &Client,
+    endpoint: &str,
+    root: &std::path::Path,
+) -> (Session, Provider) {
     let provider = Provider {
         oauth: None,
         options: None,
@@ -232,18 +240,38 @@ async fn finished_within(
     budget: Duration,
 ) -> Page {
     tokio::time::timeout(budget, async {
+        let mut updates = client.subscribe_conversation(session).await.unwrap();
+        let mut projection =
+            sailry_client::conversation::Projection::new(client.target(), session, 0);
         loop {
-            let page = history(client, session).await;
-            if page.runs.iter().any(|run| {
-                run.turn == turn
-                    && !matches!(
-                        run.status,
-                        Status::Queued | Status::Running | Status::Stopping
-                    )
-            }) {
-                return page;
+            let applied = projection.apply(0, updates.next().await.unwrap()).unwrap();
+            if applied == sailry_client::Apply::Recover {
+                updates = client.subscribe_conversation(session).await.unwrap();
+                projection =
+                    sailry_client::conversation::Projection::new(client.target(), session, 0);
+                continue;
             }
-            tokio::time::sleep(Duration::from_millis(10)).await;
+            if projection.snapshot().is_some_and(|snapshot| {
+                snapshot.page.runs.iter().any(|run| {
+                    run.turn == turn
+                        && !matches!(
+                            run.status,
+                            Status::Queued | Status::Running | Status::Stopping
+                        )
+                })
+            }) {
+                // The status frame can precede other entries from its committed transaction.
+                let page = history(client, session).await;
+                if page.runs.iter().any(|run| {
+                    run.turn == turn
+                        && !matches!(
+                            run.status,
+                            Status::Queued | Status::Running | Status::Stopping
+                        )
+                }) {
+                    return page;
+                }
+            }
         }
     })
     .await

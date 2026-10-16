@@ -61,7 +61,7 @@ async fn keeps_cache_identity_across_controllers() {
             } else {
                 Server::start(api, Reply::Text).await
             };
-            let mut fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let mut fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let session = fixture.session.id;
             for message in ["First request", "Continue from another controller"] {
                 let turn = fixture.submit(message).await;
@@ -126,8 +126,8 @@ async fn keeps_cache_identity_across_controllers() {
 #[tokio::test]
 async fn preserves_regional_routes_and_usage() {
     use Product::{Coding, Metered};
-    // Only each public endpoint's path is exercised. The isolated HTTP server
-    // proves joining and Node transport behavior, not live provider acceptance.
+    // Replacing the origin makes regional hosts with the same path, model and
+    // product equivalent. Exercise each distinct input through both Node paths.
     let routes = [
         (
             Metered,
@@ -135,44 +135,24 @@ async fn preserves_regional_routes_and_usage() {
             "qwen3.6-plus",
         ),
         (
-            Metered,
-            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-            "qwen3.6-plus",
-        ),
-        (
             Coding,
             "https://coding.dashscope.aliyuncs.com/v1",
             "qwen3.6-plus",
         ),
-        (
-            Coding,
-            "https://coding-intl.dashscope.aliyuncs.com/v1",
-            "qwen3.6-plus",
-        ),
         (Metered, "https://api.moonshot.cn/v1", "kimi-k2.6"),
-        (Metered, "https://api.moonshot.ai/v1", "kimi-k2.6"),
         (Coding, "https://api.kimi.com/coding/v1", "kimi-for-coding"),
-        (Coding, "https://api.kimi.ai/coding/v1", "kimi-for-coding"),
         (Metered, "https://api.minimax.cn/v1", "MiniMax-M3"),
-        (Metered, "https://api.minimax.io/v1", "MiniMax-M3"),
         (
             Coding,
             "https://api.minimax.cn/v1",
             "MiniMax-M3.1-Flash-Preview",
         ),
-        (
-            Coding,
-            "https://api.minimax.io/v1",
-            "MiniMax-M3.1-Flash-Preview",
-        ),
         (Metered, "https://open.bigmodel.cn/api/paas/v4", "glm-5.2"),
-        (Metered, "https://api.z.ai/api/paas/v4", "glm-5.2"),
         (
             Coding,
             "https://open.bigmodel.cn/api/coding/paas/v4",
             "glm-5.2",
         ),
-        (Coding, "https://api.z.ai/api/coding/paas/v4", "glm-5.2"),
         (
             Metered,
             "https://ark.cn-beijing.volces.com/api/v3",
@@ -185,12 +165,46 @@ async fn preserves_regional_routes_and_usage() {
         ),
     ];
     for remote in [false, true] {
+        let server = Server::start(ModelApi::ChatCompletions, Reply::Usage).await;
+        let mut fixture = Fixture::empty(remote, ModelApi::ChatCompletions, &server.endpoint).await;
         for (product, public, model) in routes {
-            let server = Server::start(ModelApi::ChatCompletions, Reply::Usage).await;
+            server.requests.lock().unwrap().clear();
             let path = reqwest::Url::parse(public).unwrap().path().to_owned();
             let origin = server.endpoint.strip_suffix("/v1").unwrap();
-            let endpoint = format!("{origin}{path}/");
-            let mut fixture = Fixture::new(remote, ModelApi::ChatCompletions, &endpoint).await;
+            let mut provider = fixture.provider.clone();
+            provider.id = ProviderId::new();
+            provider.revision = 0;
+            provider.credential = None;
+            provider.endpoint = format!("{origin}{path}/");
+            let Output::Provider(provider) = execute(
+                &fixture.client,
+                Command::SaveProvider {
+                    provider,
+                    expected_revision: 0,
+                    secret: Some(Secret::new(server::KEY.into())),
+                },
+            )
+            .await
+            else {
+                panic!("provider expected")
+            };
+            let mut config = fixture.session.config.clone();
+            config.provider = provider.id;
+            config.credential = provider.credential.clone();
+            fixture.provider = provider;
+            let Output::Session(session) = execute(
+                &fixture.client,
+                Command::CreateSession {
+                    project: fixture.session.project,
+                    worktree: Some(fixture.session.worktree),
+                    config: Some(config),
+                },
+            )
+            .await
+            else {
+                panic!("session expected")
+            };
+            fixture.session = session;
             select(&mut fixture, model, product).await;
             let turn = fixture.submit("Count the isolated response").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
@@ -265,9 +279,9 @@ async fn preserves_regional_routes_and_usage() {
                 assert!(request.body.get("preserve_thinking").is_none());
                 assert!(request.body.get("thinking").is_none());
             }
-            fixture.controller.close().await.unwrap();
-            fixture.node.shutdown().await.unwrap();
         }
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
     }
 }
 
@@ -364,7 +378,7 @@ async fn keeps_anthropic_compatible_identity() {
         ] {
             let server = Server::start(ModelApi::Anthropic, Reply::Usage).await;
             let endpoint = format!("{}{base}/v1/", server.endpoint);
-            let mut fixture = Fixture::new(remote, ModelApi::Anthropic, &endpoint).await;
+            let mut fixture = Fixture::empty(remote, ModelApi::Anthropic, &endpoint).await;
             select(&mut fixture, model, Product::Coding).await;
             let turn = fixture.submit("Count the compatible response").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;

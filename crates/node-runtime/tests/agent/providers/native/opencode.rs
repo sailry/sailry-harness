@@ -16,7 +16,7 @@ async fn keeps_public_status_without_provider_content() {
             );
             let server =
                 Server::start(ModelApi::DeepSeek, Reply::Raw(Arc::new(reply.into_bytes()))).await;
-            let mut fixture = Fixture::new(remote, ModelApi::OpenCodeGo, &server.endpoint).await;
+            let mut fixture = Fixture::empty(remote, ModelApi::OpenCodeGo, &server.endpoint).await;
             let model = "deepseek-v4.1-flash";
             fixture.provider.models[0].id = model.into();
             fixture.provider.default_model = model.into();
@@ -124,7 +124,7 @@ async fn local_and_remote_nodes_share_routing_identity() {
             } else {
                 server.endpoint.clone()
             };
-            let mut fixture = Fixture::new(remote, api, &endpoint).await;
+            let mut fixture = Fixture::empty(remote, api, &endpoint).await;
             fixture.provider.models[0].id = model.into();
             fixture.provider.models[0].context = 65536;
             fixture.provider.models[0].output = 8192;

@@ -269,7 +269,7 @@ async fn preserves_gemini_summary_instructions() {
                 .repeat(80)
         );
         let server = Server::start(ModelApi::Gemini, Reply::Compaction(evidence.clone())).await;
-        let fixture = Fixture::new(remote, ModelApi::Gemini, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Gemini, &server.endpoint).await;
         let task = "Original Gemini compaction constraint 🙂 ".repeat(40);
         assert!(task.len() > 1024);
         let turn = fixture.submit(&task).await;
@@ -395,7 +395,7 @@ async fn preserves_gemini_summary_instructions() {
         }
         let profile = fixture.node.profile().to_owned();
         fixture.node.shutdown().await.unwrap();
-        let node = Node::start(profile).await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
         let client = Client::new(if remote {
             fixture.controller.handle().remote(node.link().address())
         } else {

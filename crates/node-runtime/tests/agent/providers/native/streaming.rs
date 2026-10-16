@@ -18,7 +18,7 @@ async fn publishes_before_completion() {
             let server =
                 crate::agent_support::Server::staged_responses(gates.clone(), content_type, ending)
                     .await;
-            let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let (updates, mut observed) = tokio::sync::watch::channel(View::default());
             let stop = CancellationToken::new();
             let (_requests, requests) = tokio::sync::mpsc::channel(1);

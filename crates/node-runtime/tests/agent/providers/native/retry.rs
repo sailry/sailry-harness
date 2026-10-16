@@ -98,7 +98,7 @@ async fn honors_server_retry_delays() {
                 Reply::Scripted(Arc::new(vec![unavailable("2"), success]))
             };
             let server = Server::start(ModelApi::Responses, reply).await;
-            let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Respect the server retry delay").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
@@ -140,7 +140,7 @@ async fn cancels_a_hinted_wait_without_replay() {
             Reply::Scripted(Arc::new(vec![unavailable("30")])),
         )
         .await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Cancel the server retry wait").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -177,7 +177,7 @@ async fn rejects_unrepresentable_server_delays() {
             Reply::Scripted(Arc::new(vec![unavailable("18446744073709551616")])),
         )
         .await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Retain the unavailable outcome").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();
@@ -217,7 +217,7 @@ async fn recover(chunked: bool) {
             },
         ];
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let (updates, mut observed) = tokio::sync::watch::channel(View::default());
         let stop = CancellationToken::new();
         let (_requests, requests) = tokio::sync::mpsc::channel(1);
@@ -393,7 +393,7 @@ async fn preserves_committed_answers_without_replay() {
             }])),
         )
         .await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Answer once").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
@@ -422,7 +422,7 @@ async fn shares_opening_and_stream_retry_budget() {
             },
         ];
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Bound opening and streaming retries").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Failed);
@@ -463,7 +463,7 @@ async fn cancels_recovery_without_another_request() {
             },
         ];
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Cancel recovery").await;
         tokio::time::timeout(Duration::from_secs(10), async {
             while server.requests.lock().unwrap().len() != 1 {

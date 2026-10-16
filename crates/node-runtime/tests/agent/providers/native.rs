@@ -58,10 +58,23 @@ struct Fixture {
 
 impl Fixture {
     async fn new(remote: bool, api: ModelApi, endpoint: &str) -> Self {
+        Self::start(remote, api, endpoint, true).await
+    }
+
+    async fn empty(remote: bool, api: ModelApi, endpoint: &str) -> Self {
+        Self::start(remote, api, endpoint, false).await
+    }
+
+    async fn start(remote: bool, api: ModelApi, endpoint: &str, bundled: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = if bundled {
+            Node::start(directory.path().join("node")).await
+        } else {
+            Node::start_empty(directory.path().join("node")).await
+        }
+        .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -76,7 +89,11 @@ impl Fixture {
         } else {
             node.local()
         });
-        let (mut session, mut provider) = configured(&client, endpoint, &root).await;
+        let (mut session, mut provider) = if bundled {
+            configured(&client, endpoint, &root).await
+        } else {
+            configured_session(&client, endpoint, &root).await
+        };
         provider.api = api;
         provider.options = cloud::options(api);
         let effort = if api == ModelApi::AzureAi {
@@ -175,7 +192,7 @@ async fn compatible_aws_endpoint_uses_api_key() {
             };
             let base = server.endpoint.strip_suffix("/v1").unwrap();
             let endpoint = format!("{base}/bedrock-runtime.us-east-1.amazonaws.com/openai/v1/");
-            let fixture = Fixture::new(remote, api, &endpoint).await;
+            let fixture = Fixture::empty(remote, api, &endpoint).await;
             assert_eq!(fixture.provider.authentication, Authentication::ApiKey);
             assert!(fixture.provider.options.is_none());
             let turn = fixture.submit("Read the greeting").await;
@@ -218,7 +235,7 @@ async fn versioned_anthropic_endpoint() {
     for remote in [false, true] {
         let server = Server::start(ModelApi::Anthropic, Reply::Text).await;
         let endpoint = format!("{}/gateway/v1/", server.endpoint);
-        let fixture = Fixture::new(remote, ModelApi::Anthropic, &endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Anthropic, &endpoint).await;
         let turn = fixture.submit("Read the greeting").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
@@ -237,7 +254,7 @@ async fn restores_authenticated_history() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Text).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let turn = fixture.submit("第一条 🙂").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(
@@ -334,7 +351,7 @@ async fn restores_authenticated_history() {
             }
             let profile = fixture.node.profile().to_owned();
             fixture.node.shutdown().await.unwrap();
-            let node = Node::start(profile).await.unwrap();
+            let node = Node::start_empty(profile).await.unwrap();
             assert_eq!(
                 history(&Client::new(node.local()), fixture.session.id).await,
                 page
@@ -383,7 +400,7 @@ async fn bounds_transient_failure_retries() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Failure).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let turn = fixture.submit("failure fixture").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(
@@ -410,7 +427,7 @@ async fn cancels_active_requests() {
         for remote in [false, true] {
             let closed = Arc::new(tokio::sync::Notify::new());
             let server = Server::start(api, Reply::Wait(closed.clone())).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let turn = fixture.submit("cancellation fixture").await;
             tokio::time::timeout(Duration::from_secs(10), async {
                 while server.requests.lock().unwrap().is_empty() {
@@ -436,7 +453,7 @@ async fn cancels_active_requests() {
 async fn rejects_unsupported_effort() {
     for remote in [false, true] {
         let server = Server::start(ModelApi::Gemini, Reply::Text).await;
-        let mut fixture = Fixture::new(remote, ModelApi::Gemini, &server.endpoint).await;
+        let mut fixture = Fixture::empty(remote, ModelApi::Gemini, &server.endpoint).await;
         let mut provider = fixture.provider.clone();
         provider.models[0].efforts.push(Effort::Max);
         assert_eq!(
@@ -473,7 +490,7 @@ async fn confines_credentials() {
         for remote in [false, true] {
             let target = Server::start(api, Reply::Text).await;
             let origin = Server::start(api, Reply::Redirect(target.endpoint.clone())).await;
-            let fixture = Fixture::new(remote, api, &origin.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &origin.endpoint).await;
             let turn = fixture.submit("redirect fixture").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert!(

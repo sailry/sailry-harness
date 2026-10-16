@@ -5,7 +5,7 @@ async fn normalizes_cache_and_thoughts() {
     for api in [ModelApi::Anthropic, ModelApi::Gemini, ModelApi::DeepSeek] {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Usage).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let turn = fixture.submit("Count provider usage").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs[0].status, Status::Completed);
@@ -50,7 +50,7 @@ async fn normalizes_cache_and_thoughts() {
                 assert_eq!(native["completion_tokens_details"]["reasoning_tokens"], 1);
             }
             drop(db);
-            let node = Node::start(profile).await.unwrap();
+            let node = Node::start_empty(profile).await.unwrap();
             assert_eq!(
                 history(&Client::new(node.local()), fixture.session.id).await,
                 page

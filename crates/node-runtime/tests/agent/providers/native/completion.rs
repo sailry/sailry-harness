@@ -102,7 +102,7 @@ async fn restores_final_payloads() {
     for remote in [false, true] {
         for events in cases.clone() {
             let server = server(events).await;
-            let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Can you read this project?").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(
@@ -133,7 +133,7 @@ async fn fails_without_an_answer() {
     for remote in [false, true] {
         for output in outputs.clone() {
             let server = server(vec![completed(output)]).await;
-            let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Can you read this project?").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             let run = page.runs.last().unwrap();
@@ -198,7 +198,7 @@ async fn retains_incomplete_output_as_failed() {
         event["response"]["status"] = json!("incomplete");
         event["response"]["incomplete_details"] = json!({"reason":"max_output_tokens"});
         let server = server(vec![event]).await;
-        let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Answer this task").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();
@@ -236,7 +236,7 @@ async fn rejects_empty_completion() {
                     json!([])
                 }));
                 let server = server(events).await;
-                let fixture = Fixture::new(remote, ModelApi::Responses, &server.endpoint).await;
+                let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
                 let turn = fixture.submit("Answer this task").await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;
                 assert_eq!(page.runs.last().unwrap().status, Status::Failed);
