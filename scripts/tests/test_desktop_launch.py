@@ -81,16 +81,16 @@ printf '%s\\n' "$1" >> {shlex.quote(str(self.old_calls))}
 if test "$1" = -c; then exit 1; fi
 exit 91
 ''', python=False)
-        self.program("python3.14", f'''
-import json, os, sys
-if sys.argv[1] != "-c":
-    with open({str(self.calls)!r}, "a") as output:
-        output.write(json.dumps(sys.argv[1:]) + "\\n")
-os.execv(sys.executable, [sys.executable, *sys.argv[1:]])
-''')
-        self.program("rustc", 'print("host: aarch64-apple-darwin")\n')
-        self.program("uname", 'print("Darwin")\n')
-        self.program("security", 'print(\'  1) FIXTURE "Apple Development: Fixture User (FIXTURE)"\')\n')
+        self.program("python3.14", f'''#!/bin/sh
+if test "$1" != -c; then
+    printf '%s\\0' "$@" >> {shlex.quote(str(self.calls))}
+    printf '\\0' >> {shlex.quote(str(self.calls))}
+fi
+exec {shlex.quote(sys.executable)} "$@"
+''', python=False)
+        self.program("rustc", '#!/bin/sh\nprintf \'%s\\n\' \'host: aarch64-apple-darwin\'\n', python=False)
+        self.program("uname", '#!/bin/sh\nprintf \'%s\\n\' Darwin\n', python=False)
+        self.program("security", '#!/bin/sh\nprintf \'%s\\n\' \'  1) FIXTURE "Apple Development: Fixture User (FIXTURE)"\'\n', python=False)
         self.program("cargo", f'''
 import json, os, sys
 from pathlib import Path
@@ -101,16 +101,13 @@ binary = Path(os.environ["CARGO_TARGET_DIR"]) / "debug/sailry-desktop"
 binary.write_bytes(b"compiled fixture")
 binary.chmod(0o755)
 ''')
-        self.program("codesign", f'''
-import json, sys
-from pathlib import Path
-path = Path(sys.argv[-1])
-with open({str(self.signatures)!r}, "a") as output:
-    output.write(json.dumps(sys.argv[1:]) + "\\n")
-if path.is_dir():
-    raise SystemExit(73)
-path.write_bytes(path.read_bytes() + b"signature fixture")
-''')
+        self.program("codesign", f'''#!/bin/sh
+printf '%s\\0' "$@" >> {shlex.quote(str(self.signatures))}
+printf '\\0' >> {shlex.quote(str(self.signatures))}
+for task_target do :; done
+if test -d "$task_target"; then exit 73; fi
+printf '%s' 'signature fixture' >> "$task_target"
+''', python=False)
         self.contents = {"libonnxruntime.dylib": b"runtime fixture",
                          "libsherpa-onnx-c-api.dylib": b"speech fixture"}
         self.archive()
@@ -133,6 +130,10 @@ path.write_bytes(path.read_bytes() + b"signature fixture")
         path = self.bin / name
         path.write_text((f"#!{sys.executable}\n" if python else "") + content)
         path.chmod(0o755)
+
+    def arguments(self, path):
+        return [[argument.decode() for argument in record.split(b"\0")]
+                for record in path.read_bytes().split(b"\0\0") if record]
 
     def archive(self):
         stream = io.BytesIO()
@@ -165,7 +166,7 @@ path.write_bytes(path.read_bytes() + b"signature fixture")
                                 env=environment, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 73, result.stderr)
         self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * 7)
-        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        calls = self.arguments(self.calls)
         native = self.target / "onnx-native/aarch64-apple-darwin"
         debug = self.target / "debug"
         app = debug / "Sailry.app"
@@ -182,7 +183,7 @@ path.write_bytes(path.read_bytes() + b"signature fixture")
         self.assertIn("--finalize", calls[-1])
         self.assertEqual(json.loads(self.build.read_text()), {
             "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native)})
-        signatures = [json.loads(line) for line in self.signatures.read_text().splitlines()]
+        signatures = self.arguments(self.signatures)
         python = app / "Contents/Resources/python"
         link = app / "Contents/MacOS/python"
         self.assertTrue(link.is_symlink())
