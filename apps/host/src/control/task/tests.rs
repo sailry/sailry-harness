@@ -292,7 +292,30 @@ async fn reports_pending_plan_input() {
             result.questions[0].state,
             conversation::question::State::Pending
         );
-        assert_eq!(fixture.page().await.questions, result.questions);
+        let page = fixture.page().await;
+        let turn = result.turn.unwrap();
+        assert_eq!(result.questions[0].session, fixture.session.id);
+        assert_eq!(result.questions[0].turn, turn);
+        assert_eq!(page.questions, result.questions);
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn)
+                .unwrap()
+                .status,
+            Status::Completed
+        );
+        assert_eq!(
+            page.entries
+                .iter()
+                .find(|entry| entry.id == result.questions[0].entry)
+                .unwrap()
+                .author,
+            "plan_review"
+        );
+        let repeated = fixture.wait(turn, 10).await;
+        assert_eq!(repeated.state, State::AwaitingInput);
+        assert_eq!(repeated.questions, result.questions);
         fixture.close().await;
     }
 }
@@ -492,6 +515,14 @@ async fn freezes_implicit_revision_before_retry() {
         assert_eq!(Some(pending.questions[0].turn), current.turn);
         let page = fixture.page().await;
         assert_eq!(page.questions, pending.questions);
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| Some(run.turn) == current.turn)
+                .unwrap()
+                .status,
+            Status::Completed
+        );
         assert_eq!(
             page.entries
                 .iter()

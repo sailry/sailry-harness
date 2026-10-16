@@ -92,7 +92,7 @@ pub(super) async fn wait(
     result.turn = Some(turn);
     let deadline = tokio::time::sleep(Duration::from_secs(timeout));
     tokio::pin!(deadline);
-    let run = tokio::select! {
+    let (run, _) = tokio::select! {
         _ = stop.cancelled() => { result.state = State::ObservationCancelled; return Ok(result); },
         _ = &mut deadline => { result.state = State::TimedOut; return Ok(result); },
         run = locate(&client, session, turn) => run?,
@@ -119,7 +119,21 @@ pub(super) async fn wait(
         if let Some(error) = &view.older_error { return Err(error.clone()); }
         if !view.connected { continue; }
         let Some(snapshot) = view.snapshot else { continue; };
-        let page = snapshot.page.as_ref();
+        let page = if source == session && current == turn
+            && snapshot.page.runs.iter().any(|run| run.turn == turn && !matches!(run.status, Status::Queued | Status::Running | Status::Stopping)) {
+            // Completion and its pending review share a durable transaction,
+            // but arrive as separate ordered frames. Read that transaction
+            // before returning a terminal result from its first frame.
+            let (_, page) = tokio::select! {
+                _ = stop.cancelled() => { result.state = State::ObservationCancelled; return Ok(()); },
+                _ = &mut deadline => { result.state = State::TimedOut; return Ok(()); },
+                page = locate(&client, session, turn) => page?,
+            };
+            Arc::new(page)
+        } else {
+            snapshot.page.clone()
+        };
+        let page = page.as_ref();
         if source == session && current == turn {
             result.text = text(page, turn);
         }
@@ -169,12 +183,12 @@ async fn locate(
     client: &Client,
     session: SessionId,
     turn: TurnId,
-) -> std::result::Result<conversation::Run, Fault> {
+) -> std::result::Result<(conversation::Run, Page), Fault> {
     let mut before = None;
     loop {
         let history = client.read_conversation(session, before, 20).await?;
         if let Some(run) = history.page.runs.iter().find(|run| run.turn == turn) {
-            return Ok(run.clone());
+            return Ok((run.clone(), history.page));
         }
         match history.page.next_before {
             Some(cursor) if Some(cursor) != before => before = Some(cursor),
