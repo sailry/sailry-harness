@@ -11,21 +11,8 @@ async fn reads_and_downloads_locally_and_remotely() {
     let fixture = tempfile::tempdir().unwrap();
     let root = fixture.path().join("project");
     std::fs::create_dir(&root).unwrap();
-    let node = Node::start_empty(fixture.path().join("node"))
-        .await
-        .unwrap();
+    let node = Node::start(fixture.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
-    let Output::Plugin(package) = local
-        .execute(local.prepare(Command::InstallBundledPlugin {
-            name: "office".into(),
-            expected_revision: 0,
-        }))
-        .await
-        .unwrap()
-    else {
-        panic!("office package expected")
-    };
-    assert!(package.issues.is_empty(), "{:?}", package.issues);
     local
         .execute(local.prepare(Command::RegisterProject {
             name: "Office fixture".into(),
