@@ -15571,7 +15571,7 @@ dependencies = [
 [[package]]
 name = "sqlx"
 version = "0.9.0"
-source = "git+https://github.com/sailry/sqlx.git?rev=4ad54fef83b2161f6d2f6f255c469b890af870b1#4ad54fef83b2161f6d2f6f255c469b890af870b1"
+source = "git+https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb23aaea1f545ab08ab9c2d12f6628abed"
 dependencies = [
  "sqlx-core",
  "sqlx-macros",
@@ -15583,7 +15583,7 @@ dependencies = [
 [[package]]
 name = "sqlx-core"
 version = "0.9.0"
-source = "git+https://github.com/sailry/sqlx.git?rev=4ad54fef83b2161f6d2f6f255c469b890af870b1#4ad54fef83b2161f6d2f6f255c469b890af870b1"
+source = "git+https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb23aaea1f545ab08ab9c2d12f6628abed"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -15618,7 +15618,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros"
 version = "0.9.0"
-source = "git+https://github.com/sailry/sqlx.git?rev=4ad54fef83b2161f6d2f6f255c469b890af870b1#4ad54fef83b2161f6d2f6f255c469b890af870b1"
+source = "git+https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb23aaea1f545ab08ab9c2d12f6628abed"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -15630,7 +15630,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros-core"
 version = "0.9.0"
-source = "git+https://github.com/sailry/sqlx.git?rev=4ad54fef83b2161f6d2f6f255c469b890af870b1#4ad54fef83b2161f6d2f6f255c469b890af870b1"
+source = "git+https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb23aaea1f545ab08ab9c2d12f6628abed"
 dependencies = [
  "cfg-if",
  "dotenvy",
@@ -15654,7 +15654,7 @@ dependencies = [
 [[package]]
 name = "sqlx-mysql"
 version = "0.9.0"
-source = "git+https://github.com/sailry/sqlx.git?rev=4ad54fef83b2161f6d2f6f255c469b890af870b1#4ad54fef83b2161f6d2f6f255c469b890af870b1"
+source = "git+https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb23aaea1f545ab08ab9c2d12f6628abed"
 dependencies = [
  "bitflags 2.13.1",
  "byteorder",
@@ -15679,7 +15679,7 @@ dependencies = [
 [[package]]
 name = "sqlx-postgres"
 version = "0.9.0"
-source = "git+https://github.com/sailry/sqlx.git?rev=4ad54fef83b2161f6d2f6f255c469b890af870b1#4ad54fef83b2161f6d2f6f255c469b890af870b1"
+source = "git+https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb23aaea1f545ab08ab9c2d12f6628abed"
 dependencies = [
  "atoi",
  "base64 0.22.1",
@@ -15713,7 +15713,7 @@ dependencies = [
 [[package]]
 name = "sqlx-sqlite"
 version = "0.9.0"
-source = "git+https://github.com/sailry/sqlx.git?rev=4ad54fef83b2161f6d2f6f255c469b890af870b1#4ad54fef83b2161f6d2f6f255c469b890af870b1"
+source = "git+https://github.com/sailry/sqlx.git?rev=747f74eb23aaea1f545ab08ab9c2d12f6628abed#747f74eb23aaea1f545ab08ab9c2d12f6628abed"
 dependencies = [
  "atoi",
  "flume 0.12.0",

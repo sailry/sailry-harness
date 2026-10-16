@@ -51,7 +51,7 @@ async fn exercise_transport(
         let forwarded = tunnel.map_or(0, |server| server.forwarded());
         let directory = tempfile::tempdir().unwrap();
         let node_path = directory.path().join("node");
-        let node = Node::start(&node_path).await.unwrap();
+        let node = Node::start_empty(&node_path).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -391,6 +391,16 @@ async fn exercise_transport(
             .await;
         }
         if profile.connection.engine() == Engine::Mysql {
+            for (sql, expected) in [
+                ("CALL results(false)", vec![vec![Value::Integer(11)]]),
+                ("CALL results(true)", vec![]),
+            ] {
+                let result = rows(execute(&client, query(&profile, sql)).await);
+                assert_eq!(result.columns, ["first_value"]);
+                assert_eq!(result.rows, expected);
+                assert_eq!(result.affected_rows, 0);
+                assert!(!result.truncated);
+            }
             execute(
                 &client,
                 query(
@@ -587,7 +597,7 @@ async fn exercise_transport(
         drop(watcher);
         drop(client);
         node.shutdown().await.unwrap();
-        let node = Node::start(&node_path).await.unwrap();
+        let node = Node::start_empty(&node_path).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
@@ -635,7 +645,9 @@ async fn sqlite_ownership() {
 async fn sqlite_initializes_explicit_schema_writes() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -818,7 +830,9 @@ async fn sqlite_initializes_explicit_schema_writes() {
 async fn sqlite_catalog_reports_missing_without_creation() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -1056,7 +1070,9 @@ async fn sqlite_catalog_reports_missing_without_creation() {
 async fn stores_inline_passwords() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

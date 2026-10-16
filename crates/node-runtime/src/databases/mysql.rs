@@ -2,8 +2,8 @@ use super::*;
 use futures::TryStreamExt;
 use sqlx::mysql::{MySqlConnectOptions, MySqlConnection, MySqlRow, MySqlSslMode};
 use sqlx::{
-    Column, ConnectOptions as _, Connection as _, Either, Executor, Row, SqlSafeStr, Statement,
-    TypeInfo, ValueRef,
+    Column, ConnectOptions as _, Connection as _, Either, Executor, Row, SqlSafeStr, TypeInfo,
+    ValueRef,
 };
 
 pub(super) async fn run(
@@ -61,28 +61,46 @@ pub(super) async fn run(
     }
     // The command is the user's complete SQL statement, admitted under its captured permissions.
     let sql = sqlx::AssertSqlSafe(query.sql.clone()).into_sql_str();
-    let statement = connection.prepare(sql.clone()).await.map_err(query_error)?;
-    let mut result = Rows::new(
-        statement
-            .columns()
-            .iter()
-            .map(|column| column.name().into())
-            .collect(),
-        query.row_limit,
-    )?;
-    // Text protocol preserves decimals, dates, durations and unknown textual
-    // types without narrowing them to SQLx's portable Any type set.
+    let _statement = connection.prepare(sql.clone()).await.map_err(query_error)?;
+    let mut result = Rows::new(Vec::new(), query.row_limit)?;
+    // CALL can describe no columns during preparation and return several sets.
+    // Keep its first set's metadata and rows, then drain the remainder without
+    // changing that result or its affected-row count.
+    let mut first = true;
     let mut stream = connection.fetch_many(sql);
     while let Some(message) = stream.try_next().await.map_err(execution_error)? {
         match message {
-            Either::Left(done) if result.result.columns.is_empty() => {
-                result.result.affected_rows = done.rows_affected()
+            Either::Left(done) if first => {
+                if result.result.columns.is_empty() {
+                    result = Rows::new(
+                        done.columns()
+                            .iter()
+                            .map(|column| column.name().into())
+                            .collect(),
+                        query.row_limit,
+                    )?;
+                }
+                if result.result.columns.is_empty() {
+                    result.result.affected_rows = done.rows_affected();
+                }
+                first = false;
             }
-            Either::Right(row) => result.push(
-                (0..row.len())
-                    .map(|index| value(&row, index))
-                    .collect::<Result<Vec<_>, _>>()?,
-            )?,
+            Either::Right(row) if first => {
+                if result.result.columns.is_empty() {
+                    result = Rows::new(
+                        row.columns()
+                            .iter()
+                            .map(|column| column.name().into())
+                            .collect(),
+                        query.row_limit,
+                    )?;
+                }
+                result.push(
+                    (0..row.len())
+                        .map(|index| value(&row, index))
+                        .collect::<Result<Vec<_>, _>>()?,
+                )?;
+            }
             _ => {}
         }
     }

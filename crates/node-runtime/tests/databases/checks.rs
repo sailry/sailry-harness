@@ -6,7 +6,9 @@ use tokio::sync::Notify;
 async fn cancels_saved_and_draft_connections() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
