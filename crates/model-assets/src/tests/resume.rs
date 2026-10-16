@@ -170,8 +170,14 @@ async fn preserves_verified_prefix_after_cancellation() {
             .iter()
             .all(|request| request.contains("accept-encoding: identity\r\n"))
     );
-    assert_eq!(values[0].percent, 50.);
-    assert_eq!(values[0].bytes_per_second, 0.);
+    assert_eq!(values[0].phase, Phase::Inspecting);
+    assert_eq!(values[0].percent, 0.);
+    let resumed = values
+        .iter()
+        .find(|value| value.phase == Phase::Downloading)
+        .unwrap();
+    assert_eq!(resumed.percent, 50.);
+    assert_eq!(resumed.bytes_per_second, 0.);
     assert_eq!(values.last().unwrap().percent, 100.);
     assert_eq!(std::fs::read(root.path().join("model")).unwrap(), b"abcdef");
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
