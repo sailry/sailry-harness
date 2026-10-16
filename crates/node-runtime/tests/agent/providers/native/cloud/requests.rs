@@ -37,7 +37,7 @@ async fn bounds_transient_failure_retries() {
     for &api in APIS {
         for remote in [false, true] {
             let server = Server::start(api, Reply::Failure).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let turn = fixture.submit("Failure fixture").await;
             let page = finished_within(
                 &fixture.client,
@@ -66,7 +66,7 @@ async fn rejects_redirects() {
         for remote in [false, true] {
             let target = Server::start(api, Reply::Text).await;
             let server = Server::start(api, Reply::Redirect(target.endpoint.clone())).await;
-            let fixture = Fixture::new(remote, api, &server.endpoint).await;
+            let fixture = Fixture::empty(remote, api, &server.endpoint).await;
             let turn = fixture.submit("Redirect fixture").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(
