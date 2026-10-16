@@ -105,6 +105,17 @@ pub struct Node {
     link: sailry_link::LinkHandle,
 }
 
+#[derive(Default)]
+struct Bootstrap {
+    network: NetworkScope,
+    catalog: providers::catalog::Catalog,
+    authorization: providers::login::Service,
+    skills: crate::plugins::github::Github,
+    computer: Option<ComputerWorker>,
+    environment: process::environment::Source,
+    skip_bundled: bool,
+}
+
 impl Node {
     #[cfg(any(test, feature = "test-support"))]
     pub fn indexed_knowledge_inputs(&self) -> u64 {
@@ -136,12 +147,11 @@ impl Node {
         // Startup owns cleanup even if its caller stops waiting midway through storage I/O.
         tokio::spawn(Self::start_owned(
             path,
-            network,
-            Default::default(),
-            Default::default(),
-            Default::default(),
-            computer,
-            Default::default(),
+            Bootstrap {
+                network,
+                computer,
+                ..Default::default()
+            },
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -152,12 +162,26 @@ impl Node {
     pub async fn start_isolated(path: impl AsRef<Path>) -> Result<Self, Error> {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
-            NetworkScope::default(),
-            providers::catalog::Catalog::empty(),
-            Default::default(),
-            Default::default(),
-            None,
-            Default::default(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
+    /// Starts an isolated service fixture without automatically installing bundled packages.
+    /// Existing data and explicitly installed packages retain their ordinary owners.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty(path: impl AsRef<Path>) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                skip_bundled: true,
+                ..Default::default()
+            },
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -168,12 +192,10 @@ impl Node {
     pub async fn start_with_catalog(path: impl AsRef<Path>, endpoint: &str) -> Result<Self, Error> {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
-            NetworkScope::default(),
-            providers::catalog::Catalog::new(endpoint.to_owned()),
-            Default::default(),
-            Default::default(),
-            None,
-            Default::default(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::new(endpoint.to_owned()),
+                ..Default::default()
+            },
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -187,12 +209,11 @@ impl Node {
     ) -> Result<Self, Error> {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
-            NetworkScope::default(),
-            providers::catalog::Catalog::empty(),
-            providers::login::Service::fixture(endpoint),
-            Default::default(),
-            None,
-            Default::default(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                authorization: providers::login::Service::fixture(endpoint),
+                ..Default::default()
+            },
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -206,12 +227,11 @@ impl Node {
     ) -> Result<Self, Error> {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
-            NetworkScope::default(),
-            providers::catalog::Catalog::empty(),
-            Default::default(),
-            crate::plugins::github::Github::fixture(endpoint),
-            None,
-            Default::default(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                skills: crate::plugins::github::Github::fixture(endpoint),
+                ..Default::default()
+            },
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -225,12 +245,11 @@ impl Node {
     ) -> Result<Self, Error> {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
-            NetworkScope::default(),
-            providers::catalog::Catalog::empty(),
-            Default::default(),
-            crate::plugins::github::Github::catalog_fixture(endpoint),
-            None,
-            Default::default(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                skills: crate::plugins::github::Github::catalog_fixture(endpoint),
+                ..Default::default()
+            },
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -244,12 +263,11 @@ impl Node {
     ) -> Result<Self, Error> {
         tokio::spawn(Self::start_owned(
             path.as_ref().to_owned(),
-            NetworkScope::default(),
-            providers::catalog::Catalog::empty(),
-            Default::default(),
-            Default::default(),
-            None,
-            process::environment::Source::Fixture(environment),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                environment: process::environment::Source::Fixture(environment),
+                ..Default::default()
+            },
         ))
         .await
         .map_err(|error| Error::Worker(error.to_string()))?
@@ -389,15 +407,16 @@ impl Node {
         self.ingress.model_catalog_fixtures.set(hub, endpoint)
     }
 
-    async fn start_owned(
-        path: PathBuf,
-        network_scope: NetworkScope,
-        catalog: providers::catalog::Catalog,
-        authorization: providers::login::Service,
-        skills: crate::plugins::github::Github,
-        computer: Option<ComputerWorker>,
-        environment: process::environment::Source,
-    ) -> Result<Self, Error> {
+    async fn start_owned(path: PathBuf, bootstrap: Bootstrap) -> Result<Self, Error> {
+        let Bootstrap {
+            network,
+            catalog,
+            authorization,
+            skills,
+            computer,
+            environment,
+            skip_bundled,
+        } = bootstrap;
         let mut entry = logging::Entry::new(logging::Area::Node, logging::Phase::Begin);
         entry.reason = Some("startup");
         let mut diagnostic = logging::Span::new(entry);
@@ -421,24 +440,21 @@ impl Node {
                 authorization,
                 skills,
                 environment,
+                !skip_bundled,
             )
             .await?;
             let ingress = store.ingress.clone();
             ingress.computer.configure_worker(computer).await;
-            let network = match sailry_link::Link::bind(
-                &identity,
-                network_scope,
-                ingress.clone(),
-                ingress.clone(),
-            )
-            .await
-            {
-                Ok(network) => network,
-                Err(error) => {
-                    store.shutdown().await?;
-                    return Err(error.into());
-                }
-            };
+            let network =
+                match sailry_link::Link::bind(&identity, network, ingress.clone(), ingress.clone())
+                    .await
+                {
+                    Ok(network) => network,
+                    Err(error) => {
+                        store.shutdown().await?;
+                        return Err(error.into());
+                    }
+                };
             let link = network.handle();
             if let Err(error) = store.bind_link(link.clone()).await {
                 let _ = network.close().await;

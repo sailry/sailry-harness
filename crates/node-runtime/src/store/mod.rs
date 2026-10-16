@@ -339,6 +339,7 @@ struct Services {
     authorization: crate::providers::login::Service,
     skills: crate::plugins::github::Github,
     environment: Arc<crate::process::Environment>,
+    bundled: bool,
 }
 
 pub(crate) struct Store {
@@ -354,6 +355,7 @@ impl Store {
         authorization: crate::providers::login::Service,
         skills: crate::plugins::github::Github,
         source: crate::process::environment::Source,
+        bundled: bool,
     ) -> Result<Self, Error> {
         let environment = Arc::new(crate::process::Environment::capture(source).await);
         Self::start_ready(
@@ -365,6 +367,7 @@ impl Store {
                 authorization,
                 skills,
                 environment,
+                bundled,
             },
             mutations::execute,
         )
@@ -390,6 +393,7 @@ impl Store {
                 authorization,
                 skills,
                 environment: Arc::new(crate::process::Environment::ambient()),
+                bundled: true,
             },
             execute,
         )
@@ -408,6 +412,7 @@ impl Store {
             authorization,
             skills,
             environment,
+            bundled,
         } = services;
         let (sender, mut receiver) = mpsc::channel(CAPACITY);
         let (events, _) = broadcast::channel(CAPACITY);
@@ -518,7 +523,7 @@ impl Store {
                 };
                 database.feeds = feeds;
                 match search::read(&database.connection) { Ok(settings) => searcher.configure(settings), Err(error) => {let _=ready.send(Err(crate::Error::from(error)));return Ok(());} }
-                if database.profile.is_some()
+                if bundled && database.profile.is_some()
                     && let Err(error) =
                         plugins::distribution::install(&mut database.connection, &collection)
                 {

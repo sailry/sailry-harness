@@ -4,6 +4,44 @@ use sailry_node_runtime::Node;
 use sailry_protocol::{Command, ErrorCode, NodeId, Output};
 
 #[tokio::test]
+async fn retains_explicit_packages_without_defaults() {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("node");
+    let node = Node::start_empty(&profile).await.unwrap();
+    let identity = node.id();
+    let client = Client::new(node.local());
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::ListPlugins))
+            .await
+            .unwrap(),
+        Output::Plugins(Vec::new())
+    );
+    let Output::Plugin(installed) = client
+        .execute(client.prepare(Command::InstallBundledPlugin {
+            name: "memory".into(),
+            expected_revision: 0,
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("installed plugin expected")
+    };
+    node.shutdown().await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
+    assert_eq!(node.id(), identity);
+    let client = Client::new(node.local());
+    assert_eq!(
+        client
+            .execute(client.prepare(Command::ListPlugins))
+            .await
+            .unwrap(),
+        Output::Plugins(vec![installed.summary])
+    );
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn dropping_owner_releases_profile() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("controller");
