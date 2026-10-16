@@ -18,7 +18,7 @@ async fn destination(fixture: &Fixture) -> (PathBuf, WorktreeId) {
 
 #[tokio::test]
 async fn shares_cross_worktree_copies() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let (destination, worktree) = destination(&fixture).await;
     let clients = fixture.clients();
     let repository = git2::Repository::init(&fixture.root).unwrap();
@@ -152,7 +152,7 @@ async fn shares_cross_worktree_copies() {
 
 #[tokio::test]
 async fn confines_both_roots() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let (destination, worktree) = destination(&fixture).await;
     let clients = fixture.clients();
     let enclosing = register(&clients[0], fixture._temp.path()).await;
@@ -276,7 +276,7 @@ async fn confines_both_roots() {
 
 #[tokio::test]
 async fn preserves_lost_completion() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let (destination, worktree) = destination(&fixture).await;
     let profile = fixture._temp.path().join("node");
     let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
