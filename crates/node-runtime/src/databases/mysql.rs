@@ -1,5 +1,10 @@
 use super::*;
-use mysql_async::{Conn, DriverError, OptsBuilder, Value as SqlValue, prelude::Queryable};
+use futures::TryStreamExt;
+use sqlx::mysql::{MySqlConnectOptions, MySqlConnection, MySqlRow, MySqlSslMode};
+use sqlx::{
+    Column, ConnectOptions as _, Connection as _, Either, Executor, Row, SqlSafeStr, Statement,
+    TypeInfo, ValueRef,
+};
 
 pub(super) async fn run(
     operation: &Operation,
@@ -11,106 +16,101 @@ pub(super) async fn run(
         port,
         database,
         username,
-        tls,
+        tls: mode,
         socket,
     } = operation
         .profile
         .connection
         .server()
         .ok_or_else(|| Fault::invalid("database connection requires a server"))?;
-    // Keep localhost on one endpoint across catalog and table requests. An explicit
-    // IPv6 address still selects IPv6; other hostnames retain normal DNS resolution.
-    let host = if tunnel_port.is_none() && host.eq_ignore_ascii_case("localhost") {
-        "127.0.0.1"
-    } else {
-        host
-    };
-    let plain = OptsBuilder::default()
-        .ip_or_hostname(host)
-        .tcp_port(tunnel_port.unwrap_or(port))
-        .socket(socket.map(str::to_owned))
-        .resolved_ips(tunnel_port.map(|_| vec![std::net::Ipv4Addr::LOCALHOST.into()]))
-        // A server's advertised socket may belong to a different local instance
-        // when TCP reaches a container or SSH tunnel. Honor the network profile.
-        .prefer_socket(false)
-        .db_name((!database.is_empty()).then(|| database.to_owned()))
-        .user(Some(username.to_owned()))
-        .pass(Some(operation.password.expose().to_owned()));
-    let connection_error = |error: mysql_async::Error| {
-        let mut message = format!("Database connection failed: {error}");
-        let password = operation.password.expose();
-        if !password.is_empty() {
-            message = message.replace(password, "[redacted]");
-        }
-        Fault::new(ErrorCode::Unavailable, message)
-    };
-    let mut connection = if tls == Tls::Disable {
-        Conn::new(plain).await.map_err(connection_error)?
-    } else {
-        match Conn::new(plain.clone().ssl_opts(tls::mysql())).await {
-            Ok(connection) => connection,
-            Err(mysql_async::Error::Driver(DriverError::NoClientSslFlagFromServer))
-                if tls == Tls::Prefer =>
-            {
-                Conn::new(plain).await.map_err(connection_error)?
-            }
-            Err(error) => return Err(connection_error(error)),
-        }
-    };
+    let mut options = MySqlConnectOptions::new()
+        .host(host)
+        .port(tunnel_port.unwrap_or(port))
+        .username(username)
+        .password(operation.password.expose())
+        .timezone(None)
+        .pipes_as_concat(false)
+        .no_engine_substitution(false)
+        .ssl_mode(match mode {
+            Tls::Disable => MySqlSslMode::Disabled,
+            Tls::Prefer => MySqlSslMode::Preferred,
+            Tls::Require => MySqlSslMode::VerifyIdentity,
+        })
+        .ssl_verify_server(true)
+        .disable_statement_logging();
+    if !database.is_empty() {
+        options = options.database(database);
+    }
+    if let Some(socket) = socket {
+        options = options.socket(socket);
+    }
+    if tunnel_port.is_some() || (socket.is_none() && host.eq_ignore_ascii_case("localhost")) {
+        options = options.connect_addr(std::net::Ipv4Addr::LOCALHOST.into());
+    }
+    if let Some(roots) = tls::roots() {
+        options = options.ssl_ca_from_pem(roots.to_vec());
+    }
+    let mut connection = MySqlConnection::connect_with(&options)
+        .await
+        .map_err(|error| connection_error(error, &operation.password))?;
     if operation.profile.read_only {
         connection
-            .query_drop("SET SESSION TRANSACTION READ ONLY")
+            .execute("SET SESSION TRANSACTION READ ONLY")
             .await
             .map_err(query_error)?;
     }
-    let statement = connection.prep(&query.sql).await.map_err(query_error)?;
-    let mut cursor = connection
-        .exec_iter(statement, ())
-        .await
-        .map_err(execution_error)?;
-    let columns = cursor
-        .columns()
-        .map(|columns| {
-            columns
-                .iter()
-                .map(|column| column.name_str().into_owned())
-                .collect()
-        })
-        .unwrap_or_default();
-    let mut result = Rows::new(columns, query.row_limit)?;
-    result.result.affected_rows = if result.result.columns.is_empty() {
-        cursor.affected_rows()
-    } else {
-        0
-    };
-    while let Some(row) = cursor.next().await.map_err(execution_error)? {
-        result.push(row.unwrap().into_iter().map(value).collect())?;
-    }
-    drop(cursor);
-    let _ = connection.disconnect().await;
-    Ok(result.result)
-}
-fn execution_error(error: mysql_async::Error) -> Fault {
-    if matches!(error, mysql_async::Error::Server(_)) {
-        query_error(error)
-    } else {
-        unknown()
-    }
-}
-fn value(value: SqlValue) -> Value {
-    match value {
-        SqlValue::NULL => Value::Null,
-        SqlValue::Int(value) => Value::Integer(value),
-        SqlValue::UInt(value) => i64::try_from(value)
-            .map(Value::Integer)
-            .unwrap_or_else(|_| Value::Text(value.to_string())),
-        SqlValue::Float(value) => Value::Real(value.to_string()),
-        SqlValue::Double(value) => Value::Real(value.to_string()),
-        SqlValue::Bytes(bytes) => String::from_utf8(bytes)
-            .map(Value::Text)
-            .unwrap_or_else(|error| Value::Blob(error.into_bytes())),
-        value @ (SqlValue::Date(..) | SqlValue::Time(..)) => {
-            Value::Text(value.as_sql(true).trim_matches('\'').into())
+    // The command is the user's complete SQL statement, admitted under its captured permissions.
+    let sql = sqlx::AssertSqlSafe(query.sql.clone()).into_sql_str();
+    let statement = connection.prepare(sql.clone()).await.map_err(query_error)?;
+    let mut result = Rows::new(
+        statement
+            .columns()
+            .iter()
+            .map(|column| column.name().into())
+            .collect(),
+        query.row_limit,
+    )?;
+    // Text protocol preserves decimals, dates, durations and unknown textual
+    // types without narrowing them to SQLx's portable Any type set.
+    let mut stream = connection.fetch_many(sql);
+    while let Some(message) = stream.try_next().await.map_err(execution_error)? {
+        match message {
+            Either::Left(done) if result.result.columns.is_empty() => {
+                result.result.affected_rows = done.rows_affected()
+            }
+            Either::Right(row) => result.push(
+                (0..row.len())
+                    .map(|index| value(&row, index))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?,
+            _ => {}
         }
     }
+    Ok(result.result)
+}
+
+fn value(row: &MySqlRow, index: usize) -> Result<Value, Fault> {
+    let raw = row.try_get_raw(index).map_err(query_error)?;
+    if raw.is_null() {
+        return Ok(Value::Null);
+    }
+    let bytes: Vec<u8> = row.try_get_unchecked(index).map_err(query_error)?;
+    let kind = raw.type_info();
+    let kind = kind.name();
+    if matches!(
+        kind.split(' ').next(),
+        Some("BOOLEAN" | "TINYINT" | "SMALLINT" | "INT" | "MEDIUMINT" | "BIGINT" | "YEAR")
+    ) {
+        let text = std::str::from_utf8(&bytes).map_err(query_error)?;
+        return Ok(text
+            .parse()
+            .map(Value::Integer)
+            .unwrap_or_else(|_| Value::Text(text.into())));
+    }
+    if matches!(kind, "FLOAT" | "DOUBLE") {
+        return Ok(Value::Real(String::from_utf8(bytes).map_err(query_error)?));
+    }
+    Ok(String::from_utf8(bytes)
+        .map(Value::Text)
+        .unwrap_or_else(|error| Value::Blob(error.into_bytes())))
 }

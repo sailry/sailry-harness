@@ -25,7 +25,7 @@ rustls-platform-verifier.workspace = true
 [dev-dependencies]
 rustls.workspace = true
 jsonwebtoken.workspace = true
-mysql_async.workspace = true
+sqlx.workspace = true
 russh.workspace = true
 portable-pty.workspace = true
 rusqlite.workspace = true

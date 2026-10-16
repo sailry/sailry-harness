@@ -46,14 +46,10 @@ pub(crate) async fn execute(
         },
     );
     let check = operation.query.is_none();
-    let result = if matches!(operation.profile.connection, Connection::Sqlite { .. }) {
-        let stop = stop.clone();
-        let closed = closed.clone();
-        tokio::task::spawn_blocking(move || sqlite::run(&operation, &query, stop, closed))
-            .await
-            .map_err(|_| unknown())??
-    } else {
-        let work = async {
+    let work = async {
+        if matches!(operation.profile.connection, Connection::Sqlite { .. }) {
+            sqlite::run(&operation, &query, stop, closed).await
+        } else {
             let tunnel = transport::open(&operation, stop, closed).await?;
             let port = tunnel.as_ref().map(|tunnel| tunnel.port);
             match operation.profile.connection.engine() {
@@ -61,13 +57,13 @@ pub(crate) async fn execute(
                 Engine::Postgres => postgres::run(&operation, &query, port).await,
                 _ => Err(Fault::invalid("invalid database engine")),
             }
-        };
-        tokio::select! {
-            biased;
-            _ = stop.cancelled() => return Err(unknown()),
-            _ = closed.cancelled() => return Err(unknown()),
-            result = tokio::time::timeout(Duration::from_millis(query.timeout_ms), work) => result.map_err(|_| unknown())??,
         }
+    };
+    let result = tokio::select! {
+        biased;
+        _ = stop.cancelled() => return Err(unknown()),
+        _ = closed.cancelled() => return Err(unknown()),
+        result = tokio::time::timeout(Duration::from_millis(query.timeout_ms), work) => result.map_err(|_| unknown())??,
     };
     Ok(if check {
         Outcome::Connected
@@ -123,4 +119,21 @@ fn unknown() -> Fault {
         ErrorCode::OutcomeUnknown,
         "Database completion is uncertain; inspect the database before retrying",
     )
+}
+
+fn connection_error(error: sqlx::Error, password: &Secret) -> Fault {
+    let mut message = format!("Database connection failed: {error}");
+    if !password.expose().is_empty() {
+        message = message.replace(password.expose(), "[redacted]");
+    }
+    Fault::new(ErrorCode::Unavailable, message)
+}
+fn execution_error(error: sqlx::Error) -> Fault {
+    match &error {
+        sqlx::Error::Database(database) if database.code().is_some_and(|code| code == "9") => {
+            unknown()
+        }
+        sqlx::Error::Database(_) => query_error(error),
+        _ => unknown(),
+    }
 }

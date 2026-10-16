@@ -1,30 +1,17 @@
-//! Trust roots and TLS policy follow the committed sailry-connections adapter.
-use rustls::{ClientConfig, RootCertStore, pki_types::CertificateDer};
+//! SQLx supplies WebPKI roots; retain the execution Node's native trust roots too.
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::sync::OnceLock;
 
-fn roots() -> &'static [CertificateDer<'static>] {
-    static ROOTS: OnceLock<Vec<CertificateDer<'static>>> = OnceLock::new();
-    ROOTS.get_or_init(|| rustls_native_certs::load_native_certs().certs)
-}
-pub(super) fn postgres() -> ClientConfig {
-    let mut store = RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
-    store.add_parsable_certificates(roots().iter().cloned());
-    ClientConfig::builder_with_provider(std::sync::Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .expect("TLS versions")
-    .with_root_certificates(store)
-    .with_no_client_auth()
-}
-pub(super) fn mysql() -> mysql_async::SslOpts {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    mysql_async::SslOpts::default().with_root_certs(
-        roots()
-            .iter()
-            .map(|cert| cert.as_ref().to_vec().into())
-            .collect(),
-    )
+pub(super) fn roots() -> Option<&'static [u8]> {
+    static ROOTS: OnceLock<Vec<u8>> = OnceLock::new();
+    let roots = ROOTS.get_or_init(|| {
+        let mut roots = Vec::new();
+        for certificate in rustls_native_certs::load_native_certs().certs {
+            roots.extend_from_slice(b"-----BEGIN CERTIFICATE-----\n");
+            roots.extend_from_slice(STANDARD.encode(certificate).as_bytes());
+            roots.extend_from_slice(b"\n-----END CERTIFICATE-----\n");
+        }
+        roots
+    });
+    (!roots.is_empty()).then_some(roots.as_slice())
 }

@@ -7,8 +7,12 @@ use sailry_protocol::{
 };
 use std::time::Duration;
 
+#[path = "databases/checks.rs"]
+mod checks;
 #[path = "databases/servers.rs"]
 mod servers;
+#[path = "databases/tls.rs"]
+mod tls;
 #[path = "databases/tunnel.rs"]
 mod tunnel;
 
@@ -34,13 +38,14 @@ fn rows(output: Output) -> database::ResultSet {
 }
 
 async fn exercise(connection: Connection, password: Option<Secret>) {
-    exercise_transport(connection, password, None).await;
+    exercise_transport(connection, password, None, true).await;
 }
 
 async fn exercise_transport(
     connection: Connection,
     password: Option<Secret>,
     tunnel: Option<&tunnel::Server>,
+    full: bool,
 ) {
     for remote in [false, true] {
         let forwarded = tunnel.map_or(0, |server| server.forwarded());
@@ -196,6 +201,81 @@ async fn exercise_transport(
                 )
             );
         }
+        if !matches!(profile.connection, Connection::Sqlite { .. }) {
+            let mut draft = profile.clone();
+            match &mut draft.connection {
+                Connection::Network { tls, .. } | Connection::Ssh { tls, .. } => {
+                    *tls = database::Tls::Require
+                }
+                _ => {}
+            }
+            if !matches!(draft.connection, Connection::Socket { .. }) {
+                let error = client
+                    .execute(client.prepare(Command::TestDatabase {
+                        profile: draft,
+                        expected_revision: profile.revision,
+                        password: None,
+                    }))
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.code, ErrorCode::Unavailable);
+                assert!(
+                    error.message.to_ascii_lowercase().contains("tls"),
+                    "{error:?}"
+                );
+                assert!(!error.message.contains(servers::PASSWORD));
+            }
+        }
+        if !full {
+            let transport = if tunnel.is_some() { "ssh" } else { "socket" };
+            let table = format!(
+                "transport_{transport}_{}",
+                if remote { "remote" } else { "local" }
+            );
+            execute(
+                &client,
+                query(&profile, &format!("CREATE TABLE {table}(value INTEGER)")),
+            )
+            .await;
+            execute(
+                &client,
+                query(&profile, &format!("INSERT INTO {table} VALUES (42)")),
+            )
+            .await;
+            let value = rows(
+                execute(
+                    &client,
+                    query(&profile, &format!("SELECT value FROM {table}")),
+                )
+                .await,
+            );
+            assert!(
+                matches!(value.rows[0][0], Value::Integer(42))
+                    || value.rows[0][0] == Value::Text("42".into())
+            );
+            let database = profile.connection.server().unwrap().database.to_owned();
+            let catalog = execute(
+                &client,
+                Command::BrowseDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                    database: Some(database),
+                },
+            )
+            .await;
+            assert!(
+                matches!(catalog, Output::DatabaseOutcome(Outcome::Catalog(database::Catalog::Tables { tables, .. })) if tables.iter().any(|entry| entry.name == table))
+            );
+            if tunnel.is_some() {
+                timeout(&client, &profile).await;
+            }
+            controller.close().await.unwrap();
+            node.shutdown().await.unwrap();
+            if let Some(tunnel) = tunnel {
+                assert!(tunnel.forwarded() > forwarded);
+            }
+            continue;
+        }
         let table = if remote {
             "items_remote"
         } else {
@@ -309,6 +389,98 @@ async fn exercise_transport(
                 },
             )
             .await;
+        }
+        if profile.connection.engine() == Engine::Mysql {
+            execute(
+                &client,
+                query(
+                    &profile,
+                    &format!("CREATE TABLE {table}_flags(enabled BOOLEAN, tiny TINYINT(1))"),
+                ),
+            )
+            .await;
+            execute(
+                &client,
+                query(
+                    &profile,
+                    &format!("INSERT INTO {table}_flags VALUES (1, 0)"),
+                ),
+            )
+            .await;
+            assert_eq!(
+                rows(
+                    execute(
+                        &client,
+                        query(
+                            &profile,
+                            &format!("SELECT enabled, tiny FROM {table}_flags")
+                        )
+                    )
+                    .await
+                )
+                .rows,
+                vec![vec![Value::Integer(1), Value::Integer(0)]]
+            );
+        }
+        let (sql, expected) = match profile.connection.engine() {
+            Engine::Sqlite => (
+                "SELECT 9223372036854775807, 1.25, CAST(X'ff' AS TEXT), X'00ff', NULL",
+                vec![
+                    Value::Integer(i64::MAX),
+                    Value::Real("1.25".into()),
+                    Value::Text("�".into()),
+                    Value::Blob(vec![0, 255]),
+                    Value::Null,
+                ],
+            ),
+            Engine::Postgres => (
+                "SELECT ARRAY[1,2]::integer[], '(1,2)'::point, '{\"k\":true}'::jsonb, 9223372036854775807::bigint, decode('00ff','hex')",
+                vec![
+                    Value::Text("{1,2}".into()),
+                    Value::Text("(1,2)".into()),
+                    Value::Text("{\"k\": true}".into()),
+                    Value::Text(i64::MAX.to_string()),
+                    Value::Text("\\x00ff".into()),
+                ],
+            ),
+            Engine::Mysql => (
+                "SELECT CAST(18446744073709551615 AS UNSIGNED), CAST(1.25 AS DOUBLE), CAST(12345.67890 AS DECIMAL(20,5)), CAST('2026-10-16' AS DATE), X'00ff', NULL",
+                vec![
+                    Value::Text(u64::MAX.to_string()),
+                    Value::Real("1.25".into()),
+                    Value::Text("12345.67890".into()),
+                    Value::Text("2026-10-16".into()),
+                    Value::Blob(vec![0, 255]),
+                    Value::Null,
+                ],
+            ),
+        };
+        assert_eq!(
+            rows(execute(&client, query(&profile, sql)).await).rows,
+            vec![expected]
+        );
+        let empty = rows(
+            execute(
+                &client,
+                query(
+                    &profile,
+                    &format!("SELECT id, value FROM {table} WHERE 1=0"),
+                ),
+            )
+            .await,
+        );
+        assert_eq!(empty.columns, ["id", "value"]);
+        assert!(empty.rows.is_empty());
+        assert!(!empty.truncated);
+        for sql in ["SELECT 1; SELECT 2", "not SQL"] {
+            assert_eq!(
+                client
+                    .execute(client.prepare(query(&profile, sql)))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidRequest
+            );
         }
         let request = client.prepare(query(
             &profile,
@@ -436,27 +608,6 @@ async fn exercise_transport(
             assert_eq!(
                 client.execute(stopped).await.unwrap_err().code,
                 ErrorCode::OutcomeUnknown
-            );
-        }
-        if matches!(profile.connection, Connection::Ssh { .. }) {
-            let mut command = query(
-                &profile,
-                if profile.connection.engine() == Engine::Mysql {
-                    "SELECT SLEEP(2)"
-                } else {
-                    "SELECT pg_sleep(2)"
-                },
-            );
-            if let Command::QueryDatabase { timeout_ms, .. } = &mut command {
-                *timeout_ms = 200;
-            }
-            let error = client.execute(client.prepare(command)).await.unwrap_err();
-            assert_eq!(error.code, ErrorCode::OutcomeUnknown);
-            assert_eq!(
-                rows(execute(&client, query(&profile, "SELECT 1")).await)
-                    .rows
-                    .len(),
-                1
             );
         }
         drop(watcher);
@@ -983,17 +1134,57 @@ async fn stores_inline_passwords() {
                 )
                 .unwrap();
             assert_eq!(password, "inline-database-password");
+            for command in [
+                Command::CheckDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                },
+                Command::TestDatabase {
+                    profile: profile.clone(),
+                    expected_revision: profile.revision,
+                    password: None,
+                },
+            ] {
+                let error = client.execute(client.prepare(command)).await.unwrap_err();
+                assert_eq!(error.code, ErrorCode::Unavailable);
+                assert!(!error.message.contains(&password));
+            }
         }
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }
 }
 
+async fn timeout(client: &Client, profile: &Profile) {
+    let mut command = query(
+        profile,
+        if profile.connection.engine() == Engine::Mysql {
+            "SELECT SLEEP(2)"
+        } else {
+            "SELECT pg_sleep(2)"
+        },
+    );
+    if let Command::QueryDatabase { timeout_ms, .. } = &mut command {
+        *timeout_ms = 50;
+    }
+    let error = client.execute(client.prepare(command)).await.unwrap_err();
+    assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+    assert_eq!(
+        rows(execute(client, query(profile, "SELECT 1")).await)
+            .rows
+            .len(),
+        1
+    );
+}
+
 #[tokio::test]
 #[ignore = "requires initdb, postgres, and mysqld binaries; creates isolated local servers"]
-async fn network_engines() {
+async fn isolated_engines() {
+    let certificates = tls::Certificates::new();
     for engine in [Engine::Postgres, Engine::Mysql] {
-        let server = servers::Server::start(engine).await;
+        let server =
+            servers::Server::start_with_tls(engine, Some(certificates.directory.path())).await;
+        tls::verify(&server, &certificates).await;
         let mut connection = server.connection.clone();
         if let Connection::Network {
             engine: Engine::Mysql,
@@ -1004,28 +1195,19 @@ async fn network_engines() {
             *host = "localhost".into();
         }
         exercise(connection, Some(Secret::new(servers::PASSWORD.into()))).await;
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires initdb, postgres, and mysqld binaries; creates isolated socket servers"]
-async fn socket_engines() {
-    for engine in [Engine::Postgres, Engine::Mysql] {
-        let server = servers::Server::start(engine).await;
-        exercise(server.socket(), Some(Secret::new(servers::PASSWORD.into()))).await;
-    }
-}
-
-#[tokio::test]
-#[ignore = "requires initdb, postgres, and mysqld binaries; creates isolated tunneled servers"]
-async fn ssh_engines() {
-    for engine in [Engine::Postgres, Engine::Mysql] {
-        let server = servers::Server::start(engine).await;
+        exercise_transport(
+            server.socket(),
+            Some(Secret::new(servers::PASSWORD.into())),
+            None,
+            false,
+        )
+        .await;
         let tunnel = tunnel::Server::start(&server.connection).await;
         exercise_transport(
             server.connection.clone(),
             Some(Secret::new(servers::PASSWORD.into())),
             Some(&tunnel),
+            false,
         )
         .await;
     }

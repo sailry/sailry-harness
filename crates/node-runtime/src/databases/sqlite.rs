@@ -1,29 +1,31 @@
 use super::*;
-use rusqlite::fallible_iterator::FallibleIterator;
-use rusqlite::{
-    Batch, Connection as Sqlite, OpenFlags,
-    hooks::{AuthAction, AuthContext, Authorization},
-    types::ValueRef,
+use futures::TryStreamExt;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqliteRow};
+use sqlx::{
+    Column, ConnectOptions as _, Connection as _, Either, Executor, Row, SqlSafeStr, Statement,
+    TypeInfo, ValueRef,
 };
 use std::{path::Path, time::Instant};
 
-pub(super) fn run(
+mod statement;
+
+pub(super) async fn run(
     operation: &Operation,
     query: &Query,
-    stop: CancellationToken,
-    closed: CancellationToken,
+    stop: &CancellationToken,
+    closed: &CancellationToken,
 ) -> Result<ResultSet, Fault> {
-    if stop.is_cancelled() || closed.is_cancelled() {
-        return Err(unknown());
-    }
     let Connection::Sqlite { path } = &operation.profile.connection else {
         unreachable!()
     };
+    let deadline = Instant::now() + Duration::from_millis(query.timeout_ms);
     let requested = Path::new(path);
     let (path, create) = match requested.canonicalize() {
         Ok(path) => (path, false),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if operation.profile.read_only || (operation.query.is_some() && !initializes(query)?) {
+            if operation.profile.read_only
+                || (operation.query.is_some() && !initializes(query).await?)
+            {
                 return Err(missing());
             }
             (
@@ -34,63 +36,58 @@ pub(super) fn run(
         Err(error) => return Err(crate::files::io_error(error)),
     };
     check_storage(&path, operation.storage.as_deref())?;
-    let mut flags = if operation.profile.read_only {
-        OpenFlags::SQLITE_OPEN_READ_ONLY
-    } else {
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-    } | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    if create {
-        flags |= OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_NOFOLLOW;
-    }
-    if stop.is_cancelled() || closed.is_cancelled() {
-        return Err(unknown());
-    }
-    let connection = Sqlite::open_with_flags(path, flags).map_err(query_error)?;
-    connection
+    let options = SqliteConnectOptions::new()
+        .filename(path)
+        .read_only(operation.profile.read_only)
+        .create_if_missing(create)
+        .no_follow(create)
+        .foreign_keys(false)
         .busy_timeout(Duration::from_millis(query.timeout_ms.min(2000)))
+        .disable_statement_logging();
+    let mut connection = SqliteConnection::connect_with(&options)
+        .await
         .map_err(query_error)?;
-    let deadline = Instant::now() + Duration::from_millis(query.timeout_ms);
-    if stop.is_cancelled() || closed.is_cancelled() {
-        return Err(unknown());
+    {
+        let stop = stop.clone();
+        let closed = closed.clone();
+        connection
+            .lock_handle()
+            .await
+            .map_err(query_error)?
+            .set_progress_handler(1000, move || {
+                !stop.is_cancelled() && !closed.is_cancelled() && Instant::now() < deadline
+            });
     }
-    connection
-        .progress_handler(
-            1000,
-            Some(move || {
-                stop.is_cancelled() || closed.is_cancelled() || Instant::now() >= deadline
-            }),
-        )
-        .map_err(query_error)?;
-    let mut batch = Batch::new(&connection, &query.sql);
-    let mut statement = batch
-        .next()
-        .map_err(query_error)?
-        .ok_or_else(|| query_error("SQL statement is empty"))?;
-    if batch.next().map_err(query_error)?.is_some() {
-        return Err(query_error("Run one SQL statement at a time"));
-    }
-    if operation.profile.read_only && !statement.readonly() {
+    if statement::inspect(&mut connection, &query.sql, false).await? && operation.profile.read_only
+    {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "Database profile is read-only",
         ));
     }
-    let columns = statement
-        .column_names()
-        .iter()
-        .map(|name| (*name).into())
-        .collect::<Vec<_>>();
-    let mut result = Rows::new(columns, query.row_limit)?;
-    if result.result.columns.is_empty() {
-        result.result.affected_rows = statement.execute([]).map_err(execution_error)? as u64;
-    } else {
-        let count = result.result.columns.len();
-        let mut cursor = statement.query([]).map_err(execution_error)?;
-        while let Some(row) = cursor.next().map_err(execution_error)? {
-            let values = (0..count)
-                .map(|index| row.get_ref(index).map(value).map_err(execution_error))
-                .collect::<Result<Vec<_>, _>>()?;
-            result.push(values)?;
+    // The command is the user's complete SQL statement, admitted under its captured permissions.
+    let sql = sqlx::AssertSqlSafe(query.sql.clone()).into_sql_str();
+    let prepared = connection.prepare(sql.clone()).await.map_err(query_error)?;
+    let mut result = Rows::new(
+        prepared
+            .columns()
+            .iter()
+            .map(|column| column.name().into())
+            .collect(),
+        query.row_limit,
+    )?;
+    let mut stream = connection.fetch_many(sql);
+    while let Some(message) = stream.try_next().await.map_err(execution_error)? {
+        match message {
+            Either::Left(done) if result.result.columns.is_empty() => {
+                result.result.affected_rows = done.rows_affected()
+            }
+            Either::Right(row) => result.push(
+                (0..row.len())
+                    .map(|index| value(&row, index))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )?,
+            _ => {}
         }
     }
     Ok(result.result)
@@ -146,53 +143,35 @@ fn check_storage(path: &Path, storage: Option<&Path>) -> Result<(), Fault> {
     Ok(())
 }
 
-fn initializes(query: &Query) -> Result<bool, Fault> {
-    let connection = Sqlite::open_in_memory().map_err(query_error)?;
-    // Some PRAGMAs act during preparation, even under EXPLAIN. This guard belongs
-    // only to the isolated classifier, not the actual execution connection.
-    connection
-        .authorizer(Some(|context: AuthContext<'_>| {
-            if matches!(context.action, AuthAction::Pragma { .. }) {
-                Authorization::Deny
-            } else {
-                Authorization::Allow
-            }
-        }))
-        .map_err(query_error)?;
-    let mut batch = Batch::new(&connection, &query.sql);
-    let statement = batch
-        .next()
-        .map_err(preflight_error)?
-        .ok_or_else(|| query_error("SQL statement is empty"))?;
-    let write = !statement.readonly() && statement.is_explain() == 0;
-    if batch.next().map_err(preflight_error)?.is_some() {
-        return Err(query_error("Run one SQL statement at a time"));
-    }
-    Ok(write)
-}
-fn preflight_error(error: rusqlite::Error) -> Fault {
-    if error.sqlite_error_code() == Some(rusqlite::ErrorCode::AuthorizationForStatementDenied) {
-        missing()
-    } else {
-        query_error(error)
-    }
+async fn initializes(query: &Query) -> Result<bool, Fault> {
+    let mut connection = SqliteConnection::connect_with(
+        &SqliteConnectOptions::new()
+            .foreign_keys(false)
+            .disable_statement_logging(),
+    )
+    .await
+    .map_err(query_error)?;
+    statement::inspect(&mut connection, &query.sql, true).await
 }
 fn missing() -> Fault {
     Fault::new(ErrorCode::NotFound, "Database file does not exist")
 }
-fn value(value: ValueRef<'_>) -> Value {
-    match value {
-        ValueRef::Null => Value::Null,
-        ValueRef::Integer(value) => Value::Integer(value),
-        ValueRef::Real(value) => Value::Real(value.to_string()),
-        ValueRef::Text(value) => Value::Text(String::from_utf8_lossy(value).into()),
-        ValueRef::Blob(value) => Value::Blob(value.into()),
+fn value(row: &SqliteRow, index: usize) -> Result<Value, Fault> {
+    let raw = row.try_get_raw(index).map_err(query_error)?;
+    if raw.is_null() {
+        return Ok(Value::Null);
     }
-}
-fn execution_error(error: rusqlite::Error) -> Fault {
-    if error.sqlite_error_code() == Some(rusqlite::ErrorCode::OperationInterrupted) {
-        unknown()
-    } else {
-        query_error(error)
-    }
+    Ok(match raw.type_info().name() {
+        "INTEGER" => Value::Integer(row.try_get_unchecked(index).map_err(query_error)?),
+        "REAL" => Value::Real(
+            row.try_get_unchecked::<f64, _>(index)
+                .map_err(query_error)?
+                .to_string(),
+        ),
+        "BLOB" => Value::Blob(row.try_get_unchecked(index).map_err(query_error)?),
+        _ => {
+            let bytes: Vec<u8> = row.try_get_unchecked(index).map_err(query_error)?;
+            Value::Text(String::from_utf8_lossy(&bytes).into())
+        }
+    })
 }

@@ -44,7 +44,15 @@ impl Server {
         }
     }
 
+    #[allow(
+        dead_code,
+        reason = "The shared Mobile fixture starts servers without custom TLS certificates"
+    )]
     pub async fn start(engine: Engine) -> Self {
+        Self::start_with_tls(engine, None).await
+    }
+
+    pub async fn start_with_tls(engine: Engine, certificates: Option<&Path>) -> Self {
         let directory = tempfile::Builder::new()
             .prefix("sailry-db-")
             .tempdir_in("/tmp")
@@ -71,14 +79,27 @@ impl Server {
                         "--pwfile",
                     ])
                     .arg(password));
-                let child = spawn(
-                    Command::new("postgres")
-                        .arg("-D")
-                        .arg(&data)
-                        .args(["-h", "127.0.0.1", "-p", &port.to_string(), "-k"])
-                        .arg(root),
-                    root,
-                );
+                let mut command = Command::new("postgres");
+                command
+                    .arg("-D")
+                    .arg(&data)
+                    .args(["-h", "127.0.0.1", "-p", &port.to_string(), "-k"])
+                    .arg(root);
+                if let Some(certificates) = certificates {
+                    command
+                        .args(["-c", "ssl=on"])
+                        .arg("-c")
+                        .arg(format!(
+                            "ssl_cert_file={}",
+                            certificates.join("server.pem").display()
+                        ))
+                        .arg("-c")
+                        .arg(format!(
+                            "ssl_key_file={}",
+                            certificates.join("server.key").display()
+                        ));
+                }
+                let child = spawn(&mut command, root);
                 (child, "fixture", "postgres")
             }
             Engine::Mysql => {
@@ -86,18 +107,32 @@ impl Server {
                     .arg("--no-defaults")
                     .arg("--initialize-insecure")
                     .arg(format!("--datadir={}", data.display())));
-                let child = spawn(
-                    Command::new("mysqld").arg("--no-defaults").args([
-                        format!("--datadir={}", data.display()),
-                        "--bind-address=127.0.0.1".into(),
-                        format!("--port={port}"),
-                        format!("--socket={}", root.join("mysql.sock").display()),
-                        format!("--pid-file={}", root.join("mysql.pid").display()),
-                        "--mysqlx=0".into(),
-                        "--skip-log-bin".into(),
-                    ]),
-                    root,
-                );
+                let mut command = Command::new("mysqld");
+                command.arg("--no-defaults").args([
+                    format!("--datadir={}", data.display()),
+                    "--bind-address=127.0.0.1".into(),
+                    format!("--port={port}"),
+                    format!("--socket={}", root.join("mysql.sock").display()),
+                    format!("--pid-file={}", root.join("mysql.pid").display()),
+                    "--mysqlx=0".into(),
+                    "--skip-log-bin".into(),
+                ]);
+                if let Some(certificates) = certificates {
+                    command
+                        .arg(format!(
+                            "--ssl-cert={}",
+                            certificates.join("server.pem").display()
+                        ))
+                        .arg(format!(
+                            "--ssl-key={}",
+                            certificates.join("server.key").display()
+                        ))
+                        .arg(format!(
+                            "--ssl-ca={}",
+                            certificates.join("server.pem").display()
+                        ));
+                }
+                let child = spawn(&mut command, root);
                 (child, "root", "fixture")
             }
             Engine::Sqlite => unreachable!(),
@@ -136,23 +171,24 @@ impl Server {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
         if engine == Engine::Mysql {
-            use mysql_async::prelude::Queryable;
-            let opts = mysql_async::OptsBuilder::default()
-                .ip_or_hostname("127.0.0.1")
-                .tcp_port(port)
-                .user(Some("root"));
-            let mut connection = mysql_async::Conn::new(opts).await.unwrap();
+            use sqlx::{Connection as _, Executor};
+            let options = sqlx::mysql::MySqlConnectOptions::new()
+                .host("127.0.0.1")
+                .port(port)
+                .username("root")
+                .ssl_mode(sqlx::mysql::MySqlSslMode::Disabled);
+            let mut connection = sqlx::MySqlConnection::connect_with(&options).await.unwrap();
             connection
-                .query_drop("CREATE DATABASE fixture CHARACTER SET utf8mb4")
+                .execute("CREATE DATABASE fixture CHARACTER SET utf8mb4")
                 .await
                 .unwrap();
             connection
-                .query_drop(format!(
+                .execute(sqlx::AssertSqlSafe(format!(
                     "ALTER USER 'root'@'localhost' IDENTIFIED BY '{PASSWORD}'"
-                ))
+                )))
                 .await
                 .unwrap();
-            connection.disconnect().await.unwrap();
+            connection.close().await.unwrap();
         }
         server
     }
