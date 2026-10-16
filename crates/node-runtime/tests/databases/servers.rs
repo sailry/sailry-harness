@@ -184,7 +184,7 @@ impl Server {
                 .unwrap();
             connection
                 .execute(sqlx::AssertSqlSafe(format!(
-                    "ALTER USER 'root'@'localhost' IDENTIFIED BY '{PASSWORD}'"
+                    "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '{PASSWORD}'"
                 )))
                 .await
                 .unwrap();

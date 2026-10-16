@@ -1192,7 +1192,6 @@ async fn isolated_engines() {
     for engine in [Engine::Postgres, Engine::Mysql] {
         let server =
             servers::Server::start_with_tls(engine, Some(certificates.directory.path())).await;
-        tls::verify(&server, &certificates).await;
         let mut connection = server.connection.clone();
         if let Connection::Network {
             engine: Engine::Mysql,
@@ -1203,6 +1202,8 @@ async fn isolated_engines() {
             *host = "localhost".into();
         }
         let mut fixture = fixture::Fixture::new().await;
+        // Exercise the first MySQL password authentication without TLS before
+        // a TLS login can populate the server's caching_sha2_password cache.
         exercise_transport(
             connection,
             Some(Secret::new(servers::PASSWORD.into())),
@@ -1211,6 +1212,7 @@ async fn isolated_engines() {
             Some(&mut fixture),
         )
         .await;
+        tls::verify(&server, &certificates).await;
         exercise_transport(
             server.socket(),
             Some(Secret::new(servers::PASSWORD.into())),

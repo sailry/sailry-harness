@@ -141,7 +141,7 @@ russh-sftp = "=3.0.0"
 russh = { version = "=0.62.4", default-features = false, features = ["flate2", "ring", "rsa"] }
 # The SQLx fork exposes separate tunnel routing, verified optional TLS, and SQLite NOFOLLOW.
 # See its SAILRY_PATCHES.md; Node business storage remains on rusqlite.
-sqlx = { version = "=0.9.0", git = "https://github.com/sailry/sqlx.git", rev = "747f74eb23aaea1f545ab08ab9c2d12f6628abed", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "mysql", "sqlite"] }
+sqlx = { version = "=0.9.0", git = "https://github.com/sailry/sqlx.git", rev = "747f74eb23aaea1f545ab08ab9c2d12f6628abed", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-webpki", "postgres", "mysql-rsa", "sqlite"] }
 libsqlite3-sys = "=0.38.2"
 rustls = { version = "=0.23.44", default-features = false, features = ["ring", "std"] }
 rustls-native-certs = "=0.8.4"

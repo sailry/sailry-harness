@@ -15668,6 +15668,8 @@ dependencies = [
  "generic-array 0.14.7",
  "log",
  "percent-encoding",
+ "rand 0.10.2",
+ "rsa 0.10.0-rc.18",
  "serde",
  "sha1 0.11.0",
  "sha2 0.11.0",
