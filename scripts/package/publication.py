@@ -2,6 +2,7 @@
 
 import datetime
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
@@ -9,6 +10,7 @@ import stat
 import subprocess
 import tempfile
 from urllib.parse import quote
+import zipfile
 
 import versions
 
@@ -104,11 +106,21 @@ def checked_source(commit, root=None):
 
 
 class GitHub:
-    def text(self, endpoint):
-        result = subprocess.run(["gh", "api", endpoint], capture_output=True, text=True)
-        if result.returncode:
-            raise RuntimeError("The original native build log could not be verified")
-        return result.stdout
+    def build_log(self, repository, run_id, job_name):
+        result = subprocess.run(["gh", "api", f"repos/{repository}/actions/runs/{run_id}/logs"],
+                                capture_output=True)
+        if result.returncode or not result.stdout.startswith(b"PK\x03\x04"):
+            raise RuntimeError("The original native build archive could not be downloaded")
+        try:
+            with zipfile.ZipFile(io.BytesIO(result.stdout)) as archive:
+                matches = [entry for entry in archive.infolist()
+                           if re.fullmatch(r"[0-9]+_" + re.escape(job_name) + r"\.txt", entry.filename)
+                           and not entry.is_dir()]
+                if len(matches) != 1:
+                    raise ValueError("The original native target log is missing or ambiguous")
+                return archive.read(matches[0]).decode("utf-8")
+        except (zipfile.BadZipFile, UnicodeDecodeError, RuntimeError):
+            raise RuntimeError("The original native target log archive is invalid") from None
 
     def api(self, method, endpoint, payload=None, missing=False):
         command = ["gh", "api", "--method", method, endpoint]
@@ -282,7 +294,7 @@ def reuse_build(client, repository, commit, tag, run_id, target, hit, key, match
             or not timestamp(build["completed_at"]) <= timestamp(save["started_at"])
             <= timestamp(cache["created_at"]) <= timestamp(package["started_at"])):
         raise ValueError("The original native cache provenance does not match the successful build")
-    log = re.sub(r"\x1b\[[0-9;]*m", "", client.text(f"{endpoint}/jobs/{job['id']}/logs"))
+    log = re.sub(r"\x1b\[[0-9;]*m", "", client.build_log(repository, run_id, job["name"]))
     command = "cargo build --locked --release --timings -p sailry-desktop -p sailry-release"
     size = cache["size_in_bytes"]
     if (command not in log or "Finished" not in log or "`release` profile [optimized]" not in log
