@@ -3,10 +3,7 @@ use chrono::{Datelike, Timelike, Utc};
 
 fn timing() -> (jobs::Timing, i64) {
     let now = Utc::now().timestamp_millis();
-    let mut scheduled = (now.div_euclid(60_000) + 1) * 60_000;
-    if scheduled - now < 10_000 {
-        scheduled += 60_000;
-    }
+    let scheduled = (now.div_euclid(60_000) - 1) * 60_000;
     let local = chrono::DateTime::<Utc>::from_timestamp_millis(scheduled).unwrap();
     (
         jobs::Timing::Weekly {
@@ -48,7 +45,7 @@ async fn wait(client: &Client, context: &Context) -> jobs::Job {
 }
 
 #[tokio::test]
-async fn delivery_survives_restart() {
+async fn delivers_overdue_calendar_after_restart() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
         let context = actions::install_actions(
@@ -79,9 +76,41 @@ async fn delivery_survives_restart() {
         else {
             panic!("schedule expected")
         };
-        assert_eq!(saved.next_ms, Some(scheduled));
+        assert_eq!(saved.next_ms, Some(scheduled + 7 * 86_400_000));
         drop(client);
         node.shutdown().await.unwrap();
+
+        // Model downtime in this isolated profile while retaining the exact
+        // weekly rule. The real restarted worker must claim and deliver it.
+        let database =
+            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
+        let (cursor, body): (Option<i64>, Vec<u8>) = database
+            .query_row(
+                "SELECT next_ms,body FROM dispatch_schedules WHERE package=?1 AND id=?2",
+                rusqlite::params![context.package.name, id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(cursor, saved.next_ms);
+        let mut persisted: jobs::Schedule = serde_json::from_slice(&body).unwrap();
+        assert_eq!(persisted, saved);
+        persisted.next_ms = Some(scheduled);
+        assert_eq!(
+            database
+                .execute(
+                    "UPDATE dispatch_schedules SET next_ms=?1,body=?2 WHERE package=?3 AND id=?4",
+                    rusqlite::params![
+                        scheduled,
+                        serde_json::to_vec(&persisted).unwrap(),
+                        context.package.name,
+                        id.to_string()
+                    ],
+                )
+                .unwrap(),
+            1
+        );
+        database.close().unwrap();
+
         let node = Node::start(directory.path().join("node")).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
