@@ -523,6 +523,9 @@ async fn exercise_transport(
             matches!(&count.rows[0][0], Value::Integer(3))
                 || count.rows[0][0] == Value::Text("3".into())
         );
+        if matches!(connection, Connection::Sqlite { .. }) {
+            checks::cancels_writes(&client, &profile, &table).await;
+        }
         let mut watcher = client.subscribe().await.unwrap();
         let revision = profile.revision;
         profile.read_only = true;
@@ -581,35 +584,6 @@ async fn exercise_transport(
             matches!(&count.rows[0][0], Value::Integer(3))
                 || count.rows[0][0] == Value::Text("3".into())
         );
-        if matches!(connection, Connection::Sqlite { .. }) {
-            let request = client.prepare(query(&profile, "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x < 1000000000) SELECT SUM(x) FROM n"));
-            let stopped = request.clone();
-            let pending = client.execute(request);
-            tokio::pin!(pending);
-            tokio::select! {
-                result = &mut pending => panic!("query ended before cancellation: {result:?}"),
-                _ = tokio::time::sleep(Duration::from_millis(40)) => {},
-            }
-            execute(
-                &client,
-                Command::CancelDatabase {
-                    request: stopped.id,
-                },
-            )
-            .await;
-            assert_eq!(
-                tokio::time::timeout(Duration::from_secs(2), pending)
-                    .await
-                    .unwrap()
-                    .unwrap_err()
-                    .code,
-                ErrorCode::OutcomeUnknown
-            );
-            assert_eq!(
-                client.execute(stopped).await.unwrap_err().code,
-                ErrorCode::OutcomeUnknown
-            );
-        }
         drop(watcher);
         drop(client);
         node.shutdown().await.unwrap();
