@@ -5,8 +5,10 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
+import time
 
 
 def run(*args):
@@ -31,6 +33,21 @@ def submit(archive, credentials):
     print(f"Notarization accepted: {archive.name} ({result['id']})")
 
 
+def staple(path):
+    for attempt in range(3):
+        try:
+            run("xcrun", "stapler", "staple", path)
+            return
+        except RuntimeError as error:
+            interrupted = (re.search(r"\bNSURLErrorDomain Code=-1005\b", str(error)) is not None
+                           and "The network connection was lost" in str(error))
+            if not interrupted or attempt == 2:
+                raise
+            delay = (2, 5)[attempt]
+            print(f"Ticket download interrupted; retrying in {delay} seconds", flush=True)
+            time.sleep(delay)
+
+
 def notarize(app, host, credentials):
     if app is None and host is None:
         raise ValueError("Select an application or Host package")
@@ -45,7 +62,7 @@ def notarize(app, host, credentials):
     # Tickets cannot be stapled to a ZIP or standalone executable. The final
     # Desktop DMG is created by package-macos.sh only after stapling its app.
     if app is not None:
-        run("xcrun", "stapler", "staple", app)
+        staple(app)
         run("xcrun", "stapler", "validate", app)
         run("codesign", "--verify", "--deep", "--strict", app)
         run("spctl", "--assess", "--type", "execute", "--verbose=2", app)
@@ -75,7 +92,7 @@ def main():
 
 def notarize_disk_image(image, credentials):
     submit(image, credentials)
-    run("xcrun", "stapler", "staple", image)
+    staple(image)
     run("xcrun", "stapler", "validate", image)
     run("codesign", "--verify", "--strict", image)
     run("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", image)
