@@ -23,7 +23,7 @@ impl Fixture {
         let root = temp.path().join("project");
         let profile = temp.path().join("node");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let local = node.local();
         let client = Client::new(local.clone());
         client

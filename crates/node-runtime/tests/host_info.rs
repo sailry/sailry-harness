@@ -31,7 +31,9 @@ async fn metrics(client: &Client) -> sailry_protocol::host::metrics::Sample {
 #[tokio::test]
 async fn shares_transient_inspection() {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -163,7 +165,9 @@ async fn shares_transient_inspection() {
 #[tokio::test]
 async fn rejects_unauthorized_controllers() {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let local = Client::new(node.local());
     let wrong = Request::new(NodeId([0; 32]), Command::InspectHost);
     assert_eq!(

@@ -9,10 +9,10 @@ mod ownership;
 
 async fn lifecycle(remote: bool) {
     let directory = tempfile::tempdir().unwrap();
-    let controller = Node::start(directory.path().join("controller"))
+    let controller = Node::start_empty(directory.path().join("controller"))
         .await
         .unwrap();
-    let execution = Node::start(directory.path().join("execution"))
+    let execution = Node::start_empty(directory.path().join("execution"))
         .await
         .unwrap();
     controller
@@ -180,7 +180,7 @@ async fn lifecycle(remote: bool) {
     let path = execution.profile().to_owned();
     controller.shutdown().await.unwrap();
     execution.shutdown().await.unwrap();
-    let restored = Node::start(path).await.unwrap();
+    let restored = Node::start_empty(path).await.unwrap();
     assert_eq!(
         restored
             .resolve_credential(reference, provider)
@@ -207,7 +207,9 @@ async fn remote_lifecycle_and_redaction() {
 #[tokio::test]
 async fn rejects_unavailable_credentials() {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let client = Client::new(node.local());
     let provider = ProviderId::new();
     let id = CredentialId::new();
@@ -300,7 +302,7 @@ async fn rejects_unavailable_credentials() {
 async fn rejects_unsupported_storage() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("node");
-    let node = Node::start(&path).await.unwrap();
+    let node = Node::start_empty(&path).await.unwrap();
     node.shutdown().await.unwrap();
     let db = rusqlite::Connection::open(path.join("storage/node.sqlite3")).unwrap();
     assert_eq!(
@@ -312,6 +314,6 @@ async fn rejects_unsupported_storage() {
     drop(db);
     let database = path.join("storage/node.sqlite3");
     let before = std::fs::read(&database).unwrap();
-    assert!(Node::start(&path).await.is_err());
+    assert!(Node::start_empty(&path).await.is_err());
     assert_eq!(std::fs::read(database).unwrap(), before);
 }

@@ -25,7 +25,7 @@ async fn archives_restores_and_removes() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -155,7 +155,7 @@ async fn archives_restores_and_removes() {
         assert!(projection.snapshot().unwrap().sessions.is_empty());
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         assert!(
             snapshot(&Client::new(node.local()))
                 .await

@@ -30,7 +30,9 @@ struct Fixture {
 impl Fixture {
     async fn new(remote: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let node = Node::start(directory.path().join("node")).await.unwrap();
+        let node = Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

@@ -7,7 +7,7 @@ async fn restores_private_readback() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(node.local());
         let provider = Provider {
             oauth: None,
@@ -83,7 +83,7 @@ async fn restores_private_readback() {
         drop(client);
         node.shutdown().await.unwrap();
 
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

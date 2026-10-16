@@ -25,7 +25,7 @@ async fn observed(receiver: &mut watch::Receiver<View>, unread: bool, revision: 
 async fn synchronizes_and_persists_read_state() {
     let directory = tempfile::tempdir().unwrap();
     let profile = directory.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();
@@ -100,14 +100,14 @@ async fn synchronizes_and_persists_read_state() {
     task.await.unwrap().unwrap();
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let attention = snapshot(&client).await.sessions[0].activity.attention;
     assert!(attention.unread);
     assert_eq!(attention.revision, 3);
     client.execute(client.prepare(set(3, true))).await.unwrap();
     node.shutdown().await.unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     assert!(
         !snapshot(&Client::new(node.local())).await.sessions[0]
             .activity

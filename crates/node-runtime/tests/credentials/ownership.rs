@@ -7,7 +7,7 @@ async fn retains_replaced_and_removed_configuration() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -129,7 +129,7 @@ async fn retains_replaced_and_removed_configuration() {
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
 
-        let restored = Node::start(&profile).await.unwrap();
+        let restored = Node::start_empty(&profile).await.unwrap();
         for (reference, key) in [
             (original, "original-inline-key"),
             (replacement, "replacement-inline-key"),

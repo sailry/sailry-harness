@@ -6,7 +6,9 @@ use sailry_protocol::{Command, ErrorCode, Output, computer::Permission};
 #[tokio::test]
 async fn confines_permission_prompts() {
     let directory = tempfile::tempdir().unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();

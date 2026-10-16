@@ -32,7 +32,7 @@ async fn restores_snapshot_order() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
@@ -233,7 +233,7 @@ async fn restores_snapshot_order() {
 
         drop(updates);
         node.shutdown().await.unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let address = controller
             .handle()
             .pair(node.link().invite().unwrap().ticket())

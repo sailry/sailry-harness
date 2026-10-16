@@ -188,7 +188,7 @@ async fn preserves_uncertain_publication() {
     database.execute_batch("DROP TRIGGER lose_result").unwrap();
     drop(database);
     fixture.node.shutdown().await.unwrap();
-    let node = Node::start(&fixture.profile).await.unwrap();
+    let node = Node::start_empty(&fixture.profile).await.unwrap();
     for (index, transport) in [
         node.local(),
         fixture.controller.handle().remote(node.link().address()),
