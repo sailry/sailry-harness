@@ -517,7 +517,7 @@ async fn rejects_unread_replacement() {
                 ),
             ];
             let server = if parallel {
-                Server::parallel(calls).await
+                Server::batch(calls).await
             } else {
                 Server::tools(calls).await
             };
