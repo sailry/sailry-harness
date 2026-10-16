@@ -188,7 +188,7 @@ impl Server {
                 )))
                 .await
                 .unwrap();
-            connection.execute("CREATE PROCEDURE fixture.results(IN empty_first BOOLEAN) BEGIN SELECT 11 AS first_value WHERE NOT empty_first; SELECT 22 AS ignored_value; END").await.unwrap();
+            connection.execute("CREATE PROCEDURE fixture.results(IN empty_first BOOLEAN) BEGIN SELECT 11 AS `first_value` WHERE NOT empty_first; SELECT 22 AS `ignored_value`; END").await.unwrap();
             connection.close().await.unwrap();
         }
         server
