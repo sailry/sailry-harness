@@ -5,8 +5,10 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
+import time
 
 
 def run(*args):
@@ -31,6 +33,21 @@ def submit(archive, credentials):
     print(f"Notarization accepted: {archive.name} ({result['id']})")
 
 
+def run_stapler(action, path):
+    for attempt in range(3):
+        try:
+            run("xcrun", "stapler", action, path)
+            return
+        except RuntimeError as error:
+            interrupted = (re.search(r"\bNSURLErrorDomain Code=-1005\b", str(error)) is not None
+                           and "The network connection was lost" in str(error))
+            if not interrupted or attempt == 2:
+                raise
+            delay = (2, 5)[attempt]
+            print(f"Stapler {action} interrupted; retrying in {delay} seconds", flush=True)
+            time.sleep(delay)
+
+
 def notarize(app, host, credentials):
     if app is None and host is None:
         raise ValueError("Select an application or Host package")
@@ -45,8 +62,8 @@ def notarize(app, host, credentials):
     # Tickets cannot be stapled to a ZIP or standalone executable. The final
     # Desktop DMG is created by package-macos.sh only after stapling its app.
     if app is not None:
-        run("xcrun", "stapler", "staple", app)
-        run("xcrun", "stapler", "validate", app)
+        run_stapler("staple", app)
+        run_stapler("validate", app)
         run("codesign", "--verify", "--deep", "--strict", app)
         run("spctl", "--assess", "--type", "execute", "--verbose=2", app)
         print("Desktop ticket and Gatekeeper assessment verified")
@@ -75,8 +92,8 @@ def main():
 
 def notarize_disk_image(image, credentials):
     submit(image, credentials)
-    run("xcrun", "stapler", "staple", image)
-    run("xcrun", "stapler", "validate", image)
+    run_stapler("staple", image)
+    run_stapler("validate", image)
     run("codesign", "--verify", "--strict", image)
     run("spctl", "--assess", "--type", "open", "--context", "context:primary-signature", image)
     run("hdiutil", "verify", image)

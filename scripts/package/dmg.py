@@ -2,11 +2,16 @@
 """Create a fresh drag-to-Applications disk image without installing the app."""
 
 import argparse
+import importlib.util
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+
+signing_spec = importlib.util.spec_from_file_location("sign_macos", Path(__file__).with_name("sign-macos.py"))
+signing_tools = importlib.util.module_from_spec(signing_spec)
+signing_spec.loader.exec_module(signing_tools)
 
 
 def run(*arguments):
@@ -27,10 +32,12 @@ def create(app, output, signing="ad-hoc"):
         if not identity:
             raise ValueError("APPLE_SIGNING_IDENTITY is required")
         arguments = ["codesign", "--sign", identity, "--timestamp", "--identifier", "ai.sailry.disk-image"]
-        if os.environ.get("APPLE_SIGNING_KEYCHAIN"):
-            arguments += ["--keychain", os.environ["APPLE_SIGNING_KEYCHAIN"]]
-        run(*arguments, output)
-        run("codesign", "--verify", "--strict", output)
+        keychain = os.environ.get("APPLE_SIGNING_KEYCHAIN") or None
+        if keychain:
+            arguments += ["--keychain", keychain]
+        with signing_tools.keychain_scope(keychain, identity):
+            run(*arguments, output)
+            run("codesign", "--verify", "--strict", output)
     run("hdiutil", "verify", output)
 
 
