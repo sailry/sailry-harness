@@ -27,9 +27,9 @@ async function seedPlan(entries, previous) {
   const current=catalog(previous ?? null), now=await clock();
   const saved=entries.map(entry=>next(entry,now)), pages=new Map(), rows=[];
   Object.assign(current,capacity(current,saved.map(after=>({after:after.summary}))));
+  let selected;
   for (const entry of saved) {
-    let selected=Object.entries(current.pages).find(([,count])=>count < limits.page)?.[0];
-    if (selected === undefined) selected=String(current.next++);
+    if (selected === undefined || current.pages[selected] === limits.page) selected=String(current.next++);
     if (!pages.has(selected)) {
       if (current.pages[selected]) throw new Error('memory seed page must be new');
       pages.set(selected,{v:1,bodies:{}});
