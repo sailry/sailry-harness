@@ -9,6 +9,8 @@ use std::time::Duration;
 
 #[path = "databases/checks.rs"]
 mod checks;
+#[path = "databases/fixture.rs"]
+mod fixture;
 #[path = "databases/servers.rs"]
 mod servers;
 #[path = "databases/tls.rs"]
@@ -38,7 +40,7 @@ fn rows(output: Output) -> database::ResultSet {
 }
 
 async fn exercise(connection: Connection, password: Option<Secret>) {
-    exercise_transport(connection, password, None, true).await;
+    exercise_transport(connection, password, None, true, None).await;
 }
 
 async fn exercise_transport(
@@ -46,26 +48,17 @@ async fn exercise_transport(
     password: Option<Secret>,
     tunnel: Option<&tunnel::Server>,
     full: bool,
+    mut shared: Option<&mut fixture::Fixture>,
 ) {
     for remote in [false, true] {
         let forwarded = tunnel.map_or(0, |server| server.forwarded());
-        let directory = tempfile::tempdir().unwrap();
-        let node_path = directory.path().join("node");
-        let node = Node::start_empty(&node_path).await.unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
+        let mut owned = if shared.is_none() {
+            Some(fixture::Fixture::new().await)
         } else {
-            node.local()
-        });
+            None
+        };
+        let fixture = shared.as_deref_mut().or(owned.as_mut()).unwrap();
+        let client = fixture.client(remote);
         let connection = if let Some(tunnel) = tunnel {
             let ssh = tunnel.save(&client).await;
             let Connection::Network {
@@ -271,8 +264,35 @@ async fn exercise_transport(
             if tunnel.is_some() {
                 timeout(&client, &profile).await;
             }
-            controller.close().await.unwrap();
-            node.shutdown().await.unwrap();
+            execute(
+                &client,
+                Command::RemoveDatabase {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                },
+            )
+            .await;
+            assert_eq!(
+                execute(&client, Command::ListDatabases).await,
+                Output::DatabaseProfiles(vec![])
+            );
+            if let Connection::Ssh { ssh, .. } = &profile.connection {
+                let Output::SshProfiles(profiles) = execute(&client, Command::ListSsh).await else {
+                    panic!("SSH profiles expected")
+                };
+                let ssh_profile = profiles.iter().find(|profile| profile.id == *ssh).unwrap();
+                execute(
+                    &client,
+                    Command::RemoveSsh {
+                        profile: *ssh,
+                        expected_revision: ssh_profile.revision,
+                    },
+                )
+                .await;
+            }
+            if let Some(owned) = owned {
+                owned.close().await;
+            }
             if let Some(tunnel) = tunnel {
                 assert!(tunnel.forwarded() > forwarded);
             }
@@ -553,7 +573,7 @@ async fn exercise_transport(
         else {
             panic!("database profile expected")
         };
-        let mut projection = sailry_client::Projection::new(node.id(), 0);
+        let mut projection = sailry_client::Projection::new(fixture.id(), 0);
         projection.reconnect(1).unwrap();
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
@@ -598,13 +618,8 @@ async fn exercise_transport(
         );
         drop(watcher);
         drop(client);
-        node.shutdown().await.unwrap();
-        let node = Node::start_empty(&node_path).await.unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
+        fixture.restart().await;
+        let client = fixture.client(remote);
         assert_eq!(client.execute(request).await.unwrap(), written);
         assert_eq!(
             execute(&client, Command::ListDatabases).await,
@@ -622,8 +637,9 @@ async fn exercise_transport(
             execute(&client, Command::ListDatabases).await,
             Output::DatabaseProfiles(vec![])
         );
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
+        if let Some(owned) = owned {
+            owned.close().await;
+        }
         if let Some(tunnel) = tunnel {
             assert!(tunnel.forwarded() > forwarded);
         }
@@ -1186,12 +1202,21 @@ async fn isolated_engines() {
         {
             *host = "localhost".into();
         }
-        exercise(connection, Some(Secret::new(servers::PASSWORD.into()))).await;
+        let mut fixture = fixture::Fixture::new().await;
+        exercise_transport(
+            connection,
+            Some(Secret::new(servers::PASSWORD.into())),
+            None,
+            true,
+            Some(&mut fixture),
+        )
+        .await;
         exercise_transport(
             server.socket(),
             Some(Secret::new(servers::PASSWORD.into())),
             None,
             false,
+            Some(&mut fixture),
         )
         .await;
         let tunnel = tunnel::Server::start(&server.connection).await;
@@ -1200,7 +1225,9 @@ async fn isolated_engines() {
             Some(Secret::new(servers::PASSWORD.into())),
             Some(&tunnel),
             false,
+            Some(&mut fixture),
         )
         .await;
+        fixture.close().await;
     }
 }
