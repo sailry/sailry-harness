@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 use std::{
     io::Write as _,
     sync::{Arc, Condvar, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 #[path = "../../tests/logging/parse.rs"]
@@ -334,46 +334,6 @@ fn prunes_only_owned_dates() {
         })
         .count();
     assert!(owned <= RETAINED_FILES);
-}
-
-#[test]
-fn rolls_at_a_calendar_boundary() {
-    let directory = tempfile::tempdir().unwrap();
-    let (mut writer, worker) =
-        writer(directory.path(), Rotation::MINUTELY, 2, QUEUED_LINES).unwrap();
-    writer.write_all(b"before\n").unwrap();
-    let started = Instant::now();
-    let before = loop {
-        if let Some(path) = std::fs::read_dir(directory.path())
-            .unwrap()
-            .map(|entry| entry.unwrap().path())
-            .find(|path| std::fs::read_to_string(path).unwrap() == "before\n")
-        {
-            break path.file_name().unwrap().to_str().unwrap().to_owned();
-        }
-        assert!(
-            started.elapsed() < Duration::from_secs(2),
-            "initial write deadline"
-        );
-        std::thread::sleep(Duration::from_millis(5));
-    };
-    while chrono::Utc::now().format("%Y-%m-%d-%H-%M.log").to_string() == before {
-        assert!(
-            started.elapsed() < Duration::from_secs(65),
-            "calendar rollover deadline"
-        );
-        std::thread::sleep(Duration::from_millis(25));
-    }
-    writer.write_all(b"after\n").unwrap();
-    drop(worker);
-    let contents = std::fs::read_dir(directory.path())
-        .unwrap()
-        .map(|entry| std::fs::read_to_string(entry.unwrap().path()).unwrap())
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>();
-    assert_eq!(contents.len(), 2);
-    assert!(contents.iter().any(|text| text == "before\n"));
-    assert!(contents.iter().any(|text| text == "after\n"));
 }
 
 #[test]

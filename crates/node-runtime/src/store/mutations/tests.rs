@@ -5,7 +5,7 @@ use sailry_link::{Identity, Link, Local, NetworkScope, Response};
 use sailry_protocol::*;
 use tokio::sync::mpsc;
 
-use super::super::{CAPACITY, Job, Store, mutations};
+use super::super::{CAPACITY, Job, Services, Store, mutations};
 
 mod entries;
 mod outcomes;
@@ -36,13 +36,17 @@ impl Fixture {
         std::fs::create_dir(&root).unwrap();
         let identity = Identity::open(directory.path()).unwrap();
         let id = identity.id();
-        let store = Store::start(
+        let store = Store::start_ready(
             directory.path().join("node.sqlite3"),
             id,
             Some(profile.path.clone()),
-            Default::default(),
-            Default::default(),
-            Default::default(),
+            Services {
+                catalog: Default::default(),
+                authorization: Default::default(),
+                skills: Default::default(),
+                environment: Arc::new(crate::process::Environment::ambient()),
+                bundled: false,
+            },
             execute,
         )
         .await
@@ -199,13 +203,17 @@ async fn shutdown_drains() {
         std::fs::read_to_string(fixture.directory.path().join("project/blocked")).unwrap(),
         "first"
     );
-    let store = Store::start(
+    let store = Store::start_ready(
         fixture.directory.path().join("node.sqlite3"),
         first.target,
         Some(fixture.profile.path.clone()),
-        Default::default(),
-        Default::default(),
-        Default::default(),
+        Services {
+            catalog: Default::default(),
+            authorization: Default::default(),
+            skills: Default::default(),
+            environment: Arc::new(crate::process::Environment::ambient()),
+            bundled: false,
+        },
         mutations::execute,
     )
     .await
