@@ -38,7 +38,7 @@ async fn releases_uploads_on_shutdown() {
         assert!(result.is_err() || result.unwrap() == 0);
     }
     assert_eq!(std::fs::read_dir(&fixture.root).unwrap().count(), 0);
-    let node = Node::start(&fixture.profile).await.unwrap();
+    let node = Node::start_empty(&fixture.profile).await.unwrap();
     for (index, transport) in [
         node.local(),
         fixture.controller.handle().remote(node.link().address()),

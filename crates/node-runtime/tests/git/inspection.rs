@@ -80,7 +80,7 @@ async fn shares_committed_file_pages_and_authorship() {
         .unwrap();
     std::fs::write(root.join(path), "uncommitted must stay unchanged\n").unwrap();
     let index_before = std::fs::read(repository.path().join("index")).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -259,7 +259,7 @@ async fn reports_bounded_text_and_binary_files() {
     .unwrap();
     std::fs::write(root.join("binary.dat"), b"\0\x01").unwrap();
     commit(&repository);
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())

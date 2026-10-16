@@ -305,7 +305,7 @@ async fn preserves_lost_completion() {
     db.execute_batch("DROP TRIGGER lose_result").unwrap();
     drop(db);
     fixture.node.shutdown().await.unwrap();
-    let node = Node::start(profile).await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
     for (index, client) in [
         Client::new(node.local()),
         Client::new(fixture.controller.handle().remote(node.link().address())),

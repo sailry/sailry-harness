@@ -13,11 +13,28 @@ pub struct Fixture {
 }
 
 impl Fixture {
+    #[allow(
+        dead_code,
+        reason = "Bundled fixtures are used by the resource and connection suites"
+    )]
     pub async fn start() -> Self {
+        Self::setup(true).await
+    }
+
+    pub async fn empty() -> Self {
+        Self::setup(false).await
+    }
+
+    async fn setup(bundled: bool) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("project");
         std::fs::create_dir(&root).unwrap();
-        let node = Node::start(temp.path().join("node")).await.unwrap();
+        let node = if bundled {
+            Node::start(temp.path().join("node")).await
+        } else {
+            Node::start_empty(temp.path().join("node")).await
+        }
+        .unwrap();
         let local = Client::new(node.local());
         let worktree = register(&local, &root).await;
         let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())

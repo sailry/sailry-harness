@@ -5,7 +5,7 @@ use std::{path::Path, time::Instant};
 #[tokio::test]
 #[ignore = "Measures the current checkout through local and paired remote Nodes"]
 async fn measures_checkout_search_and_discovery() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()

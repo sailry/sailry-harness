@@ -20,7 +20,7 @@ async fn page(client: &Client, worktree: WorktreeId, path: &str, offset: usize) 
 
 #[tokio::test]
 async fn replays_mixed_newline_edits_with_raw_revisions() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for (index, client) in fixture.clients().iter().enumerate() {
         let path = format!("mixed-{index}.txt");
         let original = "keep\r\none\r\ntwo\r\nmiddle\none\ntwo\nlast\r\n";
@@ -105,7 +105,7 @@ fn changes(worktree: WorktreeId, path: &str, text: &str) -> [Command; 2] {
 
 #[tokio::test]
 async fn pages_and_edits_large_files() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for (index, client) in fixture.clients().iter().enumerate() {
         let path = format!("large-{index}.txt");
         let original = (0..5000)
@@ -184,7 +184,7 @@ async fn pages_and_edits_large_files() {
 
 #[tokio::test]
 async fn batches_edits_with_durable_replay() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for (index, client) in fixture.clients().iter().enumerate() {
         let path = format!("batch-{index}.txt");
         let original = "First Repeat Repeat Last\r\n";
@@ -230,7 +230,7 @@ async fn batches_edits_with_durable_replay() {
 
 #[tokio::test]
 async fn shares_revision_checked_move_and_trash() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for (index, client) in fixture.clients().iter().enumerate() {
         let from = format!("source-{index}.txt");
         let to = format!("moved-{index}.txt");
@@ -276,7 +276,7 @@ async fn shares_revision_checked_move_and_trash() {
 
 #[tokio::test]
 async fn finds_names_without_reading_contents() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     std::fs::create_dir(fixture.root.join("src")).unwrap();
     std::fs::create_dir(fixture.root.join(".git")).unwrap();
     std::fs::write(fixture.root.join("src/binary.rs"), b"\xff\0").unwrap();
@@ -323,7 +323,7 @@ async fn finds_names_without_reading_contents() {
 
 #[tokio::test]
 async fn rejects_paths_outside_worktree() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for client in fixture.clients() {
         for path in ["../outside.txt", "/outside.txt"] {
             for command in [
@@ -352,7 +352,7 @@ async fn rejects_paths_outside_worktree() {
 
 #[tokio::test]
 async fn preserves_git_metadata() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let path = ".git/config";
     let original = "[core]\n\tbare = false\n";
     std::fs::create_dir(fixture.root.join(".git")).unwrap();
@@ -391,7 +391,7 @@ async fn preserves_git_metadata() {
 
 #[tokio::test]
 async fn protects_node_profile() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let profile = fixture.node.profile();
     let protected = profile.join("mutation-protection.txt");
     let original = "Protected test content";

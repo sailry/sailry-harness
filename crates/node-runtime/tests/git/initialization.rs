@@ -3,7 +3,7 @@ use super::*;
 #[tokio::test]
 async fn initializes_once_without_replacing_metadata() {
     let temp = tempfile::tempdir().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
         .await

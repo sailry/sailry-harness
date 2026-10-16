@@ -52,7 +52,7 @@ async fn register(client: &Client, path: &std::path::Path) -> Project {
 
 async fn ownership(remote: bool) {
     let directory = tempfile::tempdir().unwrap();
-    let execution = Node::start(directory.path().join("execution"))
+    let execution = Node::start_empty(directory.path().join("execution"))
         .await
         .unwrap();
     let (controller, transport): (Option<Link>, std::sync::Arc<dyn Transport>) = if remote {
@@ -120,7 +120,7 @@ async fn ownership(remote: bool) {
         controller.close().await.unwrap();
     }
     execution.shutdown().await.unwrap();
-    let execution = Node::start(path).await.unwrap();
+    let execution = Node::start_empty(path).await.unwrap();
     let resumed = snapshot(&Client::new(execution.local())).await;
     assert_eq!(resumed.worktrees, state.worktrees);
     assert!(
@@ -146,7 +146,7 @@ async fn remote_ownership_survives_restart() {
 async fn restores_sessions_and_receipts() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("node");
-    let node = Node::start(&path).await.unwrap();
+    let node = Node::start_empty(&path).await.unwrap();
     let client = Client::new(node.local());
     let project = register(&client, directory.path()).await;
     let request = client.prepare(Command::CreateSession {
@@ -158,7 +158,7 @@ async fn restores_sessions_and_receipts() {
         panic!("session expected")
     };
     node.shutdown().await.unwrap();
-    let node = Node::start(path).await.unwrap();
+    let node = Node::start_empty(path).await.unwrap();
     let client = Client::new(node.local());
     let state = snapshot(&client).await;
     assert_eq!(state.worktrees.len(), 1);

@@ -43,7 +43,7 @@ async fn preserves_unrelated_changes() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repository");
     let (repository, base, feature) = fixture(&root);
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
@@ -109,7 +109,7 @@ async fn rejects_unsafe_switches() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repository");
     let (repository, base, feature) = fixture(&root);
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     std::fs::write(root.join("file"), "user draft\n").unwrap();
@@ -188,7 +188,7 @@ async fn lost_result_is_not_replayed() {
     let root = temp.path().join("repository");
     let (repository, _, feature) = fixture(&root);
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     let change = request(&client, id, "feature", feature).await;
@@ -203,7 +203,7 @@ async fn lost_result_is_not_replayed() {
     drop(db);
     node.shutdown().await.unwrap();
     std::fs::write(root.join("file"), "after interruption\n").unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     assert_eq!(
         Client::new(node.local())
             .execute(change)

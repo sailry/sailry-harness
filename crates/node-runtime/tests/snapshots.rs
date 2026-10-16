@@ -137,7 +137,7 @@ async fn observe(client: &Client, expected: &Snapshot) {
 
 #[tokio::test]
 async fn preserves_large_history_and_sessions() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let [local, remote] = fixture.clients();
     let config = configure(&local).await;
     let project = snapshot(&local).await.projects[0].id;

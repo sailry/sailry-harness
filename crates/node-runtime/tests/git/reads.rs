@@ -10,7 +10,9 @@ async fn serves_concurrent_controllers() {
     commit(&repository);
     std::fs::write(root.join("note.txt"), "changed").unwrap();
     let index = std::fs::read(repository.path().join("index")).unwrap();
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let local = Client::new(node.local());
     let worktree = worktree(&local, &root).await;
     let controller = Link::controller(directory.path().join("client"), NetworkScope::default())
@@ -78,7 +80,9 @@ async fn skips_ignored_trees_without_losing_tracked_changes() {
     for index in 0..20_100 {
         std::fs::write(root.join(format!("generated/{index}.txt")), "ignored").unwrap();
     }
-    let node = Node::start(directory.path().join("node")).await.unwrap();
+    let node = Node::start_empty(directory.path().join("node"))
+        .await
+        .unwrap();
     let local = Client::new(node.local());
     let worktree = worktree(&local, &root).await;
     let controller = Link::controller(directory.path().join("client"), NetworkScope::default())

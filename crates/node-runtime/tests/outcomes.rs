@@ -14,7 +14,7 @@ fn counts(db: &rusqlite::Connection) -> (i64, i64) {
 
 #[tokio::test]
 async fn observes_existing_requests() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let db =
         rusqlite::Connection::open(fixture._temp.path().join("node/storage/node.sqlite3")).unwrap();
     let clients = fixture.clients();
@@ -104,7 +104,7 @@ async fn observes_existing_requests() {
 
 #[tokio::test]
 async fn matches_private_content() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let db =
         rusqlite::Connection::open(fixture._temp.path().join("node/storage/node.sqlite3")).unwrap();
     let marker = "isolated-outcome-test-private-content";
@@ -160,7 +160,7 @@ async fn matches_private_content() {
 
 #[tokio::test]
 async fn survives_result_loss_and_restart() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let db =
         rusqlite::Connection::open(fixture._temp.path().join("node/storage/node.sqlite3")).unwrap();
     let mut pending = Vec::new();
@@ -196,7 +196,7 @@ async fn survives_result_loss_and_restart() {
         pending.push((completed, result, request, path));
     }
     fixture.node.shutdown().await.unwrap();
-    let node = Node::start(fixture._temp.path().join("node"))
+    let node = Node::start_empty(fixture._temp.path().join("node"))
         .await
         .unwrap();
     let clients = [

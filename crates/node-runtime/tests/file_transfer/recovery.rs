@@ -43,7 +43,9 @@ async fn preserves_uncertain_publication() {
     fixture.destination.node.shutdown().await.unwrap();
     // Source availability is not required to recover an admitted destination request.
     fixture.source.node.shutdown().await.unwrap();
-    let node = Node::start(&fixture.destination.profile).await.unwrap();
+    let node = Node::start_empty(&fixture.destination.profile)
+        .await
+        .unwrap();
     let transports = [
         node.local(),
         fixture.controller.handle().remote(node.link().address()),

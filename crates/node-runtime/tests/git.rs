@@ -118,7 +118,7 @@ async fn shares_staged_and_unstaged_reads() {
     std::fs::remove_file(root.join("removed.txt")).unwrap();
     std::fs::write(root.join("中文[1].txt"), "你好\n").unwrap();
     std::fs::write(root.join("中文1.txt"), "not the selected file\n").unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
@@ -199,7 +199,7 @@ async fn handles_repository_boundaries() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repository");
     std::fs::create_dir(&root).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     assert_eq!(status(&client, id).await.kind, RepositoryKind::Directory);
@@ -256,7 +256,7 @@ async fn confines_repository_reads() {
     let pipe = std::ffi::CString::new(root.join("pipe").to_str().unwrap()).unwrap();
     // SAFETY: pipe is a live terminated C string naming a path in the isolated test directory.
     assert_eq!(unsafe { libc::mkfifo(pipe.as_ptr(), 0o600) }, 0);
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     let listing = status(&client, id).await;

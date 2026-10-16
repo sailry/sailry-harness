@@ -31,7 +31,7 @@ async fn local_and_remote_deletion() {
             &[&base],
         )
         .unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
@@ -166,7 +166,7 @@ async fn rejects_stale_and_unmerged_refs() {
         )
         .unwrap();
     repository.branch("merged", &head, false).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
@@ -292,7 +292,7 @@ async fn lost_result_is_not_replayed() {
     let head = repository.head().unwrap().peel_to_commit().unwrap();
     repository.branch("removed", &head, false).unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
@@ -311,7 +311,7 @@ async fn lost_result_is_not_replayed() {
     drop(db);
     node.shutdown().await.unwrap();
     repository.branch("removed", &head, false).unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     assert_eq!(
         Client::new(node.local())
             .execute(request)

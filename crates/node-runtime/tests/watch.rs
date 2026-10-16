@@ -22,7 +22,9 @@ async fn wait(updates: &mut watch::Receiver<View>, check: impl Fn(&View) -> bool
 async fn shares_projection_until_cancelled() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let host = Node::start(directory.path().join("host")).await.unwrap();
+        let host = Node::start_empty(directory.path().join("host"))
+            .await
+            .unwrap();
         let (controller, transport): (Option<Link>, Arc<dyn Transport>) = if remote {
             let controller =
                 Link::controller(directory.path().join("controller"), NetworkScope::default())

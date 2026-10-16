@@ -64,7 +64,7 @@ async fn request(client: &Client, worktree: WorktreeId, source: Oid) -> Request 
 #[tokio::test]
 async fn local_and_remote_merges() {
     let temp = tempfile::tempdir().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
         .await
@@ -160,7 +160,7 @@ async fn local_and_remote_merges() {
 #[tokio::test]
 async fn conflicts_preserve_target() {
     let temp = tempfile::tempdir().unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
         .await
@@ -247,7 +247,7 @@ async fn locks_and_configuration() {
     let (repository, base, source) = fixture(&root);
     let target = child(&repository, base, "notes", "target notes\n");
     advance(&repository, target);
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -335,7 +335,7 @@ async fn lost_result_is_not_replayed() {
     let root = temp.path().join("repository");
     let (repository, _, source) = fixture(&root);
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     let change = request(&client, id, source).await;
@@ -350,7 +350,7 @@ async fn lost_result_is_not_replayed() {
     drop(db);
     node.shutdown().await.unwrap();
     std::fs::write(root.join("file"), "after interruption\n").unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     assert_eq!(
         Client::new(node.local())
             .execute(change)

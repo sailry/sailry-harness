@@ -92,7 +92,7 @@ async fn recovers_offline_completion() {
     // Recover the original source result without even contacting the destination.
     fixture.destination.node.shutdown().await.unwrap();
     fixture.source.node.shutdown().await.unwrap();
-    let node = Node::start(&fixture.source.profile).await.unwrap();
+    let node = Node::start_empty(&fixture.source.profile).await.unwrap();
     let sources = [
         node.local(),
         fixture.controller.handle().remote(node.link().address()),
@@ -172,7 +172,7 @@ async fn recovery_preserves_replacements() {
     drop(db);
     fixture.destination.node.shutdown().await.unwrap();
     fixture.source.node.shutdown().await.unwrap();
-    let node = Node::start(&fixture.source.profile).await.unwrap();
+    let node = Node::start_empty(&fixture.source.profile).await.unwrap();
     let sources = [
         node.local(),
         fixture.controller.handle().remote(node.link().address()),

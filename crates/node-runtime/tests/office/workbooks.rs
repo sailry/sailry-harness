@@ -7,7 +7,7 @@ const BOOK: &[u8] = include_bytes!("../../src/office/fixtures/book.xlsx");
 
 #[tokio::test]
 async fn reads_chart_cells() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     for (index, client) in fixture.clients().into_iter().enumerate() {
         let path = format!("chart-{index}.xlsx");
         std::fs::write(fixture.root.join(&path), CHART).unwrap();
@@ -51,7 +51,7 @@ async fn reads_chart_cells() {
 
 #[tokio::test]
 async fn reports_parser_panics() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     std::fs::write(fixture.root.join("invalid.xlsx"), INVALID).unwrap();
     std::fs::write(fixture.root.join("book.xlsx"), BOOK).unwrap();
     for client in fixture.clients() {

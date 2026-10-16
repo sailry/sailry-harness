@@ -26,7 +26,7 @@ async fn page(
 
 #[tokio::test]
 async fn shares_revision_checked_cell_edits() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let original = json!({"nbformat":4,"nbformat_minor":5,"metadata":{"custom":[1,2]},"cells":[
         {"cell_type":"markdown","id":"intro","metadata":{"tags":["a"]},"source":["# Notebook\n"]},
         {"cell_type":"code","id":"code","metadata":{"custom":true},"source":"print(1)","execution_count":12,"outputs":[{"output_type":"stream","name":"stdout","text":"1\n"}]}
@@ -123,7 +123,7 @@ async fn shares_revision_checked_cell_edits() {
 #[cfg(unix)]
 #[tokio::test]
 async fn refuses_links_and_preserves_failed_batches() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let original = json!({"nbformat":4,"nbformat_minor":5,"metadata":{},"cells":[{"cell_type":"raw","id":"kept","metadata":{},"source":"Kept"}]}).to_string();
     std::fs::write(fixture.root.join("sample.ipynb"), &original).unwrap();
     std::os::unix::fs::symlink(

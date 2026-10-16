@@ -16,7 +16,7 @@ async fn query(fixture: &Fixture, client: &Client, options: FileSearch) -> Searc
 
 #[tokio::test]
 async fn includes_managed_checkouts_for_manual_access() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let child = format!(".sailry/worktrees/{}", WorktreeId::new());
     let path = format!("{child}/child.txt");
     std::fs::create_dir_all(fixture.root.join(&child)).unwrap();
@@ -138,7 +138,7 @@ async fn includes_managed_checkouts_for_manual_access() {
 
 #[tokio::test]
 async fn shares_modes_context_types_and_pagination() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     std::fs::create_dir_all(fixture.root.join("src/nested")).unwrap();
     std::fs::write(fixture.root.join(".gitignore"), "*.ignored\n/private/\n").unwrap();
     std::fs::write(
@@ -293,7 +293,7 @@ async fn shares_modes_context_types_and_pagination() {
 
 #[tokio::test]
 async fn pages_encoded_text_despite_skipped_files() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     std::fs::create_dir(fixture.root.join("encoded")).unwrap();
     let directory = fixture.root.join("encoded");
     std::fs::File::create(directory.join("a-large.txt"))
@@ -415,7 +415,7 @@ async fn pages_encoded_text_despite_skipped_files() {
 
 #[tokio::test]
 async fn shares_newest_first_discovery_pages() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     std::fs::create_dir(fixture.root.join("src")).unwrap();
     std::fs::write(fixture.root.join(".gitignore"), "src/ignored.rs\n").unwrap();
     for (name, modified) in [
@@ -466,7 +466,7 @@ async fn shares_newest_first_discovery_pages() {
 #[cfg(unix)]
 #[tokio::test]
 async fn confines_symlinked_rules_and_large_files() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let outside = tempfile::tempdir().unwrap();
     std::fs::write(outside.path().join("rules"), "*.rs\nprivate credential\n").unwrap();
     std::fs::write(outside.path().join("secret.rs"), "needle outside").unwrap();

@@ -35,7 +35,7 @@ impl Fixture {
             .set_str("user.email", "node@example.invalid")
             .unwrap();
         config.set_bool("commit.gpgsign", false).unwrap();
-        let node = Node::start(temp.path().join("node")).await.unwrap();
+        let node = Node::start_empty(temp.path().join("node")).await.unwrap();
         let client = Client::new(node.local());
         client
             .execute(client.prepare(Command::RegisterProject {
@@ -380,7 +380,7 @@ async fn restart_after_result_loss() {
         .unwrap();
     drop(database);
     fixture.node.shutdown().await.unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     assert_eq!(
         client.execute(request).await.unwrap_err().code,

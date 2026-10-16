@@ -29,7 +29,7 @@ async fn destination(fixture: &Fixture) -> (PathBuf, WorktreeId) {
 
 #[tokio::test]
 async fn moves_across_worktrees_once() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let (destination, worktree) = destination(&fixture).await;
     let clients = fixture.clients();
     let repository = git2::Repository::init(&fixture.root).unwrap();
@@ -172,7 +172,7 @@ async fn moves_across_worktrees_once() {
 
 #[tokio::test]
 async fn restart_preserves_replacements() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let (destination, worktree) = destination(&fixture).await;
     let profile = fixture._temp.path().join("node");
     let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
@@ -198,7 +198,7 @@ async fn restart_preserves_replacements() {
     db.execute_batch("DROP TRIGGER lose_result").unwrap();
     drop(db);
     fixture.node.shutdown().await.unwrap();
-    let node = Node::start(profile).await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
     for (index, client) in [
         Client::new(node.local()),
         Client::new(fixture.controller.handle().remote(node.link().address())),

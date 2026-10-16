@@ -22,7 +22,7 @@ async fn local_and_remote_rename() {
     repository
         .reference("refs/remotes/origin/main", base.id(), false, "Fixture")
         .unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
@@ -145,7 +145,7 @@ async fn worktree_heads_follow_rename() {
         )
         .unwrap();
     let linked_repository = Repository::open(&linked).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let linked_id = worktree(&local, &linked).await;
@@ -220,7 +220,7 @@ async fn conflicts_and_partial_failure() {
     commit(&repository);
     let base = repository.head().unwrap().peel_to_commit().unwrap();
     repository.branch("feature", &base, false).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
@@ -335,7 +335,7 @@ async fn lost_result_is_not_replayed() {
     let head = repository.head().unwrap().peel_to_commit().unwrap();
     repository.branch("feature", &head, false).unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
@@ -360,7 +360,7 @@ async fn lost_result_is_not_replayed() {
         .unwrap()
         .delete()
         .unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     assert_eq!(
         Client::new(node.local())
             .execute(request)

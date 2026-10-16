@@ -17,7 +17,7 @@ fn copy(worktree: WorktreeId, from: &str, to: &str) -> Command {
 
 #[tokio::test]
 async fn shares_idempotent_copy() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let bytes = vec![0xff; 10 * 1024 * 1024];
     for (index, transport) in [
         fixture.node.local(),
@@ -109,7 +109,7 @@ async fn shares_idempotent_copy() {
 
 #[tokio::test]
 async fn protects_owned_resources() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     std::fs::write(fixture.root.join("file"), "keep").unwrap();
     std::fs::create_dir(fixture.root.join("nested")).unwrap();
     let clients = fixture.clients();
@@ -188,7 +188,7 @@ async fn protects_owned_resources() {
 
 #[tokio::test]
 async fn preserves_uncertain_result() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let profile = fixture._temp.path().join("node");
     let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
     db.execute_batch("CREATE TRIGGER lose_result BEFORE UPDATE ON requests WHEN NEW.status='completed' BEGIN SELECT RAISE(ABORT,'injected result loss'); END;").unwrap();
@@ -212,7 +212,7 @@ async fn preserves_uncertain_result() {
     db.execute_batch("DROP TRIGGER lose_result").unwrap();
     drop(db);
     fixture.node.shutdown().await.unwrap();
-    let node = Node::start(profile).await.unwrap();
+    let node = Node::start_empty(profile).await.unwrap();
     for (index, client) in [
         Client::new(node.local()),
         Client::new(fixture.controller.handle().remote(node.link().address())),

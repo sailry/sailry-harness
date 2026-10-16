@@ -81,7 +81,7 @@ async fn shares_read_only_history() {
         .unwrap();
     std::fs::write(root.join("中文.txt"), "Working copy must stay unchanged\n").unwrap();
     let index_before = std::fs::read(repository.path().join("index")).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
@@ -225,7 +225,7 @@ async fn bounds_repository_history() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repository");
     let repository = Repository::init(&root).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     assert_eq!(log(&client, id, 10).await.kind, RepositoryKind::Unborn);
@@ -317,7 +317,7 @@ async fn retains_pagination_root() {
         .unwrap();
     walk.push(merged).unwrap();
     let expected = walk.map(|oid| oid.unwrap().to_string()).collect::<Vec<_>>();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())

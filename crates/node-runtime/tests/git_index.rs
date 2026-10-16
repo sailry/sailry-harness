@@ -79,7 +79,7 @@ async fn shares_scoped_index_updates() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("project");
     let repository = fixture(&root);
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = setup(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
@@ -162,7 +162,7 @@ async fn unborn_deletion_and_external_locks() {
     let root = temp.path().join("project");
     let repository = Repository::init(&root).unwrap();
     std::fs::write(root.join("new"), "new\n").unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = setup(&client, &root).await;
     let request = change(&client, id, GitIndexChange::Stage, &["new"]).await;
@@ -201,7 +201,7 @@ async fn preserves_uncertain_result() {
     let root = temp.path().join("project");
     let repository = fixture(&root);
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let id = setup(&client, &root).await;
     std::fs::write(root.join("tracked"), "published\n").unwrap();
@@ -222,7 +222,7 @@ async fn preserves_uncertain_result() {
     let mut index = repository.index().unwrap();
     index.add_path(Path::new("tracked")).unwrap();
     index.write().unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     assert_eq!(
         client.execute(request).await.unwrap_err().code,
@@ -237,7 +237,7 @@ async fn rejected_updates_preserve_index() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("project");
     let repository = fixture(&root);
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = setup(&client, &root).await;
     std::fs::write(root.join("tracked"), "first\n").unwrap();
@@ -281,7 +281,7 @@ async fn preserves_entry_modes() {
     std::fs::set_permissions(root.join("run"), std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::write(root.join(".gitignore"), "ignored\n").unwrap();
     std::fs::write(root.join("ignored"), "not selected").unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = setup(&client, &root).await;
     let request = change(&client, id, GitIndexChange::Stage, &["run", "link"]).await;

@@ -30,7 +30,7 @@ async fn local_and_remote_creation() {
             "fixture",
         )
         .unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())
@@ -180,7 +180,7 @@ async fn empty_and_bounded_lists() {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("repository");
     std::fs::create_dir(&root).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     assert_eq!(list(&client, id).await.kind, RepositoryKind::Directory);
@@ -217,7 +217,7 @@ async fn lost_result_is_not_replayed() {
     commit(&repository);
     let base = repository.head().unwrap().peel_to_commit().unwrap();
     let profile = temp.path().join("node");
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     let client = Client::new(node.local());
     let id = worktree(&client, &root).await;
     let db = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
@@ -244,7 +244,7 @@ async fn lost_result_is_not_replayed() {
         .unwrap()
         .delete()
         .unwrap();
-    let node = Node::start(&profile).await.unwrap();
+    let node = Node::start_empty(&profile).await.unwrap();
     assert_eq!(
         Client::new(node.local())
             .execute(request)
@@ -273,7 +273,7 @@ async fn local_and_remote_unborn_creation() {
     index.write().unwrap();
     std::fs::write(root.join("file"), "unstaged").unwrap();
     let before = std::fs::read(repository.path().join("index")).unwrap();
-    let node = Node::start(temp.path().join("node")).await.unwrap();
+    let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
     let id = worktree(&local, &root).await;
     let controller = Link::controller(temp.path().join("client"), NetworkScope::default())

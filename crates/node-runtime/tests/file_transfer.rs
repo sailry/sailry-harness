@@ -30,7 +30,7 @@ impl Endpoint {
         let root = path.join("project");
         let profile = path.join("node");
         std::fs::create_dir_all(&root).unwrap();
-        let node = Node::start(&profile).await.unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
         let local = node.local();
         let client = Client::new(local.clone());
         client

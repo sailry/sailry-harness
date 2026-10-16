@@ -63,7 +63,7 @@ async fn checkout(fixture: &Fixture, client: &Client) -> Worktree {
 
 #[tokio::test]
 async fn shares_manual_operations_without_root_grants() {
-    let fixture = Fixture::start().await;
+    let fixture = Fixture::empty().await;
     let clients = fixture.clients();
     let tree = checkout(&fixture, &clients[0]).await;
     let base = format!(".sailry/worktrees/{}", tree.id);
