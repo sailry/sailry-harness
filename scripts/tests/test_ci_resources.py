@@ -13,6 +13,7 @@ import tempfile
 import tomllib
 from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -180,7 +181,7 @@ class Workflow(unittest.TestCase):
     def test_compiles_tests_once_and_keeps_timings(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertNotIn("--no-run", workflow)
-        for command in re.findall(r"run: (cargo nextest run[^\n]+--profile ci[^\n]*)", workflow):
+        for command in re.findall(r"run: (?:python3 scripts/ci-run.py -- )?(cargo nextest run[^\n]+--profile ci[^\n]*)", workflow):
             self.assertIn("--timings", command)
         self.assertIn("--test dart --timings --", workflow)
         rust = workflow.split("\n  shared:\n", 1)[1].split("\n  mobile:\n", 1)[0]
@@ -287,6 +288,101 @@ class Workflow(unittest.TestCase):
             workflow.count("python3 scripts/ci.py speech-key aarch64-apple-darwin shared"), 4,
         )
         self.assertNotIn("python3 scripts/ci.py speech-key x86_64-unknown-linux-gnu", workflow)
+
+
+    def test_reuses_only_compressed_dependency_sources(self):
+        action = (ROOT / ".github/actions/rust-cache/action.yml").read_text()
+        workflows = [(ROOT / f".github/workflows/{name}.yml").read_text()
+                     for name in ("ci", "release", "release-host")]
+        self.assertIn("path: .cargo-sources", action)
+        self.assertIn("source-cache restore", action)
+        self.assertNotIn("~/.cargo/registry/src", action)
+        self.assertNotIn("~/.cargo/git/checkouts", action)
+        self.assertIn("enableCrossOsArchive: true", action)
+        self.assertIn("cargo-sources-v1-${{ hashFiles('Cargo.lock') }}", action)
+        self.assertNotIn("runner.os", action)
+        self.assertIn("version: v0.18.0", action)
+        compiler = action.split("    - name: Compiler cache\n", 1)[1].split("    - name:", 1)[0]
+        self.assertIn("continue-on-error: true", compiler)
+        fallback = action.split("    - name: Fall back to uncached compilation\n", 1)[1].split("    - name:", 1)[0]
+        self.assertIn("if: steps.compiler.outcome != 'success'", fallback)
+        self.assertIn("echo 'RUSTC_WRAPPER='", fallback)
+        self.assertIn("'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY'", action)
+        self.assertNotIn("SCCACHE_GHA_CACHE_TO", action)
+        self.assertNotIn("SCCACHE_CACHE_SIZE", action)
+        self.assertEqual(workflows[0].count("name: Save compressed dependency sources"), 1)
+        self.assertIn("run: cargo fetch --locked", workflows[0])
+        self.assertIn("steps.workspace-sources.outcome == 'success'", workflows[0])
+        for workflow in workflows:
+            self.assertIn("/.github/actions/rust-cache", workflow)
+            self.assertNotIn("Swatinem/rust-cache", workflow)
+            self.assertNotIn("target/release\n", workflow)
+            self.assertNotIn("target/host-cross\n", workflow)
+            self.assertIn("scripts/ci.py cache-usage", workflow)
+        for workflow in workflows[1:]:
+            self.assertNotIn("Save compilation before signing", workflow)
+            self.assertIn("python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings", workflow)
+
+
+class CacheUsage(unittest.TestCase):
+    def test_restores_sources_across_runner_homes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "macos/.cargo"
+            workspace = root / "workspace"
+            workspace.mkdir()
+            for relative in ("registry/cache/crates/example-1.0.crate", "git/db/example/objects/pack/data.pack",
+                             "registry/src/example/src.rs", "git/checkouts/example/src.rs"):
+                path = first / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"fixture")
+            ci.cache_sources("save", workspace, first)
+            self.assertFalse((workspace / ".cargo-sources/registry/src").exists())
+            self.assertFalse((workspace / ".cargo-sources/git/checkouts").exists())
+            second = root / "linux/.cargo"
+            ci.cache_sources("restore", workspace, second)
+            self.assertEqual((second / "registry/cache/crates/example-1.0.crate").read_bytes(), b"fixture")
+            self.assertEqual((second / "git/db/example/objects/pack/data.pack").read_bytes(), b"fixture")
+
+    def test_reports_quota_without_mutation(self):
+        usage = {"active_caches_size_in_bytes": 10 * 2**30, "active_caches_count": 6966}
+        with patch.dict(os.environ, {"GH_REPO": "fixture/product"}), \
+                patch.object(ci.subprocess, "run", return_value=SimpleNamespace(stdout=json.dumps(usage))) as run, \
+                patch("builtins.print") as output:
+            ci.cache_usage()
+        run.assert_called_once_with(
+            ["gh", "api", "repos/fixture/product/actions/cache/usage"],
+            check=True, text=True, capture_output=True,
+        )
+        self.assertIn("10.000 GiB / 10 GiB", output.call_args_list[0].args[0])
+        self.assertTrue(output.call_args_list[1].args[0].startswith("::warning::"))
+
+
+class PhaseProgress(unittest.TestCase):
+    def module(self):
+        spec = importlib.util.spec_from_file_location("ci_run", ROOT / "scripts/ci-run.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_preserves_command_result_and_arguments(self):
+        module = self.module()
+        command = [sys.executable, "-c", "import sys; sys.exit(23)"]
+        with patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}), patch("builtins.print"):
+            self.assertEqual(module.run(command), 23)
+
+    def test_observes_live_phase_without_restarting_it(self):
+        module = self.module()
+        process = Mock()
+        process.wait.side_effect = [subprocess.TimeoutExpired(["cargo"], 60), 0]
+        process.__enter__ = Mock(return_value=process)
+        process.__exit__ = Mock(return_value=False)
+        with patch.object(module.subprocess, "Popen", return_value=process) as spawn, \
+                patch.object(module, "progress") as progress, \
+                patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""}), patch("builtins.print"):
+            self.assertEqual(module.run(["cargo", "build", "--locked"]), 0)
+        spawn.assert_called_once_with(["cargo", "build", "--locked"])
+        progress.assert_called_once()
 
 
 class SpeechCache(unittest.TestCase):

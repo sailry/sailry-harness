@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
@@ -99,9 +100,6 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: 'true'
-      SCCACHE_IDLE_TIMEOUT: '0'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -119,23 +117,19 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
       - name: Search prerequisite
         run: brew install ripgrep
-      - name: Compiler cache
-        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
-        with:
-          version: v0.18.0
+      - name: Rust dependency caches
+        id: rust-cache
+        uses: ./.github/actions/rust-cache
       - name: Process-isolated test runner
         uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          # sccache holds compiled objects; multi-GB target archives would
-          # exceed the repository cache quota and evict each other.
-          shared-key: macos-cargo-home
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-targets: false
-          cache-bin: false
+      - name: Fetch locked workspace sources
+        id: workspace-sources
+        continue-on-error: true
+        if: github.ref == 'refs/heads/main' && steps.rust-cache.outputs.source-hit != 'true'
+        run: cargo fetch --locked
       - name: Speech cache identity
         id: speech-key
         run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
@@ -149,6 +143,7 @@ jobs:
         if: steps.speech-cache.outputs.cache-hit != 'true'
         run: cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
       - name: Save speech native libraries
+        continue-on-error: true
         if: steps.speech-cache.outputs.cache-hit != 'true'
         # Save before later checks fail.
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -160,7 +155,7 @@ jobs:
       - name: Shared strict lint
         run: cargo clippy --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-speech -p sailry-embedding -p sailry-model-assets -p sailry-ocr -p sailry-release --all-targets --jobs "$BUILD_JOBS" -- -D warnings
       - name: Shared unit and local/remote integration
-        run: cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-release --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
+        run: python3 scripts/ci-run.py -- cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-release --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
       - name: Isolated database engines
         run: |
           brew install postgresql@17 mysql@8.4
@@ -178,9 +173,28 @@ jobs:
             target/nextest/lifecycle/junit.xml
           if-no-files-found: ignore
           retention-days: 7
+      - name: Stage compressed dependency sources
+        id: source-archive
+        continue-on-error: true
+        if: always() && github.ref == 'refs/heads/main' && steps.workspace-sources.outcome == 'success'
+        run: python3 scripts/ci.py source-cache save
+      - name: Save compressed dependency sources
+        if: always() && github.ref == 'refs/heads/main' && steps.source-archive.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        with:
+          path: .cargo-sources
+          key: ${{ steps.rust-cache.outputs.source-key }}
+          enableCrossOsArchive: true
       - name: Compiler cache statistics
         if: always()
-        run: sccache --show-stats
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 scripts/ci.py cache-usage
 
   desktop:
     name: Desktop
@@ -192,9 +206,6 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: 'true'
-      SCCACHE_IDLE_TIMEOUT: '0'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -212,23 +223,14 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
       - name: Search prerequisite
         run: brew install ripgrep
-      - name: Compiler cache
-        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
-        with:
-          version: v0.18.0
+      - name: Rust dependency caches
+        id: rust-cache
+        uses: ./.github/actions/rust-cache
       - name: Process-isolated test runner
         uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          # sccache holds compiled objects; multi-GB target archives would
-          # exceed the repository cache quota and evict each other.
-          shared-key: macos-cargo-home
-          save-if: false
-          cache-targets: false
-          cache-bin: false
       - name: Speech cache identity
         id: speech-key
         run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
@@ -242,6 +244,7 @@ jobs:
         if: steps.speech-cache.outputs.cache-hit != 'true'
         run: cargo build --locked -p sailry-speech --jobs "$BUILD_JOBS" -vv
       - name: Save speech native libraries
+        continue-on-error: true
         if: steps.speech-cache.outputs.cache-hit != 'true'
         # Save before later checks fail.
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
@@ -286,7 +289,13 @@ jobs:
           retention-days: 7
       - name: Compiler cache statistics
         if: always()
-        run: sccache --show-stats
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 scripts/ci.py cache-usage
 
   host:
     name: Host
@@ -298,9 +307,6 @@ jobs:
       CARGO_BUILD_JOBS: '2'
       BUILD_JOBS: '1'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: 'true'
-      SCCACHE_IDLE_TIMEOUT: '0'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -318,23 +324,14 @@ jobs:
           xcrun --sdk macosx --show-sdk-version
       - name: Search prerequisite
         run: brew install ripgrep
-      - name: Compiler cache
-        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
-        with:
-          version: v0.18.0
+      - name: Rust dependency caches
+        id: rust-cache
+        uses: ./.github/actions/rust-cache
       - name: Process-isolated test runner
         uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-nextest@0.9.143
           fallback: none
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          # sccache holds compiled objects; multi-GB target archives would
-          # exceed the repository cache quota and evict each other.
-          shared-key: macos-cargo-home
-          save-if: false
-          cache-targets: false
-          cache-bin: false
       - name: Host source fixtures
         run: python3 scripts/ci.py fixtures host
       - name: Formatting
@@ -360,7 +357,13 @@ jobs:
           retention-days: 7
       - name: Compiler cache statistics
         if: always()
-        run: sccache --show-stats
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 scripts/ci.py cache-usage
 
   mobile:
     name: Mobile, shared bridge and iOS
@@ -371,9 +374,6 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: 'true'
-      SCCACHE_IDLE_TIMEOUT: '0'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -392,16 +392,9 @@ jobs:
         run: flutter pub get --enforce-lockfile
       - name: Search prerequisite
         run: brew install ripgrep
-      - name: Compiler cache
-        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
-        with:
-          version: v0.18.0
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: macos-cargo-home
-          save-if: false
-          cache-targets: false
-          cache-bin: false
+      - name: Rust dependency caches
+        id: rust-cache
+        uses: ./.github/actions/rust-cache
       - name: Speech cache identity
         id: speech-key
         run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
@@ -415,6 +408,7 @@ jobs:
         if: steps.speech-cache.outputs.cache-hit != 'true'
         run: cargo build --locked -p sailry-speech --jobs 1 -vv
       - name: Save speech native libraries
+        continue-on-error: true
         if: steps.speech-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -452,7 +446,13 @@ jobs:
           git diff --exit-code -- pubspec.lock
       - name: Compiler cache statistics
         if: always()
-        run: sccache --show-stats
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 scripts/ci.py cache-usage
 
   mobile_ffi:
     name: Mobile Dart FFI contracts
@@ -463,9 +463,6 @@ jobs:
     env:
       CARGO_BUILD_JOBS: '2'
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: 'true'
-      SCCACHE_IDLE_TIMEOUT: '0'
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -481,16 +478,9 @@ jobs:
           channel: stable
       - name: Search prerequisite
         run: brew install ripgrep
-      - name: Compiler cache
-        uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
-        with:
-          version: v0.18.0
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: macos-cargo-home
-          save-if: false
-          cache-targets: false
-          cache-bin: false
+      - name: Rust dependency caches
+        id: rust-cache
+        uses: ./.github/actions/rust-cache
       - name: Speech cache identity
         id: speech-key
         run: python3 scripts/ci.py speech-key aarch64-apple-darwin shared
@@ -504,6 +494,7 @@ jobs:
         if: steps.speech-cache.outputs.cache-hit != 'true'
         run: cargo build --locked -p sailry-speech --jobs 1 -vv
       - name: Save speech native libraries
+        continue-on-error: true
         if: steps.speech-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -522,7 +513,13 @@ jobs:
           cargo test --locked -p sailry-mobile-bridge --test dart --timings -- --ignored --skip mcp_peer::stdio_peer --test-threads=4 --nocapture
       - name: Compiler cache statistics
         if: always()
-        run: sccache --show-stats
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 scripts/ci.py cache-usage
 
   android:
     name: Mobile Android

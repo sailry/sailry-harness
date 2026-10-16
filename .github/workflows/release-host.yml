@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Version tag selected as the workflow ref'
+        description: 'Exact version tag to build; run this workflow from main'
         type: string
         required: true
 
@@ -13,10 +13,11 @@ permissions:
   actions: read
 
 concurrency:
-  group: host-release-${{ github.ref }}
+  group: host-release-${{ github.event_name }}-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: '0'
   CARGO_BUILD_JOBS: '2'
@@ -31,14 +32,28 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/rust-cache/
+            /scripts/ci.py
+            /scripts/ci-run.py
+            /scripts/check-release.py
+            /scripts/package/publication.py
+            /scripts/package/versions.py
       - name: Require a matching version tag and Host gate
         env:
           GH_TOKEN: ${{ github.token }}
-          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          test "$GITHUB_REF_TYPE" = tag
-          test "$INPUT_TAG" = "$GITHUB_REF_NAME"
-          python3 scripts/check-release.py --tag "$GITHUB_REF_NAME" --component host --published
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/main
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component host --published
 
   build:
     name: macOS Host ${{ matrix.target }}
@@ -62,7 +77,22 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           submodules: recursive
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/rust-cache/
+            /scripts/ci.py
+            /scripts/ci-run.py
+            /scripts/check-release.py
+            /scripts/package/publication.py
+            /scripts/package/versions.py
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -75,21 +105,21 @@ jobs:
           PACKAGE_TARGET: ${{ matrix.target }}
         run: |
           test "$(rustc -vV | awk '/^host: / {print $2}')" = "$PACKAGE_TARGET"
-          python3 scripts/package/versions.py --tag "$GITHUB_REF_NAME"
-      - name: Restore native release cache
-        id: native-cache
+          python3 scripts/package/versions.py --tag "$RELEASE_TAG"
+      - name: Rust dependency caches
+        uses: ./.workflow-tools/.github/actions/rust-cache
+      - name: Speech cache identity
+        id: speech-key
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: python3 scripts/ci.py speech-key "$PACKAGE_TARGET" shared
+      - name: Speech native libraries
+        id: speech-cache
+        continue-on-error: true
         uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/release
-            target/sherpa-onnx-prebuilt
-          # One entry per dependency set; per-commit keys add multi-GB entries
-          # that evict the Checks compiler cache.
-          key: packages-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}
-          restore-keys: |
-            packages-${{ matrix.target }}-
+          path: target/sherpa-onnx-prebuilt
+          key: ${{ steps.speech-key.outputs.key }}
       - name: Verify distribution signing configuration
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
@@ -117,17 +147,23 @@ jobs:
           python3 scripts/ci.py fixtures host
       - name: Build native Host
         run: |
-          cargo build --locked --release --timings -p sailry-host
-      - name: Save compilation before signing
-        if: always() && steps.native-cache.outputs.cache-hit != 'true'
+          python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings -p sailry-host
+      - name: Save speech native libraries
+        if: always() && steps.speech-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
         uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/release
-            target/sherpa-onnx-prebuilt
-          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+          path: target/sherpa-onnx-prebuilt
+          key: ${{ steps.speech-key.outputs.key }}
+      - name: Compiler cache statistics
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 .workflow-tools/scripts/ci.py cache-usage
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -227,7 +263,22 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
           submodules: recursive
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/rust-cache/
+            /scripts/ci.py
+            /scripts/ci-run.py
+            /scripts/check-release.py
+            /scripts/package/publication.py
+            /scripts/package/versions.py
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -235,19 +286,16 @@ jobs:
         with:
           version: '0.16.0'
           use-cache: false
-      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      - name: Rust dependency caches
+        uses: ./.workflow-tools/.github/actions/rust-cache
+      - name: Linux native build tools
+        continue-on-error: true
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target/host-cross
             target/host-sysroots
             target/tooling
-          # One entry per dependency set; per-commit keys add multi-GB entries
-          # that evict the Checks compiler cache.
-          key: host-${{ matrix.target }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'scripts/package/linux-sysroot.lock.json') }}
-          restore-keys: |
-            host-${{ matrix.target }}-
+          key: host-tools-v1-zigbuild-0.23.4-${{ matrix.target }}-${{ hashFiles('scripts/package/linux-sysroot.lock.json', 'scripts/package/linux-sysroot.py') }}
       - name: Host prerequisites
         run: |
           sudo apt-get update
@@ -257,7 +305,16 @@ jobs:
             cargo install cargo-zigbuild --version 0.23.4 --locked --root target/tooling
           fi
       - name: Build one Host architecture
-        run: bash scripts/build-host.sh release '${{ matrix.target }}'
+        run: python3 .workflow-tools/scripts/ci-run.py -- bash scripts/build-host.sh release '${{ matrix.target }}'
+      - name: Compiler cache statistics
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sccache --show-stats || true
+          python3 .workflow-tools/scripts/ci.py cache-usage
       - name: Verify headless startup and shutdown
         run: python3 scripts/check-host.py 'target/host-artifacts/${{ matrix.target }}/sailry-host'
       - name: Package standalone Host
@@ -290,6 +347,21 @@ jobs:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/rust-cache/
+            /scripts/ci.py
+            /scripts/ci-run.py
+            /scripts/check-release.py
+            /scripts/package/publication.py
+            /scripts/package/versions.py
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: host-*
@@ -303,4 +375,4 @@ jobs:
           (cd packages && sha256sum --check SHA256SUMS-*)
           cp scripts/install-host.sh packages/install-host.sh
           (cd packages && sha256sum install-host.sh > SHA256SUMS-installer)
-          python3 scripts/publish-packages.py --component host --tag "$GITHUB_REF_NAME" --directory packages
+          python3 scripts/publish-packages.py --component host --tag "$RELEASE_TAG" --directory packages

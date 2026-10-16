@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -165,8 +166,40 @@ def require_results(results, product=None):
             raise ValueError(f"{name}: required check did not pass ({result})")
 
 
+def cache_sources(mode, workspace, home):
+    archive = workspace / ".cargo-sources"
+    source, destination = (home, archive) if mode == "save" else (archive, home)
+    for relative in ("registry/cache", "git/db"):
+        directory = source / relative
+        if directory.is_dir():
+            shutil.copytree(directory, destination / relative, dirs_exist_ok=True)
+
+
+def cache_usage():
+    repository = os.environ["GH_REPO"]
+    result = subprocess.run(
+        ["gh", "api", f"repos/{repository}/actions/cache/usage"],
+        check=True, text=True, capture_output=True,
+    )
+    usage = json.loads(result.stdout)
+    size = usage["active_caches_size_in_bytes"]
+    count = usage["active_caches_count"]
+    message = f"Repository cache: {size / 2**30:.3f} GiB / 10 GiB budget ({count} entries)"
+    print(message)
+    if size >= 9 * 2**30:
+        print("::warning::Cache budget nearly full; GitHub LRU may evict compiler objects")
+    if os.getenv("GITHUB_STEP_SUMMARY"):
+        with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
+            output.write(message + "\n\n")
+
+
 def main():
-    if sys.argv[1:] == ["select"]:
+    if len(sys.argv) == 3 and sys.argv[1] == "source-cache" and sys.argv[2] in {"save", "restore"}:
+        cache_sources(sys.argv[2], Path(os.environ["GITHUB_WORKSPACE"]),
+                      Path(os.getenv("CARGO_HOME", str(Path.home() / ".cargo"))))
+    elif sys.argv[1:] == ["cache-usage"]:
+        cache_usage()
+    elif sys.argv[1:] == ["select"]:
         selection = outputs(select_event(os.getenv("GITHUB_EVENT_NAME"), os.getenv("GITHUB_EVENT_PATH")))
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
             target.writelines(f"{key}={value}\n" for key, value in selection.items())
@@ -194,7 +227,7 @@ def main():
         print(f"{sys.argv[2].title()} ready" if len(sys.argv) == 3 else "Checks passed")
     else:
         raise SystemExit(
-            "Usage: ci.py select|report [desktop|host|mobile]|fixtures <owner>|"
+            "Usage: ci.py source-cache <save|restore>|cache-usage|select|report [desktop|host|mobile]|fixtures <owner>|"
             "speech-key <target> <shared|static>"
         )
 

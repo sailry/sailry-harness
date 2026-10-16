@@ -6,6 +6,7 @@ import os
 from contextlib import chdir
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
@@ -113,6 +114,78 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("pull_request", trigger)
         self.assertNotIn("--generate-notes", workflow)
 
+    def test_builds_exact_tag_in_main_cache(self):
+        desktop = self.workflow("release")
+        self.assertIn("if: github.event_name == 'push'", desktop)
+        self.assertIn('--ref main -f "tag=$RELEASE_TAG"', desktop)
+        self.assertIn("if: github.event_name != 'push'", desktop)
+        for name in ("release", "release-host"):
+            workflow = self.workflow(name)
+            self.assertIn('test "$GITHUB_EVENT_NAME" = workflow_dispatch', workflow)
+            self.assertIn('test "$GITHUB_REF" = refs/heads/main', workflow)
+            self.assertEqual(workflow.count("persist-credentials: false"),
+                             2 * workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}"))
+            self.assertEqual(workflow.count("ref: ${{ github.workflow_sha }}"),
+                             workflow.count("ref: refs/tags/${{ env.RELEASE_TAG }}"))
+            self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", workflow)
+            self.assertIn(".workflow-tools/scripts/ci-run.py", workflow)
+            self.assertIn('--source "$GITHUB_WORKSPACE"', workflow)
+            self.assertIn('--tag "$RELEASE_TAG" --component', workflow)
+            self.assertNotIn('--tag "$GITHUB_REF_NAME"', workflow)
+            self.assertIn("cancel-in-progress: false", workflow)
+        self.assertIn("desktop-release-${{ github.event_name }}-", desktop)
+
+    def test_gate_accepts_only_matching_dispatch_or_tag(self):
+        spec = importlib.util.spec_from_file_location("release_gate", ROOT / "scripts/check-release.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory) / "event.json"
+            event.write_text(json.dumps({"inputs": {"tag": "v0.1.0"}}))
+            base = {"GITHUB_REF": "refs/heads/main", "GITHUB_EVENT_NAME": "workflow_dispatch",
+                    "GITHUB_EVENT_PATH": str(event)}
+            with patch.dict(os.environ, base, clear=True):
+                gate.require_context("v0.1.0")
+                with self.assertRaises(ValueError):
+                    gate.require_context("v0.2.0")
+            for change in ({"GITHUB_REF": "refs/heads/other"}, {"GITHUB_EVENT_NAME": "push"}):
+                with patch.dict(os.environ, {**base, **change}, clear=True), self.assertRaises(ValueError):
+                    gate.require_context("v0.1.0")
+            with patch.dict(os.environ, {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v0.1.0"}, clear=True):
+                gate.require_context("v0.1.0")
+                with self.assertRaises(ValueError):
+                    gate.require_context("v0.2.0")
+
+    def test_tooling_runs_without_candidate_helpers(self):
+        spec = importlib.util.spec_from_file_location("release_gate", ROOT / "scripts/check-release.py")
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = Path(directory)
+            tools = candidate / ".workflow-tools/scripts"
+            tools.mkdir(parents=True)
+            (tools / "ci-run.py").write_text((ROOT / "scripts/ci-run.py").read_text())
+            self.assertFalse((candidate / "scripts/ci-run.py").exists())
+            self.assertFalse((candidate / ".github/actions/rust-cache").exists())
+            result = subprocess.run(
+                [sys.executable, str(tools / "ci-run.py"), "--", sys.executable, "-c", "raise SystemExit(23)"],
+                cwd=candidate, capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 23)
+            event = candidate / "event.json"
+            event.write_text(json.dumps({"inputs": {"tag": "v0.1.0"}}))
+            with patch.dict(os.environ, {"GITHUB_REF": "refs/heads/main", "GITHUB_EVENT_NAME": "workflow_dispatch",
+                                        "GITHUB_EVENT_PATH": str(event), "GITHUB_REPOSITORY": "fixture/product"}), \
+                    patch.object(sys, "argv", ["check-release.py", "--tag", "v0.1.0", "--source", str(candidate),
+                                               "--component", "desktop"]), \
+                    patch.object(gate.publication, "tagged_commit", return_value="a" * 40) as commit, \
+                    patch.object(gate.publication, "readiness", return_value=123) as readiness, \
+                    patch.object(gate.publication, "release", return_value={}) as release:
+                gate.main()
+            commit.assert_called_once_with("v0.1.0", root=candidate)
+            self.assertEqual(readiness.call_args.args[2:], ("a" * 40, "desktop"))
+            self.assertEqual(release.call_args.args[2:], ("v0.1.0", "a" * 40))
+
     def test_desktop_publishes_without_host_or_mobile(self):
         workflow = self.workflow("release")
         build = workflow.split("  build:\n", 1)[1].split("  publish:\n", 1)[0]
@@ -137,8 +210,9 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("contents: write", publish)
         self.assertIn("actions: write", publish)
         self.assertIn("'release-host.yml', 'update-feed.yml', 'changelog.yml'", publish)
-        self.assertIn("{'ref': tag, 'inputs': {'tag': tag}}", publish)
-        self.assertIn('--tag "$GITHUB_REF_NAME" --published', publish)
+        self.assertIn("'ref': 'main' if workflow == 'release-host.yml' else tag", publish)
+        self.assertIn("'inputs': {'tag': tag}", publish)
+        self.assertIn('--tag "$RELEASE_TAG" --published', publish)
         self.assertLess(publish.index("scripts/publish-packages.py"), publish.index("dispatches"))
         self.assertNotIn("release-mobile.yml", publish)
 
@@ -146,14 +220,14 @@ class ReleaseWorkflows(unittest.TestCase):
         workflow = self.workflow("release").split("Dispatch same-tag Host, feeds and changelog", 1)[1]
         script = textwrap.dedent(workflow.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
         results = [subprocess.CompletedProcess([], code) for code in (1, 0, 0)]
-        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product", "GITHUB_REF_NAME": "v0.1.0-alpha.1"}), \
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product", "RELEASE_TAG": "v0.1.0-alpha.1"}), \
                 patch.object(subprocess, "run", side_effect=results) as run:
             with self.assertRaisesRegex(SystemExit, "release-host.yml"):
                 exec(script, {})
         self.assertEqual(run.call_count, 3)
-        for call in run.call_args_list:
+        for index, call in enumerate(run.call_args_list):
             self.assertEqual(json.loads(call.kwargs["input"]), {
-                "ref": "v0.1.0-alpha.1", "inputs": {"tag": "v0.1.0-alpha.1"}})
+                "ref": "main" if index == 0 else "v0.1.0-alpha.1", "inputs": {"tag": "v0.1.0-alpha.1"}})
 
     def test_host_appends_independently_on_four_targets(self):
         workflow = self.workflow("release-host")
@@ -161,7 +235,7 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn("workflow_dispatch", trigger)
         self.assertNotIn("push:", trigger)
         self.assertNotIn("release:", trigger)
-        self.assertIn("group: host-release-${{ github.ref }}", workflow)
+        self.assertIn("group: host-release-${{ github.event_name }}-${{ inputs.tag || github.ref_name }}", workflow)
         self.assertIn("--component host --published", workflow)
         mac = workflow.split("  build:\n", 1)[1].split("  host:\n", 1)[0]
         linux = workflow.split("  host:\n", 1)[1].split("  publish:\n", 1)[0]
@@ -194,9 +268,10 @@ class ReleaseWorkflows(unittest.TestCase):
                 self.assertIn("macos-15-intel", build)
                 self.assertIn("runner: macos-15", build)
                 self.assertIn("Xcode_26.3.app", build)
-                self.assertIn("target/release", build)
                 self.assertIn("target/sherpa-onnx-prebuilt", build)
-                self.assertIn("key: packages-${{ matrix.target }}-${{ hashFiles", build)
+                self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", build)
+                self.assertNotIn("key: packages-", build)
+                self.assertIn("key: ${{ steps.speech-key.outputs.key }}", build)
                 self.assertNotIn("github.sha", build)
                 self.assertNotIn("--target", build)
                 self.assertIn("version: '0.16.0'", build)

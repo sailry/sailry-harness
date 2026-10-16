@@ -1,0 +1,49 @@
+name: Rust dependency caches
+description: Reuse compiler objects and compressed dependency sources without target archives
+outputs:
+  source-key:
+    description: Dependency source archive key
+    value: ${{ steps.sources.outputs.cache-primary-key }}
+  source-hit:
+    description: Whether the exact source archive was restored
+    value: ${{ steps.sources.outputs.cache-hit }}
+runs:
+  using: composite
+  steps:
+    - name: Configure compiler storage
+      shell: bash
+      run: |
+        # Keep sccache's existing v0.18 namespace. Its compiler/target/flags hashes
+        # separate SDKs and profiles; test objects cannot stand in for release.
+        # Tag/PR writes cannot warm main or a later tag, so only main produces.
+        echo 'RUSTC_WRAPPER=sccache' >> "$GITHUB_ENV"
+        echo 'SCCACHE_GHA_ENABLED=true' >> "$GITHUB_ENV"
+        echo 'SCCACHE_IDLE_TIMEOUT=0' >> "$GITHUB_ENV"
+        echo 'SCCACHE_GHA_RW_MODE=${{ github.ref == 'refs/heads/main' && 'READ_WRITE' || 'READ_ONLY' }}' >> "$GITHUB_ENV"
+    - name: Compiler cache
+      id: compiler
+      continue-on-error: true
+      uses: Mozilla-Actions/sccache-action@fd02668681acd5f960e1372061bee5e3e987195c # v0.0.11
+      with:
+        version: v0.18.0
+    - name: Fall back to uncached compilation
+      if: steps.compiler.outcome != 'success'
+      shell: bash
+      run: |
+        echo 'RUSTC_WRAPPER=' >> "$GITHUB_ENV"
+        echo '::warning::Compiler cache unavailable; continuing with rustc'
+    - name: Compressed dependency sources
+      id: sources
+      continue-on-error: true
+      uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        # A relative staging path keeps tar entries portable between runner HOMEs.
+        # Cargo recreates src/checkouts from compressed originals; no OS/profile variants.
+        path: .cargo-sources
+        key: cargo-sources-v1-${{ hashFiles('Cargo.lock') }}
+        restore-keys: cargo-sources-v1-
+        enableCrossOsArchive: true
+    - name: Restore Cargo originals
+      continue-on-error: true
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/../../../scripts/ci.py" source-cache restore

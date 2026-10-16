@@ -155,16 +155,23 @@ APK and checks its native libraries; iOS builds an unsigned application. Both
 mobile builds check the Rust dependency boundary. Actions and toolchains are
 pinned; Rust and Flutter use committed lockfiles. `Checks passed` requires every
 job to succeed; skipped or cancelled jobs
-do not establish acceptance. Signed release packaging remains tag-only.
+do not establish acceptance. Signed release packaging builds exact version tags.
 
 Node integration features share eight compiled suites instead of linking a
 binary per feature. Keep feature files focused and register new files in the
 appropriate suite; the source check rejects missing or duplicate registrations.
-Rust caches retain downloaded sources but do not archive target directories,
-which otherwise exceed repository cache quotas. Cargo validates fingerprints
-and rebuilds changed inputs.
+Rust caches retain compressed registry archives and Git databases; Cargo recreates
+unpacked sources and checkouts. A single backend producer fetches the locked
+workspace sources, shared by Checks and release jobs. Target directories are not
+archived, to leave room within the repository's 10 GiB cache budget. Cargo
+validates fingerprints and rebuilds changed inputs.
 The pinned sccache compiler cache reuses Rust library compilation by content;
-test executables still need linking. Cache statistics are recorded in each run.
+test executables still need linking. Main produces compiler objects; PRs read
+them. SDKs, targets and profile flags remain part of compiler identity; release
+and test objects are not interchangeable. Cache statistics and repository usage
+are recorded in each run, with a warning at 9 GiB. GitHub evicts least recently
+used entries at the repository limit; this budget cannot keep every platform and
+profile hot simultaneously. `SCCACHE_CACHE_SIZE` does not cap remote storage.
 Checks omit debug information and preserve the workspace's optimization settings,
 including the GPUI hot-path overrides. Development and release profiles are unchanged.
 Compilation and execution are separate steps; compilation timings are uploaded
@@ -199,8 +206,14 @@ Flutter run do not establish iOS or Android device acceptance.
 ## Release packages
 
 [The release workflow](.github/workflows/release.yml) runs when a `v*` tag is
-pushed. Manual dispatch of Desktop or [Host](.github/workflows/release-host.yml)
-must select a version tag and supply that same tag as its `tag` input. The tag
+pushed, and dispatches its build on `main`. Manual dispatch of Desktop or
+[Host](.github/workflows/release-host.yml) selects `main` and supplies the exact
+version tag as its `tag` input. Every job checks out that tag; the workflow
+executes on main so compatible release compiler objects can be reused across
+version tags instead of being isolated in each tag's cache scope. Cache and
+progress tooling is sparsely checked out at the workflow's fixed commit, so
+older candidate tags do not need to contain those helpers. Product packaging
+scripts still come from the candidate. The tag
 must match every application's version, such as `v0.1.0` for version `0.1.0`;
 branch pushes and pull requests do not build releases.
 Before packaging, each product requires its successful readiness gate from full
