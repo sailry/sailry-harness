@@ -13,6 +13,56 @@ const MAX_ENTRIES: usize = 1024;
 const MAX_BYTES: u64 = 128 * 1024 * 1024;
 const MAX_DEPTH: usize = 32;
 
+pub(super) fn write_embedded(target: &Dir, files: &[(&str, &[u8])]) -> Result<Tree, Fault> {
+    let mut directories = std::collections::BTreeMap::new();
+    directories.insert(String::new(), target.try_clone().map_err(io_error)?);
+    for &(path, bytes) in files {
+        let parts = crate::files::path::components(path, false)?;
+        let (name, parents) = parts.split_last().unwrap();
+        let mut prefix = String::new();
+        for (index, parent) in parents.iter().enumerate() {
+            let path = parents[..=index].join("/");
+            if !directories.contains_key(&path) {
+                let directory = super::directory(&directories[&prefix], parent)?;
+                #[cfg(unix)]
+                {
+                    use cap_std::fs::PermissionsExt;
+                    directory
+                        .set_permissions(".", cap_std::fs::Permissions::from_mode(0o700))
+                        .map_err(io_error)?;
+                }
+                directories.insert(path.clone(), directory);
+            }
+            prefix = path;
+        }
+        let directory = &directories[&prefix];
+        let mut output = directory
+            .open_with(
+                name,
+                cap_std::fs::OpenOptions::new().write(true).create_new(true),
+            )
+            .map_err(io_error)?;
+        #[cfg(unix)]
+        {
+            use cap_std::fs::PermissionsExt;
+            output
+                .set_permissions(cap_std::fs::Permissions::from_mode(0o600))
+                .map_err(io_error)?;
+        }
+        output.write_all(bytes).map_err(io_error)?;
+        output.sync_all().map_err(io_error)?;
+    }
+    #[cfg(unix)]
+    {
+        for directory in directories.values().rev() {
+            crate::files::path::sync(directory).map_err(io_error)?;
+        }
+    }
+    let mut tree = Tree::default();
+    tree.walk(target, None, "", 0)?;
+    Ok(tree)
+}
+
 #[cfg(test)]
 pub(super) fn digest(files: &[(&str, &[u8])]) -> String {
     let mut entries = std::collections::BTreeMap::new();

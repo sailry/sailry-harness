@@ -234,7 +234,6 @@ impl Host {
     /// Called only on the existing resource worker, never on the storage or UI thread.
     pub(crate) fn install(&self, worktree: &Path, path: &str, name: &str) -> Result<Info, Fault> {
         use crate::files::path::{components, descend, root};
-        use cap_fs_ext::DirExt;
         validate_name(name)?;
         let profile = self
             .profile
@@ -256,14 +255,30 @@ impl Host {
                 "plugin name does not match the selected package",
             ));
         }
-        let profile = root(profile)?;
+        self.stage(name, |staged| {
+            let mut tree = package::Tree::default();
+            tree.walk(&source, Some(staged), "", 0)?;
+            Ok(tree)
+        })
+    }
+
+    fn stage(
+        &self,
+        name: &str,
+        write: impl FnOnce(&cap_std::fs::Dir) -> Result<package::Tree, Fault>,
+    ) -> Result<Info, Fault> {
+        use cap_fs_ext::DirExt;
+        let profile = self
+            .profile
+            .as_deref()
+            .ok_or_else(|| Fault::new(ErrorCode::Unavailable, "plugin storage is unavailable"))?;
+        let profile = crate::files::path::root(profile)?;
         let packages = directory(&directory(&profile, "plugins")?, "packages")?;
         let staging = cap_tempfile::TempDir::new_in(&packages).map_err(io_error)?;
         let result = (|| {
             staging.create_dir("package").map_err(io_error)?;
             let staged = staging.open_dir_nofollow("package").map_err(io_error)?;
-            let mut tree = package::Tree::default();
-            tree.walk(&source, Some(&staged), "", 0)?;
+            let tree = write(&staged)?;
             let digest = tree.digest();
             // Parse the copied bytes, not a path that may have changed during staging.
             let bytes = package::read(&staged, "plugin.json", 64 * 1024)?.ok_or_else(|| {

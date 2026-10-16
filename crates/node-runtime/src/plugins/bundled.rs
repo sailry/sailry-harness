@@ -105,12 +105,11 @@ impl Host {
     }
 
     pub(crate) fn install_bundled(&self, name: &str) -> Result<Info, Fault> {
-        let temporary = Self::bundled_source(name)?;
-        self.install(
-            &temporary.path().canonicalize().map_err(io_error)?,
-            "",
-            name,
-        )
+        let (_, files) = PACKAGES
+            .iter()
+            .find(|(id, _)| *id == name)
+            .ok_or_else(|| Fault::new(ErrorCode::NotFound, "bundled plugin is unavailable"))?;
+        self.stage(name, |staged| package::write_embedded(staged, files))
     }
 
     pub(super) fn inspect_bundled(
