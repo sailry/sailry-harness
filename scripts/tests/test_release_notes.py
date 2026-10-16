@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+from contextlib import chdir
 from pathlib import Path
 import subprocess
 import tempfile
@@ -47,6 +48,15 @@ class ReleaseNotes(unittest.TestCase):
         self.assertIn("/releases/tag/v0.1.0-alpha.1", entry)
         self.assertIn(commit, entry)
 
+    def test_prefers_matching_changelog_entry(self):
+        self.commit("Internal implementation detail")
+        notes.git(self.root, "tag", "v0.1.0-alpha.1")
+        entry = "## [0.1.0-alpha.1](release-url)\n\n### Added\n\n- Native workspace\n"
+        changelog = "# Changelog\n\n## [Unreleased]\n\n- Future work\n\n" + entry + "\n## [0.1.0]\n\n- Stable work\n"
+        generated = notes.generate(self.root, "v0.1.0-alpha.1", REPOSITORY, "2026-10-05", changelog)
+        self.assertEqual(generated, entry)
+        self.assertEqual(notes.update(changelog, generated, "v0.1.0-alpha.1"), changelog)
+
     def test_uses_tagged_history_and_previous_release(self):
         old = self.commit("Previous release")
         notes.git(self.root, "tag", "v0.1.0")
@@ -72,6 +82,14 @@ class ReleaseNotes(unittest.TestCase):
 
 
 class ChangelogText(unittest.TestCase):
+    def test_matches_exact_version_and_rejects_empty_entry(self):
+        changelog = "## [0.1.0-alpha.10](url)\n\n- Later preview\n\n## [0.1.0](url)\n\n- Stable release\n"
+        self.assertIsNone(notes.extract(changelog, "v0.1.0-alpha.1"))
+        for changelog in ("## [0.1.0-alpha.1](url)", "## [0.1.0-alpha.1](url)\n",
+                          "## [0.1.0-alpha.1]\n\n## [0.1.0]\n\n- Other release\n"):
+            with self.subTest(changelog=changelog), self.assertRaisesRegex(ValueError, "must contain release notes"):
+                notes.extract(changelog, "v0.1.0-alpha.1")
+
     def test_prepends_entries_without_losing_history(self):
         existing = "# Changelog\n\nIntroduction\n\n## [0.1.0](url)\n\n- Earlier work\n"
         entry = "## [0.2.0](url)\n\n- New work\n"
@@ -210,6 +228,21 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertIn('--event "$RUNNER_TEMP/published-release.json"', feed)
         self.assertIn("--pattern 'Sailry-*.zip' --pattern 'Sailry-*.zip.update.json'", feed)
         self.assertNotIn("sailry-host", feed)
+
+    def test_existing_changelog_skips_remote_write(self):
+        workflow = self.workflow("changelog")
+        script = textwrap.dedent(workflow.rsplit("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            original = (ROOT / "CHANGELOG.md").read_bytes()
+            (stage / "CHANGELOG.md").write_bytes(original)
+            (stage / "changelog-original.md").write_bytes(original)
+            with chdir(stage), patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product", "RUNNER_TEMP": directory}), \
+                    patch.object(subprocess, "run") as run, patch("builtins.print"):
+                with self.assertRaises(SystemExit) as outcome:
+                    exec(script, {})
+            self.assertEqual(outcome.exception.code, 0)
+            run.assert_not_called()
 
 
 if __name__ == "__main__":

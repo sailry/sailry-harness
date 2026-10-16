@@ -288,8 +288,10 @@ systemd installer, service controls and profile-preserving update with an isolat
 home and exact package bytes. Installer fixtures replace downloads, not the
 service manager or Host process; pairing acceptance remains separate.
 
-Release notes are generated from the immutable tag's Git commits since the
-previous version tag. Publishing the draft triggers the separate
+The release title is `Sailry Harness <version>`. Release notes use the exact
+version's section in `CHANGELOG.md`; when that section is absent, they are
+generated from the immutable tag's Git commits since the previous version tag.
+Desktop publication starts the separate
 [changelog workflow](.github/workflows/changelog.yml), which prepends the same
 entry to [`CHANGELOG.md`](CHANGELOG.md) on the default branch and preserves existing
 entries. Draft creation does not update the public changelog. Changelog updates

@@ -19,10 +19,25 @@ def escape(text):
     return re.sub(r"([\\`*_\[\]<>])", r"\\\1", text)
 
 
-def generate(root, tag, repository, date):
+def extract(changelog, tag):
+    heading = re.search(rf"^## \[{re.escape(tag[1:])}\](?:\([^\n]*\))?[^\n]*(?:\n|$)", changelog, re.MULTILINE)
+    if heading is None:
+        return None
+    following = re.search(r"^## ", changelog[heading.end():], re.MULTILINE)
+    end = heading.end() + following.start() if following else len(changelog)
+    entry = changelog[heading.start():end].strip()
+    if not changelog[heading.end():end].strip():
+        raise ValueError(f"The changelog entry for {tag} must contain release notes")
+    return entry + "\n"
+
+
+def generate(root, tag, repository, date, changelog=""):
     if not TAG.fullmatch(tag):
         raise ValueError("Expected a version tag such as v0.1.0")
     revision = git(root, "rev-parse", f"refs/tags/{tag}^{{commit}}")
+    entry = extract(changelog, tag)
+    if entry is not None:
+        return entry
     parents = git(root, "rev-list", "--parents", "-n", "1", revision).split()[1:]
     previous = None
     if parents:
@@ -63,9 +78,11 @@ def main():
     parser.add_argument("--notes", type=Path, required=True)
     parser.add_argument("--changelog", type=Path, required=True)
     args = parser.parse_args()
-    entry = generate(args.root, args.tag, args.repository.rstrip("/"), datetime.now(timezone.utc).date().isoformat())
+    existing = args.changelog.read_text(encoding="utf-8")
+    entry = generate(args.root, args.tag, args.repository.rstrip("/"),
+                     datetime.now(timezone.utc).date().isoformat(), existing)
     args.notes.write_text(entry, encoding="utf-8")
-    args.changelog.write_text(update(args.changelog.read_text(encoding="utf-8"), entry, args.tag), encoding="utf-8")
+    args.changelog.write_text(update(existing, entry, args.tag), encoding="utf-8")
 
 
 if __name__ == "__main__":

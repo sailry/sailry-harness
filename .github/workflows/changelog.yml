@@ -46,8 +46,11 @@ jobs:
           repo = os.environ['GITHUB_REPOSITORY']
           branch = subprocess.check_output(['gh', 'api', f'repos/{repo}', '--jq', '.default_branch'], text=True).strip()
           current = json.loads(subprocess.check_output(['gh', 'api', f'repos/{repo}/contents/CHANGELOG.md?ref={branch}']))
-          pathlib.Path('CHANGELOG.md').write_bytes(base64.b64decode(current['content']))
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'changelog-sha').write_text(current['sha'])
+          original = base64.b64decode(current['content'])
+          pathlib.Path('CHANGELOG.md').write_bytes(original)
+          stage = pathlib.Path(os.environ['RUNNER_TEMP'])
+          (stage / 'changelog-original.md').write_bytes(original)
+          (stage / 'changelog-sha').write_text(current['sha'])
           PY
           python3 scripts/release-notes.py --tag "$RELEASE_TAG" \
             --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
@@ -56,9 +59,13 @@ jobs:
           import base64, json, os, pathlib, subprocess
           repo = os.environ['GITHUB_REPOSITORY']
           stage = pathlib.Path(os.environ['RUNNER_TEMP'])
+          content = pathlib.Path('CHANGELOG.md').read_bytes()
+          if content == (stage / 'changelog-original.md').read_bytes():
+              print('CHANGELOG.md already contains this release')
+              raise SystemExit(0)
           payload = {'message': f"docs: update changelog for {os.environ['RELEASE_TAG']}",
                      'sha': (stage / 'changelog-sha').read_text(),
-                     'content': base64.b64encode(pathlib.Path('CHANGELOG.md').read_bytes()).decode()}
+                     'content': base64.b64encode(content).decode()}
           result = subprocess.run(['gh', 'api', '--method', 'PUT', f'repos/{repo}/contents/CHANGELOG.md', '--input', '-'],
                                   input=json.dumps(payload), capture_output=True, text=True)
           if result.returncode:
