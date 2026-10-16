@@ -1,5 +1,6 @@
 """macOS packaging fixtures never use developer certificates or Apple services."""
 
+from contextlib import nullcontext
 import hashlib
 import importlib.util
 import json
@@ -57,6 +58,50 @@ class CodeSigning(unittest.TestCase):
                     self.assertNotIn("--entitlements", run.call_args_list[-1].args)
                     self.assertFalse((root / "Sailry.app").exists())
 
+    def test_registers_keychain_and_restores_search_list(self):
+        keychain = Path("/temporary/signing.keychain-db")
+        identity = "A" * 40
+        replies = ['"/login.keychain-db"\n"/system.keychain"\n', "", f'1) {identity} "Fixture"', ""]
+        with patch.object(signing, "run", side_effect=replies) as run:
+            with signing.keychain_scope(keychain, identity):
+                self.assertEqual(run.call_count, 3)
+        self.assertEqual([call.args for call in run.call_args_list], [
+            ("security", "list-keychains", "-d", "user"),
+            ("security", "list-keychains", "-d", "user", "-s", "/login.keychain-db", "/system.keychain", keychain),
+            ("security", "find-identity", "-v", "-p", "codesigning", keychain),
+            ("security", "list-keychains", "-d", "user", "-s", "/login.keychain-db", "/system.keychain"),
+        ])
+
+    def test_missing_identity_restores_before_failure(self):
+        with patch.object(signing, "run", side_effect=['"/login"', "", "0 valid identities found", ""]) as run:
+            with self.assertRaisesRegex(RuntimeError, "identity is unavailable"):
+                with signing.keychain_scope(Path("/temporary"), "A" * 40):
+                    self.fail("An unavailable identity reached signing")
+        self.assertEqual(run.call_args.args, ("security", "list-keychains", "-d", "user", "-s", "/login"))
+
+    def test_restoration_preserves_signing_failure(self):
+        replies = ['"/login"', "", '1) ' + "A" * 40 + ' "Fixture"', RuntimeError("restore failed")]
+        with patch.object(signing, "run", side_effect=replies), patch.object(signing.sys, "stderr"):
+            with self.assertRaisesRegex(RuntimeError, "signing failed"):
+                with signing.keychain_scope(Path("/temporary"), "A" * 40):
+                    raise RuntimeError("signing failed")
+
+    def test_restoration_failure_remains_an_error(self):
+        replies = ['"/login"', "", '1) ' + "A" * 40 + ' "Fixture"', RuntimeError("restore failed")]
+        with patch.object(signing, "run", side_effect=replies):
+            with self.assertRaisesRegex(RuntimeError, "restore failed"):
+                with signing.keychain_scope(Path("/temporary"), "A" * 40):
+                    pass
+
+    def test_existing_keychain_keeps_other_search_entries(self):
+        keychain = Path("/temporary")
+        with patch.object(signing, "run", side_effect=['"/login" "/temporary"', '1) ' + "A" * 40 + ' "Fixture"', ""]) as run:
+            with signing.keychain_scope(keychain, "a" * 40):
+                pass
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(run.call_args.args, ("security", "list-keychains", "-d", "user", "-s", "/login", "/temporary"))
+
+
     def test_requires_a_package(self):
         with self.assertRaisesRegex(RuntimeError, "Select"):
             signing.sign(None, None, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
@@ -112,7 +157,8 @@ class CodeSigning(unittest.TestCase):
                     child = next(file for file in receipt["files"] if file["path"] == "bin/python3.12")
                     self.assertEqual(child["sha256"], signing.python_runtime.digest(python_objects[0]))
                 return ""
-            with patch.object(signing.python_runtime, "LOCK", lock), \
+            with patch.object(signing, "keychain_scope", return_value=nullcontext()), \
+                    patch.object(signing.python_runtime, "LOCK", lock), \
                     patch.object(signing.python_runtime, "urlopen") as request, \
                     patch.object(signing, "run", side_effect=command) as run, \
                     patch.object(signing, "verify") as verify:
