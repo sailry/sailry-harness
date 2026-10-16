@@ -13,11 +13,20 @@ fn bundled_contract_matches_publisher() {
         &[STABLE_SOURCE, PREVIEW_SOURCE]
     );
 
-    for bytes in [
-        include_bytes!("../../../../../update-v1.json").as_slice(),
-        include_bytes!("../../../../../update-v1-preview.json").as_slice(),
+    for (channel, bytes) in [
+        (
+            Channel::Stable,
+            include_bytes!("../../../../../update-v1.json").as_slice(),
+        ),
+        (
+            Channel::Experience,
+            include_bytes!("../../../../../update-v1-preview.json").as_slice(),
+        ),
     ] {
-        assert!(manifest::parse(bytes, &keys).unwrap().is_empty());
+        for release in manifest::parse(bytes, &keys).unwrap() {
+            let version = semver::Version::parse(&release.version).unwrap();
+            assert!(channel.accepts(&version));
+        }
     }
 }
 
