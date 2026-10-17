@@ -342,7 +342,7 @@ fn render(
                 guides.as_ref().and_then(|paths| paths.get(&path)),
                 |row, path| {
                     row.relative()
-                        .children(guides::render(&item.id, path, skip_depth, indent, cx))
+                        .child(guides::render(&item.id, path, skip_depth, indent, cx))
                 },
             )
             .child(row::content(

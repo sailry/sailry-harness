@@ -1,4 +1,4 @@
-//! Kit Tree has no hierarchy strokes. Eventless borders retain its row interactions.
+//! Kit Tree has no hierarchy strokes. An eventless canvas retains its row interactions.
 //! Arms follow the accepted sidebar tree: start on the parent column and stop near child content.
 use super::*;
 
@@ -41,39 +41,64 @@ fn columns(path: &[bool], skip: usize) -> Vec<Column> {
         .collect()
 }
 
-pub(super) fn render(id: &str, path: &[bool], skip: usize, indent: f32, cx: &App) -> Vec<Div> {
+// Dashed borders redistribute gaps for each segment's length. A fixed path
+// pattern keeps seven periods per uniform row and ends its half-row on a dash.
+fn pattern(height: Pixels) -> Option<[Pixels; 2]> {
+    (height > px(0.)).then(|| [height / 14.; 2])
+}
+
+pub(super) fn render(id: &str, path: &[bool], skip: usize, indent: f32, cx: &App) -> Div {
+    let columns = columns(path, skip);
     let color = cx.theme().muted_foreground.opacity(0.65);
-    let mut lines = Vec::new();
-    for column in columns(path, skip) {
-        let left = px(ROW_INSET + indent * column.index as f32 + EDGE_INSET);
-        let selector = format!("resource-guide-{id}-{}-vertical", column.index);
-        lines.push(
-            div()
-                .debug_selector(move || selector.clone())
-                .absolute()
-                .left(left)
-                .top_0()
-                .h(relative(if column.half { 0.5 } else { 1. }))
-                .border_l_1()
-                .border_dashed()
-                .border_color(color),
-        );
-        if column.arm {
-            let selector = format!("resource-guide-{id}-{}-arm", column.index);
-            lines.push(
-                div()
-                    .debug_selector(move || selector.clone())
-                    .absolute()
-                    .left(left)
-                    .top(relative(0.5))
-                    .w(px(indent - EDGE_INSET * 2.))
-                    .border_t_1()
-                    .border_dashed()
-                    .border_color(color),
-            );
-        }
-    }
-    lines
+    let selector = format!("resource-guides-{id}");
+    div()
+        .debug_selector(move || selector.clone())
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .child(
+            canvas(
+                move |bounds, _, _| {
+                    let height = bounds.size.height;
+                    let Some(dashes) = pattern(height) else {
+                        return Vec::new();
+                    };
+                    let mut paths = Vec::new();
+                    for column in &columns {
+                        let left = bounds.left()
+                            + px(ROW_INSET + indent * column.index as f32 + EDGE_INSET + 0.5);
+                        let middle = bounds.top() + height / 2.;
+                        let end = if column.half { middle } else { bounds.bottom() };
+                        let mut vertical = PathBuilder::stroke(px(1.)).dash_array(&dashes);
+                        vertical.move_to(point(left, bounds.top()));
+                        vertical.line_to(point(left, end));
+                        if let Ok(path) = vertical.build() {
+                            paths.push(path);
+                        }
+                        if column.arm {
+                            // Each arm starts on the same dash as its vertical join;
+                            // short arms clip the pattern instead of stretching gaps.
+                            let mut arm = PathBuilder::stroke(px(1.)).dash_array(&dashes);
+                            arm.move_to(point(left, middle));
+                            arm.line_to(point(left + px(indent - EDGE_INSET * 2.), middle));
+                            if let Ok(path) = arm.build() {
+                                paths.push(path);
+                            }
+                        }
+                    }
+                    paths
+                },
+                move |bounds, paths, window, _| {
+                    window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                        for path in paths {
+                            window.paint_path(path, color);
+                        }
+                    });
+                },
+            )
+            .size_full(),
+        )
 }
 
 #[cfg(test)]

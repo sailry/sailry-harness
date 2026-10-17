@@ -93,3 +93,26 @@ fn skips_hidden_groups_and_flat_roots() {
     assert!(columns(&[false, false], 1).is_empty());
     assert!(columns(&[false, true], 4).is_empty());
 }
+
+#[test]
+fn uses_fixed_spacing_within_rows() {
+    assert_eq!(pattern(px(28.)), Some([px(2.), px(2.)]));
+    assert_eq!(pattern(px(56.)), Some([px(4.), px(4.)]));
+    assert_eq!(pattern(px(0.)), None);
+    for height in [px(28.), px(32.), px(35.), px(56.)] {
+        let [dash, gap] = pattern(height).unwrap();
+        assert_eq!(dash, gap);
+        assert!((f32::from(height / (dash + gap)) - 7.).abs() < 0.00001);
+    }
+}
+
+#[test]
+fn joins_half_rows_on_dash_ends() {
+    for height in [px(28.), px(32.), px(35.), px(56.)] {
+        let [dash, gap] = pattern(height).unwrap();
+        let middle = height / 2.;
+        let last_dash = (dash + gap) * 3.;
+        assert!((f32::from(middle - last_dash - dash)).abs() < 0.00001);
+        assert!((f32::from((dash + gap) * 7. - height)).abs() < 0.00001);
+    }
+}
