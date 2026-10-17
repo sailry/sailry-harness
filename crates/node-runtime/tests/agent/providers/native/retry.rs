@@ -182,10 +182,17 @@ async fn rejects_unrepresentable_server_delays() {
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();
         assert_eq!(run.status, Status::Failed);
+        let message = &run.error.as_ref().unwrap().message;
+        let (summary, details) = message.split_once("\n\n").unwrap();
         assert_eq!(
-            run.error.as_ref().unwrap().message,
+            summary,
             "Agent execution failed (model.openai_responses.unavailable); HTTP 503; unavailable"
         );
+        assert_eq!(
+            serde_json::from_str::<Value>(details).unwrap(),
+            json!({"message":"private provider failure", "type":"server_error", "status":503})
+        );
+        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         assert!(attempts(&page).is_empty());
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.controller.close().await.unwrap();
