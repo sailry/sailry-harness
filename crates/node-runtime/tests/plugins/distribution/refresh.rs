@@ -4,6 +4,13 @@ use sailry_protocol::{code, search};
 use serde_json::json;
 use std::collections::BTreeMap;
 
+async fn version(client: &Client, name: &str) -> String {
+    info(execute(client, Command::ReadPlugin { name: name.into() }).await)
+        .summary
+        .version
+        .expect("bundled semantic version expected")
+}
+
 async fn previous(
     directory: &Path,
     client: &Client,
@@ -392,8 +399,23 @@ async fn settings(client: &Client) -> (code::Settings, search::Settings) {
 async fn skips_same_and_older_bundled_versions() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
-        let code = previous(directory.path(), &client, worktree, "code", "0.1.1").await;
-        let browser = previous(directory.path(), &client, worktree, "browser", "0.2.0").await;
+        let equal = version(&client, "code").await;
+        let current = semver::Version::parse(&version(&client, "browser").await).unwrap();
+        let newer = semver::Version::new(
+            current.major,
+            current.minor,
+            current.patch.checked_add(1).unwrap(),
+        );
+        assert!(newer.cmp_precedence(&current).is_gt());
+        let code = previous(directory.path(), &client, worktree, "code", &equal).await;
+        let browser = previous(
+            directory.path(),
+            &client,
+            worktree,
+            "browser",
+            &newer.to_string(),
+        )
+        .await;
         let code = disable(&client, code).await;
         let browser = disable(&client, browser).await;
         let captures = [code.summary.reference(), browser.summary.reference()];
@@ -439,17 +461,20 @@ async fn skips_same_and_older_bundled_versions() {
             node.local()
         });
         for ((previous, asset), captured) in previous.iter().zip(assets).zip(captured) {
-            assert_eq!(
-                info(
-                    execute(
-                        &client,
-                        Command::ReadPlugin {
-                            name: previous.summary.name.clone(),
-                        }
-                    )
-                    .await
-                ),
-                *previous
+            let current = info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: previous.summary.name.clone(),
+                    },
+                )
+                .await,
+            );
+            assert!(
+                current == *previous,
+                "{:?} != {:?}",
+                current.summary,
+                previous.summary
             );
             assert_eq!(
                 info(
@@ -491,6 +516,19 @@ async fn skips_same_and_older_bundled_versions() {
 async fn retains_disabled_configuration_on_each_path() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = fixture(remote).await;
+        let expected = BTreeMap::from([
+            ("code", version(&client, "code").await),
+            ("web-search", version(&client, "web-search").await),
+        ]);
+        let old = semver::Version::parse("0.1.0").unwrap();
+        for version in expected.values() {
+            assert!(
+                semver::Version::parse(version)
+                    .unwrap()
+                    .cmp_precedence(&old)
+                    .is_gt()
+            );
+        }
         let code = previous(directory.path(), &client, worktree, "code", "0.1.0").await;
         let search = previous(directory.path(), &client, worktree, "web-search", "0.1.0").await;
         let (session, turn) = capture(&client, worktree).await;
@@ -554,7 +592,10 @@ async fn retains_disabled_configuration_on_each_path() {
                 )
                 .await,
             );
-            assert_eq!(current.summary.version.as_deref(), Some("0.1.1"));
+            assert_eq!(
+                current.summary.version.as_ref(),
+                Some(&expected[previous.summary.name.as_str()])
+            );
             assert_eq!(current.origin, Some(plugin::Origin::Bundled));
             assert_eq!(current.summary.revision, previous.summary.revision + 1);
             assert_eq!(current.summary.settings_revision, 1);
