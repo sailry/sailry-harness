@@ -101,6 +101,8 @@ for task_directory in "${task_metadata[@]}"; do
 done
 
 # Sign inside out for distribution; ad hoc bundles remain available for development.
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/sign-macos.py" \
+  "${task_package_args[@]}" --target "$task_target" --verify-dependencies
 if test "$task_signing" = developer-id; then
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/sign-macos.py" "${task_package_args[@]}" --target "$task_target"
 else

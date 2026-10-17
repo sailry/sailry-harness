@@ -116,6 +116,46 @@ class CodeSigning(unittest.TestCase):
             (root / "link").symlink_to("program")
             self.assertEqual(signing.mach_objects(root), [root / "nested/lib.so", root / "program"])
 
+    def test_accepts_system_and_bundle_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "native"
+            paths = ["/usr/lib/libSystem.B.dylib", "/System/Library/Frameworks/AppKit.framework/AppKit",
+                     "@rpath/libonnxruntime.dylib", "@loader_path/libpython3.12.dylib",
+                     "@executable_path/libonnxruntime.dylib"]
+            commands = "cmd LC_ID_DYLIB\n cmdsize 40\n name libfixture.dylib (offset 24)\n"
+            commands += "".join(f"cmd LC_LOAD_DYLIB\n cmdsize 80\n name {value} (offset 24)\n"
+                                for value in paths)
+            commands += "cmd LC_RPATH\n cmdsize 32\n path @loader_path (offset 12)\n"
+            with patch.object(signing, "mach_objects", return_value=[path]), \
+                    patch.object(signing, "run", return_value=commands) as run:
+                signing.verify_dependencies(root)
+            self.assertEqual([call.args for call in run.call_args_list],
+                             [("otool", "-l", path)])
+
+    def test_rejects_external_nested_native_dependencies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "python/lib/native.so"
+            for value in ("/opt/homebrew/opt/xz/lib/liblzma.5.dylib",
+                          "/usr/local/lib/liblzma.5.dylib", "/Users/builder/lib/native.dylib"):
+                with self.subTest(value=value), \
+                        patch.object(signing, "mach_objects", return_value=[path]), \
+                        patch.object(signing, "run", return_value=
+                                     f"cmd LC_LOAD_DYLIB\n cmdsize 80\n name {value} (offset 24)\n"):
+                    with self.assertRaisesRegex(RuntimeError, "External native dependency in python/lib/native.so"):
+                        signing.verify_dependencies(root)
+
+    def test_rejects_external_runtime_search_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "native"
+            commands = "cmd LC_RPATH\n cmdsize 64\n path /opt/homebrew/lib (offset 12)\n"
+            with patch.object(signing, "mach_objects", return_value=[path]), \
+                    patch.object(signing, "run", return_value=commands):
+                with self.assertRaisesRegex(RuntimeError, "External native dependency in native"):
+                    signing.verify_dependencies(root)
+
     def test_signs_separate_host_and_nested_native_code(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

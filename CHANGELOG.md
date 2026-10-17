@@ -3,6 +3,20 @@
 Release entries supply the corresponding GitHub Release notes. When an entry is
 missing, publication generates it from the tagged Git history.
 
+## [0.1.0-alpha.3](https://github.com/sailry/sailry-harness/releases/tag/v0.1.0-alpha.3)
+
+This alpha fixes macOS startup and improves release recovery.
+
+### Fixed
+
+- Link XZ support statically so macOS packages do not depend on a developer's Homebrew libraries
+- Retry interrupted Apple ticket validation and recover verified successful builds during publication
+
+### Downloads
+
+- Desktop: macOS 13 or later, Apple silicon and Intel
+- Host: macOS and Linux, ARM64 and x64
+
 ## [0.1.0-alpha.2](https://github.com/sailry/sailry-harness/releases/tag/v0.1.0-alpha.2)
 
 This alpha fixes Linux Host compatibility and improves test and release efficiency.

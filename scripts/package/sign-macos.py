@@ -70,6 +70,23 @@ def mach_objects(directory):
     return sorted(objects, key=lambda path: (-len(path.parts), str(path)))
 
 
+def verify_dependencies(directory):
+    def check(value, path):
+        if value.startswith(("/System/Library/", "/usr/lib/", "@loader_path/",
+                             "@executable_path/", "@rpath/")) or value in ("@loader_path", "@executable_path"):
+            return
+        raise RuntimeError(f"External native dependency in {path.relative_to(directory)}: {value}")
+
+    for path in mach_objects(directory):
+        commands = run("otool", "-l", path)
+        for match in re.finditer(
+                r"cmd LC_(?:LOAD_DYLIB|LOAD_WEAK_DYLIB|REEXPORT_DYLIB|LOAD_UPWARD_DYLIB)\s+"
+                r"cmdsize \d+\s+name (.+?) \(offset \d+\)", commands):
+            check(match.group(1), path)
+        for match in re.finditer(r"cmd LC_RPATH\s+cmdsize \d+\s+path (.+?) \(offset \d+\)", commands):
+            check(match.group(1), path)
+
+
 def verify(path, team, deep=False):
     options = ["--deep"] if deep else []
     run("codesign", "--verify", "--strict", *options, path)
@@ -119,10 +136,16 @@ def main():
     parser.add_argument("--app", type=Path)
     parser.add_argument("--host", type=Path)
     parser.add_argument("--target", required=True)
+    parser.add_argument("--verify-dependencies", action="store_true")
     parser.add_argument("--keychain", type=Path, default=os.environ.get("APPLE_SIGNING_KEYCHAIN"))
     args = parser.parse_args()
     if args.app is None and args.host is None:
         parser.error("Select --app, --host or both")
+    if args.verify_dependencies:
+        for directory in (args.app, args.host):
+            if directory is not None:
+                verify_dependencies(directory)
+        return
     identity = os.environ.get("APPLE_SIGNING_IDENTITY")
     team = os.environ.get("APPLE_TEAM_ID")
     if not identity or not team:
