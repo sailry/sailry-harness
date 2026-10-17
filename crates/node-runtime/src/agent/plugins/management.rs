@@ -372,10 +372,9 @@ impl Definition for Management {
                 for entry in entries {
                     if let Output::Plugin(info) =
                         execute(binding, Command::ReadPlugin { name: entry.name }).await?
+                        && feature(&info).is_ok()
                     {
-                        if feature(&info).is_ok() {
-                            packages.push(summary(&info));
-                        }
+                        packages.push(summary(&info));
                     }
                 }
                 Ok(json!({"plugins":packages}))
