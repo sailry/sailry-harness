@@ -219,14 +219,20 @@ older candidate tags do not need to contain those helpers. Product packaging
 scripts still come from the candidate. The tag
 must match every application's version, such as `v0.1.0` for version `0.1.0`;
 branch pushes and pull requests do not build releases.
-Before packaging, each product requires its successful readiness gate from full
-main Checks at the tag's exact commit. Desktop publishes automatically after
-both signed macOS packages pass, then starts Host packaging, update feeds and
-the changelog for the same tag. Host appends its verified macOS and Linux assets
-to that published release and can be retried independently. Mobile publication
-is not part of this workflow. Published tags and existing public assets are never
-replaced. Before reusing an unpublished candidate draft, remove unsupported
-attachments; Desktop refreshes its title and notes from the final tagged source.
+Initial Desktop publication waits for full main Checks to complete successfully
+at the tag's exact commit, then validates Desktop readiness. Other products retain
+their own readiness gates. Desktop publishes both ad-hoc macOS
+packages first, then starts [formal signing](.github/workflows/release-desktop-formal.yml),
+Host packaging and the changelog independently for that same tag. Formal signing
+reuses the native artifacts without rebuilding them; failure does not withdraw
+the initial packages. Once both formal packages are available, the catalog
+workflow attaches signed `update-v1.json` to that exact release. Desktop discovers
+eligible versions through GitHub Releases, keeping stable and preview selection
+separate; archive URLs always identify their exact tag. Host appends its verified
+macOS and Linux assets independently. Mobile publication is not part of this
+workflow. Published tags and existing public asset bytes are never replaced.
+Before reusing an unpublished candidate draft, remove unsupported attachments;
+Desktop refreshes its title and notes from the final tagged source.
 
 Configure these repository secrets through GitHub's encrypted secret storage:
 

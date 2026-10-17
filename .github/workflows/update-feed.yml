@@ -1,12 +1,10 @@
-name: Published update feeds
+name: Published update catalog
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Published version tag selected as the workflow ref'
+        description: 'Exact published tag with complete signed Desktop assets; run from main'
         type: string
         required: true
 
@@ -14,44 +12,62 @@ permissions:
   contents: write
 
 concurrency:
-  group: published-update-feeds
+  group: published-update-catalog-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    name: Verify release and advance feeds
+    name: Verify release and publish its signed catalog
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           persist-credentials: false
-          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          ref: refs/tags/${{ inputs.tag }}
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/check-release.py
+            /scripts/publish-update-feed.py
+            /scripts/package/publication.py
+            /scripts/package/versions.py
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
       - name: Verify the published tag
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+          RELEASE_TAG: ${{ inputs.tag }}
         run: |
-          python3 scripts/check-release.py --tag "$RELEASE_TAG" --published \
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/main
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --published \
             --event "$RUNNER_TEMP/published-release.json"
-      - name: Build pinned release producer
-        run: cargo build --locked --release -p sailry-release
       - name: Download published updater assets
+        id: canonical
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name }}
         run: |
-          mkdir "$RUNNER_TEMP/update-assets"
-          gh release download "$RELEASE_TAG" --repo "$GH_REPO" \
-            --dir "$RUNNER_TEMP/update-assets" \
-            --pattern 'Sailry-*.zip' --pattern 'Sailry-*.zip.update.json'
-      - name: Publish authenticated feeds
+          python3 .workflow-tools/scripts/publish-update-feed.py --download \
+            --source "$GITHUB_WORKSPACE" --assets "$RUNNER_TEMP/update-assets" \
+            --event "$RUNNER_TEMP/published-release.json" --repository "$GITHUB_REPOSITORY"
+      - name: Build pinned release producer
+        if: steps.canonical.outputs.ready == 'true'
+        run: cargo build --locked --release -p sailry-release
+      - name: Publish signed catalog to the exact release
+        if: steps.canonical.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SAILRY_UPDATE_SIGNING_KEY: ${{ secrets.SAILRY_UPDATE_SIGNING_KEY }}
         run: |
-          python3 scripts/publish-update-feed.py \
+          python3 .workflow-tools/scripts/publish-update-feed.py \
+            --source "$GITHUB_WORKSPACE" \
             --assets "$RUNNER_TEMP/update-assets" \
             --binary target/release/sailry-release \
             --event "$RUNNER_TEMP/published-release.json" \

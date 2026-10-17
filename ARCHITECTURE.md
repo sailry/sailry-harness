@@ -513,20 +513,24 @@ Desktop bundles presentation and a local Node. Host deploys the same Node as a
 headless process, using a private profile and explicit network/pairing options.
 Only one process may own that profile. Pairing is opt-in for Host; established
 peer trust survives restart. Host release archives are independent from Desktop;
-the official installer verifies versioned assets and starts systemd or launchd.
-Release admission uses each product's successful readiness gate from full main
-Checks at the tag's exact commit. Desktop publishes signed and notarized macOS
-arm64 and x64 packages first, then dispatches Host for the same tag. Host appends
-macOS and Linux arm64 and x64 archives to that published release and can retry
-independently. Published tags and existing assets are preserved; GitHub release
-immutability remains disabled so Host can append assets. Host installation is
-available once those assets appear. Mobile distribution remains manual.
-The release-only `sailry-release` tool owns Desktop archive and update-feed
-signing; it is not linked into Desktop, Host or Node. Desktop embeds the public
-publisher ring and verifies the exact v1 feed payload plus the final archive's
-filename-bound signature. Stable feeds contain final versions only; experience
-feeds contain final and prerelease versions so SemVer precedence can graduate a
-preview installation to a newer stable release.
+the official installer verifies tag-bound assets and starts systemd or launchd.
+Initial Desktop publication waits for full main Checks to complete successfully
+at the tag's exact commit, then validates Desktop readiness. Desktop first
+publishes explicitly named ad-hoc macOS arm64 and x64 packages, then starts independent formal signing and
+Host packaging for that same tag. Formal signing reuses the preserved native
+artifacts, adds signed and notarized canonical packages, and publishes the
+release's signed `update-v1.json` catalog. Apple signing failures leave the
+initial public packages available. Host appends macOS and Linux arm64 and x64
+archives independently. Published tags and existing asset bytes are preserved;
+release immutability remains disabled while these assets are appended. Host
+installation is available once its assets appear. Mobile distribution remains manual.
+The release-only `sailry-release` tool owns Desktop archive and catalog signing;
+it is not linked into Desktop, Host or Node. Desktop discovers published releases
+through GitHub's API and selects the highest compatible SemVer in its channel
+with complete formal assets and a signed catalog. Stable excludes prereleases;
+experience includes stable and prerelease versions. Desktop verifies the exact
+v1 catalog payload, version and tag-bound archive URL, then the archive's
+filename-bound signature. Ad-hoc packages are not automatic update candidates.
 Desktop's Add Host command invokes that installer through Node-owned SSH, then
 pairs through a private bootstrap ticket. It never uploads a bundled Host or
 overwrites an existing profile. Desktop still includes its own local Node.

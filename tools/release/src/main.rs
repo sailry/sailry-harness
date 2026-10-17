@@ -40,10 +40,11 @@ fn run() -> Result<()> {
                 "experience" => Channel::Experience,
                 _ => return Err("channel must be stable or experience".into()),
             };
+            let current = options.get("feed").map(PathBuf::from);
             sailry_release::merge(Merge {
                 assets: &path(&options, "assets")?,
                 channel,
-                feed: &path(&options, "feed")?,
+                feed: current.as_deref(),
                 keys: &path(&options, "keys")?,
                 output: &path(&options, "output")?,
                 repository: value(&options, "repository")?,

@@ -137,7 +137,11 @@ pub(super) fn candidate(bytes: &[u8], config: &config::Config) -> Result<Candida
         result.has_target = true;
         let version =
             semver::Version::parse(&release.version).expect("release version was validated");
-        if !config.channel.accepts(&version)
+        if config
+            .required
+            .as_ref()
+            .is_some_and(|required| required != &release.version)
+            || !config.channel.accepts(&version)
             || version.cmp_precedence(&current) != Ordering::Greater
         {
             continue;

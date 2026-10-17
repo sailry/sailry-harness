@@ -3,10 +3,8 @@ use super::{Failure, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
-pub(super) const STABLE_SOURCE: &str =
-    "https://raw.githubusercontent.com/sailry/sailry-harness/main/update-v1.json";
-pub(super) const PREVIEW_SOURCE: &str =
-    "https://raw.githubusercontent.com/sailry/sailry-harness/main/update-v1-preview.json";
+pub(super) const RELEASES: &str = "https://api.github.com/repos/sailry/sailry-harness/releases";
+pub(super) const DOWNLOADS: &str = "https://github.com/sailry/sailry-harness/releases/download";
 const PUBLIC_KEYS: &str = include_str!("../../../../release/update-public-keys.txt");
 pub(super) const MAX_MANIFEST: usize = 1024 * 1024;
 pub(super) const MAX_ARCHIVE: u64 = 2 * 1024 * 1024 * 1024;
@@ -32,18 +30,13 @@ impl Channel {
     pub(super) fn accepts(self, version: &semver::Version) -> bool {
         self == Self::Experience || version.pre.is_empty()
     }
-
-    pub(super) fn sources(self) -> &'static [&'static str] {
-        match self {
-            Self::Stable => &[STABLE_SOURCE],
-            Self::Experience => &[STABLE_SOURCE, PREVIEW_SOURCE],
-        }
-    }
 }
 
 #[derive(Clone)]
 pub(super) struct Config {
-    pub sources: Vec<String>,
+    pub source: String,
+    pub downloads: String,
+    pub required: Option<String>,
     pub channel: Channel,
     pub keys: Vec<self_update::VerifyingKey>,
     pub target: String,
@@ -53,16 +46,11 @@ pub(super) struct Config {
 
 impl Config {
     pub fn release(channel: Channel) -> Result<Self> {
-        let sources = channel
-            .sources()
-            .iter()
-            .map(|source| {
-                validate_url(source)?;
-                Ok((*source).to_owned())
-            })
-            .collect::<Result<Vec<_>>>()?;
+        validate_url(RELEASES)?;
         Ok(Self {
-            sources,
+            source: RELEASES.into(),
+            downloads: DOWNLOADS.into(),
+            required: None,
             channel,
             keys: trusted_keys()?,
             target: self_update::get_target().into(),

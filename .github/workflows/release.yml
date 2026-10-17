@@ -50,7 +50,7 @@ jobs:
     if: github.event_name != 'push'
     name: Verify Desktop readiness and tag
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 310
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
     steps:
@@ -79,7 +79,7 @@ jobs:
         run: |
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
-          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component desktop
+          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component desktop --wait-ready
       - name: Select native producers
         id: targets
         env:

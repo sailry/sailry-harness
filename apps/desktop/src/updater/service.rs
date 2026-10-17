@@ -95,7 +95,17 @@ impl Service {
     }
 
     pub fn check(&mut self, cx: &mut Context<Self>) {
-        if !matches!(self.state, State::Idle | State::Available(_)) {
+        self.check_for(None, cx);
+    }
+
+    pub(super) fn check_version(&mut self, version: String, cx: &mut Context<Self>) {
+        self.check_for(Some(version), cx);
+    }
+
+    fn check_for(&mut self, required: Option<String>, cx: &mut Context<Self>) {
+        if !matches!(self.state, State::Idle | State::Available(_))
+            && !(required.is_some() && matches!(self.state, State::Ready(_)))
+        {
             return;
         }
         let Some(services) = cx.try_global::<Services>().cloned() else {
@@ -104,15 +114,23 @@ impl Service {
         };
         self.stop = CancellationToken::new();
         self.failure = None;
+        if required.is_some() {
+            self.selection = None;
+            self.config = None;
+            self.staged = None;
+        }
         let operation = self.advance();
-        let channel = crate::preferences::update_channel(cx);
+        let channel = required
+            .as_ref()
+            .map(|version| super::Channel::initial(version))
+            .unwrap_or_else(|| crate::preferences::update_channel(cx));
         let stop = self.stop.clone();
         self.state = State::Checking;
         #[cfg(test)]
         let configured = self.fixture.clone();
         let job = services.runtime.spawn(async move {
             #[cfg(test)]
-            let config = match configured {
+            let mut config = match configured {
                 Some(mut config) => {
                     config.channel = channel;
                     config
@@ -120,7 +138,8 @@ impl Service {
                 None => Config::release(channel)?,
             };
             #[cfg(not(test))]
-            let config = Config::release(channel)?;
+            let mut config = Config::release(channel)?;
+            config.required = required;
             let selection = transfer::check(transfer::client()?, &config, &stop).await?;
             Ok((config, selection))
         });

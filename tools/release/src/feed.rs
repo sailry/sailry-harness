@@ -98,7 +98,7 @@ pub(crate) fn describe(
 }
 
 pub(crate) fn merge(
-    current: &[u8],
+    current: Option<&[u8]>,
     assets: &Path,
     channel: Channel,
     repository: &str,
@@ -115,7 +115,10 @@ pub(crate) fn merge(
     if channel == Channel::Stable && !release_version.pre.is_empty() {
         return Err(invalid("prereleases cannot enter the stable update feed").into());
     }
-    let mut releases = parse(current, repository, channel, ring)?;
+    let mut releases = current
+        .map(|bytes| parse(bytes, repository, channel, ring))
+        .transpose()?
+        .unwrap_or_default();
     let additions = entries(assets, version, repository, ring)?;
     let mut identities: BTreeMap<(Version, String), Release> = releases
         .drain(..)

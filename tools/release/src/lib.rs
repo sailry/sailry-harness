@@ -29,7 +29,7 @@ pub struct Describe<'a> {
 pub struct Merge<'a> {
     pub assets: &'a Path,
     pub channel: Channel,
-    pub feed: &'a Path,
+    pub feed: Option<&'a Path>,
     pub keys: &'a Path,
     pub output: &'a Path,
     pub repository: &'a str,
@@ -61,9 +61,9 @@ pub fn describe(options: Describe<'_>) -> Result<()> {
 pub fn merge(options: Merge<'_>) -> Result<()> {
     let ring = key::read_ring(options.keys)?;
     let signer = key::read_signer(&ring)?;
-    let current = fs::read(options.feed)?;
+    let current = options.feed.map(fs::read).transpose()?;
     let next = feed::merge(
-        &current,
+        current.as_deref(),
         options.assets,
         options.channel,
         options.repository,

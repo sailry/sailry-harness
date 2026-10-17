@@ -1,33 +1,18 @@
-use super::super::{
-    config::{self, Channel, PREVIEW_SOURCE, STABLE_SOURCE},
-    manifest,
-};
+use super::super::config::{self, Channel, DOWNLOADS, RELEASES};
 
 #[test]
 fn bundled_contract_matches_publisher() {
-    let keys = config::trusted_keys().unwrap();
-    assert!(!keys.is_empty());
-    assert_eq!(Channel::Stable.sources(), &[STABLE_SOURCE]);
+    assert!(!config::trusted_keys().unwrap().is_empty());
     assert_eq!(
-        Channel::Experience.sources(),
-        &[STABLE_SOURCE, PREVIEW_SOURCE]
+        RELEASES,
+        "https://api.github.com/repos/sailry/sailry-harness/releases"
     );
-
-    for (channel, bytes) in [
-        (
-            Channel::Stable,
-            include_bytes!("../../../../../update-v1.json").as_slice(),
-        ),
-        (
-            Channel::Experience,
-            include_bytes!("../../../../../update-v1-preview.json").as_slice(),
-        ),
-    ] {
-        for release in manifest::parse(bytes, &keys).unwrap() {
-            let version = semver::Version::parse(&release.version).unwrap();
-            assert!(channel.accepts(&version));
-        }
-    }
+    assert_eq!(
+        DOWNLOADS,
+        "https://github.com/sailry/sailry-harness/releases/download"
+    );
+    assert!(!Channel::Stable.accepts(&semver::Version::parse("0.1.0-alpha.1").unwrap()));
+    assert!(Channel::Experience.accepts(&semver::Version::parse("0.1.0").unwrap()));
 }
 
 #[test]

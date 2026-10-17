@@ -2,6 +2,7 @@
 use super::{
     Failure, Result,
     config::{self, Config, MAX_MANIFEST},
+    discovery,
     manifest::{self, Selection},
     package,
 };
@@ -31,6 +32,7 @@ pub(super) fn client() -> Result<reqwest::Client> {
     reqwest::Client::builder()
         .no_proxy()
         .referer(false)
+        .user_agent(concat!("Sailry/", env!("CARGO_PKG_VERSION")))
         .redirect(reqwest::redirect::Policy::custom(|attempt| match redirect(
             attempt.url(),
             attempt.previous(),
@@ -77,14 +79,25 @@ pub(super) async fn check(
             has_target: false,
             incompatible: false,
         };
-        for source in &config.sources {
-            let candidate = fetch(&client, source, config).await?;
+        for release in discovery::list(&client, config).await? {
+            let bytes = body(&client, &release.catalog, MAX_MANIFEST).await?;
+            release.authenticate(&bytes, config)?;
+            let candidate = manifest::candidate(&bytes, config)?;
             if let Some(selection) = candidate.selection {
                 combined.selection = manifest::prefer(combined.selection, selection);
             }
             combined.has_release |= candidate.has_release;
             combined.has_target |= candidate.has_target;
             combined.incompatible |= candidate.incompatible;
+            if combined.selection.is_some() {
+                break;
+            }
+        }
+        if config.required.is_some() && combined.selection.is_none() && !combined.incompatible {
+            return Err(Failure::new(
+                "compatibility_update_unavailable",
+                "the requested Desktop version has no compatible signed release",
+            ));
         }
         manifest::finish(combined)
     };
@@ -95,11 +108,8 @@ pub(super) async fn check(
     }
 }
 
-async fn fetch(
-    client: &reqwest::Client,
-    source: &str,
-    config: &Config,
-) -> Result<manifest::Candidate> {
+pub(super) async fn body(client: &reqwest::Client, source: &str, limit: usize) -> Result<Vec<u8>> {
+    config::validate_url(source)?;
     let mut response = client
         .get(source)
         .timeout(Duration::from_secs(45))
@@ -122,7 +132,7 @@ async fn fetch(
     }
     if response
         .content_length()
-        .is_some_and(|size| size > MAX_MANIFEST as u64)
+        .is_some_and(|size| size > limit as u64)
     {
         return Err(Failure::new(
             "updates_manifest_invalid",
@@ -136,7 +146,7 @@ async fn fetch(
             "the update metadata transfer was interrupted",
         )
     })? {
-        if bytes.len().saturating_add(chunk.len()) > MAX_MANIFEST {
+        if bytes.len().saturating_add(chunk.len()) > limit {
             return Err(Failure::new(
                 "updates_manifest_invalid",
                 "update metadata exceeds its size limit",
@@ -144,7 +154,7 @@ async fn fetch(
         }
         bytes.extend_from_slice(&chunk);
     }
-    manifest::candidate(&bytes, config)
+    Ok(bytes)
 }
 
 pub(super) async fn download(

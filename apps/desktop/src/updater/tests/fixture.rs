@@ -13,7 +13,9 @@ use std::{
 
 pub(in crate::updater) fn config() -> Config {
     Config {
-        sources: vec!["https://example.test/update-v1.json".into()],
+        source: "https://example.test/releases".into(),
+        downloads: "https://example.test/releases/download".into(),
+        required: None,
         channel: Channel::Experience,
         keys: vec![
             ed25519_dalek::SigningKey::from_bytes(&[7; 32])

@@ -12,7 +12,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("release_notes", ROOT / "scripts/release-notes.py")
@@ -326,20 +326,28 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("push:", workflow)
 
     def test_followups_verify_publication_for_both_triggers(self):
-        for name in ("changelog", "update-feed"):
-            workflow = self.workflow(name)
-            with self.subTest(name=name):
-                self.assertIn("types: [published]", workflow)
-                self.assertIn("workflow_dispatch", workflow)
-                self.assertIn("ref: ${{ inputs.tag || github.event.release.tag_name }}", workflow)
-                self.assertIn('scripts/check-release.py --tag "$RELEASE_TAG" --published', workflow)
-                self.assertNotIn("created", workflow.split("permissions:", 1)[0])
         changelog = self.workflow("changelog")
+        self.assertIn("types: [published]", changelog)
+        self.assertIn("workflow_dispatch", changelog)
+        self.assertIn("ref: ${{ inputs.tag || github.event.release.tag_name }}", changelog)
+        self.assertIn('scripts/check-release.py --tag "$RELEASE_TAG" --published', changelog)
         self.assertIn("contents/CHANGELOG.md", changelog)
         feed = self.workflow("update-feed")
+        trigger = feed.split("permissions:", 1)[0]
+        self.assertIn("workflow_dispatch", trigger)
+        self.assertNotIn("release:", trigger)
+        self.assertIn("ref: refs/tags/${{ inputs.tag }}", feed)
+        self.assertIn("ref: ${{ github.workflow_sha }}", feed)
+        self.assertIn('test "$GITHUB_REF" = refs/heads/main', feed)
+        self.assertIn('--source "$GITHUB_WORKSPACE"', feed)
         self.assertIn('--event "$RUNNER_TEMP/published-release.json"', feed)
-        self.assertIn("--pattern 'Sailry-*.zip' --pattern 'Sailry-*.zip.update.json'", feed)
+        self.assertIn("steps.canonical.outputs.ready == 'true'", feed)
+        self.assertLess(feed.index("--download"), feed.index("cargo build"))
+        self.assertIn("Publish signed catalog to the exact release", feed)
+        self.assertNotIn("--pattern", feed)
         self.assertNotIn("sailry-host", feed)
+        self.assertNotIn("git push", feed)
+        self.assertNotIn("contents/update-v1", feed)
 
     def test_existing_changelog_skips_remote_write(self):
         workflow = self.workflow("changelog")
@@ -355,6 +363,67 @@ class ReleaseWorkflows(unittest.TestCase):
                     exec(script, {})
             self.assertEqual(outcome.exception.code, 0)
             run.assert_not_called()
+
+
+class GateWaiting(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location("waiting_gate", ROOT / "scripts/check-release.py")
+        self.gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.gate)
+        self.client = Mock()
+        self.pending = {"id": 7, "head_sha": "a" * 40, "head_branch": "main", "event": "push", "status": "queued"}
+
+    def test_waits_for_queued_exact_source(self):
+        completed = iter(["in_progress", "completed"])
+        def api(method, path):
+            if path.endswith("/actions/runs/7"):
+                return {**self.pending, "status": next(completed), "conclusion": "success"}
+            return {"jobs": []} if "/jobs?" in path else {"workflow_runs": [self.pending]}
+        self.client.api.side_effect = api
+        with patch.object(self.gate.publication, "ready_run", side_effect=[None, 7, 7]) as ready, \
+                patch.object(self.gate.time, "sleep") as sleep:
+            self.assertEqual(self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop"), 7)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual(sleep.call_args.args, (60,))
+        self.assertEqual(ready.call_args.args[2:], ("a" * 40, "desktop"))
+
+    def test_rejects_terminal_failure_or_cancellation(self):
+        for conclusion in ("failure", "cancelled", "success"):
+            self.client.api.return_value = {"workflow_runs": [{**self.pending, "status": "completed", "conclusion": conclusion}]}
+            with self.subTest(conclusion=conclusion), patch.object(self.gate.publication, "ready_run", return_value=None), \
+                    patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
+                self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
+            sleep.assert_not_called()
+        self.client.api.side_effect = lambda method, path: (
+            {**self.pending, "status": "completed", "conclusion": "failure"}
+            if path.endswith("/actions/runs/7") else {"workflow_runs": [{**self.pending, "status": "completed"}]})
+        with patch.object(self.gate.publication, "ready_run", return_value=7), \
+                patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
+            self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
+        sleep.assert_not_called()
+        for name in ("Source", "Rust strict lint"):
+            self.client.api.side_effect = lambda method, path: (
+                {"jobs": [{"name": name, "status": "completed", "conclusion": "failure"}]}
+                if "/jobs?" in path else {"workflow_runs": [self.pending]})
+            with patch.object(self.gate.publication, "ready_run", return_value=None), \
+                    patch.object(self.gate.time, "sleep") as sleep, self.assertRaisesRegex(ValueError, "ended without"):
+                self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
+            sleep.assert_not_called()
+
+    def test_ignores_unrelated_source_and_times_out(self):
+        self.client.api.return_value = {"workflow_runs": [{**self.pending, "head_sha": "b" * 40, "status": "completed"}]}
+        with patch.object(self.gate.publication, "ready_run", return_value=None), \
+                patch.object(self.gate.time, "monotonic", side_effect=[0, 18000]), \
+                patch.object(self.gate.time, "sleep") as sleep, self.assertRaises(TimeoutError):
+            self.gate.wait_ready(self.client, "fixture/product", "a" * 40, "desktop")
+        sleep.assert_not_called()
+
+    def test_initial_workflow_waits_before_compilation(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        gate = workflow.split("  version:\n", 1)[1].split("  build:\n", 1)[0]
+        self.assertIn("timeout-minutes: 310", gate)
+        self.assertIn("--component desktop --wait-ready", gate)
+        self.assertNotIn("cargo build", gate)
 
 
 if __name__ == "__main__":

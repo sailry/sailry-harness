@@ -44,7 +44,6 @@ DOCS = {
     "services/pairing-relay/README.md", "tests/fixtures/README.md",
     "COMMERCIAL.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
     "docs/models.md", "docs/hosts.md", "docs/projects.md",
-    "update-v1.json", "update-v1-preview.json",
 }
 LINT_PACKAGES = {
     "shared": (

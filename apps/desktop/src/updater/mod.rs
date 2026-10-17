@@ -1,6 +1,7 @@
 //! Controller application updates never replace or shut down a remote execution Host.
 mod cached;
 mod config;
+mod discovery;
 mod install;
 mod manifest;
 mod package;
@@ -47,6 +48,13 @@ impl fmt::Display for Failure {
 }
 
 impl std::error::Error for Failure {}
+
+/// Check the official signed release matching a newer Host's product version.
+pub(crate) fn check_version(version: &str, cx: &mut gpui_kit::App) {
+    service::Service::shared(cx).update(cx, |service, cx| {
+        service.check_version(version.to_owned(), cx);
+    });
+}
 
 pub(crate) fn run_helper() -> bool {
     #[cfg(target_os = "windows")]

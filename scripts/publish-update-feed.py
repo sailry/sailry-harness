@@ -1,20 +1,27 @@
 #!/usr/bin/env python3
-"""Verify a published release and atomically advance authenticated update feeds."""
+"""Attach an authenticated exact-version update catalog to its published release."""
 
 import argparse
-import base64
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
-from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).parent / "package"))
 import versions
+import publication as release_api
 
 SIGNING_KEY = "SAILRY_UPDATE_SIGNING_KEY"
+TARGETS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
+UPDATER_ASSETS = {name for target in TARGETS for name in (
+    f"Sailry-{target}.zip", f"Sailry-{target}.zip.update.json",
+)}
+FORMAL_ASSETS = UPDATER_ASSETS | {name for target in TARGETS for name in (
+    f"Sailry-{target}.dmg", f"SHA256SUMS-desktop-{target}",
+)}
 
 
 @dataclass(frozen=True)
@@ -39,8 +46,8 @@ def publication(event, repository):
     return Publication(tag, version, preview)
 
 
-class GitHub:
-    def api(self, method, endpoint, payload=None):
+class GitHub(release_api.GitHub):
+    def api(self, method, endpoint, payload=None, missing=False):
         command = ["gh", "api", "--method", method, endpoint]
         data = None
         if payload is not None:
@@ -54,52 +61,75 @@ class GitHub:
             env=child_environment(),
         )
         if result.returncode:
-            raise RuntimeError("GitHub update-feed API request failed")
-        return json.loads(result.stdout)
+            if missing and "HTTP 404" in result.stderr:
+                return None
+            raise RuntimeError("GitHub update-catalog API request failed")
+        return json.loads(result.stdout) if result.stdout.strip() else None
+
+    def upload(self, repository, tag, path):
+        result = subprocess.run(["gh", "release", "upload", tag, str(path), "--repo", repository],
+                                capture_output=True, text=True, env=child_environment())
+        if result.returncode:
+            raise RuntimeError("The signed update catalog could not be uploaded")
 
 
-def read_feeds(client, repository, paths, stage):
-    metadata = client.api("GET", f"repos/{repository}")
-    branch = metadata["default_branch"]
-    ref_path = f"repos/{repository}/git/ref/heads/{quote(branch, safe='')}"
-    ref = client.api("GET", ref_path)
-    head = ref["object"]["sha"]
-    commit = client.api("GET", f"repos/{repository}/git/commits/{head}")
-    feeds = {}
-    for path in paths:
-        endpoint = f"repos/{repository}/contents/{quote(path, safe='/')}?ref={head}"
-        content = client.api("GET", endpoint)
-        encoded = "".join(content["content"].split())
-        data = base64.b64decode(encoded, validate=True)
-        output = stage / f"current-{Path(path).name}"
-        output.write_bytes(data)
-        feeds[path] = output
-    return branch, head, commit["tree"]["sha"], feeds
+def canonical_assets(directory):
+    paths = list(directory.iterdir())
+    if ({path.name for path in paths} != UPDATER_ASSETS
+            or any(not path.is_file() or path.is_symlink() for path in paths)):
+        raise ValueError("Update feeds require only the two canonical signed ZIPs and metadata")
 
 
-def commit_feeds(client, repository, branch, head, tree, changes, tag):
-    entries = []
-    for path, contents in sorted(changes.items()):
-        blob = client.api("POST", f"repos/{repository}/git/blobs", {
-            "content": base64.b64encode(contents).decode("ascii"),
-            "encoding": "base64",
-        })
-        entries.append({"path": path, "mode": "100644", "type": "blob", "sha": blob["sha"]})
-    if not entries:
+def verify_source(arguments, release, client):
+    commit = release_api.tagged_commit(release.tag, root=arguments.source)
+    if release_api.remote_commit(client, arguments.repository, release.tag) != commit:
+        raise ValueError("The published product tag has changed")
+    return commit
+
+
+def formal_assets(inventory, repository, tag):
+    selected = {name: [asset for asset in inventory if asset.get("name") == name]
+                for name in FORMAL_ASSETS}
+    if any(not assets for assets in selected.values()):
+        return None
+    if any(len(assets) != 1 or assets[0].get("state") != "uploaded"
+           or not isinstance(assets[0].get("size"), int) or assets[0]["size"] <= 0
+           for assets in selected.values()):
+        raise ValueError("The published formal Desktop asset set is invalid")
+    for name in FORMAL_ASSETS:
+        expected = f"https://github.com/{repository}/releases/download/{tag}/{name}"
+        if selected[name][0].get("browser_download_url") != expected:
+            raise ValueError("The signed updater asset does not belong to the exact published tag")
+    return selected
+
+
+def download(arguments, client=None):
+    client = client or GitHub()
+    event = json.loads(arguments.event.read_text())
+    release = publication(event, arguments.repository)
+    verify_source(arguments, release, client)
+    selected = formal_assets(event["release"].get("assets", []), arguments.repository, release.tag)
+    if selected is None:
+        print("Formal Desktop assets are not complete; the update catalog remains unpublished")
         return False
-    updated = client.api("POST", f"repos/{repository}/git/trees", {
-        "base_tree": tree,
-        "tree": entries,
-    })
-    commit = client.api("POST", f"repos/{repository}/git/commits", {
-        "message": f"release: publish update feeds for {tag}",
-        "tree": updated["sha"],
-        "parents": [head],
-    })
-    client.api("PATCH", f"repos/{repository}/git/refs/heads/{quote(branch, safe='')}", {
-        "sha": commit["sha"],
-        "force": False,
-    })
+    arguments.assets.mkdir(mode=0o700, parents=True, exist_ok=False)
+    command = ["gh", "release", "download", release.tag, "--repo", arguments.repository,
+               "--dir", str(arguments.assets)]
+    for name in sorted(UPDATER_ASSETS):
+        command.extend(["--pattern", name])
+    result = subprocess.run(command, capture_output=True, text=True, env=child_environment())
+    if result.returncode:
+        raise RuntimeError("The canonical signed updater assets could not be downloaded")
+    canonical_assets(arguments.assets)
+    for path in arguments.assets.iterdir():
+        asset = selected[path.name][0]
+        if path.stat().st_size != asset["size"]:
+            raise ValueError("The downloaded updater asset size differs from its release")
+        if asset.get("digest"):
+            with path.open("rb") as stream:
+                actual = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+            if actual != asset["digest"]:
+                raise ValueError("The downloaded updater asset digest differs from its release")
     return True
 
 
@@ -118,7 +148,6 @@ def merge(
     repository,
     publication,
     channel,
-    current,
     output,
     signing_key,
 ):
@@ -126,7 +155,6 @@ def merge(
         str(binary), "merge-feed",
         "--assets", str(assets),
         "--channel", channel,
-        "--feed", str(current),
         "--keys", str(keys),
         "--output", str(output),
         "--repository", repository,
@@ -140,45 +168,54 @@ def publish(arguments, signing_key, client=None):
     client = client or GitHub()
     event = json.loads(arguments.event.read_text())
     release = publication(event, arguments.repository)
-    channels = {"update-v1-preview.json": "experience"}
-    if not release.preview:
-        channels["update-v1.json"] = "stable"
+    verify_source(arguments, release, client)
+    canonical_assets(arguments.assets)
     arguments.stage.mkdir(mode=0o700, parents=True, exist_ok=False)
-    branch, head, tree, feeds = read_feeds(
-        client, arguments.repository, channels, arguments.stage
-    )
-    changes = {}
-    for path, channel in channels.items():
-        output = arguments.stage / f"next-{path}"
-        merge(
-            arguments.binary,
-            arguments.keys,
-            arguments.assets,
-            arguments.repository,
-            release,
-            channel,
-            feeds[path],
-            output,
-            signing_key,
-        )
-        contents = output.read_bytes()
-        if contents != feeds[path].read_bytes():
-            changes[path] = contents
-    changed = commit_feeds(
-        client, arguments.repository, branch, head, tree, changes, release.tag
-    )
-    print("Update feeds advanced" if changed else "Update feeds are already current")
+    output = arguments.stage / "update-v1.json"
+    merge(arguments.binary, arguments.keys, arguments.assets, arguments.repository,
+          release, "experience" if release.preview else "stable", output, signing_key)
+    commit = verify_source(arguments, release, client)
+    metadata = release_api.release(client, arguments.repository, release.tag, commit, published=True)
+    if formal_assets(metadata.get("assets", []), arguments.repository, release.tag) is None:
+        raise ValueError("The published formal Desktop assets are no longer complete")
+    if metadata.get("immutable"):
+        raise ValueError("The signed catalog requires a mutable published release")
+    catalogs = [asset for asset in metadata.get("assets", []) if asset.get("name") == output.name]
+    if len(catalogs) > 1:
+        raise ValueError("The published signed catalog is ambiguous")
+    if catalogs:
+        existing = catalogs[0]
+        with output.open("rb") as stream:
+            digest = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+        expected_url = f"https://github.com/{arguments.repository}/releases/download/{release.tag}/{output.name}"
+        if (existing.get("browser_download_url") != expected_url
+                or existing.get("state") != "uploaded" or existing.get("size") != output.stat().st_size
+                or (existing.get("digest") or client.digest(arguments.repository, existing)) != digest):
+            raise ValueError("The published signed catalog is immutable and cannot be replaced")
+        print("The exact-version signed catalog is already published")
+        return
+    client.upload(arguments.repository, release.tag, output)
+    print("The exact-version signed catalog is published")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--download", action="store_true")
+    parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--assets", type=Path, required=True)
-    parser.add_argument("--binary", type=Path, required=True)
+    parser.add_argument("--binary", type=Path)
     parser.add_argument("--event", type=Path, required=True)
-    parser.add_argument("--keys", type=Path, required=True)
+    parser.add_argument("--keys", type=Path)
     parser.add_argument("--repository", required=True)
-    parser.add_argument("--stage", type=Path, required=True)
+    parser.add_argument("--stage", type=Path)
     arguments = parser.parse_args()
+    if arguments.download:
+        ready = download(arguments)
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+            output.write(f"ready={str(ready).lower()}\n")
+        return
+    if not all((arguments.binary, arguments.keys, arguments.stage)):
+        parser.error("Feed publication requires --binary, --keys and --stage")
     signing_key = os.environ.pop(SIGNING_KEY, None)
     if not signing_key:
         raise SystemExit("The update signing secret is not configured")

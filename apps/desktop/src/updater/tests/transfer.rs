@@ -65,6 +65,17 @@ async fn responses(
     (base, requests, task)
 }
 
+async fn metadata(
+    client: &reqwest::Client,
+    source: &str,
+    config: &config::Config,
+) -> super::super::Result<super::super::manifest::Candidate> {
+    super::super::manifest::candidate(
+        &transfer::body(client, source, config::MAX_MANIFEST).await?,
+        config,
+    )
+}
+
 mod redirects {
     use super::*;
 
@@ -108,16 +119,13 @@ mod redirects {
             ])
         })
         .await;
-        let mut config = fixture::config();
-        config.sources = vec![format!("{base}/start?signature=fixture")];
-        let selection = transfer::check(
-            transfer::client().unwrap(),
-            &config,
-            &CancellationToken::new(),
-        )
-        .await
-        .unwrap()
-        .unwrap();
+        let config = fixture::config();
+        let source = format!("{base}/start?signature=fixture");
+        let selection = metadata(&transfer::client().unwrap(), &source, &config)
+            .await
+            .unwrap()
+            .selection
+            .unwrap();
         assert_eq!(selection.release.version, "9.9.9");
         serving.await.unwrap();
         let requests = requests.lock().unwrap();
@@ -150,16 +158,12 @@ mod redirects {
                 ])
             })
             .await;
-            let mut config = fixture::config();
-            config.sources = vec![format!("{base}/start")];
+            let config = fixture::config();
+            let source = format!("{base}/start");
             assert!(
-                transfer::check(
-                    transfer::client().unwrap(),
-                    &config,
-                    &CancellationToken::new(),
-                )
-                .await
-                .is_err()
+                metadata(&transfer::client().unwrap(), &source, &config)
+                    .await
+                    .is_err()
             );
             serving.abort();
             assert_eq!(requests.lock().unwrap().len(), 1);
@@ -181,16 +185,12 @@ mod redirects {
             ])
         })
         .await;
-        let mut config = fixture::config();
-        config.sources = vec![format!("{base}/start")];
+        let config = fixture::config();
+        let source = format!("{base}/start");
         assert!(
-            transfer::check(
-                transfer::client().unwrap(),
-                &config,
-                &CancellationToken::new(),
-            )
-            .await
-            .is_err()
+            metadata(&transfer::client().unwrap(), &source, &config)
+                .await
+                .is_err()
         );
         serving.await.unwrap();
         assert_eq!(requests.lock().unwrap().len(), 2);
@@ -214,16 +214,12 @@ mod redirects {
             responses
         })
         .await;
-        let mut config = fixture::config();
-        config.sources = vec![format!("{base}/0")];
+        let config = fixture::config();
+        let source = format!("{base}/0");
         assert!(
-            transfer::check(
-                transfer::client().unwrap(),
-                &config,
-                &CancellationToken::new(),
-            )
-            .await
-            .is_err()
+            metadata(&transfer::client().unwrap(), &source, &config)
+                .await
+                .is_err()
         );
         serving.abort();
         assert_eq!(requests.lock().unwrap().len(), 6);
@@ -317,59 +313,6 @@ mod redirects {
             assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 0);
         }
     }
-}
-
-#[tokio::test]
-async fn check_authenticates_injected_transport_response() {
-    let bytes = fixture::signed(&[fixture::release()]);
-    let (base, serving) = server(|_| BTreeMap::from([("/update.json".into(), bytes)])).await;
-    let mut config = fixture::config();
-    config.sources = vec![format!("{base}/update.json")];
-    let client = transfer::client().unwrap();
-    let selection = transfer::check(client, &config, &CancellationToken::new())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(selection.release.version, "9.9.9");
-    serving.await.unwrap();
-}
-
-#[tokio::test]
-async fn experience_checks_both_feeds_by_precedence() {
-    let mut stable = fixture::release();
-    stable.version = "2.0.0".into();
-    let stable_bytes = fixture::signed(&[stable]);
-    let mut preview = fixture::release();
-    preview.version = "3.0.0-alpha.1".into();
-    let preview_bytes = fixture::signed(&[preview]);
-    let expected = preview_bytes.clone();
-    let (base, requests, serving) = responses(|_| {
-        BTreeMap::from([
-            ("/stable.json".into(), Response::Body(stable_bytes)),
-            ("/preview.json".into(), Response::Body(preview_bytes)),
-        ])
-    })
-    .await;
-    let mut config = fixture::config();
-    config.sources = vec![
-        format!("{base}/stable.json"),
-        format!("{base}/preview.json"),
-    ];
-    config.channel = config::Channel::Experience;
-    let selection = transfer::check(
-        transfer::client().unwrap(),
-        &config,
-        &CancellationToken::new(),
-    )
-    .await
-    .unwrap()
-    .unwrap();
-    assert_eq!(selection.release.version, "3.0.0-alpha.1");
-    assert_eq!(selection.manifest, expected);
-    serving.await.unwrap();
-    let requests = requests.lock().unwrap();
-    assert!(requests[0].starts_with("GET /stable.json "));
-    assert!(requests[1].starts_with("GET /preview.json "));
 }
 
 #[cfg(target_os = "macos")]

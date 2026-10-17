@@ -147,7 +147,7 @@ mod channel_merge {
         signer: &SigningKey,
     ) -> Result<Vec<u8>> {
         feed::merge(
-            current,
+            Some(current),
             assets,
             channel,
             REPOSITORY,
@@ -155,6 +155,44 @@ mod channel_merge {
             &ring(signer),
             signer,
         )
+    }
+
+    #[test]
+    fn creates_exact_version_catalog_without_history() {
+        let signer = signing_key(7);
+        let directory = tempfile::tempdir().unwrap();
+        assets(directory.path(), "1.0.0-alpha.2", &signer);
+        let bytes = feed::merge(
+            None,
+            directory.path(),
+            Channel::Experience,
+            REPOSITORY,
+            "v1.0.0-alpha.2",
+            &ring(&signer),
+            &signer,
+        )
+        .unwrap();
+        let releases =
+            feed::decode(&bytes, REPOSITORY, Channel::Experience, &ring(&signer)).unwrap();
+        assert_eq!(releases.len(), 2);
+        assert!(
+            releases
+                .iter()
+                .all(|release| release.version == "1.0.0-alpha.2"
+                    && release.url.contains("/releases/download/v1.0.0-alpha.2/"))
+        );
+        assert!(
+            feed::merge(
+                Some(b"invalid previous feed"),
+                directory.path(),
+                Channel::Experience,
+                REPOSITORY,
+                "v1.0.0-alpha.2",
+                &ring(&signer),
+                &signer
+            )
+            .is_err()
+        );
     }
 
     #[test]

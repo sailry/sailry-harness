@@ -16,7 +16,7 @@ a native workspace. Features and plugin APIs may change during alpha development
 - Plugins for code, research, documents, SSH and databases, with an extensible SDK
 - Multiple model providers, compatible endpoints, and ChatGPT and Claude sign-in
 - Document previews, conversation exports, themes, and optional speech, OCR and embedding models
-- Signed macOS Desktop packages, automatic preview updates, and standalone Host packages for macOS and Linux
+- Ad-hoc macOS downloads first, followed by independent formal signing and notarization, plus Host packages for macOS and Linux
 
 ### Fixed
 
@@ -26,6 +26,7 @@ a native workspace. Features and plugin APIs may change during alpha development
 
 ### Changed
 
+- Discover signed Desktop updates from exact-version Release catalogs and require matching Desktop and Host versions, with profile-preserving Host updates
 - Reduce repeated Node and package setup in integration tests while preserving real service coverage
 - Share dependency sources and compiler caches across validation and release builds within the repository cache budget
 
