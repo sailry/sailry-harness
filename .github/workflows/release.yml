@@ -102,7 +102,7 @@ jobs:
           PYTHON
 
   build:
-    name: Desktop ${{ matrix.target }}
+    name: Build Desktop ${{ matrix.target }}
     needs: version
     strategy:
       fail-fast: false
@@ -133,6 +133,7 @@ jobs:
             /scripts/package/publication.py
             /scripts/package/versions.py
             /scripts/recover-desktop.py
+            /scripts/desktop-build.py
             /scripts/package/notarize-macos.py
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
@@ -161,25 +162,6 @@ jobs:
         with:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-key.outputs.key }}
-      - name: Verify distribution signing configuration
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
-          SAILRY_UPDATE_SIGNING_KEY: ${{ secrets.SAILRY_UPDATE_SIGNING_KEY }}
-        run: |
-          python3 - <<'PY'
-          import os
-          names = ('APPLE_CERTIFICATE_P12', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_API_PRIVATE_KEY',
-                   'APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_API_KEY_ID',
-                   'APPLE_API_ISSUER_ID', 'SAILRY_UPDATE_SIGNING_KEY')
-          if not all(os.environ.get(name) for name in names):
-              raise SystemExit('The macOS distribution signing configuration is incomplete')
-          PY
       - name: Build prerequisites
         run: |
           brew install llvm@21 ripgrep
@@ -190,6 +172,21 @@ jobs:
       - name: Build native Desktop
         run: |
           python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings -p sailry-desktop -p sailry-release
+      - name: Stage native Desktop
+        env:
+          WORKFLOW_REVISION: ${{ github.workflow_sha }}
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          python3 .workflow-tools/scripts/desktop-build.py stage --source "$GITHUB_WORKSPACE" \
+            --tag "$RELEASE_TAG" --target "$PACKAGE_TARGET" \
+            --output "$RUNNER_TEMP/native-$PACKAGE_TARGET.tar.gz"
+      - name: Preserve native Desktop
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-${{ matrix.target }}
+          path: ${{ runner.temp }}/native-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
       - name: Save speech native libraries
         if: always() && steps.speech-cache.outputs.cache-hit != 'true'
         continue-on-error: true
@@ -214,6 +211,59 @@ jobs:
           path: target/cargo-timings/*.html
           if-no-files-found: ignore
           retention-days: 14
+
+  sign:
+    name: Sign Desktop ${{ matrix.target }}
+    needs: [version, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.version.outputs.matrix || '{"include":[{"runner":"macos-15","target":"aarch64-apple-darwin","jobs":1},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","jobs":2}]}') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          submodules: recursive
+      - name: Workflow tooling
+        uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.workflow_sha }}
+          path: .workflow-tools
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/actions/rust-cache/
+            /scripts/ci.py
+            /scripts/ci-run.py
+            /scripts/check-release.py
+            /scripts/package/publication.py
+            /scripts/package/versions.py
+            /scripts/recover-desktop.py
+            /scripts/desktop-build.py
+            /scripts/package/notarize-macos.py
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
+        with:
+          python-version: '3.12'
+      - name: Verify target and release version
+        env:
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          test "$(rustc -vV | awk '/^host: / {print $2}')" = "$PACKAGE_TARGET"
+          python3 scripts/package/versions.py --tag "$RELEASE_TAG"
+      - name: Packaging prerequisites
+        run: brew install ripgrep jq
+      - name: Restore compiled Desktop
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_REVISION: ${{ github.workflow_sha }}
+          PACKAGE_TARGET: ${{ matrix.target }}
+        run: |
+          python3 .workflow-tools/scripts/desktop-build.py restore --source "$GITHUB_WORKSPACE" \
+            --tag "$RELEASE_TAG" --target "$PACKAGE_TARGET"
       - name: Recover signed ARM packages
         if: inputs.resume_intel_from != ''
         env:
@@ -322,7 +372,7 @@ jobs:
 
   publish:
     name: Publish Desktop and start follow-ups
-    needs: build
+    needs: sign
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
