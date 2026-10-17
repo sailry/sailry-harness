@@ -9,6 +9,7 @@ pub(super) async fn execute(
     session: &client::Handle<Verifier>,
     link: &LinkHandle,
     progress: &watch::Sender<InstallProgress>,
+    expected: Option<NodeId>,
 ) -> Result<Outcome, Fault> {
     progress.send_replace(InstallProgress::Detecting);
     let platform = command(session, "uname -s; uname -m").await?;
@@ -22,13 +23,46 @@ pub(super) async fn execute(
     }
     // Deployment is pinned to this application version, not a mutable latest release.
     let version = env!("SAILRY_HOST_VERSION");
+    if let Some(node) = expected {
+        let identity = command(
+            session,
+            concat!(
+                "\"$HOME/.local/lib/sailry/python/bin/python3.12\" -I - <<'SAILRY_IDENTITY'\n",
+                include_str!("install/identity.py"),
+                "\nSAILRY_IDENTITY"
+            ),
+        )
+        .await?;
+        let identity: Identity = serde_json::from_str(&identity)
+            .map_err(|_| unavailable("Managed Host identity could not be verified"))?;
+        validate_update(&identity, node, version)?;
+    }
     let script = format!(
-        "install_version='{version}'\n{}",
+        "install_version='{version}'\ninstall_update={}\n{}",
+        if expected.is_some() { "1" } else { "0" },
         include_str!("install/release.sh")
     );
     progress.send_replace(InstallProgress::Installing);
     command(session, &script).await?;
     progress.send_replace(InstallProgress::Pairing);
+    if let Some(node) = expected {
+        link.disconnect(node).await;
+        for _ in 0..90 {
+            for address in link.peers().await? {
+                if NodeId(*address.id.as_bytes()) == node
+                    && let Ok(info) = link.inspect(&address).await
+                    && info.execution
+                    && info.compatibility().is_ok()
+                {
+                    return Ok(Outcome::HostInstalled { node });
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        return Err(unknown(
+            "Host update was started but reconnection could not be confirmed",
+        ));
+    }
     for _ in 0..90 {
         if let Outcome::Completed {
             exit_code: 0,
@@ -70,5 +104,63 @@ async fn command(session: &client::Handle<Verifier>, command: &str) -> Result<St
             format!("Host installation command failed: {}", stderr.trim()),
         )),
         _ => Err(unknown("Host installation command outcome is unavailable")),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct Identity {
+    node: NodeId,
+    version: String,
+}
+
+fn validate_update(identity: &Identity, node: NodeId, target: &str) -> Result<(), Fault> {
+    if identity.node != node {
+        return Err(Fault::new(
+            ErrorCode::WrongTarget,
+            "SSH endpoint belongs to another Host",
+        ));
+    }
+    let current = identity
+        .version
+        .strip_prefix("Sailry Host ")
+        .and_then(|value| semver::Version::parse(value).ok())
+        .ok_or_else(|| unavailable("Installed Host version could not be verified"))?;
+    let target =
+        semver::Version::parse(target).map_err(|_| unavailable("Invalid target Host version"))?;
+    if current.cmp_precedence(&target).is_gt() {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "Host is newer; update the controller instead",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn confines_updates_to_existing_host() {
+        let node = NodeId([1; 32]);
+        let mut identity = Identity {
+            node,
+            version: "Sailry Host 0.1.0-alpha.1".into(),
+        };
+        assert!(validate_update(&identity, node, "0.1.0-alpha.2").is_ok());
+        assert_eq!(
+            validate_update(&identity, NodeId([2; 32]), "0.1.0-alpha.2")
+                .unwrap_err()
+                .code,
+            ErrorCode::WrongTarget
+        );
+        assert_eq!(
+            validate_update(&identity, node, "0.1.0-alpha.0")
+                .unwrap_err()
+                .code,
+            ErrorCode::Conflict
+        );
+        identity.version = "invalid".into();
+        assert!(validate_update(&identity, node, "0.1.0-alpha.2").is_err());
     }
 }

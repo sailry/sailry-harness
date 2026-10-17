@@ -345,6 +345,7 @@ impl Database {
         } else if matches!(
             request.command,
             Command::InstallHost { .. }
+                | Command::UpdateSshHost { .. }
                 | Command::ReadHostInstall { .. }
                 | Command::CheckSsh { .. }
                 | Command::OpenSshTerminal { .. }

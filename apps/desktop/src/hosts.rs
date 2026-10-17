@@ -24,6 +24,7 @@ mod view;
 use editor::{Editor, Event};
 
 struct Installer {
+    expected: Option<NodeId>,
     client: Arc<Client>,
     runtime: Arc<tokio::runtime::Runtime>,
     editor: Entity<Editor>,
@@ -40,11 +41,36 @@ struct Installer {
 impl EventEmitter<DismissEvent> for Installer {}
 
 impl Shell {
+    pub(crate) fn update_host(
+        &mut self,
+        node: NodeId,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(services) = cx.try_global::<Services>().cloned() else {
+            return;
+        };
+        let installer = cx.new(|cx| Installer::new(services, Some(node), window, cx));
+        let owner = installer.clone();
+        window.open_dialog(cx, move |dialog, window, cx| {
+            let closing = owner.clone();
+            dialog
+                .form_title(tr("host_update"), cx)
+                .w(px(560.).min(window.viewport_size().width - px(48.)))
+                .max_h(window.viewport_size().height * 0.85)
+                .overlay_closable(false)
+                .on_close(move |_, _, cx| closing.update(cx, |view, _| view.cancel()))
+                .child(div().text_sm().child(tr("host_update_restart")))
+                .child(owner.clone())
+                .footer(owner.update(cx, |view, cx| view.footer(cx)))
+        });
+    }
+
     pub(crate) fn add_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(services) = cx.try_global::<Services>().cloned() else {
             return;
         };
-        let installer = cx.new(|cx| Installer::new(services, window, cx));
+        let installer = cx.new(|cx| Installer::new(services, None, window, cx));
         let owner = installer.clone();
         window.open_dialog(cx, move |dialog, window, cx| {
             let closing = owner.clone();
@@ -60,7 +86,12 @@ impl Shell {
     }
 }
 impl Installer {
-    fn new(services: Services, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(
+        services: Services,
+        expected: Option<NodeId>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         crate::feedback::observe_with(
             window,
             cx,
@@ -78,13 +109,19 @@ impl Installer {
                     .collect()
             },
             |view, key, _| {
-                crate::feedback::diagnostic(view.error.as_ref().unwrap().message.clone().into())
-                    .title(tr(key))
+                crate::feedback::diagnostic(crate::feedback::fault_message(
+                    view.error.as_ref().unwrap(),
+                ))
+                .title(tr(key))
             },
         );
         let editor = cx.new(|cx| {
             let mut editor = Editor::new(None, window, cx);
-            editor.action = "host_install";
+            editor.action = if expected.is_some() {
+                "host_update"
+            } else {
+                "host_install"
+            };
             editor
         });
         cx.subscribe_in(
@@ -106,6 +143,7 @@ impl Installer {
         )
         .detach();
         Self {
+            expected,
             client: Arc::new(Client::new(services.local)),
             runtime: services.runtime,
             editor,
@@ -120,6 +158,20 @@ impl Installer {
             polling: None,
         }
     }
+    fn deployment(&self, profile: &Profile) -> Command {
+        match self.expected {
+            Some(node) => Command::UpdateSshHost {
+                profile: profile.id,
+                expected_revision: profile.revision,
+                node,
+            },
+            None => Command::InstallHost {
+                profile: profile.id,
+                expected_revision: profile.revision,
+            },
+        }
+    }
+
     fn execute(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
         if self.request.is_some() {
             return;
@@ -130,7 +182,10 @@ impl Installer {
             cx.notify();
         });
         let request = self.client.prepare(command);
-        let install = matches!(request.command, Command::InstallHost { .. });
+        let install = matches!(
+            request.command,
+            Command::InstallHost { .. } | Command::UpdateSshHost { .. }
+        );
         self.request = Some(request.clone());
         let client = self.client.clone();
         let job = self
@@ -168,10 +223,7 @@ impl Installer {
                     editor.saved(profile.clone());
                 });
                 let command = if trusted {
-                    Command::InstallHost {
-                        profile: profile.id,
-                        expected_revision: profile.revision,
-                    }
+                    self.deployment(&profile)
                 } else {
                     Command::CheckSsh {
                         profile: profile.id,
@@ -190,21 +242,29 @@ impl Installer {
                 self.form = false;
                 self.progress = InstallProgress::Connecting;
                 let profile = self.profile.as_ref().unwrap();
-                self.execute(
-                    Command::InstallHost {
-                        profile: profile.id,
-                        expected_revision: profile.revision,
-                    },
-                    window,
-                    cx,
-                );
+                self.execute(self.deployment(profile), window, cx);
             }
-            Ok(Output::SshOutcome(Outcome::HostInstalled { .. })) => {
+            Ok(Output::SshOutcome(Outcome::HostInstalled { node })) => {
+                if self.expected.is_some_and(|expected| expected != node) {
+                    self.failed(
+                        Fault::new(
+                            ErrorCode::WrongTarget,
+                            "Updated Host identity does not match",
+                        ),
+                        cx,
+                    );
+                    return;
+                }
+                let key = if self.expected.is_some() {
+                    "host_updated"
+                } else {
+                    "host_added"
+                };
                 crate::feedback::status(
                     window,
-                    tr("host_added"),
+                    tr(key),
                     NotificationType::Success,
-                    Notification::success(tr("host_added")),
+                    Notification::success(tr(key)),
                     cx,
                 );
                 cx.emit(DismissEvent);
@@ -263,7 +323,9 @@ impl Installer {
         if let Some(request) = self.request.take()
             && matches!(
                 request.command,
-                Command::InstallHost { .. } | Command::CheckSsh { .. }
+                Command::InstallHost { .. }
+                    | Command::UpdateSshHost { .. }
+                    | Command::CheckSsh { .. }
             )
         {
             let client = self.client.clone();

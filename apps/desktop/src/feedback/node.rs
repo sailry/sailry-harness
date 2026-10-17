@@ -80,7 +80,7 @@ pub(crate) fn observe<T: 'static>(
                 toast(
                     window,
                     title.clone(),
-                    diagnostic(error.to_string().into())
+                    diagnostic(super::fault_message(&error))
                         .title(title)
                         .id1::<Owners>(key(node, &error)),
                     cx,

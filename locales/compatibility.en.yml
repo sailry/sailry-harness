@@ -1,0 +1,7 @@
+host_version_older: "Host is older; update Host"
+host_version_newer: "Host is newer; update Desktop"
+host_version_unknown: "Cannot verify Host version; update Host"
+controller_version_unknown: "Cannot verify Desktop version; update Desktop"
+compatibility_update_unavailable: "This version is not available for automatic update yet"
+host_updated: "Host updated"
+host_update_restart: "This Host will restart; running tasks will stop"

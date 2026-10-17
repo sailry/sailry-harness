@@ -73,12 +73,14 @@ pub(super) fn observe(services: &Services, cx: &mut Context<Shell>) -> Task<()> 
                                     .map(|byte| format!("{byte:02x}"))
                                     .collect();
                                 let mut device = cached.get(&key).cloned();
+                                let mut version = None;
                                 if let Ok(Ok(info)) = tokio::time::timeout(
                                     std::time::Duration::from_secs(3),
                                     handle.inspect(&address),
                                 )
                                 .await
                                 {
+                                    version = Some(info.software_version);
                                     let known = device.get_or_insert(crate::preferences::Device {
                                         name: None,
                                         execution: info.execution,
@@ -90,7 +92,7 @@ pub(super) fn observe(services: &Services, cx: &mut Context<Shell>) -> Task<()> 
                                         known.name = info.name;
                                     }
                                 }
-                                (address, key, device)
+                                (address, key, device, version)
                             }
                         })
                         .buffer_unordered(4)
@@ -99,15 +101,10 @@ pub(super) fn observe(services: &Services, cx: &mut Context<Shell>) -> Task<()> 
                     Ok::<_, sailry_protocol::Fault>(entries)
                 })
                 .await;
-            let retry = addresses.as_ref().is_ok_and(|result| {
-                result
-                    .as_ref()
-                    .is_ok_and(|entries| entries.iter().any(|(_, _, device)| device.is_none()))
-            });
             if let Ok(Ok(entries)) = &addresses {
                 known = entries
                     .iter()
-                    .filter_map(|(_, key, device)| {
+                    .filter_map(|(_, key, device, _)| {
                         device.clone().map(|device| (key.clone(), device))
                     })
                     .collect();
@@ -119,7 +116,7 @@ pub(super) fn observe(services: &Services, cx: &mut Context<Shell>) -> Task<()> 
                     };
                     if let Ok(Ok(addresses)) = addresses {
                         let mut devices = crate::preferences::data(cx).devices.unwrap_or_default();
-                        for (_, key, device) in &addresses {
+                        for (_, key, device, _) in &addresses {
                             if let Some(device) = device {
                                 devices
                                     .entry(key.clone())
@@ -138,9 +135,15 @@ pub(super) fn observe(services: &Services, cx: &mut Context<Shell>) -> Task<()> 
                         if crate::preferences::data(cx).devices.as_ref() != Some(&devices) {
                             crate::preferences::update(cx, |data| data.devices = Some(devices));
                         }
+                        for (address, _, _, version) in &addresses {
+                            if let Some(version) = version {
+                                live.host_versions
+                                    .insert(NodeId(*address.id.as_bytes()), version.clone());
+                            }
+                        }
                         live.hosts = addresses
                             .into_iter()
-                            .filter_map(|(address, _, device)| {
+                            .filter_map(|(address, _, device, _)| {
                                 device
                                     .filter(|device| device.execution)
                                     .map(|_| (NodeId(*address.id.as_bytes()), address))
@@ -157,12 +160,6 @@ pub(super) fn observe(services: &Services, cx: &mut Context<Shell>) -> Task<()> 
                 .is_err()
             {
                 return;
-            }
-            if !retry {
-                if changed.changed().await.is_err() {
-                    return;
-                }
-                continue;
             }
             let changed = changed.changed();
             let timer = cx

@@ -275,6 +275,11 @@ pub(super) fn prepare(
             profile,
             expected_revision,
         } => (*profile, *expected_revision, Task::Install),
+        Command::UpdateSshHost {
+            profile,
+            expected_revision,
+            node,
+        } => (*profile, *expected_revision, Task::Update(*node)),
         Command::CheckSsh {
             profile,
             expected_revision,

@@ -106,6 +106,24 @@ pub(crate) fn diagnostic(message: SharedString) -> Notification {
         })
 }
 
+pub(crate) fn fault_message(error: &sailry_protocol::Fault) -> SharedString {
+    if let Some(sailry_protocol::FaultDetails::VersionMismatch {
+        update_host,
+        unverified,
+        ..
+    }) = &error.details
+    {
+        tr(match (*update_host, *unverified) {
+            (true, false) => "host_version_older",
+            (false, false) => "host_version_newer",
+            (true, true) => "host_version_unknown",
+            (false, true) => "controller_version_unknown",
+        })
+    } else {
+        error.message.clone().into()
+    }
+}
+
 /// Observe asynchronous form and panel errors; ordinary redraws do not repeat toasts.
 /// Error state remains with its owner for retry and revision guards.
 pub(crate) fn observe<T: 'static>(

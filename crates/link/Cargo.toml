@@ -22,6 +22,7 @@ zeroize.workspace = true
 tempfile.workspace = true
 libc.workspace = true
 tracing.workspace = true
+semver.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

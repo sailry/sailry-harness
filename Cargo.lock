@@ -14239,6 +14239,7 @@ dependencies = [
  "reqwest 0.13.4",
  "rustls",
  "sailry-protocol",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",

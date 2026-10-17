@@ -81,6 +81,7 @@ struct Core {
 struct CachedConnection {
     address: EndpointAddr,
     connection: Connection,
+    software_version: Option<String>,
 }
 
 pub struct Link {
@@ -92,7 +93,17 @@ pub struct PeerInfo {
     pub execution: bool,
     pub name: Option<String>,
     pub platform: String,
+    pub software_version: Option<String>,
     pub latency: Duration,
+}
+
+impl PeerInfo {
+    pub fn compatibility(&self) -> Result<(), Fault> {
+        crate::compatibility::check(
+            Some(crate::PRODUCT_VERSION),
+            self.software_version.as_deref(),
+        )
+    }
 }
 
 #[derive(Clone)]
@@ -203,35 +214,8 @@ impl LinkHandle {
 
     /// Probe an authenticated peer without attempting a business command on a controller.
     pub async fn inspect(&self, address: &EndpointAddr) -> Result<PeerInfo, Fault> {
-        let connection = self.core.connection(address).await?;
-        let started = std::time::Instant::now();
-        let (mut send, mut recv) = self
-            .core
-            .wait(connection.open_bi())
-            .await?
-            .map_err(frame::network)?;
-        self.core
-            .wait(frame::write(&mut send, &frame::Call::Inspect))
-            .await??;
-        send.finish().map_err(frame::network)?;
-        match self
-            .core
-            .wait(frame::read::<frame::Reply>(&mut recv))
-            .await??
-        {
-            frame::Reply::Endpoint {
-                execution,
-                name,
-                platform,
-            } => Ok(PeerInfo {
-                execution,
-                name,
-                platform,
-                latency: started.elapsed(),
-            }),
-            frame::Reply::Rejected(error) => Err(error),
-            _ => Err(frame::invalid("endpoint inspection expected")),
-        }
+        let connection = self.core.connection(address, false).await?;
+        self.core.inspect_connection(&connection).await
     }
 
     /// Mobile lifecycle adapters notify the existing endpoint, not another runtime.
@@ -319,6 +303,43 @@ impl LinkHandle {
 }
 
 impl Core {
+    async fn call(
+        &self,
+        send: &mut iroh::endpoint::SendStream,
+        call: frame::Call,
+    ) -> Result<Result<(), Fault>, Fault> {
+        self.wait(frame::write(
+            send,
+            &frame::Envelope {
+                software_version: self.handler.product_version().map(str::to_owned),
+                call,
+            },
+        ))
+        .await
+    }
+
+    async fn inspect_connection(&self, connection: &Connection) -> Result<PeerInfo, Fault> {
+        let started = std::time::Instant::now();
+        let (mut send, mut recv) = self.wait(connection.open_bi()).await?.map_err(network)?;
+        self.call(&mut send, frame::Call::Inspect).await??;
+        send.finish().map_err(network)?;
+        match self.wait(frame::read::<frame::Reply>(&mut recv)).await?? {
+            frame::Reply::Endpoint {
+                software_version,
+                execution,
+                name,
+                platform,
+            } => Ok(PeerInfo {
+                software_version,
+                execution,
+                name,
+                platform,
+                latency: started.elapsed(),
+            }),
+            frame::Reply::Rejected(error) => Err(error),
+            _ => Err(frame::invalid("endpoint inspection expected")),
+        }
+    }
     fn trusted(&self, peer: NodeId) -> bool {
         self.trusted.read().is_ok_and(|peers| peers.contains(&peer))
     }
@@ -332,7 +353,11 @@ impl Core {
             .map_err(|_| Fault::new(ErrorCode::Busy, "Link task capacity exhausted"))
     }
 
-    async fn connection(&self, target: &EndpointAddr) -> Result<Connection, Fault> {
+    async fn connection(
+        &self,
+        target: &EndpointAddr,
+        execution: bool,
+    ) -> Result<Connection, Fault> {
         if self.stop.is_cancelled() {
             return Err(network("closed"));
         }
@@ -348,6 +373,12 @@ impl Core {
         outgoing.retain(|_, cached| cached.connection.close_reason().is_none());
         if let Some(cached) = outgoing.get(&id) {
             if cached.address == *target {
+                if execution {
+                    crate::compatibility::check(
+                        self.handler.product_version(),
+                        cached.software_version.as_deref(),
+                    )?;
+                }
                 return Ok(cached.connection.clone());
             }
             cached
@@ -369,11 +400,19 @@ impl Core {
             connection.close(1u32.into(), b"peer revoked");
             return Err(Fault::new(ErrorCode::PermissionDenied, "peer was revoked"));
         }
+        let info = self.inspect_connection(&connection).await?;
+        if execution {
+            crate::compatibility::check(
+                self.handler.product_version(),
+                info.software_version.as_deref(),
+            )?;
+        }
         outgoing.insert(
             id,
             CachedConnection {
                 address: target.clone(),
                 connection: connection.clone(),
+                software_version: info.software_version,
             },
         );
         Ok(connection)

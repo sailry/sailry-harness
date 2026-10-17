@@ -1413,6 +1413,10 @@ impl Drop for Store {
 }
 
 impl Handler for Ingress {
+    fn product_version(&self) -> Option<&str> {
+        Some(env!("SAILRY_HOST_VERSION"))
+    }
+
     fn open(
         &self,
         caller: NodeId,

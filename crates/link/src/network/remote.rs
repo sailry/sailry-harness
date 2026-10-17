@@ -24,14 +24,14 @@ impl Transport for Remote {
         resource: sailry_protocol::StreamId,
     ) -> Pending<'_, Result<crate::Stream, Fault>> {
         Box::pin(async move {
-            let connection = self.core.connection(&self.address).await?;
+            let connection = self.core.connection(&self.address, true).await?;
             let (mut send, mut recv) = self
                 .core
                 .wait(connection.open_bi())
                 .await?
                 .map_err(network)?;
             self.core
-                .wait(frame::write(&mut send, &Call::OpenStream(resource)))
+                .call(&mut send, Call::OpenStream(resource))
                 .await??;
             match self.core.wait(frame::read::<Reply>(&mut recv)).await?? {
                 Reply::StreamOpened => {
@@ -55,7 +55,7 @@ impl Transport for Remote {
                 return Err(error);
             }
             let id = request.id;
-            let connection = match self.core.connection(&self.address).await {
+            let connection = match self.core.connection(&self.address, true).await {
                 Ok(connection) => connection,
                 Err(error) => {
                     log.failed(
@@ -92,7 +92,7 @@ impl Transport for Remote {
             };
             match self
                 .core
-                .wait(frame::write(&mut send, &Call::Command(Box::new(request))))
+                .call(&mut send, Call::Command(Box::new(request)))
                 .await
             {
                 Ok(Ok(())) => {}
@@ -263,13 +263,13 @@ impl Transport for Remote {
                 sailry_protocol::Topic::Terminal(terminal) => Call::WatchTerminal(terminal),
                 sailry_protocol::Topic::Conversation(session) => Call::WatchConversation(session),
             };
-            let connection = self.core.connection(&self.address).await?;
+            let connection = self.core.connection(&self.address, true).await?;
             let (mut send, recv) = self
                 .core
                 .wait(connection.open_bi())
                 .await?
                 .map_err(network)?;
-            self.core.wait(frame::write(&mut send, &call)).await??;
+            self.core.call(&mut send, call).await??;
             send.finish().map_err(network)?;
             Ok(Box::new(Events {
                 connection,

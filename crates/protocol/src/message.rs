@@ -39,6 +39,12 @@ pub struct Fault {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FaultDetails {
+    VersionMismatch {
+        controller: Option<String>,
+        host: Option<String>,
+        update_host: bool,
+        unverified: bool,
+    },
     ProjectRemoval {
         tasks_active: bool,
         terminals_may_be_closed: bool,
@@ -305,6 +311,11 @@ pub enum Command {
     InstallHost {
         profile: crate::SshId,
         expected_revision: u64,
+    },
+    UpdateSshHost {
+        profile: crate::SshId,
+        expected_revision: u64,
+        node: NodeId,
     },
     ReadHostInstall {
         request: RequestId,

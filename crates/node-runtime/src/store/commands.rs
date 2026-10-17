@@ -660,6 +660,7 @@ pub(super) fn execute(
         | Command::WriteCommand { .. }
         | Command::StopCommands { .. }
         | Command::InstallHost { .. }
+        | Command::UpdateSshHost { .. }
         | Command::ReadHostInstall { .. }
         | Command::CheckSsh { .. }
         | Command::OpenSshTerminal { .. }

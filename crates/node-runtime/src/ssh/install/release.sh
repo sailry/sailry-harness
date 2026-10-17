@@ -18,4 +18,8 @@ else
   install_actual="$(shasum -a 256 "$install_stage/install-host.sh")"
 fi
 if test "${install_actual%% *}" != "$install_expected"; then echo 'Installer checksum does not match' >&2; exit 1; fi
-bash "$install_stage/install-host.sh" --version "$install_version"
+if test "${install_update:-0}" = 1; then
+  bash "$install_stage/install-host.sh" --update --version "$install_version"
+else
+  bash "$install_stage/install-host.sh" --version "$install_version"
+fi

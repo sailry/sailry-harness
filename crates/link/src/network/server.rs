@@ -49,7 +49,7 @@ async fn request(
     auxiliary: Arc<tokio::sync::Semaphore>,
     subscriptions: Arc<tokio::sync::Semaphore>,
 ) -> Result<(), Fault> {
-    let call: Call = core.wait(frame::read(&mut recv)).await??;
+    let call: frame::Envelope = core.wait(frame::read(&mut recv)).await??;
     if !core.trusted(peer) {
         core.wait(frame::write(
             &mut send,
@@ -61,12 +61,23 @@ async fn request(
         .await??;
         return send.finish().map_err(network);
     }
-    match call {
+    if !matches!(call.call, Call::Inspect)
+        && let Err(error) = crate::compatibility::check(
+            call.software_version.as_deref(),
+            core.handler.product_version(),
+        )
+    {
+        core.wait(frame::write(&mut send, &Reply::Rejected(error)))
+            .await??;
+        return send.finish().map_err(network);
+    }
+    match call.call {
         Call::Inspect => {
             let name = core.name.read().map_err(network)?.clone();
             core.wait(frame::write(
                 &mut send,
                 &Reply::Endpoint {
+                    software_version: core.handler.product_version().map(str::to_owned),
                     execution: core.handler.execution_available(),
                     name,
                     platform: std::env::consts::OS.to_owned(),

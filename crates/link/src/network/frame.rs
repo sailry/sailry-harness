@@ -8,6 +8,14 @@ use crate::Response;
 mod snapshots;
 
 #[derive(Serialize, Deserialize)]
+pub(super) struct Envelope {
+    #[serde(default)]
+    pub software_version: Option<String>,
+    #[serde(flatten)]
+    pub call: Call,
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub(super) enum Call {
     Inspect,
@@ -33,6 +41,8 @@ pub(super) enum Call {
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub(super) enum Reply {
     Endpoint {
+        #[serde(default)]
+        software_version: Option<String>,
         execution: bool,
         name: Option<String>,
         platform: String,
@@ -160,6 +170,32 @@ pub(super) fn invalid(_: impl std::fmt::Display) -> Fault {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagnoses_missing_software_version() {
+        let envelope: Envelope =
+            serde_json::from_value(serde_json::json!({"kind":"inspect"})).unwrap();
+        assert!(envelope.software_version.is_none());
+        assert!(matches!(envelope.call, Call::Inspect));
+        let wire = serde_json::to_value(Envelope {
+            software_version: Some(crate::PRODUCT_VERSION.into()),
+            call: Call::Inspect,
+        })
+        .unwrap();
+        assert_eq!(wire["kind"], "inspect");
+        assert_eq!(wire["software_version"], crate::PRODUCT_VERSION);
+        let reply: Reply = serde_json::from_value(serde_json::json!({"kind":"endpoint", "data":{
+            "execution":true,"name":null,"platform":"linux"
+        }}))
+        .unwrap();
+        assert!(matches!(
+            reply,
+            Reply::Endpoint {
+                software_version: None,
+                ..
+            }
+        ));
+    }
 
     #[test]
     fn retains_completion_wire_shape() {

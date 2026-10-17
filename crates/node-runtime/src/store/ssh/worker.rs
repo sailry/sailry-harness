@@ -105,7 +105,10 @@ impl Worker {
                 (stop.clone(), execution.request.plugin.clone()),
             );
         }
-        let deployment = if matches!(execution.request.command, Command::InstallHost { .. }) {
+        let deployment = if matches!(
+            execution.request.command,
+            Command::InstallHost { .. } | Command::UpdateSshHost { .. }
+        ) {
             let Some(link) = self.link.clone() else {
                 self.active
                     .remove(&(execution.caller, execution.request.id));

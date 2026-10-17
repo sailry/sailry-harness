@@ -1,0 +1,7 @@
+host_version_older: "Host é mais antigo; atualize o Host"
+host_version_newer: "Host é mais recente; atualize o Desktop"
+host_version_unknown: "Não foi possível verificar a versão do Host; atualize o Host"
+controller_version_unknown: "Não foi possível verificar a versão do Desktop; atualize o Desktop"
+compatibility_update_unavailable: "Esta versão ainda não está disponível para atualização automática"
+host_updated: "Host atualizado"
+host_update_restart: "O Host será reiniciado; as tarefas em execução serão interrompidas"

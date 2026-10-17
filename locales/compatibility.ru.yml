@@ -1,0 +1,7 @@
+host_version_older: "Host устарел; обновите Host"
+host_version_newer: "Host новее; обновите Desktop"
+host_version_unknown: "Не удалось проверить версию Host; обновите Host"
+controller_version_unknown: "Не удалось проверить версию Desktop; обновите Desktop"
+compatibility_update_unavailable: "Эта версия пока недоступна для автоматического обновления"
+host_updated: "Host обновлён"
+host_update_restart: "Host перезапустится; выполняемые задачи остановятся"

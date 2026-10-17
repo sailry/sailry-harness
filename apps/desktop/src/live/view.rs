@@ -66,6 +66,19 @@ impl Shell {
                     )
                     .map(|node| {
                         let name = live.name(node);
+                        let mismatch = live
+                            .host_versions
+                            .get(&node)
+                            .and_then(|version| sailry_link::check_host(version.as_deref()).err());
+                        let update_host = mismatch.as_ref().is_some_and(|error| {
+                            matches!(
+                                error.details,
+                                Some(sailry_protocol::FaultDetails::VersionMismatch {
+                                    update_host: true,
+                                    ..
+                                })
+                            )
+                        });
                         self.sidebar_row(
                             SharedString::from(format!("live-host-{}", node_key(node))),
                             Row::LiveHost(node),
@@ -89,7 +102,32 @@ impl Shell {
                             h_flex()
                                 .gap_2()
                                 .child(Icon::new(IconName::Cpu))
-                                .child(div().flex_1().min_w_0().truncate().child(name)),
+                                .child(div().flex_1().min_w_0().truncate().child(name))
+                                .when(
+                                    live.host_versions.get(&node).is_some_and(|version| {
+                                        sailry_link::check_host(version.as_deref()).is_err()
+                                    }),
+                                    |row| {
+                                        row.child(
+                                            Button::new(SharedString::from(format!(
+                                                "host-update-{}",
+                                                node_key(node)
+                                            )))
+                                            .icon(IconName::ArrowUp)
+                                            .ghost()
+                                            .xsmall()
+                                            .tooltip(tr(if update_host {
+                                                "host_update"
+                                            } else {
+                                                "updates_check"
+                                            }))
+                                            .on_click(cx.listener(move |shell, _, window, cx| {
+                                                cx.stop_propagation();
+                                                shell.update_live_host(node, window, cx);
+                                            })),
+                                        )
+                                    },
+                                ),
                         )
                         .on_click(cx.listener(
                             move |shell, _, window, cx| shell.select_live_host(node, window, cx),
@@ -97,6 +135,38 @@ impl Shell {
                     }),
             )
             .into_any_element()
+    }
+
+    fn update_live_host(&mut self, node: NodeId, window: &mut Window, cx: &mut Context<Self>) {
+        use crate::theme::DialogStyle as _;
+        let Some(version) = self
+            .live
+            .as_ref()
+            .and_then(|live| live.host_versions.get(&node))
+        else {
+            return;
+        };
+        let Err(error) = sailry_link::check_host(version.as_deref()) else {
+            return;
+        };
+        if matches!(
+            error.details,
+            Some(sailry_protocol::FaultDetails::VersionMismatch {
+                update_host: true,
+                ..
+            })
+        ) {
+            self.update_host(node, window, cx);
+        } else if let Some(version) = version.clone() {
+            let panel = cx.new(|cx| crate::updater::Panel::new(window, cx));
+            window.open_dialog(cx, move |dialog, _, cx| {
+                dialog
+                    .form_title(tr("updates"), cx)
+                    .w(px(560.))
+                    .child(panel.clone())
+            });
+            crate::updater::check_version(&version, cx);
+        }
     }
 
     pub(crate) fn live_project_rows(&self, cx: &mut Context<Self>) -> AnyElement {

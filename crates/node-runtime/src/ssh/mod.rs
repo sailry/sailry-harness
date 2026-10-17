@@ -32,6 +32,7 @@ pub(crate) enum Task {
     Files(files::Operation),
     Check,
     Install,
+    Update(sailry_protocol::NodeId),
     Terminal(sailry_protocol::ssh::TerminalLaunch),
     Run {
         command: String,
@@ -196,13 +197,18 @@ pub(crate) async fn execute(
             }
         }
         Task::Check => Ok(Outcome::Connected),
-        Task::Install => {
+        task @ (Task::Install | Task::Update(_)) => {
+            let expected = if let Task::Update(node) = task {
+                Some(node)
+            } else {
+                None
+            };
             let (link, progress) =
                 deployment.ok_or_else(|| unavailable("Node Link is unavailable"))?;
             tokio::select! {
                 _ = stop.cancelled() => Err(unknown("Host installation cancelled; inspect the host before retrying")),
                 _ = closed.cancelled() => Err(unknown("Host installation interrupted; inspect the host before retrying")),
-                result = tokio::time::timeout(Duration::from_secs(600), install::execute(&session, &link, &progress)) => result.unwrap_or_else(|_| Err(unknown("Host installation timed out; inspect the host before retrying"))),
+                result = tokio::time::timeout(Duration::from_secs(600), install::execute(&session, &link, &progress, expected)) => result.unwrap_or_else(|_| Err(unknown("Host installation timed out; inspect the host before retrying"))),
             }
         }
         Task::Transfer {

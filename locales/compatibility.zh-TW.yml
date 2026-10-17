@@ -1,0 +1,7 @@
+host_version_older: "Host 版本較舊，請更新 Host"
+host_version_newer: "Host 版本較新，請更新桌面端"
+host_version_unknown: "無法確認 Host 版本，請更新 Host"
+controller_version_unknown: "無法確認桌面端版本，請更新桌面端"
+compatibility_update_unavailable: "此版本暫不可自動更新"
+host_updated: "Host 已更新"
+host_update_restart: "此 Host 將重新啟動，執行中的任務將停止"

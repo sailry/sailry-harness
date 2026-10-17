@@ -1,3 +1,4 @@
+mod compatibility;
 mod controller;
 mod identity;
 mod network;
@@ -9,6 +10,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use sailry_protocol::{Fault, NodeId, Output, Receipt, Request, Topic, Update};
 use tokio::sync::oneshot;
 
+pub use compatibility::{PRODUCT_VERSION, check_host};
 pub use identity::Identity;
 pub use iroh::EndpointAddr;
 pub use network::{
@@ -31,6 +33,9 @@ pub trait Subscription: Send {
 
 /// Injected at the runtime boundary; Link never owns the business request ledger.
 pub trait Handler: Send + Sync {
+    fn product_version(&self) -> Option<&str> {
+        Some(PRODUCT_VERSION)
+    }
     /// Whether this authenticated endpoint owns a Node execution service.
     fn execution_available(&self) -> bool {
         true
@@ -90,15 +95,24 @@ impl Local {
 
 impl Transport for Local {
     fn open(&self, resource: sailry_protocol::StreamId) -> Pending<'_, Result<Stream, Fault>> {
-        self.handler.open(self.caller, resource)
+        Box::pin(async move {
+            compatibility::check(Some(PRODUCT_VERSION), self.handler.product_version())?;
+            self.handler.open(self.caller, resource).await
+        })
     }
     fn target(&self) -> NodeId {
         self.target
     }
     fn dispatch(&self, request: Request) -> Pending<'_, Result<Admission, Fault>> {
-        self.handler.dispatch(self.caller, request)
+        Box::pin(async move {
+            compatibility::check(Some(PRODUCT_VERSION), self.handler.product_version())?;
+            self.handler.dispatch(self.caller, request).await
+        })
     }
     fn subscribe(&self, topic: Topic) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
-        self.handler.subscribe(self.caller, topic)
+        Box::pin(async move {
+            compatibility::check(Some(PRODUCT_VERSION), self.handler.product_version())?;
+            self.handler.subscribe(self.caller, topic).await
+        })
     }
 }

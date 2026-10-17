@@ -20,6 +20,7 @@ mod worktree_selection;
 
 pub(crate) struct State {
     pub hosts: BTreeMap<NodeId, EndpointAddr>,
+    pub host_versions: BTreeMap<NodeId, Option<String>>,
     pub selected: NodeId,
     pub project: Option<ProjectId>,
     pub(crate) unassigned_worktree: Option<WorktreeId>,
@@ -87,19 +88,9 @@ impl Shell {
                     .collect()
             },
             |shell, key, _| {
-                crate::feedback::diagnostic(
-                    shell
-                        .live
-                        .as_ref()
-                        .unwrap()
-                        .view
-                        .error
-                        .as_ref()
-                        .unwrap()
-                        .message
-                        .clone()
-                        .into(),
-                )
+                crate::feedback::diagnostic(crate::feedback::fault_message(
+                    shell.live.as_ref().unwrap().view.error.as_ref().unwrap(),
+                ))
                 .title(tr(key))
             },
         );
@@ -123,6 +114,7 @@ impl State {
         let peers = devices::observe(&services, cx);
         let mut live = Self {
             hosts: BTreeMap::from([(local, services.link.address())]),
+            host_versions: BTreeMap::new(),
             selected: local,
             project: None,
             unassigned_worktree: None,

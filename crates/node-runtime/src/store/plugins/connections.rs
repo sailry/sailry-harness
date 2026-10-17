@@ -53,7 +53,8 @@ pub(super) fn action(
         }
         Command::RemoveSsh { profile, .. }
         | Command::TrustSsh { profile, .. }
-        | Command::InstallHost { profile, .. } => {
+        | Command::InstallHost { profile, .. }
+        | Command::UpdateSshHost { profile, .. } => {
             management = true;
             target = Some(Resource::Ssh(*profile));
             Action::ManageSsh
