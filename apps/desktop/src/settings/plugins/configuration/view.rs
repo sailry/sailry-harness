@@ -69,24 +69,31 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                                         }),
                                 )
                             })
-                            .when(!state.panel, |row| {
-                                row.child(
-                                    Button::new("plugin-settings-reload")
-                                        .debug_selector(|| "plugin-settings-reload".into())
-                                        .label(tr("plugins_settings_reload"))
-                                        .disabled(
-                                            state.pending
-                                                || state.github_busy()
-                                                || state.loading
-                                                || state.request.is_some(),
-                                        )
-                                        .on_click(move |_, window, cx| {
-                                            reload.update(cx, |editor, cx| {
-                                                editor.load(true, window, cx)
-                                            })
-                                        }),
-                                )
-                            })
+                            .when(
+                                !state.panel
+                                    && !state.loading
+                                    && state.request.is_none()
+                                    && (state.info.is_none()
+                                        || state.error == Some("plugins_settings_conflict")),
+                                |row| {
+                                    row.child(
+                                        Button::new("plugin-settings-reload")
+                                            .debug_selector(|| "plugin-settings-reload".into())
+                                            .label(tr("plugins_settings_reload"))
+                                            .disabled(
+                                                state.pending
+                                                    || state.github_busy()
+                                                    || state.loading
+                                                    || state.request.is_some(),
+                                            )
+                                            .on_click(move |_, window, cx| {
+                                                reload.update(cx, |editor, cx| {
+                                                    editor.load(true, window, cx)
+                                                })
+                                            }),
+                                    )
+                                },
+                            )
                             .child(
                                 Button::new("plugin-settings-cancel")
                                     .debug_selector(|| "plugin-settings-cancel".into())
@@ -146,18 +153,26 @@ impl Render for Editor {
                     h_flex()
                         .justify_end()
                         .gap_2()
-                        .child(
-                            Button::new("plugin-settings-reload")
-                                .label(tr("plugins_settings_reload"))
-                                .disabled(
-                                    self.pending
-                                        || self.github_busy()
-                                        || self.loading
-                                        || self.request.is_some(),
+                        .when(
+                            !self.loading
+                                && self.request.is_none()
+                                && (self.info.is_none()
+                                    || self.error == Some("plugins_settings_conflict")),
+                            |row| {
+                                row.child(
+                                    Button::new("plugin-settings-reload")
+                                        .label(tr("plugins_settings_reload"))
+                                        .disabled(
+                                            self.pending
+                                                || self.github_busy()
+                                                || self.loading
+                                                || self.request.is_some(),
+                                        )
+                                        .on_click(cx.listener(|editor, _, window, cx| {
+                                            editor.load(true, window, cx)
+                                        })),
                                 )
-                                .on_click(cx.listener(|editor, _, window, cx| {
-                                    editor.load(true, window, cx)
-                                })),
+                            },
                         )
                         .child(
                             Button::new("plugin-settings-save")
