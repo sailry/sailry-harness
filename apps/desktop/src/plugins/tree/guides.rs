@@ -49,7 +49,7 @@ fn pattern(height: Pixels) -> Option<[Pixels; 2]> {
 
 pub(super) fn render(id: &str, path: &[bool], skip: usize, indent: f32, cx: &App) -> Div {
     let columns = columns(path, skip);
-    let color = cx.theme().muted_foreground.opacity(0.65);
+    let color = cx.theme().border;
     let selector = format!("resource-guides-{id}");
     div()
         .debug_selector(move || selector.clone())
