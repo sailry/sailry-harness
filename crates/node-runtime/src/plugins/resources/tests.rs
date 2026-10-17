@@ -116,9 +116,61 @@ async fn reads_complete_text() {
             "{path}"
         );
     }
-    for key in ["analysis", "other:analysis", "example:missing"] {
-        assert!(resources.read(key, "SKILL.md").await.is_err(), "{key}");
+    for key in [
+        "analysis",
+        ":analysis",
+        "example:",
+        "example:analysis:extra",
+        "other:analysis",
+        "example:missing",
+    ] {
+        assert_eq!(
+            resources.read(key, "SKILL.md").await.err().unwrap().code,
+            ErrorCode::InvalidRequest,
+            "{key}"
+        );
     }
+    assert_eq!(
+        resources
+            .read("example:analysis", "references/missing")
+            .await
+            .err()
+            .unwrap()
+            .code,
+        ErrorCode::NotConfigured,
+    );
+}
+
+#[tokio::test]
+async fn requires_canonical_catalog_key() {
+    let (_directory, resources, _) = fixture();
+    let error = resources.read("analysis", "SKILL.md").await.err().unwrap();
+    assert_eq!(error.code, ErrorCode::InvalidRequest);
+    assert_eq!(
+        error.message,
+        "skill must use a package:skill key from this turn's catalog"
+    );
+    let text = resources
+        .read("example:analysis", "SKILL.md")
+        .await
+        .unwrap();
+    assert!(text.content.ends_with("Literal {not_state} 中文 🙂\n"));
+    assert!(Path::new(&text.directory).is_dir());
+}
+
+#[tokio::test]
+async fn rejects_missing_captured_directory() {
+    let (_directory, resources, installed) = fixture();
+    fs::remove_dir_all(&installed).unwrap();
+    assert_eq!(
+        resources
+            .read("example:analysis", "SKILL.md")
+            .await
+            .err()
+            .unwrap()
+            .code,
+        ErrorCode::NotFound,
+    );
 }
 
 #[tokio::test]

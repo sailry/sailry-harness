@@ -49,16 +49,22 @@ pub(crate) struct Text {
 }
 
 pub(crate) fn skill<'a>(packages: &'a [Info], key: &str) -> Result<(&'a Info, &'a Skill), Fault> {
-    let (plugin, name) = key.split_once(':').ok_or_else(unavailable)?;
+    let (plugin, name) = key
+        .split_once(':')
+        .filter(|(plugin, name)| !plugin.is_empty() && !name.is_empty() && !name.contains(':'))
+        .ok_or_else(|| {
+            Fault::invalid("skill must use a package:skill key from this turn's catalog")
+        })?;
+    let unknown = || Fault::invalid("skill is not listed in this turn's catalog");
     let package = packages
         .iter()
         .find(|package| package.summary.name == plugin)
-        .ok_or_else(unavailable)?;
+        .ok_or_else(unknown)?;
     let skill = package
         .skills
         .iter()
         .find(|skill| skill.name == name)
-        .ok_or_else(unavailable)?;
+        .ok_or_else(unknown)?;
     Ok((package, skill))
 }
 

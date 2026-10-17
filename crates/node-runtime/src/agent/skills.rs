@@ -133,10 +133,21 @@ impl Tool for Skills {
         self.resource
     }
     fn parameters_schema(&self) -> Option<Value> {
+        let keys: Vec<_> = self
+            .resources
+            .skills()
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        let skill = json!({
+            "type": "string",
+            "description": "Exact package:skill key from this turn's available skill catalog",
+            "enum": keys
+        });
         Some(if self.resource {
-            json!({"type": "object", "additionalProperties": false, "required": ["skill", "path"], "properties": {"skill": {"type": "string"}, "path": {"type": "string"}}})
+            json!({"type": "object", "additionalProperties": false, "required": ["skill", "path"], "properties": {"skill": skill, "path": {"type": "string"}}})
         } else {
-            json!({"type": "object", "additionalProperties": false, "required": ["skill"], "properties": {"skill": {"type": "string"}}})
+            json!({"type": "object", "additionalProperties": false, "required": ["skill"], "properties": {"skill": skill}})
         })
     }
     async fn execute(

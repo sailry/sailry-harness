@@ -214,6 +214,7 @@ async fn loads_complete_resources() {
                 json!({"skill": "example:analysis", "path": "../analysis/SKILL.md"}),
             ),
             ("load_skill".into(), json!({"skill": "missing:analysis"})),
+            ("load_skill".into(), json!({"skill": "analysis"})),
         ];
         let server = Server::tools(calls.clone()).await;
         let (directory, node, controller, client, session) = fixture(remote, &server).await;
@@ -256,11 +257,12 @@ async fn loads_complete_resources() {
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         super::super::evaluation::trajectory(&page, &calls);
         let output = results(&page);
-        assert_eq!(output.len(), 4);
+        assert_eq!(output.len(), 5);
         assert_eq!(output[0]["content"], body);
         assert_eq!(output[1]["content"], "Guide 1.0.0 中文 🙂");
         assert!(output[2].get("error").is_some());
-        assert!(output[3].get("error").is_some());
+        assert_eq!(output[3]["error"]["code"], "invalid_request");
+        assert_eq!(output[4]["error"]["code"], "invalid_request");
         let captured: Vec<_> = page
             .entries
             .iter()
@@ -299,7 +301,19 @@ async fn loads_complete_resources() {
         }
         assert!(page.approvals.is_empty());
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 5);
+        assert_eq!(requests.len(), calls.len() + 1);
+        for name in ["load_skill", "read_skill_resource"] {
+            let tool = requests[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| tool["function"]["name"] == name)
+                .unwrap();
+            assert_eq!(
+                tool["function"]["parameters"]["properties"]["skill"]["enum"],
+                json!(["example:analysis"])
+            );
+        }
         let initial = requests[0]["messages"].to_string();
         assert!(initial.contains("example:analysis"));
         assert!(!initial.contains("Complete end"));
@@ -326,7 +340,7 @@ async fn loads_complete_resources() {
             client.execute(request).await.unwrap(),
             Output::QueuedTurn(turn)
         );
-        assert_eq!(server.requests.lock().unwrap().len(), 5);
+        assert_eq!(server.requests.lock().unwrap().len(), calls.len() + 1);
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

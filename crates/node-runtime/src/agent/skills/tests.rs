@@ -71,6 +71,11 @@ async fn binds_captured_resources_without_plugin_identity() {
         == sailry_protocol::tool::Presentation::Summary
         && entry.grouping == sailry_protocol::tool::Grouping::Sequence));
     for entry in &tools {
+        let schema = entry.tool.parameters_schema().unwrap();
+        assert_eq!(
+            schema["properties"]["skill"]["enum"],
+            json!(["example:analysis"])
+        );
         let (name, display) = entry.display.as_ref().unwrap();
         assert_eq!(name, entry.tool.name());
         assert!(display.valid());
