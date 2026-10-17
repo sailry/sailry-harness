@@ -466,8 +466,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get messageRewind => 'ここでリワード';
 
   @override
-  String get messageRewindConfirm =>
-      'このターンを残して後のメッセージを削除しますか？ファイルは変更されません';
+  String get messageRewindConfirm => 'このターンを残して後のメッセージを削除しますか？ファイルは変更されません';
 
   @override
   String get messageBackup => 'チャットのバックアップを表示';
