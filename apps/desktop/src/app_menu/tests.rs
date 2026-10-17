@@ -42,18 +42,20 @@ fn localizes_every_entry() {
 fn registers_help_actions() {
     let menus = menus("en", &[]);
     let help = &menus[5];
-    assert_eq!(help.items.len(), 3);
-    for (item, expected) in help.items.iter().zip([
+    let expected = [
         Website.boxed_clone(),
         Feedback.boxed_clone(),
+        crate::input_diagnostics::CopyInputDiagnostics.boxed_clone(),
         Logs.boxed_clone(),
-    ]) {
+    ];
+    assert_eq!(help.items.len(), expected.len());
+    for (item, expected) in help.items.iter().zip(expected) {
         let MenuItem::Action { action, .. } = item else {
             panic!("help action expected")
         };
         assert_eq!(action.as_any().type_id(), expected.as_any().type_id());
     }
-    let MenuItem::Action { disabled, .. } = &help.items[2] else {
+    let MenuItem::Action { disabled, .. } = &help.items[3] else {
         panic!("logs action expected")
     };
     assert_eq!(
