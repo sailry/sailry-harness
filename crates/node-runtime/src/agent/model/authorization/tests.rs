@@ -1,6 +1,169 @@
 use super::*;
+use adk_core::{ErrorCategory, ErrorComponent};
+use futures::StreamExt;
 
 mod live;
+
+struct Failure {
+    message: String,
+    opening: bool,
+}
+
+impl Failure {
+    fn error(&self) -> AdkError {
+        let mut error = AdkError::new(
+            ErrorComponent::Model,
+            ErrorCategory::InvalidInput,
+            "model.openai_responses.invalid_request",
+            "OpenAI Responses API request failed",
+        )
+        .with_upstream_status(400)
+        .with_source(adk_model::openai::ProviderErrorDetails {
+            message: Some(self.message.clone()),
+            code: Some(self.message.clone()),
+            kind: Some(self.message.clone()),
+            param: Some(self.message.clone()),
+            request_id: Some(self.message.clone()),
+            status: Some(400),
+        });
+        error
+            .details
+            .metadata
+            .insert("provider_error_code".into(), json!(self.message));
+        error
+    }
+}
+
+#[async_trait]
+impl Llm for Failure {
+    fn name(&self) -> &str {
+        "authorization-error-fixture"
+    }
+
+    async fn generate_content(
+        &self,
+        _: LlmRequest,
+        _: bool,
+    ) -> adk_core::Result<LlmResponseStream> {
+        let error = self.error();
+        if self.opening {
+            Err(error)
+        } else {
+            Ok(Box::pin(futures::stream::once(async move { Err(error) })))
+        }
+    }
+}
+
+#[tokio::test]
+async fn captures_private_grant_fields_for_redaction() {
+    use sailry_protocol::Secret;
+    let mut headers = HeaderMap::new();
+    let mut authorization = HeaderValue::from_static("Bearer fixture-header");
+    authorization.set_sensitive(true);
+    headers.insert("authorization", authorization);
+    headers.insert(
+        "chatgpt-account-id",
+        HeaderValue::from_static("fixture-account"),
+    );
+    headers.insert("user-agent", HeaderValue::from_static("Public client"));
+    for (kind, private) in [
+        ("chat_gpt", vec!["fixture-refresh", "fixture-identity"]),
+        (
+            "chat_gpt_oauth",
+            vec!["fixture-refresh", "fixture-identity"],
+        ),
+        ("claude_oauth", vec!["fixture-refresh"]),
+        ("copilot", vec!["fixture-github"]),
+    ] {
+        let grant: Grant = serde_json::from_value(json!({
+            "kind":kind, "access":"fixture-access", "refresh":"fixture-refresh",
+            "id_token":"fixture-identity", "github":"fixture-github", "expires_at_ms":1,
+            "earliest_refresh_at":null, "client_id":"fixture", "subject":"fixture",
+            "account_id":"fixture-account", "email":null, "scopes":[],
+            "renewal_pending":false, "endpoint":"https://example.invalid"
+        }))
+        .unwrap();
+        let secrets = credentials(&grant, &headers);
+        let actual: std::collections::BTreeSet<_> = secrets
+            .iter()
+            .map(Secret::expose)
+            .map(str::to_owned)
+            .collect();
+        let expected: std::collections::BTreeSet<_> = private
+            .into_iter()
+            .chain(["fixture-access", "Bearer fixture-header", "fixture-account"])
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(actual, expected);
+        for opening in [false, true] {
+            let model = super::super::errors::wrap(
+                Arc::new(Failure {
+                    message: format!(
+                        "Provider error: {}",
+                        actual.iter().cloned().collect::<Vec<_>>().join(" | ")
+                    ),
+                    opening,
+                }),
+                secrets.clone(),
+            );
+            let response = model
+                .generate_content(LlmRequest::new(model.name(), vec![]), true)
+                .await;
+            let error = if opening {
+                response.err().unwrap()
+            } else {
+                response.ok().unwrap().next().await.unwrap().err().unwrap()
+            };
+            let debug = format!("{error:?}");
+            let problem = error.to_problem_json().to_string();
+            let mut entry = crate::logging::Entry::new(
+                crate::logging::Area::Model,
+                crate::logging::Phase::Failed,
+            );
+            super::super::diagnostics::cause(&mut entry, &error);
+            assert_eq!(
+                entry.cause_code,
+                Some("model.openai_responses.invalid_request")
+            );
+            assert_eq!(entry.cause_component, Some("model"));
+            assert_eq!(entry.cause_category, Some("invalid_input"));
+            assert_eq!(entry.upstream_status, Some(400));
+            assert_eq!(entry.parse_layer, None);
+            assert_eq!(entry.parse_category, None);
+            assert_eq!(entry.parse_cause, None);
+            assert_eq!(entry.parse_field, None);
+            assert_eq!(entry.parse_event, None);
+            assert_eq!(entry.parse_line, None);
+            assert_eq!(entry.parse_column, None);
+            let fault = super::super::error(error);
+            let projected = serde_json::to_string(&fault).unwrap();
+            for private in &actual {
+                assert!(!debug.contains(private));
+                assert!(!problem.contains(private));
+                assert!(!projected.contains(private));
+                assert!(!fault.message.contains(private));
+            }
+            let (_, details) = fault.message.split_once("\n\n").unwrap();
+            let details: Value = serde_json::from_str(details).unwrap();
+            for field in ["message", "code", "type", "param", "request_id"] {
+                assert!(
+                    details[field]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("Provider error: ")
+                );
+                assert_eq!(
+                    details[field]
+                        .as_str()
+                        .unwrap()
+                        .matches("[redacted]")
+                        .count(),
+                    actual.len()
+                );
+            }
+        }
+    }
+}
 
 #[test]
 fn uses_stateless_streaming() {

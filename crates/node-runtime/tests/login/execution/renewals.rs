@@ -357,7 +357,12 @@ async fn confines_generation_credentials() {
         else if matches!(request.path.as_str(), "/responses" | "/chat/completions") {
             if redirect { Reply::Raw(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {target}/stolen\r\nContent-Length: 0\r\n\r\n")) }
             else {
-                let body = json!({"error":{"message":ROTATED,"type":"rate_limit_error","code":"rate_limit_exceeded","param":null}});
+                let echoed = if authentication == Authentication::ChatGpt {
+                    ROTATED.to_owned()
+                } else {
+                    request.headers.get("authorization").unwrap().clone()
+                };
+                let body = json!({"error":{"message":echoed,"type":"rate_limit_error","code":"rate_limit_exceeded","param":null}});
                 Reply::Raw(format!("HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nRetry-After: 0\r\nConnection: close\r\n\r\n{body}"))
             }
         } else { standard(request) }
@@ -397,6 +402,12 @@ async fn confines_generation_credentials() {
                     crate::retry_fixture::budget(),
                 )
                 .await;
+                if !redirect && api == ModelApi::Responses {
+                    let error = page.runs.last().unwrap().error.as_ref().unwrap();
+                    let (_, details) = error.message.split_once("\n\n").unwrap();
+                    let details: serde_json::Value = serde_json::from_str(details).unwrap();
+                    assert_eq!(details["message"], "[redacted]");
+                }
                 let retries: Vec<_> = page
                     .entries
                     .iter()

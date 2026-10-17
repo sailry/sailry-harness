@@ -57,13 +57,7 @@ impl Llm for Model {
         let mut provider = self.provider.clone();
         provider.endpoint = grant.endpoint().to_owned();
         let base = grant.headers(&options).map_err(failure)?;
-        let secrets: Vec<_> = base
-            .iter()
-            .filter(|(name, value)| value.is_sensitive() || name.as_str() == "chatgpt-account-id")
-            .filter_map(|(_, value)| value.to_str().ok())
-            .map(|value| sailry_protocol::Secret::new(value.to_owned()))
-            .chain(std::iter::once(grant.access().clone()))
-            .collect();
+        let secrets = credentials(&grant, &base);
         let (access, adapter, stream) = match grant {
             Grant::ChatGpt { access, .. } => {
                 let adapter: RequestAdapter = Arc::new(move |body, headers| {
@@ -129,6 +123,31 @@ impl Llm for Model {
             None => responses,
         })
     }
+}
+
+fn credentials(grant: &Grant, headers: &HeaderMap) -> Vec<sailry_protocol::Secret> {
+    let mut values: Vec<_> = headers
+        .iter()
+        .filter(|(name, value)| value.is_sensitive() || name.as_str() == "chatgpt-account-id")
+        .filter_map(|(_, value)| value.to_str().ok())
+        .map(|value| sailry_protocol::Secret::new(value.to_owned()))
+        .collect();
+    values.push(grant.access().clone());
+    // A generation error can echo any private field of its freshly resolved grant,
+    // including a rotated refresh token that was not sent as an HTTP header.
+    match grant {
+        Grant::ChatGpt {
+            refresh, id_token, ..
+        }
+        | Grant::ChatGptOAuth {
+            refresh, id_token, ..
+        } => {
+            values.extend([refresh.clone(), id_token.clone()]);
+        }
+        Grant::ClaudeOAuth { refresh, .. } => values.push(refresh.clone()),
+        Grant::Copilot { github, .. } => values.push(github.clone()),
+    }
+    values
 }
 
 fn chatgpt(body: &mut Value) -> Result<(), AdkError> {
