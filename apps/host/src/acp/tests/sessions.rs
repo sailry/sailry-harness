@@ -352,8 +352,8 @@ async fn leaves_plan_questions_in_node_history() {
             )
             .await;
         assert_eq!(
-            blocked["error"]["data"]["sailry"]["state"],
-            "awaiting_input"
+            blocked["error"]["data"]["sailry"]["state"], "awaiting_input",
+            "{blocked}"
         );
         let page = fixture.page().await;
         assert_eq!(page.questions.len(), 1);

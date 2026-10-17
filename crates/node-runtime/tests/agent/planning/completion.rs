@@ -57,8 +57,44 @@ async fn completes_before_choice_and_recovers() {
                     .unwrap();
             }
             configure(&mut fixture, WorkMode::Plan).await;
-            let plan = submit(&fixture).await;
             let session = fixture.session.id;
+            let mut updates = fixture
+                .client
+                .subscribe_conversation(session)
+                .await
+                .unwrap();
+            let mut projection =
+                sailry_client::conversation::Projection::new(fixture.client.target(), session, 0);
+            projection.apply(0, updates.next().await.unwrap()).unwrap();
+            let plan = submit(&fixture).await;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let update = updates.next().await.unwrap();
+                    let completed = matches!(&update, Update::ConversationFrame(frame)
+                        if matches!(&frame.change, Change::Run(run)
+                            if run.turn == plan.id && run.status == Status::Completed));
+                    projection.apply(0, update).unwrap();
+                    if completed {
+                        let page = &projection.snapshot().unwrap().page;
+                        let review = page
+                            .questions
+                            .iter()
+                            .find(|question| {
+                                question.turn == plan.id && question.state == State::Pending
+                            })
+                            .expect("terminal planning run must include its pending review");
+                        assert!(page.entries.iter().any(|entry| {
+                            entry.id == review.entry
+                                && entry.turn == plan.id
+                                && entry.author == "plan_review"
+                        }));
+                        break;
+                    }
+                }
+            })
+            .await
+            .expect("planning completion deadline");
+            drop(updates);
             let (page, question) = questions::pending(&fixture.client, session).await;
             assert_eq!(page.runs[0].status, Status::Completed);
             assert_eq!(page.questions.len(), 1);

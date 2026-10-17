@@ -520,11 +520,13 @@ pub(super) fn finish_with(
     let _ = events.send(envelope);
     database.approvals.retain(|_, (owner, _)| *owner != turn);
     database.questions.retain(|_, (owner, _)| *owner != turn);
-    // The question is pending consent, never a Running or Waiting execution.
-    super::feed::run(database, run.clone());
+    // Publish completion consent before the terminal run so observers cannot
+    // conclude the turn without its pending review from the same transaction.
     for (session, change) in review_changes {
         database.feeds.publish(database.node, session, change);
     }
+    // The question is pending consent, never a Running or Waiting execution.
+    super::feed::run(database, run.clone());
     for question in questions {
         database
             .feeds
