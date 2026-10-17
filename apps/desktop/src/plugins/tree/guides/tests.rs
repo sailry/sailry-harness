@@ -102,7 +102,7 @@ fn uses_fixed_spacing_within_rows() {
     for height in [px(28.), px(32.), px(35.), px(56.)] {
         let [dash, gap] = pattern(height).unwrap();
         assert_eq!(dash, gap);
-        assert!((f32::from(height / (dash + gap)) - 7.).abs() < 0.00001);
+        assert!((height / (dash + gap) - 7.).abs() < 0.00001);
     }
 }
 
