@@ -136,15 +136,24 @@ async fn session_api(client: &Client, endpoint: &str, root: &Path, api: ModelApi
 #[tokio::test]
 async fn observes_shared_lifecycles_without_payloads() {
     let directory = tempfile::tempdir().unwrap();
-    let guard = logging::install(directory.path(), logging::Application::Host).unwrap();
+    let profile = directory.path().join("profile");
+    assert!(!profile.exists());
+    let guard = logging::install(&profile, logging::Application::Host).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(
+            profile.metadata().unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+    let node = Node::start_empty(profile.clone()).await.unwrap();
+    node.shutdown().await.unwrap();
     let another = tempfile::tempdir().unwrap();
     assert!(logging::install(another.path(), logging::Application::Desktop).is_err());
-    assert_eq!(
-        logging::directory(),
-        Some(directory.path().join("logs").as_path())
-    );
+    assert_eq!(logging::directory(), Some(profile.join("logs").as_path()));
     let file = logging::current_file().unwrap().unwrap();
-    assert_eq!(file.parent().unwrap(), directory.path().join("logs/host"));
+    assert_eq!(file.parent().unwrap(), profile.join("logs/host"));
     assert_eq!(file.extension().unwrap(), "log");
     let mut expected = Vec::new();
     let mut summaries = Vec::new();
@@ -415,7 +424,7 @@ async fn observes_shared_lifecycles_without_payloads() {
     }
     assert_eq!(guard.dropped_lines(), 0);
     drop(guard);
-    let records = std::fs::read_dir(directory.path().join("logs/host"))
+    let records = std::fs::read_dir(profile.join("logs/host"))
         .unwrap()
         .flat_map(|entry| {
             std::fs::read_to_string(entry.unwrap().path())

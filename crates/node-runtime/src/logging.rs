@@ -95,6 +95,7 @@ fn latest_file(directory: &Path) -> std::io::Result<Option<PathBuf>> {
 }
 
 pub fn install(profile: &Path, application: Application) -> Result<Guard, InitError> {
+    crate::profile::private_directory(profile).map_err(|_| InitError)?;
     let directory = profile.join("logs").join(application.name());
     let (writer, worker) = writer(&directory, Rotation::DAILY, RETAINED_FILES, QUEUED_LINES)?;
     let counter = writer.error_counter();
