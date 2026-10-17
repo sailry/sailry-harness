@@ -55,6 +55,50 @@ async fn run(
 }
 
 #[test]
+fn reveals_only_local_registered_paths() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let access = access(&fixture);
+        let requests = fixture.transport.requests.lock().unwrap().len();
+        let result = fixture.runtime.block_on(system::prepare(
+            system::Action::Reveal,
+            access.clone(),
+            "notes.txt".into(),
+            !remote,
+            fixture.directory.path().join("temporary"),
+            CancellationToken::new(),
+        ));
+        if remote {
+            assert_eq!(result.err().unwrap().code, ErrorCode::InvalidRequest);
+            assert_eq!(fixture.transport.requests.lock().unwrap().len(), requests);
+            assert!(!fixture.directory.path().join("temporary").exists());
+        } else {
+            let opened = result.unwrap();
+            assert!(opened.copy.is_none());
+            assert_eq!(
+                opened.path,
+                fixture
+                    .directory
+                    .path()
+                    .join("project/notes.txt")
+                    .canonicalize()
+                    .unwrap()
+            );
+            let outside = fixture.runtime.block_on(system::prepare(
+                system::Action::Reveal,
+                access,
+                "../outside.txt".into(),
+                true,
+                fixture.directory.path().join("temporary"),
+                CancellationToken::new(),
+            ));
+            assert!(outside.is_err());
+        }
+        fixture.close();
+    }
+}
+
+#[test]
 fn retains_captured_locations_and_publication_receipts() {
     for remote in [false, true] {
         let fixture = Fixture::new(remote);

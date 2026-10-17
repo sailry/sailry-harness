@@ -9,6 +9,10 @@ export function prepareMove(source: string, path: string): Promise<Transfer>;
 export function selectUpload(directory: string): Promise<Transfer | null>;
 export function startDownload(path: string): Promise<Transfer | null>;
 export function openSystem(path: string): Promise<void>;
+/** Native file-manager capability for the captured execution Node, without filesystem paths. */
+export function systemFileManager(): { available: boolean; platform: string };
+/** Reveal a registered worktree-relative item only when the execution Node is this device. */
+export function revealSystem(path: string): Promise<void>;
 export function transferAction(id: string, action: { kind: "start" | "replace" | "check" | "cancel" | "dismiss"; path?: string }): Promise<Transfer | null>;
 export function readTransfers(): Transfers;
 export function nextTransferChange(cursor: string): Promise<Transfers>;

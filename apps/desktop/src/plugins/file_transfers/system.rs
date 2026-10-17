@@ -33,12 +33,19 @@ pub(crate) struct Opened {
 }
 
 pub(super) async fn prepare(
+    action: Action,
     access: Access,
     path: String,
     local: bool,
     temporary: PathBuf,
     stop: CancellationToken,
 ) -> Result<Opened, Fault> {
+    if action == Action::Reveal && !local {
+        return Err(Fault::new(
+            ErrorCode::InvalidRequest,
+            "File manager reveal requires the execution Node on this device",
+        ));
+    }
     access.verify(false).await?;
     prepare_in(
         access.client,

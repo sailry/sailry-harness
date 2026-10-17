@@ -64,6 +64,8 @@ pub(in crate::plugins) fn module(scope: Scope, host: Arc<Host>, cx: &mut App) ->
     let upload = context.clone();
     let download = context.clone();
     let open = context.clone();
+    let reveal = context.clone();
+    let manager = context.clone();
     let action = context.clone();
     let read = context.clone();
     let next = context;
@@ -82,6 +84,14 @@ pub(in crate::plugins) fn module(scope: Scope, host: Arc<Host>, cx: &mut App) ->
         .async_function("selectUpload",move |args|send(&upload,Operation::Upload(args.string(0)?.into()),true).map(complete))
         .async_function("startDownload",move |args|send(&download,Operation::Download(args.string(0)?.into()),false).map(complete))
         .async_function("openSystem",move |args|send(&open,Operation::Open(args.string(0)?.into(),system::Action::Open),false).map(complete))
+        .async_function("revealSystem",move |args|send(&reveal,Operation::Open(args.string(0)?.into(),system::Action::Reveal),false).map(complete))
+        .function("systemFileManager",move |_| {
+            let access=checked(&manager,false)?;
+            gpui_shell::with_current_app(|cx| {
+                let local=cx.global::<crate::backend::Services>().local.target()==access.client.target();
+                encode(json!({"available":local,"platform":std::env::consts::OS}))
+            }).ok_or_else(missing)?
+        })
         .async_function("transferAction",move |args| {
             let id=args.string(0)?.parse().map_err(HostError::new)?;
             let value=serde_json::from_value(decode(args.value(1)?)?).map_err(|error|HostError::new(error.to_string()))?;
@@ -433,10 +443,9 @@ impl Controller {
                 let local = services.local.target() == access.client.target();
                 let temporary = services.profile.join("tmp");
                 let stopping = stop.clone();
-                let job = access
-                    .runtime
-                    .clone()
-                    .spawn(system::prepare(access, path, local, temporary, stopping));
+                let job = access.runtime.clone().spawn(system::prepare(
+                    action, access, path, local, temporary, stopping,
+                ));
                 cx.spawn(async move |owner, cx| {
                     let result = job.await.unwrap_or(Err(internal()));
                     let result = owner
