@@ -265,13 +265,7 @@ fn row(
                         text.max_w(px(480.))
                             .font_family(cx.theme().mono_font_family.clone())
                     })
-                    .child(if detail.running && !detail.pending && !detail.failed {
-                        gpui_kit::component::shimmer::ShimmerText::new(detail.text.clone())
-                            .id(format!("{id}-detail-shimmer"))
-                            .into_any_element()
-                    } else {
-                        div().child(detail.text.clone()).into_any_element()
-                    }),
+                    .child(div().child(detail.text.clone())),
             )
         })
         .when_some(
