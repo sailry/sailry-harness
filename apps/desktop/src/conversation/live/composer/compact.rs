@@ -14,9 +14,16 @@ impl View {
         let owner = self.composer_settings.downgrade();
         Button::new("composer-mode-page")
             .ghost()
+            .small()
+            .h_8()
             .w_full()
+            .min_w_0()
             .accessibility_label(tr(mode::label(current)))
-            .child(row(mode::label(current), IconName::ChevronRight.into()))
+            .child(row(
+                mode::label(current),
+                mode::icon(current).into(),
+                Some(IconName::ChevronRight.into()),
+            ))
             .debug_selector(|| "composer-mode-page".into())
             .on_click(move |_, window, cx| {
                 let _ = owner.update(cx, |panel, cx| panel.show(Page::Mode, window, cx));
@@ -37,14 +44,18 @@ impl View {
         let owner = self.composer_settings.downgrade();
         Button::new("composer-permission-page")
             .ghost()
+            .small()
+            .h_8()
             .w_full()
+            .min_w_0()
             .when(current == sailry_protocol::Permission::Full, |button| {
                 button.text_color(cx.theme().danger)
             })
             .accessibility_label(tr(permission::label(current)))
             .child(row(
                 permission::label(current),
-                IconName::ChevronRight.into(),
+                permission::icon(current).into(),
+                Some(IconName::ChevronRight.into()),
             ))
             .debug_selector(|| "composer-permission-page".into())
             .on_click(move |_, window, cx| {
@@ -212,6 +223,7 @@ impl Render for Panel {
         let body = v_flex()
             .id("composer-settings-scroll")
             .w(width)
+            .min_w_0()
             .max_h((window.viewport_size().height - px(80.)).min(px(560.)))
             .overflow_y_scrollbar()
             .gap_1()
@@ -221,9 +233,12 @@ impl Render for Panel {
                 body.child(
                     Button::new("composer-settings-back")
                         .ghost()
+                        .small()
+                        .h_8()
                         .w_full()
+                        .min_w_0()
                         .accessibility_label(tr("composer_back"))
-                        .child(row("composer_back", IconName::ChevronLeft.into()))
+                        .child(row("composer_back", IconName::ChevronLeft.into(), None))
                         .debug_selector(|| "composer-settings-back".into())
                         .on_click(cx.listener(|panel, _, window, cx| {
                             panel.show(Page::Settings, window, cx)
@@ -236,6 +251,8 @@ impl Render for Panel {
                 Page::Mode => view.compact_modes(owner, cx),
                 Page::Permission => view.compact_permissions(owner, cx),
                 Page::Settings => v_flex()
+                    .w_full()
+                    .min_w_0()
                     .gap_1()
                     .children(view.registered_controls(
                         sailry_protocol::plugin::ui::Slot::Composer,
@@ -273,11 +290,13 @@ impl Render for Panel {
     }
 }
 
-fn row(key: &'static str, icon: Icon) -> Div {
+fn row(key: &'static str, icon: Icon, indicator: Option<Icon>) -> Div {
     h_flex()
         .w_full()
         .min_w_0()
+        .items_center()
         .gap_2()
+        .child(div().size_4().flex_shrink_0().child(icon.size_4()))
         .child(
             div()
                 .flex_1()
@@ -289,11 +308,12 @@ fn row(key: &'static str, icon: Icon) -> Div {
         )
         .child(
             div()
+                .size_4()
                 .flex_shrink_0()
                 .flex()
                 .items_center()
                 .debug_selector(move || format!("{key}-indicator"))
-                .child(icon.small()),
+                .children(indicator.map(|icon| icon.size_4())),
         )
 }
 

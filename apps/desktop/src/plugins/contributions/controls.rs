@@ -120,10 +120,18 @@ impl Registry {
             let label_selector = format!("{selector}-label");
             return h_flex()
                 .w_full()
+                .min_w_0()
+                .items_center()
                 .h_8()
                 .px_2p5()
                 .gap_2()
                 .text_sm()
+                .child(
+                    div()
+                        .size_4()
+                        .flex_shrink_0()
+                        .when_some(entry.icon(), |slot, icon| slot.child(icon.size_4())),
+                )
                 .child(
                     div()
                         .flex_1()
@@ -180,27 +188,36 @@ impl Registry {
                 },
             )
             .disabled(!enabled)
-            .when(entry.declaration.slot == Slot::Context, |button| {
-                button.small().max_w_48().min_w_0().flex_shrink_1()
-            })
+            .when(
+                form != Form::Menu && entry.declaration.slot == Slot::Context,
+                |button| button.small().max_w_48().min_w_0().flex_shrink_1(),
+            )
             .debug_selector(move || selector.clone())
             .accessibility_label(entry.text());
         if form == Form::Menu {
-            button = button.w_full().child(
+            button = button.small().h_8().w_full().min_w_0().child(
                 h_flex()
                     .w_full()
-                    .gap_3()
-                    .child(div().flex_1().min_w_0().truncate().child(entry.text()))
+                    .min_w_0()
+                    .items_center()
+                    .gap_2()
+                    .child(div().size_4().flex_shrink_0().child(control_icon.size_4()))
                     .child(
-                        if matches!(
-                            entry.declaration.kind,
-                            Kind::Select | Kind::Menu | Kind::Picker
-                        ) {
-                            IconName::ChevronRight.into()
-                        } else {
-                            control_icon
-                        },
-                    ),
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_left()
+                            .child(entry.text()),
+                    )
+                    .child(div().size_4().flex_shrink_0().when(
+                        entry.state.dropdown
+                            || matches!(
+                                entry.declaration.kind,
+                                Kind::Select | Kind::Menu | Kind::Picker | Kind::Popover
+                            ),
+                        |slot| slot.child(Icon::new(IconName::ChevronRight).size_4()),
+                    )),
             );
         } else if entry.declaration.slot == Slot::Status {
             button = button
