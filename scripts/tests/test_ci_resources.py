@@ -430,6 +430,45 @@ class SourceCacheIdentity(unittest.TestCase):
 
 
 class CacheUsage(unittest.TestCase):
+    def test_rebuilds_readonly_stage_without_changing_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            home = root / ".cargo"
+            relative = Path("git/db/example/objects/pack/data.pack")
+            source = home / relative
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"current pack")
+            source.chmod(0o444)
+            sentinel = home / "registry/src/keep.rs"
+            sentinel.parent.mkdir(parents=True)
+            sentinel.write_bytes(b"unpacked source")
+            ci.cache_sources("save", workspace, home)
+            archive = workspace / ".cargo-sources"
+            stale = archive / "git/db/retired/objects/pack/old.pack"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"obsolete pack")
+            stale.chmod(0o444)
+            source_mode = source.stat().st_mode
+            ci.cache_sources("save", workspace, home)
+            self.assertEqual((archive / relative).read_bytes(), b"current pack")
+            self.assertFalse((archive / "git/db/retired").exists())
+            self.assertEqual(source.read_bytes(), b"current pack")
+            self.assertEqual(source.stat().st_mode, source_mode)
+            self.assertEqual(sentinel.read_bytes(), b"unpacked source")
+
+    def test_preserves_cargo_home_when_it_is_stage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            home = workspace / ".cargo-sources"
+            source = home / "git/db/example/objects/pack/data.pack"
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"original pack")
+            with self.assertRaises(ValueError):
+                ci.cache_sources("save", workspace, home)
+            self.assertEqual(source.read_bytes(), b"original pack")
+
     def test_restores_sources_across_runner_homes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -449,7 +488,11 @@ class CacheUsage(unittest.TestCase):
             self.assertFalse((workspace / ".cargo-sources/registry/src").exists())
             self.assertFalse((workspace / ".cargo-sources/git/checkouts").exists())
             second = root / "linux/.cargo"
+            sentinel = second / "registry/src/keep.rs"
+            sentinel.parent.mkdir(parents=True)
+            sentinel.write_bytes(b"unpacked source")
             ci.cache_sources("restore", workspace, second)
+            self.assertEqual(sentinel.read_bytes(), b"unpacked source")
             self.assertEqual((second / "registry/index/crates/.cache/ex/am/example").read_bytes(), metadata)
             self.assertEqual((second / "registry/index/crates/config.json").read_bytes(), b"fixture")
             self.assertEqual((second / "registry/cache/crates/example-1.0.crate").read_bytes(), b"fixture")

@@ -179,6 +179,16 @@ def require_results(results, product=None):
 
 def cache_sources(mode, workspace, home):
     archive = workspace / ".cargo-sources"
+    if mode == "save":
+        if archive.is_symlink() or home.resolve().is_relative_to(archive.resolve()):
+            raise ValueError("Source staging must be separate from Cargo home")
+        if archive.exists():
+            # Restored Git packs are read-only. Rebuild only this tool's scratch tree.
+            for path in archive.rglob("*"):
+                if not path.is_symlink():
+                    path.chmod(0o755 if path.is_dir() else 0o644)
+            archive.chmod(0o755)
+            shutil.rmtree(archive)
     source, destination = (home, archive) if mode == "save" else (archive, home)
     for relative in ("registry/index", "registry/cache", "git/db"):
         directory = source / relative
