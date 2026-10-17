@@ -34,7 +34,7 @@ fn render(id: String, props: Props, events: Sender<Value>) -> AnyElement {
         .collect::<Vec<_>>();
     TabBar::new(SharedString::from(id.clone()))
         .segmented()
-        .w_full()
+        .when(props.fill, |tabs| tabs.w_full())
         .menu(false)
         .selected_index(
             ids.iter()
