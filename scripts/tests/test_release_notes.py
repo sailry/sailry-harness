@@ -1,5 +1,6 @@
 """Release notes use isolated Git histories, never product tags or remote writes."""
 
+import ast
 import importlib.util
 import json
 import os
@@ -263,10 +264,18 @@ class ReleaseWorkflows(unittest.TestCase):
     def test_native_cache_and_toolchains_match(self):
         desktop = self.workflow("release").split("  build:\n", 1)[1].split("  publish:\n", 1)[0]
         host = self.workflow("release-host").split("  build:\n", 1)[1].split("  host:\n", 1)[0]
+        workflow = self.workflow("release")
+        defaults = ast.literal_eval("[" + workflow.split("targets = [", 1)[1].split("]", 1)[0] + "]")
+        fallback = json.loads(desktop.split("fromJSON(needs.version.outputs.matrix || '", 1)[1].split("') }}", 1)[0])
+        self.assertEqual(defaults, [
+            {"runner": "macos-15", "target": "aarch64-apple-darwin", "jobs": 1},
+            {"runner": "macos-15-intel", "target": "x86_64-apple-darwin", "jobs": 2},
+        ])
+        self.assertEqual(fallback, {"include": defaults})
+        self.assertIn("runner: macos-15", host)
         for build in (desktop, host):
             with self.subTest(build=build[:80]):
                 self.assertIn("macos-15-intel", build)
-                self.assertIn("runner: macos-15", build)
                 self.assertIn("Xcode_26.3.app", build)
                 self.assertIn("target/sherpa-onnx-prebuilt", build)
                 self.assertIn("uses: ./.workflow-tools/.github/actions/rust-cache", build)
