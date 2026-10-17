@@ -49,7 +49,7 @@ def payload(changes=None, extra=None, content=None):
 
 class GitHub:
     def __init__(self, packed):
-        self.run = {"id": 7, "head_sha": CONTROLLER, "head_branch": "main", "event": "workflow_dispatch",
+        self.run = {"id": 7, "head_sha": CONTROLLER, "head_branch": "main", "event": "workflow_dispatch", "run_attempt": 2,
                     "path": ".github/workflows/release.yml", "repository": {"full_name": "example/product"},
                     "head_repository": {"full_name": "example/product"}}
         self.job = {"name": f"Build Desktop {TARGET}", "head_sha": CONTROLLER, "run_id": 7,
@@ -68,6 +68,9 @@ class GitHub:
             if "/attempts/1/jobs?" not in endpoint:
                 raise AssertionError("Signing retries must use the original successful producer")
             return {"jobs": [self.job]}
+        if "/jobs?" in endpoint:
+            return {"jobs": [{"name": "Publish Desktop and start follow-ups", "steps": [
+                {"name": "Verify archives and publish Desktop", "conclusion": "success"}]}]}
         return self.run
 
 
@@ -163,7 +166,7 @@ class Producer(unittest.TestCase):
 
 
 class Restoration(unittest.TestCase):
-    def restore(self, change=None):
+    def restore(self, change=None, separate=False):
         output = io.BytesIO()
         with zipfile.ZipFile(output, "w") as archive:
             archive.writestr(f"native-{TARGET}.tar.gz", payload())
@@ -177,16 +180,20 @@ class Restoration(unittest.TestCase):
             return subprocess.CompletedProcess(command, 0)
         with tempfile.TemporaryDirectory() as temporary, \
                 patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/product", "GITHUB_RUN_ATTEMPT": "2"}), \
-                patch.object(build, "context", return_value=copy.deepcopy(EXPECTED)), \
+                patch.object(build, "context", return_value={**EXPECTED, **({"run_id": 99, "workflow_revision": "c" * 40} if separate else {})}), \
                 patch.object(build.publication, "GitHub", return_value=client), \
                 patch.object(build.publication, "remote_commit", return_value=PRODUCT), \
                 patch.object(build.subprocess, "run", side_effect=download):
             root = Path(temporary)
-            build.restore(root, EXPECTED["tag"], TARGET)
+            arguments = ("7", CONTROLLER, 9, client.artifact["digest"], PRODUCT) if separate else ()
+            build.restore(root, EXPECTED["tag"], TARGET, *arguments)
             self.assertEqual({path.name for path in (root / "target/release").iterdir()}, build.FILES)
 
     def test_reuses_native_inputs_without_cargo(self):
         self.restore()
+
+    def test_separate_formal_run_uses_explicit_original_artifact(self):
+        self.restore(separate=True)
 
     def test_requires_immutable_current_run_artifact(self):
         for key, value in (("expired", True), ("digest", "sha256:" + "f" * 64),
@@ -198,19 +205,54 @@ class Restoration(unittest.TestCase):
 class Workflow(unittest.TestCase):
     def test_preserves_builds_before_secrets_and_signing(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
-        native = workflow.split("\n  build:\n")[1].split("\n  sign:\n")[0]
-        signing = workflow.split("\n  sign:\n")[1].split("\n  publish:\n")[0]
+        native = workflow.split("\n  build:\n")[1].split("\n  package:\n")[0]
+        initial = workflow.split("\n  package:\n")[1].split("\n  publish:\n")[0]
+        formal = (ROOT / ".github/workflows/release-desktop-formal.yml").read_text()
+        signing = formal.split("\n  sign:\n")[1].split("\n  publish:\n")[0]
         self.assertIn(build.COMMAND, native)
         self.assertNotIn("secrets.", native)
         self.assertLess(native.index("name: Build native Desktop"), native.index("name: Preserve native Desktop"))
         self.assertIn("retention-days: 14", native)
-        self.assertIn("needs: [version, build]", signing)
+        self.assertIn("needs: [version, build]", initial)
+        self.assertIn("package-desktop-adhoc.py", initial)
+        self.assertNotIn("secrets.", initial)
+        self.assertIn("needs: version", signing)
         self.assertIn("desktop-build.py restore", signing)
         self.assertNotIn("cargo build", signing)
         self.assertNotIn("cargo run", signing)
         self.assertIn("name: Sign, notarize and package", signing)
-        self.assertIn("needs: sign", workflow.split("\n  publish:\n")[1])
+        self.assertIn("needs: package", workflow.split("\n  publish:\n")[1])
+        self.assertIn("needs: sign", formal.split("\n  publish:\n")[1])
+        self.assertIn("desktop-formal-${{ inputs.tag }}", formal)
         self.assertIn("pattern: packages-*", workflow)
+
+
+class FormalSelection(unittest.TestCase):
+    def test_selects_exact_published_version_and_producer(self):
+        client = GitHub(b"fixture")
+        specs = [{"target": TARGET, "id": 9, "digest": client.artifact["digest"]}]
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/product"}), \
+                patch.object(build.publication, "GitHub", return_value=client), \
+                patch.object(build.publication, "tagged_commit", return_value=PRODUCT), \
+                patch.object(build.publication, "release") as release:
+            matrix = build.select(ROOT, EXPECTED["tag"], "7", CONTROLLER, PRODUCT, json.dumps(specs), True)
+            self.assertEqual(matrix["include"], [{**specs[0], "runner": "macos-15-intel"}])
+            release.assert_called_once_with(client, "example/product", EXPECTED["tag"], PRODUCT, published=True)
+            for value in ("c" * 40, CONTROLLER):
+                wrong = copy.deepcopy(specs)
+                wrong[0]["digest"] = "sha256:" + "f" * 64
+                with self.assertRaises(ValueError):
+                    build.select(ROOT, EXPECTED["tag"], "7", value, PRODUCT, json.dumps(wrong), True)
+            with self.assertRaises(ValueError):
+                build.select(ROOT, "v2.0.0", "7", CONTROLLER, "d" * 40, json.dumps(specs), True)
+
+    def test_rejects_ambiguous_or_unsafe_artifact_inputs(self):
+        values = ([], [{"target": TARGET, "id": 0, "digest": "sha256:" + "a" * 64}],
+                  [{"target": TARGET, "id": 1, "digest": "wrong"}],
+                  [{"target": TARGET, "id": 1, "digest": "sha256:" + "a" * 64}] * 2)
+        for value in values:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                build.artifact_specs(json.dumps(value))
 
 
 if __name__ == "__main__":

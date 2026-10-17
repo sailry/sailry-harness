@@ -212,8 +212,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  sign:
-    name: Sign Desktop ${{ matrix.target }}
+  package:
+    name: Ad-hoc Desktop ${{ matrix.target }}
     needs: [version, build]
     strategy:
       fail-fast: false
@@ -244,7 +244,7 @@ jobs:
             /scripts/package/versions.py
             /scripts/recover-desktop.py
             /scripts/desktop-build.py
-            /scripts/package/notarize-macos.py
+            /scripts/package-desktop-adhoc.py
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -281,98 +281,27 @@ jobs:
           path: ${{ runner.temp }}/recovered-arm/*
           if-no-files-found: error
           retention-days: 14
-      - name: Use workflow notarization helper
-        run: |
-          python3 - <<'PYTHON'
-          import shutil, subprocess
-          product = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
-          tooling = subprocess.check_output(['git', '-C', '.workflow-tools', 'rev-parse', 'HEAD'], text=True).strip()
-          print(f'Product source: {product}; packaging helper source: {tooling}')
-          shutil.copyfile('.workflow-tools/scripts/package/notarize-macos.py', 'scripts/package/notarize-macos.py')
-          PYTHON
-      - name: Import signing credentials
-        env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-        run: |
-          python3 - <<'PY'
-          import base64, os, pathlib, subprocess, uuid
-          names = ('APPLE_CERTIFICATE_P12', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_API_PRIVATE_KEY')
-          if not all(os.environ.get(name) for name in names):
-              raise SystemExit('The macOS signing secrets are not configured')
-          stage = pathlib.Path(os.environ['RUNNER_TEMP'])
-          certificate = stage / 'sailry-signing.p12'
-          key = stage / 'sailry-notary.p8'
-          certificate.write_bytes(base64.b64decode(os.environ['APPLE_CERTIFICATE_P12'], validate=True))
-          key.write_text(os.environ['APPLE_API_PRIVATE_KEY'])
-          certificate.chmod(0o600)
-          key.chmod(0o600)
-          keychain = stage / 'sailry-signing.keychain-db'
-          password = uuid.uuid4().hex
-          def security(*args):
-              result = subprocess.run(['security', *map(str, args)], capture_output=True, text=True)
-              if result.returncode:
-                  raise SystemExit('Temporary signing keychain setup failed')
-          security('create-keychain', '-p', password, keychain)
-          security('set-keychain-settings', '-lut', '21600', keychain)
-          security('unlock-keychain', '-p', password, keychain)
-          security('import', certificate, '-k', keychain, '-P', os.environ['APPLE_CERTIFICATE_PASSWORD'], '-T', '/usr/bin/codesign')
-          security('set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, keychain)
-          with open(os.environ['GITHUB_ENV'], 'a') as file:
-              file.write(f'APPLE_SIGNING_KEYCHAIN={keychain}\nAPPLE_API_KEY_PATH={key}\n')
-          certificate.unlink()
-          PY
-      - name: Sign, notarize and package
+      - name: Assemble ad-hoc Desktop
         id: package
         env:
-          SAILRY_SIGNING: developer-id
-          SAILRY_NOTARIZE: '1'
-          APPLE_SIGNING_IDENTITY: ${{ vars.APPLE_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-          APPLE_API_KEY_ID: ${{ vars.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER_ID: ${{ vars.APPLE_API_ISSUER_ID }}
-          SAILRY_UPDATE_SIGNING_KEY: ${{ secrets.SAILRY_UPDATE_SIGNING_KEY }}
-          SAILRY_RELEASE_REPOSITORY: ${{ github.repository }}
-          SAILRY_RELEASE_TAG: ${{ env.RELEASE_TAG }}
-          SAILRY_RELEASE_TOOL: target/release/sailry-release
+          PACKAGE_TARGET: ${{ matrix.target }}
         run: |
           set -o pipefail
-          bash scripts/package-macos.sh release desktop | tee "$RUNNER_TEMP/package.log"
-          task_package="$(sed -n 's/^Local package: //p' "$RUNNER_TEMP/package.log")"
+          python3 .workflow-tools/scripts/package-desktop-adhoc.py --source "$GITHUB_WORKSPACE" \
+            --target "$PACKAGE_TARGET" | tee "$RUNNER_TEMP/package.log"
+          task_package="$(sed -n 's/^Ad-hoc package: //p' "$RUNNER_TEMP/package.log")"
           test -d "$task_package"
-          (
-            cd "$task_package"
-            shasum -a 256 ./*.dmg ./*.zip ./*.zip.update.json > "SHA256SUMS-desktop-${{ matrix.target }}"
-            rm SHA256SUMS
-          )
           printf 'directory=%s\n' "$task_package" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: packages-${{ matrix.target }}
-          path: |
-            ${{ steps.package.outputs.directory }}/*.zip
-            ${{ steps.package.outputs.directory }}/*.zip.update.json
-            ${{ steps.package.outputs.directory }}/*.dmg
-            ${{ steps.package.outputs.directory }}/SHA256SUMS-desktop-*
+          path: ${{ steps.package.outputs.directory }}/*
           if-no-files-found: error
           retention-days: 14
-      - name: Remove temporary signing credentials
-        if: always()
-        run: |
-          python3 - <<'PY'
-          import os, pathlib, subprocess
-          stage = pathlib.Path(os.environ['RUNNER_TEMP'])
-          keychain = stage / 'sailry-signing.keychain-db'
-          if keychain.exists():
-              subprocess.run(['security', 'delete-keychain', str(keychain)], check=True)
-          for name in ('sailry-signing.p12', 'sailry-notary.p8'):
-              (stage / name).unlink(missing_ok=True)
-          PY
 
   publish:
     name: Publish Desktop and start follow-ups
-    needs: sign
+    needs: package
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -398,6 +327,8 @@ jobs:
             /scripts/check-release.py
             /scripts/package/publication.py
             /scripts/package/versions.py
+            /scripts/desktop-build.py
+            /scripts/publish-packages.py
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: packages-*
@@ -407,29 +338,53 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
         run: |
           (cd packages && sha256sum --check SHA256SUMS-desktop-*)
           python3 scripts/release-notes.py --tag "$RELEASE_TAG" \
             --repository "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
             --notes "$RUNNER_TEMP/release-notes.md" --changelog CHANGELOG.md
-          python3 scripts/publish-packages.py --component desktop --tag "$RELEASE_TAG" \
+          arguments=()
+          if test -n "$RESUME_INTEL_FROM"; then arguments+=(--signed-arm); fi
+          python3 .workflow-tools/scripts/publish-packages.py --source "$GITHUB_WORKSPACE" \
+            --component desktop-adhoc --tag "$RELEASE_TAG" "${arguments[@]}" \
             --notes "$RUNNER_TEMP/release-notes.md" --directory packages
-      - name: Dispatch same-tag Host, feeds and changelog
+      - name: Identify preserved native artifacts
+        id: native
         env:
           GH_TOKEN: ${{ github.token }}
+          WORKFLOW_REVISION: ${{ github.workflow_sha }}
+          RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
         run: |
-          python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --published
+          arguments=()
+          if test -n "$RESUME_INTEL_FROM"; then arguments+=(--signed-arm); fi
+          python3 .workflow-tools/scripts/desktop-build.py inventory --source "$GITHUB_WORKSPACE" \
+            --tag "$RELEASE_TAG" "${arguments[@]}"
+      - name: Dispatch exact-version formal signing and independent follow-ups
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_REVISION: ${{ github.workflow_sha }}
+          NATIVE_ARTIFACTS: ${{ steps.native.outputs.artifacts }}
+          RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
+        run: |
           python3 - <<'PY'
           import json, os, subprocess
           repository = os.environ['GITHUB_REPOSITORY']
           tag = os.environ['RELEASE_TAG']
+          source = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          dispatches = [
+              ('release-desktop-formal.yml', 'main', {
+                  'tag': tag, 'source_sha': source, 'producer_run': os.environ['GITHUB_RUN_ID'],
+                  'producer_revision': os.environ['WORKFLOW_REVISION'], 'artifacts': os.environ['NATIVE_ARTIFACTS'],
+                  'signed_arm_from': os.environ['RESUME_INTEL_FROM']}),
+              ('release-host.yml', 'main', {'tag': tag}),
+              ('changelog.yml', tag, {'tag': tag}),
+          ]
           failed = []
-          for workflow in ('release-host.yml', 'update-feed.yml', 'changelog.yml'):
+          for workflow, ref, inputs in dispatches:
               result = subprocess.run(['gh', 'api', '--method', 'POST',
                                        f'repos/{repository}/actions/workflows/{workflow}/dispatches',
-                                       '--input', '-'], input=json.dumps({'ref': 'main' if workflow == 'release-host.yml' else tag,
-                                                                       'inputs': {'tag': tag}}),
-                                      text=True)
+                                       '--input', '-'], input=json.dumps({'ref': ref, 'inputs': inputs}), text=True)
               if result.returncode:
                   failed.append(workflow)
           if failed:

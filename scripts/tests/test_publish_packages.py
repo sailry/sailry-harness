@@ -80,6 +80,53 @@ class PackagePublication(unittest.TestCase):
             (output / name).write_bytes(("fixture " + name).encode())
         return sorted(output.iterdir())
 
+    def test_public_adhoc_precedes_formal_append(self):
+        initial = self.assets("desktop-adhoc")
+        client = FakeGitHub()
+        publisher.publish("desktop-adhoc", TAG, self.notes, initial, REPOSITORY, COMMIT, client)
+        self.assertFalse(client.release["draft"])
+        self.assertEqual(len(client.uploads), 6)
+        self.assertTrue(all("-adhoc" in path.name and TAG[1:] not in path.name for path in initial))
+        original = copy.deepcopy(client.release["assets"])
+        publisher.publish("desktop", TAG, None, self.desktop, REPOSITORY, COMMIT, client, append_signed=True)
+        self.assertEqual(client.release["assets"][:6], original)
+        self.assertEqual(len(client.release["assets"]), 14)
+        count = len(client.uploads)
+        publisher.publish("desktop", TAG, None, self.desktop, REPOSITORY, COMMIT, client, append_signed=True)
+        self.assertEqual(len(client.uploads), count)
+
+    def test_preserves_signed_arm_during_initial_publication(self):
+        adhoc = self.assets("desktop-adhoc")
+        initial = [path for path in adhoc if "x86_64" in path.name] + [
+            path for path in self.desktop if "aarch64" in path.name]
+        client = FakeGitHub()
+        publisher.publish("desktop-adhoc", TAG, self.notes, initial, REPOSITORY, COMMIT, client, signed_arm=True)
+        self.assertEqual(len(client.release["assets"]), 7)
+        original = copy.deepcopy(client.release["assets"])
+        publisher.publish("desktop", TAG, None, self.desktop, REPOSITORY, COMMIT, client, append_signed=True)
+        self.assertEqual(client.release["assets"][:7], original)
+        self.assertEqual(len(client.release["assets"]), 11)
+
+    def test_host_does_not_wait_for_formal_desktop(self):
+        initial = self.assets("desktop-adhoc")
+        client = FakeGitHub()
+        publisher.publish("desktop-adhoc", TAG, self.notes, initial, REPOSITORY, COMMIT, client)
+        self.publish("host", client)
+        self.assertEqual(len(client.release["assets"]), 16)
+
+    def test_latest_uses_server_side_version_selection(self):
+        self.assertEqual(publisher.latest_flag("v1.0.0"), "legacy")
+        self.assertEqual(publisher.latest_flag("v3.0.0"), "legacy")
+        self.assertEqual(publisher.latest_flag(TAG), "false")
+
+    def test_host_rejects_incomplete_uploaded_group(self):
+        client = FakeGitHub()
+        initial = self.assets("desktop-adhoc")
+        publisher.publish("desktop-adhoc", TAG, self.notes, initial, REPOSITORY, COMMIT, client)
+        client.release["assets"][0]["state"] = "starter"
+        with self.assertRaisesRegex(ValueError, "complete published Desktop"):
+            self.publish("host", client)
+
     def publish(self, component, client, assets=None):
         publisher.publish(component, TAG, self.notes, assets or getattr(self, component),
                           REPOSITORY, COMMIT, client)

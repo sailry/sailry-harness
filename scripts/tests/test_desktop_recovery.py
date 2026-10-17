@@ -211,11 +211,15 @@ class Workflow(unittest.TestCase):
     def test_overlays_only_packaging_after_compilation(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
         self.assertLess(workflow.index("name: Build native Desktop"), workflow.index("name: Recover signed ARM packages"))
-        self.assertLess(workflow.index("name: Recover signed ARM packages"), workflow.index("name: Use workflow notarization helper"))
-        self.assertLess(workflow.index("name: Use workflow notarization helper"), workflow.index("name: Sign, notarize and package"))
-        self.assertIn("shutil.copyfile('.workflow-tools/scripts/package/notarize-macos.py', 'scripts/package/notarize-macos.py')", workflow)
-        self.assertIn('path: ${{ runner.temp }}/recovered-arm/*', workflow)
-        self.assertIn('pattern: packages-*', workflow)
+        self.assertLess(workflow.index("name: Recover signed ARM packages"), workflow.index("name: Assemble ad-hoc Desktop"))
+        self.assertNotIn("name: Sign, notarize and package", workflow)
+        formal = (ROOT / ".github/workflows/release-desktop-formal.yml").read_text()
+        self.assertLess(formal.index("name: Recover signed ARM packages"), formal.index("name: Use workflow notarization helper"))
+        self.assertLess(formal.index("name: Use workflow notarization helper"), formal.index("name: Sign, notarize and package"))
+        self.assertIn("shutil.copyfile('.workflow-tools/scripts/package/notarize-macos.py', 'scripts/package/notarize-macos.py')", formal)
+        for source in (workflow, formal):
+            self.assertIn('path: ${{ runner.temp }}/recovered-arm/*', source)
+            self.assertIn('pattern: packages-*', source)
 
 
 if __name__ == "__main__":

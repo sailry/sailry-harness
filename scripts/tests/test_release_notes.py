@@ -190,54 +190,70 @@ class ReleaseWorkflows(unittest.TestCase):
 
     def test_desktop_publishes_without_host_or_mobile(self):
         workflow = self.workflow("release")
-        build = workflow.split("  build:\n", 1)[1].split("  sign:\n", 1)[0]
-        signing = workflow.split("  sign:\n", 1)[1].split("  publish:\n", 1)[0]
+        build = workflow.split("  build:\n", 1)[1].split("  package:\n", 1)[0]
+        packaging = workflow.split("  package:\n", 1)[1].split("  publish:\n", 1)[0]
         publish = workflow.split("  publish:\n", 1)[1]
         self.assertIn("-p sailry-desktop -p sailry-release", build)
         self.assertNotIn("-p sailry-host", build)
         self.assertIn("name: Preserve native Desktop", build)
         self.assertNotIn("secrets.", build)
-        self.assertIn("needs: [version, build]", signing)
-        self.assertIn("scripts/package-macos.sh release desktop", signing)
-        self.assertNotIn("cargo build", signing)
-        self.assertNotIn("cargo run", signing)
+        self.assertIn("needs: [version, build]", packaging)
+        self.assertIn("scripts/package-desktop-adhoc.py", packaging)
+        self.assertNotIn("secrets.", packaging)
+        for command in ("cargo build", "cargo run"):
+            self.assertNotIn(command, packaging)
         self.assertIn("fixtures shared", build)
         self.assertIn("fixtures desktop", build)
-        self.assertIn("needs: sign", publish)
-        self.assertNotIn("needs: [", publish)
-        self.assertIn("*.dmg", signing)
-        self.assertIn("*.zip.update.json", signing)
-        self.assertNotIn("*.tar.gz", signing)
+        self.assertIn("needs: package", publish)
         self.assertIn("pattern: packages-*", publish)
         self.assertNotIn("pattern: native-*", publish)
+        self.assertIn("--component desktop-adhoc", publish)
         self.assertNotIn("*.apk", workflow)
         self.assertNotIn("windows", workflow.lower())
-        self.assertIn("--component desktop", publish)
+        formal = self.workflow("release-desktop-formal")
+        signing = formal.split("  sign:\n", 1)[1].split("  publish:\n", 1)[0]
+        self.assertIn("scripts/package-macos.sh release desktop", signing)
+        self.assertIn("*.zip.update.json", signing)
+        self.assertNotIn("*.tar.gz", signing)
+        self.assertNotIn("cargo build", signing)
+        self.assertNotIn("cargo run", signing)
+        self.assertIn("needs: sign", formal.split("  publish:\n", 1)[1])
+        self.assertIn("--append-signed", formal)
 
     def test_publication_dispatches_exact_tag_followups(self):
-        workflow = self.workflow("release")
-        publish = workflow.split("  publish:\n", 1)[1]
+        publish = self.workflow("release").split("  publish:\n", 1)[1]
         self.assertIn("contents: write", publish)
         self.assertIn("actions: write", publish)
-        self.assertIn("'release-host.yml', 'update-feed.yml', 'changelog.yml'", publish)
-        self.assertIn("'ref': 'main' if workflow == 'release-host.yml' else tag", publish)
-        self.assertIn("'inputs': {'tag': tag}", publish)
-        self.assertIn('--tag "$RELEASE_TAG" --published', publish)
+        for name in ("release-desktop-formal.yml", "release-host.yml", "changelog.yml"):
+            self.assertIn(name, publish)
+        self.assertNotIn("update-feed.yml", publish)
+        for field in ("source_sha", "producer_run", "producer_revision", "artifacts", "signed_arm_from"):
+            self.assertIn("'" + field + "'", publish)
+        self.assertIn("('release-host.yml', 'main', {'tag': tag})", publish)
+        self.assertIn("('changelog.yml', tag, {'tag': tag})", publish)
         self.assertLess(publish.index("scripts/publish-packages.py"), publish.index("dispatches"))
-        self.assertNotIn("release-mobile.yml", publish)
+        formal = self.workflow("release-desktop-formal").split("  publish:\n", 1)[1]
+        self.assertIn('gh workflow run update-feed.yml --repo "$GITHUB_REPOSITORY" --ref main -f "tag=$RELEASE_TAG"', formal)
+        self.assertNotIn("release-host.yml", formal)
 
     def test_dispatch_failure_still_attempts_all_followups(self):
-        workflow = self.workflow("release").split("Dispatch same-tag Host, feeds and changelog", 1)[1]
+        workflow = self.workflow("release").split("Dispatch exact-version formal signing and independent follow-ups", 1)[1]
         script = textwrap.dedent(workflow.split("python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
-        results = [subprocess.CompletedProcess([], code) for code in (1, 0, 0)]
-        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "fixture/product", "RELEASE_TAG": "v0.1.0-alpha.1"}), \
+        results = [subprocess.CompletedProcess([], code) for code in (0, 1, 0)]
+        environment = {"GITHUB_REPOSITORY": "fixture/product", "RELEASE_TAG": "v0.1.0-alpha.1",
+                       "GITHUB_RUN_ID": "7", "WORKFLOW_REVISION": "b" * 40,
+                       "NATIVE_ARTIFACTS": "[]", "RESUME_INTEL_FROM": "9"}
+        with patch.dict(os.environ, environment), patch.object(subprocess, "check_output", return_value="a" * 40), \
                 patch.object(subprocess, "run", side_effect=results) as run:
             with self.assertRaisesRegex(SystemExit, "release-host.yml"):
                 exec(script, {})
         self.assertEqual(run.call_count, 3)
-        for index, call in enumerate(run.call_args_list):
-            self.assertEqual(json.loads(call.kwargs["input"]), {
-                "ref": "main" if index == 0 else "v0.1.0-alpha.1", "inputs": {"tag": "v0.1.0-alpha.1"}})
+        payloads = [json.loads(call.kwargs["input"]) for call in run.call_args_list]
+        self.assertEqual(payloads[0], {"ref": "main", "inputs": {
+            "tag": "v0.1.0-alpha.1", "source_sha": "a" * 40, "producer_run": "7",
+            "producer_revision": "b" * 40, "artifacts": "[]", "signed_arm_from": "9"}})
+        self.assertEqual(payloads[1], {"ref": "main", "inputs": {"tag": "v0.1.0-alpha.1"}})
+        self.assertEqual(payloads[2], {"ref": "v0.1.0-alpha.1", "inputs": {"tag": "v0.1.0-alpha.1"}})
 
     def test_host_appends_independently_on_four_targets(self):
         workflow = self.workflow("release-host")
@@ -271,7 +287,7 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("actions: write", publish)
 
     def test_native_cache_and_toolchains_match(self):
-        desktop = self.workflow("release").split("  build:\n", 1)[1].split("  sign:\n", 1)[0]
+        desktop = self.workflow("release").split("  build:\n", 1)[1].split("  package:\n", 1)[0]
         host = self.workflow("release-host").split("  build:\n", 1)[1].split("  host:\n", 1)[0]
         workflow = self.workflow("release")
         defaults = ast.literal_eval("[" + workflow.split("targets = [", 1)[1].split("]", 1)[0] + "]")

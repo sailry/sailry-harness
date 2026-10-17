@@ -79,7 +79,8 @@ def producer(client, repository, expected, attempt):
             or run.get("event") != "workflow_dispatch" or run.get("path") != ".github/workflows/release.yml"
             or run.get("repository", {}).get("full_name") != repository
             or run.get("head_repository", {}).get("full_name") != repository
-            or not isinstance(attempt, int) or attempt < 1 or attempt > int(os.environ["GITHUB_RUN_ATTEMPT"])):
+            or not isinstance(attempt, int) or attempt < 1
+            or not isinstance(run.get("run_attempt"), int) or attempt > run["run_attempt"]):
         raise ValueError("The native artifact workflow does not match its controller")
     jobs = client.api("GET", f"{endpoint}/attempts/{attempt}/jobs?per_page=100")["jobs"]
     selected = [job for job in jobs if job.get("name") == f"Build Desktop {expected['target']}"]
@@ -126,8 +127,78 @@ def unpack(path, directory, expected):
     return provenance
 
 
-def restore(root, tag, target):
+def artifact_specs(value):
+    records = json.loads(value)
+    if (not isinstance(records, list) or not records or len(records) > 2
+            or any(not isinstance(item, dict) or set(item) != {"target", "id", "digest"}
+                   or item["target"] not in TARGETS or type(item["id"]) is not int or item["id"] < 1
+                   or not isinstance(item["digest"], str)
+                   or re.fullmatch(r"sha256:[0-9a-f]{64}", item["digest"]) is None for item in records)
+            or len({item["target"] for item in records}) != len(records)):
+        raise ValueError("Invalid native artifact identities")
+    return records
+
+
+def select(root, tag, run_id, revision, source, specifications, signed_arm):
+    commit = publication.tagged_commit(tag, root)
+    if (source != commit or re.fullmatch(r"[0-9a-f]{40}", revision or "") is None
+            or not run_id or re.fullmatch(r"[1-9][0-9]*", run_id) is None):
+        raise ValueError("Formal publication must match the exact producer source")
+    records = artifact_specs(specifications)
+    expected = {"x86_64-apple-darwin"} if signed_arm else TARGETS
+    if {item["target"] for item in records} != expected:
+        raise ValueError("Formal publication requires the complete native target set")
+    client = publication.GitHub()
+    repository = os.environ["GITHUB_REPOSITORY"]
+    publication.release(client, repository, tag, commit, published=True)
+    endpoint = f"repos/{repository}/actions/runs/{run_id}"
+    run = client.api("GET", endpoint)
+    if (run.get("id") != int(run_id) or run.get("head_sha") != revision or run.get("head_branch") != "main"
+            or run.get("event") != "workflow_dispatch" or run.get("path") != ".github/workflows/release.yml"
+            or run.get("repository", {}).get("full_name") != repository
+            or run.get("head_repository", {}).get("full_name") != repository):
+        raise ValueError("Formal publication requires the original Desktop producer workflow")
+    jobs = client.api("GET", endpoint + "/jobs?filter=latest&per_page=100")["jobs"]
+    publishers = [job for job in jobs if job.get("name") == "Publish Desktop and start follow-ups"]
+    if (len(publishers) != 1 or not any(step.get("name") == "Verify archives and publish Desktop"
+                                      and step.get("conclusion") == "success"
+                                      for step in publishers[0].get("steps", []))):
+        raise ValueError("The initial Desktop packages have not been published by this producer")
+    actual = identities(client, repository, int(run_id), revision, expected)
+    if sorted(actual, key=lambda item: item["target"]) != sorted(records, key=lambda item: item["target"]):
+        raise ValueError("Formal publication artifact identities differ from the producer")
+    return {"include": [{**item, "runner": "macos-15" if item["target"].startswith("aarch64")
+                         else "macos-15-intel"} for item in records]}
+
+
+def identities(client, repository, run_id, revision, targets):
+    payload = client.api("GET", f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100")
+    if payload.get("total_count", 0) > 100:
+        raise ValueError("The native artifact inventory is ambiguous")
+    result = []
+    for target in sorted(targets):
+        matches = [item for item in payload["artifacts"] if item.get("name") == f"native-{target}"]
+        if len(matches) != 1:
+            raise ValueError("The native artifact target is missing or ambiguous")
+        item = matches[0]
+        origin = item.get("workflow_run", {})
+        if (item.get("expired") is not False or item.get("size_in_bytes", 0) <= 0
+                or origin.get("id") != run_id or origin.get("head_sha") != revision
+                or origin.get("head_branch") != "main"):
+            raise ValueError("The native artifact belongs to another producer")
+        result.append({"target": target, "id": item.get("id"), "digest": item.get("digest")})
+    return artifact_specs(json.dumps(result))
+
+
+def restore(root, tag, target, run_id=None, revision=None, identity=None, checksum=None, source=None):
     expected = context(root, tag, target)
+    if run_id is not None:
+        if (not re.fullmatch(r"[1-9][0-9]*", run_id)
+                or re.fullmatch(r"[0-9a-f]{40}", revision or "") is None
+                or source != expected["source_revision"]):
+            raise ValueError("Native recovery requires the exact original producer and product")
+        artifact_specs(json.dumps([{"target": target, "id": identity, "digest": checksum}]))
+        expected.update(run_id=int(run_id), workflow_revision=revision)
     repository = os.environ["GITHUB_REPOSITORY"]
     client = publication.GitHub()
     if publication.remote_commit(client, repository, tag) != expected["source_revision"]:
@@ -137,6 +208,8 @@ def restore(root, tag, target):
     if inventory.get("total_count", 0) > 100 or len(matches) != 1:
         raise ValueError("The native Desktop artifact is missing or ambiguous")
     artifact = matches[0]
+    if run_id is not None and (artifact.get("id") != identity or artifact.get("digest") != checksum):
+        raise ValueError("The native artifact differs from the explicitly selected identity")
     origin = artifact.get("workflow_run", {})
     if (artifact.get("expired") is not False or not isinstance(artifact.get("id"), int)
             or artifact["id"] <= 0 or artifact.get("size_in_bytes", 0) <= 0
@@ -186,18 +259,40 @@ def restore(root, tag, target):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("stage", "restore"))
+    parser.add_argument("mode", choices=("stage", "restore", "inventory", "select"))
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--tag", required=True)
-    parser.add_argument("--target", choices=sorted(TARGETS), required=True)
+    parser.add_argument("--target", choices=sorted(TARGETS))
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--run")
+    parser.add_argument("--revision")
+    parser.add_argument("--source-sha")
+    parser.add_argument("--artifact-id", type=int)
+    parser.add_argument("--artifact-digest")
+    parser.add_argument("--artifacts")
+    parser.add_argument("--signed-arm", action="store_true")
     args = parser.parse_args()
     if args.mode == "stage":
-        if args.output is None:
+        if args.output is None or args.target is None:
             parser.error("Native staging requires an output archive")
         stage(args.source.resolve(), args.tag, args.target, args.output)
+    elif args.mode == "restore":
+        if args.target is None:
+            parser.error("Native restoration requires a target")
+        restore(args.source.resolve(), args.tag, args.target, args.run, args.revision,
+                args.artifact_id, args.artifact_digest, args.source_sha)
     else:
-        restore(args.source.resolve(), args.tag, args.target)
+        if args.mode == "select":
+            result = select(args.source.resolve(), args.tag, args.run, args.revision,
+                            args.source_sha, args.artifacts, args.signed_arm)
+            key = "matrix"
+        else:
+            targets = {"x86_64-apple-darwin"} if args.signed_arm else TARGETS
+            result = identities(publication.GitHub(), os.environ["GITHUB_REPOSITORY"],
+                                int(os.environ["GITHUB_RUN_ID"]), os.environ["WORKFLOW_REVISION"], targets)
+            key = "artifacts"
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+            output.write(key + "=" + json.dumps(result, separators=(",", ":")) + "\n")
 
 
 if __name__ == "__main__":
