@@ -4,6 +4,9 @@ Read [ARCHITECTURE.md](ARCHITECTURE.md) and [AGENTS.md](AGENTS.md) before changi
 ownership, execution or UI boundaries. Work from the committed implementation,
 preserve unrelated local changes and keep each task cohesive and reviewable.
 
+Follow the [code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities through
+[the private security reporting process](SECURITY.md), not public issues.
+
 ## Native setup
 
 Use Rust 1.98.0, Git, Python 3.12 or newer, Zig 0.16.0, `just`, and your platform's
