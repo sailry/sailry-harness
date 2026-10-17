@@ -18,13 +18,35 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 
 [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/sailry/sailry-harness/issues)
 
-| Run on | Downloads | Install |
-| --- | --- | --- |
-| macOS 13 or later · Apple silicon / Intel | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) | Open the matching DMG and drag **Sailry.app** into **Applications**. |
-| Your own server | — | Use Desktop's **Add Host** to install and connect. |
+### Desktop
 
+| Platform | Architecture | Status | Download |
+| --- | --- | --- | --- |
+| macOS 13+ | Apple silicon / Intel | Supported | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Windows | x64 / ARM64 | Planned | — |
+| Linux | x64 / ARM64 | Planned | — |
+
+On macOS, open the matching DMG and drag **Sailry.app** into **Applications**.
 Connect a model provider, then open a folder or start a conversation.
-Available platforms and packages are listed on each release page.
+
+### Host
+
+| Platform | Architecture | Status | Download |
+| --- | --- | --- | --- |
+| macOS 13+ | Apple silicon / Intel | Awaiting release | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Linux · glibc 2.28+ | x64 / ARM64 | Awaiting release | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Windows | — | Planned | — |
+
+Use Desktop's **Add Host** to install and connect to your own server.
+
+### Mobile
+
+| Platform | Architecture | Status | Download |
+| --- | --- | --- | --- |
+| Android 7.0+ | ARM64 | Not released | — |
+| iOS 15+ | ARM64 | Not released | — |
+
+Package availability depends on the release.
 
 Sailry is still early. Features may change, and some are incomplete.
 The screenshot shows an English demo workspace with illustrative content.

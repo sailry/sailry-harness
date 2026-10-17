@@ -18,13 +18,35 @@
 
 [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/sailry/sailry-harness/issues)
 
-| 运行环境 | 下载 | 安装方式 |
-| --- | --- | --- |
-| macOS 13 或更新版本 · Apple 芯片 / Intel | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) | 打开对应的 DMG，将 **Sailry.app** 拖入 **Applications（应用程序）**。 |
-| 自己的服务器 | — | 在桌面端使用 **Add Host** 安装并连接。 |
+### 桌面端
 
+| 系统 | 架构 | 状态 | 下载 |
+| --- | --- | --- | --- |
+| macOS 13+ | Apple 芯片 / Intel | 支持 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Windows | x64 / ARM64 | 计划中 | — |
+| Linux | x64 / ARM64 | 计划中 | — |
+
+在 macOS 上打开对应的 DMG，将 **Sailry.app** 拖入 **Applications（应用程序）**。
 连接模型服务后，打开文件夹或开始对话。
-可用平台和安装包以各版本的发布页面为准。
+
+### Host
+
+| 系统 | 架构 | 状态 | 下载 |
+| --- | --- | --- | --- |
+| macOS 13+ | Apple 芯片 / Intel | 待发布 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Linux · glibc 2.28+ | x64 / ARM64 | 待发布 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Windows | — | 计划中 | — |
+
+在桌面端使用 **Add Host**，安装并连接自己的服务器。
+
+### 移动端
+
+| 系统 | 架构 | 状态 | 下载 |
+| --- | --- | --- | --- |
+| Android 7.0+ | ARM64 | 未发布 | — |
+| iOS 15+ | ARM64 | 未发布 | — |
+
+安装包以各版本的发布页面为准。
 
 Sailry 仍处于早期阶段，功能可能调整，部分功能尚未完善。
 截图为英文演示工作区，内容仅供示意。
