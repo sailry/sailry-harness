@@ -85,6 +85,7 @@ pub(super) fn open(
             .w(width)
             .max_h(window.viewport_size().height * 0.8)
             .margin_top(window.viewport_size().height * 0.1)
+            .overlay_closable(false)
             // Explicit footer buttons own submission; Enter must not close the form.
             .on_ok(|_, _, _| false)
             .on_close(move |_, window, cx| close.update(cx, |editor, cx| editor.close(window, cx)))

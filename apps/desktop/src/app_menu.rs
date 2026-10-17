@@ -175,6 +175,10 @@ fn menus(locale: &str, navigation: &[Navigation]) -> Vec<Menu> {
         Menu::new(label("menu_help")).items([
             MenuItem::action(label("menu_website"), Website),
             MenuItem::action(label("menu_feedback"), Feedback),
+            MenuItem::action(
+                label("menu_input_diagnostics"),
+                crate::input_diagnostics::CopyInputDiagnostics,
+            ),
             MenuItem::action(label("menu_logs"), Logs)
                 .disabled(sailry_node_runtime::logging::directory().is_none()),
         ]),

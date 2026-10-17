@@ -1,4 +1,125 @@
 use super::*;
+
+pub(super) fn crumbs(listing: &Listing) -> Vec<(String, String)> {
+    let path = &listing.directory.path;
+    let separator = listing.separator;
+    let mut root = if separator == '\\' {
+        path.split(separator).next().unwrap_or("").to_owned()
+    } else {
+        "/".into()
+    };
+    let mut label = root.clone();
+    if separator == '\\' && !root.is_empty() {
+        root.push(separator);
+    }
+    if let Some(location) = listing
+        .locations
+        .iter()
+        .filter(|location| {
+            matches!(
+                location.kind,
+                sailry_protocol::file_browser::LocationKind::Volume
+                    | sailry_protocol::file_browser::LocationKind::Root
+            )
+        })
+        .filter(|location| {
+            path == &location.path
+                || path.strip_prefix(&location.path).is_some_and(|suffix| {
+                    suffix.starts_with(separator) || location.path.ends_with(separator)
+                })
+        })
+        .max_by_key(|location| location.path.len())
+    {
+        root = location.path.clone();
+        if !location.name.is_empty() {
+            label = location.name.clone();
+        }
+    }
+    // UNC roots are supplied by the Node, not parsed with the controller's OS.
+    if separator == '\\' && root.is_empty() {
+        let components: Vec<_> = path
+            .split(separator)
+            .filter(|value| !value.is_empty())
+            .take(2)
+            .collect();
+        root = format!("\\\\{}", components.join("\\"));
+        label = root.clone();
+    }
+    let mut result = vec![(label, root.clone())];
+    let mut current = root.trim_end_matches(separator).to_owned();
+    for part in path
+        .strip_prefix(&root)
+        .unwrap_or(path)
+        .split(separator)
+        .filter(|part| !part.is_empty())
+    {
+        current.push(separator);
+        current.push_str(part);
+        result.push((part.into(), current.clone()));
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    fn listing(path: &str, separator: char) -> Listing {
+        Listing {
+            separator,
+            parent: None,
+            locations: Vec::new(),
+            directory: sailry_protocol::Directory {
+                path: path.into(),
+                entries: Vec::new(),
+                truncated: false,
+                unsupported_names: 0,
+                revision: "fixture".into(),
+                next: None,
+            },
+        }
+    }
+    #[test]
+    fn drive_root_stays_absolute() {
+        assert_eq!(
+            crumbs(&listing("D:\\source\\目录", '\\')),
+            vec![
+                ("D:".into(), "D:\\".into()),
+                ("source".into(), "D:\\source".into()),
+                ("目录".into(), "D:\\source\\目录".into())
+            ]
+        );
+    }
+    #[test]
+    fn unc_preserves_share_root() {
+        assert_eq!(
+            crumbs(&listing("\\\\node\\share\\folder", '\\')),
+            vec![
+                ("\\\\node\\share".into(), "\\\\node\\share".into()),
+                ("folder".into(), "\\\\node\\share\\folder".into())
+            ]
+        );
+    }
+    #[test]
+    fn volume_name_comes_from_node() {
+        let mut listing = listing("/Volumes/Work/source", '/');
+        listing
+            .locations
+            .push(sailry_protocol::file_browser::Location {
+                kind: sailry_protocol::file_browser::LocationKind::Volume,
+                name: "Work".into(),
+                path: "/Volumes/Work".into(),
+            });
+        assert_eq!(
+            crumbs(&listing),
+            vec![
+                ("Work".into(), "/Volumes/Work".into()),
+                ("source".into(), "/Volumes/Work/source".into())
+            ]
+        );
+    }
+}
+
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 
 impl Picker {

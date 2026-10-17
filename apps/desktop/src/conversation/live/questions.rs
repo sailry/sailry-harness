@@ -28,6 +28,7 @@ struct Editing {
     draft: Draft,
     fields: Vec<fields::Draft>,
     other: bool,
+    scroll: ScrollHandle,
     _input: Option<Subscription>,
 }
 
@@ -174,6 +175,7 @@ impl View {
             draft,
             fields,
             other: false,
+            scroll: ScrollHandle::new(),
             _input: input,
         });
     }
@@ -183,6 +185,7 @@ impl View {
         id: QuestionId,
         index: usize,
         selected: bool,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.questions.locked() || self.question_pending(id).is_none() {
@@ -213,6 +216,17 @@ impl View {
         }
         if index == options.len() {
             editing.other = selected;
+            if selected {
+                if let Some(field) = &editing.draft.field {
+                    match field {
+                        Field::Line(input) => input.update(cx, |input, cx| input.focus(window, cx)),
+                        Field::Multiline(input) => {
+                            input.update(cx, |input, cx| input.focus(window, cx))
+                        }
+                    }
+                }
+                editing.scroll.scroll_to_bottom();
+            }
         } else if selected {
             editing.draft.selected.insert(index);
         } else {

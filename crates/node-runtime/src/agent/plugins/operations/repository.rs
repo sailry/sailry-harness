@@ -146,7 +146,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["worktree", "limit", "cursor"],
         ),
         Operation::ReadGitShow => (
-            json!({"worktree":target,"revision":string,"path":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}),
+            json!({"worktree":target,"revision":string,"path":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":sailry_protocol::MAX_GIT_SHOW_LINES}}),
             vec!["worktree", "revision", "path", "offset", "limit"],
         ),
         Operation::ReadGitBlame => (

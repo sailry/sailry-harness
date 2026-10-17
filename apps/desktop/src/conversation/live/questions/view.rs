@@ -16,6 +16,53 @@ impl View {
     ) -> Option<AnyElement> {
         let editing = self.questions.editing.as_ref()?;
         let id = editing.id;
+        let owner = cx.weak_entity();
+        Some(
+            Popover::new(format!("live-question-popover-{id}"))
+                .anchor(Anchor::BottomRight)
+                .bottom_2()
+                .open(self.questions.open)
+                .on_open_change(cx.listener(move |view, open: &bool, _, cx| {
+                    if view
+                        .questions
+                        .editing
+                        .as_ref()
+                        .is_none_or(|editing| editing.id != id)
+                    {
+                        return;
+                    }
+                    view.questions.open = *open;
+                    cx.notify();
+                }))
+                .trigger(
+                    Button::new("live-question-trigger")
+                        .outline()
+                        .small()
+                        .rounded_full()
+                        .icon(IconName::CircleUser)
+                        .font_normal()
+                        .text_color(cx.theme().muted_foreground)
+                        .label(tr("question_reply"))
+                        .debug_selector(|| "live-question-trigger".into()),
+                )
+                .content(move |_, window, cx| {
+                    owner
+                        .update(cx, |view, cx| view.question_body(id, window, cx))
+                        .unwrap_or_else(|_| div().into_any_element())
+                })
+                .into_any_element(),
+        )
+    }
+
+    fn question_body(&self, id: QuestionId, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let Some(editing) = self
+            .questions
+            .editing
+            .as_ref()
+            .filter(|editing| editing.id == id)
+        else {
+            return div().into_any_element();
+        };
         let locked = self.questions.locked();
         let pending = self.question_pending(id).is_some();
         let closed = !pending && !locked;
@@ -24,11 +71,13 @@ impl View {
         let mut content = v_flex()
             .w_full()
             .h_auto()
-            .flex_shrink_0()
-            .max_h_64()
+            .min_h_0()
+            .flex_shrink_1()
             .gap_4()
-            .overflow_y_scrollbar()
             .id(format!("question-scroll-{id}"))
+            .overflow_y_scroll()
+            .track_scroll(&editing.scroll)
+            .vertical_scrollbar(&editing.scroll)
             .child(
                 div()
                     .debug_selector(|| "live-question-prompt".into())
@@ -69,8 +118,8 @@ impl View {
                             .label(label)
                             .checked(selected)
                             .disabled(!editable)
-                            .on_click(cx.listener(move |view, selected, _, cx| {
-                                view.select_question(id, index, *selected, cx)
+                            .on_click(cx.listener(move |view, selected, window, cx| {
+                                view.select_question(id, index, *selected, window, cx)
                             }))
                     }),
                 ));
@@ -93,8 +142,8 @@ impl View {
                                 .label(label)
                                 .debug_selector(move || format!("live-question-choice-{index}"))
                         }))
-                        .on_click(cx.listener(move |view, index, _, cx| {
-                            view.select_question(id, *index, true, cx)
+                        .on_click(cx.listener(move |view, index, window, cx| {
+                            view.select_question(id, *index, true, window, cx)
                         })),
                 );
             }
@@ -222,44 +271,21 @@ impl View {
                         })),
                 )
             });
-        let body = v_flex()
+        // Kit clamps the anchored surface into the viewport. Reserve its
+        // existing padding and edge margin before the body shares this height.
+        let height =
+            (window.viewport_size().height - window.rem_size() * 1.5 - px(16.)).max(px(0.));
+        v_flex()
             .key_context(self.questions.keys.read(cx).context().as_str())
             .w_80()
             .max_w_full()
+            .h_auto()
+            .min_h_0()
+            .max_h(height)
             .gap_4()
             .debug_selector(|| "pending-question".into())
             .child(content)
-            .child(actions);
-        Some(
-            Popover::new(format!("live-question-popover-{id}"))
-                .anchor(Anchor::BottomRight)
-                .bottom_2()
-                .open(self.questions.open)
-                .on_open_change(cx.listener(move |view, open: &bool, _, cx| {
-                    if view
-                        .questions
-                        .editing
-                        .as_ref()
-                        .is_none_or(|editing| editing.id != id)
-                    {
-                        return;
-                    }
-                    view.questions.open = *open;
-                    cx.notify();
-                }))
-                .trigger(
-                    Button::new("live-question-trigger")
-                        .outline()
-                        .small()
-                        .rounded_full()
-                        .icon(IconName::CircleUser)
-                        .font_normal()
-                        .text_color(cx.theme().muted_foreground)
-                        .label(tr("question_reply"))
-                        .debug_selector(|| "live-question-trigger".into()),
-                )
-                .child(body)
-                .into_any_element(),
-        )
+            .child(actions)
+            .into_any_element()
     }
 }

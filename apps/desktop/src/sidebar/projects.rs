@@ -22,6 +22,7 @@ impl Shell {
                 .debug_selector(|| "sidebar-projects-empty".into())
                 .px_2()
                 .py_1()
+                .text_left()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
                 .child(tr("connection_no_projects"))

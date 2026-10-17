@@ -1,6 +1,6 @@
 use super::*;
 use gpui_kit::component::checkbox::Checkbox;
-use gpui_kit::component::table::{Column, TableDelegate};
+use gpui_kit::component::table::{Column, ColumnSort, TableDelegate};
 
 pub(in crate::file_picker) struct Rows {
     pub owner: Option<WeakEntity<Picker>>,
@@ -9,6 +9,7 @@ pub(in crate::file_picker) struct Rows {
     pub width: f32,
     pub filtered: bool,
     pub multiple: bool,
+    pub order: browsing::Order,
 }
 impl Rows {
     pub fn new() -> Self {
@@ -19,6 +20,7 @@ impl Rows {
             width: 400.,
             filtered: false,
             multiple: false,
+            order: browsing::Order::default(),
         }
     }
     fn background(
@@ -61,6 +63,51 @@ impl TableDelegate for Rows {
             .max_width(px(width))
             .resizable(false)
             .movable(false)
+            .sort(if self.order.column == index {
+                if self.order.descending {
+                    ColumnSort::Descending
+                } else {
+                    ColumnSort::Ascending
+                }
+            } else {
+                ColumnSort::Default
+            })
+    }
+    fn perform_sort(
+        &mut self,
+        column: usize,
+        sort: ColumnSort,
+        _: &mut Window,
+        cx: &mut Context<TableState<Self>>,
+    ) {
+        let Some(owner) = &self.owner else {
+            return;
+        };
+        // This callback already borrows TableState; update its rows directly
+        // instead of recursively borrowing it through Picker::sync_table.
+        if let Ok((order, entries)) = owner.update(cx, |picker, cx| {
+            picker.order = match sort {
+                ColumnSort::Default => browsing::Order::default(),
+                _ => browsing::Order {
+                    column,
+                    descending: sort == ColumnSort::Descending,
+                },
+            };
+            picker.order_visible();
+            picker.search.reset();
+            cx.notify();
+            (
+                picker.order,
+                picker
+                    .visible
+                    .iter()
+                    .map(|index| (*index, picker.entries()[*index].clone()))
+                    .collect(),
+            )
+        }) {
+            self.order = order;
+            self.entries = entries;
+        }
     }
     fn render_header(
         &mut self,
@@ -202,7 +249,7 @@ pub(super) fn icon(entry: &FileEntry, size: Rems, cx: &App) -> AnyElement {
     }
     crate::ui::file_icon::render(&entry.name, "", size)
 }
-fn kind(entry: &FileEntry) -> SharedString {
+pub(in crate::file_picker) fn kind(entry: &FileEntry) -> SharedString {
     if entry.kind == EntryKind::Directory {
         return tr("directory_folder_kind");
     }

@@ -5,6 +5,7 @@ pub const MAX_DIFF_BYTES: usize = 48 * 1024;
 pub const MAX_GIT_COMMITS: usize = 100;
 pub const MAX_GIT_WORKTREES: usize = 100;
 pub const MAX_GIT_LINES: usize = 500;
+pub const MAX_GIT_SHOW_LINES: usize = 2000;
 pub const MAX_GIT_FILE_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

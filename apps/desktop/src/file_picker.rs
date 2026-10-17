@@ -4,6 +4,7 @@
 //! checkbox; the application also composes grid selection from Kit buttons.
 pub(crate) mod actions;
 mod breadcrumbs;
+mod browsing;
 mod catalog;
 mod go_to;
 mod navigation;
@@ -12,6 +13,7 @@ mod selection;
 #[cfg(test)]
 mod tests;
 use crate::{theme::DialogStyle as _, tr};
+use breadcrumbs::crumbs;
 use catalog::Catalog;
 use gpui_kit::component::{
     VirtualListScrollHandle,
@@ -196,6 +198,8 @@ pub(crate) fn open(
             grid: preference.grid,
             hidden: preference.hidden,
             visible: Vec::new(),
+            order: browsing::Order::default(),
+            search: browsing::Search::default(),
             history: Vec::new(),
             cursor: 0,
             selected: BTreeSet::new(),
@@ -205,6 +209,7 @@ pub(crate) fn open(
             columns: 1,
             scroll: VirtualListScrollHandle::new(),
             locations_scroll: ScrollHandle::new(),
+            address_scroll: ScrollHandle::new(),
             table,
             clipboard: None,
             menu_directory: None,
@@ -273,6 +278,8 @@ pub(crate) struct Picker {
     grid: bool,
     hidden: bool,
     visible: Vec<usize>,
+    order: browsing::Order,
+    search: browsing::Search,
     history: Vec<String>,
     cursor: usize,
     pub(crate) selected: BTreeSet<usize>,
@@ -282,6 +289,7 @@ pub(crate) struct Picker {
     columns: usize,
     scroll: VirtualListScrollHandle,
     locations_scroll: ScrollHandle,
+    address_scroll: ScrollHandle,
     table: Entity<TableState<render::Rows>>,
     pub(crate) clipboard: Option<(Vec<String>, bool)>,
     menu_directory: Option<String>,
@@ -361,10 +369,42 @@ impl Picker {
     fn rebuild(&mut self, cx: &mut Context<Self>) {
         self.visible =
             selection::visible(self.entries(), self.hidden, &self.filter.read(cx).value());
+        self.order_visible();
+        self.search.reset();
         self.selected.retain(|index| self.visible.contains(index));
         self.focused = self.focused.filter(|index| self.visible.contains(index));
         self.anchor = self.anchor.filter(|index| self.visible.contains(index));
         self.sync_table(cx);
+    }
+    fn order_visible(&mut self) {
+        let entries = self.entries();
+        let mut rows: Vec<_> = self
+            .visible
+            .iter()
+            .map(|index| {
+                let entry = &entries[*index];
+                (*index, render::kind(entry))
+            })
+            .collect();
+        rows.sort_by(|(left, left_kind), (right, right_kind)| {
+            let left = &entries[*left];
+            let right = &entries[*right];
+            self.order.compare(
+                &browsing::Entry {
+                    name: &left.name,
+                    kind: left_kind.as_ref(),
+                    directory: left.kind == EntryKind::Directory,
+                    size: left.size,
+                },
+                &browsing::Entry {
+                    name: &right.name,
+                    kind: right_kind.as_ref(),
+                    directory: right.kind == EntryKind::Directory,
+                    size: right.size,
+                },
+            )
+        });
+        self.visible = rows.into_iter().map(|(index, _)| index).collect();
     }
     fn sync_table(&self, cx: &mut Context<Self>) {
         let entries: Vec<_> = self
@@ -375,12 +415,14 @@ impl Picker {
         let selected = self.selected.clone();
         let filtered = !self.filter.read(cx).value().is_empty();
         let multiple = matches!(self.mode, Mode::Files { multiple: true });
+        let order = self.order;
         self.table.update(cx, |table, cx| {
             let rows = table.delegate_mut();
             rows.entries = entries;
             rows.selected = selected;
             rows.filtered = filtered;
             rows.multiple = multiple;
+            rows.order = order;
             cx.notify();
         });
     }

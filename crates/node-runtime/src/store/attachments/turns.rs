@@ -84,7 +84,7 @@ pub(in crate::store) fn resolve(
     id: AttachmentId,
 ) -> Result<Attachment, Fault> {
     let worktree: Option<String> = db.query_row(
-        "SELECT a.worktree FROM attachments a WHERE a.id=?2 AND EXISTS(SELECT 1 FROM turn_attachments r JOIN conversation_turns h ON h.turn=r.turn JOIN turns t ON t.session=h.session JOIN agent_runs origin ON origin.turn=r.turn WHERE t.id=?1 AND r.attachment=a.id AND (r.turn=t.id OR (json_extract(origin.body,'$.status') IN ('completed','failed','cancelled') AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=origin.turn))))",
+        "SELECT a.worktree FROM attachments a WHERE a.id=?2 AND EXISTS(SELECT 1 FROM turn_attachments r JOIN conversation_turns h ON h.turn=r.turn JOIN turns t ON t.session=h.session JOIN agent_runs origin ON origin.turn=r.turn WHERE t.id=?1 AND r.attachment=a.id AND (r.turn=t.id OR (json_extract(origin.body,'$.status') IN ('completed','continued','failed','cancelled') AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=origin.turn))))",
         params![turn.to_string(), id.to_string()], |row| row.get(0),
     ).optional().map_err(storage_error)?;
     read(

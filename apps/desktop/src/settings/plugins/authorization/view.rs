@@ -42,18 +42,15 @@ impl Render for Login {
                     )
                 },
             )
-            .child(tr(if self.closing {
-                "provider_login_cancelling"
-            } else {
-                match self.state() {
-                    Some(State::Starting | State::Exchanging) => "provider_login_starting",
-                    Some(State::Pending { .. }) => "provider_login_waiting",
-                    Some(State::Connected(_)) => "provider_login_connected",
-                    Some(State::Cancelled) => "provider_login_cancelled",
-                    _ if self.configured == Some(true) => "provider_login_connected",
-                    _ => "mcp_oauth_not_connected",
-                }
-            }));
+            .when(self.closing || self.active(), |body| {
+                body.child(tr(if self.closing {
+                    "provider_login_cancelling"
+                } else if matches!(self.state(), Some(State::Pending { .. })) {
+                    "provider_login_waiting"
+                } else {
+                    "provider_login_starting"
+                }))
+            });
         if let Some(State::Pending { url, .. }) = self.state() {
             let url = url.clone();
             body = body.child(

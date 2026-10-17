@@ -145,13 +145,11 @@ pub(crate) fn branch(id: String, last: bool, indent: Pixels, cx: &App) -> Div {
 pub(crate) fn branch_empty(id: &'static str, label: SharedString, cx: &App) -> Div {
     div()
         .debug_selector(move || id.into())
-        .relative()
         .px_2()
-        .pl(px(30.))
         .py_1()
+        .text_left()
         .text_sm()
         .text_color(cx.theme().muted_foreground)
-        .child(branch(id.into(), true, px(30.), cx))
         .child(label)
 }
 

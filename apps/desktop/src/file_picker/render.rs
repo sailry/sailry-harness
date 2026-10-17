@@ -4,7 +4,7 @@ mod list;
 mod sidebar;
 mod toolbar;
 use gpui_kit::component::{dialog::DialogFooter, table::DataTable, tooltip::Tooltip};
-pub(super) use list::Rows;
+pub(super) use list::{Rows, kind};
 impl Render for Picker {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let width = (window.viewport_size().width - px(48.)).min(px(900.)) - px(48.);

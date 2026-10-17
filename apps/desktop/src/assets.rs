@@ -7,6 +7,120 @@ pub(crate) mod icons;
 
 pub(crate) struct Assets;
 
+// Kit's default source reads checkout files in debug builds. Keep its pinned
+// component bundle embedded in portable development packages as well.
+gpui_kit::assets::icon_assets!(
+    ComponentAssets,
+    [
+        ALargeSmall,
+        ArrowDown,
+        ArrowLeft,
+        ArrowRight,
+        ArrowUp,
+        Asterisk,
+        Ban,
+        Battery,
+        BatteryCharging,
+        BatteryFull,
+        BatteryLow,
+        BatteryMedium,
+        BatteryWarning,
+        Bell,
+        BookOpen,
+        Bot,
+        Building2,
+        Calendar,
+        CaseSensitive,
+        ChartPie,
+        Check,
+        ChevronDown,
+        ChevronLeft,
+        ChevronRight,
+        ChevronUp,
+        ChevronsUpDown,
+        CircleAlert,
+        CircleCheck,
+        CircleUser,
+        CircleX,
+        Close,
+        Copy,
+        Cpu,
+        Dash,
+        Delete,
+        Ellipsis,
+        EllipsisVertical,
+        ExternalLink,
+        Eye,
+        EyeOff,
+        File,
+        FileText,
+        Folder,
+        FolderClosed,
+        FolderOpen,
+        Frame,
+        GalleryVerticalEnd,
+        Github,
+        Globe,
+        HardDrive,
+        Heart,
+        HeartOff,
+        Inbox,
+        Info,
+        Inspector,
+        LayoutDashboard,
+        Loader,
+        LoaderCircle,
+        Map,
+        Maximize,
+        MemoryStick,
+        Menu,
+        Mic,
+        Minimize,
+        Minus,
+        Moon,
+        Network,
+        Palette,
+        PanelBottom,
+        PanelBottomOpen,
+        PanelLeft,
+        PanelLeftClose,
+        PanelLeftOpen,
+        PanelRight,
+        PanelRightClose,
+        PanelRightOpen,
+        Pause,
+        Play,
+        Plus,
+        Redo,
+        Redo2,
+        RefreshCw,
+        Replace,
+        ResizeCorner,
+        RotateCw,
+        Search,
+        Settings,
+        Settings2,
+        SortAscending,
+        SortDescending,
+        Square,
+        SquareTerminal,
+        Star,
+        StarFill,
+        StarOff,
+        Sun,
+        ThumbsDown,
+        ThumbsUp,
+        TriangleAlert,
+        Undo,
+        Undo2,
+        User,
+        WindowClose,
+        WindowMaximize,
+        WindowMinimize,
+        WindowRestore,
+    ]
+);
+
 gpui_kit::assets::icon_assets!(
     ActivityAssets,
     [
@@ -424,11 +538,15 @@ impl AssetSource for Assets {
         if let Some(bytes) = PickerAssets.load(path)? {
             return Ok(Some(bytes));
         }
+        if let Some(bytes) = ComponentAssets.load(path)? {
+            return Ok(Some(bytes));
+        }
         gpui_kit::assets::Assets.load(path)
     }
 
     fn list(&self, path: &str) -> Result<Vec<SharedString>> {
         let mut names = gpui_kit::assets::Assets.list(path)?;
+        names.extend(ComponentAssets.list(path)?);
         names.extend(ActivityAssets.list(path)?);
         names.extend(UsageAssets.list(path)?);
         names.extend(SettingsAssets.list(path)?);
@@ -448,6 +566,20 @@ impl AssetSource for Assets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_component_icons() {
+        let paths = ComponentAssets.list("icons/").unwrap();
+        assert_eq!(paths.len(), 106);
+        let names = Assets.list("icons/").unwrap();
+        for path in paths {
+            let bytes = ComponentAssets.load(&path).unwrap().unwrap();
+            assert!(matches!(bytes, Cow::Borrowed(_)), "{path}");
+            assert!(!bytes.is_empty(), "{path}");
+            assert_eq!(Assets.load(&path).unwrap().unwrap(), bytes, "{path}");
+            assert!(names.contains(&path), "{path}");
+        }
+    }
 
     #[test]
     fn embedded_product_icons() {

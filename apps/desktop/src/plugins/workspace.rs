@@ -46,6 +46,7 @@ pub(crate) struct State {
 
 struct Projection {
     host: std::sync::Weak<Host>,
+    has_content: bool,
     has_details: bool,
     details_label: Option<SharedString>,
     navigation: Navigation,
@@ -107,6 +108,16 @@ impl State {
             .unwrap_or_default()
     }
 
+    pub(crate) fn compact_width(&self) -> Option<Entity<Pixels>> {
+        (self.embedded
+            && self.mounted()
+            && self
+                .projection
+                .as_ref()
+                .is_some_and(|projection| !projection.has_content))
+        .then(|| self.controls_width.clone())
+    }
+
     pub(crate) fn has_navigation(&self) -> bool {
         self.projection
             .as_ref()
@@ -130,6 +141,7 @@ impl State {
             .is_none_or(|projection| !projection.host.ptr_eq(&next.host));
         if self.projection.as_ref().is_none_or(|projection| {
             !projection.host.ptr_eq(&next.host)
+                || projection.has_content != next.has_content
                 || projection.has_details != next.has_details
                 || projection.details_label != next.details_label
                 || projection.navigation != next.navigation
@@ -155,7 +167,7 @@ pub(super) fn module(
     let reveal = workspace.clone();
     let reveal_host = host.clone();
     let declarations = format!(
-        "{}\nexport function workspaceMode(): \"main\" | \"embedded\";\n/** Reveal the Shell details slot after an explicit selection, retaining its resized width. */\nexport function showWorkspaceDetails(): void;\n/** Children are content, optional details, and optional resource navigation; Shell owns the frame. Navigation/details minimum widths are bounded by 320/480px; main content uses Header.min_content_width. */\nexport const Workspace: {{ new(id: string, props?: {{has_details?: boolean; details_label?: string; default_details_width?: number; min_navigation_width?: number; min_details_width?: number; navigation?: \"default\" | \"none\" | \"resource\"}}): import(\"gpui-kit\").Element }};",
+        "{}\nexport function workspaceMode(): \"main\" | \"embedded\";\n/** Reveal the Shell details slot after an explicit selection, retaining its resized width. */\nexport function showWorkspaceDetails(): void;\n/** Children are content, optional details, and optional resource navigation; Shell owns the frame. Navigation/details minimum widths are bounded by 320/480px; main content uses Header.min_content_width. */\nexport const Workspace: {{ new(id: string, props?: {{has_content?: boolean; has_details?: boolean; details_label?: string; default_details_width?: number; min_navigation_width?: number; min_details_width?: number; navigation?: \"default\" | \"none\" | \"resource\"}}): import(\"gpui-kit\").Element }};",
         module.declared().unwrap_or_default()
     );
     module
@@ -193,6 +205,11 @@ pub(super) fn module(
             let available = args
                 .props()
                 .get("has_details")
+                .and_then(|value| value.as_bool())
+                != Some(false);
+            let has_content = args
+                .props()
+                .get("has_content")
                 .and_then(|value| value.as_bool())
                 != Some(false);
             let details_label = args
@@ -247,6 +264,7 @@ pub(super) fn module(
                 state.project(
                     Projection {
                         host: Arc::downgrade(&host),
+                        has_content,
                         has_details: available && details.is_some(),
                         details_label,
                         navigation,
@@ -258,6 +276,9 @@ pub(super) fn module(
             });
             let state = workspace.read(cx);
             if state.embedded {
+                if !has_content {
+                    return details.unwrap_or_else(|| div().into_any_element());
+                }
                 return crate::resources::split::Split {
                     id: format!("plugin-resource-split-{}", workspace.entity_id()).into(),
                     width: state.container_width,

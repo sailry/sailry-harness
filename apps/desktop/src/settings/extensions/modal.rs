@@ -39,5 +39,12 @@ pub(in crate::settings) fn open(binding: Binding, info: Info, window: &mut Windo
         );
     } else if configurable(&info) {
         configuration::panel(binding, info.summary, window, cx);
+    } else {
+        crate::feedback::toast(
+            window,
+            tr("plugins_view_unavailable"),
+            notification::Notification::error(tr("plugins_view_unavailable")),
+            cx,
+        );
     }
 }

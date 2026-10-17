@@ -183,6 +183,12 @@ impl Workspace {
             .and_then(|metadata| metadata.read(cx).entries.get(name))
             .cloned()
         else {
+            crate::feedback::toast(
+                window,
+                tr("plugins_read_failed"),
+                notification::Notification::error(tr("plugins_read_failed")),
+                cx,
+            );
             return;
         };
         if modal::has_panel(&info) {

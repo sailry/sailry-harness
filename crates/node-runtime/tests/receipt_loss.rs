@@ -31,24 +31,44 @@ async fn response_fault(reply: Option<serde_json::Value>, expected: ErrorCode) {
     let original = request.clone();
     let server = async {
         let connection = endpoint.accept().await.unwrap().await.unwrap();
-        let (mut send, mut recv) = connection.accept_bi().await.unwrap();
-        let mut prefix = [0; 4];
-        recv.read_exact(&mut prefix).await.unwrap();
-        let mut bytes = vec![0; u32::from_be_bytes(prefix) as usize];
-        recv.read_exact(&mut bytes).await.unwrap();
-        let call: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(call["data"], serde_json::to_value(original).unwrap());
-        if let Some(reply) = reply {
-            let bytes = serde_json::to_vec(&reply).unwrap();
-            send.write_all(&(bytes.len() as u32).to_be_bytes())
-                .await
-                .unwrap();
-            send.write_all(&bytes).await.unwrap();
-            send.finish().unwrap();
-            let _ = send.stopped().await;
-        } else {
-            send.reset(0u32.into()).unwrap();
-            let _ = connection.closed().await;
+        for inspect in [true, false] {
+            let (mut send, mut recv) = connection.accept_bi().await.unwrap();
+            let mut prefix = [0; 4];
+            recv.read_exact(&mut prefix).await.unwrap();
+            let mut bytes = vec![0; u32::from_be_bytes(prefix) as usize];
+            recv.read_exact(&mut bytes).await.unwrap();
+            let call: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(call["software_version"], sailry_link::PRODUCT_VERSION);
+            let response = if inspect {
+                assert_eq!(call["kind"], "inspect");
+                Some(serde_json::json!({
+                    "kind": "endpoint",
+                    "data": {
+                        "software_version": sailry_link::PRODUCT_VERSION,
+                        "execution": true,
+                        "name": null,
+                        "platform": std::env::consts::OS,
+                    }
+                }))
+            } else {
+                assert_eq!(call["kind"], "command");
+                assert_eq!(call["data"], serde_json::to_value(&original).unwrap());
+                reply.clone()
+            };
+            if let Some(response) = response {
+                let bytes = serde_json::to_vec(&response).unwrap();
+                send.write_all(&(bytes.len() as u32).to_be_bytes())
+                    .await
+                    .unwrap();
+                send.write_all(&bytes).await.unwrap();
+                send.finish().unwrap();
+                if !inspect {
+                    let _ = send.stopped().await;
+                }
+            } else {
+                send.reset(0u32.into()).unwrap();
+                let _ = connection.closed().await;
+            }
         }
     };
     let caller = async {

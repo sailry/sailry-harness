@@ -5540,7 +5540,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -5581,7 +5581,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5663,7 +5663,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "proc-macro-crate 3.5.0",
  "proc-macro2",
@@ -5674,7 +5674,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-shell"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "gpui-component",
  "gpui-shell",
@@ -5987,7 +5987,7 @@ dependencies = [
 [[package]]
 name = "gpui-fps"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "core-graphics 0.24.0",
  "gpui-fast",
@@ -6005,7 +6005,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -6022,7 +6022,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "anyhow",
  "gpui-fast",
@@ -6519,7 +6519,7 @@ checksum = "4b0d73e1bc02eef886a5947f41b8512708792e9e5d3053d181843311a487f96f"
 [[package]]
 name = "gpui-shell"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -6556,7 +6556,7 @@ dependencies = [
 [[package]]
 name = "gpui-wry"
 version = "0.7.3"
-source = "git+https://github.com/dux-web/gpui-component?rev=ee02d7de35215faa68cf31534841c861d02a99cc#ee02d7de35215faa68cf31534841c861d02a99cc"
+source = "git+https://github.com/dux-web/gpui-component?rev=98a5e5defd757145a5c51d5627384eed6783aa7f#98a5e5defd757145a5c51d5627384eed6783aa7f"
 dependencies = [
  "anyhow",
  "gpui-fast",

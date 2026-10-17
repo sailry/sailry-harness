@@ -258,6 +258,12 @@ async fn reports_bounded_text_and_binary_files() {
     )
     .unwrap();
     std::fs::write(root.join("binary.dat"), b"\0\x01").unwrap();
+    std::fs::write(root.join("rows.txt"), "line\n".repeat(1250)).unwrap();
+    std::fs::write(
+        root.join("wide.txt"),
+        format!("{}\n", "x".repeat(100)).repeat(1200),
+    )
+    .unwrap();
     commit(&repository);
     let node = Node::start_empty(temp.path().join("node")).await.unwrap();
     let local = Client::new(node.local());
@@ -269,6 +275,59 @@ async fn reports_bounded_text_and_binary_files() {
     let address = controller.handle().pair(invitation.ticket()).await.unwrap();
     let remote = Client::new(controller.handle().remote(address));
     for client in [&local, &remote] {
+        let rows = show(client, id, "HEAD", "rows.txt", 0, 1200).await;
+        assert_eq!(rows.text.lines().count(), 1200);
+        assert_eq!(rows.next, Some(1200));
+        assert_eq!(rows.truncated_line, None);
+        let tail = show(
+            client,
+            id,
+            &rows.commit,
+            "rows.txt",
+            rows.next.unwrap(),
+            MAX_GIT_SHOW_LINES,
+        )
+        .await;
+        assert_eq!(tail.text.lines().count(), 50);
+        assert_eq!(tail.next, None);
+        assert_eq!(tail.commit, rows.commit);
+
+        let mut offset = 0;
+        loop {
+            let page = show(
+                client,
+                id,
+                &rows.commit,
+                "wide.txt",
+                offset,
+                MAX_GIT_SHOW_LINES,
+            )
+            .await;
+            assert!(page.text.len() <= MAX_DIFF_BYTES);
+            assert_eq!(page.truncated_line, None);
+            assert!(page.text.starts_with(&format!("{}: ", offset + 1)));
+            let lines = page.text.lines().count();
+            assert!(lines > 0 && lines < 1200);
+            offset += lines;
+            if let Some(next) = page.next {
+                assert_eq!(next, offset);
+            } else {
+                break;
+            }
+        }
+        assert_eq!(offset, 1200);
+        let oversized = client
+            .execute(client.prepare(Command::ReadGitShow {
+                worktree: id,
+                revision: rows.commit,
+                path: Some("rows.txt".into()),
+                offset: 0,
+                limit: MAX_GIT_SHOW_LINES + 1,
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(oversized.code, ErrorCode::InvalidRequest);
+        assert!(oversized.message.contains("2000"));
         let page = show(client, id, "HEAD", "large.txt", 0, 200).await;
         assert!(page.truncated);
         assert_eq!(page.truncated_line, Some(1));

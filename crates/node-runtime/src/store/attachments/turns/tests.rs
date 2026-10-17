@@ -57,7 +57,7 @@ fn confines_history_resolution() {
     )
     .unwrap();
     assert_eq!(resolve(&db, current, attachment.id).unwrap(), attachment);
-    for status in ["completed", "failed", "cancelled"] {
+    for status in ["completed", "continued", "failed", "cancelled"] {
         db.execute(
             "UPDATE agent_runs SET body=?1 WHERE turn=?2",
             params![format!("{{\"status\":\"{status}\"}}"), origin.to_string()],
@@ -76,7 +76,7 @@ fn confines_history_resolution() {
         )
         .unwrap();
     }
-    for status in ["queued", "running", "stopping", "interrupted", "continued"] {
+    for status in ["queued", "running", "stopping", "interrupted"] {
         db.execute(
             "UPDATE agent_runs SET body=?1 WHERE turn=?2",
             params![format!("{{\"status\":\"{status}\"}}"), origin.to_string()],

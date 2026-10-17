@@ -13,7 +13,7 @@ pub(super) fn show(
     limit: usize,
     control: &Control,
 ) -> Result<Output, Fault> {
-    validate_page(offset, limit)?;
+    validate_page(offset, limit, MAX_GIT_SHOW_LINES)?;
     let repository = open(root)?;
     let commit = resolve(&repository, revision)?;
     let Some(path) = path else {
@@ -89,7 +89,7 @@ pub(super) fn blame(
     limit: usize,
     control: &Control,
 ) -> Result<GitBlame, Fault> {
-    validate_page(offset, limit)?;
+    validate_page(offset, limit, MAX_GIT_LINES)?;
     let repository = open(root)?;
     let commit = resolve(&repository, revision.unwrap_or("HEAD"))?;
     let blob = blob(&repository, commit, path)?;
@@ -204,9 +204,14 @@ fn text<'blob>(blob: &'blob Blob<'_>) -> Option<&'blob str> {
     }
 }
 
-fn validate_page(offset: usize, limit: usize) -> Result<(), Fault> {
-    if limit == 0 || limit > MAX_GIT_LINES || offset.checked_add(limit).is_none() {
-        return Err(Fault::invalid("invalid Git line page"));
+fn validate_page(offset: usize, limit: usize, maximum: usize) -> Result<(), Fault> {
+    if limit == 0 || limit > maximum {
+        return Err(Fault::invalid(format!(
+            "Git line page limit must be between 1 and {maximum}"
+        )));
+    }
+    if offset.checked_add(limit).is_none() {
+        return Err(Fault::invalid("Git line page offset exceeds the range"));
     }
     Ok(())
 }

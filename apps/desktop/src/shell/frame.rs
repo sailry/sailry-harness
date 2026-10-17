@@ -70,6 +70,13 @@ impl super::Shell {
             .as_ref()
             .map(|workspace| workspace.read(cx).ranges())
             .unwrap_or_default();
+        let resource_workspace = self
+            .side_resource
+            .as_ref()
+            .and_then(|resource| match resource {
+                crate::resources::SideResource::Plugin(panel) => panel.read(cx).workspace.clone(),
+                _ => None,
+            });
         let compact_width = (self.page == Page::Conversation)
             .then(|| match &self.side_resource {
                 Some(crate::resources::SideResource::PreviewFiles(state))
@@ -82,11 +89,17 @@ impl super::Shell {
                 {
                     Some(state.list_width.clone())
                 }
-                _ => None,
+                _ => resource_workspace
+                    .as_ref()
+                    .and_then(|workspace| workspace.read(cx).compact_width()),
             })
             .flatten();
         if compact_width.is_some() {
-            constraints.details.start = px(crate::resources::split::MIN_WIDTH);
+            if let Some(workspace) = &resource_workspace {
+                constraints.details = workspace.read(cx).ranges().details;
+            } else {
+                constraints.details.start = px(crate::resources::split::MIN_WIDTH);
+            }
         } else if self.page == Page::Conversation {
             constraints.details = px(crate::resources::MIN_WIDTH)..px(10000.);
         }

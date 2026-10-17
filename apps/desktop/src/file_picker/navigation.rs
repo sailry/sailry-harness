@@ -121,6 +121,10 @@ impl Picker {
         }
         if changed {
             self.scroll.scroll_to_item(0, ScrollStrategy::Top);
+            if let Some(listing) = &self.listing {
+                self.address_scroll
+                    .scroll_to_item(crumbs(listing).len().saturating_sub(1));
+            }
         }
         self.focus.focus(window, cx);
         cx.notify();
@@ -353,7 +357,40 @@ impl Picker {
                             .update(cx, |table, cx| table.scroll_to_row(row, cx));
                     }
                 }
-                _ => return,
+                _ => {
+                    if key.modifiers.alt {
+                        return;
+                    }
+                    let Some(text) = key.key_char.as_deref() else {
+                        return;
+                    };
+                    // Kit Table has no prefix navigation. Only the file-list
+                    // focus reaches this adapter; editable fields and IME keep
+                    // their own text-input handling.
+                    let names: Vec<_> = self
+                        .visible
+                        .iter()
+                        .map(|index| self.entries()[*index].name.clone())
+                        .collect();
+                    let names: Vec<_> = names.iter().map(String::as_str).collect();
+                    let position = self
+                        .focused
+                        .and_then(|index| self.visible.iter().position(|value| *value == index));
+                    let Some(row) =
+                        self.search
+                            .find(text, std::time::Instant::now(), &names, position)
+                    else {
+                        return;
+                    };
+                    self.choose(self.visible[row], false, window, cx);
+                    if self.grid {
+                        self.scroll
+                            .scroll_to_item(row / self.columns, ScrollStrategy::Top);
+                    } else {
+                        self.table
+                            .update(cx, |table, cx| table.scroll_to_row(row, cx));
+                    }
+                }
             }
         }
         cx.stop_propagation();

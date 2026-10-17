@@ -474,6 +474,10 @@ impl View {
             .map(|entry| entry.path.as_str())
     }
 
+    pub(crate) fn composer_focused(&self, window: &Window, cx: &App) -> bool {
+        self.input.read(cx).focus_handle(cx).is_focused(window)
+    }
+
     pub(crate) fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.refresh_repository(repository::Refresh::Focus, cx);
         if self.readonly() {

@@ -1,6 +1,129 @@
 use super::*;
 
 #[tokio::test]
+async fn preserves_images_after_guidance() {
+    for remote in [false, true] {
+        let fixture = Fixture::empty().await;
+        let client = fixture
+            .clients()
+            .into_iter()
+            .nth(usize::from(remote))
+            .unwrap();
+        let release = CancellationToken::new();
+        let server = server::Server::markdown_held("Image received".into(), release.clone()).await;
+        let (session, _) = session(
+            &client,
+            fixture.worktree,
+            &server.endpoint,
+            ModelApi::ChatCompletions,
+        )
+        .await;
+        let bytes = png();
+        let first = upload(&client, fixture.worktree, "first.png", "image/png", &bytes).await;
+        let active = queue(&client, &session, input("Inspect this image", &[&first])).await;
+        client
+            .execute(client.prepare(Command::StartQueuedTurn { turn: active.id }))
+            .await
+            .unwrap();
+        server.wait_count(1).await;
+        let selected = queue(&client, &session, "Continue with the same image".into()).await;
+        client
+            .execute(client.prepare(Command::GuideQueuedTurn {
+                turn: selected.id,
+                recipient: active.id,
+                expected_revision: 1,
+            }))
+            .await
+            .unwrap();
+        server.wait_count(2).await;
+        let handoff = page(&client, session.id).await;
+        assert_eq!(
+            handoff
+                .runs
+                .iter()
+                .find(|run| run.turn == active.id)
+                .unwrap()
+                .status,
+            Status::Continued
+        );
+        release.cancel();
+        let history = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let history = page(&client, session.id).await;
+                if history.runs.iter().any(|run| {
+                    run.turn == selected.id
+                        && !matches!(
+                            run.status,
+                            Status::Queued | Status::Running | Status::Stopping
+                        )
+                }) {
+                    return history;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("guided attachment turn deadline");
+        assert_eq!(
+            history
+                .runs
+                .iter()
+                .find(|run| run.turn == selected.id)
+                .unwrap()
+                .status,
+            Status::Completed,
+            "{:?}",
+            history.runs
+        );
+        let second = upload(&client, fixture.worktree, "second.png", "image/png", &bytes).await;
+        let next = queue(
+            &client,
+            &session,
+            input("Inspect another image", &[&second]),
+        )
+        .await;
+        let history = run(&client, &next).await;
+        assert_eq!(
+            history.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            history.runs
+        );
+        for (turn, attachment) in [(active.id, &first), (next.id, &second)] {
+            assert_eq!(
+                history
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.turn == turn)
+                    .flat_map(|entry| &entry.parts)
+                    .filter(|part| **part == Part::Attachment(attachment.clone()))
+                    .count(),
+                1
+            );
+            assert_eq!(download(&client, attachment).await, bytes);
+        }
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(
+            requests
+                .iter()
+                .map(|request| request
+                    .to_string()
+                    .matches("data:image/png;base64,")
+                    .count())
+                .collect::<Vec<_>>(),
+            vec![1, 1, 2]
+        );
+        assert!(
+            requests
+                .iter()
+                .all(|request| !request.to_string().contains("sailry-attachment://"))
+        );
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
 async fn freezes_native_input_support() {
     let fixture = Fixture::empty().await;
     let server = server::Server::start(false).await;

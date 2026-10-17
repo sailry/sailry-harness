@@ -27,6 +27,7 @@ mod feedback;
 mod file_picker;
 mod header;
 mod hosts;
+mod input_diagnostics;
 mod installations;
 mod live;
 mod locale;
