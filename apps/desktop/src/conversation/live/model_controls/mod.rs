@@ -181,11 +181,12 @@ impl View {
                     .when_some(provider, |row, provider| {
                         row.child(
                             Tag::primary()
-                                .outline()
                                 .small()
+                                .text_xs()
                                 .rounded_full()
+                                .border_0()
                                 .bg(cx.theme().primary.opacity(0.12))
-                                .border_color(cx.theme().primary.opacity(0.2))
+                                .text_color(cx.theme().primary)
                                 .min_w_0()
                                 .max_w(relative(0.4))
                                 .flex_shrink_0()
