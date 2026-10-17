@@ -41,6 +41,12 @@
 | Android 7.0+ | ARM64 | 未发布 | — |
 | iOS 15+ | ARM64 | 未发布 | — |
 
+## 使用指南（英文）
+
+[模型配置](docs/models.md) · [远程主机](docs/hosts.md) · [项目与会话](docs/projects.md)
+
+[从源码构建](CONTRIBUTING.md#native-setup)
+
 ## 许可证
 
 Sailry 自有代码采用 [Apache-2.0](LICENSE)。第三方材料保留各自的许可证，

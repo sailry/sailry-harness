@@ -36,7 +36,7 @@ def commit(root, message):
 
 class PublicationPaths(unittest.TestCase):
     def test_preserves_guides_skills_licenses_and_lockfiles(self):
-        paths = public.REQUIRED | {
+        paths = public.REQUIRED | public.PUBLIC_GUIDES | {
             "plugins/context7/skills/docs/SKILL.md", "vendor/gpui/docs/contexts.md",
             "plugins/example/README.md", "third_party_licenses/ghostty-MIT.txt",
             ".cargo/config.toml", "services/pairing-relay/pnpm-lock.yaml", ".env.example",
@@ -45,7 +45,8 @@ class PublicationPaths(unittest.TestCase):
 
     def test_rejects_private_and_generated_material(self):
         for path in (
-            "docs/ARCHITECTURE.md", "plan/task.md", "output/report.md",
+            "docs/ARCHITECTURE.md", "docs/private/report.md", "docs/models.md/private.md",
+            "plan/task.md", "output/report.md",
             ".runtime/profile/node.sqlite3", ".sailry/storage/node.sqlite3",
             ".migration-backups/archive.tar", "plugins/test/node_modules/module.js",
             ".env", ".env.production", "local/private.key", ".npmrc",
@@ -60,11 +61,11 @@ class PublicationPaths(unittest.TestCase):
             root = Path(directory)
             initialize(root)
             write(root, ".gitignore", (ROOT / ".gitignore").read_text())
-            for path in ("docs/secret.md", "output/private.md", ".env", "plan/task.md",
+            for path in ("docs/secret.md", "docs/private/report.md", "output/private.md", ".env", "plan/task.md",
                          "apps/mobile/ios/Flutter/Generated.xcconfig"):
                 with self.subTest(path=path):
                     self.assertEqual(public.git(root, "check-ignore", path).decode().strip(), path)
-            for path in ("AGENTS.md", "ARCHITECTURE.md", "plugins/context7/skills/docs/SKILL.md",
+            for path in (*sorted(public.PUBLIC_GUIDES), "AGENTS.md", "ARCHITECTURE.md", "plugins/context7/skills/docs/SKILL.md",
                          "vendor/gpui/docs/contexts.md", ".cargo/config.toml", ".env.example"):
                 with self.subTest(path=path):
                     result = subprocess.run(["git", "-C", str(root), "check-ignore", path],
@@ -73,6 +74,25 @@ class PublicationPaths(unittest.TestCase):
 
 
 class GuideLinks(unittest.TestCase):
+    def test_checks_public_user_guides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in public.PUBLIC_GUIDES:
+                write(root, name, "# Guide\n")
+            paths = public.PUBLIC_GUIDES
+            self.assertEqual(public.document_paths(paths), sorted(paths))
+            write(root, "docs/models.md", "[Hosts](hosts.md)\n")
+            self.assertEqual(public.check_documents(root, paths), [])
+            write(root, "docs/private/report.md", "Private\n")
+            write(root, "docs/models.md", "[Private](private/report.md)\n")
+            self.assertEqual(public.check_documents(root, paths), [
+                "Guide link has no public source target: docs/models.md: private/report.md",
+            ])
+            write(root, "docs/models.md", "内部指南\n")
+            self.assertEqual(public.check_documents(root, paths), [
+                "Non-public or non-English guide text: docs/models.md",
+            ])
+
     def test_localized_readme_keeps_publication_checks(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

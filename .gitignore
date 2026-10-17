@@ -1,7 +1,10 @@
-# Internal working material; keep public guides outside these directories.
+# Internal working material; only the listed public guides are tracked.
 /CLAUDE.md
 /GEMINI.md
-/docs/
+/docs/*
+!/docs/models.md
+!/docs/hosts.md
+!/docs/projects.md
 /plan/
 /plans/
 /notes/

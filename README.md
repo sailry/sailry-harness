@@ -41,6 +41,12 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 | Android 7.0+ | ARM64 | Not released | — |
 | iOS 15+ | ARM64 | Not released | — |
 
+## Guides
+
+[Models](docs/models.md) · [Remote hosts](docs/hosts.md) · [Projects and sessions](docs/projects.md)
+
+[Build from source](CONTRIBUTING.md#native-setup)
+
 ## License
 
 Sailry-owned code uses [Apache-2.0](LICENSE). Third-party materials retain their

@@ -381,8 +381,9 @@ configuration on a retry; uncertain submissions are never replayed automatically
 
 ## Public source and history
 
-Internal `docs/`, plans, local outputs, profiles and credentials are ignored and
-must not be tracked. Public guides, `AGENTS.md`, package Skills, fixtures, licenses
+Only the explicitly listed public guides in `docs/` are tracked; other internal
+documents, plans, local outputs, profiles and credentials remain ignored and must not be tracked.
+Public guides, `AGENTS.md`, package Skills, fixtures, licenses
 and lockfiles remain source. Ignore rules alone do not remove old Git history.
 
 Keep private development history private. After committing the reviewed public

@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDES = {"README.md", "README.zh-CN.md", "ARCHITECTURE.md", "CONTRIBUTING.md", "AGENTS.md"}
+PUBLIC_GUIDES = {"docs/models.md", "docs/hosts.md", "docs/projects.md"}
 LOCALIZED_GUIDES = {"README.zh-CN.md"}
 REQUIRED = GUIDES | {"LICENSE", "NOTICE", ".gitignore", "Cargo.lock"}
 INTERNAL = {
@@ -62,7 +63,8 @@ def validate_paths(paths):
         env = path.name.startswith(".env") and not (
             path.name == ".env.example" or path.name.endswith(".example")
         )
-        if (path.is_absolute() or ".." in path.parts or path.parts[0] in INTERNAL
+        if (path.is_absolute() or ".." in path.parts
+                or path.parts[0] in INTERNAL and name not in PUBLIC_GUIDES
                 or GENERATED.intersection(path.parts) or name in PRIVATE_FILES
                 or path.name == ".npmrc" or env
                 or path.suffix in {".pem", ".key", ".p12", ".pfx", ".jks", ".keystore"}):
@@ -74,7 +76,7 @@ def validate_paths(paths):
 
 def document_paths(paths):
     # Skills and vendor fixtures can contain illustrative links, not guide links.
-    return sorted(name for name in paths if name in GUIDES
+    return sorted(name for name in paths if name in GUIDES or name in PUBLIC_GUIDES
                   or name.startswith("sdk/") and name.endswith(".md") or (
                       name.endswith(".md")
                       and PurePosixPath(name).name in {"README.md", "SDK.md"}

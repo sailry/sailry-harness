@@ -26,7 +26,7 @@
 - Mobile is a Flutter controller. Preserve its Rust dependency boundary; a desktop-only Rust client test is not mobile acceptance. Do not expand an authorized desktop task into Mobile product work.
 - Features use the same local and remote command/subscription boundary and require evidence on both paths for changed shared behavior.
 - Inspect and reuse suitable committed source and tests when migrating behavior. Normalize ownership and naming, remove redundant adapters, and preserve provenance. Do not assume every component needs rewriting or can be imported unchanged.
-- Follow the current architecture and accepted UI. Public architecture belongs in root `ARCHITECTURE.md`; coding and test conventions belong here and in `CONTRIBUTING.md`. Internal plans, reports and `docs/` are not public source. Update documentation only when requested or required by an authorized behavior change.
+- Follow the current architecture and accepted UI. Public architecture belongs in root `ARCHITECTURE.md`; coding and test conventions belong here and in `CONTRIBUTING.md`. Public user guides belong in the explicitly tracked `docs/` files; internal plans and reports are not public source. Update documentation only when requested or required by an authorized behavior change.
 
 ## Stage delivery
 
