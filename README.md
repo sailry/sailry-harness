@@ -22,7 +22,7 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
-| macOS 14+ | Apple silicon / Intel | Supported | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple silicon / Intel | Supported | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | x64 / ARM64 | Planned | — |
 | Linux | x64 / ARM64 | Planned | — |
 
@@ -30,7 +30,7 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
-| macOS 14+ | Apple silicon / Intel | Awaiting release | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple silicon / Intel | Awaiting release | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Linux · glibc 2.28+ | x64 / ARM64 | Awaiting release | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | — | Planned | — |
 

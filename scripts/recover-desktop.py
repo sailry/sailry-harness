@@ -130,7 +130,7 @@ def restore(artifact, repository, tag, directory, binary, root):
     with tempfile.TemporaryDirectory(prefix="sailry-arm-metadata-") as temporary:
         described = Path(temporary) / "verified.json"
         subprocess.run([str(binary), "describe", "--archive", str(archive), "--version", tag[1:],
-                        "--target", TARGET, "--minimum-system", "14.0", "--repository", repository,
+                        "--target", TARGET, "--minimum-system", "13.0", "--repository", repository,
                         "--tag", tag, "--keys", str(root / "release/update-public-keys.txt"),
                         "--output", str(described)], check=True)
         if described.read_bytes() != Path(str(archive) + ".update.json").read_bytes():

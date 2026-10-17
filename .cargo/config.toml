@@ -1,7 +1,7 @@
 # Match the desktop bundle's minimum macOS version for native dependencies.
 # An explicit caller deployment target still takes precedence.
 [env]
-MACOSX_DEPLOYMENT_TARGET = { value = "14.0", force = false }
+MACOSX_DEPLOYMENT_TARGET = { value = "13.0", force = false }
 
 # LLVM otherwise reserves compact unwind for C++ and Objective-C personalities.
 # Sailry uses the remaining third slot for Rust, keeping DWARF fallback for

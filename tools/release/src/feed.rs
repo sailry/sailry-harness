@@ -15,7 +15,7 @@ use std::{
 
 const MAX_ARCHIVE: u64 = 2 * 1024 * 1024 * 1024;
 const MAX_FEED: usize = 1024 * 1024;
-const MACOS_MINIMUM: &str = "14.0";
+const MACOS_MINIMUM: &str = "13.0";
 const TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-apple-darwin"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

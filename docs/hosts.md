@@ -5,7 +5,7 @@ already accepted by that Host. Its projects, models and credentials stay there.
 
 ## Before connecting
 
-- Use macOS 14+ on Apple silicon or Intel, or Linux with glibc 2.28+ on ARM64 or
+- Use macOS 13+ on Apple silicon or Intel, or Linux with glibc 2.28+ on ARM64 or
   x64. The installer does not support Windows.
 - The matching Sailry release must include Host packages for the target machine.
   **Add host** installs the Host version expected by your Desktop build; it

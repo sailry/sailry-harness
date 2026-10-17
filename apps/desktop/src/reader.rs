@@ -93,7 +93,7 @@ fn speak(id: String, markdown: &str, cx: &mut App) -> Result<(), tts::Error> {
 }
 
 fn engine() -> Result<tts::Tts, tts::Error> {
-    // Sailry requires macOS 14; avoid tts 0.26.3 parsing a localized OS version string.
+    // Sailry requires macOS 13; avoid tts 0.26.3 parsing a localized OS version string.
     #[cfg(target_os = "macos")]
     {
         tts::Tts::new(tts::Backends::AvFoundation)
