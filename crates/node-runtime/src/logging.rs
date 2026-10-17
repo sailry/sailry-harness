@@ -126,7 +126,7 @@ pub fn preview() -> Result<Guard, InitError> {
         .prefix("sailry-preview-logs-")
         .tempdir()
         .map_err(|_| InitError)?;
-    let mut guard = install(temporary.path(), Application::Desktop)?;
+    let mut guard = install(&temporary.path().join("profile"), Application::Desktop)?;
     guard._temporary = Some(temporary);
     Ok(guard)
 }

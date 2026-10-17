@@ -150,7 +150,13 @@ async fn observes_shared_lifecycles_without_payloads() {
     let node = Node::start_empty(profile.clone()).await.unwrap();
     node.shutdown().await.unwrap();
     let another = tempfile::tempdir().unwrap();
-    assert!(logging::install(another.path(), logging::Application::Desktop).is_err());
+    assert!(
+        logging::install(
+            &another.path().join("profile"),
+            logging::Application::Desktop
+        )
+        .is_err()
+    );
     assert_eq!(logging::directory(), Some(profile.join("logs").as_path()));
     let file = logging::current_file().unwrap().unwrap();
     assert_eq!(file.parent().unwrap(), profile.join("logs/host"));
