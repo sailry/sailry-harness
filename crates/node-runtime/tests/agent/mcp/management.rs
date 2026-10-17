@@ -188,7 +188,10 @@ async fn manages_only_standalone_inventory() {
         let body: Vec<u8> = database
             .query_row(
                 "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=?2",
-                rusqlite::params![current.summary.name, current.summary.settings_revision],
+                rusqlite::params![
+                    current.summary.name,
+                    i64::try_from(current.summary.settings_revision).unwrap()
+                ],
                 |row| row.get(0),
             )
             .unwrap();
