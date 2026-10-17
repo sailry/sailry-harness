@@ -180,8 +180,12 @@ impl View {
                     .gap_2()
                     .when_some(provider, |row, provider| {
                         row.child(
-                            Tag::info()
+                            Tag::primary()
+                                .outline()
                                 .small()
+                                .rounded_full()
+                                .bg(cx.theme().primary.opacity(0.12))
+                                .border_color(cx.theme().primary.opacity(0.2))
                                 .min_w_0()
                                 .max_w(relative(0.4))
                                 .flex_shrink_0()
