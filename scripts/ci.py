@@ -40,7 +40,7 @@ FIXTURES = {
 }
 DOCS = {
     "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CONTRIBUTING.md",
-    "README.md", "README.zh-CN.md", "LICENSE", "NOTICE",
+    "README.md", "README.zh-CN.md", "LICENSE", "NOTICE", "CLA.md", "sdk/LICENSE",
     "services/pairing-relay/README.md", "tests/fixtures/README.md",
     "COMMERCIAL.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
     "docs/models.md", "docs/hosts.md", "docs/projects.md",

@@ -76,6 +76,8 @@ class Selection(unittest.TestCase):
 
     def test_skips_only_known_documentation(self):
         self.assertEqual(ci.select_paths([]), set())
+        self.assertEqual(ci.select_paths(["CLA.md", "sdk/LICENSE"]), set())
+        self.assertEqual(ci.select_paths(["sdk/src/index.ts"]), ci.NATIVE)
         self.assertEqual(ci.select_paths(["update-other.json"]), ci.LANES)
         self.assertEqual(ci.select_paths(ci.DOCS | {"third_party_licenses/gpui.md", "sdk/plugins.md"}), set())
         self.assertEqual(ci.select_paths(["assets/readme/workspace-dark.png"]), set())
