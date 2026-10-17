@@ -14,18 +14,26 @@ impl Ingress {
                 "Node or protocol version mismatch",
             ));
         }
-        let Command::DiscoverSkills { source } = request.command else {
-            return Err(Fault::new(
-                ErrorCode::Internal,
-                "skill discovery command expected",
-            ));
+        let output = match request.command {
+            Command::DiscoverSkills { source } => Output::SkillDiscovery(
+                self.plugins
+                    .discover_skills(&source, self.closed.clone())
+                    .await?,
+            ),
+            Command::DiscoverRegistrySkill { source } => Output::RegistrySkillDiscovery(
+                self.plugins
+                    .discover_registry_skill(&source, self.closed.clone())
+                    .await?,
+            ),
+            _ => {
+                return Err(Fault::new(
+                    ErrorCode::Internal,
+                    "skill discovery command expected",
+                ));
+            }
         };
-        let discovery = self
-            .plugins
-            .discover_skills(&source, self.closed.clone())
-            .await?;
         let (send, completion) = oneshot::channel();
-        let _ = send.send(Ok(Output::SkillDiscovery(discovery)));
+        let _ = send.send(Ok(output));
         Ok(Admission {
             receipt: Receipt {
                 id: request.id,

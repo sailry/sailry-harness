@@ -37,6 +37,40 @@ impl Ingress {
                         .upload_ssh(caller, spec, self.closed.clone())?,
                 )
             }
+            Command::DiscoverSkillUpload {
+                stream,
+                format,
+                source,
+            } => Output::SkillImportDiscovery(
+                self.transfers
+                    .discover_skill_upload(
+                        caller,
+                        stream,
+                        format,
+                        source,
+                        self.plugins.clone(),
+                        self.closed.clone(),
+                    )
+                    .await?,
+            ),
+            Command::DiscoverLocalSkills { worktree, path } => {
+                let root = self.worktree_root_with(worktree, internal).await?;
+                let discovery = self
+                    .transfers
+                    .discover_local_skills(
+                        caller,
+                        root.clone(),
+                        path,
+                        self.plugins.clone(),
+                        self.closed.clone(),
+                    )
+                    .await?;
+                if self.worktree_root_with(worktree, internal).await.as_ref() != Ok(&root) {
+                    let _ = self.transfers.cancel(caller, discovery.stream);
+                    return Err(unavailable());
+                }
+                Output::SkillImportDiscovery(discovery)
+            }
             Command::UploadPlugin(spec) => Output::PluginUpload(
                 self.transfers
                     .upload_plugin(caller, spec, self.closed.clone())

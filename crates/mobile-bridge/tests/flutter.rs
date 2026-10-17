@@ -404,6 +404,7 @@ async fn configure(client: &Client, endpoint: &str) {
                 model: MODEL.into(),
                 effort: Effort::Default,
                 mode: WorkMode::Code,
+                delegation_proactive: false,
                 permission: Permission::Ask,
                 credential: provider.credential,
             },

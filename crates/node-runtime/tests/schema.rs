@@ -312,6 +312,7 @@ async fn upgrades_resources_on_both_paths() {
             model: "schema-fixture".into(),
             effort: Effort::Default,
             mode: WorkMode::Code,
+            delegation_proactive: false,
             permission: Permission::Full,
             credential: provider.credential.clone(),
         };

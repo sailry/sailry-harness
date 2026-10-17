@@ -4,6 +4,7 @@ use super::*;
 use std::{collections::BTreeSet, sync::atomic::AtomicBool};
 mod assistants;
 mod computer;
+mod management;
 mod model_tools;
 mod operations;
 mod scripts;
@@ -46,6 +47,12 @@ pub(super) async fn bind(
         bound
             .tools
             .extend(skills::management::bind(ingress, invocation, stop));
+        bound
+            .tools
+            .extend(mcp::management::bind(ingress, invocation, stop));
+        bound
+            .tools
+            .extend(management::bind(ingress, invocation, stop));
     }
     if supports_tools && !restricted {
         let (tools, instruction) = skills::bind(
@@ -126,10 +133,16 @@ pub(super) async fn bind(
         }
     }
     if invocation.message.selected_role().is_some() {
+        let arguments = super::delegation::selected::arguments(invocation)?;
         let name = bound
             .tools
             .iter()
-            .find(|entry| entry.tool.is_agent_delegation())
+            .find(|entry| {
+                entry.tool.is_agent_delegation()
+                    && entry.tool.parameters_schema().is_some_and(|schema| {
+                        super::delegation::selected::accepts(&schema, &arguments)
+                    })
+            })
             .map(|entry| entry.tool.name().to_owned())
             .ok_or_else(|| {
                 Fault::new(

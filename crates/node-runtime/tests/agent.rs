@@ -202,6 +202,7 @@ async fn configured_session(
                 model: "fixture-a".into(),
                 effort: Effort::High,
                 mode: sailry_protocol::WorkMode::Code,
+                delegation_proactive: false,
                 permission: sailry_protocol::Permission::Ask,
                 credential: None,
             }),

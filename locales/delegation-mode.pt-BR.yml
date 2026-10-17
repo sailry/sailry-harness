@@ -1,0 +1,6 @@
+composer_delegation_proactive: "Subagentes proativos"
+composer_delegation_normal: "Subagentes: uso normal"
+composer_delegation_active: "Subagentes: delegar tarefas independentes proativamente"
+composer_delegation_unavailable: "Os subagentes não estão disponíveis nesta conversa"
+menu_input_diagnostics: "Copiar diagnóstico de entrada"
+input_diagnostics_copied: "Diagnóstico de entrada copiado"

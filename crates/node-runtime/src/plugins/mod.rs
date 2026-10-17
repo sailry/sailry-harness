@@ -17,6 +17,7 @@ pub(crate) mod mcp;
 pub(crate) mod oauth;
 mod package;
 pub(crate) mod registration;
+pub(crate) mod registry;
 mod repository;
 pub(crate) mod resources;
 pub(crate) mod script;
@@ -46,6 +47,7 @@ pub(crate) struct Host {
     authorizations: std::sync::Arc<authorization::Clients>,
     pub(crate) applications: std::sync::Arc<applications::Service>,
     github: github::Github,
+    pub(crate) registry: registry::Registry,
     official_catalog: std::sync::Arc<catalog::official::Cache>,
     python: std::sync::Arc<tokio::sync::OnceCell<std::sync::Arc<crate::python::Manager>>>,
     python_index: std::sync::Arc<std::sync::Mutex<Option<String>>>,
@@ -98,6 +100,7 @@ impl Host {
             authorizations: Default::default(),
             applications: Default::default(),
             github: Default::default(),
+            registry: Default::default(),
             official_catalog: Default::default(),
             python: Default::default(),
             python_index: Default::default(),

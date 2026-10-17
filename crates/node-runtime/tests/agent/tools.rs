@@ -156,11 +156,9 @@ async fn reads_bound_worktree() {
             json!(["object", "null"])
         );
         let mut expected: Vec<String> = [
-            "list_skills",
-            "discover_skills",
-            "install_skill",
-            "update_skill",
-            "uninstall_skill",
+            "manage_skills",
+            "manage_mcp",
+            "manage_plugins",
             "load_skill",
             "read_skill_resource",
             "compact_context",

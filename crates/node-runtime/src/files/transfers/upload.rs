@@ -23,7 +23,14 @@ pub(super) struct Prepared {
 enum Scope {
     Ssh(sailry_protocol::ssh::UploadSpec),
     Plugin,
-    File { worktree: WorktreeId, path: String },
+    Skill {
+        format: sailry_protocol::plugin::skills::ArchiveFormat,
+        kind: sailry_protocol::plugin::UploadSource,
+    },
+    File {
+        worktree: WorktreeId,
+        path: String,
+    },
     Attachment(sailry_protocol::attachment::Attachment),
 }
 

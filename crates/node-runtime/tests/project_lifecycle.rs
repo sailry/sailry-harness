@@ -119,6 +119,7 @@ async fn edits_and_restores() {
                     model: "fixture".into(),
                     effort: Effort::High,
                     mode: WorkMode::Code,
+                    delegation_proactive: false,
                     permission: Permission::Ask,
                     credential: None,
                 }),

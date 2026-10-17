@@ -283,6 +283,9 @@ fn requires_command_authority() {
             "create_worktree",
             "register_worktree",
             "remove_worktree",
+            "manage_skills",
+            "manage_mcp",
+            "manage_plugins",
             "unknown_tool",
         ] {
             let request = ToolConfirmationRequest {
@@ -306,10 +309,17 @@ fn requires_command_authority() {
 }
 
 #[test]
-fn rejects_planned_worktree_changes() {
+fn rejects_planned_management_changes() {
     for permission in [Permission::Ask, Permission::Project, Permission::Full] {
         let fixture = Fixture::with_mode(permission, WorkMode::Plan);
-        for tool in ["create_worktree", "register_worktree", "remove_worktree"] {
+        for tool in [
+            "create_worktree",
+            "register_worktree",
+            "remove_worktree",
+            "manage_skills",
+            "manage_mcp",
+            "manage_plugins",
+        ] {
             let mut request = fixture.request.clone();
             request.tool_name = tool.into();
             assert_eq!(

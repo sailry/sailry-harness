@@ -164,6 +164,7 @@ fn rebuilds_from_durable_events() {
         model: "fixture".into(),
         effort: Effort::Low,
         mode: sailry_protocol::WorkMode::Code,
+        delegation_proactive: false,
         permission: sailry_protocol::Permission::Ask,
         credential: None,
     };

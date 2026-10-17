@@ -753,6 +753,9 @@ pub(super) fn execute(
         | Command::MoveFile { .. }
         | Command::InstallPlugin { .. }
         | Command::DiscoverSkills { .. }
+        | Command::DiscoverRegistrySkill { .. }
+        | Command::DiscoverSkillUpload { .. }
+        | Command::DiscoverLocalSkills { .. }
         | Command::SearchPluginCatalog { .. }
         | Command::ReadCatalogPlugin { .. }
         | Command::ReadCatalogPluginInfo { .. }
@@ -762,6 +765,8 @@ pub(super) fn execute(
         | Command::InstallPluginSource { .. }
         | Command::InstallBundledPlugin { .. }
         | Command::InstallSkill { .. }
+        | Command::InstallRegistrySkill { .. }
+        | Command::InstallSkillUpload { .. }
         | Command::InstallMcp { .. }
         | Command::SavePluginMcp { .. }
         | Command::InstallPluginUpload { .. }

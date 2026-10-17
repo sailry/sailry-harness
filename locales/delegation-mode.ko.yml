@@ -1,0 +1,6 @@
+composer_delegation_proactive: "적극적인 하위 에이전트 사용"
+composer_delegation_normal: "하위 에이전트: 필요에 따라 사용"
+composer_delegation_active: "하위 에이전트: 독립적인 작업을 적극적으로 위임"
+composer_delegation_unavailable: "이 대화에서는 하위 에이전트를 사용할 수 없습니다"
+menu_input_diagnostics: "입력 진단 복사"
+input_diagnostics_copied: "입력 진단을 복사했습니다"

@@ -94,8 +94,14 @@ async fn manages_pinned_versions() {
                 path: analysis.path.clone(),
             })
         );
-        assert_eq!(first.skill.as_ref().unwrap().source, discovery.source);
-        assert_eq!(first.skill.as_ref().unwrap().path, analysis.path);
+        assert_eq!(
+            first.skill.as_ref().unwrap().git().unwrap().source,
+            discovery.source
+        );
+        assert_eq!(
+            first.skill.as_ref().unwrap().git().unwrap().path,
+            analysis.path
+        );
         assert_eq!(first.summary.version.as_deref(), Some(github::FIRST));
         let package = node
             .profile()
@@ -369,7 +375,14 @@ async fn public_github() {
         .expect("repository contains a standard skill");
     let installed = info(execute(&remote, github::install(&discovery, candidate, 0)).await);
     assert_eq!(
-        installed.skill.as_ref().unwrap().source.commit,
+        installed
+            .skill
+            .as_ref()
+            .unwrap()
+            .git()
+            .unwrap()
+            .source
+            .commit,
         discovery.source.commit
     );
     let local = Client::new(node.local());
@@ -391,4 +404,54 @@ async fn public_github() {
     );
     controller.close().await.unwrap();
     node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn resolves_directory_links_to_real_paths() {
+    for remote in [false, true] {
+        let github = github::Github::start().await;
+        let directory = tempfile::tempdir().unwrap();
+        let node =
+            Node::start_empty_with_skill_source(directory.path().join("node"), &github.endpoint)
+                .await
+                .unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let discovery = discover(
+            &client,
+            plugin::skills::Source {
+                repository: "https://skills.sh/owner/repo/analysis".into(),
+                git_ref: None,
+                path: None,
+            },
+        )
+        .await;
+        assert_eq!(discovery.skills.len(), 1);
+        assert_eq!(discovery.skills[0].path, "skills/analysis");
+        assert_eq!(discovery.source.commit, github::FIRST);
+        let installed = info(
+            execute(
+                &client,
+                github::install(&discovery, &discovery.skills[0], 0),
+            )
+            .await,
+        );
+        let source = installed.skill.unwrap();
+        assert_eq!(source.git().unwrap().path, "skills/analysis");
+        assert_eq!(source.git().unwrap().source, discovery.source);
+        controller.shutdown().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
 }

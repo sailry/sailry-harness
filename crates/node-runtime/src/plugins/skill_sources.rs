@@ -7,11 +7,13 @@ use sailry_protocol::{
     ErrorCode, Fault,
     plugin::{
         Info,
-        skills::{Candidate, Discovery, Provenance, Resolved, Source},
+        skills::{Candidate, Discovery, GitProvenance, Provenance, Resolved, Source},
     },
 };
 use std::fs::File;
-mod package;
+mod directory;
+mod imports;
+pub(super) mod package;
 impl Host {
     pub(crate) fn with_github(mut self, github: Github) -> Self {
         self.github = github;
@@ -28,13 +30,18 @@ impl Host {
             .clone()
             .try_acquire_owned()
             .map_err(|_| Fault::new(ErrorCode::Busy, "skill discovery is busy"))?;
-        let selected = source::Selection::parse(source)?;
+        let (source, selected_skill) = directory::resolve(source)?;
+        let selected = source::Selection::parse(&source)?;
         let (file, source) = self
             .source_archive(&selected, None, stop.clone(), None)
             .await?;
-        let skills = tokio::task::spawn_blocking(move || package::discover(file, &selected, &stop))
-            .await
-            .map_err(|_| unavailable())??;
+        let mut skills =
+            tokio::task::spawn_blocking(move || package::discover(file, &selected, &stop))
+                .await
+                .map_err(|_| unavailable())??;
+        if let Some(name) = selected_skill {
+            directory::select(&mut skills, &name)?;
+        }
         Ok(Discovery { source, skills })
     }
 
@@ -61,10 +68,10 @@ impl Host {
             )
             .await?;
         let host = self.clone();
-        let provenance = Provenance {
+        let provenance = Provenance::Git(GitProvenance {
             source: source.clone(),
             path: path.into(),
-        };
+        });
         let name = name.to_owned();
         tokio::task::spawn_blocking(move || {
             if let Some(reporter) = reporter {
@@ -98,10 +105,10 @@ impl Host {
             .await?;
         let host = self.clone();
         let name = name.to_owned();
-        let provenance = Provenance {
+        let provenance = Provenance::Git(GitProvenance {
             source: resolved,
             path: selected.path,
-        };
+        });
         tokio::task::spawn_blocking(move || package::inspect(&host, file, &name, provenance, &stop))
             .await
             .map_err(|_| unavailable())?

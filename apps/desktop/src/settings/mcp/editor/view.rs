@@ -1,6 +1,7 @@
 use super::*;
 use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
+    alert::Alert,
     dialog::DialogFooter,
     form::Field,
     tab::{Tab, TabBar},
@@ -132,6 +133,16 @@ impl Render for Editor {
             .test_support()
             .debug_selector(|| "mcp-editor".into())
             .gap_3()
+            .child(
+                Alert::info(
+                    "mcp-install-help",
+                    tr(match self.transport {
+                        McpTransport::Stdio => "mcp_install_stdio_help",
+                        McpTransport::StreamableHttp | McpTransport::Sse => "mcp_install_http_help",
+                    }),
+                )
+                .small(),
+            )
             .child(
                 Field::new().label(tr("settings_name")).child(
                     div().debug_selector(|| "mcp-name".into()).child(

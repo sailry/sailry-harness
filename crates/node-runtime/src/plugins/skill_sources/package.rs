@@ -29,7 +29,7 @@ pub(super) fn discover(
     Ok(candidates)
 }
 
-fn scan(
+pub(super) fn scan(
     directory: &Dir,
     repository: &str,
     path: &str,
@@ -114,18 +114,35 @@ pub(super) fn inspect(
     })
 }
 
-fn with_package(
+pub(in crate::plugins) fn with_package(
     file: File,
     name: &str,
     provenance: Provenance,
     stop: &CancellationToken,
     read: impl FnOnce(&std::path::Path) -> Result<Info, Fault>,
 ) -> Result<Info, Fault> {
-    let (repository, root, links) = archive::unpack_source(file, stop, 10_000)?;
-    reject_ancestors(&links, &provenance.path)?;
+    let strip_root = !matches!(&provenance, Provenance::Imported { .. });
+    let (repository, root, links) = archive::unpack_source_with(file, stop, 10_000, strip_root)?;
+    let (path, version, repository_url) = match &provenance {
+        Provenance::Git(source) => (
+            source.path.as_str(),
+            Some(source.source.commit.clone()),
+            Some(source.source.repository.clone()),
+        ),
+        Provenance::Registry { registry } => (
+            "",
+            Some(registry.version.clone()),
+            Some(format!(
+                "https://skillhub.cn/skills/{}/{}",
+                registry.namespace, registry.slug
+            )),
+        ),
+        Provenance::Imported { imported } => (imported.path.as_str(), None, None),
+    };
+    reject_ancestors(&links, path)?;
     if links.iter().any(|link| {
-        provenance.path.is_empty()
-            || link.starts_with(&format!("{}/", provenance.path))
+        path.is_empty()
+            || link.starts_with(&format!("{path}/"))
             || LICENSES.contains(&link.as_str())
     }) {
         return Err(sailry_protocol::Fault::invalid(
@@ -135,7 +152,7 @@ fn with_package(
     let root = crate::files::path::root(&root)?;
     let selected = crate::files::path::descend(
         root.try_clone().map_err(io_error)?,
-        &crate::files::path::components(&provenance.path, true)?,
+        &crate::files::path::components(path, true)?,
     )?;
     let bytes = super::super::package::read(&selected, "SKILL.md", skills::MAX_BYTES)?
         .ok_or_else(|| sailry_protocol::Fault::invalid("selected directory has no SKILL.md"))?;
@@ -157,13 +174,17 @@ fn with_package(
             "skill contains unsupported files",
         ));
     }
-    let manifest = serde_json::json!({
+    let mut manifest = serde_json::json!({
         "$schema": manifest::SCHEMA,
         "name": name,
-        "version": provenance.source.commit,
         "description": skill.description,
-        "repository": provenance.source.repository,
     });
+    if let Some(version) = version {
+        manifest["version"] = version.into();
+    }
+    if let Some(repository) = repository_url {
+        manifest["repository"] = repository.into();
+    }
     destination
         .write(
             "plugin.json",

@@ -22,6 +22,12 @@ pub(super) fn instruction(mode: WorkMode, permission: Permission) -> String {
     format!("{}\n\n{mode}", include_str!("prompt.txt").trim())
 }
 
+pub(super) fn delegation(proactive: bool, child: bool, available: bool) -> Option<&'static str> {
+    (proactive && !child && available).then_some(
+        "Proactive delegation\nActively identify useful, self-contained research, implementation or review work that an available child agent can handle independently. Delegate when this improves progress or provides an independent check; keep the critical dependent work moving yourself. Give each child a clear scope and expected result, separate overlapping file ownership, and reuse or guide existing children instead of duplicating their work. Integrate and verify their results. Handle small or tightly coupled tasks directly; do not split work merely to create agents or require delegation on every turn. Use only admitted tools and roles within the current work mode, permissions and agent limits. Children must not delegate further.",
+    )
+}
+
 pub(super) fn recipient(child: bool) -> &'static str {
     if child {
         include_str!("prompt/child.txt").trim()
@@ -140,6 +146,26 @@ mod tests {
         ] {
             assert!(prompt.contains(required), "{required}");
         }
+    }
+
+    #[test]
+    fn scopes_proactive_delegation_to_coordinators() {
+        for proactive in [false, true] {
+            for child in [false, true] {
+                for available in [false, true] {
+                    assert_eq!(
+                        delegation(proactive, child, available).is_some(),
+                        proactive && !child && available
+                    );
+                }
+            }
+        }
+        let policy = delegation(true, false, true).unwrap();
+        assert!(policy.contains("Handle small or tightly coupled tasks directly"));
+        assert!(policy.contains("reuse or guide existing children"));
+        assert!(policy.contains("current work mode, permissions and agent limits"));
+        assert!(policy.contains("Children must not delegate further"));
+        assert!(!instruction(WorkMode::Code, Permission::Ask).contains(policy));
     }
 
     #[test]

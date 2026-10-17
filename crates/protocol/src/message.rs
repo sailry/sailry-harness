@@ -398,6 +398,29 @@ pub enum Command {
     DiscoverSkills {
         source: crate::plugin::skills::Source,
     },
+    DiscoverSkillUpload {
+        stream: crate::StreamId,
+        format: crate::plugin::skills::ArchiveFormat,
+        source: crate::plugin::UploadSource,
+    },
+    DiscoverLocalSkills {
+        worktree: crate::WorktreeId,
+        path: String,
+    },
+    InstallSkillUpload {
+        stream: crate::StreamId,
+        source: crate::plugin::skills::Imported,
+        name: String,
+        expected_revision: u64,
+    },
+    DiscoverRegistrySkill {
+        source: crate::plugin::skills::RegistrySource,
+    },
+    InstallRegistrySkill {
+        source: crate::plugin::skills::RegistryResolved,
+        name: String,
+        expected_revision: u64,
+    },
     InstallSkill {
         source: crate::plugin::skills::Resolved,
         path: String,
@@ -1439,6 +1462,9 @@ impl Command {
                 | Self::ListDatabases
                 | Self::ListPlugins
                 | Self::DiscoverSkills { .. }
+                | Self::DiscoverRegistrySkill { .. }
+                | Self::DiscoverSkillUpload { .. }
+                | Self::DiscoverLocalSkills { .. }
                 | Self::SearchPluginCatalog { .. }
                 | Self::ReadCatalogPlugin { .. }
                 | Self::ReadCatalogPluginInfo { .. }
@@ -1726,6 +1752,8 @@ pub enum Output {
     PluginLogin(crate::plugin::oauth::Attempt),
     Plugin(crate::plugin::Info),
     SkillDiscovery(crate::plugin::skills::Discovery),
+    RegistrySkillDiscovery(crate::plugin::skills::RegistryDiscovery),
+    SkillImportDiscovery(crate::plugin::skills::ImportDiscovery),
     PluginCatalog(crate::plugin::catalog::Page),
     PluginSource(crate::plugin::catalog::Selection),
     PluginUpdate(crate::plugin::updates::Report),

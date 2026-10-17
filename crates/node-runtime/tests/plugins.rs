@@ -27,6 +27,8 @@ mod distribution;
 mod host;
 #[path = "plugins/http.rs"]
 mod http;
+#[path = "plugins/imports.rs"]
+mod imports;
 #[path = "plugins/installations.rs"]
 mod installations;
 #[path = "plugins/inventory.rs"]
@@ -47,6 +49,9 @@ mod python;
 #[cfg(feature = "test-support")]
 #[path = "plugins/registration.rs"]
 mod registration;
+#[cfg(feature = "test-support")]
+#[path = "plugins/registry.rs"]
+mod registry;
 #[path = "plugins/reminders_host.rs"]
 mod reminders_host;
 #[path = "plugins/scheduled_host.rs"]

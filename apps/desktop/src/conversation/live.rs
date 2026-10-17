@@ -30,6 +30,7 @@ mod connection;
 mod context;
 mod contributions;
 mod controls;
+mod delegation;
 mod documents;
 mod draft;
 mod export;

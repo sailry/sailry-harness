@@ -395,6 +395,18 @@ async fn execute_with(
     extensions.tools.retain(|registration| {
         !planning || registration.managed || registration.tool.is_read_only()
     });
+    if let Some(policy) = prompt::delegation(
+        invocation.turn.config.delegation_proactive,
+        invocation.child.is_some(),
+        tool_capable
+            && extensions
+                .tools
+                .iter()
+                .any(|registration| registration.tool.is_agent_delegation()),
+    ) {
+        instruction.push_str("\n\n");
+        instruction.push_str(policy);
+    }
     if !extensions.instruction.is_empty() {
         instruction.push_str("\n\n");
         instruction.push_str(&extensions.instruction);

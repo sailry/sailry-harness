@@ -19,6 +19,8 @@ mod queue;
 use crate::agent_support as server;
 #[path = "conversation/tool_images.rs"]
 mod tool_images;
+#[path = "conversation/vision.rs"]
+mod vision;
 
 async fn session(
     client: &Client,
@@ -108,6 +110,7 @@ async fn session(
                 model: "fixture".into(),
                 effort: Effort::Medium,
                 mode: sailry_protocol::WorkMode::Code,
+                delegation_proactive: false,
                 permission: Permission::Ask,
                 credential: provider.credential.clone(),
             }),

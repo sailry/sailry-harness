@@ -1,5 +1,9 @@
 use super::*;
 use crate::settings::{entry::Entry, group::Group};
+use gpui_kit::component::{
+    alert::Alert,
+    tab::{Tab, TabBar},
+};
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
     let active = editor.clone();
@@ -74,22 +78,93 @@ impl Render for Editor {
         v_flex()
             .gap_3()
             .debug_selector(|| "skill-install-editor".into())
-            .children(
-                ["skills_repository", "skills_revision", "skills_path"]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, key)| {
-                        Field::new().label(tr(key)).child(
-                            div()
-                                .debug_selector(move || format!("skill-source-{index}"))
-                                .child(
-                                    Input::new(&self.fields[index])
-                                        .disabled(locked)
-                                        .aria_label(tr(key)),
-                                ),
-                        )
-                    }),
+            .child(
+                TabBar::new("skill-install-sources")
+                    .segmented()
+                    .menu(false)
+                    .w_full()
+                    .selected_index(self.channel.index())
+                    .children(
+                        [
+                            Channel::Git,
+                            Channel::Skills,
+                            Channel::Hub,
+                            Channel::Directory,
+                            Channel::Archive,
+                        ]
+                        .into_iter()
+                        .map(|channel| {
+                            Tab::new()
+                                .flex_1()
+                                .min_w_0()
+                                .label(tr(channel.label()))
+                                .disabled(locked)
+                        }),
+                    )
+                    .on_click(
+                        cx.listener(|editor, index, _, cx| editor.select_channel(*index, cx)),
+                    ),
             )
+            .child(Alert::info("skill-install-help", tr(self.channel.help())).small())
+            .when(self.channel == Channel::Git, |body| {
+                body.children(
+                    ["skills_repository", "skills_revision", "skills_path"]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, key)| {
+                            Field::new().label(tr(key)).child(
+                                div()
+                                    .debug_selector(move || format!("skill-source-{index}"))
+                                    .child(
+                                        Input::new(&self.fields[index])
+                                            .disabled(locked)
+                                            .aria_label(tr(key)),
+                                    ),
+                            )
+                        }),
+                )
+            })
+            .when(
+                matches!(self.channel, Channel::Skills | Channel::Hub),
+                |body| {
+                    let index = self.channel.index() - 1;
+                    body.child(
+                        Field::new().label(tr("skill_source_link")).child(
+                            Input::new(&self.links[index])
+                                .disabled(locked)
+                                .aria_label(tr("skill_source_link")),
+                        ),
+                    )
+                },
+            )
+            .when_some(self.channel.local(), |body, index| {
+                body.child(
+                    h_flex()
+                        .min_w_0()
+                        .gap_2()
+                        .child(
+                            Button::new("skill-import-choose")
+                                .label(tr(if index == 0 {
+                                    "skill_source_choose_directory"
+                                } else {
+                                    "skill_source_choose_archive"
+                                }))
+                                .disabled(locked)
+                                .on_click(cx.listener(|editor, _, window, cx| {
+                                    editor.choose_import(window, cx)
+                                })),
+                        )
+                        .when_some(self.imports[index].as_ref(), |row, snapshot| {
+                            row.child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .child(snapshot.label.clone()),
+                            )
+                        }),
+                )
+            })
             .child(
                 Button::new("skill-discover")
                     .debug_selector(|| "skill-discover".into())
@@ -111,7 +186,7 @@ impl Render for Editor {
                                 .outline()
                                 .heading(false)
                                 .empty(IconName::Inbox, "skills_no_candidates")
-                                .children(discovery.skills.iter().enumerate().map(
+                                .children(discovery.skills().iter().enumerate().map(
                                     |(index, candidate)| {
                                         let completed = self.completed.contains(&index);
                                         let installed = self

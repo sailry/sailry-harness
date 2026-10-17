@@ -17,6 +17,8 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
     .map(str::to_owned)
     .chain(skills::NAMES.map(str::to_owned))
     .chain(skills::management::NAMES.map(str::to_owned))
+    .chain(mcp::management::NAMES.map(str::to_owned))
+    .chain(management::NAMES.map(str::to_owned))
     .collect();
     let mut allowed = BTreeSet::new();
     for tool in &declaration.tools {

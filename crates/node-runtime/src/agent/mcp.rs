@@ -1,6 +1,7 @@
 //! Namespaced ADK MCP tools bound to the original turn, approval and package snapshot.
 mod input;
 mod limits;
+pub(super) mod management;
 mod pool;
 pub(crate) use pool::Pool;
 mod schema;

@@ -178,6 +178,7 @@ async fn restores_new_profiles_without_external_mutation() {
                 model: "fixture".into(),
                 effort: Effort::Default,
                 mode: WorkMode::Code,
+                delegation_proactive: false,
                 permission: Permission::Ask,
                 credential: None,
             };
@@ -523,6 +524,7 @@ async fn restores_independent_managed_git_checkouts() {
             model: "fixture".into(),
             effort: Effort::Default,
             mode: WorkMode::Code,
+            delegation_proactive: false,
             permission: Permission::Ask,
             credential: None,
         };

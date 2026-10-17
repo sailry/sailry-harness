@@ -121,6 +121,7 @@ async fn survives_without_projects() {
                         model: "fixture-a".into(),
                         effort: Effort::Default,
                         mode: WorkMode::Code,
+                        delegation_proactive: false,
                         permission: Permission::Ask,
                         credential: None,
                     }),

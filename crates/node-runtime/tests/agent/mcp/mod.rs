@@ -10,6 +10,8 @@ mod content;
 mod elicitation;
 mod http;
 mod modern;
+#[cfg(feature = "test-support")]
+mod management;
 use peer as mcp_peer;
 #[path = "../../support/mcp_input.rs"]
 #[allow(dead_code, unused_imports)]

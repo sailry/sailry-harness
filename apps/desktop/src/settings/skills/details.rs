@@ -11,9 +11,36 @@ pub(super) fn open(info: Info, skill: Skill, window: &mut Window, cx: &mut App) 
         let mut information = Group::new("plugins_information").outline();
         for (key, value) in [
             ("plugins_identifier", Some(skill.name.clone())),
-            ("skills_repository", Some(provenance(&info))),
-            ("skills_revision", Some(source.source.git_ref.clone())),
-            ("skills_path", Some(source.path.clone())),
+            (
+                if source.git().is_some() {
+                    "skills_repository"
+                } else {
+                    "skill_source_origin"
+                },
+                Some(provenance(&info)),
+            ),
+            (
+                "skills_revision",
+                source.git().map(|source| source.source.git_ref.clone()),
+            ),
+            (
+                "skills_path",
+                match source {
+                    sailry_protocol::plugin::skills::Provenance::Imported { imported } => {
+                        Some(imported.path.clone())
+                    }
+                    _ => source.git().map(|source| source.path.clone()),
+                },
+            ),
+            (
+                "plugins_version",
+                match source {
+                    sailry_protocol::plugin::skills::Provenance::Registry { registry } => {
+                        Some(registry.version.clone())
+                    }
+                    _ => None,
+                },
+            ),
             ("skills_license", skill.license.clone()),
             ("skills_compatibility", skill.compatibility.clone()),
         ] {

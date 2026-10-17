@@ -725,6 +725,7 @@ mod tests {
                     model: "fixture".into(),
                     effort: Effort::Low,
                     mode: sailry_protocol::WorkMode::Code,
+                    delegation_proactive: false,
                     permission: sailry_protocol::Permission::Ask,
                     credential: None,
                 };
@@ -768,6 +769,7 @@ mod tests {
                     model: "fixture".into(),
                     effort: Effort::Default,
                     mode: WorkMode::Code,
+                    delegation_proactive: false,
                     permission: Permission::Ask,
                     credential: None,
                 },

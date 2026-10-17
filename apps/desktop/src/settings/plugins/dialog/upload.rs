@@ -2,7 +2,6 @@ use super::*;
 use sailry_protocol::{ErrorCode, Fault, plugin};
 use std::path::PathBuf;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
-mod source;
 
 pub(in crate::settings::plugins) struct Package {
     pub upload: plugin::Upload,
@@ -165,9 +164,10 @@ pub(in crate::settings::plugins) async fn prepare(
 ) -> Result<Prepared, Fault> {
     let invalid = || Fault::invalid("select a valid plugin ZIP or directory");
     let cancel = stop.clone();
-    let source = tokio::task::spawn_blocking(move || source::open(path, cancel))
-        .await
-        .map_err(|_| invalid())?;
+    let source =
+        tokio::task::spawn_blocking(move || crate::settings::upload::open_plugin(path, cancel))
+            .await
+            .map_err(|_| invalid())?;
     let source = match source {
         Err(error) if reuse && error.code == ErrorCode::NotFound => {
             return Ok(Prepared::MissingDirectory);

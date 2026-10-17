@@ -13,19 +13,41 @@ pub(super) struct Opened {
     pub directory: Option<PathBuf>,
 }
 
-pub(super) fn open(path: PathBuf, stop: CancellationToken) -> Result<Opened, Fault> {
+pub(super) fn open_plugin(path: PathBuf, stop: CancellationToken) -> Result<Opened, Fault> {
+    open(path, None, stop)
+}
+
+pub(super) fn open_skill(
+    path: PathBuf,
+    directory: bool,
+    stop: CancellationToken,
+) -> Result<Opened, Fault> {
+    open(path, Some(directory), stop)
+}
+
+fn open(
+    path: PathBuf,
+    skill_directory: Option<bool>,
+    stop: CancellationToken,
+) -> Result<Opened, Fault> {
     let path = path.canonicalize().map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
-            Fault::new(ErrorCode::NotFound, "plugin source no longer exists")
+            Fault::new(ErrorCode::NotFound, "package source no longer exists")
         } else {
             io_error(error)
         }
     })?;
-    if path.is_dir() {
+    let directory = path.is_dir();
+    if skill_directory.is_some_and(|expected| expected != directory) {
+        return Err(invalid());
+    }
+    if directory {
         let root = Dir::open_ambient_dir(&path, cap_std::ambient_authority()).map_err(io_error)?;
-        let manifest = root.symlink_metadata("plugin.json").map_err(io_error)?;
-        if !manifest.is_file() || manifest.is_symlink() {
-            return Err(invalid());
+        if skill_directory.is_none() {
+            let manifest = root.symlink_metadata("plugin.json").map_err(io_error)?;
+            if !manifest.is_file() || manifest.is_symlink() {
+                return Err(invalid());
+            }
         }
         let mut package = Package {
             zip: zip::ZipWriter::new(tempfile::tempfile().map_err(io_error)?),
@@ -41,10 +63,20 @@ pub(super) fn open(path: PathBuf, stop: CancellationToken) -> Result<Opened, Fau
             directory: Some(path),
         })
     } else {
-        if !path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
-        {
+        let supported = if skill_directory.is_some() {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    let name = name.to_ascii_lowercase();
+                    [".zip", ".skill", ".tar", ".tar.gz", ".tgz"]
+                        .iter()
+                        .any(|suffix| name.ends_with(suffix))
+                })
+        } else {
+            path.extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+        };
+        if !supported {
             return Err(invalid());
         }
         let parent = Dir::open_ambient_dir(
@@ -52,11 +84,52 @@ pub(super) fn open(path: PathBuf, stop: CancellationToken) -> Result<Opened, Fau
             cap_std::ambient_authority(),
         )
         .map_err(io_error)?;
+        let source = regular(&parent, Path::new(path.file_name().ok_or_else(invalid)?))?.into_std();
         Ok(Opened {
-            file: regular(&parent, Path::new(path.file_name().ok_or_else(invalid)?))?.into_std(),
+            file: if skill_directory.is_some() {
+                snapshot(source, &stop)?
+            } else {
+                source
+            },
             directory: None,
         })
     }
+}
+
+fn snapshot(mut source: File, stop: &CancellationToken) -> Result<File, Fault> {
+    let before = source.metadata().map_err(io_error)?;
+    if before.len() == 0 || before.len() > MAX_PACKAGE_BYTES {
+        return Err(invalid());
+    }
+    let mut file = tempfile::tempfile().map_err(io_error)?;
+    let mut copied = 0;
+    let mut buffer = [0; 64 * 1024];
+    loop {
+        if stop.is_cancelled() {
+            return Err(Fault::new(
+                ErrorCode::Cancelled,
+                "package selection cancelled",
+            ));
+        }
+        let count = source.read(&mut buffer).map_err(io_error)?;
+        if count == 0 {
+            break;
+        }
+        copied += count as u64;
+        if copied > before.len() {
+            return Err(invalid());
+        }
+        file.write_all(&buffer[..count]).map_err(io_error)?;
+    }
+    let after = source.metadata().map_err(io_error)?;
+    if copied != before.len()
+        || after.len() != before.len()
+        || after.modified().ok() != before.modified().ok()
+    {
+        return Err(invalid());
+    }
+    file.rewind().map_err(io_error)?;
+    Ok(file)
 }
 
 struct Package {
@@ -75,7 +148,7 @@ impl Package {
             if self.stop.is_cancelled() {
                 return Err(Fault::new(
                     ErrorCode::Cancelled,
-                    "plugin selection cancelled",
+                    "package selection cancelled",
                 ));
             }
             self.entries += 1;
@@ -125,7 +198,7 @@ impl Package {
                     if self.stop.is_cancelled() {
                         return Err(Fault::new(
                             ErrorCode::Cancelled,
-                            "plugin selection cancelled",
+                            "package selection cancelled",
                         ));
                     }
                     let count = file.read(&mut buffer).map_err(io_error)?;
@@ -168,7 +241,7 @@ fn regular(dir: &Dir, name: &Path) -> Result<cap_std::fs::File, Fault> {
 }
 
 fn invalid() -> Fault {
-    Fault::invalid("invalid plugin package or directory")
+    Fault::invalid("invalid package or directory")
 }
 fn io_error(error: std::io::Error) -> Fault {
     Fault::new(
@@ -177,7 +250,7 @@ fn io_error(error: std::io::Error) -> Fault {
         } else {
             ErrorCode::InvalidRequest
         },
-        "cannot read plugin package or directory",
+        "cannot read package or directory",
     )
 }
 
@@ -191,7 +264,7 @@ mod tests {
         std::fs::write(root.path().join("plugin.json"), b"{}").unwrap();
         std::fs::create_dir(root.path().join("skills")).unwrap();
         std::fs::write(root.path().join("skills/SKILL.md"), b"skill fixture").unwrap();
-        let file = open(root.path().into(), CancellationToken::new()).unwrap();
+        let file = open_plugin(root.path().into(), CancellationToken::new()).unwrap();
         let mut zip = zip::ZipArchive::new(file.file).unwrap();
         assert_eq!(zip.len(), 3);
         let mut text = String::new();
@@ -206,14 +279,14 @@ mod tests {
     fn missing_manifest_and_cancellation() {
         let root = tempfile::tempdir().unwrap();
         assert_eq!(
-            open(root.path().join("missing"), CancellationToken::new())
+            open_plugin(root.path().join("missing"), CancellationToken::new())
                 .err()
                 .unwrap()
                 .code,
             ErrorCode::NotFound
         );
         assert_eq!(
-            open(root.path().into(), CancellationToken::new())
+            open_plugin(root.path().into(), CancellationToken::new())
                 .err()
                 .unwrap()
                 .code,
@@ -227,7 +300,7 @@ mod tests {
         let stop = CancellationToken::new();
         stop.cancel();
         assert_eq!(
-            open(root.path().into(), stop).err().unwrap().code,
+            open_plugin(root.path().into(), stop).err().unwrap().code,
             ErrorCode::Cancelled
         );
     }
@@ -245,13 +318,39 @@ mod tests {
         )
         .unwrap();
         let mut zip = zip::ZipArchive::new(
-            open(root.path().into(), CancellationToken::new())
+            open_plugin(root.path().into(), CancellationToken::new())
                 .unwrap()
                 .file,
         )
         .unwrap();
         assert_ne!(zip.by_name("tool").unwrap().unix_mode().unwrap() & 0o111, 0);
         symlink("/private/secret", root.path().join("outside")).unwrap();
-        assert!(open(root.path().into(), CancellationToken::new()).is_err());
+        assert!(open_plugin(root.path().into(), CancellationToken::new()).is_err());
+    }
+
+    #[test]
+    fn snapshots_skill_archives() {
+        let root = tempfile::tempdir().unwrap();
+        for name in ["one.zip", "one.skill", "one.tar", "one.tar.gz", "one.tgz"] {
+            let path = root.path().join(name);
+            std::fs::write(&path, b"frozen archive").unwrap();
+            let mut opened = open_skill(path.clone(), false, CancellationToken::new()).unwrap();
+            std::fs::write(&path, b"changed source").unwrap();
+            let mut bytes = Vec::new();
+            opened.file.read_to_end(&mut bytes).unwrap();
+            assert_eq!(bytes, b"frozen archive");
+            assert!(opened.directory.is_none());
+        }
+    }
+
+    #[test]
+    fn packages_skills_without_plugin_manifest() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("SKILL.md"), b"skill fixture").unwrap();
+        let opened = open_skill(root.path().into(), true, CancellationToken::new()).unwrap();
+        assert_eq!(opened.directory, Some(root.path().canonicalize().unwrap()));
+        let mut zip = zip::ZipArchive::new(opened.file).unwrap();
+        assert!(zip.by_name("SKILL.md").is_ok());
+        assert!(open_skill(root.path().into(), false, CancellationToken::new()).is_err());
     }
 }

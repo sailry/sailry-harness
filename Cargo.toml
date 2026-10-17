@@ -115,6 +115,7 @@ cbc = { version = "=0.1.2", features = ["alloc"] }
 pbkdf2 = "=0.12.2"
 sha1 = "=0.10.7"
 sha2 = "=0.10.9"
+md-5 = "=0.10.6"
 security-framework = "=3.7.0"
 block2 = "=0.6.2"
 mime_guess = "=2.0.5"
@@ -189,6 +190,9 @@ gpui-fast-web = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de58593
 gpui-fast-platform = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
 rmcp = { git = "https://github.com/sailry/rust-sdk.git", rev = "e43a57e4c4db63825dc5682d6a476da439bf9480" }
 portable-pty = { git = "https://github.com/sailry/wezterm.git", rev = "e814e06b5149d73ddbcb5be670b41855b2873c74" }
+
+[profile.release]
+strip = "symbols"
 
 # Keep development code and unwind metadata small without disabling unwinding.
 [profile.dev]

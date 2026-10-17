@@ -58,9 +58,19 @@ fn unpack(file: File, stop: &CancellationToken) -> Result<(tempfile::TempDir, Pa
 
 /// Extracts regular files and reports omitted symbolic links relative to the returned root.
 pub(super) fn unpack_source(
+    file: File,
+    stop: &CancellationToken,
+    max_entries: usize,
+) -> Result<(tempfile::TempDir, PathBuf, Vec<String>), Fault> {
+    unpack_source_with(file, stop, max_entries, true)
+}
+
+/// Imported skill paths retain their actual directory rather than a Git archive wrapper.
+pub(super) fn unpack_source_with(
     mut file: File,
     stop: &CancellationToken,
     max_entries: usize,
+    strip_root: bool,
 ) -> Result<(tempfile::TempDir, PathBuf, Vec<String>), Fault> {
     file.seek(SeekFrom::Start(0)).map_err(io_error)?;
     let mut archive = zip::ZipArchive::new(file)
@@ -162,7 +172,7 @@ pub(super) fn unpack_source(
         }
     }
     let mut source = temporary.path().to_path_buf();
-    if !source.join("plugin.json").is_file() {
+    if strip_root && !source.join("plugin.json").is_file() {
         let children = std::fs::read_dir(&source)
             .map_err(io_error)?
             .collect::<Result<Vec<_>, _>>()

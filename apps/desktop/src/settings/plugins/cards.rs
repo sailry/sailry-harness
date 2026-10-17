@@ -154,8 +154,17 @@ impl Workspace {
         let online = info.is_some_and(|info| {
             matches!(
                 info.origin,
-                Some(sailry_protocol::plugin::Origin::Online { .. })
+                Some(
+                    sailry_protocol::plugin::Origin::Online { .. }
+                        | sailry_protocol::plugin::Origin::Registry { .. }
+                )
             )
+        });
+        let imported = info.and_then(|info| match &info.skill {
+            Some(sailry_protocol::plugin::skills::Provenance::Imported { imported }) => {
+                Some(imported.kind)
+            }
+            _ => None,
         });
         let available = self
             .plugin_catalog
@@ -226,7 +235,9 @@ impl Workspace {
                         let remove_owner = menu_owner.clone();
                         let remove = menu_plugin.clone();
                         menu.item(
-                            PopupMenuItem::new(tr(if online {
+                            PopupMenuItem::new(tr(if imported.is_some() {
+                                "skill_source_reimport"
+                            } else if online {
                                 "plugins_check_updates"
                             } else {
                                 "plugins_update"
@@ -234,7 +245,11 @@ impl Workspace {
                             .icon(IconName::Redo)
                             .disabled(busy || !update_ready)
                             .on_click(move |_, window, cx| {
-                                if online {
+                                if let Some(kind) = imported {
+                                    owner.update(cx, |owner, cx| {
+                                        owner.reimport_skill(plugin.clone(), kind, window, cx)
+                                    });
+                                } else if online {
                                     owner.update(cx, |owner, cx| {
                                         owner.check_plugin_updates(window, cx)
                                     });

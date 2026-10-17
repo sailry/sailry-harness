@@ -184,6 +184,13 @@ impl Candidate {
                     expected_revision,
                     expected_digest: Some(info.summary.digest.clone()),
                 },
+                Origin::Registry { source } if info.skill.is_some() => {
+                    Command::InstallRegistrySkill {
+                        source: source.clone(),
+                        name,
+                        expected_revision,
+                    }
+                }
                 Origin::Online { source, path } if info.skill.is_some() => Command::InstallSkill {
                     source: source.clone(),
                     path: path.clone(),

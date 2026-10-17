@@ -198,49 +198,50 @@ async fn loads_bundled_documents() {
         let (_directory, node, controller, client, _) = fixture(remote).await;
         for name in ["context7", "github"] {
             let installed = info(execute(&client, Command::ReadPlugin { name: name.into() }).await);
-            if name == "context7" {
-                assert!(installed.settings.is_none());
+            let (field, header, prefix) = if name == "context7" {
+                ("api_key", "Context7-API-Key", None)
             } else {
-                let schema = installed.settings.as_ref().unwrap();
-                assert_eq!(schema.schema, plugin::settings::SCHEMA);
-                assert!(!schema.additional_properties);
-                assert!(schema.required.is_empty());
-                assert_eq!(schema.properties.len(), 1);
-                let token = &schema.properties["token"];
-                assert_eq!(token.kind, plugin::settings::Kind::String);
-                assert_eq!(token.min_length, Some(1));
-                assert_eq!(token.max_length, Some(4096));
-                assert!(token.default.is_none());
-                assert_eq!(
-                    token.secret,
-                    Some(plugin::settings::Binding {
-                        server: Some("github".into()),
-                        env: None,
-                        header: Some("Authorization".into()),
-                        origin: None,
-                        prefix: Some("Bearer ".into()),
-                        application: None,
-                        oauth: None,
-                        unsupported: false,
-                    })
-                );
-                let Output::PluginSettings(settings) = execute(
-                    &client,
-                    Command::ReadPluginSettings {
-                        package: installed.summary.reference(),
-                    },
-                )
-                .await
-                else {
-                    panic!("plugin settings expected")
-                };
-                assert_eq!(settings.package, installed.summary.reference());
-                assert!(settings.values.is_empty());
-                assert!(settings.configured.is_empty());
-                assert_eq!(settings.keepable, vec!["token".to_owned()]);
-                // The optional token is unset; this valid form does not imply an authenticated account.
-                assert!(settings.ready);
-            }
+                ("token", "Authorization", Some("Bearer ".to_owned()))
+            };
+            let schema = installed.settings.as_ref().unwrap();
+            assert_eq!(schema.schema, plugin::settings::SCHEMA);
+            assert!(!schema.additional_properties);
+            assert!(schema.required.is_empty());
+            assert_eq!(schema.properties.len(), 1);
+            let token = &schema.properties[field];
+            assert_eq!(token.kind, plugin::settings::Kind::String);
+            assert_eq!(token.min_length, Some(1));
+            assert_eq!(token.max_length, Some(4096));
+            assert!(token.default.is_none());
+            assert_eq!(
+                token.secret,
+                Some(plugin::settings::Binding {
+                    server: Some(name.into()),
+                    env: None,
+                    header: Some(header.into()),
+                    origin: None,
+                    prefix,
+                    application: None,
+                    oauth: None,
+                    unsupported: false,
+                })
+            );
+            let Output::PluginSettings(settings) = execute(
+                &client,
+                Command::ReadPluginSettings {
+                    package: installed.summary.reference(),
+                },
+            )
+            .await
+            else {
+                panic!("plugin settings expected")
+            };
+            assert_eq!(settings.package, installed.summary.reference());
+            assert!(settings.values.is_empty());
+            assert!(settings.configured.is_empty());
+            assert_eq!(settings.keepable, vec![field.to_owned()]);
+            // Optional credentials do not block the unconfigured form.
+            assert!(settings.ready);
             let state = read(&client, &installed.summary.reference()).await;
             assert_eq!(state.configuration.schema, plugin::mcp::SCHEMA);
             assert_eq!(state.configuration.servers.len(), 1);
@@ -254,6 +255,51 @@ async fn loads_bundled_documents() {
                     headers.get("X-MCP-Toolsets").map(String::as_str),
                     Some("repos,issues,pull_requests,actions,users")
                 );
+            }
+            if name == "context7" {
+                let Server::Http { url, headers } = &state.configuration.servers[name] else {
+                    panic!("Context7 HTTP configuration expected")
+                };
+                assert_eq!(url, "https://mcp.context7.com/mcp");
+                assert_eq!(headers.get(header).map(String::as_str), Some(""));
+                let secret = "fixture-private-context7-key";
+                let request = client.prepare(Command::SavePluginSettings {
+                    package: installed.summary.reference(),
+                    values: Default::default(),
+                    secrets: std::collections::BTreeMap::from([(
+                        field.into(),
+                        plugin::settings::SecretUpdate::Replace(sailry_protocol::Secret::new(
+                            secret.into(),
+                        )),
+                    )]),
+                });
+                assert!(!format!("{request:?}").contains(secret));
+                let Output::PluginSettings(saved) = client.execute(request).await.unwrap() else {
+                    panic!("saved plugin settings expected")
+                };
+                assert!(saved.values.is_empty());
+                assert_eq!(saved.configured, vec![field.to_owned()]);
+                assert!(saved.ready);
+                assert!(!serde_json::to_string(&saved).unwrap().contains(secret));
+                let private = read(&client, &saved.package).await;
+                assert!(!serde_json::to_string(&private).unwrap().contains(secret));
+                let cleared = execute(
+                    &client,
+                    Command::SavePluginSettings {
+                        package: saved.package,
+                        values: Default::default(),
+                        secrets: std::collections::BTreeMap::from([(
+                            field.into(),
+                            plugin::settings::SecretUpdate::Clear,
+                        )]),
+                    },
+                )
+                .await;
+                let Output::PluginSettings(cleared) = cleared else {
+                    panic!("cleared plugin settings expected")
+                };
+                assert!(cleared.configured.is_empty());
+                assert!(cleared.ready);
             }
             let encoded = serde_json::to_value(&state.configuration).unwrap();
             assert!(encoded.get("mcpServers").is_some());

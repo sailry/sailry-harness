@@ -119,7 +119,10 @@ async fn manages_generic_git_commits() {
         let admitted = client.dispatch(request.clone()).await.unwrap();
         assert!(admitted.receipt.durable);
         let installed = info(admitted.completion.await.unwrap().unwrap());
-        assert_eq!(installed.skill.as_ref().unwrap().source, original.source);
+        assert_eq!(
+            installed.skill.as_ref().unwrap().git().unwrap().source,
+            original.source
+        );
         assert_eq!(
             installed.summary.version.as_deref(),
             Some(git.first.as_str())
@@ -179,7 +182,10 @@ async fn manages_generic_git_commits() {
         let updated = info(execute(&client, source::install(&next, candidate, 2)).await);
         assert!(!updated.summary.enabled);
         assert_ne!(updated.summary.digest, installed.summary.digest);
-        assert_eq!(updated.skill.as_ref().unwrap().source.commit, second);
+        assert_eq!(
+            updated.skill.as_ref().unwrap().git().unwrap().source.commit,
+            second
+        );
         let unsafe_skill = next
             .skills
             .iter()

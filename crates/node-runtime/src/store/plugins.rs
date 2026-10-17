@@ -270,6 +270,16 @@ fn finish_package(
         name,
         expected_revision,
     }
+    | Command::InstallSkillUpload {
+        name,
+        expected_revision,
+        ..
+    }
+    | Command::InstallRegistrySkill {
+        name,
+        expected_revision,
+        ..
+    }
     | Command::InstallSkill {
         name,
         expected_revision,
@@ -304,6 +314,13 @@ fn finish_package(
     )
     .map_err(storage_error)?;
     info.origin = match command {
+        Command::InstallSkillUpload { source, .. } => Some(match source.kind {
+            plugin::UploadSource::Directory => plugin::Origin::Directory,
+            plugin::UploadSource::Archive => plugin::Origin::Archive,
+        }),
+        Command::InstallRegistrySkill { source, .. } => Some(plugin::Origin::Registry {
+            source: source.clone(),
+        }),
         Command::InstallBundledPlugin { .. } => Some(plugin::Origin::Bundled),
         Command::InstallPluginUpload { source, .. } => Some(match source {
             plugin::UploadSource::Directory => plugin::Origin::Directory,

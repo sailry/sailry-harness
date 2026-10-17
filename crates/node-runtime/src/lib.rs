@@ -473,6 +473,12 @@ impl Node {
             .register_python_environment_fixture(name, &self.ingress.environment)
     }
 
+    /// Routes registry fixtures through the same Node-owned acquisition boundary.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_skill_registry_fixture(&self, endpoint: &str) -> Result<(), sailry_protocol::Fault> {
+        self.ingress.plugins.registry.set_fixture(endpoint)
+    }
+
     /// Confirms and claims an exact captured tool call through the real approval owner.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn authorize_tool_fixture(

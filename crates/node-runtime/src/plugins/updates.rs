@@ -190,6 +190,25 @@ impl Host {
                 };
                 (candidate, origin)
             }
+            Some(Origin::Registry { source }) => {
+                let Some(candidate) = self.inspect_registry_skill(source, &name, stop).await?
+                else {
+                    return Ok(Report {
+                        current: current.summary,
+                        available: None,
+                        manual: false,
+                    });
+                };
+                let Some(sailry_protocol::plugin::skills::Provenance::Registry { registry }) =
+                    &candidate.skill
+                else {
+                    return Err(Fault::invalid("registry skill provenance is unavailable"));
+                };
+                let origin = Origin::Registry {
+                    source: registry.clone(),
+                };
+                (candidate, origin)
+            }
             Some(Origin::Online { source, path }) => {
                 let source = Source {
                     repository: source.repository.clone(),
@@ -201,7 +220,8 @@ impl Host {
                     let provenance = candidate
                         .skill
                         .as_ref()
-                        .expect("inspected skill provenance");
+                        .and_then(|value| value.git())
+                        .expect("inspected Git skill provenance");
                     let origin = Origin::Online {
                         source: provenance.source.clone(),
                         path: provenance.path.clone(),

@@ -271,6 +271,9 @@ pub enum Origin {
         source: skills::Resolved,
         path: String,
     },
+    Registry {
+        source: skills::RegistryResolved,
+    },
     Worktree {
         worktree: crate::WorktreeId,
         path: String,

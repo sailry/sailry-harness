@@ -1,0 +1,6 @@
+composer_delegation_proactive: "子エージェントを積極的に使用"
+composer_delegation_normal: "子エージェント：必要に応じて使用"
+composer_delegation_active: "子エージェント：独立した作業を積極的に委任"
+composer_delegation_unavailable: "この会話では子エージェントを使用できません"
+menu_input_diagnostics: "入力の診断をコピー"
+input_diagnostics_copied: "入力の診断をコピーしました"

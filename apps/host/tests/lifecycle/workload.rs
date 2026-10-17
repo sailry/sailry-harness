@@ -97,6 +97,7 @@ async fn history_and_terminal_load() {
                 model: "fixture".into(),
                 effort: Effort::Default,
                 mode: WorkMode::Code,
+                delegation_proactive: false,
                 permission: Permission::Full,
                 credential: None,
             }),

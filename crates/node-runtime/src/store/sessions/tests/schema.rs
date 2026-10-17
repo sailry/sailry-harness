@@ -245,6 +245,7 @@ fn session(database: &Database, profile: &Path, state: &str) -> SessionId {
                 model: "fixture".into(),
                 effort: Effort::High,
                 mode: WorkMode::Code,
+                delegation_proactive: false,
                 permission: Permission::Ask,
                 credential: None,
             },

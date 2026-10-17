@@ -45,7 +45,19 @@ impl Fixture {
         let original = discovery(&client, git.source()).await;
         git.update();
         let next = discovery(&client, git.source()).await;
-        let server = Server::tools(calls(&original, &next)).await;
+        let calls = calls(&original, &next)
+            .into_iter()
+            .map(|(action, mut arguments)| {
+                if ["list", "discover", "install", "update", "uninstall"].contains(&action.as_str())
+                {
+                    arguments["action"] = json!(action);
+                    ("manage_skills".into(), arguments)
+                } else {
+                    (action, arguments)
+                }
+            })
+            .collect();
+        let server = Server::tools(calls).await;
         let (session, provider) = configured_session(&client, &server.endpoint, &root).await;
         let mut session = approvals::prepare_model(&client, session, provider).await;
         let mut config = session.config.clone();
@@ -154,40 +166,41 @@ async fn permissions_and_empty_inventory() {
             let git = source::Git::new();
             let fixture = Fixture::new(remote, &git, permission, WorkMode::Code, |original, _| {
                 vec![
-                    ("list_skills".into(), json!({})),
+                    ("list".into(), json!({})),
                     (
-                        "discover_skills".into(),
+                        "discover".into(),
                         json!({"repository":git.url,"ref":"release/v1"}),
                     ),
-                    ("install_skill".into(), install(original)),
-                    ("list_skills".into(), json!({})),
+                    ("install".into(), install(original)),
+                    ("list".into(), json!({})),
                 ]
             })
             .await;
             enabled_only(&fixture.client, &[]).await;
             let turn = fixture.submit().await;
-            if permission != Permission::Full {
+            for index in 0..if permission == Permission::Full { 0 } else { 4 } {
                 let (pending, approval) =
                     approvals::pending(&fixture.client, fixture.session.id).await;
                 assert_eq!(approval.source, ApprovalSource::User);
                 assert!(pending.entries.iter().flat_map(|entry| &entry.parts).any(
-                    |part| matches!(part, Part::ToolCall { name, .. } if name == "install_skill")
+                    |part| matches!(part, Part::ToolCall { name, .. } if name == "manage_skills")
                 ));
                 let Output::Plugins(before) = execute(&fixture.client, Command::ListPlugins).await
                 else {
                     panic!("plugins expected");
                 };
-                assert!(
-                    !before
+                assert_eq!(
+                    before
                         .iter()
-                        .any(|entry| entry.name == selected(&fixture.original).name)
+                        .any(|entry| entry.name == selected(&fixture.original).name),
+                    index > 2 && allow
                 );
                 execute(
                     &fixture.client,
                     Command::ResolveApproval {
                         session: fixture.session.id,
                         approval: approval.id,
-                        decision: if allow {
+                        decision: if index != 2 || allow {
                             Decision::Approve
                         } else {
                             Decision::Deny
@@ -217,6 +230,7 @@ async fn permissions_and_empty_inventory() {
             }
             for request in fixture.server.requests.lock().unwrap().iter() {
                 let names = names(request);
+                assert!(names.contains(&"manage_skills"));
                 for name in [
                     "list_skills",
                     "discover_skills",
@@ -224,7 +238,7 @@ async fn permissions_and_empty_inventory() {
                     "update_skill",
                     "uninstall_skill",
                 ] {
-                    assert!(names.contains(&name));
+                    assert!(!names.contains(&name));
                 }
                 assert!(!names.contains(&"load_skill"));
             }
@@ -267,22 +281,22 @@ async fn preserves_identity_and_rejects_feature_packages() {
                 feature_update["name"] = json!("files");
                 vec![
                     (
-                        "uninstall_skill".into(),
+                        "uninstall".into(),
                         json!({"name":"files","expected_revision":1}),
                     ),
-                    ("update_skill".into(), feature_update),
-                    ("install_skill".into(), install(original)),
-                    ("update_skill".into(), changed),
-                    ("update_skill".into(), update(next, 1)),
+                    ("update".into(), feature_update),
+                    ("install".into(), install(original)),
+                    ("update".into(), changed),
+                    ("update".into(), update(next, 1)),
                     (
-                        "uninstall_skill".into(),
+                        "uninstall".into(),
                         json!({"name":name,"expected_revision":1}),
                     ),
                     (
-                        "uninstall_skill".into(),
+                        "uninstall".into(),
                         json!({"name":name,"expected_revision":2}),
                     ),
-                    ("list_skills".into(), json!({})),
+                    ("list".into(), json!({})),
                 ]
             },
         )
@@ -322,7 +336,7 @@ async fn preserves_identity_and_rejects_feature_packages() {
             output[5]["error"]["code"],
             json!(ErrorCode::RevisionConflict)
         );
-        assert_eq!(output[6], json!({"removed":true}));
+        assert_eq!(output[6], json!({"skills":[]}));
         assert_eq!(output[7], json!({"skills":[]}));
         let Output::Plugin(files) = execute(
             &fixture.client,
@@ -346,9 +360,9 @@ async fn planning_exposes_only_reads() {
         let git = source::Git::new();
         let fixture = Fixture::new(remote, &git, Permission::Full, WorkMode::Plan, |_, _| {
             vec![
-                ("list_skills".into(), json!({})),
+                ("list".into(), json!({})),
                 (
-                    "discover_skills".into(),
+                    "discover".into(),
                     json!({"repository":git.url,"ref":"release/v1","path":"skills/analysis"}),
                 ),
             ]
@@ -361,11 +375,20 @@ async fn planning_exposes_only_reads() {
         assert_eq!(results(&page)[1]["skills"].as_array().unwrap().len(), 1);
         for request in fixture.server.requests.lock().unwrap().iter() {
             let names = names(request);
-            assert!(names.contains(&"list_skills"));
-            assert!(names.contains(&"discover_skills"));
-            for name in ["install_skill", "update_skill", "uninstall_skill"] {
-                assert!(!names.contains(&name));
-            }
+            assert!(names.contains(&"manage_skills"));
+            let tool = request["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| tool["function"]["name"] == "manage_skills")
+                .unwrap();
+            let actions = tool["function"]["parameters"]["oneOf"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|schema| schema["properties"]["action"]["const"].as_str().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(actions, ["list", "discover"]);
         }
         fixture.close().await;
     }
@@ -384,13 +407,13 @@ async fn keeps_admitted_resources() {
                 let name = &selected(original).name;
                 let skill = format!("{name}:analysis");
                 vec![
-                    ("update_skill".into(), update(next, 1)),
+                    ("update".into(), update(next, 1)),
                     (
                         "read_skill_resource".into(),
                         json!({"skill":skill,"path":"references/guide.md"}),
                     ),
                     (
-                        "uninstall_skill".into(),
+                        "uninstall".into(),
                         json!({"name":name,"expected_revision":2}),
                     ),
                     ("load_skill".into(), json!({"skill":skill})),
@@ -413,7 +436,7 @@ async fn keeps_admitted_resources() {
         let output = results(&page);
         assert_eq!(output[0]["revision"], 2);
         assert_eq!(output[1]["content"], "Guide first 中文 🙂");
-        assert_eq!(output[2], json!({"removed":true}));
+        assert_eq!(output[2], json!({"skills":[]}));
         assert_eq!(output[3]["content"], source::body("first"));
         let Output::Plugins(entries) = execute(&fixture.client, Command::ListPlugins).await else {
             panic!("plugins expected");

@@ -3,7 +3,8 @@ use super::*;
 
 pub(super) async fn validate(binding: &Binding, command: &Command) -> Result<(), Fault> {
     let target = match command {
-        Command::InspectGit { worktree }
+        Command::DiscoverLocalSkills { worktree, .. }
+        | Command::InspectGit { worktree }
         | Command::ReadGitDiff { worktree, .. }
         | Command::ReadGitLog { worktree, .. }
         | Command::ReadGitShow { worktree, .. }

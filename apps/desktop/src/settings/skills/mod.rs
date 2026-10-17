@@ -44,6 +44,26 @@ impl State {
 }
 
 impl Workspace {
+    pub(in crate::settings) fn reimport_skill(
+        &mut self,
+        summary: sailry_protocol::plugin::Summary,
+        kind: sailry_protocol::plugin::UploadSource,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(live) = self.provider_link.as_ref().filter(|live| live.connected) else {
+            return;
+        };
+        install::reimport(
+            live.binding.clone(),
+            self.plugin_catalog.packages.clone(),
+            summary,
+            kind,
+            window,
+            cx,
+        );
+    }
+
     pub(super) fn skills(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(live) = &self.provider_link else {
             return self.preview_skills(cx);
@@ -180,6 +200,13 @@ impl Workspace {
         let title = skill.name.clone();
         let detail_info = info.clone();
         let detail_skill = skill.clone();
+        let imported = match &info.skill {
+            Some(sailry_protocol::plugin::skills::Provenance::Imported { imported }) => {
+                Some(imported.kind)
+            }
+            _ => None,
+        };
+        let reimport = summary.clone();
         let icon = sailry_protocol::plugin::desktop::Icon::Name("reicon:school/book".into());
         let content = resource_card::summary(
             format!("skill-details-{id}"),
@@ -204,7 +231,21 @@ impl Workspace {
                         let binding = remove_binding.clone();
                         let remove = remove.clone();
                         let title = title.clone();
-                        menu.item(
+                        let target = reimport.clone();
+                        let reimport_owner = owner.clone();
+                        menu.when_some(imported, |menu, kind| {
+                            menu.item(
+                                PopupMenuItem::new(tr("skill_source_reimport"))
+                                    .icon(IconName::Redo)
+                                    .disabled(busy)
+                                    .on_click(move |_, window, cx| {
+                                        reimport_owner.update(cx, |owner, cx| {
+                                            owner.reimport_skill(target.clone(), kind, window, cx)
+                                        });
+                                    }),
+                            )
+                        })
+                        .item(
                             PopupMenuItem::new(tr("plugins_uninstall"))
                                 .icon(IconName::CircleX)
                                 .disabled(busy)
@@ -260,12 +301,24 @@ impl Workspace {
 
 fn provenance(info: &Info) -> String {
     match &info.skill {
-        Some(source) => source
+        Some(sailry_protocol::plugin::skills::Provenance::Git(source)) => source
             .source
             .repository
             .trim_end_matches(".git")
             .trim_start_matches("https://github.com/")
             .to_owned(),
+        Some(sailry_protocol::plugin::skills::Provenance::Registry { registry }) => {
+            format!(
+                "skillhub.cn/skills/{}/{}",
+                registry.namespace, registry.slug
+            )
+        }
+        Some(sailry_protocol::plugin::skills::Provenance::Imported { imported }) => {
+            tr(match imported.kind {
+                sailry_protocol::plugin::UploadSource::Directory => "skill_source_directory",
+                sailry_protocol::plugin::UploadSource::Archive => "skill_source_archive",
+            })
+        }
         None => rust_i18n::t!("skills_package_source", name = info.summary.name).to_string(),
     }
 }
@@ -274,7 +327,7 @@ fn error_key(error: &Fault) -> &'static str {
     match error.code {
         ErrorCode::RevisionConflict | ErrorCode::Conflict => "plugins_conflict",
         ErrorCode::NotFound => "skills_not_found",
-        ErrorCode::InvalidRequest => "skills_source_invalid",
+        ErrorCode::InvalidRequest => "skill_source_invalid",
         ErrorCode::OutcomeUnknown | ErrorCode::Unavailable => "plugins_unknown",
         ErrorCode::Busy => "plugins_busy",
         _ => "skills_failed",

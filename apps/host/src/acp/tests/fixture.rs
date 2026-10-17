@@ -81,6 +81,7 @@ impl Fixture {
             model: provider.default_model.clone(),
             effort: Effort::Default,
             mode: WorkMode::Code,
+            delegation_proactive: false,
             permission: Permission::Ask,
             credential: None,
         };

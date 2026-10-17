@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use sailry_protocol::conversation::Input;
 use serde_json::{Value, json};
 mod control;
+pub(super) mod selected;
 pub(in crate::agent) use control::Control;
 
 fn selected_call(turn: TurnId) -> String {
@@ -17,34 +18,16 @@ pub(super) fn selection(
 ) -> Result<adk_core::BeforeModelCallback, Fault> {
     use adk_core::{BeforeModelResult, Content, LlmResponse, Part};
     use std::sync::atomic::{AtomicBool, Ordering};
-    let selected = invocation
-        .message
-        .selected_role()
-        .map(|selected| {
-            invocation
-                .turn
-                .roles
-                .profiles
-                .iter()
-                .find(|role| role.reference() == selected)
-                .map(|role| role.key.clone())
-                .ok_or_else(|| Fault::invalid("selected role is absent from the frozen roster"))
-        })
-        .transpose()?;
-    let pending = AtomicBool::new(selected.is_some());
+    let arguments = selected::arguments(invocation)?;
+    let pending = AtomicBool::new(invocation.message.selected_role().is_some());
     let call = selected_call(invocation.turn.id);
-    let task = if invocation.message.text.trim().is_empty() {
-        "Complete the request using the selected context".into()
-    } else {
-        invocation.message.text.clone()
-    };
     Ok(Box::new(move |_, request| {
         let response = if pending.swap(false, Ordering::AcqRel) {
             let mut content = Content::new("model");
             content.parts.push(Part::FunctionCall {
                 id: Some(call.clone()),
                 name: name.clone(),
-                args: json!({"role": selected, "task": task}),
+                args: arguments.clone(),
                 thought_signature: None,
             });
             BeforeModelResult::Skip(LlmResponse {

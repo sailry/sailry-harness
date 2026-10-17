@@ -1,0 +1,6 @@
+composer_delegation_proactive: "Sous-agents proactifs"
+composer_delegation_normal: "Sous-agents : utilisation normale"
+composer_delegation_active: "Sous-agents : déléguer activement les tâches indépendantes"
+composer_delegation_unavailable: "Les sous-agents sont indisponibles dans cette conversation"
+menu_input_diagnostics: "Copier le diagnostic de saisie"
+input_diagnostics_copied: "Diagnostic de saisie copié"

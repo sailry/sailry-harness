@@ -22,6 +22,8 @@ pub(super) fn configures(command: &Command) -> bool {
             | Command::InstallPluginSource { .. }
             | Command::InstallBundledPlugin { .. }
             | Command::InstallSkill { .. }
+            | Command::InstallRegistrySkill { .. }
+            | Command::InstallSkillUpload { .. }
             | Command::InstallMcp { .. }
     )
 }

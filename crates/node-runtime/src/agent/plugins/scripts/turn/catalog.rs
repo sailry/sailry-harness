@@ -51,7 +51,14 @@ pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &
         .profiles
         .iter()
         .filter(|_| operations.contains(&Operation::DelegateAgent))
-        .map(role_summary)
+        .map(|profile| {
+            let mut summary = role_summary(profile);
+            summary["tools"] = json!(role_tools(
+                profile.model.as_ref(),
+                &invocation.turn.roles.providers,
+            ));
+            summary
+        })
         .collect();
     let databases: Vec<_> = invocation
         .connections
@@ -86,6 +93,20 @@ pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &
     json!({"roles":roles,"session_revision":session_revision,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}})
 }
 
+fn role_tools(
+    model: Option<&sailry_protocol::role::Model>,
+    providers: &[sailry_protocol::conversation::Provider],
+) -> bool {
+    let Some(model) = model else {
+        return true;
+    };
+    providers
+        .iter()
+        .find(|provider| provider.id == model.provider)
+        .and_then(|provider| provider.models.iter().find(|entry| entry.id == model.model))
+        .is_some_and(|model| model.tools)
+}
+
 fn role_summary(profile: &sailry_protocol::role::Profile) -> Value {
     let description = profile.description.trim();
     let purpose = if description.is_empty() {
@@ -116,6 +137,30 @@ fn database(profile: &sailry_protocol::database::Profile) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uses_captured_model_capabilities() {
+        let id = sailry_protocol::ProviderId::new();
+        let mut provider: sailry_protocol::conversation::Provider = serde_json::from_value(json!({
+            "id":id,"revision":1,"name":"Private provider","api":"chat_completions",
+            "authentication":"api_key","endpoint":"https://provider.invalid","enabled":true,
+            "default_model":"selected","credential":null,
+            "models":[{"id":"selected","context":8192,"output":1024,"tools":false}]
+        }))
+        .unwrap();
+        let mut model = sailry_protocol::role::Model {
+            provider: id,
+            model: "selected".into(),
+            effort: None,
+        };
+        assert!(role_tools(None, &[]));
+        assert!(!role_tools(Some(&model), &[]));
+        assert!(!role_tools(Some(&model), &[provider.clone()]));
+        provider.models[0].tools = true;
+        assert!(role_tools(Some(&model), &[provider.clone()]));
+        model.model = "absent".into();
+        assert!(!role_tools(Some(&model), &[provider]));
+    }
     use sailry_protocol::database::{Profile, Tls};
 
     #[test]

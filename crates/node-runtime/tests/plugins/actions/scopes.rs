@@ -59,6 +59,7 @@ pub(super) async fn session(client: &Client, worktree: WorktreeId) -> Session {
                 model: "fixture".into(),
                 effort: Effort::Low,
                 mode: sailry_protocol::WorkMode::Code,
+                delegation_proactive: false,
                 permission: Permission::Ask,
                 credential: None,
             }),

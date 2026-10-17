@@ -3,18 +3,23 @@ use crate::theme::DialogStyle as _;
 use gpui_kit::component::{
     checkbox::Checkbox, dialog::DialogFooter, form::Field, scroll::ScrollableElement,
 };
-use sailry_protocol::plugin::{
-    Summary,
-    skills::{Discovery, Source},
-};
+use sailry_protocol::plugin::Summary;
 use std::collections::BTreeSet;
 
+mod import;
+mod source;
 mod view;
+use source::{Channel, Discovery, Selection};
 
 struct Editor {
     binding: Binding,
     known: Vec<Summary>,
+    target: Option<String>,
     fields: [Entity<InputState>; 3],
+    links: [Entity<InputState>; 2],
+    channel: Channel,
+    imports: [Option<std::sync::Arc<import::Snapshot>>; 2],
+    lease: Option<import::Lease>,
     discovery: Option<Discovery>,
     selected: BTreeSet<usize>,
     completed: BTreeSet<usize>,
@@ -27,6 +32,32 @@ struct Editor {
 }
 
 pub(super) fn open(binding: Binding, known: Vec<Summary>, window: &mut Window, cx: &mut App) {
+    open_source(binding, known, Channel::Git, None, window, cx);
+}
+
+pub(super) fn reimport(
+    binding: Binding,
+    known: Vec<Summary>,
+    summary: Summary,
+    kind: sailry_protocol::plugin::UploadSource,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let channel = match kind {
+        sailry_protocol::plugin::UploadSource::Directory => Channel::Directory,
+        sailry_protocol::plugin::UploadSource::Archive => Channel::Archive,
+    };
+    open_source(binding, known, channel, Some(summary.name), window, cx);
+}
+
+fn open_source(
+    binding: Binding,
+    known: Vec<Summary>,
+    channel: Channel,
+    target: Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let editor = cx.new(|cx| {
         let fields = [
             "skills_repository_hint",
@@ -34,7 +65,9 @@ pub(super) fn open(binding: Binding, known: Vec<Summary>, window: &mut Window, c
             "skills_path_hint",
         ]
         .map(|key| cx.new(|cx| InputState::new(window, cx).placeholder(tr(key))));
-        for input in &fields {
+        let links = ["skill_source_skills_hint", "skill_source_hub_hint"]
+            .map(|key| cx.new(|cx| InputState::new(window, cx).placeholder(tr(key))));
+        for input in fields.iter().chain(links.iter()) {
             cx.subscribe(input, |editor: &mut Editor, _, event, cx| {
                 if matches!(event, InputEvent::Change)
                     && !editor.pending
@@ -55,7 +88,12 @@ pub(super) fn open(binding: Binding, known: Vec<Summary>, window: &mut Window, c
         Editor {
             binding,
             known,
+            target,
             fields,
+            links,
+            channel,
+            imports: [None, None],
+            lease: None,
             discovery: None,
             selected: BTreeSet::new(),
             completed: BTreeSet::new(),
@@ -71,24 +109,46 @@ pub(super) fn open(binding: Binding, known: Vec<Summary>, window: &mut Window, c
 }
 
 impl Editor {
+    fn select_channel(&mut self, index: usize, cx: &mut Context<Self>) {
+        let channel = Channel::from_index(index);
+        if self.closed || self.pending || self.request.is_some() || self.channel == channel {
+            return;
+        }
+        self.channel = channel;
+        self.discovery = None;
+        self.selected.clear();
+        self.completed.clear();
+        self.error = None;
+        cx.notify();
+    }
+
     fn discover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.closed || self.pending || self.request.is_some() {
             return;
         }
-        let values = self
-            .fields
-            .each_ref()
-            .map(|field| field.read(cx).value().trim().to_string());
-        if values[0].is_empty() {
-            self.error = Some("skills_source_invalid");
+        let selection = match self.channel {
+            Channel::Git => Selection::git(
+                self.fields
+                    .each_ref()
+                    .map(|field| field.read(cx).value().trim().to_string()),
+            ),
+            Channel::Skills => Selection::skills(&self.links[0].read(cx).value()),
+            Channel::Hub => Selection::hub(&self.links[1].read(cx).value()),
+            Channel::Directory | Channel::Archive => {
+                self.discover_import(window, cx);
+                return;
+            }
+        };
+        let Some(selection) = selection else {
+            self.error = Some(if self.channel == Channel::Git {
+                "skills_source_invalid"
+            } else {
+                "skill_source_link_invalid"
+            });
             cx.notify();
             return;
-        }
-        let source = Source {
-            repository: values[0].clone(),
-            git_ref: (!values[1].is_empty()).then(|| values[1].clone()),
-            path: (!values[2].is_empty()).then(|| values[2].clone()),
         };
+        let command = selection.command();
         self.pending = true;
         self.error = None;
         self.discovery = None;
@@ -98,7 +158,7 @@ impl Editor {
         let job = binding.runtime.spawn(async move {
             let discovery = binding
                 .client
-                .execute(binding.client.prepare(Command::DiscoverSkills { source }))
+                .execute(binding.client.prepare(command))
                 .await?;
             let known = binding
                 .client
@@ -114,17 +174,16 @@ impl Editor {
                     return;
                 }
                 match result {
-                    Ok(Ok((Output::SkillDiscovery(discovery), Output::Plugins(known)))) => {
-                        editor.known = known;
-                        if discovery.skills.len() == 1
-                            && !editor
-                                .known
-                                .iter()
-                                .any(|known| known.name == discovery.skills[0].name)
-                        {
-                            editor.selected.insert(0);
-                        }
-                        editor.discovery = Some(discovery);
+                    Ok(Ok((discovery, Output::Plugins(known)))) => {
+                        let discovery = match selection.select(discovery) {
+                            Ok(discovery) => discovery,
+                            Err(_) => {
+                                editor.error = Some("skill_source_unresolved");
+                                cx.notify();
+                                return;
+                            }
+                        };
+                        editor.accept(discovery, known);
                     }
                     Ok(Err(error)) => editor.error = Some(error_key(&error)),
                     _ => editor.error = Some("skills_failed"),
@@ -133,6 +192,31 @@ impl Editor {
             });
         }));
         cx.notify();
+    }
+
+    fn accept(&mut self, mut discovery: Discovery, known: Vec<Summary>) {
+        if let Some(target) = &self.target {
+            match &mut discovery {
+                Discovery::Git(value) => value.skills.retain(|skill| skill.name == *target),
+                Discovery::Registry(value) => value.skills.retain(|skill| skill.name == *target),
+                Discovery::Imported(value) => value.skills.retain(|skill| skill.name == *target),
+            }
+            if discovery.skills().len() != 1 {
+                self.error = Some("skill_source_unresolved");
+                return;
+            }
+        }
+        self.known = known;
+        if discovery.skills().len() == 1
+            && (self.target.is_some()
+                || !self
+                    .known
+                    .iter()
+                    .any(|known| known.name == discovery.skills()[0].name))
+        {
+            self.selected.insert(0);
+        }
+        self.discovery = Some(discovery);
     }
 
     fn install(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -154,16 +238,19 @@ impl Editor {
             let Some(discovery) = &self.discovery else {
                 return;
             };
-            let candidate = &discovery.skills[index];
-            let command = Command::InstallSkill {
-                source: discovery.source.clone(),
-                path: candidate.path.clone(),
-                name: candidate.name.clone(),
-                expected_revision: self
-                    .known
-                    .iter()
-                    .find(|known| known.name == candidate.name)
-                    .map_or(0, |known| known.revision),
+            let candidate = &discovery.skills()[index];
+            let expected_revision = self
+                .known
+                .iter()
+                .find(|known| known.name == candidate.name)
+                .map_or(0, |known| known.revision);
+            if matches!(discovery, Discovery::Imported(_)) {
+                let candidate = candidate.clone();
+                self.prepare_install(index, candidate, expected_revision, window, cx);
+                return;
+            }
+            let Some(command) = discovery.install(index, expected_revision) else {
+                return;
             };
             self.request = Some((index, self.binding.client.prepare(command)));
         }
@@ -180,8 +267,15 @@ impl Editor {
                 let show = retry.update(cx, |editor, cx| {
                     editor.closed = false;
                     if !editor.pending {
-                        editor.request =
-                            Some((index, attempt.request(&editor.binding.client, &captured)));
+                        if matches!(attempt, crate::installations::Attempt::New)
+                            && matches!(captured.command, Command::InstallSkillUpload { .. })
+                        {
+                            editor.request = None;
+                            editor.lease = None;
+                        } else {
+                            editor.request =
+                                Some((index, attempt.request(&editor.binding.client, &captured)));
+                        }
                     }
                     !editor.dialog.presented(cx)
                 });
@@ -212,6 +306,7 @@ impl Editor {
                         .is_err_and(uncertain)
                     {
                         editor.request = None;
+                        editor.lease = None;
                     }
                     cx.notify();
                 });
@@ -223,6 +318,7 @@ impl Editor {
                     match result {
                         Ok(Ok(Output::Plugin(info))) => {
                             editor.request = None;
+                            editor.lease = None;
                             editor.completed.insert(index);
                             editor.known.retain(|known| known.name != info.summary.name);
                             editor.known.push(info.summary);
@@ -241,6 +337,7 @@ impl Editor {
                         Ok(Err(error)) => {
                             if !uncertain(&error) {
                                 editor.request = None;
+                                editor.lease = None;
                             }
                             editor.error = Some(error_key(&error));
                         }
@@ -268,7 +365,7 @@ impl Editor {
             self.selected
                 .iter()
                 .filter(|index| {
-                    let candidate = &discovery.skills[**index];
+                    let candidate = &discovery.skills()[**index];
                     !self.known.iter().any(|known| known.name == candidate.name)
                 })
                 .count()

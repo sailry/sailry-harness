@@ -97,6 +97,7 @@ impl Fixture {
                 config: Some(SessionConfig {
                     assistant: None,
                     resource: None,
+                    delegation_proactive: false,
                     provider: provider.id,
                     model: "fixture-a".into(),
                     effort: Effort::Default,

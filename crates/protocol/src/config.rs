@@ -56,6 +56,9 @@ pub struct SessionConfig {
     #[serde(default)]
     pub effort: Effort,
     pub mode: WorkMode,
+    /// Prefer useful delegation in coordinator turns without changing tool authority.
+    #[serde(default)]
+    pub delegation_proactive: bool,
     pub permission: Permission,
     pub credential: Option<CredentialRef>,
 }
@@ -150,6 +153,7 @@ mod permission {
                 model: "fixture".into(),
                 effort: Effort::Low,
                 mode: WorkMode::Code,
+                delegation_proactive: false,
                 permission: mode,
                 credential: None,
             };
@@ -200,9 +204,21 @@ mod configuration {
     fn defaults_only_optional_choices() {
         let config: SessionConfig = serde_json::from_value(value()).unwrap();
         assert_eq!(config.effort, Effort::Default);
+        assert!(!config.delegation_proactive);
         assert!(config.assistant.is_none());
         assert!(config.resource.is_none());
         assert!(config.credential.is_none());
+    }
+
+    #[test]
+    fn preserves_proactive_delegation() {
+        let mut body = value();
+        body["delegation_proactive"] = json!(true);
+        let config: SessionConfig = serde_json::from_value(body).unwrap();
+        assert!(config.delegation_proactive);
+        let copied: SessionConfig =
+            serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
+        assert_eq!(copied, config);
     }
 
     #[test]
@@ -250,6 +266,7 @@ mod work_mode {
                 model: "fixture".into(),
                 effort: Effort::Default,
                 mode,
+                delegation_proactive: false,
                 permission: Permission::Full,
                 credential: None,
             };

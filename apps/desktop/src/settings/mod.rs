@@ -27,6 +27,7 @@ pub(crate) mod extensions;
 mod shortcuts;
 mod skills;
 mod terminal;
+pub(super) mod upload;
 
 use gpui_kit::component::*;
 use gpui_kit::*;

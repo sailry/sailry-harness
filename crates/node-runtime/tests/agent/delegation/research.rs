@@ -41,6 +41,7 @@ async fn loads_the_skill_without_expanding_authority() {
         let mut config = fixture.session.config.clone();
         config.mode = WorkMode::Code;
         config.permission = Permission::Full;
+        config.delegation_proactive = true;
         let Output::Session(session) = fixture
             .client
             .execute(fixture.client.prepare(Command::SetSessionConfig {
@@ -77,6 +78,7 @@ async fn loads_the_skill_without_expanding_authority() {
         let mut expected = turn.config;
         expected.mode = WorkMode::Plan;
         assert_eq!(child.config, expected);
+        assert!(child.config.delegation_proactive);
         assert_eq!(child.delegation.as_ref().unwrap().role, Some(role.id));
         let requests = fixture.parent.requests.lock().unwrap().clone();
         let request = requests
@@ -87,12 +89,29 @@ async fn loads_the_skill_without_expanding_authority() {
                 })
             })
             .expect("delegated model request");
+        let parent_request = requests
+            .iter()
+            .find(|request| {
+                request["tools"].as_array().unwrap().iter().any(|tool| {
+                    tool["function"]["name"] == plugin_tool("delegation", "spawn_agent")
+                })
+            })
+            .expect("coordinator model request");
+        assert!(
+            parent_request["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|message| message["content"].as_str())
+                .any(|text| text.contains("Proactive delegation"))
+        );
         let instructions = request["messages"]
             .as_array()
             .unwrap()
             .iter()
             .filter_map(|message| message["content"].as_str())
             .collect::<String>();
+        assert!(!instructions.contains("Proactive delegation"));
         assert!(instructions.contains("Selected skill web-search:research"));
         assert!(instructions.contains("Search snippets identify candidates"));
         assert!(instructions.contains("six queries and eight distinct fetched sources"));

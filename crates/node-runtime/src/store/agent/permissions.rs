@@ -86,8 +86,8 @@ pub(super) fn source(
     Ok(match (config.permission, request.tool_name.as_str()) {
         (
             Permission::Full,
-            "create_worktree" | "register_worktree" | "remove_worktree" | "install_skill"
-            | "update_skill" | "uninstall_skill",
+            "create_worktree" | "register_worktree" | "remove_worktree" | "manage_skills"
+            | "manage_mcp" | "manage_plugins",
         ) => ApprovalSource::Full,
         (Permission::Full, name)
             if name.starts_with("mcp_")

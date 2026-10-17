@@ -343,6 +343,7 @@ impl Ingress {
             if matches!(
                 request.command,
                 sailry_protocol::Command::DiscoverSkills { .. }
+                    | sailry_protocol::Command::DiscoverRegistrySkill { .. }
             ) {
                 return self.discover_skills(request).await;
             }
@@ -373,6 +374,8 @@ impl Ingress {
                 request.command,
                 sailry_protocol::Command::DownloadFile { .. }
                     | sailry_protocol::Command::UploadPlugin(_)
+                    | sailry_protocol::Command::DiscoverSkillUpload { .. }
+                    | sailry_protocol::Command::DiscoverLocalSkills { .. }
                     | sailry_protocol::Command::InspectPluginUpload { .. }
                     | sailry_protocol::Command::UploadFile(_)
                     | sailry_protocol::Command::StageSshUpload(_)

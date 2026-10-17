@@ -552,6 +552,16 @@ impl Database {
                     name,
                     expected_revision,
                 }
+                | Command::InstallSkillUpload {
+                    name,
+                    expected_revision,
+                    ..
+                }
+                | Command::InstallRegistrySkill {
+                    name,
+                    expected_revision,
+                    ..
+                }
                 | Command::InstallSkill {
                     name,
                     expected_revision,

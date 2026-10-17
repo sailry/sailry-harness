@@ -28,6 +28,8 @@ fn name(command: &Command) -> Option<&str> {
         | Command::InstallPluginSource { name, .. }
         | Command::InstallBundledPlugin { name, .. }
         | Command::InstallSkill { name, .. }
+        | Command::InstallRegistrySkill { name, .. }
+        | Command::InstallSkillUpload { name, .. }
         | Command::InstallMcp { name, .. }
         | Command::SetPluginEnabled {
             name,
@@ -100,6 +102,12 @@ async fn acquire(
                 .install_source(source, path, name, stop.clone(), Some(reporter.clone()))
                 .await
         }
+        Command::InstallRegistrySkill { source, name, .. } => {
+            ingress
+                .plugins
+                .install_registry_skill(source, name, stop.clone(), Some(reporter.clone()))
+                .await
+        }
         Command::InstallSkill {
             source, path, name, ..
         } => {
@@ -136,6 +144,12 @@ async fn acquire(
             let transfers = ingress.transfers.clone();
             let command = request.command.clone();
             tokio::task::spawn_blocking(move || match command {
+                Command::InstallSkillUpload {
+                    stream,
+                    source,
+                    name,
+                    ..
+                } => transfers.install_skill(caller, stream, &source, &name, &host),
                 Command::InstallPluginUpload { stream, name, .. } => {
                     transfers.install_plugin(caller, stream, &name, &host)
                 }

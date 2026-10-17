@@ -161,6 +161,8 @@ fn resource(command: &Command) -> Option<Resource> {
         | Command::InstallPluginSource { name, .. }
         | Command::InstallPluginUpload { name, .. }
         | Command::InstallSkill { name, .. }
+        | Command::InstallRegistrySkill { name, .. }
+        | Command::InstallSkillUpload { name, .. }
         | Command::InstallMcp { name, .. }
         | Command::SetPluginEnabled {
             name,

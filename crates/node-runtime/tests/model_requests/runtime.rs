@@ -84,6 +84,7 @@ async fn publishes_admitted_retries() {
                                 Effort::Default
                             },
                             mode: sailry_protocol::WorkMode::Code,
+                            delegation_proactive: false,
                             permission: Permission::Ask,
                             credential: provider.credential,
                         }),

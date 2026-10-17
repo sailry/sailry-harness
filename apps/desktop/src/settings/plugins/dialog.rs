@@ -72,7 +72,10 @@ fn create(
     } else {
         None
     };
-    if matches!(origin, Some(Origin::Bundled | Origin::Online { .. })) {
+    if matches!(
+        origin,
+        Some(Origin::Bundled | Origin::Online { .. } | Origin::Registry { .. })
+    ) {
         owner.update(cx, |owner, cx| owner.check_plugin_updates(window, cx));
         return None;
     }

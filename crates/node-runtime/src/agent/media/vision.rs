@@ -221,6 +221,7 @@ mod tests {
             model: "main".into(),
             effort: Effort::High,
             mode: WorkMode::Code,
+            delegation_proactive: false,
             permission: Permission::Project,
             credential: Some(CredentialRef {
                 node: NodeId([18; 32]),

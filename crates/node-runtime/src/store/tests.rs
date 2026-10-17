@@ -23,6 +23,7 @@ fn config(model: &str) -> SessionConfig {
         model: model.into(),
         effort: Effort::High,
         mode: sailry_protocol::WorkMode::Code,
+        delegation_proactive: false,
         permission: sailry_protocol::Permission::Ask,
         credential: None,
     }
@@ -108,7 +109,8 @@ async fn freezes_session_and_queue_config() {
         message: "Persist admission, do not execute an Agent".into(),
     });
     client.execute(turn.clone()).await.unwrap();
-    let changed = config("changed");
+    let mut changed = config("changed");
+    changed.delegation_proactive = true;
     client
         .execute(client.prepare(Command::SetDefaults {
             expected_revision: 1,

@@ -150,6 +150,8 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         | Command::InstallPluginSource { .. }
         | Command::InstallBundledPlugin { .. }
         | Command::InstallSkill { .. }
+        | Command::InstallRegistrySkill { .. }
+        | Command::InstallSkillUpload { .. }
         | Command::InstallMcp { .. }
         | Command::SavePluginMcp { .. } => Some(Target::Plugin),
         Command::SetPluginEnabled { enabled: true, .. } => Some(Target::Plugin),

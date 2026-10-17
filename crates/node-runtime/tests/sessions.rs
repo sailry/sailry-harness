@@ -6,6 +6,9 @@ use sailry_protocol::*;
 #[path = "sessions/attention.rs"]
 mod attention;
 
+#[path = "sessions/configuration.rs"]
+mod configuration;
+
 #[path = "sessions/order.rs"]
 mod order;
 
@@ -61,6 +64,7 @@ async fn archives_restores_and_removes() {
                     model: "fixture".into(),
                     effort: Effort::Default,
                     mode: WorkMode::Code,
+                    delegation_proactive: false,
                     permission: Permission::Ask,
                     credential: None,
                 }),
