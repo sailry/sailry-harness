@@ -451,7 +451,7 @@ async fn resolves_directory_links_to_real_paths() {
         let source = installed.skill.unwrap();
         assert_eq!(source.git().unwrap().path, "skills/analysis");
         assert_eq!(source.git().unwrap().source, discovery.source);
-        controller.shutdown().await.unwrap();
+        controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }
 }
