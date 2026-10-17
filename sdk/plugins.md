@@ -455,3 +455,25 @@ attempt identity and can cancel it after a settings change or package removal.
 An unknown result must be inspected using the original request identity, not
 replayed as a new application creation. Configured fields do not establish
 provider publication, document access or MCP entitlement.
+
+## Package tests
+
+Keep plugin behavior cases and assertions in the plugin repository. The
+application's `sailry_node_runtime::plugin_test` API is available only with
+`test-support`; it runs the production QuickJS loader and SDK with an in-memory
+bundle, captured context, optional invocation policy, and exact typed
+request/reply fixtures. Unmatched or unused replies fail the fixture. The report
+contains the script result, observed requests, and staged turn state. It does
+not start a Node or substitute for local/remote service integration checks.
+
+Build the optional bridge when explicitly validating production SDK contracts,
+then pass that executable to the existing plugin test runner:
+
+```sh
+cargo build --locked -p sailry-node-runtime --features test-support --example plugin-test-host
+python3 scripts/test-plugins.py --runtime-host target/debug/examples/plugin-test-host
+```
+
+The runner never builds the host implicitly. Without an explicitly selected
+host, runtime cases are reported as skipped; package JavaScript tests still run.
+Core host tests use neutral fixtures and do not depend on bundled package names.

@@ -58,6 +58,11 @@ path = "tests/suites/knowledge.rs"
 test-support = []
 computer-worker = ["dep:cua-platform-macos"]
 
+[[example]]
+name = "plugin-test-host"
+path = "examples/plugin-test-host.rs"
+required-features = ["test-support"]
+
 [dependencies]
 tracing.workspace = true
 tracing-log.workspace = true

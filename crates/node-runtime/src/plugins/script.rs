@@ -13,6 +13,8 @@ use std::{
 };
 
 pub(crate) mod execution;
+#[cfg(feature = "test-support")]
+pub mod fixture;
 mod sdk;
 #[cfg(test)]
 mod tests;
