@@ -41,6 +41,11 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 | Android 7.0+ | ARM64 | Not released | — |
 | iOS 15+ | ARM64 | Not released | — |
 
+## Get started
+
+Add an existing folder or clone a repository as a project on **Local device** or a connected Host.
+Choose **Create session**, pick a model and describe your task; review tool approvals when requested.
+
 ## Guides
 
 [Models](docs/models.md) · [Remote hosts](docs/hosts.md) · [Projects and sessions](docs/projects.md)
