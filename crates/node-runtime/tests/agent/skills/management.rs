@@ -382,13 +382,30 @@ async fn planning_exposes_only_reads() {
                 .iter()
                 .find(|tool| tool["function"]["name"] == "manage_skills")
                 .unwrap();
-            let actions = tool["function"]["parameters"]["oneOf"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|schema| schema["properties"]["action"]["const"].as_str().unwrap())
-                .collect::<Vec<_>>();
-            assert_eq!(actions, ["list", "discover"]);
+            let parameters = &tool["function"]["parameters"];
+            assert_eq!(
+                parameters["properties"]["action"]["enum"],
+                json!(["list", "discover"]),
+                "{parameters}"
+            );
+            let schema = jsonschema::validator_for(parameters).unwrap();
+            for arguments in [
+                json!({"action":"list"}),
+                json!({"action":"discover","repository":git.url,"ref":"release/v1","path":"skills/analysis"}),
+            ] {
+                assert!(schema.is_valid(&arguments), "{arguments}: {parameters}");
+            }
+            for (action, mut arguments) in [
+                ("install", install(&fixture.original)),
+                ("update", update(&fixture.next, 1)),
+                (
+                    "uninstall",
+                    json!({"name":selected(&fixture.original).name,"expected_revision":1}),
+                ),
+            ] {
+                arguments["action"] = json!(action);
+                assert!(!schema.is_valid(&arguments), "{arguments}: {parameters}");
+            }
         }
         fixture.close().await;
     }
