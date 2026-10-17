@@ -8,7 +8,7 @@
 
 <p align="center"><strong>AI agents, files and tools in one native workspace.</strong></p>
 
-![Sailry in dark mode with a new conversation and example projects](assets/readme/workspace.png)
+![Sailry in dark mode with a new conversation and example projects](assets/readme/workspace-dark.png)
 
 Use your own models to work with files, Git, terminals, browsers, SSH and databases
 beside the conversation. Add plugins to shape the workspace around your tasks.

@@ -8,7 +8,7 @@
 
 <p align="center"><strong>把 AI 智能体、文件和工具放在同一个原生工作区。</strong></p>
 
-![Sailry 暗色模式下的新会话与示例项目](assets/readme/workspace.png)
+![Sailry 暗色模式下的新会话与示例项目](assets/readme/workspace-dark.png)
 
 使用自己的模型，在对话旁处理文件、Git、终端、浏览器、SSH 和数据库。
 安装插件，让工作区适合自己的任务。
