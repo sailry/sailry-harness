@@ -129,7 +129,7 @@ fn matrix(cores: &[u32], tones: Tones, cx: &App) -> AnyElement {
     if count > ROW_LIMIT {
         let (columns, height) = match count {
             ..=32 => (16, 40.),
-            ..=64 => (32, 32.),
+            33..=64 => (32, 32.),
             _ => (32, 22.),
         };
         return div()
@@ -166,8 +166,8 @@ fn matrix(cores: &[u32], tones: Tones, cx: &App) -> AnyElement {
     let (columns, cells) = if count <= 4 { (1, 32) } else { (2, 20) };
     let (height, gap) = match count {
         ..=2 => (20., 8.),
-        ..=4 => (14., 8.),
-        ..=8 => (12., 10.),
+        3..=4 => (14., 8.),
+        5..=8 => (12., 10.),
         _ => (10., 7.),
     };
     div()
