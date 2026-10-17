@@ -224,7 +224,7 @@ void main() {
     expect(calls.single.$2, {
       'project': 'project-a',
       'worktree': 'tree-a',
-      'config': config,
+      'config': {...config, 'delegation_proactive': false},
     });
     await tester.pump(const Duration(seconds: 3));
     expect(find.text('Keep this draft'), findsOneWidget);
@@ -500,6 +500,7 @@ void main() {
       'effort': 'high',
       'mode': 'plan',
       'permission': 'project',
+      'delegation_proactive': false,
     });
     expect((host.snapshot['defaults'] as Map)['config'], isNull);
     final page = tester.widget<LiveConversationPage>(
@@ -566,7 +567,8 @@ void main() {
     await tester.tapAt(const Offset(4, 80));
     await tester.pumpAndSettle();
     await submit(tester);
-    expect(requested!['config'], config);
+    final expected = {...config, 'delegation_proactive': false};
+    expect(requested!['config'], expected);
     expect(requested!['project'], 'project-b');
     expect(requested!['worktree'], 'tree-b');
     expect(
@@ -578,14 +580,14 @@ void main() {
       'b',
       config: {...config, 'model': 'b-first', 'permission': 'ask'},
     );
-    expect(requested!['config'], config);
+    expect(requested!['config'], expected);
     reply.complete({'kind': 'session', 'data': admitted(requested!)});
     await tester.pumpAndSettle();
     final page = tester.widget<LiveConversationPage>(
       find.byType(LiveConversationPage),
     );
     expect(page.host, same(second));
-    expect(page.initialSession['config'], config);
+    expect(page.initialSession['config'], expected);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
     await app.close();
