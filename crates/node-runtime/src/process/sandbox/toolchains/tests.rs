@@ -114,10 +114,17 @@ impl Fixture {
             .args(arguments);
         let mut command = sandbox.command(command).unwrap();
         command.kill_on_drop(true);
-        let output = tokio::time::timeout(Duration::from_secs(5), command.output())
+        // A fresh private xcrun database must discover Apple's selected tools first.
+        // Keep that bounded startup separate from the five-second Git operations.
+        let startup = arguments == [std::ffi::OsStr::new("--version")];
+        let limit = Duration::from_secs(if startup { 20 } else { 5 });
+        let output = tokio::time::timeout(limit, command.output())
             .await
-            .unwrap()
+            .unwrap_or_else(|error| panic!("{arguments:?} exceeded {limit:?}: {error}"))
             .unwrap();
+        if startup {
+            assert!(output.stdout.starts_with(b"git version"), "{output:?}");
+        }
         assert!(
             output.status.success(),
             "{arguments:?}: {}",
@@ -544,6 +551,9 @@ async fn runs_developer_tools_with_private_cache() {
             .iter()
             .any(|entry| { entry.path == source && entry.mode == AccessMode::ReadOnly })
     );
+    fixture
+        .git(&environment, &sandbox, &["--version".as_ref()])
+        .await;
     let url = url::Url::from_directory_path(&source).unwrap();
     let target = fixture.root.join("checkout");
     let arguments = [
@@ -605,6 +615,9 @@ async fn runs_developer_tools_with_private_cache() {
     let sandbox = Sandbox::prepare(&fixture.launch(), &environment, Some(&source))
         .unwrap()
         .unwrap();
+    fixture
+        .git(&environment, &sandbox, &["--version".as_ref()])
+        .await;
     assert_eq!(
         std::fs::read_to_string(target.join("readme.txt")).unwrap(),
         "source content\n"
