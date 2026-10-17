@@ -26,9 +26,6 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 | Windows | x64 / ARM64 | Planned | — |
 | Linux | x64 / ARM64 | Planned | — |
 
-On macOS, open the matching DMG and drag **Sailry.app** into **Applications**.
-Connect a model provider, then open a folder or start a conversation.
-
 ### Host
 
 | Platform | Architecture | Status | Download |

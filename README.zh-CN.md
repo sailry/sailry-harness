@@ -26,9 +26,6 @@
 | Windows | x64 / ARM64 | 计划中 | — |
 | Linux | x64 / ARM64 | 计划中 | — |
 
-在 macOS 上打开对应的 DMG，将 **Sailry.app** 拖入 **Applications（应用程序）**。
-连接模型服务后，打开文件夹或开始对话。
-
 ### Host
 
 | 系统 | 架构 | 状态 | 下载 |
