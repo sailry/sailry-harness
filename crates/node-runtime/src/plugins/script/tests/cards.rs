@@ -5,7 +5,7 @@ fn reads_only_public_status_and_returns_drafts() {
     let output = run(bundle("import {card,status} from 'sailry/cards'; export async function run() { return card('connection',await status('input'),{label:'Connect'}); }"),
         "run", json!({}), context(), NodeId([1;32]), CancellationToken::new(), |request| {
             assert!(matches!(request.command, sailry_protocol::Command::ReadMcpAuthorization { server, .. } if server == "input"));
-            Ok(Output::McpAuthorization(plugin::authorization::Status { package:context().package, server:"input".into(), configured:false }))
+            Ok(Output::McpAuthorization(plugin::authorization::Status { package:context().package, server:"input".into(), configured:false, can_authorize:false }))
         }).unwrap();
     assert_eq!(
         output,

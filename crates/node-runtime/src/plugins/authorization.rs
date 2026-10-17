@@ -23,6 +23,7 @@ impl Flow {
         redirect: &str,
         client_id: Option<&str>,
         registered: Option<Registered>,
+        previous: Option<&Secret>,
     ) -> Result<Self, Fault> {
         let credentials = InMemoryCredentialStore::new();
         let mut manager = manager(endpoint, credentials.clone()).await?;
@@ -37,6 +38,19 @@ impl Flow {
                 .with_preregistered_client(registered.id)
                 .with_client_secret(registered.secret.expose());
             Some(registered.secret)
+        } else if let Some(previous) = previous {
+            let previous: Credentials =
+                serde_json::from_str(previous.expose()).map_err(unavailable)?;
+            if client_id.is_some_and(|id| id != previous.state.client_id) {
+                return Err(Fault::invalid(
+                    "MCP OAuth client ID differs from its saved registration",
+                ));
+            }
+            request = request.with_preregistered_client(previous.state.client_id);
+            if let Some(secret) = &previous.client_secret {
+                request = request.with_client_secret(secret.expose());
+            }
+            previous.client_secret
         } else if let Some(client_id) = client_id {
             request = request.with_preregistered_client(client_id);
             None
@@ -102,6 +116,15 @@ async fn manager(
     endpoint: &str,
     credentials: impl CredentialStore + 'static,
 ) -> Result<AuthorizationManager, Fault> {
+    discovered_manager(endpoint, credentials)
+        .await
+        .map(|(manager, _, _)| manager)
+}
+
+async fn discovered_manager(
+    endpoint: &str,
+    credentials: impl CredentialStore + 'static,
+) -> Result<(AuthorizationManager, bool, bool), Fault> {
     let mut manager = AuthorizationManager::new(endpoint)
         .await
         .map_err(unavailable)?;
@@ -112,11 +135,10 @@ async fn manager(
         .map_err(unavailable)?;
     manager.with_client(client).map_err(unavailable)?;
     manager.set_credential_store(credentials);
-    let metadata = manager
-        .resolve_metadata()
-        .await
-        .map_err(unavailable)?
-        .metadata;
+    let resolution = manager.resolve_metadata().await.map_err(unavailable)?;
+    let discovered = resolution.source.is_discovered();
+    let metadata = resolution.metadata;
+    let dynamic = metadata.registration_endpoint.is_some();
     for endpoint in [
         Some(&metadata.authorization_endpoint),
         Some(&metadata.token_endpoint),
@@ -128,7 +150,7 @@ async fn manager(
         crate::plugins::mcp::validate_http(endpoint, &Default::default())?;
     }
     manager.set_metadata(metadata);
-    Ok(manager)
+    Ok((manager, discovered, dynamic))
 }
 
 async fn encode(

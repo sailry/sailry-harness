@@ -175,6 +175,8 @@ async fn restores_confidential_clients_before_refresh() {
                 panic!("authorization expected")
             };
             assert!(status.configured);
+            assert!(status.can_authorize);
+            let current = status.package.clone();
             let Output::QueuedTurn(turn) = execute(
                 &client,
                 Command::SubmitTurn {
@@ -222,6 +224,27 @@ async fn restores_confidential_clients_before_refresh() {
             ] {
                 assert!(!public.contains(secret));
             }
+            let (_, attempt, url) = begin(&client, current).await;
+            execute(
+                &client,
+                Command::CompleteMcpLogin {
+                    attempt: attempt.id,
+                    callback: Secret::new(issuer::Server::callback(&url).await),
+                },
+            )
+            .await;
+            assert!(matches!(
+                state(&client, &attempt, |state| matches!(
+                    state,
+                    State::Connected(_)
+                ))
+                .await,
+                State::Connected(_)
+            ));
+            assert_eq!(
+                issuer.registrations.load(Ordering::SeqCst),
+                usize::from(!registered)
+            );
             node.shutdown().await.unwrap();
             controller.close().await.unwrap();
         }

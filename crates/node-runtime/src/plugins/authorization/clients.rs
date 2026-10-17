@@ -23,14 +23,62 @@ pub(crate) struct Target {
 type Client = AuthClient<reqwest::Client>;
 type Slot = Arc<OnceCell<Client>>;
 type Registration = (String, Option<Secret>);
+type MetadataKey = (String, String, u64, String, String);
+type MetadataSlot = (std::time::Instant, Arc<OnceCell<(bool, bool)>>);
 
 /// Active transports for one grant share the SDK manager's token refresh lock.
 #[derive(Default)]
 pub(crate) struct Clients {
     active: Mutex<BTreeMap<(Target, Option<String>), Slot>>,
+    metadata: Mutex<BTreeMap<MetadataKey, MetadataSlot>>,
 }
 
 impl Clients {
+    pub(crate) async fn available(
+        &self,
+        package: &sailry_protocol::plugin::Reference,
+        server: &str,
+        endpoint: &str,
+        registered: bool,
+    ) -> bool {
+        let key = (
+            package.name.clone(),
+            package.digest.clone(),
+            package.settings_revision,
+            server.to_owned(),
+            endpoint.to_owned(),
+        );
+        let entry = {
+            let mut metadata = self.metadata.lock().await;
+            metadata.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(60));
+            if metadata.len()
+                >= sailry_protocol::plugin::MAX_INSTALLED * crate::plugins::mcp::MAX_SERVERS
+                && !metadata.contains_key(&key)
+            {
+                return false;
+            }
+            metadata
+                .entry(key)
+                .or_insert_with(|| (std::time::Instant::now(), Arc::new(OnceCell::new())))
+                .1
+                .clone()
+        };
+        let (discovered, dynamic) = entry
+            .get_or_init(|| async {
+                tokio::time::timeout(
+                    Duration::from_secs(20),
+                    discovered_manager(endpoint, InMemoryCredentialStore::new()),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .map(|(_, discovered, dynamic)| (discovered, dynamic))
+                .unwrap_or((false, false))
+            })
+            .await;
+        *discovered && (*dynamic || registered)
+    }
+
     pub(crate) async fn client(
         &self,
         ingress: &Arc<Ingress>,

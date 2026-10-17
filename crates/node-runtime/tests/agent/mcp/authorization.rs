@@ -71,6 +71,20 @@ async fn resumes_authorized_tools() {
     for remote in [false, true] {
         for sse in [false, true] {
             let (fixture, model, input, issuer, package) = setup(remote, sse).await;
+            let Output::McpAuthorization(available) = execute(
+                &fixture.client,
+                Command::ReadMcpAuthorization {
+                    package: package.clone(),
+                    server: "input".into(),
+                },
+            )
+            .await
+            else {
+                panic!("authorization status expected")
+            };
+            assert!(available.can_authorize);
+            assert!(!available.configured);
+            assert_eq!(issuer.registrations.load(Ordering::SeqCst), 0);
             let (begin_request, attempt, url) = begin(&fixture.client, package.clone()).await;
             let other = Client::new(if remote {
                 fixture.node.local()
@@ -116,6 +130,7 @@ async fn resumes_authorized_tools() {
                 panic!("status expected")
             };
             assert!(status.configured);
+            assert!(status.can_authorize);
 
             let (request, turn) = submit(&fixture, false).await;
             let (_, pending) = questions::pending(&fixture.client, fixture.session.id).await;
@@ -231,6 +246,36 @@ async fn resumes_authorized_tools() {
             node.shutdown().await.unwrap();
             controller.close().await.unwrap();
         }
+    }
+}
+
+#[tokio::test]
+async fn hides_unconfirmed_authorization() {
+    for remote in [false, true] {
+        let peer = input::Server::with_transport(input::form_schema(), false).await;
+        let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
+        let fixture = process::Fixture::packages(remote, &model, &[]).await;
+        package(
+            &fixture.root,
+            json!({"input":{"type":"streamable-http","url":peer.endpoint}}),
+            "0.1.0",
+        );
+        let reference = install(&fixture, 0).await.summary.reference();
+        let Output::McpAuthorization(status) = execute(
+            &fixture.client,
+            Command::ReadMcpAuthorization {
+                package: reference,
+                server: "input".into(),
+            },
+        )
+        .await
+        else {
+            panic!("authorization status expected")
+        };
+        assert!(!status.can_authorize);
+        assert!(!status.configured);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
     }
 }
 

@@ -44,7 +44,7 @@ pub(crate) struct Host {
     profile: Option<PathBuf>,
     pub(crate) scripts: std::sync::Arc<tokio::sync::Semaphore>,
     reads: std::sync::Arc<tokio::sync::Semaphore>,
-    authorizations: std::sync::Arc<authorization::Clients>,
+    pub(crate) authorizations: std::sync::Arc<authorization::Clients>,
     pub(crate) applications: std::sync::Arc<applications::Service>,
     github: github::Github,
     pub(crate) registry: registry::Registry,

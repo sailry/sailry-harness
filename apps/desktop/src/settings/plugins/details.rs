@@ -24,6 +24,7 @@ pub(super) struct Details {
     binding: Binding,
     target: Target,
     info: Option<Info>,
+    authorization: Entity<authorization::Capabilities>,
     error: Option<&'static str>,
     stop: CancellationToken,
     task: Option<Task<()>>,
@@ -89,14 +90,19 @@ pub(super) fn open_catalog(
 }
 
 fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) -> Entity<Details> {
-    let details = cx.new(|_| Details {
-        binding,
-        target,
-        info: None,
-        error: None,
-        stop: CancellationToken::new(),
-        task: None,
-        removal: None,
+    let capabilities = cx.new(|_| authorization::Capabilities::new(binding.clone()));
+    let details = cx.new(|cx| {
+        cx.observe(&capabilities, |_, _, cx| cx.notify()).detach();
+        Details {
+            authorization: capabilities,
+            binding,
+            target,
+            info: None,
+            error: None,
+            stop: CancellationToken::new(),
+            task: None,
+            removal: None,
+        }
     });
     details.update(cx, |_, cx| {
         crate::feedback::observe_with(
@@ -352,6 +358,11 @@ impl Details {
                             Target::Catalog { entry, .. } => info.summary.name == entry.name,
                         };
                         if matches {
+                            if matches!(details.target, Target::Installed(_)) {
+                                details
+                                    .authorization
+                                    .update(cx, |state, cx| state.accept([&info], cx));
+                            }
                             details.info = Some(info);
                         } else {
                             details.error = Some("plugins_conflict");
@@ -418,7 +429,7 @@ impl Render for Details {
                         McpTransport::Sse => "plugins_sse",
                     }))
                     .when(
-                        installed && server.transport != McpTransport::Stdio,
+                        installed && self.authorization.read(cx).allows(&package, &name),
                         |entry| {
                             entry.action(
                                 authorization::action(

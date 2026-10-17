@@ -201,6 +201,12 @@ impl Ingress {
             }
             if matches!(
                 request.command,
+                sailry_protocol::Command::ReadMcpAuthorization { .. }
+            ) {
+                return self.read_mcp_authorization(request).await;
+            }
+            if matches!(
+                request.command,
                 sailry_protocol::Command::DismissInstallation { .. }
             ) {
                 return self.dismiss_installation(caller, request);

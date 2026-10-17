@@ -43,9 +43,10 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                         .flex_wrap()
                         .when_some(
                             state.original.as_ref().filter(|info| {
-                                info.mcp_source
-                                    .as_ref()
-                                    .is_some_and(|source| source.transport() != McpTransport::Stdio)
+                                state
+                                    .authorization
+                                    .read(cx)
+                                    .allows(&info.summary.reference(), "server")
                             }),
                             |row, info| {
                                 let binding = state.binding.clone();

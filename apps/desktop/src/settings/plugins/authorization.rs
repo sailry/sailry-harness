@@ -12,6 +12,8 @@ use sailry_protocol::{
         authorization::{Attempt, State},
     },
 };
+mod capabilities;
+pub(in crate::settings) use capabilities::Capabilities;
 mod view;
 
 pub(in crate::settings) fn action(
@@ -80,6 +82,7 @@ fn mount(
         package,
         server,
         configured: None,
+        can_authorize: false,
         view: View::default(),
         request: None,
         pending: false,
@@ -127,6 +130,7 @@ fn mount(
                     })
                 })
                 .child(login.clone())
+                .footer(view::footer(&login, cx))
         }
     });
     login
@@ -142,6 +146,7 @@ pub(in crate::settings) struct Login {
     provider: Option<sailry_protocol::plugin::oauth::Provider>,
     plugin_view: sailry_client::plugin_login::View,
     configured: Option<bool>,
+    can_authorize: bool,
     view: View,
     request: Option<Request>,
     pending: bool,
@@ -177,7 +182,11 @@ impl Login {
     }
 
     fn begin(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending || self.active() || self.request.is_some() {
+        if self.pending
+            || self.active()
+            || self.request.is_some()
+            || (self.provider.is_none() && !self.can_authorize)
+        {
             return;
         }
         let callback = match callback::Callback::bind("/callback") {
@@ -212,7 +221,8 @@ impl Login {
                 package: self.package.clone(),
                 server: self.server.clone(),
                 redirect: callback.redirect.clone(),
-                client_id: (!id.is_empty()).then_some(id),
+                // None preserves an existing static or dynamically registered client.
+                client_id: None,
             }
         };
         self.prepare(command);
@@ -250,7 +260,12 @@ impl Login {
                             (
                                 Command::ReadMcpAuthorization { .. },
                                 Output::McpAuthorization(status),
-                            ) => login.configured = Some(status.configured),
+                            ) if status.package == login.package
+                                && status.server == login.server =>
+                            {
+                                login.configured = Some(status.configured);
+                                login.can_authorize = status.can_authorize;
+                            }
                             (Command::BeginMcpLogin { .. }, Output::McpLogin(attempt)) => {
                                 login.observe(attempt, window, cx)
                             }
@@ -315,6 +330,10 @@ impl Login {
     }
 
     fn observe(&mut self, attempt: Attempt, window: &mut Window, cx: &mut Context<Self>) {
+        if attempt.package != self.package || attempt.server != self.server {
+            self.error = Some("plugins_conflict");
+            return;
+        }
         let (sender, mut receiver) = tokio::sync::watch::channel(View::default());
         let (client, stop) = (self.binding.client.clone(), self.stop.clone());
         // Preserve the accepted attempt while the shared observer connects.
@@ -344,10 +363,13 @@ impl Login {
                             Some(State::Pending { url, .. }) if !login.closing => {
                                 login.receive(url, window, cx)
                             }
-                            Some(State::Connected(package)) => {
+                            Some(State::Connected(package))
+                                if package.name == login.package.name
+                                    && package.digest == login.package.digest =>
+                            {
                                 login.package = package;
                                 login.configured = Some(true);
-                                login.stop.cancel();
+                                login.connected(window, cx);
                             }
                             Some(State::Failed(_)) => {
                                 login.error = Some("mcp_oauth_failed");
@@ -369,6 +391,19 @@ impl Login {
                 }
             }
         }));
+    }
+
+    fn connected(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.closed = true;
+        self.stop.cancel();
+        crate::feedback::status(
+            window,
+            tr("oauth_success_title"),
+            notification::NotificationType::Success,
+            notification::Notification::success(tr("oauth_success_title")),
+            cx,
+        );
+        window.close_dialog(cx);
     }
 
     fn attempt(&self) -> sailry_protocol::RequestId {

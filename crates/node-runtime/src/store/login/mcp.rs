@@ -163,9 +163,11 @@ impl Worker {
                     "MCP OAuth client ID differs from its configured secret",
                 ));
             }
-            Ok((info, registered))
+            let settings = authorization::configuration(&database.connection, &info)?;
+            let previous = authorization::credentials(&database.connection, &info, server)?;
+            Ok((info, registered, settings, previous))
         })();
-        let (info, registered) = match prepared {
+        let (info, registered, settings, previous) = match prepared {
             Ok(info) => info,
             Err(error) => return database.finish_external(caller, request, Err(error), events),
         };
@@ -211,7 +213,7 @@ impl Worker {
         let resources = Resources::new(
             self.plugins.clone(),
             vec![info],
-            BTreeMap::new(),
+            [(package.name.clone(), Ok(settings))].into(),
             stop.clone(),
         );
         let (redirect, client_id, sender) = (
@@ -224,7 +226,8 @@ impl Worker {
             let operation = async {
                 let expires_at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_err(storage_error)?.as_millis() as u64 + 900_000;
                 let endpoint = resources.mcp_endpoint(&attempt.package.name, &attempt.server).await?;
-                let flow = Flow::begin(&endpoint, &redirect, client_id.as_deref(), registered).await?;
+                let previous = previous.as_ref().filter(|(saved, _)| saved == &endpoint).map(|(_, secret)| secret);
+                let flow = Flow::begin(&endpoint, &redirect, client_id.as_deref(), registered, previous).await?;
                 sender.send(Job::Login(Box::new(super::Progress::Mcp(Progress::Prompt { caller, id, url: flow.url().into(), expires_at_ms })))).await.map_err(|_| super::super::unavailable())?;
                 let callback = returned.await.map_err(|_| super::super::unavailable())?;
                 let credentials = flow.complete(&callback).await?;

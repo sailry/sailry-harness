@@ -184,7 +184,16 @@ impl Workspace {
             .children(
                 info.mcp
                     .iter()
-                    .filter(|server| server.transport != McpTransport::Stdio)
+                    .filter(|server| {
+                        self.plugin_catalog
+                            .authorization
+                            .as_ref()
+                            .is_some_and(|state| {
+                                state
+                                    .read(cx)
+                                    .allows(&info.summary.reference(), &server.name)
+                            })
+                    })
                     .map(|server| {
                         plugins::authorization::action(
                             live.binding.clone(),

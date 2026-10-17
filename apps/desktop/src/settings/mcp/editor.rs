@@ -10,6 +10,7 @@ mod view;
 pub(super) struct Editor {
     binding: Binding,
     original: Option<Info>,
+    authorization: Entity<plugins::authorization::Capabilities>,
     name: Entity<InputState>,
     command: Entity<InputState>,
     url: Entity<InputState>,
@@ -41,7 +42,12 @@ pub(super) fn open(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Editor> {
+    let authorization = cx.new(|_| plugins::authorization::Capabilities::new(binding.clone()));
+    if let Some(info) = &original {
+        authorization.update(cx, |state, cx| state.accept([info], cx));
+    }
     let editor = cx.new(|cx| {
+        cx.observe(&authorization, |_, _, cx| cx.notify()).detach();
         let definition = original.as_ref().and_then(|info| info.mcp_source.as_ref());
         let (command, args, url) = match definition {
             Some(Definition::Stdio { command, args, .. }) => {
@@ -72,6 +78,7 @@ pub(super) fn open(
             editor.submission.error.into_iter().collect()
         });
         Editor {
+            authorization,
             binding,
             original,
             name: text_input(name, "mcp_name_hint", window, cx),
