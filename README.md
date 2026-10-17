@@ -92,3 +92,5 @@ retain their own licenses and attribution; see [NOTICE](NOTICE),
 [third-party notices](third_party_licenses/) and notices in `vendor/`.
 Imported Ghostty shell integration includes GPL material and is not relicensed
 by Sailry's Apache license.
+
+For optional paid services and separate agreements, see [Commercial cooperation](COMMERCIAL.md).
