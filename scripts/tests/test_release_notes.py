@@ -6,6 +6,7 @@ import json
 import os
 from contextlib import chdir
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -189,18 +190,26 @@ class ReleaseWorkflows(unittest.TestCase):
 
     def test_desktop_publishes_without_host_or_mobile(self):
         workflow = self.workflow("release")
-        build = workflow.split("  build:\n", 1)[1].split("  publish:\n", 1)[0]
+        build = workflow.split("  build:\n", 1)[1].split("  sign:\n", 1)[0]
+        signing = workflow.split("  sign:\n", 1)[1].split("  publish:\n", 1)[0]
         publish = workflow.split("  publish:\n", 1)[1]
         self.assertIn("-p sailry-desktop -p sailry-release", build)
         self.assertNotIn("-p sailry-host", build)
-        self.assertIn("scripts/package-macos.sh release desktop", build)
+        self.assertIn("name: Preserve native Desktop", build)
+        self.assertNotIn("secrets.", build)
+        self.assertIn("needs: [version, build]", signing)
+        self.assertIn("scripts/package-macos.sh release desktop", signing)
+        self.assertNotIn("cargo build", signing)
+        self.assertNotIn("cargo run", signing)
         self.assertIn("fixtures shared", build)
         self.assertIn("fixtures desktop", build)
-        self.assertIn("needs: build", publish)
+        self.assertIn("needs: sign", publish)
         self.assertNotIn("needs: [", publish)
-        self.assertIn("*.dmg", build)
-        self.assertIn("*.zip.update.json", build)
-        self.assertNotIn("*.tar.gz", build)
+        self.assertIn("*.dmg", signing)
+        self.assertIn("*.zip.update.json", signing)
+        self.assertNotIn("*.tar.gz", signing)
+        self.assertIn("pattern: packages-*", publish)
+        self.assertNotIn("pattern: native-*", publish)
         self.assertNotIn("*.apk", workflow)
         self.assertNotIn("windows", workflow.lower())
         self.assertIn("--component desktop", publish)
@@ -262,7 +271,7 @@ class ReleaseWorkflows(unittest.TestCase):
         self.assertNotIn("actions: write", publish)
 
     def test_native_cache_and_toolchains_match(self):
-        desktop = self.workflow("release").split("  build:\n", 1)[1].split("  publish:\n", 1)[0]
+        desktop = self.workflow("release").split("  build:\n", 1)[1].split("  sign:\n", 1)[0]
         host = self.workflow("release-host").split("  build:\n", 1)[1].split("  host:\n", 1)[0]
         workflow = self.workflow("release")
         defaults = ast.literal_eval("[" + workflow.split("targets = [", 1)[1].split("]", 1)[0] + "]")
@@ -282,7 +291,10 @@ class ReleaseWorkflows(unittest.TestCase):
                 self.assertNotIn("key: packages-", build)
                 self.assertIn("key: ${{ steps.speech-key.outputs.key }}", build)
                 self.assertNotIn("github.sha", build)
-                self.assertNotIn("--target", build)
+                commands = re.findall(r"cargo build[^\n]+", build)
+                self.assertTrue(commands)
+                for command in commands:
+                    self.assertNotIn("--target", command)
                 self.assertIn("version: '0.16.0'", build)
                 self.assertIn("fixtures shared", build)
         self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release"))
