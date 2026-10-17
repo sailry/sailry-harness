@@ -2,6 +2,7 @@
 //! The pinned TabBar lacks prefix/close slots; reuse Sailry's existing base Tabs composition.
 mod appearance;
 mod focus;
+mod load_more;
 mod menu;
 mod models;
 mod segments;
@@ -57,6 +58,7 @@ pub(super) fn module(
     let module = menu::extend(module, controls.clone());
     let module = models::extend(module, controls.clone());
     let module = segments::extend(module, controls.clone());
+    let module = load_more::extend(module, controls.clone());
     let module = tabs.extend(module);
     select::extend(module, controls.clone()).component("SelectableText", move |args, _, _| {
         // Kit b79f4ce's script catalog has Text, but no selectable TextView.

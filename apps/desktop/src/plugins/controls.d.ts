@@ -18,6 +18,8 @@ export const SelectField: {new(id:string,props:{label:string;items:{id:string;la
 export const ModelPopup: {new(id:string,props:{label:string;placeholder:string;catalog:{models:import('sailry/sdk').Json[]};selected:string|null;effort:import('sailry/sdk').Json;disabled?:boolean}):import('gpui-kit').Element};
 export const MenuButton: {new(id:string,props:{label:string;items:{id:string;label:string;disabled?:boolean}[];selected:string|null;disabled?:boolean}):import('gpui-kit').Element};
 export const SegmentedTabs: {new(id:string,props:{items:{id:string;label:string}[];selected:string|null;disabled?:boolean}):import('gpui-kit').Element};
+/** List-end sentinel: emits `{id, value:'load'}` once each time it scrolls into view while not loading; shows a spinner row while loading. */
+export const LoadMore: {new(id:string,props:{loading:boolean;label:string}):import('gpui-kit').Element};
 export const Appearance: {new(id:string,props:{value:{icon:string;color:string}}):import('gpui-kit').Element};
 export const AppearancePicker: {new(id:string,props:{value:{icon:string;color:string};label:string;disabled?:boolean}):import('gpui-kit').Element};
 
