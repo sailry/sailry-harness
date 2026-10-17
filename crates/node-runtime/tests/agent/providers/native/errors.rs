@@ -2,6 +2,7 @@ use super::*;
 use serde_json::{Value, json};
 
 const PRIVATE: &str = "private echoed provider credential";
+const MESSAGE: &str = "The model rejected the current input";
 
 #[tokio::test]
 async fn retains_status_for_nonstandard_error_bodies() {
@@ -54,11 +55,12 @@ async fn retains_status_for_nonstandard_error_bodies() {
 
 fn failure(code: &str, kind: &str) -> Value {
     let detail = json!({"type":"invalid_request_error", "code":code,
-        "message":PRIVATE, "param":format!("Bearer {}", server::KEY)});
+        "message":format!("{MESSAGE}; authorization {}", server::KEY),
+        "param":format!("Bearer {}", server::KEY)});
     match kind {
         "nested" => json!({"type":"error", "sequence_number":2, "error":detail}),
         "flat" => json!({"type":"error", "sequence_number":2,
-            "code":code, "message":PRIVATE, "param":detail["param"]}),
+            "code":code, "message":detail["message"], "param":detail["param"]}),
         "failed" => json!({"type":"response.failed", "sequence_number":3,
             "response":{"id":"failed", "object":"response", "created_at":1,
                 "model":"fixture-a", "status":"failed", "output":[], "error":detail}}),
@@ -86,11 +88,12 @@ async fn retains_shared_usage_causes_without_replay() {
                 let run = page.runs.last().unwrap();
                 assert_eq!(run.status, Status::Failed);
                 assert_eq!(
-                    run.error.as_ref().unwrap().message,
+                    run.error.as_ref().unwrap().message.lines().next().unwrap(),
                     format!("Agent execution failed (model.openai_responses.{code})")
                 );
                 let serialized = serde_json::to_string(&page).unwrap();
-                assert!(!serialized.contains(PRIVATE));
+                assert!(serialized.contains(MESSAGE));
+                assert!(serialized.contains("[redacted]"));
                 assert!(!serialized.contains(server::KEY));
                 assert_eq!(server.requests.lock().unwrap().len(), 1);
                 fixture.controller.close().await.unwrap();
@@ -101,21 +104,74 @@ async fn retains_shared_usage_causes_without_replay() {
 }
 
 #[tokio::test]
-async fn sanitizes_unknown_stream_causes() {
+async fn retains_upstream_stream_causes() {
     for remote in [false, true] {
-        let server = completion::server(vec![failure(PRIVATE, "nested")]).await;
+        for kind in ["nested", "flat", "failed"] {
+            let server = completion::server(vec![failure("fixture_limit", kind)]).await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            let turn = fixture.submit("Answer this task").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            let run = page.runs.last().unwrap();
+            assert_eq!(run.status, Status::Failed);
+            let (summary, body) = run
+                .error
+                .as_ref()
+                .unwrap()
+                .message
+                .split_once("\n\n")
+                .unwrap();
+            assert_eq!(
+                summary,
+                "Agent execution failed (model.openai_responses.response_failed)"
+            );
+            let detail: Value = serde_json::from_str(body).unwrap();
+            assert_eq!(detail["code"], "fixture_limit");
+            assert_eq!(
+                detail["message"],
+                format!("{MESSAGE}; authorization [redacted]")
+            );
+            assert_eq!(detail["param"], "Bearer [redacted]");
+            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+            assert_eq!(server.requests.lock().unwrap().len(), 1);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn retains_upstream_http_causes() {
+    for remote in [false, true] {
+        let body = json!({"error":{"message":format!("{MESSAGE}; {}", server::KEY),
+            "code":"fixture_limit", "type":"invalid_request_error", "param":"input"}});
+        let raw = format!(
+            "HTTP/1.1 400 Fixture error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{body}"
+        );
+        let server =
+            Server::start(ModelApi::Responses, Reply::Raw(Arc::new(raw.into_bytes()))).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let turn = fixture.submit("Answer this task").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
         let run = page.runs.last().unwrap();
         assert_eq!(run.status, Status::Failed);
+        let (summary, body) = run
+            .error
+            .as_ref()
+            .unwrap()
+            .message
+            .split_once("\n\n")
+            .unwrap();
         assert_eq!(
-            run.error.as_ref().unwrap().message,
-            "Agent execution failed (model.openai_responses.response_failed)"
+            summary,
+            "Agent execution failed (model.openai_responses.invalid_request); HTTP 400; invalid_input"
         );
-        let serialized = serde_json::to_string(&page).unwrap();
-        assert!(!serialized.contains(PRIVATE));
-        assert!(!serialized.contains(server::KEY));
+        let detail: Value = serde_json::from_str(body).unwrap();
+        assert_eq!(detail["message"], format!("{MESSAGE}; [redacted]"));
+        assert_eq!(detail["code"], "fixture_limit");
+        assert_eq!(detail["type"], "invalid_request_error");
+        assert_eq!(detail["param"], "input");
+        assert_eq!(detail["status"], 400);
+        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();

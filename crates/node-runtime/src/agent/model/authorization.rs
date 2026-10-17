@@ -57,6 +57,13 @@ impl Llm for Model {
         let mut provider = self.provider.clone();
         provider.endpoint = grant.endpoint().to_owned();
         let base = grant.headers(&options).map_err(failure)?;
+        let secrets: Vec<_> = base
+            .iter()
+            .filter(|(name, value)| value.is_sensitive() || name.as_str() == "chatgpt-account-id")
+            .filter_map(|(_, value)| value.to_str().ok())
+            .map(|value| sailry_protocol::Secret::new(value.to_owned()))
+            .chain(std::iter::once(grant.access().clone()))
+            .collect();
         let (access, adapter, stream) = match grant {
             Grant::ChatGpt { access, .. } => {
                 let adapter: RequestAdapter = Arc::new(move |body, headers| {
@@ -115,6 +122,7 @@ impl Llm for Model {
             observer,
         )
         .map_err(failure)?;
+        let model = super::errors::wrap(model, secrets);
         let responses = model.generate_content(request, stream).await?;
         Ok(match claude_tools {
             Some(tools) => claude::restore(responses, tools),

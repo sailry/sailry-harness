@@ -2,6 +2,7 @@ use super::*;
 mod authorization;
 mod cloud;
 mod diagnostics;
+mod errors;
 pub(super) mod history;
 mod hosted;
 mod opencode;
@@ -127,7 +128,7 @@ pub(super) async fn configured(
         };
         // Explicit local endpoints may be credential-free; never read controller defaults.
         let key = credential.as_ref().map_or("", |secret| secret.expose());
-        if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
+        let model = if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
             opencode::build(provider, config, key, effort, session)?
         } else {
             native(
@@ -138,7 +139,8 @@ pub(super) async fn configured(
                 hosted::session_adapter(provider, &config.model, session),
                 None,
             )?
-        }
+        };
+        errors::wrap(model, credential.into_iter().collect())
     } else {
         crate::providers::login::validate(provider)?;
         Arc::new(authorization::Model {
@@ -276,19 +278,21 @@ pub(super) fn error(error: adk_core::AdkError) -> Fault {
     {
         return fault.clone();
     }
-    // Provider response bodies may echo authentication values. Public history
-    // carries ADK's static diagnostic code, never an unchecked upstream body.
+    Fault::new(ErrorCode::Unavailable, summary(&error))
+}
+
+fn summary(error: &adk_core::AdkError) -> String {
+    // Unchecked provider bodies never enter public history.
     let mut message = format!("Agent execution failed ({})", error.code);
     if let Some(status) = error.details.upstream_status_code {
-        // Only structured status/category are safe to publish; never response
-        // text, provider metadata, request IDs or credential-bearing sources.
+        // Keep classification separate from the optional redacted diagnostic body.
         message.push_str(&format!("; HTTP {status}; {}", error.category));
     }
-    Fault::new(ErrorCode::Unavailable, message)
+    message
 }
 
 #[cfg(test)]
-mod errors {
+mod error_tests {
     use super::*;
     use adk_core::{AdkError, ErrorCategory, ErrorComponent};
 

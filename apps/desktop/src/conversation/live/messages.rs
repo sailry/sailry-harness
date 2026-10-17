@@ -735,6 +735,8 @@ pub(crate) fn failure_key(error: &sailry_protocol::Fault) -> &'static str {
 /// Splits Node's public model diagnostic into the ADK code and optional HTTP category.
 fn model_failure(message: &str) -> Option<(&str, Option<&str>)> {
     let (code, rest) = message
+        .lines()
+        .next()?
         .strip_prefix("Agent execution failed (")?
         .split_once(')')?;
     let category = rest
@@ -760,7 +762,14 @@ mod tests {
             let message =
                 format!("Agent execution failed (model.openai_responses.{code}); HTTP {status}");
             assert_eq!(
-                failure_key(&Fault::new(ErrorCode::Unavailable, message)),
+                failure_key(&Fault::new(ErrorCode::Unavailable, message.clone())),
+                key
+            );
+            assert_eq!(
+                failure_key(&Fault::new(
+                    ErrorCode::Unavailable,
+                    format!("{message}\n\n{{\"message\":\"Provider explanation\"}}")
+                )),
                 key
             );
         }
