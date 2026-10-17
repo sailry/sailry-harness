@@ -9,66 +9,24 @@ async fn read(client: &Client, package: plugin::Reference) -> State {
 }
 
 #[tokio::test]
-async fn executes_configured_bundled_tools() {
+async fn executes_frozen_configuration() {
     for remote in [false, true] {
-        for name in ["context7", "github"] {
+        for header in ["Authorization", "X-Api-Key"] {
+            let name = "sample";
             let original_peer = Http::start(Reply::Normal).await;
             let replacement_peer = Http::start(Reply::Normal).await;
-            let model =
-                Server::turn_tools(vec![(peer::package_alias(name, name, "read"), json!({}))])
-                    .await;
-            let fixture = process::Fixture::new(remote, &model).await;
-            let Output::Plugin(mut installed) =
-                execute(&fixture.client, Command::ReadPlugin { name: name.into() }).await
-            else {
-                panic!("plugin expected")
-            };
-            if name == "github" {
-                let package = fixture.root.join("github");
-                fs::create_dir_all(&package).unwrap();
-                fs::write(
-                    package.join("plugin.json"),
-                    json!({
-                        "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
-                        "name": "github",
-                        "version": "0.1.0"
-                    })
-                    .to_string(),
-                )
-                .unwrap();
-                fs::write(
-                    package.join("mcp.json"),
-                    include_str!("../../../../../../plugins/github/mcp.json"),
-                )
-                .unwrap();
-                let Output::Plugin(replacement) = execute(
-                    &fixture.client,
-                    Command::InstallPlugin {
-                        worktree: fixture.session.worktree,
-                        path: "github".into(),
-                        name: "github".into(),
-                        expected_revision: installed.summary.revision,
-                        expected_digest: None,
-                    },
-                )
-                .await
-                else {
-                    panic!("plugin expected")
-                };
-                installed = replacement;
-            }
-            let Output::Plugin(installed) = execute(
-                &fixture.client,
-                Command::SetPluginEnabled {
-                    name: name.into(),
-                    expected_revision: installed.summary.revision,
-                    enabled: true,
-                },
-            )
-            .await
-            else {
-                panic!("plugin expected")
-            };
+            let model = Server::turn_tools(vec![(
+                peer::package_alias("example", name, "read"),
+                json!({}),
+            )])
+            .await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
+            package(
+                &fixture.root,
+                json!({name:{"type":"streamable-http","url":"https://example.invalid/mcp","headers":{}}}),
+                "0.1.0",
+            );
+            let installed = install(&fixture, 0).await;
             let initial = read(&fixture.client, installed.summary.reference()).await;
             let mut configuration = initial.configuration;
             let McpServer::Http { url, headers } = configuration.servers.get_mut(name).unwrap()
@@ -77,12 +35,7 @@ async fn executes_configured_bundled_tools() {
             };
             let original_endpoint = url.clone();
             *url = original_peer.endpoint.clone();
-            let header = if name == "github" {
-                "Authorization"
-            } else {
-                "X-Context7-API-Key"
-            };
-            let original_secret = if name == "github" {
+            let original_secret = if header == "Authorization" {
                 "Bearer original-${PLUGIN_ROOT}-token"
             } else {
                 "original-${PLUGIN_ROOT}-key"
@@ -104,7 +57,7 @@ async fn executes_configured_bundled_tools() {
                 unreachable!()
             };
             *url = replacement_peer.endpoint.clone();
-            let next_secret = if name == "github" {
+            let next_secret = if header == "Authorization" {
                 "Bearer replacement-${PLUGIN_DATA}-token"
             } else {
                 "replacement-${PLUGIN_DATA}-key"
