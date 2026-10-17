@@ -286,7 +286,7 @@ async fn validates_role_requirements() {
             let (session, _, mut role) = setup(&client, &root, &parent, &child).await;
             role.max_turns = Some(1);
             if skills {
-                role.skills.push("unconnected-skill".into());
+                role.skills.push("unconnected:skill".into());
             }
             let revision = role.revision;
             let Output::Role(role) = client
@@ -323,7 +323,11 @@ async fn validates_role_requirements() {
             let output = results(&page);
             assert!(output[0].get("error").is_some(), "{output:?}");
             if skills {
-                assert_eq!(output[0]["error"]["code"], "not_configured");
+                assert_eq!(output[0]["error"]["code"], "invalid_request");
+                assert_eq!(
+                    output[0]["error"]["message"],
+                    "skill is not listed in this turn's catalog"
+                );
                 assert_eq!(child.requests.lock().unwrap().len(), 0);
                 assert!(children(&client, session.id, 0).await.is_empty());
             } else {

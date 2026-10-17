@@ -512,17 +512,15 @@ fn rejects_missing_founding_skill() {
         };
         command(&mut fixture.database, &fixture.events, change);
         let parent = start(&mut fixture);
-        assert_eq!(
-            invoke(
-                &mut fixture,
-                parent,
-                json!({"session":child.turn.session,"task":"Unavailable review"})
-            )
-            .err()
-            .unwrap()
-            .code,
-            ErrorCode::NotConfigured
-        );
+        let error = invoke(
+            &mut fixture,
+            parent,
+            json!({"session":child.turn.session,"task":"Unavailable review"}),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(error.message, "skill is not listed in this turn's catalog");
         let retained = super::super::super::plugins::packages(
             &fixture.database.connection,
             &child.turn.plugins,
