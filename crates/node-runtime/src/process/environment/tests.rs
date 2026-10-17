@@ -292,7 +292,26 @@ wait
             ),
         ] {
             let directory = tempfile::tempdir().unwrap();
-            let executable = shell(directory.path(), script);
+            let executable = shell(
+                directory.path(),
+                &format!("if [ \"$1\" = --fixture-ready ]; then exit 0; fi\n{script}"),
+            );
+            // A new wrapper can spend the probe budget in OS startup before its first instruction.
+            // Prepare that executable before measuring output bounds and descendant cleanup.
+            let mut ready = tokio::process::Command::new(&executable);
+            ready
+                .env_clear()
+                .env("HOME", directory.path())
+                .current_dir(directory.path())
+                .arg("--fixture-ready")
+                .kill_on_drop(true);
+            assert!(
+                tokio::time::timeout(Duration::from_secs(3), ready.status())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .success()
+            );
             let started = tokio::time::Instant::now();
             let environment = Environment::capture(source(
                 directory.path(),
@@ -329,5 +348,42 @@ wait
         assert!(matches!(running.await, Err(error) if error.is_cancelled()));
         gone(root).await;
         gone(child).await;
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn validates_developer_selection() {
+    let directory = tempfile::tempdir().unwrap();
+    let application = directory.path().join("Selected.app");
+    let developer = application.join("Contents/Developer");
+    std::fs::create_dir_all(developer.join("usr/bin")).unwrap();
+    std::fs::write(developer.join("usr/bin/xcodebuild"), "fixture").unwrap();
+    let environment = Environment::filtered([
+        ("DEVELOPER_DIR".into(), application.clone().into_os_string()),
+        ("SDKROOT".into(), "/private/sdk".into()),
+        ("DYLD_INSERT_LIBRARIES".into(), "/private/library".into()),
+    ]);
+    assert_eq!(
+        environment.developer(),
+        Some(developer.canonicalize().unwrap().as_path())
+    );
+    assert!(!environment.values.contains_key(OsStr::new("SDKROOT")));
+    assert!(
+        !environment
+            .values
+            .contains_key(OsStr::new("DYLD_INSERT_LIBRARIES"))
+    );
+    let unrelated = directory.path().join("Unrelated/Contents/Developer");
+    std::fs::create_dir_all(unrelated.join("usr/bin")).unwrap();
+    std::fs::write(unrelated.join("usr/bin/xcodebuild"), "fixture").unwrap();
+    for path in [
+        Path::new("relative.app"),
+        directory.path(),
+        unrelated.as_path(),
+    ] {
+        let invalid = Environment::filtered([("DEVELOPER_DIR".into(), path.as_os_str().into())]);
+        assert!(invalid.developer().is_none());
+        assert_ne!(environment.identity(), invalid.identity());
     }
 }

@@ -120,17 +120,31 @@ pub(super) fn create(
         inputs,
     )?;
     #[cfg(target_os = "macos")]
-    for path in [
-        "/Applications/Xcode.app/Contents/Developer",
-        "/Applications/Xcode.app/Contents/SharedFrameworks",
-        "/Applications/Xcode.app/Contents/OtherFrameworks",
-        "/Applications/Xcode.app/Contents/Frameworks",
-        "/Applications/Xcode.app/Contents/SystemFrameworks",
-        "/Library/Developer/CommandLineTools",
-    ] {
+    {
+        let selected = environment
+            .developer()
+            .unwrap_or_else(|| Path::new("/Applications/Xcode.app/Contents/Developer"));
+        if let Some(developer) = read(&mut policy, selected, home.as_deref(), profile.as_deref())
+            && developer.file_name() == Some(std::ffi::OsStr::new("Developer"))
+            && let Some(contents) = developer.parent()
+        {
+            for relative in [
+                "SharedFrameworks",
+                "OtherFrameworks",
+                "Frameworks",
+                "SystemFrameworks",
+            ] {
+                read(
+                    &mut policy,
+                    &contents.join(relative),
+                    home.as_deref(),
+                    profile.as_deref(),
+                );
+            }
+        }
         read(
             &mut policy,
-            Path::new(path),
+            Path::new("/Library/Developer/CommandLineTools"),
             home.as_deref(),
             profile.as_deref(),
         );

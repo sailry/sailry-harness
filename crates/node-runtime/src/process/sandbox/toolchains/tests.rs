@@ -439,11 +439,6 @@ async fn confines_registered_developer_toolchains() {
 #[cfg(target_os = "macos")]
 #[tokio::test]
 async fn runs_developer_tools_with_private_cache() {
-    if !Path::new("/Applications/Xcode.app/Contents/Developer/usr/bin/git").is_file()
-        && !Path::new("/Library/Developer/CommandLineTools/usr/bin/git").is_file()
-    {
-        return;
-    }
     let fixture = Fixture::new();
     // Apple's tools resolve the account home independently of the HOME variable.
     // Capture that account while retaining a private HOME and isolated command environment.
@@ -454,10 +449,19 @@ async fn runs_developer_tools_with_private_cache() {
     let environment = Environment::capture(Source::Fixture(EnvironmentFixture {
         home: home.clone(),
         shell: "/usr/bin/false".into(),
-        environment: BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())]),
+        environment: BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())])
+            .into_iter()
+            .chain(std::env::var_os("DEVELOPER_DIR").map(|value| ("DEVELOPER_DIR".into(), value)))
+            .collect(),
         timeout: Duration::from_millis(100),
     }))
     .await;
+    if environment.developer().is_none()
+        && !Path::new("/Applications/Xcode.app/Contents/Developer/usr/bin/git").is_file()
+        && !Path::new("/Library/Developer/CommandLineTools/usr/bin/git").is_file()
+    {
+        return;
+    }
     let sandbox = Sandbox::prepare(&fixture.launch(), &environment, None)
         .unwrap()
         .unwrap();
@@ -707,4 +711,64 @@ async fn retains_shim_version_selection() {
             "fixture"
         );
     }
+}
+
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn confines_selected_developer_directory() {
+    let fixture = Fixture::new();
+    let application = fixture.root.parent().unwrap().join("Selected.app");
+    let contents = application.join("Contents");
+    let developer = contents.join("Developer");
+    let executable = developer.join("usr/bin/xcodebuild");
+    let framework = contents.join("SharedFrameworks/fixture");
+    let unrelated = contents.join("Private/secret");
+    for path in [&executable, &framework, &unrelated] {
+        write(path, "protected");
+    }
+    let environment = Environment::capture(Source::Fixture(EnvironmentFixture {
+        home: fixture.home.clone(),
+        shell: "/usr/bin/false".into(),
+        environment: BTreeMap::from([
+            ("PATH".into(), "/usr/bin:/bin".into()),
+            ("DEVELOPER_DIR".into(), application.clone().into_os_string()),
+        ]),
+        timeout: Duration::from_millis(100),
+    }))
+    .await;
+    let mut request = fixture.launch();
+    let selected = developer.canonicalize().unwrap();
+    request.command = format!(
+        "test \"$DEVELOPER_DIR\" = '{}' || exit 90; \
+         cat '{}' '{}' > result.txt || exit 91; \
+         if printf changed > '{}'; then exit 92; fi; \
+         if cat '{}'; then exit 93; fi",
+        selected.display(),
+        executable.display(),
+        framework.display(),
+        executable.display(),
+        unrelated.display(),
+    );
+    let sandbox = Sandbox::prepare(&request, &environment, None)
+        .unwrap()
+        .unwrap();
+    fixture.boundaries(&sandbox);
+    assert!(sandbox.policy.allowed_paths.iter().all(|entry| {
+        !application.starts_with(&entry.path)
+            && (!entry.path.starts_with(&application) || entry.mode == AccessMode::ReadOnly)
+    }));
+    let output = execute(
+        request,
+        &environment,
+        &CancellationToken::new(),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(output.outcome, Outcome::Exited(0), "{output:?}");
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("result.txt")).unwrap(),
+        "protectedprotected"
+    );
+    assert_eq!(std::fs::read_to_string(executable).unwrap(), "protected");
 }

@@ -78,6 +78,16 @@ impl Environment {
             terminal: BTreeMap::new(),
         };
         for (key, value) in values {
+            #[cfg(target_os = "macos")]
+            if key == OsStr::new("DEVELOPER_DIR") {
+                if let Some(path) = developer_directory(Path::new(&value)) {
+                    result
+                        .values
+                        .insert(key.clone(), path.clone().into_os_string());
+                    result.terminal.insert(key, path.into_os_string());
+                }
+                continue;
+            }
             if let Some(name) = canonical(&key, cfg!(windows)) {
                 let key = OsString::from(name);
                 result.values.insert(key.clone(), value.clone());
@@ -160,6 +170,11 @@ impl Environment {
 
     pub(crate) fn path(&self) -> Option<&OsStr> {
         self.values.get(OsStr::new("PATH")).map(OsString::as_os_str)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn developer(&self) -> Option<&Path> {
+        self.values.get(OsStr::new("DEVELOPER_DIR")).map(Path::new)
     }
 
     pub(crate) fn home(&self) -> Option<&Path> {
@@ -264,4 +279,24 @@ fn terminal_variable(key: &OsStr) -> bool {
             | "__CF_USER_TEXT_ENCODING"
             | "LANGUAGE"
     ) || key.starts_with("LC_")
+}
+
+#[cfg(target_os = "macos")]
+fn developer_directory(path: &Path) -> Option<std::path::PathBuf> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let path = if path.join("Contents/Developer").is_dir() {
+        path.join("Contents/Developer")
+    } else {
+        path.to_owned()
+    };
+    let path = path.canonicalize().ok()?;
+    let xcode = path.file_name() == Some(OsStr::new("Developer"))
+        && path.parent()?.file_name() == Some(OsStr::new("Contents"))
+        && path.parent()?.parent()?.extension() == Some(OsStr::new("app"))
+        && path.join("usr/bin/xcodebuild").is_file();
+    let tools = path == Path::new("/Library/Developer/CommandLineTools")
+        && path.join("usr/bin/clang").is_file();
+    (xcode || tools).then_some(path)
 }

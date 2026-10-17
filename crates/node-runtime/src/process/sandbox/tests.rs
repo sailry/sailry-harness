@@ -25,7 +25,12 @@ async fn environment(home: &Path) -> Environment {
         super::super::environment::EnvironmentFixture {
             home: home.to_owned(),
             shell: PathBuf::from("/usr/bin/false"),
-            environment: BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())]),
+            environment: BTreeMap::from([("PATH".into(), "/usr/bin:/bin".into())])
+                .into_iter()
+                .chain(
+                    std::env::var_os("DEVELOPER_DIR").map(|value| ("DEVELOPER_DIR".into(), value)),
+                )
+                .collect(),
             timeout: Duration::from_millis(100),
         },
     ))
