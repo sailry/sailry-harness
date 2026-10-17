@@ -85,7 +85,8 @@ fn keeps_reimport_identity_independent_of_content() {
         identity("other", "analysis")
     );
     let root = tempfile::tempdir().unwrap();
-    let directory = root.path().join("analysis");
+    let base = root.path().canonicalize().unwrap();
+    let directory = base.join("analysis");
     std::fs::create_dir(&directory).unwrap();
     std::fs::write(
         directory.join("SKILL.md"),
@@ -93,13 +94,8 @@ fn keeps_reimport_identity_independent_of_content() {
     )
     .unwrap();
     let stop = CancellationToken::new();
-    let (mut file, format, kind) = Host::snapshot_skills(
-        root.path(),
-        "analysis",
-        tempfile::tempfile().unwrap(),
-        &stop,
-    )
-    .unwrap();
+    let (mut file, format, kind) =
+        Host::snapshot_skills(&base, "analysis", tempfile::tempfile().unwrap(), &stop).unwrap();
     let first = Host::skill_import_digest(&mut file, &stop).unwrap();
     let initial = Host::new(None)
         .discover_skill_import(
@@ -117,7 +113,7 @@ fn keeps_reimport_identity_independent_of_content() {
     )
     .unwrap();
     let (mut file, format, kind) = Host::snapshot_skills(
-        root.path(),
+        &base,
         "analysis/SKILL.md",
         tempfile::tempfile().unwrap(),
         &stop,
