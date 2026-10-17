@@ -158,7 +158,7 @@ if test "$task_desktop" = 1; then
     task_update_signing_key=
     unset task_update_signing_key
     "$task_release_tool" describe --archive "$task_zip" --version "$task_version" \
-      --target "$task_target" --minimum-system 13.0 \
+      --target "$task_target" --minimum-system 14.0 \
       --repository "$SAILRY_RELEASE_REPOSITORY" --tag "$SAILRY_RELEASE_TAG" \
       --keys "$task_root/release/update-public-keys.txt" --output "$task_zip.update.json"
     python3 - "$task_unsigned" <<'PY'

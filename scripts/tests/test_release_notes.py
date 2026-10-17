@@ -285,8 +285,8 @@ class ReleaseWorkflows(unittest.TestCase):
                 self.assertNotIn("--target", build)
                 self.assertIn("version: '0.16.0'", build)
                 self.assertIn("fixtures shared", build)
-        self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release"))
-        self.assertIn("MACOSX_DEPLOYMENT_TARGET: '13.0'", self.workflow("release-host"))
+        self.assertIn("MACOSX_DEPLOYMENT_TARGET: '14.0'", self.workflow("release"))
+        self.assertIn("MACOSX_DEPLOYMENT_TARGET: '14.0'", self.workflow("release-host"))
 
     def test_mobile_entry_is_manual_readiness_only(self):
         workflow = self.workflow("release-mobile")

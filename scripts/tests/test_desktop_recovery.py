@@ -172,6 +172,7 @@ class SignedFiles(unittest.TestCase):
             self.assertEqual(described[1], "describe")
             self.assertEqual(described[described.index("--target") + 1], recovery.TARGET)
             self.assertEqual(described[described.index("--version") + 1], TAG[1:])
+            self.assertEqual(described[described.index("--minimum-system") + 1], "14.0")
 
     def test_verifies_archive_with_compiled_owner(self):
         self.restore()

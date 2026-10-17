@@ -20,7 +20,7 @@
             <key>CFBundleTypeRole</key><string>Viewer</string>
         </dict>
     </array>
-    <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSMicrophoneUsageDescription</key><string>Use the microphone for voice input</string>
     <key>NSAppDataUsageDescription</key><string>Import Chrome website cookies into Sailry</string>
     <key>NSHighResolutionCapable</key><true/>

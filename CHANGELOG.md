@@ -31,5 +31,5 @@ a native workspace. Features and plugin APIs may change during alpha development
 
 ### Downloads
 
-- Desktop: macOS 13 or later, Apple silicon and Intel
+- Desktop: macOS 14 or later, Apple silicon and Intel
 - Host: macOS and Linux, ARM64 and x64

@@ -22,7 +22,7 @@
 
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple 芯片 / Intel | 支持 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 14+ | Apple 芯片 / Intel | 支持 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | x64 / ARM64 | 计划中 | — |
 | Linux | x64 / ARM64 | 计划中 | — |
 
@@ -30,7 +30,7 @@
 
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple 芯片 / Intel | 待发布 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 14+ | Apple 芯片 / Intel | 待发布 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Linux · glibc 2.28+ | x64 / ARM64 | 待发布 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | — | 计划中 | — |
 
