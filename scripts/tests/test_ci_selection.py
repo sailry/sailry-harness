@@ -213,5 +213,61 @@ class Lint(unittest.TestCase):
                 run.assert_not_called()
 
 
+class Commands(unittest.TestCase):
+    def test_runs_real_plugin_contracts_after_backend(self):
+        commands = ci.check_commands("backend", env={"CARGO_TARGET_DIR":"/fixture/lane", "CARGO_BUILD_TARGET":"aarch64-apple-darwin"})
+        self.assertEqual(len(commands), 3)
+        build = commands[1]["argv"]
+        self.assertEqual(build[:3], ["cargo", "build", "--locked"])
+        self.assertEqual(build[build.index("--features") + 1], "test-support")
+        self.assertEqual(build[build.index("--example") + 1], "plugin-test-host")
+        self.assertEqual(build[build.index("--profile") + 1], "test")
+        self.assertEqual(commands[2]["argv"][1:], ["scripts/test-plugins.py", "--runtime-host", "/fixture/lane/aarch64-apple-darwin/debug/examples/plugin-test-host"])
+
+    def test_reuses_backend_graph_and_profiles(self):
+        backend = ci.check_commands("backend", "2")[0]
+        databases = ci.check_commands("databases", "2")[0]
+        packages = lambda argv: [argv[index + 1] for index, value in enumerate(argv) if value == "-p"]
+        self.assertEqual(packages(backend["argv"]), [
+            "sailry-protocol", "sailry-link", "sailry-client", "sailry-node-runtime", "sailry-release",
+        ])
+        self.assertEqual(packages(backend["argv"]), packages(databases["argv"]))
+        self.assertEqual(backend["argv"][backend["argv"].index("--profile") + 1], "ci")
+        self.assertEqual(databases["argv"][databases["argv"].index("--profile") + 1], "databases")
+        self.assertNotIn("--release", backend["argv"])
+        self.assertNotIn("--ignored", backend["argv"])
+
+    def test_preserves_working_directory_and_exit_status(self):
+        with patch.object(ci.subprocess, "run") as run:
+            run.return_value.returncode = 7
+            self.assertEqual(ci.run_check("mobile-check", root=ROOT), 7)
+            run.assert_called_once_with(["flutter", "analyze", "--no-pub"],
+                                        cwd=ROOT / "apps/mobile", env=None, check=False)
+
+    def test_fast_excludes_product_builds(self):
+        plan = ci.local_checks(ci.LANES, "fast", "Darwin")
+        for name in plan["checks"]:
+            for command in ci.check_commands(name, "2"):
+                self.assertFalse(command["argv"][:2] in (["cargo", "nextest"], ["cargo", "clippy"],
+                                                       ["cargo", "check"], ["cargo", "build"]))
+        self.assertTrue(plan["not_run"])
+
+    def test_reports_platform_and_service_boundaries(self):
+        plan = ci.local_checks(ci.LANES, "affected", "Darwin")
+        self.assertIn("host-mac", plan["checks"])
+        self.assertNotIn("host", plan["checks"])
+        self.assertNotIn("databases", plan["checks"])
+        self.assertTrue(any("database" in value for value in plan["not_run"]))
+        windows = ci.local_checks({"desktop", "host", "android"}, "affected", "Windows")
+        self.assertNotIn("desktop", windows["checks"])
+        self.assertNotIn("host", windows["checks"])
+        self.assertTrue(any("Android" in value for value in windows["not_run"]))
+
+    def test_rejects_unknown_checks_and_invalid_jobs(self):
+        for name, jobs in [("missing", "1"), ("backend", "0"), ("backend", "1; false")]:
+            with self.subTest(name=name, jobs=jobs), self.assertRaises(ValueError):
+                ci.check_commands(name, jobs)
+
+
 if __name__ == "__main__":
     unittest.main()

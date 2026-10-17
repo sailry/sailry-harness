@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Select affected checks and require their successful completion."""
 
+import argparse
 import hashlib
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import shutil
@@ -23,7 +25,7 @@ PRODUCTS = {
 }
 FIXTURES = {
     "shared": {
-        "test_ci_resources", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
+        "test_ci_local", "test_ci_resources", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
         "test_names", "test_onnx_runtime", "test_public_source", "test_publish_packages",
         "test_python_launcher", "test_python_runtime", "test_release_notes", "test_source_cache",
         "test_release_versions", "test_suites",
@@ -136,7 +138,7 @@ def lint_packages(selected):
     return sorted({package for lane in selected for package in LINT_PACKAGES.get(lane, ())})
 
 
-def lint(selection, jobs):
+def lint_command(selection, jobs):
     if (not isinstance(selection, dict) or set(selection) != LANES
             or any(value not in {"true", "false"} for value in selection.values())):
         raise ValueError("Missing lint selection")
@@ -149,7 +151,193 @@ def lint(selection, jobs):
     for package in packages:
         command.extend(["-p", package])
     command.extend(["--all-targets", "--jobs", jobs, "--", "-D", "warnings"])
-    return subprocess.run(command, check=False).returncode
+    return command
+
+
+def lint(selection, jobs):
+    return subprocess.run(lint_command(selection, jobs), check=False).returncode
+
+
+def check_commands(name, jobs="2", root=ROOT, selection=None, env=None):
+    """The command source for CI phases and explicit local validation."""
+    if not re.fullmatch(r"[1-9][0-9]*", jobs):
+        raise ValueError("Invalid build job count")
+    python = sys.executable
+    environment = os.environ if env is None else env
+    target = Path(environment.get("CARGO_TARGET_DIR", str(root / "target")))
+    triple = environment.get("CARGO_BUILD_TARGET")
+    if triple:
+        target /= Path(triple).stem if triple.endswith(".json") else triple
+    runtime_host = target / "debug/examples/plugin-test-host"
+    if platform.system() == "Windows":
+        runtime_host = runtime_host.with_suffix(".exe")
+    shared = ["sailry-protocol", "sailry-link", "sailry-client", "sailry-node-runtime", "sailry-release"]
+    packages = [part for package in shared for part in ("-p", package)]
+    backend = ["cargo", "nextest", "run", "--locked", *packages]
+    desktop = ["cargo", "nextest", "run", "--locked", "-p", "sailry-content", "-p", "sailry-desktop"]
+    host = ["cargo", "nextest", "run", "--locked", "-p", "sailry-host"]
+    commands = {
+        "source": [([python, "scripts/ci.py", "fixtures", "shared"], ".")],
+        "names": [([python, "scripts/check-names.py"], ".")],
+        "workflows": [([os.getenv("ACTIONLINT", "actionlint"), "-shellcheck=", "-pyflakes="], ".")],
+        "format": [(["cargo", "fmt", "--all", "--", "--check"], ".")],
+        "backend": [
+            (backend + ["--timings", "--build-jobs", jobs, "--profile", "ci", "--test-threads=4"], "."),
+            (["cargo", "build", "--locked", "-p", "sailry-node-runtime", "--features", "test-support", "--example", "plugin-test-host", "--profile", "test", "--jobs", jobs], "."),
+            ([python, "scripts/test-plugins.py", "--runtime-host", str(runtime_host)], "."),
+        ],
+        "databases": [(backend + ["--build-jobs", jobs, "--profile", "databases", "--run-ignored", "only", "--filterset", "binary(databases)", "--test-threads=1"], ".")],
+        "desktop": [(desktop + ["--lib", "--bin", "sailry-desktop", "--timings", "--build-jobs", jobs, "--profile", "ci"], ".")],
+        "desktop-production": [(["cargo", "check", "--locked", "-p", "sailry-desktop", "--jobs", jobs], ".")],
+        "desktop-lifecycle": [(["cargo", "nextest", "run", "--locked", "-p", "sailry-desktop", "--test", "lifecycle", "--build-jobs", jobs, "--profile", "lifecycle"], ".")],
+        "host": [(host + ["--timings", "--build-jobs", jobs, "--profile", "ci", "--test-threads=4"], ".")],
+        "host-mac": [(host + ["--test", "lifecycle", "--timings", "--build-jobs", jobs, "--profile", "ci", "--test-threads=4"], ".")],
+        "host-production": [(["cargo", "check", "--locked", "-p", "sailry-host", "--jobs", jobs], ".")],
+        "desktop-source": [
+            ([python, "scripts/ci.py", "fixtures", "desktop"], "."),
+            ([python, "-m", "unittest", "discover", "-s", "apps/desktop/src/content/files/preview/web", "-v"], "."),
+            ([python, "themes/scripts/catalog.py", "--check"], "."),
+            ([python, "-m", "unittest", "discover", "-s", "themes/scripts/tests", "-v"], "."),
+            (["node", "--test", "crates/content/src/markdown/visuals/render.test.mjs"], "."),
+            ([python, "scripts/check-locales.py", "--product", "desktop"], "."),
+        ],
+        "host-source": [([python, "scripts/ci.py", "fixtures", "host"], ".")],
+        "mobile-source": [([python, "scripts/ci.py", "fixtures", "mobile"], "."), ([python, "scripts/check-locales.py", "--product", "mobile"], ".")],
+        "mobile-format": [(["dart", "format", "--output=none", "--set-exit-if-changed", "lib", "preview", "test", "integration_test", "tool"], "apps/mobile")],
+        "mobile-check": [(["flutter", "analyze", "--no-pub"], "apps/mobile"), (["flutter", "test", "--no-pub"], "apps/mobile")],
+        "services": [(["pnpm", task], "services/pairing-relay") for task in ("typecheck", "test", "build", "build:edgeone")],
+    }
+    if name == "lint":
+        return [{"argv": lint_command(selection, jobs), "cwd": "."}]
+    if name == "scripts":
+        listed = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.sh"],
+            cwd=root, check=True, capture_output=True,
+        ).stdout.split(b"\0")
+        paths = sorted({os.fsdecode(path) for path in listed if path and (root / os.fsdecode(path)).is_file()})
+        return [{"argv": ["bash", "-n", path], "cwd": "."} for path in paths] + [
+            {"argv": [python, "-m", "compileall", "-q", "scripts"], "cwd": "."},
+        ]
+    if name not in commands:
+        raise ValueError(f"Unknown check: {name}")
+    return [{"argv": argv, "cwd": cwd} for argv, cwd in commands[name]]
+
+
+def run_check(name, jobs="2", root=ROOT, selection=None, env=None):
+    for command in check_commands(name, jobs, root, selection, env):
+        print(f"Check {name}: " + " ".join(command["argv"]), flush=True)
+        code = subprocess.run(command["argv"], cwd=root / command["cwd"], env=env, check=False).returncode
+        if code:
+            return code if code > 0 else 128 - code
+    return 0
+
+
+def local_checks(selected, tier, system):
+    checks = ["source", "names", "scripts", "workflows"]
+    remaining = []
+    if lint_packages(selected):
+        checks.append("format")
+    for lane in ("desktop", "host", "mobile"):
+        if lane in selected:
+            checks.append(f"{lane}-source")
+    if "mobile" in selected:
+        checks.append("mobile-format")
+    if tier == "fast" and selected:
+        remaining.append("Affected product tests and strict Rust lint were not requested by the fast tier")
+    if tier == "affected":
+        if lint_packages(selected):
+            checks.append("lint")
+        if "shared" in selected:
+            checks.append("backend")
+            remaining.append("Shared database fixtures require configured PostgreSQL and MySQL services")
+        if "desktop" in selected:
+            if system == "Darwin":
+                checks.extend(("desktop", "desktop-production", "desktop-lifecycle"))
+            else:
+                remaining.append("Desktop CI uses macOS and its pinned Xcode SDK")
+        if "host" in selected:
+            if system in {"Darwin", "Linux"}:
+                checks.extend(("host-mac" if system == "Darwin" else "host", "host-production"))
+                remaining.append("Host CI also validates the other Linux/macOS runner")
+            else:
+                remaining.append("Host CI requires Linux or macOS")
+        if "mobile" in selected:
+            checks.append("mobile-check")
+            remaining.append("Mobile CI also runs a real Node and builds unsigned iOS")
+        if "services" in selected:
+            checks.append("services")
+    if "mobile_ffi" in selected:
+        remaining.append("Dart FFI contracts require the native bridge and database services")
+    if "android" in selected:
+        remaining.append("Android CI requires its pinned SDK, NDK and native boundary checks")
+    return {"checks": checks, "not_run": remaining}
+
+
+def local(arguments):
+    import ci_local
+
+    parser = argparse.ArgumentParser(description="Validate development changes or an explicitly checked-out candidate")
+    parser.add_argument("tier", nargs="?", choices=("fast", "affected"), default="fast")
+    parser.add_argument("--base")
+    parser.add_argument("--head")
+    parser.add_argument("--candidate", action="store_true")
+    parser.add_argument("--event", choices=("push", "pull_request"), default="push")
+    parser.add_argument("--all", action="store_true", dest="full")
+    parser.add_argument("--jobs", default=os.getenv("BUILD_JOBS", os.getenv("CARGO_BUILD_JOBS", "2")))
+    parser.add_argument("--target-dir", type=Path)
+    parser.add_argument("--plan", action="store_true")
+    args = parser.parse_args(arguments)
+    if not args.candidate and args.head is not None:
+        parser.error("--head requires --candidate")
+    target = args.target_dir.resolve() if args.target_dir else Path(os.getenv("CARGO_TARGET_DIR", str(ROOT / "target"))).resolve()
+    env = {**os.environ, "CARGO_TARGET_DIR": str(target)}
+    try:
+        source = ci_local.inspect_source(ROOT, "candidate" if args.candidate else "worktree", args.base, args.head, args.full, args.event)
+        selected = {name for name, value in source["selection"].items() if value == "true"}
+        plan = local_checks(selected, args.tier, platform.system())
+        commands = [{"check": name, **command} for name in plan["checks"]
+                    for command in check_commands(name, args.jobs, ROOT, source["selection"], env)]
+    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+        parser.error(str(error))
+    environment = {name: os.getenv(name) for name in (
+        "SDKROOT", "DEVELOPER_DIR", "RUSTFLAGS", "RUSTDOCFLAGS", "PKG_CONFIG_PATH",
+        "CARGO_INCREMENTAL", "CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG",
+        "CARGO_PROFILE_DEV_SPLIT_DEBUGINFO", "CARGO_PROFILE_TEST_SPLIT_DEBUGINFO",
+    )}
+    report = {"source": source, "tier": args.tier, "target_dir": str(target),
+              "environment": environment, **plan, "commands": commands}
+    missing = sorted({command["argv"][0] for command in commands
+                      if shutil.which(command["argv"][0]) is None})
+    report["missing_tools"] = missing
+    print(json.dumps(report, indent=2), flush=True)
+    if args.plan:
+        return 0
+    if missing:
+        print("Required local tools are unavailable: " + ", ".join(missing), file=sys.stderr)
+        return 1
+    for name in plan["checks"]:
+        try:
+            code = run_check(name, args.jobs, ROOT, source["selection"], env)
+        except OSError as error:
+            print(f"Check {name} could not run: {error}", file=sys.stderr)
+            return 1
+        if code:
+            return code
+    if args.candidate:
+        try:
+            after = ci_local.inspect_source(ROOT, "candidate", args.base, args.head, args.full, args.event)
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
+            print(f"Candidate changed during validation: {error}", file=sys.stderr)
+            return 1
+        if after != source:
+            print("Candidate changed during validation", file=sys.stderr)
+            return 1
+    print("Local checks passed; this is not cross-platform CI acceptance")
+    if not selected:
+        print("No affected product checks selected; committed changes need an explicit --base or --all")
+    for item in plan["not_run"]:
+        print("Not run: " + item)
+    return 0
 
 
 def outputs(selected):
@@ -266,7 +454,15 @@ def cache_usage():
 
 
 def main():
-    if len(sys.argv) == 3 and sys.argv[1] == "source-cache" and sys.argv[2] in {"save", "restore"}:
+    if len(sys.argv) >= 2 and sys.argv[1] == "local":
+        raise SystemExit(local(sys.argv[2:]))
+    elif len(sys.argv) == 3 and sys.argv[1] == "check":
+        try:
+            selection = json.loads(os.environ["CHECK_SCOPE"]) if sys.argv[2] == "lint" else None
+            raise SystemExit(run_check(sys.argv[2], os.getenv("BUILD_JOBS", os.getenv("CARGO_BUILD_JOBS", "2")), selection=selection))
+        except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as error:
+            raise SystemExit(str(error)) from error
+    elif len(sys.argv) == 3 and sys.argv[1] == "source-cache" and sys.argv[2] in {"save", "restore"}:
         cache_sources(sys.argv[2], Path(os.environ["GITHUB_WORKSPACE"]),
                       Path(os.getenv("CARGO_HOME", str(Path.home() / ".cargo"))))
     elif len(sys.argv) == 3 and sys.argv[1] == "source-key":
@@ -309,7 +505,7 @@ def main():
         print(f"{sys.argv[2].title()} ready" if len(sys.argv) == 3 else "Checks passed")
     else:
         raise SystemExit(
-            "Usage: ci.py source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint|report [desktop|host|mobile]|fixtures <owner>|"
+            "Usage: ci.py local [fast|affected] [options]|check <name>|source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint|report [desktop|host|mobile]|fixtures <owner>|"
             "speech-key <target> <shared|static>"
         )
 

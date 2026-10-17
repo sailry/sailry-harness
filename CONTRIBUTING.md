@@ -72,15 +72,43 @@ standard library. Pairing-service dependencies and checks have their own
 [guide](services/pairing-relay/README.md#run-and-verify).
 
 ```sh
+just ci fast        # Selected source and formatting checks
+just ci affected    # Add affected lint, tests and production checks
 just check          # Rust formatting and Clippy with warnings denied
 just test-source    # Public guides, publication boundaries and source fixtures
 just test-plugins   # Deterministic package JavaScript tests
-just test-backend   # Protocol, Link, Client, Node and Host tests
+just test-backend   # Shared Rust tests and package runtime contracts
 just test-ui        # Desktop logic and service-contract tests
 ```
 
-`just test-ui` uses CI's nextest profile. Install the pinned runner with
+`just test-backend` and `just test-ui` use CI's nextest profile. Install the pinned runner with
 `cargo install --locked cargo-nextest --version 0.9.143` if it is not available.
+This selects nextest's execution settings, not Cargo's release build profile.
+The backend check then builds the optional production test host and runs package
+tests with that host explicitly selected, including raw-schema parameter matrices.
+
+`just ci` checks changes outside `HEAD`, including staged, unstaged, untracked and
+submodule changes. Include committed changes with an explicit baseline; inspect
+the selected commands before running them with `--plan`:
+
+```sh
+just ci affected --base <base-commit> --plan
+just ci affected --base <base-commit>
+```
+
+For a committed candidate, use an existing clean worktree with initialized,
+matching submodules and explicit revisions:
+
+```sh
+just ci affected --candidate --base <base-commit> --head <candidate-commit>
+```
+
+The checkout must match the candidate. Equal base and head require `--all`;
+`origin/main` after a push is therefore not a useful comparison baseline.
+`--event pull_request` selects merge-base comparison. The runner does not switch
+worktrees or stash changes. Keep a persistent target directory per build lane;
+`--target-dir /absolute/path` selects it and `--jobs N` controls build concurrency.
+The recipes and CI share command definitions; these entries do not install hooks.
 
 Select checks from affected behavior and dependency boundaries. Reuse passing
 results while their inputs remain unchanged. Explain which tests ran and any

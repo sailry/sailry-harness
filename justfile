@@ -6,12 +6,16 @@ desktop data_dir=env_var_or_default("SAILRY_DESKTOP_DATA_DIR", ""):
 preview:
     bash scripts/run-desktop.sh --preview
 
+[positional-arguments]
+ci *args:
+    bash scripts/python.sh scripts/ci.py local "$@"
+
 check:
     cargo fmt --all -- --check
     cargo clippy --locked --workspace --all-targets -- -D warnings
 
 test-ui:
-    cargo nextest run --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --profile ci
+    bash scripts/python.sh scripts/ci.py check desktop
 
 test-source:
     bash scripts/python.sh -m unittest discover -s scripts/tests -v
@@ -27,7 +31,7 @@ host data_dir="":
     if test -n {{quote(data_dir)}}; then cargo run --locked -p sailry-host -- --data-dir {{quote(data_dir)}}; else cargo run --locked -p sailry-host; fi
 
 test-backend:
-    cargo test --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-host -- --test-threads=4
+    bash scripts/python.sh scripts/ci.py check backend
 
 # List phones and running simulators recognized by Flutter.
 mobile-devices:
@@ -50,8 +54,8 @@ mobile device="": mobile-deps
 
 # Analyze and run Flutter unit/interaction tests without starting a Node.
 check-mobile: mobile-deps
-    cd apps/mobile && flutter analyze --no-pub
-    cd apps/mobile && flutter test --no-pub
+    bash scripts/python.sh scripts/ci.py check mobile-format
+    bash scripts/python.sh scripts/ci.py check mobile-check
 
 # Run the existing Dart/Rust API contract suite against isolated Nodes.
 test-mobile-contract:

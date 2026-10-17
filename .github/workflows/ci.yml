@@ -55,17 +55,15 @@ jobs:
           go-version: '1.26.1'
           cache: false
       - name: Common source fixtures
-        run: python3 scripts/ci.py fixtures shared
+        run: python3 scripts/ci.py check source
       - name: Concise function and test names
-        run: python3 scripts/check-names.py
+        run: python3 scripts/ci.py check names
       - name: Workflow syntax and expressions
         run: |
           go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-          "$(go env GOPATH)/bin/actionlint" -shellcheck= -pyflakes=
+          ACTIONLINT="$(go env GOPATH)/bin/actionlint" python3 scripts/ci.py check workflows
       - name: Script syntax
-        run: |
-          git ls-files -z '*.sh' | xargs -0 -r -n 1 bash -n
-          python3 -m compileall -q scripts
+        run: python3 scripts/ci.py check scripts
 
   services:
     name: Pairing service
@@ -85,10 +83,7 @@ jobs:
         run: |
           npm install --global pnpm@10.31.0
           pnpm install --frozen-lockfile --ignore-scripts
-          pnpm typecheck
-          pnpm test
-          pnpm build
-          pnpm build:edgeone
+          python3 ../../scripts/ci.py check services
 
   lint:
     name: Rust strict lint
@@ -142,7 +137,7 @@ jobs:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Formatting
-        run: cargo fmt --all -- --check
+        run: python3 scripts/ci.py check format
       - name: Strict lint for selected packages
         run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint
       - name: Compiler cache statistics
@@ -173,6 +168,9 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: '22.22.1'
       - uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
           version: '0.16.0'
@@ -219,12 +217,12 @@ jobs:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Shared unit and local/remote integration
-        run: python3 scripts/ci-run.py -- cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-release --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
+        run: python3 scripts/ci-run.py -- python3 scripts/ci.py check backend
       - name: Isolated database engines
         run: |
           brew install postgresql@17 mysql@8.4
           export PATH="$(brew --prefix postgresql@17)/bin:$(brew --prefix mysql@8.4)/bin:$PATH"
-          cargo nextest run --locked -p sailry-protocol -p sailry-link -p sailry-client -p sailry-node-runtime -p sailry-release --build-jobs "$BUILD_JOBS" --profile databases --run-ignored only --filterset 'binary(databases)' --test-threads=1
+          python3 scripts/ci.py check databases
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -341,21 +339,15 @@ jobs:
         with:
           node-version: '22.22.1'
       - name: Desktop source fixtures
-        run: |
-          python3 scripts/ci.py fixtures desktop
-          python3 -m unittest discover -s apps/desktop/src/content/files/preview/web -v
-          python3 themes/scripts/catalog.py --check
-          python3 -m unittest discover -s themes/scripts/tests -v
-          node --test crates/content/src/markdown/visuals/render.test.mjs
-          python3 scripts/check-locales.py --product desktop
+        run: python3 scripts/ci.py check desktop-source
       - name: Desktop logic and service contracts
         # Process isolation permits bounded concurrency without shared global state.
-        run: cargo nextest run --locked -p sailry-content -p sailry-desktop --lib --bin sailry-desktop --timings --build-jobs "$BUILD_JOBS" --profile ci
+        run: python3 scripts/ci.py check desktop
       - name: Desktop without test features
         # Tests enable test-support features; type-check the shipped feature set.
-        run: cargo check --locked -p sailry-desktop --jobs "$BUILD_JOBS"
+        run: python3 scripts/ci.py check desktop-production
       - name: Desktop process lifecycle
-        run: cargo nextest run --locked -p sailry-desktop --test lifecycle --build-jobs "$BUILD_JOBS" --profile lifecycle
+        run: python3 scripts/ci.py check desktop-lifecycle
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -413,11 +405,11 @@ jobs:
           tool: cargo-nextest@0.9.143
           fallback: none
       - name: Host source fixtures
-        run: python3 scripts/ci.py fixtures host
+        run: python3 scripts/ci.py check host-source
       - name: Host logic and service contracts
-        run: cargo nextest run --locked -p sailry-host --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
+        run: python3 scripts/ci.py check host
       - name: Host without test features
-        run: cargo check --locked -p sailry-host --jobs "$BUILD_JOBS"
+        run: python3 scripts/ci.py check host-production
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -476,9 +468,9 @@ jobs:
           tool: cargo-nextest@0.9.143
           fallback: none
       - name: Host macOS lifecycle
-        run: cargo nextest run --locked -p sailry-host --test lifecycle --timings --build-jobs "$BUILD_JOBS" --profile ci --test-threads=4
+        run: python3 scripts/ci.py check host-mac
       - name: Host without test features
-        run: cargo check --locked -p sailry-host --jobs "$BUILD_JOBS"
+        run: python3 scripts/ci.py check host-production
       - name: Compilation timings
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -551,15 +543,12 @@ jobs:
           path: target/sherpa-onnx-prebuilt
           key: ${{ steps.speech-cache.outputs.cache-primary-key }}
       - name: Mobile source fixtures
-        run: |
-          python3 scripts/ci.py fixtures mobile
-          python3 scripts/check-locales.py --product mobile
+        run: python3 scripts/ci.py check mobile-source
       - name: Flutter analysis and widget tests
         working-directory: apps/mobile
         run: |
-          dart format --output=none --set-exit-if-changed lib preview test integration_test tool
-          flutter analyze --no-pub
-          flutter test --no-pub
+          python3 ../../scripts/ci.py check mobile-format
+          python3 ../../scripts/ci.py check mobile-check
       - name: Native shared bridge
         run: cargo build --locked -p sailry-mobile-bridge --lib
       - name: Flutter controls a real remote Node

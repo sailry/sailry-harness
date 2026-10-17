@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,17 @@ JOBS = ("source", "lint", "shared", "desktop", "host", "host_mac", "mobile", "mo
 spec = importlib.util.spec_from_file_location("ci", ROOT / "scripts/ci.py")
 ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
+
+
+def workflow_source():
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+
+    def expand(match):
+        commands = ci.check_commands(match.group(1), "1")
+        return "\n".join(shlex.join(["python3" if value == sys.executable else value
+                                       for value in command["argv"]]) for command in commands)
+
+    return re.sub(r"python3 (?:(?:\.\./){2})?scripts/ci\.py check ([a-z-]+)", expand, workflow)
 
 
 def job_section(workflow, name):
@@ -154,7 +166,7 @@ class CheckResults(unittest.TestCase):
 
 class Workflow(unittest.TestCase):
     def test_gates_runtime_and_service_checks(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         source = workflow.split("\n  source:\n", 1)[1].split("\n  services:\n", 1)[0]
         self.assertNotIn("    if:", source.split("    steps:\n", 1)[0])
         self.assertIn("fetch-depth: 0", source)
@@ -167,7 +179,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("run: python3 scripts/ci.py report", workflow)
 
     def test_lints_every_workspace_member(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
         packages = {tomllib.loads((ROOT / member / "Cargo.toml").read_text())["package"]["name"]
                     for member in workspace}
@@ -182,15 +194,24 @@ class Workflow(unittest.TestCase):
             self.assertNotIn("needs: [source, lint]", job_section(workflow, lane))
 
     def test_compiles_tests_once_and_keeps_timings(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         self.assertNotIn("--no-run", workflow)
         for command in re.findall(r"run: (?:python3 scripts/ci-run.py -- )?(cargo nextest run[^\n]+--profile ci[^\n]*)", workflow):
             self.assertIn("--timings", command)
         self.assertIn("--test dart --timings --", workflow)
         self.assertIn("run: cargo fmt --all -- --check", job_section(workflow, "lint"))
 
+    def test_runs_plugin_contracts_in_shared(self):
+        workflow = workflow_source()
+        shared = job_section(workflow, "shared")
+        self.assertIn("node-version: '22.22.1'", shared)
+        self.assertIn("--example plugin-test-host --profile test", shared)
+        self.assertIn("scripts/test-plugins.py --runtime-host", shared)
+        self.assertLess(shared.index("--example plugin-test-host"), shared.index("scripts/test-plugins.py"))
+        self.assertNotIn("scripts/test-plugins.py", job_section(workflow, "source"))
+
     def test_formats_once_for_selected_native_lanes(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         lint = job_section(workflow, "lint")
         header = lint.split("    steps:\n", 1)[0]
         self.assertEqual(workflow.count("run: cargo fmt --all -- --check"), 1)
@@ -201,7 +222,7 @@ class Workflow(unittest.TestCase):
             self.assertNotIn("name: Formatting", job_section(workflow, lane))
 
     def test_product_gates_require_real_jobs(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         for product, lanes in ci.PRODUCTS.items():
             with self.subTest(product=product):
                 section = job_section(workflow, f"{product}_ready")
@@ -216,7 +237,7 @@ class Workflow(unittest.TestCase):
                 self.assertNotIn("continue-on-error", section)
 
     def test_keeps_host_out_of_desktop(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         shared = job_section(workflow, "shared")
         desktop = job_section(workflow, "desktop")
         host = job_section(workflow, "host")
@@ -239,7 +260,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("bash scripts/check-mobile-android.sh", workflow)
 
     def test_database_reuses_shared_package_graph(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         shared = job_section(workflow, "shared")
         commands = [line for line in shared.splitlines() if "cargo nextest run" in line]
         self.assertEqual(len(commands), 2)
@@ -248,7 +269,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("sailry-release", packages[1])
 
     def test_source_fixtures_follow_product_owners(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         for owner in ci.FIXTURES:
             self.assertIn(f"python3 scripts/ci.py fixtures {owner}", workflow)
         shared = ci.fixture_names(ROOT, "shared")
@@ -260,7 +281,7 @@ class Workflow(unittest.TestCase):
         self.assertIn("scripts/check-locales.py --product mobile", workflow)
 
     def test_splits_dart_contracts_on_macos(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         mobile = workflow.split("\n  mobile:\n", 1)[1].split("\n  mobile_ffi:\n", 1)[0]
         ffi = workflow.split("\n  mobile_ffi:\n", 1)[1].split("\n  android:\n", 1)[0]
         self.assertNotIn("--test dart", mobile)
@@ -288,7 +309,7 @@ class Workflow(unittest.TestCase):
         self.assertLess(ffi.index(bridge), ffi.index(contract))
 
     def test_keys_speech_cache_by_native_identity(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         self.assertNotIn("hashFiles('Cargo.lock')", workflow)
         for name, target in (
             ("lint", "aarch64-apple-darwin"), ("shared", "aarch64-apple-darwin"),
@@ -316,7 +337,7 @@ class Workflow(unittest.TestCase):
             self.assertIn("steps.speech-key.outcome == 'success'", step)
 
     def test_retires_archives_without_blocking_checks(self):
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = workflow_source()
         cleanup = job_section(workflow, "source_cache")
         header = cleanup.split("    steps:\n", 1)[0]
         self.assertIn("needs: shared", header)
