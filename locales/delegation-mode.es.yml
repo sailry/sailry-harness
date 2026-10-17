@@ -4,3 +4,4 @@ composer_delegation_active: "Subagentes: delegar tareas independientes de forma 
 composer_delegation_unavailable: "Los subagentes no están disponibles en esta conversación"
 menu_input_diagnostics: "Copiar diagnóstico de entrada"
 input_diagnostics_copied: "Diagnóstico de entrada copiado"
+composer_delegation_super: "super"

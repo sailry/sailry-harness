@@ -4,3 +4,4 @@ composer_delegation_active: "Субагенты: активно делегиро
 composer_delegation_unavailable: "Субагенты недоступны в этом разговоре"
 menu_input_diagnostics: "Копировать диагностику ввода"
 input_diagnostics_copied: "Диагностика ввода скопирована"
+composer_delegation_super: "super"

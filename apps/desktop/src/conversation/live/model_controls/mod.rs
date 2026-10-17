@@ -108,6 +108,11 @@ impl View {
             picker.popover = None;
             picker.composer(effort, blocked || !self.can_pick_model(), cx);
         });
+        let delegation_available = self.delegation_available(cx);
+        let proactive = self
+            .config
+            .as_ref()
+            .is_some_and(|config| config.delegation_proactive);
         let panel = self.model_controls.clone();
         panel.update(cx, |panel, cx| {
             panel.sync(
@@ -118,6 +123,12 @@ impl View {
                     initial,
                     busy: blocked || !self.can_pick_model(),
                     connected: self.configuration().connected,
+                    proactive,
+                    delegation_available,
+                    delegation_disabled: !delegation_available
+                        || self.readonly()
+                        || blocked
+                        || (self.session.is_some() && !self.connected()),
                 },
                 cx,
             )
@@ -152,6 +163,10 @@ impl View {
             .as_ref()
             .map_or(Effort::Default, |config| config.effort);
         let choices = self.available_efforts();
+        let proactive = self
+            .config
+            .as_ref()
+            .is_some_and(|config| config.delegation_proactive);
         let button = Button::new("live-chat-model")
             .custom(crate::theme::subtle_button(cx))
             .rounded_full()
@@ -190,6 +205,15 @@ impl View {
                                 .line_height(px(20.))
                                 .text_color(cx.theme().muted_foreground)
                                 .child(crate::reasoning::label(effort)),
+                        )
+                    })
+                    .when(proactive, |row| {
+                        row.child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(cx.theme().primary)
+                                .child(tr("composer_delegation_super")),
                         )
                     }),
             )
@@ -231,6 +255,9 @@ struct Settings {
     initial: Effort,
     busy: bool,
     connected: bool,
+    proactive: bool,
+    delegation_available: bool,
+    delegation_disabled: bool,
 }
 
 pub(super) struct Panel {
@@ -408,6 +435,27 @@ impl Render for Panel {
         } else {
             cx.theme().primary
         };
+        let owner = self.owner.clone();
+        let delegation = Button::new("model-controls-delegation")
+            .ghost()
+            .small()
+            .h_6()
+            .icon(IconName::Bot)
+            .rounded_full()
+            .selected(settings.proactive)
+            .toggled(settings.proactive)
+            .accessibility_label(tr("composer_delegation_proactive"))
+            .tooltip(tr(if !settings.delegation_available {
+                "composer_delegation_unavailable"
+            } else if settings.proactive {
+                "composer_delegation_active"
+            } else {
+                "composer_delegation_normal"
+            }))
+            .disabled(settings.delegation_disabled)
+            .on_click(move |_, window, cx| {
+                let _ = owner.update(cx, |view, cx| view.toggle_delegation(window, cx));
+            });
         let controls = v_flex()
             .w_full()
             .flex_shrink_0()
@@ -424,6 +472,7 @@ impl Render for Panel {
                             .w_full()
                             .h_6()
                             .justify_center()
+                            .child(div().absolute().left_0().top_0().child(delegation))
                             .child(
                                 div()
                                     .text_sm()

@@ -63,7 +63,7 @@ impl View {
             .disabled(
                 self.configuration_blocked() || (self.session.is_some() && !self.connected()),
             );
-        let control = button
+        button
             .dropdown_menu_with_anchor(Anchor::BottomLeft, move |menu, _, _| {
                 modes
                     .iter()
@@ -90,12 +90,6 @@ impl View {
                         )
                     })
             })
-            .into_any_element();
-        h_flex()
-            .gap_1()
-            .items_center()
-            .child(control)
-            .child(self.delegation_toggle(cx))
             .into_any_element()
     }
 }

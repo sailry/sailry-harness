@@ -35,7 +35,7 @@ impl View {
             .or(self.draft_permission)
             .unwrap_or(sailry_protocol::Permission::Ask);
         let owner = self.composer_settings.downgrade();
-        let control = Button::new("composer-permission-page")
+        Button::new("composer-permission-page")
             .ghost()
             .w_full()
             .when(current == sailry_protocol::Permission::Full, |button| {
@@ -50,13 +50,6 @@ impl View {
             .on_click(move |_, window, cx| {
                 let _ = owner.update(cx, |panel, cx| panel.show(Page::Permission, window, cx));
             })
-            .into_any_element();
-        h_flex()
-            .w_full()
-            .gap_1()
-            .items_center()
-            .child(div().flex_1().min_w_0().child(control))
-            .child(self.delegation_toggle(cx))
             .into_any_element()
     }
 

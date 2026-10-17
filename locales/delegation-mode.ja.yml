@@ -4,3 +4,4 @@ composer_delegation_active: "子エージェント：独立した作業を積極
 composer_delegation_unavailable: "この会話では子エージェントを使用できません"
 menu_input_diagnostics: "入力の診断をコピー"
 input_diagnostics_copied: "入力の診断をコピーしました"
+composer_delegation_super: "super"

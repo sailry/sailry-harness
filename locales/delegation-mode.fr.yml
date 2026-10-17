@@ -4,3 +4,4 @@ composer_delegation_active: "Sous-agents : déléguer activement les tâches ind
 composer_delegation_unavailable: "Les sous-agents sont indisponibles dans cette conversation"
 menu_input_diagnostics: "Copier le diagnostic de saisie"
 input_diagnostics_copied: "Diagnostic de saisie copié"
+composer_delegation_super: "super"
