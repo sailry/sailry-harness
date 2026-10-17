@@ -1,6 +1,6 @@
 use super::*;
 #[path = "../support/skillhub.rs"]
-mod registry;
+mod fixture;
 
 fn source() -> plugin::skills::RegistrySource {
     plugin::skills::RegistrySource {
@@ -26,7 +26,7 @@ async fn discover(client: &Client) -> plugin::skills::RegistryDiscovery {
 #[tokio::test]
 async fn installs_and_updates_verified_packages() {
     for remote in [false, true] {
-        let registry = registry::Registry::start().await;
+        let registry = fixture::Registry::start().await;
         let directory = tempfile::tempdir().unwrap();
         let node = Node::start_empty(directory.path().join("node"))
             .await
