@@ -6,6 +6,7 @@ use gpui_kit::component::{
     button::{Button, ButtonVariants},
     popover::Popover,
     slider::{SliderEvent, SliderState},
+    tag::Tag,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 
@@ -140,6 +141,12 @@ impl View {
     pub(super) fn model_menu(&self, cx: &mut Context<Self>) -> AnyElement {
         let available = self.sync_model_controls(cx);
         let model = self.model_label();
+        let provider = self.config.as_ref().and_then(|config| {
+            self.providers()
+                .find(|provider| provider.id == config.provider)
+                .map(|provider| provider.name.clone())
+                .filter(|name| !name.trim().is_empty())
+        });
         let effort = self
             .config
             .as_ref()
@@ -156,6 +163,16 @@ impl View {
                 h_flex()
                     .min_w_0()
                     .gap_2()
+                    .when_some(provider, |row, provider| {
+                        row.child(
+                            Tag::info()
+                                .small()
+                                .min_w_0()
+                                .max_w(relative(0.4))
+                                .flex_shrink_0()
+                                .child(div().min_w_0().truncate().child(provider)),
+                        )
+                    })
                     .child(
                         div()
                             .min_w_0()
