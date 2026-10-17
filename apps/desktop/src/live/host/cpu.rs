@@ -28,7 +28,7 @@ impl Monitor {
                 .child(
                     h_flex()
                         .flex_basis(px(300.))
-                        .flex_shrink()
+                        .flex_shrink(1.)
                         .min_w_0()
                         .gap_4()
                         .child(

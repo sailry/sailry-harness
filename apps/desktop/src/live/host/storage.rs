@@ -70,7 +70,7 @@ impl Monitor {
                             .toggled(current)
                             .flex_1()
                             .flex_basis(px(400.))
-                            .flex_shrink()
+                            .flex_shrink(1.)
                             .min_w_0()
                             .h_auto()
                             .px_3p5()
