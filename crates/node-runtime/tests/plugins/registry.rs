@@ -23,6 +23,13 @@ async fn discover(client: &Client) -> plugin::skills::RegistryDiscovery {
     discovery
 }
 
+async fn inventory(client: &Client) -> Vec<Summary> {
+    let Output::Plugins(plugins) = execute(client, Command::ListPlugins).await else {
+        panic!("plugin list expected");
+    };
+    plugins
+}
+
 #[tokio::test]
 async fn installs_and_updates_verified_packages() {
     for remote in [false, true] {
@@ -133,7 +140,7 @@ async fn installs_and_updates_verified_packages() {
             .await
             .unwrap_err();
         assert_eq!(failed.code, ErrorCode::InvalidRequest);
-        assert_eq!(inventory(&client).await[0], updated.summary);
+        assert_eq!(inventory(&client).await, [updated.summary]);
         registry.state.lock().unwrap().corrupt_archive = false;
         registry.state.lock().unwrap().unsigned = true;
         assert_eq!(
