@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Select affected PR checks and require their successful completion."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -132,6 +133,16 @@ def locked_version(root, name):
     return versions[0]
 
 
+def source_cache_key(lockfile):
+    packages = tomllib.loads(lockfile.read_text(encoding="utf-8"))["package"]
+    identities = sorted(
+        (package["name"], package["version"], package["source"], package.get("checksum", ""))
+        for package in packages if "source" in package
+    )
+    digest = hashlib.sha256(json.dumps(identities, separators=(",", ":")).encode()).hexdigest()
+    return f"cargo-sources-v1-{digest}"
+
+
 def speech_cache_key(root, target, mode):
     if not re.fullmatch(r"[a-z0-9_]+(?:-[a-z0-9_]+)+", target):
         raise ValueError("Invalid speech target")
@@ -197,6 +208,11 @@ def main():
     if len(sys.argv) == 3 and sys.argv[1] == "source-cache" and sys.argv[2] in {"save", "restore"}:
         cache_sources(sys.argv[2], Path(os.environ["GITHUB_WORKSPACE"]),
                       Path(os.getenv("CARGO_HOME", str(Path.home() / ".cargo"))))
+    elif len(sys.argv) == 3 and sys.argv[1] == "source-key":
+        key = source_cache_key(Path(sys.argv[2]))
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
+            target.write(f"key={key}\n")
+        print(key)
     elif sys.argv[1:] == ["cache-usage"]:
         cache_usage()
     elif sys.argv[1:] == ["select"]:
@@ -227,7 +243,7 @@ def main():
         print(f"{sys.argv[2].title()} ready" if len(sys.argv) == 3 else "Checks passed")
     else:
         raise SystemExit(
-            "Usage: ci.py source-cache <save|restore>|cache-usage|select|report [desktop|host|mobile]|fixtures <owner>|"
+            "Usage: ci.py source-key <lockfile>|source-cache <save|restore>|cache-usage|select|report [desktop|host|mobile]|fixtures <owner>|"
             "speech-key <target> <shared|static>"
         )
 

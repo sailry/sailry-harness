@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -309,7 +310,16 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("~/.cargo/registry/src", action)
         self.assertNotIn("~/.cargo/git/checkouts", action)
         self.assertIn("enableCrossOsArchive: true", action)
-        self.assertIn("cargo-sources-v1-${{ hashFiles('Cargo.lock') }}", action)
+        identity = action.split("    - name: Dependency source identity\n", 1)[1].split("    - name:", 1)[0]
+        self.assertIn("continue-on-error: true", identity)
+        self.assertIn('source-key "$GITHUB_WORKSPACE/Cargo.lock"', identity)
+        self.assertIn('"$GITHUB_ACTION_PATH/../../../scripts/ci.py"', identity)
+        self.assertNotIn("hashFiles('Cargo.lock')", action)
+        sources = action.split("    - name: Compressed dependency sources\n", 1)[1].split("    - name:", 1)[0]
+        self.assertIn("if: steps.source-key.outcome == 'success'", sources)
+        self.assertIn("continue-on-error: true", sources)
+        self.assertIn("key: ${{ steps.source-key.outputs.key }}", sources)
+        self.assertIn("restore-keys: cargo-sources-v1-", sources)
         self.assertNotIn("runner.os", action)
         self.assertIn("version: v0.18.0", action)
         compiler = action.split("    - name: Compiler cache\n", 1)[1].split("    - name:", 1)[0]
@@ -323,6 +333,9 @@ class Workflow(unittest.TestCase):
         self.assertEqual(workflows[0].count("name: Save compressed dependency sources"), 1)
         self.assertIn("run: cargo fetch --locked", workflows[0])
         self.assertIn("steps.workspace-sources.outcome == 'success'", workflows[0])
+        fetch = workflows[0].split("      - name: Fetch locked workspace sources\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("steps.rust-cache.outputs.source-key != ''", fetch)
+        self.assertIn("continue-on-error: true", fetch)
         for workflow in workflows:
             self.assertIn("/.github/actions/rust-cache", workflow)
             self.assertNotIn("Swatinem/rust-cache", workflow)
@@ -332,6 +345,88 @@ class Workflow(unittest.TestCase):
         for workflow in workflows[1:]:
             self.assertNotIn("Save compilation before signing", workflow)
             self.assertIn("python3 .workflow-tools/scripts/ci-run.py -- cargo build --locked --release --timings", workflow)
+
+
+class SourceCacheIdentity(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.lockfile = self.root / "Cargo.lock"
+        self.original = (ROOT / "Cargo.lock").read_text()
+
+    def key(self, contents):
+        self.lockfile.write_text(contents)
+        return ci.source_cache_key(self.lockfile)
+
+    def package(self, values):
+        return "[[package]]\n" + "".join(f"{name} = {json.dumps(value)}\n" for name, value in values.items())
+
+    def test_ignores_workspace_version_changes(self):
+        header, *packages = self.original.split("[[package]]")
+        changed = 0
+        for index, contents in enumerate(packages):
+            package = tomllib.loads("[[package]]" + contents)["package"][0]
+            if "source" not in package:
+                packages[index] = re.sub(r'(?m)^version = "[^"]+"$', 'version = "99.0.0"', contents, count=1)
+                changed += 1
+        self.assertGreater(changed, 0)
+        updated = header + "".join("[[package]]" + contents for contents in packages)
+        self.assertEqual(self.key(updated), self.key(self.original))
+
+    def test_tracks_external_identity(self):
+        package = {"name": "example", "version": "1.0.0",
+                   "source": "registry+https://registry.example/index", "checksum": "a" * 64}
+        original = self.key(self.package(package))
+        for name, value in (("name", "replacement"), ("version", "2.0.0"),
+                            ("source", "registry+https://other.example/index"), ("checksum", "b" * 64)):
+            with self.subTest(field=name):
+                self.assertNotEqual(self.key(self.package({**package, name: value})), original)
+
+    def test_ignores_package_order_and_format(self):
+        header, *packages = self.original.split("[[package]]")
+        reordered = header + "".join("[[package]]" + contents for contents in reversed(packages))
+        self.assertEqual(self.key("# Same external sources\n" + reordered), self.key(self.original))
+
+    def test_tracks_git_sources_without_checksums(self):
+        package = {"name": "example", "version": "1.0.0", "source": "git+https://git.example/repo#" + "a" * 40}
+        original = self.key(self.package(package))
+        package["source"] = "git+https://git.example/repo#" + "b" * 40
+        self.assertNotEqual(self.key(self.package(package)), original)
+
+    def test_reads_product_lock_from_each_tool_location(self):
+        action = (ROOT / ".github/actions/rust-cache/action.yml").read_text()
+        identity = action.split("    - name: Dependency source identity\n", 1)[1].split("    - name:", 1)[0]
+        command = identity.split("      run: ", 1)[1].strip()
+        other = self.package({"name": "other", "version": "1.0.0", "source": "git+https://git.example/other#123"})
+        expected = self.key(self.original)
+        self.assertNotEqual(self.key(other), expected)
+        for separate in (False, True):
+            with self.subTest(separate_tooling=separate):
+                product = self.root / str(separate) / "product checkout"
+                product.mkdir(parents=True)
+                (product / "Cargo.lock").write_text(self.original)
+                tooling = product / ".workflow-tools" if separate else product
+                script = tooling / "scripts/ci.py"
+                script.parent.mkdir(parents=True)
+                shutil.copyfile(ROOT / "scripts/ci.py", script)
+                if separate:
+                    (tooling / "Cargo.lock").write_text(other)
+                action_path = tooling / ".github/actions/rust-cache"
+                action_path.mkdir(parents=True)
+                working = product / "different working directory"
+                working.mkdir()
+                (working / "Cargo.lock").write_text(other)
+                output = product / "output"
+                result = subprocess.run(
+                    ["bash", "--noprofile", "--norc", "-e", "-c", command],
+                    cwd=working, capture_output=True, text=True,
+                    env={**os.environ, "GITHUB_WORKSPACE": str(product),
+                         "GITHUB_ACTION_PATH": str(action_path), "GITHUB_OUTPUT": str(output)},
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected + "\n")
+                self.assertEqual(output.read_text(), f"key={expected}\n")
 
 
 class CacheUsage(unittest.TestCase):
