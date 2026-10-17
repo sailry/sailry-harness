@@ -288,6 +288,7 @@ impl Editor {
             self.choose_import(window, cx);
             return;
         };
+        let generation = self.generation;
         self.pending = true;
         self.error = None;
         self.discovery = None;
@@ -308,10 +309,10 @@ impl Editor {
         self.task = Some(cx.spawn_in(window, async move |editor, cx| {
             let result = job.await;
             let _ = editor.update_in(cx, |editor, _, cx| {
-                editor.pending = false;
-                if editor.closed {
+                if editor.closed || editor.generation != generation {
                     return;
                 }
+                editor.pending = false;
                 match result {
                     Ok(Ok((discovery, known))) => {
                         editor.accept(Discovery::Imported(discovery), known)
@@ -375,6 +376,7 @@ impl Editor {
         if self.closed || self.pending || self.request.is_some() {
             return;
         }
+        let generation = self.generation;
         let directory = index == 0;
         let selected = cx.prompt_for_paths(PathPromptOptions {
             files: !directory,
@@ -389,7 +391,11 @@ impl Editor {
         self.task = Some(cx.spawn_in(window, async move |editor, cx| {
             let selected = selected.await;
             let _ = editor.update_in(cx, |editor, window, cx| {
-                if editor.closed || editor.pending || editor.channel.local() != Some(index) {
+                if editor.closed
+                    || editor.pending
+                    || editor.generation != generation
+                    || editor.channel.local() != Some(index)
+                {
                     return;
                 }
                 match selected {
@@ -413,20 +419,18 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.invalidate();
+        let generation = self.generation;
         self.pending = true;
-        self.error = None;
-        self.discovery = None;
-        self.selected.clear();
-        self.completed.clear();
         let runtime = self.binding.runtime.clone();
         let job = runtime.spawn(open(path, directory));
         self.task = Some(cx.spawn_in(window, async move |editor, cx| {
             let result = job.await;
             let _ = editor.update_in(cx, |editor, window, cx| {
-                editor.pending = false;
-                if editor.closed {
+                if editor.closed || editor.generation != generation {
                     return;
                 }
+                editor.pending = false;
                 match result {
                     Ok(Ok(snapshot)) => {
                         editor.imports[usize::from(!directory)] = Some(snapshot);

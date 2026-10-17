@@ -25,6 +25,7 @@ struct Editor {
     completed: BTreeSet<usize>,
     request: Option<(usize, Request)>,
     pending: bool,
+    generation: u64,
     error: Option<&'static str>,
     closed: bool,
     dialog: crate::ui::overlays::Owned,
@@ -70,13 +71,10 @@ fn open_source(
         for input in fields.iter().chain(links.iter()) {
             cx.subscribe(input, |editor: &mut Editor, _, event, cx| {
                 if matches!(event, InputEvent::Change)
-                    && !editor.pending
                     && editor.request.is_none()
+                    && !(editor.pending && editor.discovery.is_some())
                 {
-                    editor.discovery = None;
-                    editor.selected.clear();
-                    editor.completed.clear();
-                    editor.error = None;
+                    editor.invalidate();
                     cx.notify();
                 }
             })
@@ -99,6 +97,7 @@ fn open_source(
             completed: BTreeSet::new(),
             request: None,
             pending: false,
+            generation: 0,
             error: None,
             closed: false,
             dialog: Default::default(),
@@ -115,18 +114,22 @@ impl Editor {
             return;
         }
         self.channel = channel;
+        self.invalidate();
+        cx.notify();
+    }
+
+    fn invalidate(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
         self.discovery = None;
         self.selected.clear();
         self.completed.clear();
         self.error = None;
-        cx.notify();
+        self.pending = false;
+        self.task = None;
     }
 
-    fn discover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.closed || self.pending || self.request.is_some() {
-            return;
-        }
-        let selection = match self.channel {
+    fn selection(&self, cx: &App) -> Option<Selection> {
+        match self.channel {
             Channel::Git => Selection::git(
                 self.fields
                     .each_ref()
@@ -134,11 +137,42 @@ impl Editor {
             ),
             Channel::Skills => Selection::skills(&self.links[0].read(cx).value()),
             Channel::Hub => Selection::hub(&self.links[1].read(cx).value()),
-            Channel::Directory | Channel::Archive => {
-                self.discover_import(window, cx);
-                return;
-            }
-        };
+            Channel::Directory | Channel::Archive => None,
+        }
+    }
+
+    fn ready(&self, cx: &App) -> bool {
+        self.channel.local().map_or_else(
+            || self.selection(cx).is_some(),
+            |index| self.imports[index].is_some(),
+        )
+    }
+
+    fn selected_installable(&self) -> bool {
+        self.discovery.is_some()
+            && self
+                .selected
+                .iter()
+                .any(|index| !self.completed.contains(index))
+    }
+
+    fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.request.is_some() || self.selected_installable() {
+            self.install(window, cx);
+        } else {
+            self.discover(window, cx);
+        }
+    }
+
+    fn discover(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.closed || self.pending || self.request.is_some() {
+            return;
+        }
+        if self.channel.local().is_some() {
+            self.discover_import(window, cx);
+            return;
+        }
+        let selection = self.selection(cx);
         let Some(selection) = selection else {
             self.error = Some(if self.channel == Channel::Git {
                 "skills_source_invalid"
@@ -149,6 +183,7 @@ impl Editor {
             return;
         };
         let command = selection.command();
+        let generation = self.generation;
         self.pending = true;
         self.error = None;
         self.discovery = None;
@@ -169,10 +204,10 @@ impl Editor {
         self.task = Some(cx.spawn_in(window, async move |editor, cx| {
             let result = job.await;
             _ = editor.update_in(cx, |editor, _, cx| {
-                editor.pending = false;
-                if editor.closed {
+                if editor.closed || editor.generation != generation {
                     return;
                 }
+                editor.pending = false;
                 match result {
                     Ok(Ok((discovery, Output::Plugins(known)))) => {
                         let discovery = match selection.select(discovery) {

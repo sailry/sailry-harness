@@ -43,26 +43,28 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                         Button::new("skill-install-submit")
                             .debug_selector(|| "skill-install-submit".into())
                             .primary()
-                            .loading(state.pending && state.discovery.is_some())
+                            .loading(state.pending)
                             .disabled(
                                 state.pending
-                                    || state.discovery.is_none()
-                                    || (state.request.is_none() && state.exceeds_capacity())
-                                    || (state.request.is_none()
-                                        && !state
-                                            .selected
-                                            .iter()
-                                            .any(|index| !state.completed.contains(index))),
+                                    || if state.request.is_some() {
+                                        false
+                                    } else if state.selected_installable() {
+                                        state.exceeds_capacity()
+                                    } else {
+                                        !state.ready(cx)
+                                    },
                             )
                             .label(tr(if state.pending && state.discovery.is_some() {
                                 "plugins_installing"
                             } else if state.request.is_some() {
                                 "plugins_retry"
-                            } else {
+                            } else if state.selected_installable() {
                                 "skills_install"
+                            } else {
+                                "skills_find"
                             }))
                             .on_click(move |_, window, cx| {
-                                submit.update(cx, |editor, cx| editor.install(window, cx))
+                                submit.update(cx, |editor, cx| editor.submit(window, cx))
                             }),
                     ),
             )
@@ -165,14 +167,6 @@ impl Render for Editor {
                         }),
                 )
             })
-            .child(
-                Button::new("skill-discover")
-                    .debug_selector(|| "skill-discover".into())
-                    .disabled(locked)
-                    .loading(self.pending && self.discovery.is_none())
-                    .label(tr("skills_find"))
-                    .on_click(cx.listener(|editor, _, window, cx| editor.discover(window, cx))),
-            )
             .when_some(self.discovery.as_ref(), |view, discovery| {
                 view.child(
                     v_flex()
