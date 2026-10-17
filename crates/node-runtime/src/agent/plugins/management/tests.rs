@@ -67,6 +67,7 @@ fn selects_real_catalogs() {
     assert_eq!(source, catalog::Source::ThirdParty);
     assert_eq!(page, 1);
     assert!(decode::<Action>(json!({"action":"list","credentials":"private"})).is_err());
+    assert!(decode::<Action>(json!({"action":"install","name":"fixture","selection":{"kind":"bundled","credentials":"private"}})).is_err());
     let command = Selection::Git {
         source: skills::Resolved {
             repository: "https://example.invalid/repo.git".into(),

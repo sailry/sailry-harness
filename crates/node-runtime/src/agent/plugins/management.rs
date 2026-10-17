@@ -31,7 +31,7 @@ pub(in crate::agent) fn bind(
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 enum Action {
-    List,
+    List {},
     Search {
         source: catalog::Source,
         #[serde(default)]
@@ -69,7 +69,7 @@ impl Action {
     fn read_only(&self) -> bool {
         matches!(
             self,
-            Self::List | Self::Search { .. } | Self::Inspect { .. } | Self::CheckUpdates { .. }
+            Self::List {} | Self::Search { .. } | Self::Inspect { .. } | Self::CheckUpdates { .. }
         )
     }
 }
@@ -94,7 +94,7 @@ enum Target {
 #[derive(Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Selection {
-    Bundled,
+    Bundled {},
     Git {
         source: skills::Resolved,
         #[serde(default)]
@@ -105,7 +105,7 @@ enum Selection {
 impl Selection {
     fn command(self, name: String, expected_revision: u64) -> Command {
         match self {
-            Self::Bundled => Command::InstallBundledPlugin {
+            Self::Bundled {} => Command::InstallBundledPlugin {
                 name,
                 expected_revision,
             },
@@ -254,7 +254,7 @@ impl Definition for Management {
     }
     fn command(&self, _: &Binding, arguments: Value) -> Result<Command, Fault> {
         Ok(match self.action(arguments)? {
-            Action::List => Command::ListPlugins,
+            Action::List {} => Command::ListPlugins,
             Action::Search {
                 source,
                 query,
