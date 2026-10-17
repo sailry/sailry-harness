@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn defaults_other_answers_to_disabled() {
+    let value = serde_json::json!({"prompt":"Pick a target", "input":{
+        "kind":"choice", "options":["one", "two"], "multiple":false
+    }});
+    let spec: Spec = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(spec, choice(false, false));
+    spec.validate_answer(&Answer::Choices {
+        selected: vec![0],
+        other: None,
+    })
+    .unwrap();
+    assert!(
+        spec.validate_answer(&Answer::Choices {
+            selected: vec![],
+            other: Some("Another answer".into()),
+        })
+        .is_err()
+    );
+    for invalid in [
+        serde_json::json!({"kind":"choice", "options":["One"]}),
+        serde_json::json!({"kind":"choice", "multiple":false}),
+        serde_json::json!({"kind":"choice", "options":["One"], "multiple":false, "allow_other":null}),
+        serde_json::json!({"kind":"choice", "options":["One"], "multiple":false, "unknown":false}),
+        serde_json::json!({"kind":"text", "max_bytes":512}),
+    ] {
+        let mut invalid_spec = value.clone();
+        invalid_spec["input"] = invalid;
+        assert!(serde_json::from_value::<Spec>(invalid_spec).is_err());
+    }
+}
+
+#[test]
 fn rejects_non_web_destinations() {
     let spec = |url: &str| Spec {
         prompt: "Continue in the service".into(),

@@ -22,6 +22,7 @@ pub enum Input {
     Choice {
         options: Vec<String>,
         multiple: bool,
+        #[serde(default)]
         allow_other: bool,
     },
     Plan,

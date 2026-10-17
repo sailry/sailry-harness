@@ -39,6 +39,71 @@ fn text_input() -> serde_json::Value {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn accepts_choices_without_other_answers() {
+    for remote in [false, true] {
+        let server = Server::tools(vec![(
+            "ask_user".into(),
+            json!({"prompt":"Pick one", "input":{
+                "kind":"choice", "options":["One", "Two"], "multiple":false
+            }}),
+        )])
+        .await;
+        let fixture = process::Fixture::packages(remote, &server, &[]).await;
+        let session = fixture.session.id;
+        let turn = approvals::submit(&fixture.client, session).await;
+        let (_, question) = pending(&fixture.client, session).await;
+        {
+            let requests = server.requests.lock().unwrap();
+            let tool = requests[0]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|tool| tool["function"]["name"] == "ask_user")
+                .unwrap();
+            let choice = &tool["function"]["parameters"]["properties"]["input"]["anyOf"][1];
+            assert_eq!(choice["properties"]["allow_other"]["default"], false);
+            assert!(
+                !choice["required"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&json!("allow_other"))
+            );
+        }
+        let invalid = fixture.client.prepare(Command::ResolveQuestion {
+            session,
+            question: question.id,
+            response: Response::Answer(Answer::Choices {
+                selected: vec![],
+                other: Some("Another answer".into()),
+            }),
+        });
+        assert_eq!(
+            fixture.client.execute(invalid).await.unwrap_err().code,
+            ErrorCode::InvalidRequest
+        );
+        let (_, retained) = pending(&fixture.client, session).await;
+        assert_eq!(retained.id, question.id);
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ResolveQuestion {
+                session,
+                question: question.id,
+                response: Response::Answer(Answer::Choices {
+                    selected: vec![1],
+                    other: None,
+                }),
+            }))
+            .await
+            .unwrap();
+        let page = finished(&fixture.client, session, turn).await;
+        assert_eq!(page.runs[0].status, Status::Completed);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn separates_answers_from_approvals() {
     for remote in [false, true] {
         let server = Server::tools(vec![
