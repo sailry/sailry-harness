@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, execute, observe, until;
 import 'paging.dart' show complete;
 
 Future<void> main() async {
@@ -270,10 +270,24 @@ Future<void> main() async {
     'expected_revision': original['revision'],
   }))['data'];
   check(rewind['backup'] == null, 'explicit rewind creates no backup');
-  final delivered = jsonDecode(await waiting) as Map<String, dynamic>;
-  final rewound = delivered['snapshot']?['page']['revision'] == 2
-      ? delivered
-      : await until(updates, (snapshot) => snapshot['page']['revision'] == 2);
+  var initial = true;
+  final rewound = await observe(
+    () {
+      if (initial) {
+        initial = false;
+        return waiting;
+      }
+      return updates.next();
+    },
+    (snapshot) => snapshot['page']['revision'] == 2,
+    recovering: true,
+  );
+  check(
+    rewound['connected'] == true &&
+        rewound['error'] == null &&
+        rewound['snapshot']['page']['revision'] == 2,
+    'rewind recovery reconnects to the new history revision',
+  );
   complete(rewound);
   check(
     (rewound['snapshot']['page']['entries'] as List).isEmpty,

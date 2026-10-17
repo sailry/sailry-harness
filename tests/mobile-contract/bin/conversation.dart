@@ -24,17 +24,36 @@ Future<Map<String, dynamic>> execute(
 
 Future<Map<String, dynamic>> until(
   ConversationUpdates updates,
-  bool Function(Map<String, dynamic>) ready,
-) async {
+  bool Function(Map<String, dynamic>) ready, {
+  bool recovering = false,
+}) => observe(updates.next, ready, recovering: recovering);
+
+Future<Map<String, dynamic>> observe(
+  Future<String> Function() next,
+  bool Function(Map<String, dynamic>) ready, {
+  bool recovering = false,
+}) async {
   Map<String, dynamic>? last;
   return Future(() async {
     while (true) {
-      final view = jsonDecode(await updates.next()) as Map<String, dynamic>;
-      if (view['error'] != null)
-        throw StateError('Conversation observer failed');
+      final view = jsonDecode(await next()) as Map<String, dynamic>;
+      final error = view['error'];
+      if (error != null) {
+        if (recovering &&
+            view['connected'] == false &&
+            error['code'] == 'unavailable' &&
+            error['message'] == 'conversation requires recovery') {
+          continue;
+        }
+        throw StateError('Conversation observer failed: ${jsonEncode(error)}');
+      }
       final snapshot = view['snapshot'] as Map<String, dynamic>?;
       last = snapshot;
-      if (snapshot != null && ready(snapshot)) return view;
+      if (snapshot != null &&
+          (!recovering || view['connected'] == true) &&
+          ready(snapshot)) {
+        return view;
+      }
     }
   }).timeout(
     const Duration(seconds: 10),
