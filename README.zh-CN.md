@@ -34,8 +34,6 @@
 | Linux · glibc 2.28+ | x64 / ARM64 | 待发布 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | — | 计划中 | — |
 
-在桌面端使用 **Add Host**，安装并连接自己的服务器。
-
 ### 移动端
 
 | 系统 | 架构 | 状态 | 下载 |
@@ -43,13 +41,12 @@
 | Android 7.0+ | ARM64 | 未发布 | — |
 | iOS 15+ | ARM64 | 未发布 | — |
 
-安装包以各版本的发布页面为准。
-
-Sailry 仍处于早期阶段，功能可能调整，部分功能尚未完善。
-截图为英文演示工作区，内容仅供示意。
-
 ## 许可证
 
 Sailry 自有代码采用 [Apache-2.0](LICENSE)。第三方材料保留各自的许可证，
 详见 [NOTICE](NOTICE) 和[第三方许可声明](third_party_licenses/)。
 [商业合作](COMMERCIAL.md)为可选项。
+
+## 贡献者
+
+[![贡献者](https://contrib.rocks/image?repo=sailry/sailry-harness)](https://github.com/sailry/sailry-harness/graphs/contributors)

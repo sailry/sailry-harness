@@ -34,8 +34,6 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 | Linux · glibc 2.28+ | x64 / ARM64 | Awaiting release | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | — | Planned | — |
 
-Use Desktop's **Add Host** to install and connect to your own server.
-
 ### Mobile
 
 | Platform | Architecture | Status | Download |
@@ -43,13 +41,12 @@ Use Desktop's **Add Host** to install and connect to your own server.
 | Android 7.0+ | ARM64 | Not released | — |
 | iOS 15+ | ARM64 | Not released | — |
 
-Package availability depends on the release.
-
-Sailry is still early. Features may change, and some are incomplete.
-The screenshot shows an English demo workspace with illustrative content.
-
 ## License
 
 Sailry-owned code uses [Apache-2.0](LICENSE). Third-party materials retain their
 own licenses; see [NOTICE](NOTICE) and [third-party notices](third_party_licenses/).
 [Commercial cooperation](COMMERCIAL.md) is optional.
+
+## Contributors
+
+[![Contributors](https://contrib.rocks/image?repo=sailry/sailry-harness)](https://github.com/sailry/sailry-harness/graphs/contributors)
