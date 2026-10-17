@@ -76,7 +76,7 @@ class PackagePublication(unittest.TestCase):
     def assets(self, component):
         output = self.root / component
         output.mkdir()
-        for name in publisher.filenames(component, TAG[1:]):
+        for name in publisher.filenames(component):
             (output / name).write_bytes(("fixture " + name).encode())
         return sorted(output.iterdir())
 
@@ -88,6 +88,13 @@ class PackagePublication(unittest.TestCase):
         release = metadata()
         release["assets"] = [asset(path) for path in self.desktop]
         return release
+
+    def test_rejects_versioned_asset_names(self):
+        path = next(path for path in self.desktop if path.suffix == ".zip")
+        renamed = path.with_name(path.name.replace("Sailry-", f"Sailry-{TAG[1:]}-", 1))
+        path.rename(renamed)
+        with self.assertRaisesRegex(ValueError, "complete Desktop asset set"):
+            self.publish("desktop", FakeGitHub(), sorted(renamed.parent.iterdir()))
 
     def test_desktop_creates_draft_then_publishes(self):
         client = FakeGitHub()

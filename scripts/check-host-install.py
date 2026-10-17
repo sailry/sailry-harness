@@ -43,7 +43,7 @@ def check(directory):
         raise ValueError("Refusing to replace an existing Host service or command")
     metadata = json.loads((directory / "host/build.json").read_text())
     version, target = metadata["application_version"], metadata["target"]
-    archive = f"sailry-host-{version}-{target}.tar.gz"
+    archive = f"sailry-host-{target}.tar.gz"
     for name in (archive, f"SHA256SUMS-{target}"):
         if not (directory / name).is_file():
             raise ValueError("A complete Host release package is required")

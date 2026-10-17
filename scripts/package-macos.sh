@@ -137,13 +137,13 @@ if test "${SAILRY_NOTARIZE:-0}" = 1; then
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/notarize-macos.py" "${task_package_args[@]}"
 fi
 if test "$task_desktop" = 1; then
-  task_dmg="$task_output/Sailry-$task_version-$task_target.dmg"
+  task_dmg="$task_output/Sailry-$task_target.dmg"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/dmg.py" --app "$task_app" --output "$task_dmg" --signing "$task_signing"
   if test "${SAILRY_NOTARIZE:-0}" = 1; then
     bash "$task_root/scripts/python.sh" "$task_root/scripts/package/notarize-macos.py" --dmg "$task_dmg"
   fi
   # Automatic updates use the final notarized app ZIP; DMG remains the manual installer.
-  task_zip_name="Sailry-$task_version-$task_target.zip"
+  task_zip_name="Sailry-$task_target.zip"
   task_zip="$task_output/$task_zip_name"
   task_unsigned="$task_output/.unsigned-$task_zip_name"
   ditto -c -k --norsrc --keepParent "$task_app" "$task_unsigned"
@@ -170,7 +170,7 @@ PY
   fi
 fi
 if test "$task_host" = 1; then
-  tar -czf "$task_output/sailry-host-$task_version-$task_target.tar.gz" -C "$task_output/host" .
+  tar -czf "$task_output/sailry-host-$task_target.tar.gz" -C "$task_output/host" .
 fi
 (
   cd "$task_output"

@@ -276,10 +276,7 @@ fn release(root: &std::path::Path) {
     } else {
         "x86_64-apple-darwin"
     };
-    let archive = format!(
-        "sailry-host-{}-{target}.tar.gz",
-        env!("SAILRY_HOST_VERSION")
-    );
+    let archive = format!("sailry-host-{target}.tar.gz");
     let assets = root.join(".fixture/assets");
     std::os::unix::fs::symlink(package.join(&archive), assets.join(&archive)).unwrap();
     let checksums = std::fs::read_to_string(package.join("SHA256SUMS")).unwrap();

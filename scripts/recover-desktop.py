@@ -79,14 +79,14 @@ def source(client, repository, tag, commit, run_id):
     return artifact
 
 
-def filenames(tag):
-    archive = f"Sailry-{tag[1:]}-{TARGET}.zip"
+def filenames():
+    archive = f"Sailry-{TARGET}.zip"
     return {archive, archive + ".update.json", archive.removesuffix(".zip") + ".dmg",
             f"SHA256SUMS-desktop-{TARGET}"}
 
 
-def unpack(archive, directory, tag):
-    expected = filenames(tag)
+def unpack(archive, directory):
+    expected = filenames()
     with zipfile.ZipFile(archive) as zipped:
         entries = zipped.infolist()
         if (len(entries) != 4 or {entry.filename for entry in entries} != expected
@@ -125,8 +125,8 @@ def restore(artifact, repository, tag, directory, binary, root):
         if digest != artifact["digest"]:
             raise ValueError("The downloaded ARM artifact digest does not match its immutable ID")
         downloaded.seek(0)
-        unpack(downloaded, directory, tag)
-    archive = directory / f"Sailry-{tag[1:]}-{TARGET}.zip"
+        unpack(downloaded, directory)
+    archive = directory / f"Sailry-{TARGET}.zip"
     with tempfile.TemporaryDirectory(prefix="sailry-arm-metadata-") as temporary:
         described = Path(temporary) / "verified.json"
         subprocess.run([str(binary), "describe", "--archive", str(archive), "--version", tag[1:],

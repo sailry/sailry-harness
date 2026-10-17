@@ -75,9 +75,9 @@ pub(crate) fn describe(
         .and_then(|value| value.to_str())
         .ok_or_else(|| invalid("update archive has no UTF-8 file name"))?
         .to_owned();
-    let expected = format!("Sailry-{version}-{target}.zip");
+    let expected = format!("Sailry-{target}.zip");
     if name != expected {
-        return Err(invalid("update archive name does not match its version and target").into());
+        return Err(invalid("update archive name does not match its target").into());
     }
     archive::verify(path, &name, ring)?;
     let (sha256, size) = digest(path)?;
@@ -266,7 +266,7 @@ impl Release {
             return Err(invalid("release versions cannot use build metadata").into());
         }
         let (bundle, executable) = layout(&self.target)?;
-        let name = format!("Sailry-{}-{}.zip", self.version, self.target);
+        let name = format!("Sailry-{}.zip", self.target);
         let tag = format!("v{}", self.version);
         let url = format!("https://github.com/{repository}/releases/download/{tag}/{name}");
         if self.minimum_system != MACOS_MINIMUM

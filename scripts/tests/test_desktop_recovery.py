@@ -106,7 +106,7 @@ class Producer(unittest.TestCase):
 
 
 def contents():
-    data = {name: b"fixture" for name in recovery.filenames(TAG)}
+    data = {name: b"fixture" for name in recovery.filenames()}
     checksum = f"SHA256SUMS-desktop-{recovery.TARGET}"
     data[checksum] = "".join(f"{hashlib.sha256(value).hexdigest()}  ./{name}\n"
                              for name, value in sorted(data.items()) if name != checksum).encode()
@@ -129,7 +129,7 @@ class SignedFiles(unittest.TestCase):
         data = contents()
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary)
-            recovery.unpack(io.BytesIO(archive(data)), output, TAG)
+            recovery.unpack(io.BytesIO(archive(data)), output)
             self.assertEqual({path.name: path.read_bytes() for path in output.iterdir()}, data)
 
     def test_rejects_unsafe_or_changed_assets(self):
@@ -147,7 +147,7 @@ class SignedFiles(unittest.TestCase):
         fixtures.append(archive(data))
         for encoded in fixtures:
             with tempfile.TemporaryDirectory() as temporary, self.assertRaises(ValueError):
-                recovery.unpack(io.BytesIO(encoded), Path(temporary), TAG)
+                recovery.unpack(io.BytesIO(encoded), Path(temporary))
 
     def restore(self, changed_digest=False, changed_metadata=False, signature_error=False):
         data = contents()

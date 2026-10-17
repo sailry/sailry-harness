@@ -30,6 +30,6 @@ jq -n --arg revision "$(git -C "$task_root" rev-parse HEAD)" --argjson dirty "$t
   --arg profile "$task_profile" --arg target "$task_target" --arg version "$task_version" \
   '{version:1,source_revision:$revision,source_dirty:$dirty,profile:$profile,target:$target,application_version:$version}' \
   > "$task_output/host/build.json"
-tar -czf "$task_output/sailry-host-$task_version-$task_target.tar.gz" -C "$task_output/host" .
+tar -czf "$task_output/sailry-host-$task_target.tar.gz" -C "$task_output/host" .
 (cd "$task_output" && shasum -a 256 ./*.tar.gz > "SHA256SUMS-$task_target")
 printf 'Host package: %s\n' "$task_output"

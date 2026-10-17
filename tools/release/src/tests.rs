@@ -29,8 +29,8 @@ fn unsigned(path: &Path, contents: &[u8]) {
     fs::write(path, archive.finish().unwrap().into_inner()).unwrap();
 }
 
-fn signed(directory: &Path, version: &str, target: &str, signer: &SigningKey) -> PathBuf {
-    let name = format!("Sailry-{version}-{target}.zip");
+fn signed(directory: &Path, target: &str, signer: &SigningKey) -> PathBuf {
+    let name = format!("Sailry-{target}.zip");
     let source = directory.join(format!("{target}.unsigned.zip"));
     let output = directory.join(&name);
     unsigned(&source, b"isolated updater fixture");
@@ -41,7 +41,7 @@ fn signed(directory: &Path, version: &str, target: &str, signer: &SigningKey) ->
 
 fn release(path: &Path, version: &str, target: &str, signer: &SigningKey) -> feed::Release {
     let ring = ring(signer);
-    let archive = signed(path, version, target, signer);
+    let archive = signed(path, target, signer);
     feed::describe(
         &archive,
         version,
@@ -75,10 +75,10 @@ mod archive_signing {
     fn binds_name_and_rejects_tampering() {
         let directory = tempfile::tempdir().unwrap();
         let signer = signing_key(7);
-        let path = signed(directory.path(), "1.0.0", "aarch64-apple-darwin", &signer);
+        let path = signed(directory.path(), "aarch64-apple-darwin", &signer);
         let name = path.file_name().unwrap().to_str().unwrap();
         archive::verify(&path, name, &ring(&signer)).unwrap();
-        assert!(archive::verify(&path, "Sailry-1.0.0-other.zip", &ring(&signer)).is_err());
+        assert!(archive::verify(&path, "Sailry-other.zip", &ring(&signer)).is_err());
         assert!(archive::verify(&path, name, &ring(&signing_key(8))).is_err());
         let mut bytes = fs::read(&path).unwrap();
         let last = bytes.len() - 1;
@@ -203,6 +203,22 @@ mod channel_merge {
         assert_eq!(releases.len(), 4);
         assert_eq!(releases[0].version, "1.0.0-alpha.1");
         assert_eq!(releases[3].version, "1.0.0");
+        assert_eq!(releases[0].name, "Sailry-aarch64-apple-darwin.zip");
+        assert_eq!(releases[0].name, releases[2].name);
+        assert_eq!(
+            releases[0].url,
+            format!(
+                "https://github.com/{REPOSITORY}/releases/download/v1.0.0-alpha.1/{}",
+                releases[0].name
+            )
+        );
+        assert_eq!(
+            releases[2].url,
+            format!(
+                "https://github.com/{REPOSITORY}/releases/download/v1.0.0/{}",
+                releases[2].name
+            )
+        );
     }
 
     #[test]
@@ -214,7 +230,7 @@ mod channel_merge {
         let second = tempfile::tempdir().unwrap();
         assets(second.path(), "1.0.0", &signer);
         let target = "aarch64-apple-darwin";
-        let name = format!("Sailry-1.0.0-{target}.zip");
+        let name = format!("Sailry-{target}.zip");
         let source = second.path().join("changed.unsigned.zip");
         let archive_path = second.path().join(&name);
         fs::remove_file(&archive_path).unwrap();

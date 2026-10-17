@@ -61,7 +61,7 @@ shutil.copyfile(source, destination)
         (package / "install-host.sh").write_bytes((ROOT / "scripts/install-host.sh").read_bytes())
         (package / "service.sh").write_bytes((ROOT / "crates/node-runtime/src/ssh/install/service.sh").read_bytes())
         for target in TARGETS.values():
-            name = f"sailry-host-{version}-{target}.tar.gz"
+            name = f"sailry-host-{target}.tar.gz"
             archive = self.assets / name
             with tarfile.open(archive, "w:gz") as output:
                 for path in package.iterdir(): output.add(path, arcname=path.name)
@@ -85,7 +85,7 @@ shutil.copyfile(source, destination)
                 unit = self.home / ".config/systemd/user/sailry-host.service"
                 self.assertIn('--internet --bootstrap', unit.read_text())
                 self.assertIn('--user enable --now sailry-host.service', self.log.read_text())
-                self.assertIn(f"-{target}.tar.gz", self.log.read_text())
+                self.assertIn(f"/releases/download/v{VERSION}/sailry-host-{target}.tar.gz", self.log.read_text())
                 self.assertEqual(self.command("version").stdout.strip(), f"Sailry Host {VERSION}")
                 # Each architecture uses a different fresh home, not profile deletion.
                 self.home = self.root / f"home-{architecture}"
@@ -115,7 +115,7 @@ shutil.copyfile(source, destination)
 
     def test_checksum_failure_never_installs_or_starts(self):
         checksum = self.assets / "SHA256SUMS-x86_64-unknown-linux-gnu"
-        checksum.write_text("0" * 64 + f"  sailry-host-{VERSION}-x86_64-unknown-linux-gnu.tar.gz\n")
+        checksum.write_text("0" * 64 + "  sailry-host-x86_64-unknown-linux-gnu.tar.gz\n")
         result = self.install()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("checksum does not match", result.stderr)
@@ -132,6 +132,7 @@ shutil.copyfile(source, destination)
         self.release(version)
         result = self.command("update", "--version", version)
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"/releases/download/v{version}/sailry-host-x86_64-unknown-linux-gnu.tar.gz", self.log.read_text())
         self.assertEqual(marker.read_bytes(), b"preserve")
         self.assertEqual(self.command("version").stdout.strip(), f"Sailry Host {version}")
         self.assertIn("--user stop sailry-host.service", self.log.read_text())
@@ -153,7 +154,7 @@ shutil.copyfile(source, destination)
         marker.write_bytes(b"preserve")
         version = "0.1.0-alpha.2"
         self.release(version)
-        archive = self.assets / f"sailry-host-{version}-x86_64-unknown-linux-gnu.tar.gz"
+        archive = self.assets / "sailry-host-x86_64-unknown-linux-gnu.tar.gz"
         archive.unlink()
         result = self.command("update", "--version", version)
         self.assertNotEqual(result.returncode, 0)

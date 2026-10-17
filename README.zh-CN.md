@@ -20,7 +20,7 @@
 
 | 运行环境 | 下载 | 安装方式 |
 | --- | --- | --- |
-| macOS 13 或更新版本 · Apple 芯片 / Intel | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) | 打开对应的 DMG，将 **Sailry.app** 拖入 **Applications（应用程序）**。 |
+| macOS 13 或更新版本 · Apple 芯片 / Intel | 正式版：[Apple 芯片](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-aarch64-apple-darwin.dmg) · [Intel](https://github.com/sailry/sailry-harness/releases/latest/download/Sailry-x86_64-apple-darwin.dmg) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) | 打开对应的 DMG，将 **Sailry.app** 拖入 **Applications（应用程序）**。 |
 | 自己的服务器 | — | 在桌面端使用 **Add Host** 安装并连接。 |
 
 连接模型服务后，打开文件夹或开始对话。

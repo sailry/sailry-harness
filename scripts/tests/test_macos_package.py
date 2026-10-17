@@ -509,6 +509,17 @@ class Components(unittest.TestCase):
         invalid = subprocess.run(["bash", "-c", script, "fixture", "release", "invalid"], capture_output=True)
         self.assertNotEqual(invalid.returncode, 0)
 
+    def test_archive_names_keep_only_the_target(self):
+        assignments = [line.strip() for line in self.source.splitlines()
+                       if line.strip().startswith(("task_dmg=", "task_zip_name="))]
+        script = '\n'.join(assignments) + '\nprintf "%s\\n%s" "$task_dmg" "$task_zip_name"'
+        environment = os.environ | {"task_output": "/packages", "task_target": "aarch64-apple-darwin",
+                                    "task_version": "0.1.0-alpha.1"}
+        result = subprocess.run(["bash", "-c", script], env=environment, text=True,
+                                capture_output=True, check=True)
+        self.assertEqual(result.stdout.splitlines(), ["/packages/Sailry-aarch64-apple-darwin.dmg",
+                                                      "Sailry-aarch64-apple-darwin.zip"])
+
     def test_requires_only_the_selected_executable(self):
         checks = self.source.split('test -n "$task_version"\n', 1)[1].split('mkdir -p "$task_root/dist"', 1)[0]
         for desktop in (True, False):

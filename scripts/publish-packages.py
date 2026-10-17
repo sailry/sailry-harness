@@ -15,14 +15,14 @@ MACOS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
 LINUX = ("aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu")
 
 
-def filenames(component, version):
+def filenames(component):
     if component == "desktop":
         return {name for target in MACOS for name in (
-            f"Sailry-{version}-{target}.dmg", f"Sailry-{version}-{target}.zip",
-            f"Sailry-{version}-{target}.zip.update.json", f"SHA256SUMS-desktop-{target}")}
+            f"Sailry-{target}.dmg", f"Sailry-{target}.zip",
+            f"Sailry-{target}.zip.update.json", f"SHA256SUMS-desktop-{target}")}
     return {"install-host.sh", "SHA256SUMS-installer"} | {
         name for target in (*MACOS, *LINUX) for name in (
-            f"sailry-host-{version}-{target}.tar.gz", f"SHA256SUMS-{target}")}
+            f"sailry-host-{target}.tar.gz", f"SHA256SUMS-{target}")}
 
 
 def digest(path):
@@ -32,7 +32,7 @@ def digest(path):
 
 def verify_assets(component, tag, assets):
     versions.parse(tag.removeprefix("v"))
-    if not tag.startswith("v") or {path.name for path in assets} != filenames(component, tag[1:]):
+    if not tag.startswith("v") or {path.name for path in assets} != filenames(component):
         raise ValueError(f"The complete {component.title()} asset set for this tag is required")
     if any(not path.is_file() or path.is_symlink() for path in assets):
         raise ValueError("Release assets must be regular files")
@@ -70,17 +70,17 @@ def publish(component, tag, notes, assets, repository, commit, client=None):
         })
     if metadata.get("immutable"):
         raise ValueError("The release is immutable; Host assets require a mutable published release")
-    if component == "host" and not filenames("desktop", tag[1:]).issubset(
+    if component == "host" and not filenames("desktop").issubset(
             {asset["name"] for asset in metadata.get("assets", [])}):
         raise ValueError("Host assets require a complete published Desktop release")
     if component == "desktop" and not metadata.get("draft"):
         existing = {asset["name"] for asset in metadata.get("assets", [])}
-        if not filenames(component, tag[1:]).issubset(existing):
+        if not filenames(component).issubset(existing):
             raise ValueError("A published Desktop release cannot acquire missing Desktop assets")
     if component == "desktop" and metadata.get("draft"):
         if notes is None:
             raise ValueError("Desktop publication requires release notes")
-        allowed = filenames("desktop", tag[1:]) | filenames("host", tag[1:])
+        allowed = filenames("desktop") | filenames("host")
         unexpected = {asset["name"] for asset in metadata.get("assets", [])} - allowed
         if unexpected:
             raise ValueError("Remove unsupported draft assets before publication: " + ", ".join(sorted(unexpected)))

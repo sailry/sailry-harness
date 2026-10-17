@@ -62,7 +62,7 @@ umask 077
 mkdir -p "$HOME/.local/lib" "$(dirname "$task_command")"
 task_stage="$(mktemp -d "$HOME/.local/lib/.sailry-install-XXXXXX")"
 trap 'rm -rf -- "$task_stage"' EXIT
-task_archive="sailry-host-$task_version-$task_target.tar.gz"
+task_archive="sailry-host-$task_target.tar.gz"
 task_release="$task_repository/releases/download/v$task_version"
 for task_asset in "$task_archive" "SHA256SUMS-$task_target"; do
   if ! curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \

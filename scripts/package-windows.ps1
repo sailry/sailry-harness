@@ -132,7 +132,7 @@ $task_utf8 = [Text.UTF8Encoding]::new($false)
 # Authenticode publisher signing and signed updater archives are separate release
 # operations. This script does neither and never generates signing keys.
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-$task_archive_name = "Sailry-$task_version-$Target.zip"
+$task_archive_name = "Sailry-$Target.zip"
 $task_archive = Join-Path $task_output $task_archive_name
 [IO.Compression.ZipFile]::CreateFromDirectory($task_app, $task_archive, [IO.Compression.CompressionLevel]::Optimal, $true)
 $task_digest = (Get-FileHash -LiteralPath $task_archive -Algorithm SHA256).Hash.ToLowerInvariant()
