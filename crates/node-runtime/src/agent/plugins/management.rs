@@ -1,11 +1,13 @@
 //! Plugin lifecycle actions use the existing catalogs and durable package owner.
 use super::super::tools::{self, Binding, Definition, decode};
 use super::*;
+use async_trait::async_trait;
 use sailry_protocol::{
     Command, Output, WorkMode,
     plugin::{self, catalog, skills, updates},
 };
 use serde::Deserialize;
+use serde_json::{Value, json};
 
 pub(in crate::agent) const NAMES: [&str; 1] = ["manage_plugins"];
 
