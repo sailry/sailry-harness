@@ -108,18 +108,19 @@ impl Render for Panel {
                                                     .small()
                                                     .label(tr(action))
                                                     .loading(pending)
-                                                    .disabled(if resource == Resource::FullDisk {
-                                                        busy || unavailable
-                                                            || card.settings.is_none()
-                                                    } else if matches!(
-                                                        status,
-                                                        Status::Denied | Status::Restricted
-                                                    ) {
-                                                        busy || unavailable
-                                                            || card.settings.is_none()
-                                                    } else {
-                                                        disabled
-                                                    })
+                                                    .disabled(
+                                                        if resource == Resource::FullDisk
+                                                            || matches!(
+                                                                status,
+                                                                Status::Denied | Status::Restricted
+                                                            )
+                                                        {
+                                                            busy || unavailable
+                                                                || card.settings.is_none()
+                                                        } else {
+                                                            disabled
+                                                        },
+                                                    )
                                                     .debug_selector(move || {
                                                         format!("{}-request", resource.key())
                                                     })
