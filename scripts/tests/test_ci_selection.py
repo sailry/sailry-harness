@@ -1,4 +1,4 @@
-"""Affected CI checks use PR revisions and conservative dependency boundaries."""
+"""Affected CI checks use event revisions and conservative dependency boundaries."""
 
 import importlib.util
 import json
@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -76,6 +77,7 @@ class Selection(unittest.TestCase):
     def test_skips_only_known_documentation(self):
         self.assertEqual(ci.select_paths([]), set())
         self.assertEqual(ci.select_paths(ci.DOCS | {"third_party_licenses/gpui.md", "sdk/plugins.md"}), set())
+        self.assertEqual(ci.select_paths(["assets/readme/workspace-dark.png"]), set())
         for path in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml",
                      ".config/nextest.toml", ".gitmodules", ".github/workflows/ci.yml", "justfile",
                      "scripts/check-mobile-boundary.sh", "new-owner/README.md", "assets/new.png",
@@ -90,13 +92,46 @@ class Selection(unittest.TestCase):
                 self.assertEqual(set(output), ci.LANES)
                 self.assertEqual({name for name, value in output.items() if value == "true"}, selected)
 
-    def test_push_and_manual_runs_are_full(self):
+    def test_unavailable_and_manual_runs_are_full(self):
         for event in ("push", "workflow_dispatch", None):
             with self.subTest(event=event):
                 self.assertEqual(ci.select_event(event, None), ci.LANES)
 
 
 class Revisions(unittest.TestCase):
+    def test_push_reads_both_ends(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            git(root, "init", "--initial-branch=main", "--template=")
+            git(root, "config", "user.name", "Fixture")
+            git(root, "config", "user.email", "fixture@example.invalid")
+            write(root, "README.md")
+            write(root, "apps/host/src/main.rs")
+            base = commit(root)
+            (root / "README.md").write_text("Updated\n")
+            docs = commit(root)
+            payload = root / ".git" / "event.json"
+            event = {"ref": "refs/heads/main", "before": base, "after": docs,
+                     "created": False, "deleted": False, "forced": False}
+            payload.write_text(json.dumps(event))
+            self.assertEqual(ci.select_event("push", payload, root), set())
+            (root / "apps/host/src/main.rs").unlink()
+            write(root, "apps/desktop/src/main.rs")
+            head = commit(root)
+            event["after"] = head
+            payload.write_text(json.dumps(event))
+            self.assertEqual(ci.select_event("push", payload, root), {"desktop", "host"})
+            for change in ({"before": "0" * 40}, {"after": docs}, {"forced": True},
+                           {"created": True}, {"deleted": True}, {"ref": "refs/heads/other"},
+                           {"before": "f" * 40}):
+                with self.subTest(change=change):
+                    payload.write_text(json.dumps({**event, **change}))
+                    self.assertEqual(ci.select_event("push", payload, root), ci.LANES)
+            event.update(before=head, after=base)
+            git(root, "checkout", "--detach", base)
+            payload.write_text(json.dumps(event))
+            self.assertEqual(ci.select_event("push", payload, root), ci.LANES)
+
     def test_reads_pr_merge_base_and_rename_sides(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -148,6 +183,31 @@ class Revisions(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             actual = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(actual, ci.outputs(ci.LANES))
+
+
+class Lint(unittest.TestCase):
+    def test_selects_existing_package_union(self):
+        self.assertEqual(ci.lint_packages(set()), [])
+        self.assertEqual(ci.lint_packages({"host"}), ["sailry-host"])
+        self.assertEqual(ci.lint_packages({"mobile_ffi", "android", "services"}), [])
+        expected = {package for packages in ci.LINT_PACKAGES.values() for package in packages}
+        self.assertEqual(ci.lint_packages(ci.LANES), sorted(expected))
+        self.assertEqual(ci.lint_packages({"desktop", "host"}),
+                         ["sailry-content", "sailry-desktop", "sailry-host"])
+
+    def test_runs_one_strict_command(self):
+        with patch.object(ci.subprocess, "run") as run:
+            run.return_value.returncode = 1
+            self.assertEqual(ci.lint(ci.outputs({"host"}), "1"), 1)
+            run.assert_called_once_with(
+                ["cargo", "clippy", "--locked", "-p", "sailry-host", "--all-targets",
+                 "--jobs", "1", "--", "-D", "warnings"], check=False)
+        for selection, jobs in (({}, "1"), (ci.outputs(set()), "1"),
+                                (ci.outputs({"host"}), "0"), (ci.outputs({"host"}), "1; false")):
+            with self.subTest(selection=selection, jobs=jobs):
+                with self.assertRaises(ValueError), patch.object(ci.subprocess, "run") as run:
+                    ci.lint(selection, jobs)
+                run.assert_not_called()
 
 
 if __name__ == "__main__":

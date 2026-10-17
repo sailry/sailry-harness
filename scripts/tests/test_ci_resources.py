@@ -2,7 +2,6 @@
 
 import copy
 import importlib.util
-import itertools
 import json
 import os
 from pathlib import Path
@@ -18,7 +17,7 @@ from unittest.mock import Mock, patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
-JOBS = ("source", "shared", "desktop", "host", "mobile", "mobile_ffi", "android", "services")
+JOBS = ("source", "lint", "shared", "desktop", "host", "host_mac", "mobile", "mobile_ffi", "android", "services")
 spec = importlib.util.spec_from_file_location("ci", ROOT / "scripts/ci.py")
 ci = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ci)
@@ -33,8 +32,10 @@ class CheckResults(unittest.TestCase):
         selection = ci.outputs(selected)
         return {
             "source": {"result": "success", "outputs": selection},
-            **{name: {"result": "success" if selection[name] == "true" else "skipped"}
-               for name in JOBS[1:]},
+            **{name: {"result": "success" if name in selected else "skipped"}
+               for name in ci.LANES},
+            "lint": {"result": "success" if ci.lint_packages(selected) else "skipped"},
+            "host_mac": {"result": "success" if "host" in selected else "skipped"},
         }
 
     def summarize(self, results, product=None):
@@ -128,12 +129,14 @@ class CheckResults(unittest.TestCase):
         for product, lanes in ci.PRODUCTS.items():
             with self.subTest(product=product):
                 results = self.results(ci.LANES)
-                unrelated = set(JOBS) - {"source"} - lanes
-                for name in unrelated:
+                needed = {"source", "lint"} | lanes
+                if "host" in lanes:
+                    needed.add("host_mac")
+                for name in set(JOBS) - needed:
                     results[name]["result"] = "failure"
                 result = self.summarize(results, product)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for name in {"source"} | lanes:
+                for name in needed:
                     for status in ("failure", "cancelled", "skipped", None):
                         with self.subTest(job=name, status=status):
                             changed = copy.deepcopy(results)
@@ -160,24 +163,23 @@ class Workflow(unittest.TestCase):
             section = workflow.split(f"\n  {lane}:\n", 1)[1].split("    steps:\n", 1)[0]
             self.assertIn("needs: source", section)
             self.assertIn(f"if: needs.source.outputs.{lane} == 'true'", section)
-        self.assertIn("needs: [source, shared, desktop, host, mobile, mobile_ffi, android, services]", workflow)
+        self.assertIn("needs: [source, lint, shared, desktop, host, host_mac, mobile, mobile_ffi, android, services]", workflow)
         self.assertIn("run: python3 scripts/ci.py report", workflow)
 
     def test_lints_every_workspace_member(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        commands = re.findall(r"run: (cargo clippy[^\n]+)", workflow)
         workspace = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["members"]
         packages = {tomllib.loads((ROOT / member / "Cargo.toml").read_text())["package"]["name"]
                     for member in workspace}
-        linted = set()
-        for command in commands:
-            self.assertIn("--all-targets", command)
-            self.assertIn("-- -D warnings", command)
-            self.assertNotIn("--workspace", command)
-            group = set(re.findall(r"-p (\S+)", command))
-            self.assertTrue(linted.isdisjoint(group))
-            linted.update(group)
-        self.assertEqual(linted, packages)
+        self.assertEqual(set(ci.lint_packages(ci.LANES)), packages)
+        lint = job_section(workflow, "lint")
+        self.assertIn("run: python3 scripts/ci-run.py -- python3 scripts/ci.py lint", lint)
+        self.assertIn("CHECK_SCOPE: ${{ toJSON(needs.source.outputs) }}", lint)
+        self.assertIn("needs: source", lint)
+        self.assertNotIn("cargo clippy", workflow)
+        self.assertEqual(workflow.count("scripts/ci-run.py -- python3 scripts/ci.py lint"), 1)
+        for lane in ci.LANES:
+            self.assertNotIn("needs: [source, lint]", job_section(workflow, lane))
 
     def test_compiles_tests_once_and_keeps_timings(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
@@ -185,28 +187,18 @@ class Workflow(unittest.TestCase):
         for command in re.findall(r"run: (?:python3 scripts/ci-run.py -- )?(cargo nextest run[^\n]+--profile ci[^\n]*)", workflow):
             self.assertIn("--timings", command)
         self.assertIn("--test dart --timings --", workflow)
-        rust = workflow.split("\n  shared:\n", 1)[1].split("\n  mobile:\n", 1)[0]
-        self.assertIn("run: cargo fmt --all -- --check", rust)
-        mobile = workflow.split("\n  mobile:\n", 1)[1].split("\n  mobile_ffi:\n", 1)[0]
-        self.assertIn("run: cargo fmt --all -- --check", mobile)
+        self.assertIn("run: cargo fmt --all -- --check", job_section(workflow, "lint"))
 
     def test_formats_once_for_selected_native_lanes(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        order = ("shared", "desktop", "host", "mobile")
-        for index, lane in enumerate(order):
-            section = job_section(workflow, lane)
-            formatting = section.split("      - name: Formatting\n", 1)[1].split("      - ", 1)[0]
-            self.assertIn("run: cargo fmt --all -- --check", formatting)
-            condition = " && ".join(f"needs.source.outputs.{prior} != 'true'" for prior in order[:index])
-            if condition:
-                self.assertIn(f"if: {condition}", formatting)
-            else:
-                self.assertNotIn("if:", formatting)
-        for choices in itertools.product((False, True), repeat=len(ci.LANES)):
-            selected = {lane for lane, included in zip(sorted(ci.LANES), choices) if included}
-            count = sum(lane in selected and not selected.intersection(order[:index])
-                        for index, lane in enumerate(order))
-            self.assertEqual(count, int(bool(selected.intersection(order))))
+        lint = job_section(workflow, "lint")
+        header = lint.split("    steps:\n", 1)[0]
+        self.assertEqual(workflow.count("run: cargo fmt --all -- --check"), 1)
+        self.assertIn("run: cargo fmt --all -- --check", lint)
+        for lane in ("shared", "desktop", "host", "mobile"):
+            self.assertIn(f"needs.source.outputs.{lane} == 'true'", header)
+        for lane in ("shared", "desktop", "host", "host_mac", "mobile", "mobile_ffi", "android"):
+            self.assertNotIn("name: Formatting", job_section(workflow, lane))
 
     def test_product_gates_require_real_jobs(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
@@ -215,6 +207,9 @@ class Workflow(unittest.TestCase):
                 section = job_section(workflow, f"{product}_ready")
                 self.assertIn(f"name: {product.title()} ready", section)
                 self.assertIn("needs.source.result == 'success'", section)
+                self.assertIn("needs.lint.result == 'success'", section)
+                if product == "host":
+                    self.assertIn("needs.host_mac.result == 'success'", section)
                 for lane in lanes:
                     self.assertIn(f"needs.{lane}.result == 'success'", section)
                 self.assertIn(f"python3 scripts/ci.py report {product}", section)
@@ -222,15 +217,26 @@ class Workflow(unittest.TestCase):
 
     def test_keeps_host_out_of_desktop(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-        shared = workflow.split("\n  shared:\n", 1)[1].split("\n  desktop:\n", 1)[0]
-        desktop = workflow.split("\n  desktop:\n", 1)[1].split("\n  host:\n", 1)[0]
-        host = workflow.split("\n  host:\n", 1)[1].split("\n  mobile:\n", 1)[0]
+        shared = job_section(workflow, "shared")
+        desktop = job_section(workflow, "desktop")
+        host = job_section(workflow, "host")
+        mac = job_section(workflow, "host_mac")
         self.assertNotIn("-p sailry-host", shared + desktop)
         self.assertIn("-p sailry-node-runtime", shared)
         self.assertIn("-p sailry-release", shared)
         self.assertIn("cargo check --locked -p sailry-desktop --jobs", desktop)
-        self.assertIn("cargo check --locked -p sailry-host --jobs", host)
-        self.assertIn("cargo nextest run --locked -p sailry-host", host)
+        for section in (host, mac):
+            self.assertIn("cargo check --locked -p sailry-host --jobs", section)
+        self.assertIn("runs-on: ubuntu-24.04", host)
+        self.assertIn("bubblewrap libx11-dev libxi-dev libxtst-dev", host)
+        self.assertIn("cargo nextest run --locked -p sailry-host --timings", host)
+        self.assertNotIn("--filterset", host)
+        self.assertIn("runs-on: macos-15", mac)
+        self.assertIn("cargo nextest run --locked -p sailry-host --test lifecycle --timings", mac)
+        self.assertNotIn("--ignored", mac)
+        self.assertIn("DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer", shared + mac)
+        self.assertIn("bash scripts/check-mobile-boundary.sh aarch64-apple-ios sailry-mobile-bridge", workflow)
+        self.assertIn("bash scripts/check-mobile-android.sh", workflow)
 
     def test_database_reuses_shared_package_graph(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
@@ -284,12 +290,44 @@ class Workflow(unittest.TestCase):
     def test_keys_speech_cache_by_native_identity(self):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text()
         self.assertNotIn("hashFiles('Cargo.lock')", workflow)
-        self.assertEqual(workflow.count("key: ${{ steps.speech-key.outputs.key }}"), 4)
-        self.assertEqual(
-            workflow.count("python3 scripts/ci.py speech-key aarch64-apple-darwin shared"), 4,
-        )
-        self.assertNotIn("python3 scripts/ci.py speech-key x86_64-unknown-linux-gnu", workflow)
+        for name, target in (
+            ("lint", "aarch64-apple-darwin"), ("shared", "aarch64-apple-darwin"),
+            ("desktop", "aarch64-apple-darwin"), ("mobile", "aarch64-apple-darwin"),
+            ("mobile_ffi", "aarch64-apple-darwin"),
+        ):
+            with self.subTest(job=name):
+                section = job_section(workflow, name)
+                self.assertIn(f"python3 scripts/ci.py speech-key {target} shared", section)
+                self.assertIn("key: ${{ steps.speech-key.outputs.key }}", section)
+                preparation = section.split("      - name: Prepare uncached speech libraries\n", 1)[1].split("      - ", 1)[0]
+                self.assertIn("steps.speech-cache.outputs.cache-hit != 'true'", preparation)
+                self.assertIn("cargo build --locked -p sailry-speech", preparation)
 
+        for name in ("host", "host_mac"):
+            self.assertNotIn("sailry-speech", job_section(workflow, name))
+            self.assertNotIn("speech-key", job_section(workflow, name))
+        lint = job_section(workflow, "lint")
+        identity = lint.split("      - name: Speech cache identity\n", 1)[1].split("      - ", 1)[0]
+        for name in ("shared", "desktop", "mobile"):
+            self.assertIn(f"needs.source.outputs.{name} == 'true'", identity)
+        self.assertNotIn("needs.source.outputs.host", identity)
+        for title in ("Speech native libraries", "Prepare uncached speech libraries", "Save speech native libraries"):
+            step = lint.split(f"      - name: {title}\n", 1)[1].split("      - ", 1)[0]
+            self.assertIn("steps.speech-key.outcome == 'success'", step)
+
+    def test_retires_archives_without_blocking_checks(self):
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        cleanup = job_section(workflow, "source_cache")
+        header = cleanup.split("    steps:\n", 1)[0]
+        self.assertIn("needs: shared", header)
+        self.assertIn("needs.shared.outputs.source-ready == 'true'", header)
+        self.assertIn("github.ref == 'refs/heads/main'", header)
+        self.assertIn("continue-on-error: true", header)
+        self.assertIn("actions: write", header)
+        self.assertIn('python3 scripts/prune-source-cache.py --saved-key "$SOURCE_KEY"', cleanup)
+        for name in ("checks", "desktop_ready", "host_ready", "mobile_ready"):
+            needs = job_section(workflow, name).split("    steps:\n", 1)[0]
+            self.assertNotIn("source_cache", needs)
 
     def test_always_builds_with_compiler_caching(self):
         workflow = (ROOT / ".github/workflows/release.yml").read_text()
@@ -498,9 +536,9 @@ class CacheUsage(unittest.TestCase):
             self.assertEqual((second / "registry/cache/crates/example-1.0.crate").read_bytes(), b"fixture")
             self.assertEqual((second / "git/db/example/objects/pack/data.pack").read_bytes(), b"fixture")
 
-    def test_reports_quota_without_mutation(self):
+    def test_reports_usage_without_mutation(self):
         usage = {"active_caches_size_in_bytes": 10 * 2**30, "active_caches_count": 6966}
-        with patch.dict(os.environ, {"GH_REPO": "fixture/product"}), \
+        with patch.dict(os.environ, {"GH_REPO": "fixture/product", "GITHUB_STEP_SUMMARY": ""}), \
                 patch.object(ci.subprocess, "run", return_value=SimpleNamespace(stdout=json.dumps(usage))) as run, \
                 patch("builtins.print") as output:
             ci.cache_usage()
@@ -508,8 +546,7 @@ class CacheUsage(unittest.TestCase):
             ["gh", "api", "repos/fixture/product/actions/cache/usage"],
             check=True, text=True, capture_output=True,
         )
-        self.assertIn("10.000 GiB / 10 GiB", output.call_args_list[0].args[0])
-        self.assertTrue(output.call_args_list[1].args[0].startswith("::warning::"))
+        output.assert_called_once_with("Repository cache: 10.000 GiB (6966 entries)")
 
 
 class PhaseProgress(unittest.TestCase):

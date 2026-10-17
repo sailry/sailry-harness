@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select affected PR checks and require their successful completion."""
+"""Select affected checks and require their successful completion."""
 
 import hashlib
 import json
@@ -25,7 +25,7 @@ FIXTURES = {
     "shared": {
         "test_ci_resources", "test_ci_selection", "test_desktop_recovery", "test_locales", "test_macos_package",
         "test_names", "test_onnx_runtime", "test_public_source", "test_publish_packages",
-        "test_python_launcher", "test_python_runtime", "test_release_notes",
+        "test_python_launcher", "test_python_runtime", "test_release_notes", "test_source_cache",
         "test_release_versions", "test_suites",
     },
     "desktop": {
@@ -42,6 +42,17 @@ DOCS = {
     "AGENTS.md", "ARCHITECTURE.md", "CHANGELOG.md", "CONTRIBUTING.md",
     "README.md", "README.zh-CN.md", "LICENSE", "NOTICE",
     "services/pairing-relay/README.md", "tests/fixtures/README.md",
+    "COMMERCIAL.md", "CODE_OF_CONDUCT.md", "SECURITY.md",
+    "docs/models.md", "docs/hosts.md", "docs/projects.md",
+}
+LINT_PACKAGES = {
+    "shared": (
+        "sailry-protocol", "sailry-link", "sailry-client", "sailry-node-runtime",
+        "sailry-speech", "sailry-embedding", "sailry-model-assets", "sailry-ocr", "sailry-release",
+    ),
+    "desktop": ("sailry-content", "sailry-desktop"),
+    "host": ("sailry-host",),
+    "mobile": ("sailry-mobile-bridge",),
 }
 # Node is also exercised by Desktop and Mobile's real-Node contract fixtures.
 DEPENDENTS = (
@@ -62,7 +73,7 @@ DEPENDENTS = (
 def select_paths(paths):
     selected = set()
     for path in paths:
-        if (path in DOCS or path.startswith("third_party_licenses/")
+        if (path in DOCS or path.startswith(("third_party_licenses/", "assets/readme/"))
                 or (path.startswith("sdk/") and path.endswith(".md"))):
             continue
         if path == "plugins":  # A changed submodule pointer includes its SDK and assets.
@@ -81,28 +92,64 @@ def select_paths(paths):
     return selected
 
 
-def changed_paths(root, base, head):
+def changed_paths(root, base, head, merge_base=True):
     for revision in (base, head):
         if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", revision):
-            raise ValueError("Invalid PR revision")
+            raise ValueError("Invalid change revision")
     # Compare from the merge base, including both sides of a rename and deletions.
     result = subprocess.run(
-        ["git", "diff", "--name-only", "-z", "--no-renames", f"{base}...{head}", "--"],
+        ["git", "diff", "--name-only", "-z", "--no-renames",
+         f"{base}...{head}" if merge_base else base,
+         *([] if merge_base else [head]), "--"],
         cwd=root, check=True, capture_output=True,
     )
     return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
 
 
 def select_event(event, event_path, root=ROOT):
-    if event != "pull_request":
+    if event not in {"pull_request", "push"}:
         return set(LANES)
     try:
         payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
-        request = payload["pull_request"]
-        return select_paths(changed_paths(root, request["base"]["sha"], request["head"]["sha"]))
+        if event == "pull_request":
+            request = payload["pull_request"]
+            return select_paths(changed_paths(root, request["base"]["sha"], request["head"]["sha"]))
+        base, head = payload["before"], payload["after"]
+        if (payload.get("ref") != "refs/heads/main" or payload.get("forced") is not False
+                or payload.get("created") is not False or payload.get("deleted") is not False
+                or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", value)
+                       or not value.strip("0") for value in (base, head))):
+            raise ValueError("Push revisions are unavailable")
+        current = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root,
+                                 check=True, capture_output=True, text=True).stdout.strip()
+        if current != head:
+            raise ValueError("Push checkout does not match its source")
+        subprocess.run(["git", "merge-base", "--is-ancestor", base, head],
+                       cwd=root, check=True, capture_output=True)
+        return select_paths(changed_paths(root, base, head, merge_base=False))
     except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError):
-        print("PR changes unavailable; running all checks", file=sys.stderr)
+        print("Changes unavailable; running all checks", file=sys.stderr)
         return set(LANES)
+
+
+def lint_packages(selected):
+    return sorted({package for lane in selected for package in LINT_PACKAGES.get(lane, ())})
+
+
+def lint(selection, jobs):
+    if (not isinstance(selection, dict) or set(selection) != LANES
+            or any(value not in {"true", "false"} for value in selection.values())):
+        raise ValueError("Missing lint selection")
+    if not re.fullmatch(r"[1-9][0-9]*", jobs):
+        raise ValueError("Invalid lint job count")
+    packages = lint_packages({lane for lane in LANES if selection[lane] == "true"})
+    if not packages:
+        raise ValueError("No Rust packages selected")
+    command = ["cargo", "clippy", "--locked"]
+    for package in packages:
+        command.extend(["-p", package])
+    command.extend(["--all-targets", "--jobs", jobs, "--", "-D", "warnings"])
+    return subprocess.run(command, check=False).returncode
 
 
 def outputs(selected):
@@ -169,6 +216,12 @@ def require_results(results, product=None):
     if not isinstance(selection, dict) or any(selection.get(lane) not in ("true", "false") for lane in LANES):
         raise ValueError("Missing check selection")
     selected = {lane for lane in LANES if selection[lane] == "true"}
+    for name, needed in (("lint", bool(lint_packages(selected))), ("host_mac", "host" in selected)):
+        if product and name == "host_mac" and "host" not in required:
+            continue
+        job = results.get(name)
+        if (not isinstance(job, dict) or job.get("result") not in ({"success"} if needed else {"success", "skipped"})):
+            raise ValueError(f"{name}: required check did not pass")
     for name in jobs[1:]:
         result = results[name].get("result")
         if product and (name not in selected or result != "success"):
@@ -205,10 +258,8 @@ def cache_usage():
     usage = json.loads(result.stdout)
     size = usage["active_caches_size_in_bytes"]
     count = usage["active_caches_count"]
-    message = f"Repository cache: {size / 2**30:.3f} GiB / 10 GiB budget ({count} entries)"
+    message = f"Repository cache: {size / 2**30:.3f} GiB ({count} entries)"
     print(message)
-    if size >= 9 * 2**30:
-        print("::warning::Cache budget nearly full; GitHub LRU may evict compiler objects")
     if os.getenv("GITHUB_STEP_SUMMARY"):
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
             output.write(message + "\n\n")
@@ -225,6 +276,11 @@ def main():
         print(key)
     elif sys.argv[1:] == ["cache-usage"]:
         cache_usage()
+    elif sys.argv[1:] == ["lint"]:
+        try:
+            raise SystemExit(lint(json.loads(os.environ["CHECK_SCOPE"]), os.environ["BUILD_JOBS"]))
+        except (ValueError, KeyError) as error:
+            raise SystemExit(str(error)) from error
     elif sys.argv[1:] == ["select"]:
         selection = outputs(select_event(os.getenv("GITHUB_EVENT_NAME"), os.getenv("GITHUB_EVENT_PATH")))
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as target:
@@ -253,7 +309,7 @@ def main():
         print(f"{sys.argv[2].title()} ready" if len(sys.argv) == 3 else "Checks passed")
     else:
         raise SystemExit(
-            "Usage: ci.py source-key <lockfile>|source-cache <save|restore>|cache-usage|select|report [desktop|host|mobile]|fixtures <owner>|"
+            "Usage: ci.py source-key <lockfile>|source-cache <save|restore>|cache-usage|select|lint|report [desktop|host|mobile]|fixtures <owner>|"
             "speech-key <target> <shared|static>"
         )
 
