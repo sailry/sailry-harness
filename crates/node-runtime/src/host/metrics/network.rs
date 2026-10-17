@@ -50,9 +50,20 @@ fn rates(
         *incoming = incoming.saturating_add(received);
         *outgoing = outgoing.saturating_add(transmitted);
     }
+    let (received_bytes, transmitted_bytes) = current.values().fold(
+        (0u64, 0u64),
+        |(incoming, outgoing), (received, transmitted)| {
+            (
+                incoming.saturating_add(*received),
+                outgoing.saturating_add(*transmitted),
+            )
+        },
+    );
     totals.map(|(received, transmitted)| NetworkRate {
         received_bytes_per_sec: (received as f64 / interval.as_secs_f64()) as u64,
         transmitted_bytes_per_sec: (transmitted as f64 / interval.as_secs_f64()) as u64,
+        received_bytes,
+        transmitted_bytes,
     })
 }
 
@@ -76,6 +87,8 @@ mod tests {
             Some(NetworkRate {
                 received_bytes_per_sec: 2500,
                 transmitted_bytes_per_sec: 4000,
+                received_bytes: 6500,
+                transmitted_bytes: 10700,
             })
         );
         assert_eq!(
@@ -83,6 +96,8 @@ mod tests {
             Some(NetworkRate {
                 received_bytes_per_sec: 0,
                 transmitted_bytes_per_sec: 0,
+                received_bytes: 6500,
+                transmitted_bytes: 10700,
             })
         );
     }
@@ -104,6 +119,8 @@ mod tests {
             Some(NetworkRate {
                 received_bytes_per_sec: 10,
                 transmitted_bytes_per_sec: 20,
+                received_bytes: 1000110,
+                transmitted_bytes: 1000220,
             })
         );
     }

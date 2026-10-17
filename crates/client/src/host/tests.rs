@@ -6,7 +6,10 @@ fn sample(time: u64, started: u64) -> Sample {
         node: NodeId([1; 32]),
         sampled_at_ms: time,
         cpu_basis_points: Some(3000),
+        core_basis_points: vec![2000, 4000],
+        load: None,
         memory: None,
+        swap: None,
         gpus: Vec::new(),
         disks: Vec::new(),
         network: None,
@@ -60,6 +63,8 @@ fn preserves_missing_samples() {
     first.network = Some(NetworkRate {
         received_bytes_per_sec: 12345,
         transmitted_bytes_per_sec: 6789,
+        received_bytes: 1 << 30,
+        transmitted_bytes: 1 << 20,
     });
     let expected = first.network.clone();
     view.accept(first).unwrap();

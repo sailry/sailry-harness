@@ -61,6 +61,7 @@ impl Host {
                 memory: (total > 0).then(|| MemoryUsage {
                     total_bytes: total,
                     available_bytes: system.available_memory().min(total),
+                    free_bytes: system.free_memory().min(total),
                 }),
                 host_uptime_secs: System::uptime(),
                 node_uptime_secs: host.started.elapsed().as_secs(),

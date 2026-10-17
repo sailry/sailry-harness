@@ -23,4 +23,6 @@ pub struct HostInfo {
 pub struct MemoryUsage {
     pub total_bytes: u64,
     pub available_bytes: u64,
+    /// Unused memory; available minus free is reclaimable cache.
+    pub free_bytes: u64,
 }

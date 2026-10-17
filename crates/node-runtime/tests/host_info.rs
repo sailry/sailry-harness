@@ -71,8 +71,11 @@ async fn shares_transient_inspection() {
         .expect("test platform reports memory");
     assert!(memory.total_bytes > 0);
     assert!(memory.available_bytes <= memory.total_bytes);
+    assert!(memory.free_bytes <= memory.total_bytes);
     let initial = metrics(&local).await;
     assert!(initial.cpu_basis_points.is_none());
+    assert!(initial.core_basis_points.is_empty());
+    assert_eq!(initial.load.is_some(), cfg!(not(windows)));
     assert!(initial.network.is_none());
     let routed = metrics(&remote).await;
     assert_eq!(routed.node, node.id());
@@ -114,6 +117,24 @@ async fn shares_transient_inspection() {
     }
     assert!(sampled.sampled_at_ms > initial.sampled_at_ms);
     assert!(sampled.cpu_basis_points.is_some_and(|value| value <= 10000));
+    assert!(!sampled.core_basis_points.is_empty());
+    assert!(
+        sampled
+            .core_basis_points
+            .iter()
+            .all(|value| *value <= 10000)
+    );
+    let memory = sampled
+        .memory
+        .as_ref()
+        .expect("test platform reports memory");
+    assert!(memory.free_bytes <= memory.total_bytes);
+    assert!(
+        sampled
+            .swap
+            .as_ref()
+            .is_none_or(|swap| swap.used_bytes <= swap.total_bytes)
+    );
     assert!(sampled.network.is_some());
     let local_sample = metrics(&local).await;
     assert!(local_sample.network.is_some());
@@ -137,6 +158,12 @@ async fn shares_transient_inspection() {
             .disks
             .iter()
             .all(|disk| disk.available_bytes <= disk.total_bytes)
+    );
+    assert!(
+        sampled
+            .disks
+            .iter()
+            .any(|disk| !disk.file_system.is_empty())
     );
     println!(
         "Host sample: {} processes, {} disks with I/O, {} GPUs with utilization",

@@ -98,6 +98,7 @@ impl Sampler {
                 Disk {
                     mount: disk.mount_point().to_string_lossy().into_owned(),
                     name: disk.name().to_string_lossy().into_owned(),
+                    file_system: disk.file_system().to_string_lossy().into_owned(),
                     total_bytes: disk.total_space(),
                     available_bytes: disk.available_space().min(disk.total_space()),
                     io: interval
@@ -117,6 +118,7 @@ impl Sampler {
             })
             .collect();
         let total = self.system.total_memory();
+        let swap = self.system.total_swap();
         let sample = Sample {
             node,
             sampled_at_ms: SystemTime::now()
@@ -125,9 +127,25 @@ impl Sampler {
                 .as_millis() as u64,
             cpu_basis_points: ready
                 .then(|| basis_points(self.system.global_cpu_usage()).min(10000)),
+            core_basis_points: if ready {
+                self.system
+                    .cpus()
+                    .iter()
+                    .take(1024)
+                    .map(|cpu| basis_points(cpu.cpu_usage()).min(10000))
+                    .collect()
+            } else {
+                Vec::new()
+            },
+            load: load(),
             memory: (total > 0).then(|| MemoryUsage {
                 total_bytes: total,
                 available_bytes: self.system.available_memory().min(total),
+                free_bytes: self.system.free_memory().min(total),
+            }),
+            swap: (swap > 0).then(|| SwapUsage {
+                total_bytes: swap,
+                used_bytes: self.system.used_swap().min(swap),
             }),
             gpus: gpus(),
             disks,
@@ -143,6 +161,23 @@ impl Sampler {
 
 fn basis_points(percent: f32) -> u32 {
     (percent * 100.).round() as u32
+}
+
+fn load() -> Option<LoadAverage> {
+    #[cfg(windows)]
+    {
+        None
+    }
+    #[cfg(not(windows))]
+    {
+        let load = System::load_average();
+        let hundredths = |value: f64| (value.max(0.) * 100.).round() as u32;
+        Some(LoadAverage {
+            one: hundredths(load.one),
+            five: hundredths(load.five),
+            fifteen: hundredths(load.fifteen),
+        })
+    }
 }
 
 fn gpus() -> Vec<Gpu> {

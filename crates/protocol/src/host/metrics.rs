@@ -10,12 +10,31 @@ pub struct Sample {
     pub node: NodeId,
     pub sampled_at_ms: u64,
     pub cpu_basis_points: Option<u32>,
+    /// Per logical core in host order; empty until a utilization interval exists.
+    pub core_basis_points: Vec<u32>,
+    /// `None` where the platform has no load average, such as Windows.
+    pub load: Option<LoadAverage>,
     pub memory: Option<MemoryUsage>,
+    pub swap: Option<SwapUsage>,
     pub gpus: Vec<Gpu>,
     pub disks: Vec<Disk>,
     pub network: Option<NetworkRate>,
     pub processes: Vec<Process>,
     pub process_count: usize,
+}
+
+/// Run-queue load averages in hundredths, so a load of 1.25 is 125.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LoadAverage {
+    pub one: u32,
+    pub five: u32,
+    pub fifteen: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SwapUsage {
+    pub total_bytes: u64,
+    pub used_bytes: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +48,7 @@ pub struct Gpu {
 pub struct Disk {
     pub mount: String,
     pub name: String,
+    pub file_system: String,
     pub total_bytes: u64,
     pub available_bytes: u64,
     pub io: Option<IoRate>,
@@ -45,6 +65,9 @@ pub struct IoRate {
 pub struct NetworkRate {
     pub received_bytes_per_sec: u64,
     pub transmitted_bytes_per_sec: u64,
+    /// Interface counters accumulated since they started, normally at boot.
+    pub received_bytes: u64,
+    pub transmitted_bytes: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
