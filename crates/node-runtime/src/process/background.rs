@@ -364,7 +364,7 @@ mod tests {
                     profile: None,
                     access: Access::Workspace,
                     root: root.path().canonicalize().unwrap(),
-                    command: "test \"$TMPDIR\" = \"$TMP\" && test \"$TMPDIR\" = \"$TEMP\" && printf started > ready.txt; sleep 60".into(),
+                    command: "test \"$TMPDIR\" = \"$TMP\" && test \"$TMPDIR\" = \"$TEMP\" || exit 1; sleep 60 & command_pid=$!; printf '%s' \"$command_pid\" > child.pid; printf started > ready.txt; wait \"$command_pid\"".into(),
                     cwd: String::new(),
                     timeout_ms: 1,
                     inputs: None,
@@ -382,12 +382,24 @@ mod tests {
         })
         .await
         .expect("background command did not start");
+        let pid: i32 = std::fs::read_to_string(root.path().join("child.pid"))
+            .unwrap()
+            .parse()
+            .unwrap();
+        // SAFETY: signal 0 only probes this fixture child and passes no pointers.
+        assert_eq!(unsafe { libc::kill(pid, 0) }, 0);
         controls.finish(turn);
         assert!(path.exists());
         commands.stop(session, info.id).unwrap();
         let output = finished(&commands, session, info.id).await;
         assert_eq!(output.info.status, Status::Finished(Outcome::Cancelled));
         assert!(!path.exists());
+        let deadline = Instant::now() + Duration::from_secs(3);
+        // SAFETY: signal 0 checks this fixture child without sending a signal.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            assert!(Instant::now() < deadline, "fixture child cleanup deadline");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         commands.close().await;
     }
 
