@@ -10,9 +10,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if bytes.len() as u64 > MAX_INPUT {
         return Err("plugin fixture input exceeds limit".into());
     }
-    let input: sailry_node_runtime::plugin_test::Input = serde_json::from_slice(&bytes)?;
-    let result = sailry_node_runtime::plugin_test::run(input);
-    serde_json::to_writer(std::io::stdout().lock(), &result)?;
+    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+    match arguments.as_slice() {
+        [] => {
+            let input = serde_json::from_slice(&bytes)?;
+            let result = sailry_node_runtime::plugin_test::run(input);
+            serde_json::to_writer(std::io::stdout().lock(), &result)?;
+        }
+        [argument] if argument == "--validate-schema" => {
+            let input = serde_json::from_slice(&bytes)?;
+            let result = sailry_node_runtime::plugin_test::schema::validate(input);
+            serde_json::to_writer(std::io::stdout().lock(), &result)?;
+        }
+        _ => return Err("unsupported plugin test host arguments".into()),
+    }
     std::io::stdout().write_all(b"\n")?;
     Ok(())
 }

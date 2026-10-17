@@ -13,6 +13,8 @@ use std::{
 #[cfg(test)]
 mod tests;
 
+pub mod schema;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Input {

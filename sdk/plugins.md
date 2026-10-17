@@ -477,3 +477,9 @@ python3 scripts/test-plugins.py --runtime-host target/debug/examples/plugin-test
 The runner never builds the host implicitly. Without an explicitly selected
 host, runtime cases are reported as skipped; package JavaScript tests still run.
 Core host tests use neutral fixtures and do not depend on bundled package names.
+
+Package matrices can call `validateSchema(schema, values)` from the shared
+JavaScript helper inside `runtimeTest`. This returns one validity flag per value
+using the host's `--validate-schema` mode. Invalid schemas fail separately;
+external references cannot read files or use the network. This checks the raw
+schema, not a model provider's normalized declaration or enforcement.
