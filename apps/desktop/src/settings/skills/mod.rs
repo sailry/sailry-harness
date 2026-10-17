@@ -318,6 +318,7 @@ fn provenance(info: &Info) -> String {
                 sailry_protocol::plugin::UploadSource::Directory => "skill_source_directory",
                 sailry_protocol::plugin::UploadSource::Archive => "skill_source_archive",
             })
+            .to_string()
         }
         None => rust_i18n::t!("skills_package_source", name = info.summary.name).to_string(),
     }

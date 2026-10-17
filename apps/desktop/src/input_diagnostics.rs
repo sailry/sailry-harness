@@ -132,7 +132,9 @@ fn native(window: &Window) -> Native {
             if view.downcast_ref::<WKWebView>().is_some() {
                 kind = "webview";
             }
-            let mut ancestor = view.superview();
+            // SAFETY: The live window retains its view hierarchy while this
+            // synchronous Help action runs on the AppKit thread.
+            let mut ancestor = unsafe { view.superview() };
             for _ in 0..64 {
                 let Some(view) = ancestor else {
                     break;
@@ -147,7 +149,9 @@ fn native(window: &Window) -> Native {
                     }
                     break;
                 }
-                ancestor = view.superview();
+                // SAFETY: The hierarchy remains live on the same AppKit
+                // thread, and each returned ancestor is retained here.
+                ancestor = unsafe { view.superview() };
             }
             kind
         } else {

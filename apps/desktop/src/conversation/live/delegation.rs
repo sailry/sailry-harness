@@ -1,7 +1,6 @@
 //! Delegation preference changes the same revision-checked session configuration.
 use super::*;
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::prelude::FluentBuilder as _;
 
 impl View {
     fn delegation_available(&self, cx: &App) -> bool {
