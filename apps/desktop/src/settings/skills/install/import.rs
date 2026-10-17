@@ -211,6 +211,7 @@ fn command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::prelude::v1::test;
 
     #[test]
     fn recognizes_supported_archives() {
