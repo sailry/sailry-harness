@@ -9,6 +9,11 @@ on:
         description: 'Exact version tag to build; run this workflow from main'
         type: string
         required: true
+      resume_intel_from:
+        description: 'Reuse signed ARM packages from this exact-source run and rebuild only Intel'
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -46,6 +51,8 @@ jobs:
     name: Verify Desktop readiness and tag
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
@@ -65,6 +72,7 @@ jobs:
             /scripts/check-release.py
             /scripts/package/publication.py
             /scripts/package/versions.py
+            /scripts/recover-desktop.py
       - name: Require a matching version tag and Desktop gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -72,20 +80,33 @@ jobs:
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF" = refs/heads/main
           python3 .workflow-tools/scripts/check-release.py --source "$GITHUB_WORKSPACE" --tag "$RELEASE_TAG" --component desktop
+      - name: Select native producers
+        id: targets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, subprocess
+          targets = [
+              {'runner': 'macos-15', 'target': 'aarch64-apple-darwin', 'jobs': 1},
+              {'runner': 'macos-15-intel', 'target': 'x86_64-apple-darwin', 'jobs': 2},
+          ]
+          if os.environ['RESUME_INTEL_FROM']:
+              subprocess.run(['python3', '.workflow-tools/scripts/recover-desktop.py',
+                              '--source', os.environ['GITHUB_WORKSPACE'], '--tag', os.environ['RELEASE_TAG'],
+                              '--run', os.environ['RESUME_INTEL_FROM']], check=True)
+              targets = targets[1:]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + json.dumps({'include': targets}) + '\n')
+          PYTHON
 
   build:
     name: Desktop ${{ matrix.target }}
     needs: version
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            target: aarch64-apple-darwin
-            jobs: 1
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-            jobs: 2
+      matrix: ${{ fromJSON(needs.version.outputs.matrix || '{"include":[{"runner":"macos-15","target":"aarch64-apple-darwin","jobs":1},{"runner":"macos-15-intel","target":"x86_64-apple-darwin","jobs":2}]}') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     env:
@@ -111,6 +132,8 @@ jobs:
             /scripts/check-release.py
             /scripts/package/publication.py
             /scripts/package/versions.py
+            /scripts/recover-desktop.py
+            /scripts/package/notarize-macos.py
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: '3.12'
@@ -191,6 +214,32 @@ jobs:
           path: target/cargo-timings/*.html
           if-no-files-found: ignore
           retention-days: 14
+      - name: Recover signed ARM packages
+        if: inputs.resume_intel_from != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_INTEL_FROM: ${{ inputs.resume_intel_from }}
+        run: |
+          python3 .workflow-tools/scripts/recover-desktop.py --source "$GITHUB_WORKSPACE" \
+            --tag "$RELEASE_TAG" --run "$RESUME_INTEL_FROM" \
+            --directory "$RUNNER_TEMP/recovered-arm" --binary target/release/sailry-release
+      - name: Preserve recovered ARM packages
+        if: inputs.resume_intel_from != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: packages-aarch64-apple-darwin
+          path: ${{ runner.temp }}/recovered-arm/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Use workflow notarization helper
+        run: |
+          python3 - <<'PYTHON'
+          import shutil, subprocess
+          product = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          tooling = subprocess.check_output(['git', '-C', '.workflow-tools', 'rev-parse', 'HEAD'], text=True).strip()
+          print(f'Product source: {product}; packaging helper source: {tooling}')
+          shutil.copyfile('.workflow-tools/scripts/package/notarize-macos.py', 'scripts/package/notarize-macos.py')
+          PYTHON
       - name: Import signing credentials
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}

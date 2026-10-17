@@ -310,7 +310,7 @@ class TicketDownload(unittest.TestCase):
             run.assert_called_with("xcrun", "stapler", action, Path("Sailry.dmg"))
             sleep.assert_called_once_with(2)
 
-    def test_stops_after_three_attempts(self):
+    def test_stops_after_bounded_attempts(self):
         failure = RuntimeError('NSURLErrorDomain Code=-1005 "The network connection was lost."')
         for action in ("staple", "validate"):
             with self.subTest(action=action), patch.object(notary, "run", side_effect=failure) as run, \
@@ -318,8 +318,17 @@ class TicketDownload(unittest.TestCase):
                 with self.assertRaises(RuntimeError) as raised:
                     notary.run_stapler(action, Path("Sailry.dmg"))
             self.assertIs(raised.exception, failure)
-            self.assertEqual(run.call_count, 3)
-            self.assertEqual([call.args for call in sleep.call_args_list], [(2,), (5,)])
+            self.assertEqual(run.call_count, 6)
+            self.assertEqual([call.args for call in sleep.call_args_list], [(2,), (5,), (15,), (30,), (60,)])
+
+    def test_recovers_after_longer_interruption(self):
+        failure = RuntimeError('NSURLErrorDomain Code=-1005 "The network connection was lost."')
+        for action in ("staple", "validate"):
+            with self.subTest(action=action), patch.object(notary, "run", side_effect=[failure] * 5 + [None]) as run, \
+                    patch.object(notary.time, "sleep") as sleep:
+                notary.run_stapler(action, Path("Sailry.dmg"))
+            self.assertEqual(run.call_count, 6)
+            self.assertEqual([call.args for call in sleep.call_args_list], [(2,), (5,), (15,), (30,), (60,)])
 
     def test_preserves_other_failures(self):
         for action in ("staple", "validate"):
@@ -352,7 +361,7 @@ class TicketDownload(unittest.TestCase):
     def test_exhaustion_stops_the_validation_chain(self):
         failure = RuntimeError('NSURLErrorDomain Code=-1005 "The network connection was lost."')
         for action in ("staple", "validate"):
-            responses = [failure] * 3 if action == "staple" else [None, failure, failure, failure]
+            responses = [failure] * 6 if action == "staple" else [None] + [failure] * 6
             with self.subTest(action=action), patch.object(notary, "submit"), \
                     patch.object(notary, "run", side_effect=responses) as run, \
                     patch.object(notary.time, "sleep"):

@@ -34,16 +34,17 @@ def submit(archive, credentials):
 
 
 def run_stapler(action, path):
-    for attempt in range(3):
+    delays = (2, 5, 15, 30, 60)
+    for attempt in range(len(delays) + 1):
         try:
             run("xcrun", "stapler", action, path)
             return
         except RuntimeError as error:
             interrupted = (re.search(r"\bNSURLErrorDomain Code=-1005\b", str(error)) is not None
                            and "The network connection was lost" in str(error))
-            if not interrupted or attempt == 2:
+            if not interrupted or attempt == len(delays):
                 raise
-            delay = (2, 5)[attempt]
+            delay = delays[attempt]
             print(f"Stapler {action} interrupted; retrying in {delay} seconds", flush=True)
             time.sleep(delay)
 
