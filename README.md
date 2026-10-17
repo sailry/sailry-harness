@@ -19,11 +19,12 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 [Download](https://github.com/sailry/sailry-harness/releases) ·
 [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/sailry/sailry-harness/issues)
 
-On macOS 13 or later, choose the DMG for Apple silicon or Intel, open it and drag
-**Sailry.app** into **Applications**. Connect a model provider, then open a folder
-or start a conversation.
+| Run on | Install |
+| --- | --- |
+| macOS 13 or later · Apple silicon / Intel | Download the matching DMG, open it and drag **Sailry.app** into **Applications**. |
+| Your own server | Use Desktop's **Add Host** to install and connect. |
 
-Use Desktop's **Add Host** to install and connect to your own server.
+Connect a model provider, then open a folder or start a conversation.
 Available platforms and packages are listed on each release page.
 
 Sailry is still early. Features may change, and some are incomplete.
