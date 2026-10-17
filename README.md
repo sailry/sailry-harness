@@ -54,9 +54,17 @@ Choose **Create session**, pick a model and describe your task; review tool appr
 
 ## License
 
-Sailry-owned code uses [Apache-2.0](LICENSE). Third-party materials retain their
-own licenses; see [NOTICE](NOTICE) and [third-party notices](third_party_licenses/).
-[Commercial cooperation](COMMERCIAL.md) is optional.
+Sailry-owned code uses [AGPL-3.0-only](LICENSE). The plugin SDK in [sdk/](sdk/)
+and the plugin interface files listed in [NOTICE](NOTICE) use
+[Apache-2.0](sdk/LICENSE), as do the official
+[plugins](https://github.com/sailry/sailry-plugins) and
+[themes](https://github.com/sailry/sailry-themes) repositories.
+
+Commercial licenses are available for uses that cannot comply with the AGPL;
+[contact the maintainers](https://github.com/sailry). See [COMMERCIAL.md](COMMERCIAL.md).
+
+Third-party materials retain their own licenses; see [NOTICE](NOTICE) and
+[third-party notices](third_party_licenses/).
 
 ## Contributors
 

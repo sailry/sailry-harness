@@ -5,7 +5,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 publish = false
-license = "Apache-2.0"
+license = "AGPL-3.0-only"
 
 [workspace.dependencies]
 tracing = "=0.1.44"

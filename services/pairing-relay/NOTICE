@@ -1,5 +1,7 @@
 The bounded HTTP body reader is adapted from sailry-code commit 67ae9fa0,
-services/pairing-relay/src/worker.ts. Its GNU GPL version 3 license is preserved
-verbatim in LICENSE. The old multi-step SPAKE2 mailbox is not included.
+services/pairing-relay/src/worker.ts, a Sailry-owned source previously
+distributed under the GNU GPL version 3. Its copyright owner releases this
+adaptation, with the rest of the pairing relay, under AGPL-3.0-only; see LICENSE.
+The old multi-step SPAKE2 mailbox is not included.
 The current service implements the user-approved six-digit, sixty-second,
 single-use ticket exchange. Rust Link owns device pairing and persistent trust.

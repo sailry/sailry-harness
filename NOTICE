@@ -2,13 +2,31 @@ Sailry
 Copyright 2026 Sailry contributors
 
 Sailry-owned code, including adaptations of the authors' earlier Sailry Code
-and Sailry Platform implementations, is licensed under Apache-2.0.
+and Sailry Platform implementations, is licensed under the GNU Affero General
+Public License, version 3 only (AGPL-3.0-only); see LICENSE. Source comments
+and notices that cite those earlier Sailry-owned revisions as Apache-2.0 record
+the provenance of the referenced revision; the adapted code in this repository
+is licensed under AGPL-3.0-only. Commercial licenses are available from the
+maintainers: https://github.com/sailry
+
+Plugin SDK exception
+The following Sailry-owned plugin interface materials are licensed under
+Apache-2.0 instead; the license text is in sdk/LICENSE:
+- sdk/
+- schemas/plugins/
+- TypeScript declaration files (*.d.ts) under apps/desktop/src/plugins/ and
+  crates/node-runtime/src/plugins/script/
+- Plugin runtime modules crates/node-runtime/src/plugins/script/sdk.js,
+  models.js, installations.js and cards.js
+Plugins that only use these interfaces through the plugin runtime are not
+required to adopt the AGPL. The official plugins and themes repositories
+(plugins/ and themes/) are separate works licensed under Apache-2.0.
 
 Third-party materials retain their own licenses and attribution. See
 third_party_licenses/ and the notices alongside bundled assets.
 These include GPUI Kit/GPUI, ADK, Ghostty, fonts, icons and other dependencies.
 Imported Ghostty shell integration contains GPL-3.0-or-later material; the root
-Apache license does not relicense those scripts. Relevant notices and GPL text
+AGPL license does not relicense those scripts. Relevant notices and GPL text
 remain in third_party_licenses/.
 
 Native macOS diagnostics

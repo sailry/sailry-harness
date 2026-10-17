@@ -54,9 +54,15 @@
 
 ## 许可证
 
-Sailry 自有代码采用 [Apache-2.0](LICENSE)。第三方材料保留各自的许可证，
-详见 [NOTICE](NOTICE) 和[第三方许可声明](third_party_licenses/)。
-[商业合作](COMMERCIAL.md)为可选项。
+Sailry 自有代码采用 [AGPL-3.0-only](LICENSE)。[sdk/](sdk/) 中的插件 SDK
+以及 [NOTICE](NOTICE) 列出的插件接口文件采用 [Apache-2.0](sdk/LICENSE)，
+官方[插件](https://github.com/sailry/sailry-plugins)与
+[主题](https://github.com/sailry/sailry-themes)仓库同样采用 Apache-2.0。
+
+无法遵守 AGPL 的使用场景可获取商业许可，请[联系维护者](https://github.com/sailry)。
+详见 [COMMERCIAL.md](COMMERCIAL.md)。
+
+第三方材料保留各自的许可证，详见 [NOTICE](NOTICE) 和[第三方许可声明](third_party_licenses/)。
 
 ## 贡献者
 

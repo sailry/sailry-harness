@@ -9,6 +9,6 @@ Adapted from the committed Sailry Code revision `67ae9fa0`:
 - `rust/crates/sailry-terminal-activity/src/lib.rs`: OSC activity reduction
 - `app/sailry_code_app/lib/terminal/terminal_natural_text_editing.dart`: macOS editing shortcut semantics
 
-These Sailry-owned adaptations are released under [Apache-2.0](../LICENSE) by their copyright owner. The adapted sections carry no additional file-level copyright notices. This adaptation changes module ownership, public names, error handling, and Node integration; it does not import the former Host or Flutter implementation.
+These Sailry-owned adaptations are released under [AGPL-3.0-only](../LICENSE) by their copyright owner. The adapted sections carry no additional file-level copyright notices. This adaptation changes module ownership, public names, error handling, and Node integration; it does not import the former Host or Flutter implementation.
 
 Ghostty and libghostty-rs retain their pinned revisions and upstream licenses. The Rust wrapper has a GNU libc target-selection patch; native Ghostty is unmodified. See `ghostty-terminal.md`.

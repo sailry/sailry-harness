@@ -7,7 +7,7 @@ Adapted from committed Sailry Code revision `d9b56405`:
 - `app/harbor_app/lib/workspace/resource_overview.dart`
 - `app/harbor_app/lib/files/harbor_file_picker.dart`
 
-These Sailry-owned adaptations are released under [Apache-2.0](../LICENSE)
+These Sailry-owned adaptations are released under [AGPL-3.0-only](../LICENSE)
 by their copyright owner. The referenced files contain no additional file-level
 copyright notices. This implementation adapts project-source selection,
 appearance choices, file-picker layout and actions through GPUI Kit and the
