@@ -60,66 +60,6 @@ pub(super) fn crumbs(listing: &Listing) -> Vec<(String, String)> {
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::prelude::v1::test;
-    fn listing(path: &str, separator: char) -> Listing {
-        Listing {
-            separator,
-            parent: None,
-            locations: Vec::new(),
-            directory: sailry_protocol::Directory {
-                path: path.into(),
-                entries: Vec::new(),
-                truncated: false,
-                unsupported_names: 0,
-                revision: "fixture".into(),
-                next: None,
-            },
-        }
-    }
-    #[test]
-    fn drive_root_stays_absolute() {
-        assert_eq!(
-            crumbs(&listing("D:\\source\\目录", '\\')),
-            vec![
-                ("D:".into(), "D:\\".into()),
-                ("source".into(), "D:\\source".into()),
-                ("目录".into(), "D:\\source\\目录".into())
-            ]
-        );
-    }
-    #[test]
-    fn unc_preserves_share_root() {
-        assert_eq!(
-            crumbs(&listing("\\\\node\\share\\folder", '\\')),
-            vec![
-                ("\\\\node\\share".into(), "\\\\node\\share".into()),
-                ("folder".into(), "\\\\node\\share\\folder".into())
-            ]
-        );
-    }
-    #[test]
-    fn volume_name_comes_from_node() {
-        let mut listing = listing("/Volumes/Work/source", '/');
-        listing
-            .locations
-            .push(sailry_protocol::file_browser::Location {
-                kind: sailry_protocol::file_browser::LocationKind::Volume,
-                name: "Work".into(),
-                path: "/Volumes/Work".into(),
-            });
-        assert_eq!(
-            crumbs(&listing),
-            vec![
-                ("Work".into(), "/Volumes/Work".into()),
-                ("source".into(), "/Volumes/Work/source".into())
-            ]
-        );
-    }
-}
-
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 
 impl Picker {
@@ -227,5 +167,65 @@ impl Picker {
     ) {
         crate::feedback::toast(window, tr(key), Notification::error(tr(key)), cx);
         menu.update(cx, |_, cx| cx.emit(DismissEvent));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    fn listing(path: &str, separator: char) -> Listing {
+        Listing {
+            separator,
+            parent: None,
+            locations: Vec::new(),
+            directory: sailry_protocol::Directory {
+                path: path.into(),
+                entries: Vec::new(),
+                truncated: false,
+                unsupported_names: 0,
+                revision: "fixture".into(),
+                next: None,
+            },
+        }
+    }
+    #[test]
+    fn drive_root_stays_absolute() {
+        assert_eq!(
+            crumbs(&listing("D:\\source\\目录", '\\')),
+            vec![
+                ("D:".into(), "D:\\".into()),
+                ("source".into(), "D:\\source".into()),
+                ("目录".into(), "D:\\source\\目录".into())
+            ]
+        );
+    }
+    #[test]
+    fn unc_preserves_share_root() {
+        assert_eq!(
+            crumbs(&listing("\\\\node\\share\\folder", '\\')),
+            vec![
+                ("\\\\node\\share".into(), "\\\\node\\share".into()),
+                ("folder".into(), "\\\\node\\share\\folder".into())
+            ]
+        );
+    }
+    #[test]
+    fn volume_name_comes_from_node() {
+        let mut listing = listing("/Volumes/Work/source", '/');
+        listing
+            .locations
+            .push(sailry_protocol::file_browser::Location {
+                kind: sailry_protocol::file_browser::LocationKind::Volume,
+                name: "Work".into(),
+                path: "/Volumes/Work".into(),
+            });
+        assert_eq!(
+            crumbs(&listing),
+            vec![
+                ("Work".into(), "/Volumes/Work".into()),
+                ("source".into(), "/Volumes/Work/source".into())
+            ]
+        );
     }
 }
