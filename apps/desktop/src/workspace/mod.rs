@@ -4,6 +4,7 @@ mod host;
 pub(crate) use host::metrics::Metrics;
 mod menus;
 mod model;
+pub(crate) use model::runtime::uptime;
 mod preview_worktrees;
 mod project;
 mod project_editor;

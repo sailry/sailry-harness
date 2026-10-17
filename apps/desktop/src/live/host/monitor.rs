@@ -1,8 +1,8 @@
 use super::processes::Processes;
+use super::resources::{panel, title};
 use super::*;
 use gpui_kit::component::{
     alert::Alert,
-    group_box::{GroupBox, GroupBoxVariants},
     input::{Input, InputEvent, InputState},
     table::{DataTable, TableState},
 };
@@ -171,12 +171,17 @@ impl Monitor {
 }
 
 impl Render for Monitor {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let count = self
+            .view
+            .sample
+            .as_ref()
+            .map(|sample| (sample.process_count, sample.processes.len()));
         v_flex()
             .id("host-monitor")
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::process_action))
-            .gap_6()
+            .gap_3p5()
             .w_full()
             .min_w_0()
             .debug_selector(|| "host-monitor".into())
@@ -185,40 +190,76 @@ impl Render for Monitor {
                     Alert::warning("host-sampling-error", tr("host_sampling_failed")).small(),
                 ))
             })
-            .child(self.charts(window, cx))
+            .child(self.cpu_card(cx))
             .child(
-                GroupBox::new()
-                    .id("host-process-card")
-                    .fill()
+                h_flex()
+                    .flex_wrap()
+                    .items_stretch()
+                    .gap_3p5()
+                    .w_full()
                     .min_w_0()
-                    .content_style(
-                        StyleRefinement::default()
-                            .min_w_0()
-                            .gap_3()
-                            .border_1()
-                            .border_color(cx.theme().border)
-                            .rounded(cx.theme().radius_lg),
-                    )
+                    .child(self.gpu_card(cx))
+                    .child(self.memory_card(cx)),
+            )
+            .child(self.trend_card(cx))
+            .child(
+                h_flex()
+                    .flex_wrap()
+                    .items_stretch()
+                    .gap_3p5()
+                    .w_full()
+                    .min_w_0()
+                    .child(self.network_card(cx))
+                    .child(self.disk_card(cx)),
+            )
+            .child(self.storage_card(cx))
+            .child(
+                panel("host-process-card", cx)
                     .child(
-                        div()
-                            .w_48()
-                            .debug_selector(|| "host-process-search".into())
-                            .child(Input::new(&self.search).aria_label(tr("host_process_search"))),
-                    )
-                    .when(
-                        self.view
-                            .sample
-                            .as_ref()
-                            .is_some_and(|sample| sample.process_count > sample.processes.len()),
-                        |body| {
-                            body.child(
-                                div()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(tr("host_process_limited")),
+                        h_flex()
+                            .flex_wrap()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                h_flex()
+                                    .items_baseline()
+                                    .gap_2()
+                                    .child(title("metrics_processes"))
+                                    .when_some(count, |row, (total, _)| {
+                                        row.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(
+                                                    rust_i18n::t!(
+                                                        "host_process_count",
+                                                        count = total
+                                                    )
+                                                    .to_string(),
+                                                ),
+                                        )
+                                    }),
                             )
-                        },
+                            .child(
+                                div()
+                                    .w(px(220.))
+                                    .debug_selector(|| "host-process-search".into())
+                                    .child(
+                                        Input::new(&self.search)
+                                            .small()
+                                            .prefix(Icon::new(IconName::Search).size_3p5())
+                                            .aria_label(tr("host_process_search")),
+                                    ),
+                            ),
                     )
+                    .when(count.is_some_and(|(total, shown)| total > shown), |body| {
+                        body.child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(tr("host_process_limited")),
+                        )
+                    })
                     .child(
                         div()
                             .h(px(360.))

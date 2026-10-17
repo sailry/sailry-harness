@@ -1734,18 +1734,28 @@ metrics_gpu: GPU
 host_process_search: 搜索进程
 host_process_name: 进程
 host_pid: PID
-host_cpu_history: CPU 趋势
-host_cpu_total: 总体利用率
 host_process_limited: 仅显示占用最高的 2048 个进程
 host_process_empty: 暂无进程
 host_process_no_matches: 无匹配进程
 host_metric_unavailable: 暂无数据
 host_sampling: 等待采样
 host_sampling_failed: 主机数据未更新
-host_percent: 利用率 (%)
-host_gib: 已用内存 (GiB)
-host_disk_read: 读取 (MiB/s)
-host_disk_write: 写入 (MiB/s)
+host_disk_read: "读取"
+host_disk_write: "写入"
+host_node_uptime: "Sailry 运行"
+host_cores: "%{count} 核"
+host_load: "负载"
+host_core: "核心 %{index} · %{value}"
+host_memory_used: "已用"
+host_memory_cached: "缓存"
+host_memory_swap: "交换"
+host_utilization: "利用率"
+host_network_total: "累计自开机"
+host_storage: "存储"
+host_partition_count: "%{count} 个分区"
+host_read_short: "R"
+host_write_short: "W"
+host_process_count: "共 %{count} 个"
 host_disk_space: 可用 %{available} / %{total}
 live_host_overview: 概览
 live_host_active: 活动会话
@@ -2224,12 +2234,6 @@ host_process_changed: 进程已变化，请刷新后重试
 host_process_protected: 无法结束系统进程或当前主机服务
 host_process_uncertain: 结束结果未知，请检查进程状态
 host_process_stop_failed: 无法结束进程，可能已退出、权限不足或主机不支持此操作
-host_partition: 分区
-host_partitions: 磁盘分区
-host_disk_available: 可用
-host_disk_total: 总容量
-host_network_received: 下载 (MiB/s)
-host_network_transmitted: 上传 (MiB/s)
 usage_column_provider: 供应商
 usage_column_project: 归属
 usage_column_first_token: 首字

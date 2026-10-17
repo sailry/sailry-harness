@@ -1,16 +1,17 @@
-//! One I/O chart with a complete partition inventory underneath.
-use super::resources::{bytes, card, chart, rate, series};
+//! Read and write throughput of the selected partition.
+use super::resources::{Tones, half, mono, panel, rate, series, stat, title, transfer_chart};
 use super::*;
-use gpui_kit::component::{button::ButtonVariants, table::*};
+use sailry_protocol::host::metrics::IoRate;
 
 impl Monitor {
-    pub(super) fn disk_card(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let sample = self.view.sample.as_deref();
-        let selected = sample.and_then(|sample| {
+    pub(super) fn disk_card(&self, cx: &App) -> impl IntoElement {
+        let tones = Tones::of(cx);
+        let io = self.view.sample.as_deref().and_then(|sample| {
             sample
                 .disks
                 .iter()
                 .find(|disk| Some(&disk.mount) == self.disk.as_ref())
+                .and_then(|disk| disk.io.as_ref())
         });
         let points = series(self.view.history.iter().map(|point| {
             (
@@ -21,126 +22,60 @@ impl Monitor {
                     .and_then(|io| io.as_ref())
                     .map(|io| {
                         (
-                            io.read_bytes_per_sec as f64 / 1_048_576.,
-                            io.written_bytes_per_sec as f64 / 1_048_576.,
+                            io.written_bytes_per_sec as f64,
+                            io.read_bytes_per_sec as f64,
                         )
                     }),
             )
         }));
-        let header = TableHeader::new().child(
-            TableRow::new().children(
-                ["host_partition", "host_disk_available", "host_disk_total"]
-                    .into_iter()
-                    .enumerate()
-                    .map(|(index, key)| {
-                        TableHead::new()
-                            .col_span(if index == 0 { 2 } else { 1 })
-                            .min_w(px(if index == 0 { 120. } else { 80. }))
-                            .when(index > 0, |cell| cell.text_right())
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .debug_selector(move || {
-                                        format!("host-partition-heading-{index}")
-                                    })
-                                    .child(tr(key)),
-                            )
-                    }),
-            ),
-        );
-        let partitions = Table::new()
-            .accessibility_label(tr("host_partitions"))
-            .child(header)
+        let value =
+            |rate_of: fn(&IoRate) -> u64| io.map_or_else(|| "—".into(), |io| rate(rate_of(io)));
+        half(panel("host-disk", cx))
             .child(
-                TableBody::new().children(
-                    sample
-                        .into_iter()
-                        .flat_map(|sample| &sample.disks)
-                        .enumerate()
-                        .map(|(index, disk)| {
-                            let owner = cx.entity();
-                            let mount = disk.mount.clone();
-                            let current = self.disk.as_ref() == Some(&mount);
-                            TableRow::new()
-                                .child(
-                                    TableCell::new().col_span(2).min_w(px(120.)).child(
-                                        Button::new(("host-partition", index))
-                                            .small()
-                                            .ghost()
-                                            .w_full()
-                                            .min_w_0()
-                                            .px_0()
-                                            .accessibility_label(mount.clone())
-                                            .child(
-                                                h_flex().w_full().min_w_0().child(
-                                                    div()
-                                                        .min_w_0()
-                                                        .truncate()
-                                                        .text_sm()
-                                                        .line_height(relative(1.))
-                                                        .when(current, |label| {
-                                                            label.font_semibold()
-                                                        })
-                                                        .debug_selector(move || {
-                                                            format!("host-partition-label-{index}")
-                                                        })
-                                                        .child(mount.clone()),
-                                                ),
-                                            )
-                                            .debug_selector(move || {
-                                                format!("host-partition-{index}")
-                                            })
-                                            .on_click(move |_, _, cx| {
-                                                owner.update(cx, |this, cx| {
-                                                    this.disk = Some(mount.clone());
-                                                    cx.notify();
-                                                })
-                                            }),
-                                    ),
-                                )
-                                .child(
-                                    TableCell::new()
-                                        .min_w(px(80.))
-                                        .text_right()
-                                        .child(bytes(disk.available_bytes)),
-                                )
-                                .child(
-                                    TableCell::new()
-                                        .min_w(px(80.))
-                                        .text_right()
-                                        .child(bytes(disk.total_bytes)),
-                                )
-                        }),
-                ),
-            );
-        card(
-            "host-disk",
-            "metrics_disks",
-            selected
-                .and_then(|disk| disk.io.as_ref())
-                .map(|io| {
-                    format!(
-                        "↑ {}   ↓ {}",
-                        rate(io.written_bytes_per_sec),
-                        rate(io.read_bytes_per_sec)
-                    )
-                })
-                .unwrap_or_else(|| "—".into()),
-            chart(
+                h_flex()
+                    .gap_2()
+                    .min_w_0()
+                    .debug_selector(|| "host-disk".into())
+                    .child(title("metrics_disks"))
+                    .when_some(self.disk.clone(), |row, mount| {
+                        row.child(
+                            Tag::secondary()
+                                .small()
+                                .rounded_full()
+                                .min_w_0()
+                                .max_w(px(180.))
+                                .child(mono(div().truncate(), cx).child(mount)),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .grid()
+                    .grid_cols(2)
+                    .gap_x_5()
+                    .gap_y_3()
+                    .debug_selector(|| "host-disk-detail".into())
+                    .child(stat(
+                        "host_disk_write",
+                        value(|io| io.written_bytes_per_sec),
+                        None,
+                        tones.write,
+                        cx,
+                    ))
+                    .child(stat(
+                        "host_disk_read",
+                        value(|io| io.read_bytes_per_sec),
+                        None,
+                        tones.read,
+                        cx,
+                    )),
+            )
+            .child(transfer_chart(
                 "host-disk-chart",
                 points,
-                cx.theme().chart_2,
-                "host_disk_read",
-                Some((cx.theme().chart_4, "host_disk_write")),
+                (tones.write, tr("host_disk_write")),
+                (tones.read, tr("host_disk_read")),
                 cx,
-            ),
-            div()
-                .id("host-partitions")
-                .w_full()
-                .min_w_0()
-                .overflow_x_scroll()
-                .child(partitions),
-            cx,
-        )
+            ))
     }
 }

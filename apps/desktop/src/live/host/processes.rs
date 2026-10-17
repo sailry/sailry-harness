@@ -1,3 +1,4 @@
+use super::resources::{Tones, bytes, mono, percent};
 use super::*;
 use gpui_kit::component::{
     chart::AreaChart,
@@ -13,6 +14,8 @@ pub(super) struct Processes {
     query: String,
     column: usize,
     order: ColumnSort,
+    /// The largest sampled resident memory, scaling every memory bar.
+    peak: u64,
     pub(super) width: Pixels,
 }
 
@@ -25,6 +28,7 @@ impl Default for Processes {
             query: String::new(),
             column: 1,
             order: ColumnSort::Descending,
+            peak: 0,
             width: px(600.),
         }
     }
@@ -38,6 +42,13 @@ impl Processes {
         }
     }
     pub(super) fn update(&mut self, view: HostView) {
+        self.peak = view
+            .sample
+            .iter()
+            .flat_map(|sample| &sample.processes)
+            .map(|process| process.memory_bytes)
+            .max()
+            .unwrap_or_default();
         self.view = view;
         self.sort();
     }
@@ -111,26 +122,24 @@ impl TableDelegate for Processes {
             })
     }
     fn columns_count(&self, _: &App) -> usize {
-        5
+        4
     }
     fn rows_count(&self, _: &App) -> usize {
         self.rows.len()
     }
     fn column(&self, index: usize, _: &App) -> Column {
         let (key, label, width) = match index {
-            0 => ("name", "host_process_name", 200.),
-            1 => ("cpu", "metrics_cpu", 85.),
-            2 => ("memory", "metrics_memory", 105.),
-            3 => ("history", "host_cpu_history", 135.),
-            _ => ("pid", "host_pid", 75.),
+            0 => ("name", "host_process_name", 210.),
+            1 => ("cpu", "metrics_cpu", 200.),
+            2 => ("memory", "metrics_memory", 130.),
+            _ => ("pid", "host_pid", 60.),
         };
         Column::new(key, tr(label))
             .width(px(width) * (self.width.as_f32() / 600.).max(1.))
             .movable(false)
+            .when(index > 0, |column| column.text_right())
             .map(|column| {
-                if index == 3 {
-                    column
-                } else if index == self.column {
+                if index == self.column {
                     column.sort(self.order)
                 } else {
                     column.sortable()
@@ -159,53 +168,120 @@ impl TableDelegate for Processes {
         let Some(process) = self.process(row) else {
             return div().into_any_element();
         };
-        if column == 3 {
-            let points: Vec<_> = self
-                .view
-                .processes
-                .get(&(process.pid, process.started_at_secs))
-                .into_iter()
-                .flatten()
-                .rev()
-                .take_while(|value| value.is_some())
-                .copied()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .enumerate()
-                .map(|(index, value)| (index.to_string(), value.unwrap_or_default() as f64 / 100.))
-                .collect();
-            return div()
-                .h_6()
-                .w_full()
-                .when(points.len() >= 2, |body| {
-                    body.child(
-                        AreaChart::new(points)
-                            .x(|point| point.0.clone())
-                            .y(|point| point.1)
-                            .stroke(cx.theme().chart_2)
-                            .fill(cx.theme().chart_2.opacity(0.12))
-                            .linear()
-                            .x_axis(false)
-                            .grid(false),
+        let cell = match column {
+            0 => h_flex()
+                .gap_2p5()
+                .child(
+                    h_flex()
+                        .size(px(22.))
+                        .flex_shrink_0()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(cx.theme().muted)
+                        .text_xs()
+                        .font_semibold()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(
+                            process
+                                .name
+                                .chars()
+                                .next()
+                                .map(|initial| initial.to_uppercase().to_string())
+                                .unwrap_or_default(),
+                        ),
+                )
+                .child(div().min_w_0().truncate().child(process.name.clone())),
+            1 => {
+                let points: Vec<_> = self
+                    .view
+                    .processes
+                    .get(&(process.pid, process.started_at_secs))
+                    .into_iter()
+                    .flatten()
+                    .rev()
+                    .take_while(|value| value.is_some())
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .enumerate()
+                    .map(|(index, value)| {
+                        (index.to_string(), value.unwrap_or_default() as f64 / 100.)
+                    })
+                    .collect();
+                let tone = Tones::of(cx).cpu;
+                h_flex()
+                    .justify_end()
+                    .gap_3()
+                    .child(div().w(px(120.)).h_6().flex_shrink_0().when(
+                        points.len() >= 2,
+                        |body| {
+                            body.child(
+                                AreaChart::new(points)
+                                    .id(("host-process-cpu", row))
+                                    .appear(false)
+                                    .interactive(false)
+                                    .x(|point| point.0.clone())
+                                    .y(|point| point.1)
+                                    .stroke(tone)
+                                    .fill(tone.opacity(0.14))
+                                    .linear()
+                                    .x_axis(false)
+                                    .grid(false),
+                            )
+                        },
+                    ))
+                    .child(mono(
+                        div()
+                            .w(px(50.))
+                            .flex_shrink_0()
+                            .text_right()
+                            .child(percent(process.cpu_basis_points)),
+                        cx,
+                    ))
+            }
+            2 => {
+                let share = if self.peak == 0 {
+                    0.
+                } else {
+                    process.memory_bytes as f32 / self.peak as f32
+                };
+                let tones = Tones::of(cx);
+                h_flex()
+                    .justify_end()
+                    .gap_2p5()
+                    .child(
+                        div()
+                            .w(px(44.))
+                            .h_1()
+                            .flex_shrink_0()
+                            .rounded(px(2.))
+                            .overflow_hidden()
+                            .bg(tones.track)
+                            .child(div().h_full().w(relative(share)).bg(tones.gpu)),
                     )
-                })
-                .into_any_element();
-        }
-        let text = match column {
-            0 => process.name.clone(),
-            1 => super::resources::percent(process.cpu_basis_points),
-            2 => super::resources::bytes(process.memory_bytes),
-            _ => process.pid.to_string(),
+                    .child(mono(
+                        div()
+                            .w(px(76.))
+                            .flex_shrink_0()
+                            .text_right()
+                            .child(bytes(process.memory_bytes)),
+                        cx,
+                    ))
+            }
+            _ => h_flex().justify_end().child(mono(
+                div()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(process.pid.to_string()),
+                cx,
+            )),
         };
-        div()
-            .w_full()
+        cell.w_full()
+            .min_w_0()
+            .text_sm()
             .when(row == 0, |cell| {
                 cell.debug_selector(move || format!("host-process-cell-{column}"))
             })
-            .truncate()
-            .text_sm()
-            .child(text)
             .into_any_element()
     }
     fn loading(&self, _: &App) -> bool {
