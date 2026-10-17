@@ -314,7 +314,7 @@ was already published; inspect that outcome before retrying.
 
 ## Host automation
 
-For installation and pairing, see [Install Sailry Host](README.md#install-sailry-host).
+For installation and pairing, see [Install](README.md#install).
 Run `sailry help` for available commands. Service controls are `start`, `stop`,
 `restart` and `status`; `version` reports the installed release.
 
