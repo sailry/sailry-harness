@@ -25,7 +25,8 @@ pub(super) fn discover(
     servers: &std::collections::BTreeMap<String, mcp::Server>,
     issues: &mut Vec<Issue>,
 ) -> Option<Schema> {
-    let path = extension?.settings_schema.as_ref()?;
+    let extension = extension?;
+    let path = extension.settings_schema.as_ref()?;
     let result = (|| {
         let path = path.strip_prefix("./").unwrap_or(path);
         let parts = crate::files::path::components(path, false)?;
@@ -42,6 +43,19 @@ pub(super) fn discover(
         let bytes = package::read(&parent, file, MAX_BYTES)?
             .ok_or_else(|| sailry_protocol::Fault::invalid("settings schema is unavailable"))?;
         let schema = validation::parse(&bytes, servers)?;
+        if schema
+            .properties
+            .values()
+            .any(|field| field.child_concurrency)
+            && (extension.scope != sailry_protocol::plugin::Scope::Host
+                || !extension
+                    .actions
+                    .contains(&sailry_protocol::plugin::Action::DelegateAgents))
+        {
+            return Err(Fault::invalid(
+                "child concurrency requires a host delegation declaration",
+            ));
+        }
         Ok(schema)
     })();
     match result {
@@ -54,6 +68,15 @@ pub(super) fn discover(
             None
         }
     }
+}
+
+pub(crate) fn child_limit(value: &serde_json::Value) -> Result<u64, Fault> {
+    value
+        .as_str()
+        .filter(|text| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit()))
+        .and_then(|text| text.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .ok_or_else(|| Fault::invalid("child concurrency must be a positive decimal integer"))
 }
 
 #[cfg(test)]

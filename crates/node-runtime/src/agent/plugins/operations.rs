@@ -132,7 +132,7 @@ pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: O
             ingress.search.available() && !super::model_tools::preferred(ingress, invocation)
         }
         Operation::DelegateAgent | Operation::GuideAgent | Operation::WaitAgent => {
-            invocation.child.is_none() && invocation.project.is_some()
+            invocation.child.is_none() && invocation.connections.bound.is_none()
         }
         Operation::InspectMedia => invocation
             .media

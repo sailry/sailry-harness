@@ -562,6 +562,9 @@ fn validate_values(schema: &Schema, values: &BTreeMap<String, Value>) -> Result<
 }
 
 fn validate_value(field: &Field, value: &Value) -> Result<(), Fault> {
+    if field.child_concurrency {
+        crate::plugins::settings::child_limit(value)?;
+    }
     if value
         .as_str()
         .is_some_and(|value| value.chars().count() > MAX_STRING)

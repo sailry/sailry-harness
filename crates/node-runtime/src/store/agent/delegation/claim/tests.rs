@@ -1,6 +1,5 @@
 use super::*;
 use crate::store::agent::tests::{command, fixture::Fixture};
-use sailry_protocol::conversation::background::Settings;
 
 fn parent(fixture: &mut Fixture) -> TurnId {
     let turn = fixture.queued();
@@ -67,10 +66,7 @@ fn queued(fixture: &mut Fixture, parent: TurnId, index: usize) -> QueuedTurn {
 }
 
 fn limit(fixture: &Fixture, value: u64) {
-    let mut settings =
-        crate::store::background_settings::read(&fixture.database.connection).unwrap();
-    settings.child_concurrency = value;
-    crate::store::background_settings::save(&fixture.database.connection, &settings).unwrap();
+    crate::store::plugins::policy::fixture::configure(&fixture.database.connection, value);
 }
 
 fn claim(fixture: &mut Fixture, turn: TurnId) -> Status {
@@ -310,42 +306,45 @@ fn applies_increases_without_recapturing_waiters() {
 fn validates_settings_without_an_extra_ceiling() {
     let fixture = Fixture::new();
     let db = &fixture.database.connection;
-    let original = crate::store::background_settings::read(db).unwrap();
-    assert_eq!(original.child_concurrency, 8);
     assert_eq!(
-        crate::store::background_settings::save(
+        crate::store::plugins::policy::child_limit(db).unwrap(),
+        None
+    );
+    let original = crate::store::plugins::policy::fixture::install(db, "example");
+    assert_eq!(
+        crate::store::plugins::policy::child_limit(db).unwrap(),
+        Some(8)
+    );
+    let mut state =
+        crate::store::plugins::settings::read(db, &original.summary.reference()).unwrap();
+    state
+        .values
+        .insert("parallel".into(), serde_json::json!("0"));
+    assert_eq!(
+        crate::store::plugins::settings::save(
             db,
-            &Settings {
-                child_concurrency: 0,
-                ..original.clone()
-            }
+            &state.package,
+            &state.values,
+            &Default::default()
         )
         .unwrap_err()
         .code,
         ErrorCode::InvalidRequest
     );
+    limit(&fixture, u64::MAX);
     assert_eq!(
-        crate::store::background_settings::read(db).unwrap(),
-        original
+        crate::store::plugins::policy::child_limit(db).unwrap(),
+        Some(u64::MAX)
     );
-    let Output::BackgroundSettings(saved) = crate::store::background_settings::save(
-        db,
-        &Settings {
-            child_concurrency: u64::MAX,
-            ..original.clone()
-        },
-    )
-    .unwrap()
-    .0
-    else {
-        panic!("settings expected")
-    };
-    assert_eq!(saved.child_concurrency, u64::MAX);
-    assert_eq!(crate::store::background_settings::read(db).unwrap(), saved);
     assert_eq!(
-        crate::store::background_settings::save(db, &original)
-            .unwrap_err()
-            .code,
+        crate::store::plugins::settings::save(
+            db,
+            &state.package,
+            &state.values,
+            &Default::default()
+        )
+        .unwrap_err()
+        .code,
         ErrorCode::RevisionConflict
     );
 }

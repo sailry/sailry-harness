@@ -65,6 +65,12 @@ pub struct Field {
     pub kind: Kind,
     #[serde(
         default,
+        rename = "x-sailry-child-concurrency",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub child_concurrency: bool,
+    #[serde(
+        default,
         rename = "x-sailry-model",
         skip_serializing_if = "std::ops::Not::not"
     )]

@@ -1224,7 +1224,7 @@ impl Store {
                                     | sailry_protocol::Command::GuideQueuedTurn { .. }
                                     | sailry_protocol::Command::GuideTurn { .. }
                                     | sailry_protocol::Command::SetQueuePaused { .. }
-                                    | sailry_protocol::Command::SaveBackgroundSettings(_)
+                                    | sailry_protocol::Command::SavePluginSettings { .. }
                             );
                             let guiding = match &request.command {
                                 sailry_protocol::Command::GuideTurn { recipient, .. }

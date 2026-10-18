@@ -70,7 +70,34 @@ pub(super) fn parse(
             return Err(sailry_protocol::Fault::invalid("invalid settings tab"));
         }
     }
+    if schema
+        .properties
+        .values()
+        .filter(|field| field.child_concurrency)
+        .count()
+        > 1
+    {
+        return Err(Fault::invalid(
+            "only one child concurrency setting may be declared",
+        ));
+    }
     for (name, field) in &schema.properties {
+        if field.child_concurrency
+            && (field.kind != Kind::String
+                || field.secret.is_some()
+                || field.model
+                || field.effort.is_some()
+                || field.choices.is_some()
+                || !schema.required.contains(name)
+                || field
+                    .default
+                    .as_ref()
+                    .is_none_or(|value| super::child_limit(value).is_err()))
+        {
+            return Err(Fault::invalid(
+                "child concurrency requires a public decimal string setting with a default",
+            ));
+        }
         if !identifier(name)
             || !bounded_text(field.title.as_deref())
             || !bounded_text(field.description.as_deref())

@@ -241,11 +241,13 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
             "SELECT body FROM agent_background WHERE state IN ('running','pending')"
         },
     )?;
-    records::<sailry_protocol::conversation::background::Settings>(
+    records::<crate::store::background_settings::Stored>(
         db,
         "background_settings.body",
         "SELECT body FROM background_settings",
     )?;
+    crate::store::background_settings::read(db)
+        .map_err(|_| Error::Worker("incompatible stored background settings".into()))?;
     records::<crate::store::agent::continuation::Fence>(
         db,
         "agent_continuations.body",

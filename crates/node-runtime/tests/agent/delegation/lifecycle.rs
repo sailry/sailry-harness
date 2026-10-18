@@ -36,18 +36,7 @@ async fn drains_with_full_root_pool() {
         .await;
         let child = Server::start(true).await;
         let (session, provider, role) = setup(&client, &root, &parent, &child).await;
-        let Output::BackgroundSettings(mut settings) = client
-            .execute(client.prepare(Command::ReadBackgroundSettings))
-            .await
-            .unwrap()
-        else {
-            panic!("settings expected")
-        };
-        settings.child_concurrency = 16;
-        client
-            .execute(client.prepare(Command::SaveBackgroundSettings(settings)))
-            .await
-            .unwrap();
+        capacity(&client, "delegation", 16).await;
         let captured = session.roles.providers.clone();
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0].id, provider.id);

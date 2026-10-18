@@ -74,6 +74,7 @@ enum Reply {
         slow: bool,
     },
     Tools(Arc<Vec<(String, Value)>>),
+    AvailableTools(Arc<Vec<(String, Value)>>),
     ReasonedTools(Arc<Vec<(String, Value)>>),
     TurnTools(Arc<Vec<(String, Value)>>),
     ResultTools(Arc<Vec<(String, Value)>>),
@@ -271,6 +272,10 @@ impl Server {
 
     pub async fn tools(calls: Vec<(String, Value)>) -> Self {
         Self::serve(Reply::Tools(Arc::new(calls))).await
+    }
+
+    pub async fn available_tools(calls: Vec<(String, Value)>) -> Self {
+        Self::serve(Reply::AvailableTools(Arc::new(calls))).await
     }
 
     pub async fn reasoned_tools(calls: Vec<(String, Value)>) -> Self {
@@ -632,7 +637,22 @@ async fn respond(
     } else {
         None
     };
+    let available = if let Reply::AvailableTools(calls) = &reply {
+        calls
+            .iter()
+            .filter(|(name, _)| {
+                body["tools"].as_array().is_some_and(|tools| {
+                    tools
+                        .iter()
+                        .any(|tool| tool["function"]["name"].as_str() == Some(name.as_str()))
+                })
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     let call = match &reply {
+        Reply::AvailableTools(_) => available.get(completed).copied(),
         Reply::Tools(calls) | Reply::ReasonedTools(calls) | Reply::TurnTools(calls) => {
             calls.get(completed)
         }

@@ -30,7 +30,6 @@ fn preserves_source_identity() {
         Settings {
             revision: 0,
             resume: true,
-            child_concurrency: 8,
         }
     );
     assert!(
@@ -40,21 +39,10 @@ fn preserves_source_identity() {
 }
 
 #[test]
-fn defaults_concurrency_without_changing_resume() {
+fn round_trips_continuation_preferences() {
     let settings: Settings = serde_json::from_value(json!({"revision":4,"resume":false})).unwrap();
-    assert_eq!(settings.child_concurrency, 8);
     assert!(!settings.resume);
     assert_eq!(settings.revision, 4);
-    assert!(
-        serde_json::from_value::<Settings>(
-            json!({"revision":4,"resume":false,"child_concurrency":0})
-        )
-        .is_err()
-    );
-    let settings = Settings {
-        child_concurrency: u64::MAX,
-        ..settings
-    };
     assert_eq!(
         serde_json::from_value::<Settings>(serde_json::to_value(&settings).unwrap()).unwrap(),
         settings

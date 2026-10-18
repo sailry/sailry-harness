@@ -398,8 +398,15 @@ losing history or changing its role, effective configuration or worktree. Idle
 reuse captures current packages and settings; initial delegation inherits the
 parent's frozen capture, and guidance retains the active recipient's capture.
 Delegation waits synchronously by default.
-Each main session has a child concurrency budget, defaulting to eight through
-the Node's shared setting, independently of automatic completion notices.
+Ordinary sessions without a project can delegate within their existing private
+worktree; resource-bound assistants and nested delegation remain excluded.
+The delegation package owns its child concurrency setting and settings page,
+defaulting to eight. A public decimal string field marked
+`x-sailry-child-concurrency` binds package configuration to the shared execution
+service; only one installed package can own that policy. Node validates the
+declaration and reads its current value when claiming work. Without a declared
+owner, the service adds no product-specific concurrency limit. Configuration
+changes affect queued work without rewriting its captured model or permissions.
 Running children and FIFO order are scoped to their root parent session, so one
 busy conversation does not queue children from another. Children exceeding that
 budget remain durably queued with their admitted captures; they do not occupy

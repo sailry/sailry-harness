@@ -5,6 +5,7 @@ mod capacity;
 mod catalog;
 mod explore;
 mod research;
+mod unassigned;
 
 pub(super) fn model(id: &str) -> Model {
     Model {
@@ -157,3 +158,33 @@ mod reuse;
 mod roles;
 mod selection;
 mod streaming;
+
+async fn capacity(client: &Client, name: &str, count: u64) {
+    let Output::Plugin(package) = client
+        .execute(client.prepare(Command::ReadPlugin { name: name.into() }))
+        .await
+        .unwrap()
+    else {
+        panic!("package expected")
+    };
+    let Output::PluginSettings(mut settings) = client
+        .execute(client.prepare(Command::ReadPluginSettings {
+            package: package.summary.reference(),
+        }))
+        .await
+        .unwrap()
+    else {
+        panic!("settings expected")
+    };
+    settings
+        .values
+        .insert("child_concurrency".into(), json!(count.to_string()));
+    client
+        .execute(client.prepare(Command::SavePluginSettings {
+            package: settings.package,
+            values: settings.values,
+            secrets: Default::default(),
+        }))
+        .await
+        .unwrap();
+}

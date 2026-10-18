@@ -62,9 +62,14 @@ impl Fixture {
         let source = root.join("capacity-package");
         std::fs::create_dir_all(source.join("dev.sailry.platform")).unwrap();
         std::fs::write(source.join("dev.sailry.platform/main.js"), "export function prepare(input){return input} export function result({output}){return output.data??output}").unwrap();
+        std::fs::write(source.join("dev.sailry.platform/settings.json"),json!({
+            "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+            "required":["child_concurrency"],"properties":{"child_concurrency":{"type":"string","default":"8","x-sailry-child-concurrency":true}}
+        }).to_string()).unwrap();
         std::fs::write(source.join("plugin.json"),json!({
             "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", "name":"example","version":"0.1.0",
             "extensions":{"dev.sailry.platform":{"api_version":"v1","actions":["agents.delegate"],
+                "settings_schema":"dev.sailry.platform/settings.json",
                 "host":{"entry":"dev.sailry.platform/main.js","resources":["dev.sailry.platform/main.js"],"handlers":["prepare","result"]},
                 "tools":[{"name":"spawn","description":"Run an independent fixture task","contexts":["workspace"],
                     "handler":{"name":"prepare","operation":"agents.delegate","result":"result","parameters":{
@@ -172,6 +177,7 @@ impl Fixture {
     }
 
     pub async fn capacity(&self, count: u64) {
+        super::super::capacity(&self.client, "example", count).await;
         let Output::BackgroundSettings(mut settings) = self
             .client
             .execute(self.client.prepare(Command::ReadBackgroundSettings))
@@ -181,7 +187,6 @@ impl Fixture {
             panic!("settings expected")
         };
         settings.resume = false;
-        settings.child_concurrency = count;
         self.client
             .execute(
                 self.client
@@ -199,6 +204,17 @@ impl Fixture {
         let mut manifest: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         manifest["version"] = json!("0.1.1");
         std::fs::write(path, manifest.to_string()).unwrap();
+        let Output::Plugin(current) = self
+            .client
+            .execute(self.client.prepare(Command::ReadPlugin {
+                name: "example".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("package expected")
+        };
+        self.package = current;
         let previous = self.package.summary.reference();
         let Output::Plugin(package) = self
             .client

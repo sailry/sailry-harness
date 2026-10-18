@@ -20,13 +20,14 @@ pub(in crate::store::agent) fn claim(
     // changes this execution's concurrency owner.
     let owner = runs::get(&database.connection, association.turn)?.session;
     let tx = database.connection.transaction().map_err(storage_error)?;
-    let limit = crate::store::background_settings::read(&tx)?.child_concurrency;
+    let limit = crate::store::plugins::policy::child_limit(&tx)?;
     let active: i64 = tx.query_row(
         "SELECT count(*) FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn JOIN turns parent ON parent.id=d.parent_turn
          WHERE parent.session=?1 AND json_extract(a.body,'$.status') IN ('running','stopping')",
         [owner.to_string()], |row| row.get(0),
     ).map_err(storage_error)?;
-    if u64::try_from(active).map_err(storage_error)? >= limit {
+    let active = u64::try_from(active).map_err(storage_error)?;
+    if limit.is_some_and(|limit| active >= limit) {
         return Ok(Status::Queued);
     }
     // Unselected guidance still belongs to its existing queue owner. It must

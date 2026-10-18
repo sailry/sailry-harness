@@ -2,6 +2,37 @@ use super::*;
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs};
 
+#[test]
+fn validates_child_policy_fields() {
+    let mut value = schema(
+        json!({"parallel":{"type":"string","default":"8","x-sailry-child-concurrency":true}}),
+    );
+    value["required"] = json!(["parallel"]);
+    assert!(parse(value.clone()).unwrap().properties["parallel"].child_concurrency);
+    for default in [
+        json!("0"),
+        json!("-1"),
+        json!("1.5"),
+        json!(8),
+        json!("18446744073709551616"),
+    ] {
+        let mut invalid = value.clone();
+        invalid["properties"]["parallel"]["default"] = default;
+        assert!(parse(invalid).is_err());
+    }
+    value["properties"]["parallel"]["default"] = json!(u64::MAX.to_string());
+    assert!(parse(value.clone()).is_ok());
+    let mut invalid = value.clone();
+    invalid["properties"]["parallel"]["type"] = json!("integer");
+    assert!(parse(invalid).is_err());
+    let mut invalid = value.clone();
+    invalid["required"] = json!([]);
+    assert!(parse(invalid).is_err());
+    value["properties"]["another"] = value["properties"]["parallel"].clone();
+    value["required"] = json!(["parallel", "another"]);
+    assert!(parse(value).is_err());
+}
+
 fn schema(properties: Value) -> Value {
     json!({
         "$schema": SCHEMA, "type": "object", "additionalProperties": false,

@@ -16,6 +16,7 @@ pub(super) mod invocations;
 pub(in crate::store) mod mcp;
 pub(super) mod models;
 pub(in crate::store) mod oauth;
+pub(in crate::store) mod policy;
 pub(in crate::store) mod registration;
 mod repository;
 mod script;
@@ -347,6 +348,7 @@ fn finish_package(
         None => true,
     };
     services::check(db, info)?;
+    policy::check(db, info)?;
     if let Some(previous) = &current
         && previous
             .extension
@@ -360,6 +362,7 @@ fn finish_package(
         services::apply(db, previous, false)?;
     }
     save(db, info, true)?;
+    policy::migrate(db, info)?;
     services::apply(db, info, info.summary.enabled)?;
     super::agent::continuation::invalidate(db, name)?;
     if let Command::InstallMcp {
