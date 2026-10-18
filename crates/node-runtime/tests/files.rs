@@ -5,6 +5,8 @@ use sailry_protocol::*;
 
 #[path = "files/managed.rs"]
 mod managed;
+#[path = "files/pagination.rs"]
+mod pagination;
 
 async fn worktree(client: &Client, path: &std::path::Path) -> WorktreeId {
     client

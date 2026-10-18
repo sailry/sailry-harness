@@ -1,7 +1,5 @@
 use super::*;
 
-pub(super) const MAX_COUNT: usize = 100_000;
-
 pub(super) fn parse(text: &str) -> Result<Value, Fault> {
     parse_with_ids(text, true)
 }
@@ -27,9 +25,6 @@ fn parse_with_ids(text: &str, require_ids: bool) -> Result<Value, Fault> {
     let cells = value["cells"]
         .as_array()
         .ok_or_else(|| Fault::invalid("notebook cells must be an array"))?;
-    if cells.len() > MAX_COUNT {
-        return Err(Fault::invalid("notebook cell count exceeds the limit"));
-    }
     let mut ids = BTreeSet::new();
     for cell in cells {
         if !cell.is_object()
@@ -73,10 +68,8 @@ fn parse_with_ids(text: &str, require_ids: bool) -> Result<Value, Fault> {
 }
 
 pub(super) fn source(source: &str) -> Result<(), Fault> {
-    if source.len() > notebook::MAX_SOURCE_BYTES || source.contains('\0') {
-        Err(Fault::invalid(
-            "notebook cell source exceeds the limit or contains NUL",
-        ))
+    if source.contains('\0') {
+        Err(Fault::invalid("notebook cell source contains NUL"))
     } else {
         Ok(())
     }

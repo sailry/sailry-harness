@@ -13,7 +13,8 @@ pub(super) fn show(
     limit: usize,
     control: &Control,
 ) -> Result<Output, Fault> {
-    validate_page(offset, limit, MAX_GIT_SHOW_LINES)?;
+    validate_page(offset, limit)?;
+    let page_limit = limit.min(MAX_GIT_SHOW_LINES);
     let repository = open(root)?;
     let commit = resolve(&repository, revision)?;
     let Some(path) = path else {
@@ -46,7 +47,7 @@ pub(super) fn show(
     let mut output = String::new();
     let mut rendered = 0;
     let mut truncated_line = None;
-    for (position, line) in text.lines().enumerate().skip(offset).take(limit) {
+    for (position, line) in text.lines().enumerate().skip(offset).take(page_limit) {
         control.check()?;
         let prefix = format!("{}: ", position + 1);
         let available = MAX_DIFF_BYTES.saturating_sub(output.len());
@@ -89,7 +90,8 @@ pub(super) fn blame(
     limit: usize,
     control: &Control,
 ) -> Result<GitBlame, Fault> {
-    validate_page(offset, limit, MAX_GIT_LINES)?;
+    validate_page(offset, limit)?;
+    let page_limit = limit.min(MAX_GIT_LINES);
     let repository = open(root)?;
     let commit = resolve(&repository, revision.unwrap_or("HEAD"))?;
     let blob = blob(&repository, commit, path)?;
@@ -104,12 +106,12 @@ pub(super) fn blame(
         options
             .newest_commit(commit)
             .min_line(offset + 1)
-            .max_line((offset + limit).min(total_lines));
+            .max_line((offset + page_limit).min(total_lines));
         control.check()?;
         let blame = repository
             .blame_file(Path::new(path), Some(&mut options))
             .map_err(fault)?;
-        for (position, line) in text.lines().enumerate().skip(offset).take(limit) {
+        for (position, line) in text.lines().enumerate().skip(offset).take(page_limit) {
             control.check()?;
             let budget = MAX_DIFF_BYTES - bytes;
             if line.len() > budget && !entries.is_empty() {
@@ -155,7 +157,6 @@ pub(super) fn blame(
 
 fn resolve(repository: &Repository, revision: &str) -> Result<Oid, Fault> {
     if revision.trim().is_empty()
-        || revision.len() > 1024
         || revision.starts_with('-')
         || revision.contains(':')
         || revision.chars().any(char::is_control)
@@ -204,11 +205,9 @@ fn text<'blob>(blob: &'blob Blob<'_>) -> Option<&'blob str> {
     }
 }
 
-fn validate_page(offset: usize, limit: usize, maximum: usize) -> Result<(), Fault> {
-    if limit == 0 || limit > maximum {
-        return Err(Fault::invalid(format!(
-            "Git line page limit must be between 1 and {maximum}"
-        )));
+fn validate_page(offset: usize, limit: usize) -> Result<(), Fault> {
+    if limit == 0 {
+        return Err(Fault::invalid("Git line page limit must be positive"));
     }
     if offset.checked_add(limit).is_none() {
         return Err(Fault::invalid("Git line page offset exceeds the range"));

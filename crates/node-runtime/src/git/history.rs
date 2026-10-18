@@ -13,9 +13,10 @@ pub(super) fn log(
     cursor: Option<&GitLogCursor>,
     control: &Control,
 ) -> Result<GitLog, Fault> {
-    if limit == 0 || limit > MAX_GIT_COMMITS {
-        return Err(Fault::invalid("invalid Git history limit"));
+    if limit == 0 {
+        return Err(Fault::invalid("Git history limit must be positive"));
     }
+    let page_limit = limit.min(MAX_GIT_COMMITS);
     let cursor_head = cursor.map(|cursor| commit_id(&cursor.head)).transpose()?;
     let repository = match open(root) {
         Ok(repository) => repository,
@@ -45,7 +46,7 @@ pub(super) fn log(
     walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
         .map_err(fault)?;
     walk.push(head).map_err(fault)?;
-    let mut entries = Vec::with_capacity(limit);
+    let mut entries = Vec::with_capacity(page_limit);
     let mut truncated = false;
     for (position, oid) in walk.enumerate() {
         control.check()?;
@@ -53,7 +54,7 @@ pub(super) fn log(
         if position < offset {
             continue;
         }
-        if entries.len() == limit {
+        if entries.len() == page_limit {
             truncated = true;
             break;
         }

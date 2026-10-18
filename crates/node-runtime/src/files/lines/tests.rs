@@ -123,14 +123,12 @@ fn rejects_invalid_text_and_limits() {
             .lines
             .is_empty()
     );
-    for limit in [0, MAX_FILE_LINES + 1] {
-        assert_eq!(
-            read(&path, "file".into(), 0, limit, &control())
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
-        );
-    }
+    assert_eq!(
+        read(&path, "file".into(), 0, 0, &control())
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
     std::fs::OpenOptions::new()
         .write(true)
         .open(root.path().join("file"))
@@ -142,6 +140,37 @@ fn rejects_invalid_text_and_limits() {
             .unwrap_err()
             .code,
         ErrorCode::InvalidRequest
+    );
+}
+
+#[test]
+fn pages_large_requests_without_dropping_lines() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().canonicalize().unwrap();
+    let text = "line\n".repeat(MAX_FILE_LINES + 2);
+    std::fs::write(path.join("file"), &text).unwrap();
+    let first = read(&path, "file".into(), 0, 1_000_000, &control()).unwrap();
+    assert_eq!(first.lines.len(), MAX_FILE_LINES);
+    assert_eq!(first.next_offset, Some(MAX_FILE_LINES));
+    let next = read(
+        &path,
+        "file".into(),
+        first.next_offset.unwrap(),
+        1_000_000,
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(next.lines.len(), 2);
+    assert!(next.next_offset.is_none());
+    assert_eq!(next.revision, first.revision);
+    assert_eq!(
+        first
+            .lines
+            .iter()
+            .chain(&next.lines)
+            .map(|line| line.text.as_str())
+            .collect::<String>(),
+        text
     );
 }
 

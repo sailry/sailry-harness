@@ -397,7 +397,7 @@ fn head(repository: &Repository) -> Result<Option<String>, Fault> {
 }
 
 fn resolve<'a>(repository: &'a Repository, value: &str) -> Result<git2::Commit<'a>, Fault> {
-    if value.is_empty() || value.len() > 1024 || value.chars().any(char::is_control) {
+    if value.is_empty() || value.chars().any(char::is_control) {
         return Err(Fault::invalid("invalid Git revision"));
     }
     repository

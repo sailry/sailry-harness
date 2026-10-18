@@ -10,9 +10,10 @@ pub(super) fn read<'a>(
     limit: usize,
     control: &Control,
 ) -> Result<FileLines, Fault> {
-    if !(1..=MAX_FILE_LINES).contains(&limit) {
-        return Err(Fault::invalid("file line limit is out of range"));
+    if limit == 0 {
+        return Err(Fault::invalid("file line limit must be positive"));
     }
+    let page_limit = limit.min(MAX_FILE_LINES);
     let text = complete(root, &path, control)?;
     let size = text.len() as u64;
     let revision = blake3::hash(text.as_bytes()).to_hex().to_string();
@@ -24,7 +25,7 @@ pub(super) fn read<'a>(
         if index < offset {
             continue;
         }
-        if lines.len() == limit || bytes + line.len() > MAX_FILE_BYTES {
+        if lines.len() == page_limit || bytes + line.len() > MAX_FILE_BYTES {
             if lines.is_empty() {
                 return Err(Fault::invalid("file line exceeds the page byte limit"));
             }

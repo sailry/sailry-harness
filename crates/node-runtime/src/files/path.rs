@@ -39,7 +39,7 @@ pub(crate) fn components_with(
     if allow_root && path.is_empty() {
         return Ok(Vec::new());
     }
-    if path.len() > 4096 || path.contains(['\\', ':']) || path.chars().any(char::is_control) {
+    if path.contains(['\\', ':']) || path.chars().any(char::is_control) {
         return Err(invalid());
     }
     let parts: Vec<_> = path.split('/').collect();
@@ -192,6 +192,9 @@ mod tests {
             components("项目/中文 文件.rs", false).unwrap(),
             ["项目", "中文 文件.rs"]
         );
+        let path = vec!["segment"; 600].join("/");
+        assert!(path.len() > 4096);
+        assert_eq!(components(&path, false).unwrap().len(), 600);
     }
 
     #[test]

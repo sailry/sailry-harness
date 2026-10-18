@@ -136,15 +136,36 @@ impl Fixture {
 }
 
 #[test]
+fn resolves_long_revision_expressions() {
+    let fixture = Fixture::new();
+    fixture.write("file.txt", "original");
+    let commit = fixture.commit();
+    let revision = format!("HEAD{}", "~0".repeat(600));
+    let result = list(
+        &fixture.root(),
+        Some(GitChangeTarget::Commit { revision }),
+        None,
+        1,
+        &fixture.control,
+    )
+    .unwrap();
+    let GitChangeState::Commit { revision, .. } = result.snapshot.target else {
+        panic!("commit snapshot expected")
+    };
+    assert_eq!(revision, commit);
+}
+
+#[test]
 fn enumerates_every_page_without_bodies() {
     let fixture = Fixture::new();
     for number in 0..1_203 {
         fixture.write(&format!("file-{number:04}.rs"), [0, 255]);
     }
-    let mut result = fixture.working(500);
+    let mut result = fixture.working(1_000_000);
     let mut paths = Vec::new();
     loop {
         assert!(encoded(&Output::GitChanges(result.clone())).unwrap() <= MAX_DIFF_BYTES);
+        assert!(result.entries.len() <= MAX_GIT_LINES);
         assert_eq!(result.omitted_paths, 0);
         paths.extend(result.entries.iter().map(|entry| entry.path.clone()));
         let Some(cursor) = result.next else {
@@ -152,7 +173,14 @@ fn enumerates_every_page_without_bodies() {
             break;
         };
         assert!(!result.exhausted);
-        result = list(&fixture.root(), None, Some(cursor), 500, &fixture.control).unwrap();
+        result = list(
+            &fixture.root(),
+            None,
+            Some(cursor),
+            1_000_000,
+            &fixture.control,
+        )
+        .unwrap();
     }
     assert_eq!(paths.len(), 1_203);
     assert!(paths.windows(2).all(|pair| pair[0] < pair[1]));
@@ -278,12 +306,12 @@ fn requires_revision_on_mapped_continuations() {
             .collect::<String>(),
     );
     let scope = fixture.working(500);
-    let first = fixture.read(&scope, "file.rs", None, 0, 31).unwrap();
-    assert_eq!(first.lines.len(), 31);
-    assert_eq!(first.next, Some(31));
+    let first = fixture.read(&scope, "file.rs", None, 0, 1_000_000).unwrap();
+    assert_eq!(first.lines.len(), MAX_GIT_LINES);
+    assert_eq!(first.next, Some(MAX_GIT_LINES));
     assert_eq!(
         fixture
-            .read(&scope, "file.rs", None, 31, 31)
+            .read(&scope, "file.rs", None, MAX_GIT_LINES, 1_000_000)
             .unwrap_err()
             .code,
         ErrorCode::InvalidRequest
@@ -292,7 +320,7 @@ fn requires_revision_on_mapped_continuations() {
     let mut next = first.next;
     while let Some(offset) = next {
         let page = fixture
-            .read(&scope, "file.rs", Some(&first.revision), offset, 31)
+            .read(&scope, "file.rs", Some(&first.revision), offset, 1_000_000)
             .unwrap();
         assert!(encoded(&Output::GitChange(page.clone())).unwrap() <= MAX_DIFF_BYTES);
         next = page.next;

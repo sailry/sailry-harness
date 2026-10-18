@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_FILE_BYTES: usize = 128 * 1024;
 pub const MAX_EDIT_BYTES: usize = 64 * 1024 * 1024;
-pub const MAX_FILE_EDITS: usize = 128;
 pub const MAX_FILE_LINES: usize = 2000;
 pub const MAX_FIND_MATCHES: usize = 500;
 pub const MAX_DIRECTORY_ENTRIES: usize = 500;
@@ -84,10 +83,6 @@ pub enum SearchMode {
     Content,
     Files,
     Count,
-}
-
-impl FileSearch {
-    pub const MAX_GLOBS: usize = 64;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

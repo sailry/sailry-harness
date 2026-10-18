@@ -5,9 +5,10 @@ pub(in crate::files) fn read<'a>(
     input: &notebook::Read,
     control: &Control,
 ) -> Result<notebook::Page, Fault> {
-    if !(1..=notebook::MAX_CELLS).contains(&input.limit) {
-        return Err(Fault::invalid("notebook cell limit is out of range"));
+    if input.limit == 0 {
+        return Err(Fault::invalid("notebook cell limit must be positive"));
     }
+    let page_limit = input.limit.min(notebook::MAX_CELLS);
     let text = lines::complete(root, &input.path, control)?;
     let value = validation::parse(&text)?;
     let original = value["cells"].as_array().expect("validated notebook cells");
@@ -39,7 +40,7 @@ pub(in crate::files) fn read<'a>(
         let length = serde_json::to_vec(&cell)
             .map_err(|_| Fault::invalid("invalid notebook cell JSON"))?
             .len();
-        if cells.len() == input.limit || bytes + length > notebook::MAX_PAGE_BYTES {
+        if cells.len() == page_limit || bytes + length > notebook::MAX_PAGE_BYTES {
             next_offset = Some(index);
             break;
         }

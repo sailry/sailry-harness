@@ -4,9 +4,7 @@ use super::{Control, io_error, path};
 use cap_std::fs::{Dir, Metadata};
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use ignore::gitignore::Gitignore;
-use sailry_protocol::{
-    ErrorCode, Fault, FileNames, FileSearch, MAX_FIND_MATCHES, SearchDiagnostic,
-};
+use sailry_protocol::{ErrorCode, Fault, FileNames, MAX_FIND_MATCHES, SearchDiagnostic};
 use std::{path::Path, time::SystemTime};
 
 pub(crate) mod ignores;
@@ -47,13 +45,6 @@ pub(super) struct Listing {
 }
 
 pub(super) fn globs(patterns: &[String]) -> Result<GlobSet, Fault> {
-    if patterns.len() > FileSearch::MAX_GLOBS
-        || patterns
-            .iter()
-            .any(|pattern| pattern.encode_utf16().take(4097).count() > 4096)
-    {
-        return Err(Fault::invalid("invalid file glob pattern or options"));
-    }
     let mut builder = GlobSetBuilder::new();
     for pattern in patterns {
         builder.add(
@@ -77,13 +68,9 @@ pub(super) fn find<'a>(
     offset: usize,
     control: &Control,
 ) -> Result<FileNames, Fault> {
-    if patterns.is_empty()
-        || patterns.iter().any(String::is_empty)
-        || limit == 0
-        || limit > MAX_FIND_MATCHES
-    {
+    if patterns.is_empty() || patterns.iter().any(String::is_empty) || limit == 0 {
         return Err(Fault::invalid(
-            "file discovery requires nonempty glob patterns and a limit from 1 to 500",
+            "file discovery requires nonempty glob patterns and a positive limit",
         ));
     }
     let matcher = globs(patterns)?;
@@ -102,7 +89,7 @@ pub(super) fn find<'a>(
         .entries
         .into_iter()
         .skip(offset)
-        .take(limit)
+        .take(limit.min(MAX_FIND_MATCHES))
         .map(|entry| entry.path)
         .collect();
     let end = offset.saturating_add(paths.len());

@@ -142,23 +142,23 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["worktree", "path", "scope"],
         ),
         Operation::ReadGitLog => (
-            json!({"worktree":target,"limit":{"type":"integer","minimum":1,"maximum":100},"cursor":{"type":["object","null"],"properties":{"head":string,"offset":{"type":"integer","minimum":0}},"required":["head","offset"],"additionalProperties":false}}),
+            json!({"worktree":target,"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64},"cursor":{"type":["object","null"],"properties":{"head":string,"offset":{"type":"integer","minimum":0}},"required":["head","offset"],"additionalProperties":false}}),
             vec!["worktree", "limit", "cursor"],
         ),
         Operation::ReadGitShow => (
-            json!({"worktree":target,"revision":string,"path":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":sailry_protocol::MAX_GIT_SHOW_LINES}}),
+            json!({"worktree":target,"revision":string,"path":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64}}),
             vec!["worktree", "revision", "path", "offset", "limit"],
         ),
         Operation::ReadGitBlame => (
-            json!({"worktree":target,"revision":{"type":["string","null"]},"path":string,"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}),
+            json!({"worktree":target,"revision":{"type":["string","null"]},"path":string,"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64}}),
             vec!["worktree", "revision", "path", "offset", "limit"],
         ),
         Operation::ListGitChanges => (
-            json!({"worktree":target,"target":changes::target(),"cursor":changes::cursor(),"limit":{"type":"integer","minimum":1,"maximum":500}}),
+            json!({"worktree":target,"target":changes::target(),"cursor":changes::cursor(),"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64}}),
             vec!["worktree", "target", "cursor", "limit"],
         ),
         Operation::ReadGitChange => (
-            json!({"worktree":target,"snapshot":changes::snapshot(),"path":string,"expected_metadata_revision":string,"expected_revision":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":500}}),
+            json!({"worktree":target,"snapshot":changes::snapshot(),"path":string,"expected_metadata_revision":string,"expected_revision":{"type":["string","null"]},"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64}}),
             vec![
                 "worktree",
                 "snapshot",

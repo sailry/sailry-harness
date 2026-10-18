@@ -127,7 +127,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
             "Find regular file paths by glob within path, respecting .gitignore and never following symlinks. Newest files come first. Use next_offset for another page; partial scans have no continuation"
         }
         Operation::SearchFiles => {
-            "Search UTF-8 files within path using embedded ripgrep matching, respecting .gitignore and never following symlinks. Choose content rows, matching paths, or matching line counts. type uses ripgrep language names; context adds up to five neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial"
+            "Search UTF-8 files within path using embedded ripgrep matching, respecting .gitignore and never following symlinks. Choose content rows, matching paths, or matching line counts. type uses ripgrep language names; context adds neighboring lines; multiline permits newline-spanning matches. Use next_offset for complete-scan pagination; narrow path if partial"
         }
         Operation::ReadOffice => {
             "Read document sections from a worktree path or a current-turn attachment ID"
@@ -150,7 +150,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["path", "after"],
         ),
         Operation::ReadFile => (
-            json!({"path":path,"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":sailry_protocol::MAX_FILE_LINES,"default":200}}),
+            json!({"path":path,"offset":{"type":"integer","minimum":0,"default":0},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":200}}),
             vec!["path"],
         ),
         Operation::WriteFile => (
@@ -168,11 +168,11 @@ pub(super) fn parameters(operation: Operation) -> Value {
         ),
         Operation::CreateDirectory => (json!({"path":path}), vec!["path"]),
         Operation::FindFiles => (
-            json!({"globs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":4096},"minItems":1,"maxItems":FileSearch::MAX_GLOBS},"path":{"type":"string","default":""},"limit":{"type":"integer","minimum":1,"maximum":500,"default":500},"offset":{"type":"integer","minimum":0,"default":0}}),
+            json!({"globs":{"type":"array","items":{"type":"string","minLength":1},"minItems":1},"path":{"type":"string","default":""},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":500},"offset":{"type":"integer","minimum":0,"default":0}}),
             vec!["globs"],
         ),
         Operation::SearchFiles => (
-            json!({"query":{"type":"string","minLength":1},"regex":{"type":"boolean","default":false},"case_sensitive":{"type":"boolean","default":false},"globs":{"type":"array","items":{"type":"string"},"default":[]},"path":{"type":"string","default":""},"mode":{"type":"string","enum":["content","files","count"],"default":"content"},"context":{"type":"integer","minimum":0,"maximum":5,"default":0},"type":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"maximum":200,"default":200},"offset":{"type":"integer","minimum":0,"default":0},"multiline":{"type":"boolean","default":false}}),
+            json!({"query":{"type":"string","minLength":1},"regex":{"type":"boolean","default":false},"case_sensitive":{"type":"boolean","default":false},"globs":{"type":"array","items":{"type":"string"},"default":[]},"path":{"type":"string","default":""},"mode":{"type":"string","enum":["content","files","count"],"default":"content"},"context":{"type":"integer","minimum":0,"maximum":9_007_199_254_740_991u64,"default":0},"type":{"type":["string","null"]},"limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":200},"offset":{"type":"integer","minimum":0,"default":0},"multiline":{"type":"boolean","default":false}}),
             vec!["query"],
         ),
         Operation::ReadNotebook => {
@@ -198,7 +198,7 @@ fn edit_schema() -> Value {
     let all = json!({"type":"boolean","default":false});
     json!({"type":"object", "properties":{
     "path":{"type":"string"}, "old_text":old, "new_text":new, "replace_all":all,
-    "edits":{"type":"array","minItems":1,"maxItems":sailry_protocol::MAX_FILE_EDITS,
+    "edits":{"type":"array","minItems":1,
         "items":{"type":"object","properties":{"old_text":old,"new_text":new,"replace_all":all},
             "required":["old_text","new_text"],"additionalProperties":false}},
     "expected_revision":{"type":"string","pattern":"^[a-fA-F0-9]{64}$"}},

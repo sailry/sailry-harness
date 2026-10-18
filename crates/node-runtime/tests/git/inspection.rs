@@ -197,7 +197,7 @@ async fn shares_committed_file_pages_and_authorship() {
                 "external secret sentinel"
             );
         }
-        for (offset, limit) in [(4, 2), (0, 0), (0, MAX_GIT_LINES + 1), (usize::MAX, 1)] {
+        for (offset, limit) in [(4, 2), (0, 0), (usize::MAX, 1)] {
             assert_eq!(
                 client
                     .execute(client.prepare(Command::ReadGitBlame {
@@ -260,6 +260,11 @@ async fn reports_bounded_text_and_binary_files() {
     std::fs::write(root.join("binary.dat"), b"\0\x01").unwrap();
     std::fs::write(root.join("rows.txt"), "line\n".repeat(1250)).unwrap();
     std::fs::write(
+        root.join("tall.txt"),
+        "line\n".repeat(MAX_GIT_SHOW_LINES + 3),
+    )
+    .unwrap();
+    std::fs::write(
         root.join("wide.txt"),
         format!("{}\n", "x".repeat(100)).repeat(1200),
     )
@@ -316,18 +321,24 @@ async fn reports_bounded_text_and_binary_files() {
             }
         }
         assert_eq!(offset, 1200);
-        let oversized = client
-            .execute(client.prepare(Command::ReadGitShow {
-                worktree: id,
-                revision: rows.commit,
-                path: Some("rows.txt".into()),
-                offset: 0,
-                limit: MAX_GIT_SHOW_LINES + 1,
-            }))
-            .await
-            .unwrap_err();
-        assert_eq!(oversized.code, ErrorCode::InvalidRequest);
-        assert!(oversized.message.contains("2000"));
+        let large = show(client, id, &rows.commit, "tall.txt", 0, 1_000_000).await;
+        assert_eq!(large.text.lines().count(), MAX_GIT_SHOW_LINES);
+        assert_eq!(large.next, Some(MAX_GIT_SHOW_LINES));
+        let tail = show(
+            client,
+            id,
+            &large.commit,
+            "tall.txt",
+            large.next.unwrap(),
+            1_000_000,
+        )
+        .await;
+        assert_eq!(tail.text.lines().count(), 3);
+        assert_eq!(tail.next, None);
+        let large = blame(client, id, Some(&rows.commit), "tall.txt", 0, 1_000_000).await;
+        assert_eq!(large.entries.len(), MAX_GIT_LINES);
+        assert_eq!(large.next, Some(MAX_GIT_LINES));
+        assert_eq!(large.commit, rows.commit);
         let page = show(client, id, "HEAD", "large.txt", 0, 200).await;
         assert!(page.truncated);
         assert_eq!(page.truncated_line, Some(1));

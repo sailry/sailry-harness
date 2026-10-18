@@ -160,15 +160,6 @@ fn rejects_mixed_or_empty_edit_forms() {
             ErrorCode::InvalidRequest
         );
     }
-    assert!(
-        changes(
-            None,
-            None,
-            false,
-            Some(&vec![change("old", "new", true); MAX_FILE_EDITS + 1])
-        )
-        .is_err()
-    );
 }
 
 #[test]
@@ -241,7 +232,7 @@ fn rejects_stale_revisions_and_invalid_content() {
         .code,
         ErrorCode::RevisionConflict
     );
-    for replacement in ["\0".into(), "x".repeat(MAX_FILE_BYTES + 1)] {
+    for replacement in ["\0".into(), "x".repeat(MAX_EDIT_BYTES + 1)] {
         assert_eq!(
             single(
                 &root.path().canonicalize().unwrap(),
@@ -285,5 +276,39 @@ fn rejects_symlink_escape() {
     assert_eq!(
         std::fs::read_to_string(outside.path().join("file")).unwrap(),
         "original"
+    );
+}
+
+#[test]
+fn applies_large_batches_and_text_atomically() {
+    let before = (0..129)
+        .map(|index| format!("unique-{index:04}\n"))
+        .collect::<String>();
+    let edits = (0..129)
+        .map(|index| {
+            change(
+                &format!("unique-{index:04}\n"),
+                &format!("changed-{index:04}\n"),
+                false,
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected = (0..129)
+        .map(|index| format!("changed-{index:04}\n"))
+        .collect::<String>();
+    assert_eq!(
+        prepare(&before, &edits, &revision(&before)).unwrap(),
+        expected
+    );
+    let before = "x".repeat(128 * 1024 + 1);
+    let replacement = "y".repeat(128 * 1024 + 1);
+    assert_eq!(
+        prepare(
+            &before,
+            &[change(&before, &replacement, false)],
+            &revision(&before)
+        )
+        .unwrap(),
+        replacement
     );
 }

@@ -170,6 +170,38 @@ fn reads_legacy_cells_without_rewriting() {
 }
 
 #[test]
+fn pages_large_cell_requests_without_rewriting() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let mut value = sample();
+    value["cells"] = Value::Array((0..notebook::MAX_CELLS + 1).map(|index| json!({"cell_type":"raw","id":format!("cell-{index}"),"source":"text","metadata":{}})).collect());
+    let before = value.to_string();
+    let path = root.join("sample.ipynb");
+    std::fs::write(&path, &before).unwrap();
+    let request = notebook::Read {
+        path: "sample.ipynb".into(),
+        offset: 0,
+        limit: 1_000_000,
+    };
+    let first = read(&root, &request, &Control::new(CancellationToken::new())).unwrap();
+    assert_eq!(first.cells.len(), notebook::MAX_CELLS);
+    assert_eq!(first.next_offset, Some(notebook::MAX_CELLS));
+    let next = read(
+        &root,
+        &notebook::Read {
+            offset: first.next_offset.unwrap(),
+            ..request
+        },
+        &Control::new(CancellationToken::new()),
+    )
+    .unwrap();
+    assert_eq!(next.cells.len(), 1);
+    assert_eq!(next.next_offset, None);
+    assert_eq!(next.revision, first.revision);
+    assert_eq!(std::fs::read_to_string(path).unwrap(), before);
+}
+
+#[test]
 fn rejects_missing_current_ids_without_rewriting() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().canonicalize().unwrap();
@@ -190,4 +222,43 @@ fn rejects_missing_current_ids_without_rewriting() {
     .unwrap_err();
     assert_eq!(error.message, "notebook cell ID is missing");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+}
+
+#[test]
+fn applies_large_batches_without_partial_changes() {
+    let before = sample().to_string();
+    let edits = (0..101)
+        .map(|_| notebook::Change::Insert {
+            index: 0,
+            cell_type: notebook::Kind::Raw,
+            source: "new".into(),
+        })
+        .collect();
+    let input = notebook::Edit {
+        path: "sample.ipynb".into(),
+        expected_revision: blake3::hash(before.as_bytes()).to_hex().to_string(),
+        edits,
+    };
+    let after = prepare(&before, &input).unwrap();
+    let after: Value = serde_json::from_str(&after).unwrap();
+    assert_eq!(
+        after["cells"].as_array().unwrap().len(),
+        sample()["cells"].as_array().unwrap().len() + 101
+    );
+    assert!(
+        after["cells"].as_array().unwrap()[..101]
+            .iter()
+            .all(|cell| cell["source"] == "new")
+    );
+    let source = "x".repeat(512 * 1024 + 1);
+    let input = notebook::Edit {
+        edits: vec![notebook::Change::Replace {
+            index: 0,
+            source: source.clone(),
+        }],
+        ..input
+    };
+    let after = prepare(&before, &input).unwrap();
+    let after: Value = serde_json::from_str(&after).unwrap();
+    assert_eq!(after["cells"][0]["source"], source);
 }

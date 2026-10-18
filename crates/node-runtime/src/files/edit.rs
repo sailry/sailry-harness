@@ -1,8 +1,6 @@
 use super::{Control, lines, save::Target};
 use sailry_link::CancellationToken;
-use sailry_protocol::{
-    ErrorCode, Fault, FileEdit, FileWritten, MAX_EDIT_BYTES, MAX_FILE_BYTES, MAX_FILE_EDITS,
-};
+use sailry_protocol::{ErrorCode, Fault, FileEdit, FileWritten, MAX_EDIT_BYTES};
 use std::{borrow::Cow, cmp::Reverse, collections::BinaryHeap};
 mod text;
 
@@ -26,16 +24,19 @@ pub(crate) fn changes<'a>(
         }
     };
     if changes.is_empty()
-        || changes.len() > MAX_FILE_EDITS
         || changes.iter().any(|edit| {
-            edit.old_text.is_empty()
-                || edit.old_text.len() > MAX_FILE_BYTES
-                || edit.new_text.len() > MAX_FILE_BYTES
-                || edit.old_text.contains('\0')
-                || edit.new_text.contains('\0')
+            edit.old_text.is_empty() || edit.old_text.contains('\0') || edit.new_text.contains('\0')
         })
     {
         return Err(Fault::invalid("invalid file edit content or count"));
+    }
+    let bytes = changes.iter().try_fold(0usize, |bytes, edit| {
+        bytes
+            .checked_add(edit.old_text.len())?
+            .checked_add(edit.new_text.len())
+    });
+    if bytes.is_none_or(|bytes| bytes > MAX_EDIT_BYTES) {
+        return Err(Fault::invalid("file edits exceed the total byte budget"));
     }
     Ok(changes)
 }

@@ -312,14 +312,6 @@ fn rejects_invalid_options() {
             ..options()
         },
         FileSearch {
-            limit: 201,
-            ..options()
-        },
-        FileSearch {
-            context: 6,
-            ..options()
-        },
-        FileSearch {
             file_type: Some("not-a-language".into()),
             ..options()
         },
@@ -338,6 +330,81 @@ fn rejects_invalid_options() {
             ErrorCode::InvalidRequest
         );
     }
+}
+
+#[test]
+fn preserves_large_context_across_bounded_pages() {
+    let root = directory();
+    let text = (1..=401)
+        .map(|line| {
+            if line == 201 {
+                "hit\n".into()
+            } else {
+                format!("line {line}\n")
+            }
+        })
+        .collect::<String>();
+    std::fs::write(root.path().join("file.txt"), text).unwrap();
+    for context in [6, 8] {
+        let page = search(
+            root.path(),
+            &FileSearch {
+                context,
+                limit: 1_000_000,
+                ..options()
+            },
+            &control(),
+        )
+        .unwrap();
+        assert_eq!(page.matches.len(), 2 * context + 1);
+        assert_eq!(page.matches.first().unwrap().line_number, 201 - context);
+        assert_eq!(page.matches.last().unwrap().line_number, 201 + context);
+        assert_eq!(page.matches.iter().filter(|row| row.matched).count(), 1);
+        assert!(page.next_offset.is_none());
+    }
+    let options = FileSearch {
+        context: 1000,
+        limit: 1_000_000,
+        ..options()
+    };
+    let mut offset = 0;
+    let mut lines = Vec::new();
+    loop {
+        let page = search(
+            root.path(),
+            &FileSearch {
+                offset,
+                ..options.clone()
+            },
+            &control(),
+        )
+        .unwrap();
+        assert!(page.matches.len() <= MAX_SEARCH_MATCHES);
+        lines.extend(page.matches.iter().map(|row| row.line_number));
+        let Some(next) = page.next_offset else { break };
+        assert_eq!(next, offset + page.matches.len());
+        offset = next;
+    }
+    assert_eq!(lines, (1..=401).collect::<Vec<_>>());
+}
+
+#[test]
+fn accepts_long_queries_without_changing_the_pattern() {
+    let root = directory();
+    let query = "x".repeat(4097);
+    std::fs::write(root.path().join("file.txt"), format!("{query}\n")).unwrap();
+    let result = search(
+        root.path(),
+        &FileSearch {
+            query: query.clone(),
+            ..options()
+        },
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(result.matches.len(), 1);
+    assert_eq!(result.matches[0].line, query);
+    assert!(result.matches[0].matched);
 }
 
 #[test]

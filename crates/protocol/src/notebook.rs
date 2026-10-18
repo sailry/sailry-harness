@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const MAX_CELLS: usize = 100;
-pub const MAX_SOURCE_BYTES: usize = 512 * 1024;
 pub const MAX_PAGE_BYTES: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

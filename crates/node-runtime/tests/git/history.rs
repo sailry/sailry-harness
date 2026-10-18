@@ -98,7 +98,7 @@ async fn shares_read_only_history() {
         assert!(page.entries[0].truncated);
         assert!(page.entries[0].message.len() <= 4096);
         assert!(page.entries[0].message.starts_with("中文提交"));
-        let history = log(client, id, MAX_GIT_COMMITS).await;
+        let history = log(client, id, 1_000_000).await;
         assert_eq!(history.entries.len(), 2);
         assert!(!history.truncated);
         assert!(
@@ -174,20 +174,18 @@ async fn shares_read_only_history() {
             .await
             .unwrap_err();
         assert_eq!(fault.code, ErrorCode::NotFound);
-        for limit in [0, MAX_GIT_COMMITS + 1] {
-            assert_eq!(
-                client
-                    .execute(client.prepare(Command::ReadGitLog {
-                        worktree: id,
-                        limit,
-                        cursor: None,
-                    }))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::InvalidRequest
-            );
-        }
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ReadGitLog {
+                    worktree: id,
+                    limit: 0,
+                    cursor: None,
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
     }
     let admission = transport
         .dispatch(remote.prepare(Command::ReadGitLog {

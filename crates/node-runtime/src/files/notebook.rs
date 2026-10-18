@@ -52,7 +52,7 @@ pub(crate) fn prepare(before: &str, input: &notebook::Edit) -> Result<String, Fa
             "notebook changed before editing",
         ));
     }
-    if input.edits.is_empty() || input.edits.len() > notebook::MAX_CELLS {
+    if input.edits.is_empty() {
         return Err(Fault::invalid("notebook edit count is out of range"));
     }
     let mut value = validation::parse(before)?;
@@ -127,11 +127,6 @@ pub(crate) fn prepare(before: &str, input: &notebook::Edit) -> Result<String, Fa
     }
     if let Some(inserted) = insertions.remove(&count) {
         cells.extend(inserted);
-    }
-    if cells.len() > validation::MAX_COUNT {
-        return Err(Fault::invalid(
-            "edited notebook cell count exceeds the limit",
-        ));
     }
     let mut after = serde_json::to_string_pretty(&value)
         .map_err(|_| Fault::invalid("invalid notebook JSON"))?;

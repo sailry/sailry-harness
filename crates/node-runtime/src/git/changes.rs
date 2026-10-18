@@ -83,7 +83,7 @@ pub(super) fn list(
             result.exhausted = false;
             break;
         }
-        if result.entries.len() == limit {
+        if result.entries.len() == limit.min(MAX_GIT_LINES) {
             break;
         }
     }
@@ -98,10 +98,11 @@ pub(super) fn read(
     snapshot: GitChangeSnapshot,
     path: &str,
     expected_metadata: &str,
-    page: Page<'_>,
+    mut page: Page<'_>,
     control: &Control,
 ) -> Result<GitChange, Fault> {
     validate_page(page.offset, page.limit)?;
+    page.limit = page.limit.min(MAX_GIT_LINES);
     super::valid_path(path)?;
     digest(expected_metadata)?;
     if let Some(revision) = page.expected_revision {
@@ -128,7 +129,7 @@ pub(super) fn read(
 }
 
 fn validate_page(offset: usize, limit: usize) -> Result<(), Fault> {
-    if limit == 0 || limit > MAX_GIT_LINES || offset > MAX_GIT_FILE_BYTES {
+    if limit == 0 || offset.checked_add(limit).is_none() {
         return Err(Fault::invalid("invalid Git change page"));
     }
     Ok(())

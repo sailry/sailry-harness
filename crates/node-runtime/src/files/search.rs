@@ -38,14 +38,10 @@ pub(super) fn search<'a>(
 ) -> Result<SearchResults, Fault> {
     let root = root.into();
     control.check()?;
-    if options.query.is_empty()
-        || options.query.len() > 4096
-        || options.limit == 0
-        || options.limit > MAX_SEARCH_MATCHES
-        || options.context > 5
-    {
+    if options.query.is_empty() || options.limit == 0 {
         return Err(invalid());
     }
+    let page_limit = options.limit.min(MAX_SEARCH_MATCHES);
     let globs = walk::globs(&options.globs)?;
     let mut types = TypesBuilder::new();
     types.add_defaults();
@@ -88,7 +84,7 @@ pub(super) fn search<'a>(
                 scope.spawn(|| {
                     let mut outcomes = Vec::new();
                     let mut searcher = engine(options);
-                    let mut retained = options.limit;
+                    let mut retained = page_limit;
                     loop {
                         let index = next.fetch_add(1, Ordering::Relaxed);
                         let Some(entry) = listing.entries.get(index) else {
@@ -159,7 +155,7 @@ pub(super) fn search<'a>(
             result.matches = scans
                 .into_iter()
                 .flat_map(|(_, scan)| scan.rows)
-                .take(options.limit)
+                .take(page_limit)
                 .collect();
         } else {
             diagnose(
@@ -180,9 +176,7 @@ pub(super) fn search<'a>(
             usize::from(scan.count > 0)
         };
         let end = position.saturating_add(count);
-        if count > 0
-            && end > options.offset
-            && position < options.offset.saturating_add(options.limit)
+        if count > 0 && end > options.offset && position < options.offset.saturating_add(page_limit)
         {
             match options.mode {
                 SearchMode::Files => result.paths.push(scan.path),
@@ -194,7 +188,7 @@ pub(super) fn search<'a>(
                     let range = options.offset.saturating_sub(position)
                         ..options
                             .offset
-                            .saturating_add(options.limit)
+                            .saturating_add(page_limit)
                             .saturating_sub(position)
                             .min(count);
                     match read_page(root, &scan, range, &matcher, &mut searcher, control) {

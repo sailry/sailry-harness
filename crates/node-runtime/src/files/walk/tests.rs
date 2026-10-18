@@ -60,9 +60,12 @@ fn bounds_results() {
         std::fs::write(&file, "").unwrap();
         timestamp(&file, 1000);
     }
-    let result = find(
+    let result = super::find(
         &root.path().canonicalize().unwrap(),
         &["**/*".into()],
+        "",
+        1_000_000,
+        0,
         &control(),
     )
     .unwrap();
@@ -80,8 +83,6 @@ fn rejects_patterns_and_observes_cancellation() {
         vec![String::new()],
         vec!["**/*".into(), String::new()],
         vec!["[".into()],
-        vec!["**/*".into(); FileSearch::MAX_GLOBS + 1],
-        vec!["x".repeat(4097)],
     ] {
         assert_eq!(
             find(&path, &patterns, &control()).unwrap_err().code,
@@ -97,17 +98,13 @@ fn rejects_patterns_and_observes_cancellation() {
 }
 
 #[test]
-fn measures_globs_like_the_script_handler() {
+fn accepts_large_globs_without_shortening_patterns() {
     let root = directory();
     let path = root.path().canonicalize().unwrap();
-    let result = find(&path, &["🙂".repeat(2048)], &control()).unwrap();
-    assert!(result.paths.is_empty());
-    assert_eq!(
-        find(&path, &["🙂".repeat(2049)], &control())
-            .unwrap_err()
-            .code,
-        ErrorCode::InvalidRequest,
-    );
+    for patterns in [vec!["🙂".repeat(4097)], vec!["*.rs".into(); 65]] {
+        let result = find(&path, &patterns, &control()).unwrap();
+        assert!(result.paths.is_empty());
+    }
 }
 
 #[cfg(unix)]
