@@ -55,6 +55,9 @@ impl Shell {
                         sessions.sort_by_key(|(key, session)| {
                             (!session.pinned, std::cmp::Reverse(**key))
                         });
+                        let group = limits::Group::PreviewProject(self.host, id);
+                        let more = sessions.len() > limits::INITIAL;
+                        sessions.truncate(self.sidebar.session_limit(group));
                         let last_session = sessions.last().map(|(key, _)| **key);
                         let last_terminal = self
                             .workspace
@@ -337,7 +340,8 @@ impl Shell {
                                                         )),
                                                     )
                                             }),
-                                    ),
+                                    )
+                                    .children(self.more_sessions(group, more, cx)),
                             )
                     }),
             )

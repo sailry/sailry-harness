@@ -153,6 +153,41 @@ fn project(
     rows
 }
 
+fn window(rows: Vec<Entry>, expanded: bool) -> (Vec<Entry>, bool) {
+    let mut remaining = super::limits::INITIAL;
+    let mut total = 0;
+    let mut visible = Vec::new();
+    let mut rows = rows.into_iter().peekable();
+    while let Some(root) = rows.next() {
+        let mut members = vec![root];
+        while rows.peek().is_some_and(|row| !row.ancestors.is_empty()) {
+            members.push(rows.next().unwrap());
+        }
+        if members
+            .iter()
+            .any(|row| matches!(row.target, Target::Session(..)))
+        {
+            total += 1;
+            if !expanded && remaining == 0 {
+                continue;
+            }
+            remaining = remaining.saturating_sub(1);
+        }
+        visible.extend(members);
+    }
+    let last = visible.iter().rposition(|row| row.ancestors.is_empty());
+    let mut root = 0;
+    for (index, row) in visible.iter_mut().enumerate() {
+        if row.ancestors.is_empty() {
+            root = index;
+            row.last = Some(index) == last;
+        } else {
+            row.ancestors[0] = Some(root) != last;
+        }
+    }
+    (visible, total > super::limits::INITIAL)
+}
+
 impl Shell {
     pub(crate) fn live_resource_rows(
         &self,
@@ -208,15 +243,23 @@ impl Shell {
             |target| self.splits.read(cx).parent(target),
             |target| self.splits.read(cx).ordered_members(target, cx),
         );
+        let group = project_id.map(|project| limits::Group::Project(node, project));
+        let rows = rows
+            .into_iter()
+            .filter(|row| row.project == project_id)
+            .collect();
+        let (rows, more) = if let Some(group) = group {
+            window(rows, self.sidebar.sessions_expanded(group))
+        } else {
+            (rows, false)
+        };
         v_flex()
             .gap_0p5()
             .children(
                 rows.iter()
                     .filter(|row| {
-                        row.project == project_id
-                            && row
-                                .group
-                                .is_none_or(|group| row.folder || self.sidebar.group_open(group))
+                        row.group
+                            .is_none_or(|group| row.folder || self.sidebar.group_open(group))
                     })
                     .map(|row| match row.target {
                         Target::Session(..) => {
@@ -257,6 +300,7 @@ impl Shell {
                         Target::Draft => unreachable!(),
                     }),
             )
+            .children(group.and_then(|group| self.more_sessions(group, more, cx)))
             .into_any_element()
     }
 }
@@ -465,6 +509,84 @@ mod tests {
         assert_eq!(
             changed.iter().map(|row| row.target).collect::<Vec<_>>(),
             [b, terminal, terminal, c, d, nested, a]
+        );
+    }
+
+    #[test]
+    fn keeps_split_groups_whole() {
+        let node = NodeId([1; 32]);
+        let owner = Some(ProjectId::new());
+        let roots: Vec<_> = (0..7)
+            .map(|_| Target::Session(node, SessionId::new()))
+            .collect();
+        let children: Vec<_> = (0..7)
+            .map(|_| Target::Session(node, SessionId::new()))
+            .collect();
+        let entries: Vec<_> = roots
+            .iter()
+            .chain(&children)
+            .enumerate()
+            .map(|(rank, target)| (*target, owner, Some(rank)))
+            .collect();
+        let build = || {
+            project(
+                &entries,
+                |target| children.contains(&target).then_some(roots[0]),
+                |_| Vec::new(),
+            )
+        };
+        let (visible, more) = window(build(), false);
+        assert!(more);
+        assert_eq!(
+            visible
+                .iter()
+                .filter(|row| row.ancestors.is_empty())
+                .count(),
+            5
+        );
+        assert!(
+            children
+                .iter()
+                .all(|target| visible.iter().any(|row| row.target == *target))
+        );
+        assert_eq!(visible.last().unwrap().target, roots[4]);
+        assert!(visible.last().unwrap().last);
+        assert!(
+            visible
+                .iter()
+                .filter(|row| !row.ancestors.is_empty())
+                .all(|row| row.ancestors[0])
+        );
+        let (expanded, more) = window(build(), true);
+        assert!(more);
+        assert_eq!(
+            expanded
+                .iter()
+                .filter(|row| row.ancestors.is_empty())
+                .count(),
+            7
+        );
+    }
+
+    #[test]
+    fn retains_terminal_roots_outside_session_limit() {
+        let node = NodeId([1; 32]);
+        let owner = Some(ProjectId::new());
+        let terminal = Target::Terminal(node, WorktreeId::new(), TerminalId::new());
+        let mut entries = vec![(terminal, owner, None)];
+        entries.extend(
+            (0..6).map(|rank| (Target::Session(node, SessionId::new()), owner, Some(rank))),
+        );
+        let (visible, more) = window(project(&entries, |_| None, |_| Vec::new()), false);
+        assert!(more);
+        assert_eq!(visible.len(), 6);
+        assert!(visible.iter().any(|row| row.target == terminal));
+        assert_eq!(
+            visible
+                .iter()
+                .filter(|row| matches!(row.target, Target::Session(..)))
+                .count(),
+            5
         );
     }
 }

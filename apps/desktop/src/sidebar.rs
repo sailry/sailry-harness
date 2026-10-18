@@ -1,5 +1,6 @@
 mod active;
 mod groups;
+mod limits;
 mod order;
 mod projects;
 mod recent;
@@ -54,6 +55,7 @@ pub struct State {
     order_drop: Option<(Row, bool)>,
     pub(crate) order_pending: bool,
     closed_groups: BTreeSet<crate::panes::Target>,
+    expanded_sessions: BTreeSet<limits::Group>,
     hosts_closed: bool,
     projects_closed: bool,
     recent_open: bool,
