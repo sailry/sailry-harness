@@ -18,7 +18,9 @@ use gpui_kit::*;
 use std::collections::HashSet;
 mod catalog;
 mod cloud;
+mod consent;
 mod credential;
+mod directory;
 mod discovery;
 mod entry;
 mod flow;
@@ -26,23 +28,28 @@ mod hosted;
 mod kind;
 mod live;
 mod oauth;
-mod partners;
 mod region;
 
 pub(super) struct Editor {
     pub(super) focus: FocusHandle,
     flow: flow::Flow,
     search: Entity<InputState>,
-    partners: sailry_protocol::conversation::partners::Catalog,
+    directory: Vec<sailry_protocol::conversation::presets::Entry>,
+    selected: Option<sailry_protocol::conversation::presets::Entry>,
+    selected_ref: Option<sailry_protocol::conversation::presets::PresetRef>,
+    saved_consent: Option<sailry_protocol::conversation::consent::Approval>,
+    consent_scopes: sailry_protocol::conversation::consent::Scopes,
+    consent_changed: bool,
     partner_key_url: Option<String>,
-    partner: Option<String>,
+    directory_task: Option<Task<()>>,
     partner_task: Option<Task<()>>,
+    partners_requested: bool,
     owner: Entity<Workspace>,
     editing: Option<usize>,
     pub preset: Preset,
     name: Entity<InputState>,
     endpoint: Entity<InputState>,
-    region: Entity<gpui_kit::component::select::SelectState<Vec<super::vendors::Region>>>,
+    region: Entity<gpui_kit::component::select::SelectState<Vec<region::Choice>>>,
     offering: Entity<gpui_kit::component::select::SelectState<Vec<hosted::Offering>>>,
     hosted_product: Option<sailry_protocol::conversation::connection::Product>,
     credential: Entity<InputState>,
@@ -115,7 +122,7 @@ pub(super) fn open(
                                     .label(tr(
                                         if real
                                             && editor.read(cx).editing.is_none()
-                                            && editor.read(cx).preset.oauth()
+                                            && editor.read(cx).can_login()
                                             && !editor.read(cx).configured
                                         {
                                             "provider_save_login"
@@ -216,13 +223,20 @@ impl Editor {
         let mut editor = Self {
             flow: flow::Flow::new(editing.is_some()),
             search,
-            partners: sailry_protocol::conversation::partners::Catalog {
-                version: 1,
-                partners: Vec::new(),
-            },
+            directory: super::presets::bundled(),
+            selected: None,
+            saved_consent: provider
+                .as_ref()
+                .and_then(|provider| provider.consent.as_deref().cloned()),
+            consent_scopes: Default::default(),
+            consent_changed: false,
+            selected_ref: provider
+                .as_ref()
+                .and_then(|provider| provider.preset.clone()),
             partner_key_url: None,
-            partner: None,
+            directory_task: None,
             partner_task: None,
+            partners_requested: false,
             focus: cx.focus_handle(),
             cloud,
             oauth,
@@ -261,7 +275,16 @@ impl Editor {
                 .new(|cx| InputState::new(window, cx).placeholder(tr("provider_key_hint"))),
             error: None,
         };
+        editor.selected = editor.selected_ref.as_ref().and_then(|reference| {
+            editor
+                .directory
+                .iter()
+                .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
+                .cloned()
+        });
+        editor.restore_consent();
         editor.load_key(window, cx);
+        editor.load_directory(false, window, cx);
         editor
     }
 
@@ -272,7 +295,6 @@ impl Editor {
         let same_kind = self.preset.kind() == preset.kind();
         self.preset = preset;
         self.partner_key_url = None;
-        self.partner = None;
         self.hosted_product = matches!(preset, Preset::Hosted(_))
             .then_some(sailry_protocol::conversation::connection::Product::Metered);
         self.probe = None;
@@ -429,8 +451,8 @@ impl Editor {
             return Err("provider_endpoint_required");
         }
         let configured = !self.credential.read(cx).value().trim().is_empty()
-            || (self.configured && (self.binding.is_none() || !self.preset.key_auth()));
-        if self.preset.key_auth()
+            || (self.configured && (self.binding.is_none() || !self.uses_key()));
+        if self.uses_key()
             && !configured
             && !(self.binding.is_some() && self.preset.custom_endpoint() && !self.preset.cloud())
         {
@@ -440,7 +462,7 @@ impl Editor {
                 "provider_preview_key_required"
             });
         }
-        if self.models.is_empty() && !(self.binding.is_some() && self.preset.oauth()) {
+        if self.models.is_empty() && !(self.binding.is_some() && self.uses_login()) {
             return Err("provider_model_required");
         }
         let mut models = self
@@ -455,7 +477,13 @@ impl Editor {
             })
             .collect::<Result<Vec<_>, &'static str>>()?;
         for model in &mut models {
-            if !self.preset.web_search() {
+            if !self
+                .selected
+                .as_ref()
+                .map_or(self.preset.web_search(), |entry| {
+                    entry.preset.capabilities.web_search
+                })
+            {
                 model.web_search = false;
             }
         }
@@ -464,14 +492,20 @@ impl Editor {
             return Err("provider_model_duplicate");
         }
         Ok(Channel {
-            options: if matches!(self.preset, Preset::Hosted(_)) {
+            options: if let Some(product) = self.selected_route().and_then(|route| route.product) {
+                Some(sailry_protocol::conversation::connection::Options::Hosted { product })
+            } else if matches!(self.preset, Preset::Hosted(_)) {
                 self.hosted_product.map(|product| {
                     sailry_protocol::conversation::connection::Options::Hosted { product }
                 })
             } else {
                 self.cloud.options(self.preset, cx)?
             },
-            oauth: self.oauth.options(self.preset, cx)?,
+            oauth: if self.authentication() == sailry_protocol::Authentication::Plugin {
+                None
+            } else {
+                self.oauth.options(self.preset, cx)?
+            },
             quota: None,
             id: self.editing.unwrap_or(0),
             name,
@@ -503,7 +537,14 @@ impl Render for Editor {
                     .aria_label(tr("settings_name")),
             ),
         );
-        if !preset.protocols().is_empty() {
+        if !preset.protocols().is_empty()
+            || self.selected.as_ref().is_some_and(|entry| {
+                entry.preset.routes.iter().any(|route| {
+                    self.selected_route()
+                        .is_some_and(|current| route.protocol != current.protocol)
+                })
+            })
+        {
             form = form.child(
                 Field::new()
                     .label(tr("provider_api"))
@@ -519,10 +560,15 @@ impl Render for Editor {
                 ),
             );
         }
-        form = self.product_form(form);
-        form = self.region_form(form);
+        if self.selected.is_some() {
+            form = self.route_field(form, false, cx);
+            form = self.route_field(form, true, cx);
+        } else {
+            form = self.product_form(form);
+            form = self.region_form(form);
+        }
         form = self.cloud_form(form);
-        if preset.key_auth() {
+        if self.uses_key() {
             form = form.child(
                 Field::new().label(tr("provider_api_key")).child(
                     div()
@@ -558,7 +604,9 @@ impl Render for Editor {
                 )
             })
             .child(self.selection(cx))
-            .child(self.partner_choices(cx))
+            .child(self.source_label())
+            .child(self.consent_form(cx))
+            .child(self.suggestions(cx))
             .child(form)
             .when_some(self.partner_key_url.clone(), |body, url| {
                 body.child(
@@ -569,7 +617,7 @@ impl Render for Editor {
                         .on_click(move |_, _, cx| cx.open_url(&url)),
                 )
             })
-            .when(preset.oauth(), |body| {
+            .when(self.preset.oauth(), |body| {
                 body.child(self.oauth_form(window, cx))
             })
             .child(
@@ -583,7 +631,7 @@ impl Render for Editor {
                             .disabled(
                                 self.pending
                                     || self.probe.is_some()
-                                    || (real && preset.oauth() && !self.configured),
+                                    || (real && self.uses_login() && !self.configured),
                             )
                             .debug_selector(|| "provider-discover".into())
                             .label(tr(if self.probe.is_some() {

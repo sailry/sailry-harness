@@ -10,6 +10,9 @@ pub(crate) mod fixture;
 
 fn provider(endpoint: &str, name: &str) -> Provider {
     Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         options: None,
         oauth: None,
         id: ProviderId::new(),

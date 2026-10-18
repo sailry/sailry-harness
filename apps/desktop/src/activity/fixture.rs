@@ -54,6 +54,9 @@ impl Fixture {
                 });
             }
             let provider = Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 options: None,
                 oauth: None,
                 id: ProviderId::new(),

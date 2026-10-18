@@ -73,7 +73,7 @@ pub(super) fn restore(
     if has_role {
         let selected = match args.role.as_deref() {
             Some(key) => Some(
-                super::super::super::sessions::roles::read(db, parent.session, parent.revision)?
+                super::super::super::sessions::roles::for_turn(db, parent.turn)?
                     .profiles
                     .into_iter()
                     .find(|role| role.key == key)

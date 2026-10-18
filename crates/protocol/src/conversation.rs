@@ -3,10 +3,11 @@ pub mod assets;
 pub mod background;
 pub mod catalog;
 pub mod connection;
+pub mod consent;
 pub mod discovery;
 pub mod login;
 pub mod oauth;
-pub mod partners;
+pub mod presets;
 pub mod progress;
 pub mod question;
 pub mod quota;
@@ -67,12 +68,19 @@ pub enum ModelApi {
     OpenCodeZen,
     AzureOpenAi,
     AzureAi,
+    Plugin,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Provider {
     pub id: ProviderId,
     pub revision: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<presets::PresetRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding: Option<Box<presets::Binding>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consent: Option<Box<consent::Approval>>,
     pub name: String,
     pub api: ModelApi,
     pub authentication: crate::Authentication,

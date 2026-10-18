@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum Grant {
+    Plugin {
+        record: Box<plugin::Record>,
+        #[serde(default)]
+        renewal_pending: bool,
+    },
     ChatGpt {
         access: Secret,
         refresh: Secret,
@@ -62,6 +67,9 @@ impl Grant {
             | Self::ClaudeOAuth {
                 renewal_pending, ..
             } => *renewal_pending,
+            Self::Plugin {
+                renewal_pending, ..
+            } => *renewal_pending,
             Self::Copilot { .. } => false,
         }
     }
@@ -75,6 +83,9 @@ impl Grant {
         }
         | Self::ClaudeOAuth {
             renewal_pending, ..
+        }
+        | Self::Plugin {
+            renewal_pending, ..
         } = self
         {
             *renewal_pending = true;
@@ -83,6 +94,9 @@ impl Grant {
 
     pub(crate) fn same_account(&self, other: &Self) -> bool {
         match (self, other) {
+            (Self::Plugin { record: first, .. }, Self::Plugin { record: second, .. }) => {
+                first.target == second.target
+            }
             (
                 Self::ChatGpt {
                     client_id: first_client,
@@ -116,6 +130,7 @@ impl Grant {
     }
     pub(crate) fn expires_at_ms(&self) -> u64 {
         match self {
+            Self::Plugin { record, .. } => record.issued.expires_at_ms.unwrap_or(i64::MAX as u64),
             Self::ChatGpt { expires_at_ms, .. }
             | Self::ChatGptOAuth { expires_at_ms, .. }
             | Self::ClaudeOAuth { expires_at_ms, .. }
@@ -124,6 +139,7 @@ impl Grant {
     }
     pub(crate) fn authentication(&self) -> Authentication {
         match self {
+            Self::Plugin { .. } => Authentication::Plugin,
             Self::ChatGpt { .. } => Authentication::ChatGpt,
             Self::ChatGptOAuth { .. } => Authentication::ChatGptOAuth,
             Self::ClaudeOAuth { .. } => Authentication::ClaudeOAuth,
@@ -149,7 +165,11 @@ impl Grant {
                 "authorization record belongs to another provider type",
             ));
         }
+        if let Self::Plugin { record, .. } = self {
+            return record.validate();
+        }
         let (access, renewal, expires) = match self {
+            Self::Plugin { .. } => unreachable!("plugin grants are validated separately"),
             Self::ChatGpt {
                 access,
                 refresh,

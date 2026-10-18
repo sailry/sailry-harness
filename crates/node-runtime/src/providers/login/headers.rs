@@ -4,6 +4,7 @@ use reqwest::header::{HeaderMap, HeaderValue};
 impl Grant {
     pub(crate) fn access(&self) -> &Secret {
         match self {
+            Self::Plugin { record, .. } => &record.issued.access,
             Self::ChatGpt { access, .. }
             | Self::ChatGptOAuth { access, .. }
             | Self::ClaudeOAuth { access, .. }
@@ -13,6 +14,7 @@ impl Grant {
 
     pub(crate) fn endpoint(&self) -> &str {
         match self {
+            Self::Plugin { record, .. } => &record.target.endpoint,
             Self::ChatGpt { .. } => CHATGPT_ENDPOINT,
             Self::ChatGptOAuth { .. } => CODEX_ENDPOINT,
             Self::ClaudeOAuth { .. } => CLAUDE_ENDPOINT,
@@ -21,6 +23,15 @@ impl Grant {
     }
 
     pub(crate) fn headers(&self, options: &Options) -> Result<HeaderMap, Fault> {
+        if let Self::Plugin { record, .. } = self {
+            if !matches!(options, Options::Plugin { package, flow, endpoint, .. } if package.name == record.target.package && flow == &record.target.flow && endpoint == &record.target.endpoint)
+            {
+                return Err(Fault::invalid(
+                    "plugin OAuth settings do not match the authorization",
+                ));
+            }
+            return record.issued.headers(&record.target.inject);
+        }
         let mut headers = HeaderMap::new();
         let mut access = HeaderValue::from_str(&format!("Bearer {}", self.access().expose()))
             .map_err(|_| sailry_protocol::Fault::invalid("authorization header is invalid"))?;

@@ -21,6 +21,7 @@ impl Effort {
     /// Check the API surface and output limit, without guessing model capabilities.
     pub fn validate(self, api: ModelApi, output: u32) -> Result<(), Fault> {
         let supported = match (api, self) {
+            (ModelApi::Plugin, _) => true,
             (ModelApi::AzureAi, Self::Default) => true,
             (ModelApi::AzureAi, _) => false,
             (ModelApi::AzureOpenAi, effort) => {

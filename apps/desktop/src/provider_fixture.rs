@@ -91,6 +91,9 @@ fn models(chatgpt: bool) -> serde_json::Value {
 
 pub(crate) fn provider(authentication: Authentication, api: ModelApi) -> Provider {
     Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         options: None,
         oauth: None,
         id: ProviderId::new(),

@@ -28,6 +28,10 @@ pub struct Entry {
     pub icon: Option<String>,
     pub repository: Option<String>,
     pub bundled: bool,
+    #[serde(default)]
+    pub provides_models: bool,
+    #[serde(default)]
+    pub permissions: Vec<super::Action>,
 }
 
 impl Entry {

@@ -161,6 +161,11 @@ enum Job {
         options: sailry_protocol::conversation::oauth::Options,
         reply: oneshot::Sender<Result<login::Authorization, Fault>>,
     },
+    ChannelPresets {
+        catalog: Option<sailry_protocol::conversation::presets::Catalog>,
+        unavailable: bool,
+        reply: oneshot::Sender<Result<sailry_protocol::conversation::presets::Listing, Fault>>,
+    },
     ProviderQuota(providers::quota::Observation),
     Login(Box<login::Progress>),
     SubscribeLogin {
@@ -283,6 +288,15 @@ enum Job {
         revision: u64,
         reply: oneshot::Sender<Result<sailry_protocol::conversation::Provider, Fault>>,
     },
+    ModelAdapter {
+        provider: Box<sailry_protocol::conversation::Provider>,
+        messages: bool,
+        reply: oneshot::Sender<Result<sailry_protocol::plugin::model_adapter::Declaration, Fault>>,
+    },
+    CaptureChannel {
+        provider: Box<sailry_protocol::conversation::Provider>,
+        reply: oneshot::Sender<Result<sailry_protocol::conversation::Provider, Fault>>,
+    },
     Catalog {
         download: crate::providers::catalog::Download,
         reply: oneshot::Sender<Result<sailry_protocol::conversation::catalog::Status, Fault>>,
@@ -306,7 +320,7 @@ pub(crate) struct Ingress {
     profile: Option<PathBuf>,
     host: Arc<crate::host::Host>,
     discovery: crate::providers::Discovery,
-    pub(crate) partners: Arc<crate::providers::partners::Directory>,
+    pub(crate) presets: Arc<crate::providers::presets::Directory>,
     catalog: crate::providers::catalog::Catalog,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) authorization_endpoint: Option<String>,
@@ -439,7 +453,7 @@ impl Store {
             profile: profile.clone(),
             host: crate::host::Host::new(),
             discovery: crate::providers::Discovery::new(),
-            partners: Arc::default(),
+            presets: Arc::default(),
             catalog,
             files: crate::files::Files::new().with_ocr(ocr.clone()),
             oauth: Arc::default(),
@@ -1058,6 +1072,14 @@ impl Store {
                                 revision,
                             ));
                         }
+                        Job::ModelAdapter { provider, messages, reply } => {
+                            let _ = reply.send(providers::adapters::read(&database.connection, &provider, messages));
+                        }
+                        Job::CaptureChannel { mut provider, reply } => {
+                            let captured = providers::presets::capture_read(&database.connection,&mut provider)
+                                .and_then(|()| { crate::providers::login::capture(&mut provider)?; Ok(*provider) });
+                            let _ = reply.send(captured);
+                        }
                         Job::Provider {
                             id,
                             revision,
@@ -1065,6 +1087,9 @@ impl Store {
                         } => {
                             let _ =
                                 reply.send(providers::inspect(&database.connection, id, revision));
+                        }
+                        Job::ChannelPresets { catalog, unavailable, reply } => {
+                            let _ = reply.send(providers::presets::list(&database.connection, catalog.as_ref(), unavailable));
                         }
                         Job::Catalog { download, reply } => {
                             let _ = reply.send(database.cache_catalog(download, &events));

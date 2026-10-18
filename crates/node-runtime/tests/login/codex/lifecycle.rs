@@ -136,6 +136,7 @@ async fn connects_with_isolated_credentials() {
                         .client
                         .execute(fixture.client.prepare(Command::DiscoverModels(Box::new(
                             discovery::Source::Draft(discovery::Draft {
+                                preset: None,
                                 provider: connected.id,
                                 api: ModelApi::Responses,
                                 endpoint: server.endpoint.clone(),

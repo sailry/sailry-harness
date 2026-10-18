@@ -15,6 +15,9 @@ const APIS: [ModelApi; 9] = [
 
 fn provider(api: ModelApi, options: Option<Options>) -> Provider {
     Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         id: ProviderId::new(),
         revision: 1,
         name: "Connection fixture".into(),

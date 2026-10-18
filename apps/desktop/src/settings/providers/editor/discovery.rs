@@ -16,6 +16,7 @@ impl Drop for Probe {
 impl Editor {
     pub(super) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.closed = true;
+        self.directory_task = None;
         self.partner_task = None;
         self.probe = None;
         self.request = None;
@@ -25,7 +26,7 @@ impl Editor {
     }
 
     fn source(&self, cx: &App) -> Result<discovery::Source, &'static str> {
-        if self.preset.oauth() {
+        if self.uses_login() {
             let provider = self
                 .provider
                 .as_ref()
@@ -42,11 +43,12 @@ impl Editor {
         if !self.key_ready && key.trim().is_empty() {
             return Err("provider_key_failed");
         }
-        if !self.preset.custom_endpoint() && key.trim().is_empty() {
+        if self.uses_key() && !self.preset.custom_endpoint() && key.trim().is_empty() {
             return Err("provider_key_required");
         }
         Ok(discovery::Source::Draft(discovery::Draft {
             provider: self.provider_id,
+            preset: self.preset_ref(),
             api,
             endpoint,
             credential: self
@@ -221,11 +223,11 @@ impl Editor {
                             match error.code {
                                 ErrorCode::RevisionConflict => "provider_revision_changed",
                                 ErrorCode::PermissionDenied | ErrorCode::NotConfigured
-                                    if preset.oauth() =>
+                                    if editor.uses_login() =>
                                 {
                                     "provider_account_unavailable"
                                 }
-                                ErrorCode::OutcomeUnknown if preset.oauth() => {
+                                ErrorCode::OutcomeUnknown if editor.uses_login() => {
                                     "provider_account_uncertain"
                                 }
                                 ErrorCode::PermissionDenied | ErrorCode::NotConfigured => {

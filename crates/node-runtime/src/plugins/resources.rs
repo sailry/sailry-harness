@@ -276,3 +276,19 @@ fn cancelled() -> Fault {
 
 #[cfg(test)]
 mod tests;
+
+impl Host {
+    pub(crate) fn channel_icon(
+        &self,
+        reference: &Reference,
+        path: &str,
+        stop: CancellationToken,
+    ) -> Result<Option<String>, Fault> {
+        if !path.starts_with("dev.sailry.platform/") {
+            return Err(Fault::invalid("channel icon must be a package resource"));
+        }
+        let directory = self.resolve(reference, stop)?;
+        let bytes = read(&directory, path, 64 * 1024)?;
+        Ok(super::icon::uri(&bytes))
+    }
+}

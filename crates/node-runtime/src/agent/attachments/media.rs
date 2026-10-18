@@ -35,6 +35,9 @@ pub(super) fn inline(
 }
 
 fn native(format: &FileFormat, vision: bool, api: Option<ModelApi>) -> Option<&str> {
+    if api == Some(ModelApi::Plugin) {
+        return (!format.media_type().starts_with("image/") || vision).then(|| format.media_type());
+    }
     use FileFormat::*;
     match format {
         PortableNetworkGraphics

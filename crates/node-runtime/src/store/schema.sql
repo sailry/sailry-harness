@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS turns (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL CHECK(kind IN ('task','compaction')),
     plugins BLOB NOT NULL,
+    roles BLOB,
     session TEXT NOT NULL,
     revision INTEGER NOT NULL,
     request TEXT NOT NULL,
@@ -452,3 +453,5 @@ CREATE INDEX IF NOT EXISTS agent_approvals_state ON agent_approvals(json_extract
 CREATE INDEX IF NOT EXISTS agent_questions_state ON agent_questions(json_extract(body,'$.state.kind'));
 CREATE INDEX IF NOT EXISTS agent_background_state ON agent_background(state);
 CREATE INDEX IF NOT EXISTS dispatch_jobs_status ON dispatch_jobs(status);
+
+CREATE TABLE channel_presets (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);

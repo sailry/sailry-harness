@@ -45,6 +45,46 @@ pub(super) fn read(
     }
 }
 
+/// Reuse the package image boundary for channel logos; SVG remains passive vector content.
+pub(crate) fn uri(bytes: &[u8]) -> Option<String> {
+    if let Some(png) = encode(bytes) {
+        return Some(format!("data:image/png;base64,{png}"));
+    }
+    if bytes.len() > MAX_BYTES {
+        return None;
+    }
+    let text = std::str::from_utf8(bytes).ok()?;
+    let document = roxmltree::Document::parse(text).ok()?;
+    if document.root_element().tag_name().name() != "svg" {
+        return None;
+    }
+    let local_url = regex::Regex::new(r"url\(#[A-Za-z0-9_-]+\)").ok()?;
+    for node in document.descendants().filter(|node| node.is_element()) {
+        if matches!(
+            node.tag_name().name(),
+            "script" | "foreignObject" | "image" | "style"
+        ) {
+            return None;
+        }
+        for attribute in node.attributes() {
+            let name = attribute.name().to_ascii_lowercase();
+            let value = attribute.value().trim();
+            let safe = local_url.replace_all(value, "").to_ascii_lowercase();
+            if name.starts_with("on")
+                || (name == "href" && !value.starts_with('#'))
+                || safe.contains("url(")
+                || safe.contains("@import")
+            {
+                return None;
+            }
+        }
+    }
+    Some(format!(
+        "data:image/svg+xml;base64,{}",
+        STANDARD.encode(bytes)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

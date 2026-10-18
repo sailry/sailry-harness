@@ -1,6 +1,8 @@
 //! Channel selection is presentation state; only the final action saves to the Node.
+use super::super::presets;
+use super::entry::brand_label;
 use super::*;
-use gpui_kit::component::input::Input;
+use gpui_kit::component::{input::Input, tag::Tag};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
@@ -11,7 +13,8 @@ pub(super) enum Step {
 
 pub(super) struct Flow {
     pub step: Step,
-    pub brand: Option<&'static str>,
+    pub brand: Option<String>,
+    pub requested: Option<String>,
     editing: bool,
 }
 
@@ -24,20 +27,28 @@ impl Flow {
                 Step::Brand
             },
             brand: None,
+            requested: None,
             editing,
         }
     }
 
-    pub(super) fn select(&mut self, brand: &'static str, count: usize) {
+    pub(super) fn select(&mut self, brand: &str, count: usize) {
         if self.editing {
             return;
         }
-        self.brand = Some(brand);
+        self.requested = None;
+        self.brand = Some(brand.into());
         self.step = if count == 1 {
             Step::Configure
         } else {
             Step::Method
         };
+    }
+
+    pub(super) fn defer(&mut self, brand: String) {
+        if !self.editing {
+            self.requested = Some(brand);
+        }
     }
 
     fn back(&mut self, count: usize) {
@@ -51,37 +62,16 @@ impl Flow {
     }
 }
 
-fn brand(preset: Preset) -> &'static str {
-    if matches!(preset, Preset::OpenCodeGo | Preset::OpenCodeZen) {
-        "provider_opencode"
-    } else {
-        preset.family().key()
-    }
-}
-
-fn icon(preset: Preset) -> Icon {
-    preset.category().icon()
-}
-
-fn label(preset: Preset) -> SharedString {
-    tr(
-        if matches!(
-            preset,
-            Preset::OpenAi | Preset::Anthropic | Preset::Gemini | Preset::Hosted(_)
-        ) {
-            "provider_api_key"
-        } else {
-            preset.key()
-        },
-    )
-}
-
 impl Editor {
     fn choices_count(&self) -> usize {
-        let selected = self.flow.brand.unwrap_or_else(|| brand(self.preset));
-        kind::groups()
-            .into_iter()
-            .find(|(key, _)| *key == selected)
+        self.flow
+            .brand
+            .as_ref()
+            .and_then(|selected| {
+                presets::groups(&self.directory)
+                    .into_iter()
+                    .find(|(key, _)| key == selected)
+            })
             .map_or(0, |(_, choices)| choices.len())
     }
 
@@ -94,23 +84,6 @@ impl Editor {
             return;
         }
         self.flow.back(self.choices_count());
-        self.scroll.set_offset(point(px(0.), px(0.)));
-        cx.notify();
-    }
-
-    pub(super) fn choose(&mut self, preset: Preset, window: &mut Window, cx: &mut Context<Self>) {
-        if self.navigation_blocked() || self.editing.is_some() {
-            return;
-        }
-        let changed = preset.kind() != self.preset.kind();
-        self.select_preset(preset, window, cx);
-        if changed || self.name.read(cx).value().trim().is_empty() {
-            self.name.update(cx, |input, cx| {
-                input.set_value(tr(preset.key()), window, cx)
-            });
-        }
-        self.flow.step = Step::Configure;
-        self.load_partners(window, cx);
         self.scroll.set_offset(point(px(0.), px(0.)));
         cx.notify();
     }
@@ -157,22 +130,17 @@ impl Editor {
             .w_full()
             .min_w_0()
             .gap_3()
-            .child(icon(self.preset).size_8())
+            .child(self.directory_icon())
             .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
-                    .child(
-                        div()
-                            .truncate()
-                            .font_medium()
-                            .child(tr(self.flow.brand.unwrap_or_else(|| brand(self.preset)))),
-                    )
+                    .child(div().truncate().font_medium().child(self.selection_name()))
                     .child(
                         div()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(label(self.preset)),
+                            .child(self.method_label()),
                     ),
             )
             .when(self.editing.is_none(), |row| {
@@ -194,8 +162,8 @@ impl Editor {
 
     pub(super) fn choices(&self, window: &Window, cx: &Context<Self>) -> AnyElement {
         let width = (window.viewport_size().width - px(96.)).min(px(712.));
-        let selected = self.flow.brand;
-        let groups = kind::groups();
+        let selected = self.flow.brand.as_deref();
+        let groups = presets::groups(&self.directory);
         let mut body = v_flex()
             .id("provider-choices")
             .w_full()
@@ -224,40 +192,44 @@ impl Editor {
                 div().grid().grid_cols(columns).w_full().gap_3().children(
                     groups
                         .into_iter()
-                        .filter(|(key, _)| {
-                            query.is_empty() || tr(key).to_lowercase().contains(&query)
+                        .filter(|(_, choices)| {
+                            query.is_empty()
+                                || brand_label(&choices[0]).to_lowercase().contains(&query)
                         })
                         .map(|(key, choices)| {
-                            let preset = choices[0];
+                            let first = &choices[0];
+                            let name = brand_label(first);
+                            let icon = presets::render_icon(first, rems(2.));
                             Button::new(SharedString::from(format!("provider-brand-{key}")))
                                 .outline()
                                 .w_full()
                                 .h_auto()
                                 .p_4()
-                                .accessibility_label(tr(key))
+                                .accessibility_label(name.clone())
                                 .child(
                                     v_flex()
                                         .w_full()
                                         .min_w_0()
                                         .items_center()
                                         .gap_3()
-                                        .child(icon(preset).size_8())
-                                        .child(div().w_full().truncate().text_sm().child(tr(key))),
+                                        .child(icon)
+                                        .child(div().w_full().truncate().text_sm().child(name)),
                                 )
                                 .on_click(cx.listener(move |editor, _, window, cx| {
-                                    editor.choose_brand(key, window, cx);
+                                    editor.choose_brand(key.clone(), window, cx);
                                 }))
                         }),
                 ),
             );
-        } else if let Some((key, choices)) =
-            groups.into_iter().find(|(key, _)| Some(*key) == selected)
+        } else if let Some((_, choices)) = groups
+            .into_iter()
+            .find(|(key, _)| Some(key.as_str()) == selected)
         {
             body = body.child(
                 h_flex()
                     .gap_3()
-                    .child(icon(choices[0]).size_8())
-                    .child(tr(key)),
+                    .child(presets::render_icon(&choices[0], rems(2.)))
+                    .child(brand_label(&choices[0])),
             );
             body = body.child(
                 div()
@@ -269,23 +241,27 @@ impl Editor {
                     } else {
                         1
                     })
-                    .children(choices.into_iter().map(|preset| {
+                    .children(choices.into_iter().map(|entry| {
+                        let route = &entry.preset.routes[0];
+                        let preset = presets::kind(&entry, route);
+                        let login = matches!(entry.preset.auth, sailry_protocol::conversation::presets::Auth::Builtin { .. } | sailry_protocol::conversation::presets::Auth::Plugin { .. });
+                        let label: SharedString = presets::label(&entry.preset).into();
                         Button::new(SharedString::from(format!(
                             "provider-method-{}",
-                            preset.key()
+                            entry.preset.id
                         )))
                         .outline()
                         .w_full()
                         .h_auto()
                         .p_4()
-                        .accessibility_label(label(preset))
+                        .accessibility_label(label.clone())
                         .child(
                             h_flex()
                                 .w_full()
                                 .min_w_0()
                                 .gap_3()
                                 .child(
-                                    Icon::new(if preset.oauth() {
+                                    Icon::new(if login {
                                         IconName::CircleUser
                                     } else if preset.custom_endpoint() {
                                         IconName::Globe
@@ -294,11 +270,12 @@ impl Editor {
                                     })
                                     .size_5(),
                                 )
-                                .child(div().flex_1().min_w_0().text_left().child(label(preset)))
+                                .child(div().flex_1().min_w_0().text_left().child(label))
+                                .when(entry.provenance == sailry_protocol::conversation::presets::Provenance::ThirdParty, |row| row.child(Tag::secondary().small().child(tr("provider_third_party"))))
                                 .child(Icon::new(IconName::ChevronRight).size_4()),
                         )
                         .on_click(cx.listener(
-                            move |editor, _, window, cx| editor.choose(preset, window, cx),
+                            move |editor, _, window, cx| editor.choose_entry(entry.clone(), window, cx),
                         ))
                     })),
             );

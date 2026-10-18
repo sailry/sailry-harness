@@ -1,0 +1,1575 @@
+{
+  "version": 1,
+  "builtin": [
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "locales": {
+        "en": "OpenAI",
+        "ja": "OpenAI",
+        "ru": "OpenAI",
+        "fr": "OpenAI",
+        "zh-TW": "OpenAI",
+        "pt-BR": "OpenAI",
+        "es": "OpenAI",
+        "ko": "OpenAI",
+        "de": "OpenAI"
+      },
+      "logo": "icons/providers/openai.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "openai",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-responses",
+          "endpoint": "https://api.openai.com/v1",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": true
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "compatible-responses",
+      "name": "OpenAI Compatible",
+      "locales": {
+        "en": "OpenAI Compatible",
+        "ja": "OpenAI Compatible",
+        "ru": "OpenAI Compatible",
+        "fr": "OpenAI Compatible",
+        "zh-TW": "OpenAI Compatible",
+        "pt-BR": "OpenAI Compatible",
+        "es": "OpenAI Compatible",
+        "ko": "OpenAI Compatible",
+        "de": "OpenAI Compatible"
+      },
+      "logo": "icons/providers/openai.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "openai",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-responses",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": true
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "compatible-chat",
+      "name": "OpenAI Compatible",
+      "locales": {
+        "en": "OpenAI Compatible",
+        "ja": "OpenAI Compatible",
+        "ru": "OpenAI Compatible",
+        "fr": "OpenAI Compatible",
+        "zh-TW": "OpenAI Compatible",
+        "pt-BR": "OpenAI Compatible",
+        "es": "OpenAI Compatible",
+        "ko": "OpenAI Compatible",
+        "de": "OpenAI Compatible"
+      },
+      "logo": "icons/providers/openai.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "openai",
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "chat-gpt-oauth",
+      "name": "ChatGPT OAuth",
+      "locales": {
+        "en": "ChatGPT OAuth",
+        "ja": "ChatGPT OAuth",
+        "ru": "ChatGPT OAuth",
+        "fr": "ChatGPT OAuth",
+        "zh-TW": "ChatGPT OAuth",
+        "pt-BR": "ChatGPT OAuth",
+        "es": "ChatGPT OAuth",
+        "ko": "ChatGPT OAuth",
+        "de": "ChatGPT OAuth"
+      },
+      "logo": "icons/providers/openai.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "openai",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-responses",
+          "endpoint": "https://chatgpt.com/backend-api/codex",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "builtin",
+        "data": {
+          "authentication": "chat_gpt_oauth"
+        }
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "chat-gpt",
+      "name": "ChatGPT SIWC",
+      "locales": {
+        "en": "ChatGPT SIWC",
+        "ja": "ChatGPT SIWC",
+        "ru": "ChatGPT SIWC",
+        "fr": "ChatGPT SIWC",
+        "zh-TW": "ChatGPT SIWC",
+        "pt-BR": "ChatGPT SIWC",
+        "es": "ChatGPT SIWC",
+        "ko": "ChatGPT SIWC",
+        "de": "ChatGPT SIWC"
+      },
+      "logo": "icons/providers/openai.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "openai",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-responses",
+          "endpoint": "https://api.openai.com/v1",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "builtin",
+        "data": {
+          "authentication": "chat_gpt"
+        }
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "claude-oauth",
+      "name": "Claude OAuth",
+      "locales": {
+        "en": "Claude OAuth",
+        "ja": "Claude OAuth",
+        "ru": "Claude OAuth",
+        "fr": "Claude OAuth",
+        "zh-TW": "Claude OAuth",
+        "pt-BR": "Claude OAuth",
+        "es": "Claude OAuth",
+        "ko": "Claude OAuth",
+        "de": "Claude OAuth"
+      },
+      "logo": "icons/providers/anthropic.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "anthropic",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "anthropic",
+          "endpoint": "https://api.anthropic.com",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "builtin",
+        "data": {
+          "authentication": "claude_oauth"
+        }
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "copilot",
+      "name": "GitHub Copilot OAuth",
+      "locales": {
+        "en": "GitHub Copilot OAuth",
+        "ja": "GitHub Copilot OAuth",
+        "ru": "GitHub Copilot OAuth",
+        "fr": "GitHub Copilot OAuth",
+        "zh-TW": "GitHub Copilot OAuth",
+        "pt-BR": "GitHub Copilot OAuth",
+        "es": "GitHub Copilot OAuth",
+        "ko": "GitHub Copilot OAuth",
+        "de": "GitHub Copilot OAuth"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": null,
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.githubcopilot.com",
+          "region": null,
+          "product": null
+        },
+        {
+          "protocol": "openai-responses",
+          "endpoint": "https://api.githubcopilot.com",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "builtin",
+        "data": {
+          "authentication": "copilot"
+        }
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "copilot-responses",
+      "name": "GitHub Copilot OAuth",
+      "locales": {
+        "en": "GitHub Copilot OAuth",
+        "ja": "GitHub Copilot OAuth",
+        "ru": "GitHub Copilot OAuth",
+        "fr": "GitHub Copilot OAuth",
+        "zh-TW": "GitHub Copilot OAuth",
+        "pt-BR": "GitHub Copilot OAuth",
+        "es": "GitHub Copilot OAuth",
+        "ko": "GitHub Copilot OAuth",
+        "de": "GitHub Copilot OAuth"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": null,
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-responses",
+          "endpoint": "https://api.githubcopilot.com",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "builtin",
+        "data": {
+          "authentication": "copilot"
+        }
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "locales": {
+        "en": "Anthropic",
+        "ja": "Anthropic",
+        "ru": "Anthropic",
+        "fr": "Anthropic",
+        "zh-TW": "Anthropic",
+        "pt-BR": "Anthropic",
+        "es": "Anthropic",
+        "ko": "Anthropic",
+        "de": "Anthropic"
+      },
+      "logo": "icons/providers/anthropic.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "anthropic",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "anthropic",
+          "endpoint": "https://api.anthropic.com",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": true
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "compatible-anthropic",
+      "name": "Anthropic Compatible",
+      "locales": {
+        "en": "Anthropic Compatible",
+        "ja": "Anthropic Compatible",
+        "ru": "Anthropic Compatible",
+        "fr": "Anthropic Compatible",
+        "zh-TW": "Anthropic Compatible",
+        "pt-BR": "Anthropic Compatible",
+        "es": "Anthropic Compatible",
+        "ko": "Anthropic Compatible",
+        "de": "Anthropic Compatible"
+      },
+      "logo": "icons/providers/anthropic.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "anthropic",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "anthropic",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": true
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "locales": {
+        "en": "Gemini",
+        "ja": "Gemini",
+        "ru": "Gemini",
+        "fr": "Gemini",
+        "zh-TW": "Gemini",
+        "pt-BR": "Gemini",
+        "es": "Gemini",
+        "ko": "Gemini",
+        "de": "Gemini"
+      },
+      "logo": "icons/providers/gemini.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "gemini",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "gemini",
+          "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": true
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "opencode-go",
+      "name": "OpenCode Go",
+      "locales": {
+        "en": "OpenCode Go",
+        "ja": "OpenCode Go",
+        "ru": "OpenCode Go",
+        "fr": "OpenCode Go",
+        "zh-TW": "OpenCode Go",
+        "pt-BR": "OpenCode Go",
+        "es": "OpenCode Go",
+        "ko": "OpenCode Go",
+        "de": "OpenCode Go"
+      },
+      "logo": "icons/providers/opencode.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "opencode",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "opencode-go",
+          "endpoint": "https://opencode.ai/zen/go/v1",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "opencode-zen",
+      "name": "OpenCode Zen",
+      "locales": {
+        "en": "OpenCode Zen",
+        "ja": "OpenCode Zen",
+        "ru": "OpenCode Zen",
+        "fr": "OpenCode Zen",
+        "zh-TW": "OpenCode Zen",
+        "pt-BR": "OpenCode Zen",
+        "es": "OpenCode Zen",
+        "ko": "OpenCode Zen",
+        "de": "OpenCode Zen"
+      },
+      "logo": "icons/providers/opencode.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "opencode",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "opencode-zen",
+          "endpoint": "https://opencode.ai/zen/v1",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "compatible-gemini",
+      "name": "Gemini Compatible",
+      "locales": {
+        "en": "Gemini Compatible",
+        "ja": "Gemini Compatible",
+        "ru": "Gemini Compatible",
+        "fr": "Gemini Compatible",
+        "zh-TW": "Gemini Compatible",
+        "pt-BR": "Gemini Compatible",
+        "es": "Gemini Compatible",
+        "ko": "Gemini Compatible",
+        "de": "Gemini Compatible"
+      },
+      "logo": "icons/providers/gemini.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "gemini",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "gemini",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": true
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "azure-openai",
+      "name": "Azure OpenAI",
+      "locales": {
+        "en": "Azure OpenAI",
+        "ja": "Azure OpenAI",
+        "ru": "Azure OpenAI",
+        "fr": "Azure OpenAI",
+        "zh-TW": "Azure OpenAI",
+        "pt-BR": "Azure OpenAI",
+        "es": "Azure OpenAI",
+        "ko": "Azure OpenAI",
+        "de": "Azure OpenAI"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": null,
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "azure-openai",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "azure-ai",
+      "name": "Azure AI Inference",
+      "locales": {
+        "en": "Azure AI Inference",
+        "ja": "Azure AI Inference",
+        "ru": "Azure AI Inference",
+        "fr": "Azure AI Inference",
+        "zh-TW": "Azure AI Inference",
+        "pt-BR": "Azure AI Inference",
+        "es": "Azure AI Inference",
+        "ko": "Azure AI Inference",
+        "de": "Azure AI Inference"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": null,
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "azure-ai",
+          "endpoint": "",
+          "region": null,
+          "product": null
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "qwen",
+      "name": "Qwen",
+      "locales": {
+        "en": "Qwen",
+        "ja": "Qwen",
+        "ru": "Qwen",
+        "fr": "Qwen",
+        "zh-TW": "Qwen",
+        "pt-BR": "Qwen",
+        "es": "Qwen",
+        "ko": "Qwen",
+        "de": "Qwen"
+      },
+      "logo": "icons/providers/qwen.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "qwen",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+          "region": "china",
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+          "region": "global",
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://coding.dashscope.aliyuncs.com/v1",
+          "region": "china",
+          "product": "coding"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://coding-intl.dashscope.aliyuncs.com/v1",
+          "region": "global",
+          "product": "coding"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": [
+        {
+          "kind": "coding",
+          "default_model": "qwen3.6-plus",
+          "discover": false
+        }
+      ]
+    },
+    {
+      "id": "moonshot",
+      "name": "Kimi",
+      "locales": {
+        "en": "Kimi",
+        "ja": "Kimi",
+        "ru": "Kimi",
+        "fr": "Kimi",
+        "zh-TW": "Kimi",
+        "pt-BR": "Kimi",
+        "es": "Kimi",
+        "ko": "Kimi",
+        "de": "Kimi"
+      },
+      "logo": "icons/providers/kimi.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "moonshot",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.moonshot.ai/v1",
+          "region": "global",
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.moonshot.cn/v1",
+          "region": "china",
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.kimi.com/coding/v1",
+          "region": "china",
+          "product": "coding"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.kimi.ai/coding/v1",
+          "region": "global",
+          "product": "coding"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": [
+        {
+          "kind": "coding",
+          "default_model": "kimi-for-coding",
+          "discover": false
+        }
+      ]
+    },
+    {
+      "id": "xai",
+      "name": "xAI",
+      "locales": {
+        "en": "xAI",
+        "ja": "xAI",
+        "ru": "xAI",
+        "fr": "xAI",
+        "zh-TW": "xAI",
+        "pt-BR": "xAI",
+        "es": "xAI",
+        "ko": "xAI",
+        "de": "xAI"
+      },
+      "logo": "icons/providers/xai.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "xai",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.x.ai/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "locales": {
+        "en": "DeepSeek",
+        "ja": "DeepSeek",
+        "ru": "DeepSeek",
+        "fr": "DeepSeek",
+        "zh-TW": "DeepSeek",
+        "pt-BR": "DeepSeek",
+        "es": "DeepSeek",
+        "ko": "DeepSeek",
+        "de": "DeepSeek"
+      },
+      "logo": "icons/providers/deepseek.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "deepseek",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "deepseek",
+          "endpoint": "https://api.deepseek.com",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "groq",
+      "name": "Groq",
+      "locales": {
+        "en": "Groq",
+        "ja": "Groq",
+        "ru": "Groq",
+        "fr": "Groq",
+        "zh-TW": "Groq",
+        "pt-BR": "Groq",
+        "es": "Groq",
+        "ko": "Groq",
+        "de": "Groq"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "groq",
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.groq.com/openai/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "openrouter",
+      "name": "OpenRouter",
+      "locales": {
+        "en": "OpenRouter",
+        "ja": "OpenRouter",
+        "ru": "OpenRouter",
+        "fr": "OpenRouter",
+        "zh-TW": "OpenRouter",
+        "pt-BR": "OpenRouter",
+        "es": "OpenRouter",
+        "ko": "OpenRouter",
+        "de": "OpenRouter"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "openrouter",
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://openrouter.ai/api/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "fireworks",
+      "name": "Fireworks AI",
+      "locales": {
+        "en": "Fireworks AI",
+        "ja": "Fireworks AI",
+        "ru": "Fireworks AI",
+        "fr": "Fireworks AI",
+        "zh-TW": "Fireworks AI",
+        "pt-BR": "Fireworks AI",
+        "es": "Fireworks AI",
+        "ko": "Fireworks AI",
+        "de": "Fireworks AI"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "fireworks",
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.fireworks.ai/inference/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "together",
+      "name": "Together AI",
+      "locales": {
+        "en": "Together AI",
+        "ja": "Together AI",
+        "ru": "Together AI",
+        "fr": "Together AI",
+        "zh-TW": "Together AI",
+        "pt-BR": "Together AI",
+        "es": "Together AI",
+        "ko": "Together AI",
+        "de": "Together AI"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "together",
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.together.xyz/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "mistral",
+      "name": "Mistral",
+      "locales": {
+        "en": "Mistral",
+        "ja": "Mistral",
+        "ru": "Mistral",
+        "fr": "Mistral",
+        "zh-TW": "Mistral",
+        "pt-BR": "Mistral",
+        "es": "Mistral",
+        "ko": "Mistral",
+        "de": "Mistral"
+      },
+      "logo": "icons/providers/mistral.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "mistral",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.mistral.ai/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "perplexity",
+      "name": "Perplexity",
+      "locales": {
+        "en": "Perplexity",
+        "ja": "Perplexity",
+        "ru": "Perplexity",
+        "fr": "Perplexity",
+        "zh-TW": "Perplexity",
+        "pt-BR": "Perplexity",
+        "es": "Perplexity",
+        "ko": "Perplexity",
+        "de": "Perplexity"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "perplexity",
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.perplexity.ai",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "cerebras",
+      "name": "Cerebras",
+      "locales": {
+        "en": "Cerebras",
+        "ja": "Cerebras",
+        "ru": "Cerebras",
+        "fr": "Cerebras",
+        "zh-TW": "Cerebras",
+        "pt-BR": "Cerebras",
+        "es": "Cerebras",
+        "ko": "Cerebras",
+        "de": "Cerebras"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "cerebras",
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.cerebras.ai/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "sambanova",
+      "name": "SambaNova",
+      "locales": {
+        "en": "SambaNova",
+        "ja": "SambaNova",
+        "ru": "SambaNova",
+        "fr": "SambaNova",
+        "zh-TW": "SambaNova",
+        "pt-BR": "SambaNova",
+        "es": "SambaNova",
+        "ko": "SambaNova",
+        "de": "SambaNova"
+      },
+      "logo": null,
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "sambanova",
+      "offered": false,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.sambanova.ai/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "minimax",
+      "name": "MiniMax",
+      "locales": {
+        "en": "MiniMax",
+        "ja": "MiniMax",
+        "ru": "MiniMax",
+        "fr": "MiniMax",
+        "zh-TW": "MiniMax",
+        "pt-BR": "MiniMax",
+        "es": "MiniMax",
+        "ko": "MiniMax",
+        "de": "MiniMax"
+      },
+      "logo": "icons/providers/minimax.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "minimax",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.minimax.cn/v1",
+          "region": "china",
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.minimax.io/v1",
+          "region": "global",
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.minimax.cn/v1",
+          "region": "china",
+          "product": "coding"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.minimax.io/v1",
+          "region": "global",
+          "product": "coding"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": [
+        {
+          "kind": "coding",
+          "default_model": "MiniMax-M3.1-Flash-Preview",
+          "discover": true
+        }
+      ]
+    },
+    {
+      "id": "doubao",
+      "name": "Doubao",
+      "locales": {
+        "en": "Doubao",
+        "ja": "Doubao",
+        "ru": "Doubao",
+        "fr": "Doubao",
+        "zh-TW": "Doubao",
+        "pt-BR": "Doubao",
+        "es": "Doubao",
+        "ko": "Doubao",
+        "de": "Doubao"
+      },
+      "logo": "icons/providers/doubao.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "doubao",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://ark.cn-beijing.volces.com/api/v3",
+          "region": null,
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://ark.cn-beijing.volces.com/api/coding/v3",
+          "region": "china",
+          "product": "coding"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": [
+        {
+          "kind": "coding",
+          "default_model": "ark-code-latest",
+          "discover": false
+        }
+      ]
+    },
+    {
+      "id": "zhipu",
+      "name": "Zhipu",
+      "locales": {
+        "en": "Zhipu",
+        "ja": "Zhipu",
+        "ru": "Zhipu",
+        "fr": "Zhipu",
+        "zh-TW": "Zhipu",
+        "pt-BR": "Zhipu",
+        "es": "Zhipu",
+        "ko": "Zhipu",
+        "de": "Zhipu"
+      },
+      "logo": "icons/providers/zai.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "zhipu",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://open.bigmodel.cn/api/paas/v4",
+          "region": "china",
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.z.ai/api/paas/v4",
+          "region": "global",
+          "product": "metered"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://open.bigmodel.cn/api/coding/paas/v4",
+          "region": "china",
+          "product": "coding"
+        },
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.z.ai/api/coding/paas/v4",
+          "region": "global",
+          "product": "coding"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": [
+        {
+          "kind": "coding",
+          "default_model": "glm-5.2",
+          "discover": false
+        }
+      ]
+    },
+    {
+      "id": "baidu",
+      "name": "Baidu",
+      "locales": {
+        "en": "Baidu",
+        "ja": "Baidu",
+        "ru": "Baidu",
+        "fr": "Baidu",
+        "zh-TW": "Baidu",
+        "pt-BR": "Baidu",
+        "es": "Baidu",
+        "ko": "Baidu",
+        "de": "Baidu"
+      },
+      "logo": "icons/providers/wenxin.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "baidu",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://qianfan.baidubce.com/v2",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    },
+    {
+      "id": "cohere",
+      "name": "Cohere",
+      "locales": {
+        "en": "Cohere",
+        "ja": "Cohere",
+        "ru": "Cohere",
+        "fr": "Cohere",
+        "zh-TW": "Cohere",
+        "pt-BR": "Cohere",
+        "es": "Cohere",
+        "ko": "Cohere",
+        "de": "Cohere"
+      },
+      "logo": "icons/providers/cohere.svg",
+      "description": null,
+      "homepage": null,
+      "key_url": null,
+      "badge": null,
+      "brand": "cohere",
+      "offered": true,
+      "routes": [
+        {
+          "protocol": "openai-chat-completions",
+          "endpoint": "https://api.cohere.com/compatibility/v1",
+          "region": null,
+          "product": "metered"
+        }
+      ],
+      "auth": {
+        "kind": "api_key",
+        "data": {}
+      },
+      "models": {
+        "kind": "discover"
+      },
+      "capabilities": {
+        "web_search": false
+      },
+      "policies": [],
+      "products": []
+    }
+  ],
+  "partners": [],
+  "policies": [
+    {
+      "models": [
+        "qwen3.6-plus",
+        "qwen3.6-plus-2026-04-02"
+      ],
+      "reasoning_replay": "reasoning_content",
+      "body": {
+        "preserve_thinking": true
+      }
+    },
+    {
+      "models": [
+        "glm-4.7",
+        "glm-5",
+        "glm-5.1",
+        "glm-5.2",
+        "glm-5.3",
+        "glm-5.3-flash"
+      ],
+      "reasoning_replay": "reasoning_content",
+      "body": {
+        "thinking": {
+          "clear_thinking": false
+        }
+      }
+    },
+    {
+      "models": [
+        "kimi-for-coding",
+        "kimi-k2.6",
+        "kimi-k2.7-code",
+        "kimi-k2.7-code-highspeed",
+        "kimi-k3",
+        "MiniMax-M3.1-Flash-Preview"
+      ],
+      "reasoning_replay": "reasoning_content",
+      "body": {}
+    },
+    {
+      "models": [
+        "doubao-seed-2-0-pro-260215",
+        "doubao-seed-2-0-lite-260215",
+        "doubao-seed-2-0-mini-260215",
+        "deepseek-v4-pro-260425",
+        "deepseek-v4-flash-ga-260731",
+        "deepseek-v4-1-flash-260910",
+        "glm-5-2-260617"
+      ],
+      "reasoning_replay": "reasoning_content",
+      "body": {}
+    }
+  ]
+}

@@ -3,6 +3,9 @@ use sailry_protocol::conversation::{Model, Provider};
 
 fn provider() -> Provider {
     Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         oauth: None,
         id: ProviderId::new(),
         revision: 0,

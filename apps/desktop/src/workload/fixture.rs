@@ -66,6 +66,9 @@ pub(super) async fn prepare(
             Command::PutProvider {
                 expected_revision: 0,
                 provider: Provider {
+                    preset: None,
+                    binding: None,
+                    consent: None,
                     options: None,
                     oauth: None,
                     id: provider,

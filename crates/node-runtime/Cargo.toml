@@ -135,6 +135,7 @@ libghostty-vt.workspace = true
 image.workspace = true
 adk-browser.workspace = true
 adk-core.workspace = true
+adk-gemini.workspace = true
 lsp-types.workspace = true
 flate2.workspace = true
 tar.workspace = true

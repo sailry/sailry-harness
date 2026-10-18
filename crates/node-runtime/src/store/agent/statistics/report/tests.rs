@@ -64,6 +64,9 @@ fn estimates_custom_endpoints() {
         &fixture.events,
         Command::PutProvider {
             provider: Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 oauth: None,
                 options: None,
                 id: session.config.provider,
@@ -181,6 +184,9 @@ fn companion_costs() {
     let mut fixture = Fixture::new();
     let provider = ProviderId::new();
     let binding = json!({"provider":Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         oauth: None,
         options: None,
         id: provider,

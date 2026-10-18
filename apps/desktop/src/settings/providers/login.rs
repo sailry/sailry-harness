@@ -15,6 +15,7 @@ use sailry_protocol::{
 };
 
 mod browser;
+mod declaration;
 #[cfg(test)]
 mod tests;
 mod view;
@@ -93,6 +94,8 @@ pub(super) struct Login {
     task: Option<Task<()>>,
     observer: Option<Task<()>>,
     callback: Option<Callback>,
+    presentation: Option<sailry_protocol::plugin::model_auth::Presentation>,
+    declaration_task: Option<Task<()>>,
     callback_stop: CancellationToken,
     browser_reply: Option<tokio::sync::oneshot::Sender<crate::oauth::page::Outcome>>,
     completion: Option<Request>,
@@ -139,6 +142,8 @@ impl Login {
             task: None,
             observer: None,
             callback: None,
+            presentation: None,
+            declaration_task: None,
             callback_stop: CancellationToken::new(),
             browser_reply: None,
             completion: None,
@@ -154,24 +159,29 @@ impl Login {
         if self.pending || (self.closed && !self.cancelling) {
             return;
         }
+        if self.provider.authentication == sailry_protocol::Authentication::Plugin
+            && self.presentation.is_none()
+        {
+            self.load_declaration(window, cx);
+            return;
+        }
         if self.completion.is_some() && !self.fresh && !self.cancelling {
             self.complete(window, cx);
             return;
         }
         if self.fresh {
-            let callback = if self.provider.authentication
-                == sailry_protocol::Authentication::ChatGpt
+            let callback = if let Some((path, required)) =
+                declaration::listener(self.provider.authentication, self.presentation)
             {
-                match Callback::bind("/auth/callback") {
+                match Callback::bind(path) {
                     Ok(callback) => Some(callback),
-                    Err(_) => {
+                    Err(_) if required => {
                         self.error = Some("provider_login_failed");
                         cx.notify();
                         return;
                     }
+                    Err(_) => None,
                 }
-            } else if self.provider.authentication == sailry_protocol::Authentication::ClaudeOAuth {
-                Callback::bind("/callback").ok()
             } else {
                 None
             };

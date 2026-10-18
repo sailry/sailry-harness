@@ -12,6 +12,7 @@ mod guidance;
 mod mcp;
 pub(crate) mod media;
 mod model;
+pub(crate) use model::plugin::discover as discover_plugin_models;
 mod plugins;
 mod prompt;
 mod question;
@@ -355,7 +356,13 @@ async fn execute_with(
             .iter()
             .find(|model| model.id == invocation.turn.config.model)
     });
-    let tool_capable = metadata.is_none_or(|model| model.tools);
+    let tool_capable = metadata.is_none_or(|model| model.tools)
+        && invocation
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.binding.as_ref())
+            .and_then(|binding| binding.adapter.as_ref())
+            .is_none_or(|adapter| adapter.capabilities.tools);
     let mut instruction = prompt::instruction(
         invocation.turn.config.mode,
         invocation.turn.config.permission,

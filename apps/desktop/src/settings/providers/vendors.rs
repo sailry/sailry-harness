@@ -1,17 +1,7 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Region {
-    China,
-    Global,
-}
-
-impl Region {
-    pub fn key(self) -> &'static str {
-        match self {
-            Self::China => "provider_region_china",
-            Self::Global => "provider_region_global",
-        }
-    }
-}
+//! Presentation identities for existing channels; route data has one catalog owner.
+pub use sailry_protocol::conversation::presets::Region;
+use sailry_protocol::conversation::{connection::Product, presets::Preset};
+use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vendor {
@@ -106,54 +96,69 @@ impl Vendor {
         }
     }
 
+    fn declaration(self) -> &'static Preset {
+        super::presets::catalog()
+            .builtin
+            .iter()
+            .find(|preset| Some(preset.id.as_str()) == self.key().strip_prefix("provider_"))
+            .expect("existing provider identity must have a bundled declaration")
+    }
+
+    fn routes(self) -> &'static Routes {
+        static ROUTES: OnceLock<Vec<(Vendor, Routes)>> = OnceLock::new();
+        ROUTES
+            .get_or_init(|| {
+                Self::ALL
+                    .into_iter()
+                    .map(|vendor| {
+                        let preset = vendor.declaration();
+                        let regional = |product| {
+                            preset
+                                .routes
+                                .iter()
+                                .filter(|route| route.product == Some(product))
+                                .filter_map(|route| {
+                                    route.region.map(|region| (region, route.endpoint.as_str()))
+                                })
+                                .collect()
+                        };
+                        (
+                            vendor,
+                            Routes {
+                                endpoint: preset
+                                    .routes
+                                    .first()
+                                    .expect("bundled routes are nonempty")
+                                    .endpoint
+                                    .as_str(),
+                                metered: regional(Product::Metered),
+                                coding: regional(Product::Coding),
+                                model: preset
+                                    .products
+                                    .iter()
+                                    .find(|product| product.kind == Product::Coding)
+                                    .and_then(|product| product.default_model.as_deref()),
+                            },
+                        )
+                    })
+                    .collect()
+            })
+            .iter()
+            .find(|(vendor, _)| *vendor == self)
+            .map(|(_, routes)| routes)
+            .expect("existing provider routes must be declared")
+    }
+
     pub fn endpoint(self) -> &'static str {
-        match self {
-            Self::Qwen => "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            Self::Moonshot => "https://api.moonshot.ai/v1",
-            Self::Xai => "https://api.x.ai/v1",
-            Self::DeepSeek => "https://api.deepseek.com",
-            Self::Groq => "https://api.groq.com/openai/v1",
-            Self::OpenRouter => "https://openrouter.ai/api/v1",
-            Self::Fireworks => "https://api.fireworks.ai/inference/v1",
-            Self::Together => "https://api.together.xyz/v1",
-            Self::Mistral => "https://api.mistral.ai/v1",
-            Self::Perplexity => "https://api.perplexity.ai",
-            Self::Cerebras => "https://api.cerebras.ai/v1",
-            Self::SambaNova => "https://api.sambanova.ai/v1",
-            Self::MiniMax => "https://api.minimax.cn/v1",
-            Self::Doubao => "https://ark.cn-beijing.volces.com/api/v3",
-            Self::Zhipu => "https://open.bigmodel.cn/api/paas/v4",
-            Self::Baidu => "https://qianfan.baidubce.com/v2",
-            Self::Cohere => "https://api.cohere.com/compatibility/v1",
-        }
+        self.routes().endpoint
     }
 
     pub fn endpoints(self) -> &'static [(Region, &'static str)] {
-        match self {
-            Self::Qwen => &[
-                (
-                    Region::China,
-                    "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                ),
-                (
-                    Region::Global,
-                    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-                ),
-            ],
-            Self::Moonshot => &[
-                (Region::China, "https://api.moonshot.cn/v1"),
-                (Region::Global, "https://api.moonshot.ai/v1"),
-            ],
-            Self::MiniMax => &[
-                (Region::China, "https://api.minimax.cn/v1"),
-                (Region::Global, "https://api.minimax.io/v1"),
-            ],
-            Self::Zhipu => &[
-                (Region::China, "https://open.bigmodel.cn/api/paas/v4"),
-                (Region::Global, "https://api.z.ai/api/paas/v4"),
-            ],
-            _ => &[],
-        }
+        &self.routes().metered
+    }
+
+    pub fn coding_endpoints(self) -> &'static [(Region, &'static str)] {
+        &self.routes().coding
     }
 
     pub fn region(self, endpoint: &str) -> Option<Region> {
@@ -165,32 +170,6 @@ impl Vendor {
             .iter()
             .chain(self.coding_endpoints())
             .find_map(|(region, url)| (*url == endpoint).then_some(*region))
-    }
-
-    pub fn coding_endpoints(self) -> &'static [(Region, &'static str)] {
-        match self {
-            Self::Qwen => &[
-                (Region::China, "https://coding.dashscope.aliyuncs.com/v1"),
-                (
-                    Region::Global,
-                    "https://coding-intl.dashscope.aliyuncs.com/v1",
-                ),
-            ],
-            Self::Moonshot => &[
-                (Region::China, "https://api.kimi.com/coding/v1"),
-                (Region::Global, "https://api.kimi.ai/coding/v1"),
-            ],
-            Self::MiniMax => self.endpoints(),
-            Self::Zhipu => &[
-                (Region::China, "https://open.bigmodel.cn/api/coding/paas/v4"),
-                (Region::Global, "https://api.z.ai/api/coding/paas/v4"),
-            ],
-            Self::Doubao => &[(
-                Region::China,
-                "https://ark.cn-beijing.volces.com/api/coding/v3",
-            )],
-            _ => &[],
-        }
     }
 
     pub fn coding_key(self) -> &'static str {
@@ -205,14 +184,7 @@ impl Vendor {
     }
 
     pub fn coding_model(self) -> Option<&'static str> {
-        match self {
-            Self::Qwen => Some("qwen3.6-plus"),
-            Self::Moonshot => Some("kimi-for-coding"),
-            Self::MiniMax => Some("MiniMax-M3.1-Flash-Preview"),
-            Self::Zhipu => Some("glm-5.2"),
-            Self::Doubao => Some("ark-code-latest"),
-            _ => None,
-        }
+        self.routes().model
     }
 
     pub fn from_endpoint(endpoint: &str) -> Option<Self> {
@@ -232,6 +204,13 @@ impl Vendor {
                     .any(|(_, url)| *url == endpoint)
         })
     }
+}
+
+struct Routes {
+    endpoint: &'static str,
+    metered: Vec<(Region, &'static str)>,
+    coding: Vec<(Region, &'static str)>,
+    model: Option<&'static str>,
 }
 
 #[cfg(test)]

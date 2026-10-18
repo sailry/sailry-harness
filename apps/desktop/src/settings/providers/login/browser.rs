@@ -48,7 +48,7 @@ impl Login {
         if self.pending
             || self.closed
             || self.cancelling
-            || self.provider.authentication != sailry_protocol::Authentication::ClaudeOAuth
+            || !self.accepts_callback()
             || !matches!(self.state(), Some(State::Browser { .. }))
         {
             return;

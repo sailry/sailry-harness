@@ -6,6 +6,7 @@ use gpui_kit::component::{
     input::{Input, InputEvent, InputState},
     skeleton::Skeleton,
     tab::{Tab, TabBar},
+    tag::Tag,
 };
 use sailry_link::CancellationToken;
 use sailry_protocol::{
@@ -371,6 +372,7 @@ impl Render for Market {
                                 cx,
                             )
                             .disabled(!connected)
+                            .when(entry.provides_models, |summary| summary.tooltip(model_permissions(&entry.permissions)))
                             .on_click(cx.listener({
                                 let entry = entry.clone();
                                 move |state, _, window, cx| state.details(entry.clone(), window, cx)
@@ -399,7 +401,10 @@ impl Render for Market {
                                             state.install(source, entry.clone(), window, cx);
                                         }
                                     }));
-                            resource_card::card(format!("market-card-{}", entry.id), summary, install, cx)
+                            let actions = h_flex().items_center().gap_2()
+                                .when(entry.provides_models, |actions| actions.child(Tag::secondary().small().child(tr("provider_model_provider"))))
+                                .child(install);
+                            resource_card::card(format!("market-card-{}", entry.id), summary, actions, cx)
                         })),
                 )
                 .when(page.pages > 1, |view| {
@@ -477,4 +482,22 @@ fn skeleton(cx: &App) -> impl IntoElement {
                 )
                 .child(content)
         }))
+}
+
+fn model_permissions(actions: &[sailry_protocol::plugin::Action]) -> SharedString {
+    use sailry_protocol::plugin::Action;
+    let labels = actions
+        .iter()
+        .filter_map(|action| match action {
+            Action::ProvideModels => Some(tr("provider_message_access").to_string()),
+            Action::AuthenticateModels => Some(tr("provider_login_access").to_string()),
+            Action::InspectCredentials => Some(tr("provider_credential_access").to_string()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if labels.is_empty() {
+        tr("provider_model_provider")
+    } else {
+        labels.join(", ").into()
+    }
 }

@@ -7,6 +7,7 @@ mod list;
 mod live;
 mod login;
 mod model;
+mod presets;
 mod vendors;
 use gpui_kit::prelude::FluentBuilder as _;
 pub(super) use live::Binding;
@@ -31,13 +32,15 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 impl Workspace {
-    pub(crate) fn provider_brands() -> Vec<(&'static str, Icon)> {
-        editor::Editor::brands()
+    pub(crate) fn provider_brands(
+        entries: Option<&[sailry_protocol::conversation::presets::Entry]>,
+    ) -> Vec<(String, SharedString, AnyElement)> {
+        editor::Editor::brands(entries)
     }
 
     pub(crate) fn add_provider(
         owner: Entity<Self>,
-        brand: Option<&'static str>,
+        brand: Option<String>,
         window: &mut Window,
         cx: &mut App,
     ) {
@@ -65,7 +68,15 @@ impl Workspace {
             .filter(|channel| channel.preset.category() == category);
         for channel in matching {
             let id = channel.id;
-            let authorization = (real && channel.preset.oauth()).then(|| {
+            let authorization = (real
+                && self
+                    .provider_link
+                    .as_ref()
+                    .and_then(|live| live.providers.get(&id))
+                    .is_some_and(|provider| {
+                        provider.authentication != sailry_protocol::Authentication::ApiKey
+                    }))
+            .then(|| {
                 let owner = owner.clone();
                 Button::new(("provider-login", id))
                     .ghost()

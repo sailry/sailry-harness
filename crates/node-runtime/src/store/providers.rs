@@ -1,8 +1,11 @@
 use super::{Ingress, Job, agent, unavailable};
+pub(super) mod adapters;
 pub(in crate::store) mod authentication;
 pub(super) mod catalog;
 pub(in crate::store) mod completion;
 pub(in crate::store) mod configuration;
+pub(crate) mod consent;
+pub(in crate::store) mod presets;
 pub(in crate::store) mod quota;
 pub(in crate::store) use configuration::{Stored, validate_stored};
 use sailry_link::Admission;
@@ -46,6 +49,32 @@ pub(super) fn inspect(
 }
 
 impl Ingress {
+    async fn capture_channel(&self, provider: &Provider) -> Result<Provider, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(Job::CaptureChannel {
+                provider: Box::new(provider.clone()),
+                reply,
+            })
+            .map_err(|_| unavailable())?;
+        response.await.map_err(|_| unavailable())?
+    }
+    pub(crate) async fn model_adapter(
+        &self,
+        provider: &Provider,
+        messages: bool,
+    ) -> Result<sailry_protocol::plugin::model_adapter::Declaration, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(Job::ModelAdapter {
+                provider: Box::new(provider.clone()),
+                messages,
+                reply,
+            })
+            .map_err(|_| unavailable())?;
+        response.await.map_err(|_| unavailable())?
+    }
+
     pub(super) async fn discover_models(&self, request: Request) -> Result<Admission, Fault> {
         if request.target != self.node || request.version != VERSION {
             return Err(Fault::new(
@@ -106,6 +135,19 @@ impl Ingress {
     }
 
     async fn saved_models(&self, provider: &Provider) -> Result<discovery::Catalog, Fault> {
+        if provider.api == sailry_protocol::conversation::ModelApi::Plugin {
+            let captured = self.capture_channel(provider).await?;
+            let models =
+                crate::agent::discover_plugin_models(self, &captured, None, &self.closed).await?;
+            self.provider(provider.id, provider.revision).await?;
+            if self.capture_channel(provider).await?.binding != captured.binding {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "channel declaration changed during model discovery",
+                ));
+            }
+            return Ok(models);
+        }
         if crate::providers::cloud::deployment(provider.api) {
             return Err(Fault::invalid(
                 "cloud deployments require an explicit model ID",
@@ -113,6 +155,7 @@ impl Ingress {
         }
         let models = if provider.authentication == Authentication::ApiKey {
             self.draft_models(&discovery::Draft {
+                preset: provider.preset.clone(),
                 provider: provider.id,
                 api: provider.api,
                 endpoint: provider.endpoint.clone(),
@@ -121,7 +164,13 @@ impl Ingress {
             })
             .await?
         } else {
-            let options = crate::providers::login::effective(provider)?;
+            let captured = if provider.authentication == Authentication::Plugin {
+                Some(self.capture_channel(provider).await?)
+            } else {
+                None
+            };
+            let options =
+                crate::providers::login::effective(captured.as_ref().unwrap_or(provider))?;
             let reference = provider.credential.clone().ok_or_else(|| {
                 Fault::new(ErrorCode::NotConfigured, "provider sign-in is required")
             })?;
@@ -148,6 +197,14 @@ impl Ingress {
                     self.closed.clone(),
                 )
                 .await?;
+            if let Some(captured) = captured
+                && self.capture_channel(provider).await?.binding != captured.binding
+            {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "channel declaration changed during model discovery",
+                ));
+            }
             discovery::Catalog {
                 endpoint: endpoint.to_owned(),
                 models,
@@ -160,7 +217,60 @@ impl Ingress {
     }
 
     async fn draft_models(&self, source: &discovery::Draft) -> Result<discovery::Catalog, Fault> {
+        let entry = self.draft_preset(source).await?;
         let key = self.discovery_key(source).await?;
+        if let Some(sailry_protocol::conversation::presets::Entry {
+            preset:
+                sailry_protocol::conversation::presets::Preset {
+                    models: sailry_protocol::conversation::presets::Models::Static { ids },
+                    ..
+                },
+            ..
+        }) = &entry
+        {
+            return Ok(discovery::Catalog {
+                endpoint: source.endpoint.clone(),
+                models: ids
+                    .iter()
+                    .map(|id| discovery::Model {
+                        id: id.clone(),
+                        display_name: None,
+                        context: None,
+                        output: None,
+                        capabilities: None,
+                    })
+                    .collect(),
+            });
+        }
+        if source.api == sailry_protocol::conversation::ModelApi::Plugin {
+            let provider = Provider {
+                id: source.provider,
+                revision: 0,
+                preset: source.preset.clone(),
+                binding: None,
+                consent: None,
+                name: "Model discovery".into(),
+                api: source.api,
+                authentication: Authentication::ApiKey,
+                endpoint: source.endpoint.clone(),
+                options: None,
+                oauth: None,
+                enabled: true,
+                models: Vec::new(),
+                default_model: String::new(),
+                credential: source.credential.clone(),
+            };
+            let captured = self.capture_channel(&provider).await?;
+            let models =
+                crate::agent::discover_plugin_models(self, &captured, key, &self.closed).await?;
+            if self.draft_preset(source).await? != entry {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "channel declaration changed during model discovery",
+                ));
+            }
+            return Ok(models);
+        }
         let models = self
             .discovery
             .read(
@@ -171,7 +281,62 @@ impl Ingress {
             )
             .await?;
         self.discovery_key(source).await?;
+        if self.draft_preset(source).await? != entry {
+            return Err(Fault::new(
+                ErrorCode::RevisionConflict,
+                "channel declaration changed during model discovery",
+            ));
+        }
         Ok(models)
+    }
+
+    async fn draft_preset(
+        &self,
+        source: &discovery::Draft,
+    ) -> Result<Option<sailry_protocol::conversation::presets::Entry>, Fault> {
+        let Some(reference) = &source.preset else {
+            return Ok(None);
+        };
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(Job::ChannelPresets {
+                catalog: None,
+                unavailable: false,
+                reply,
+            })
+            .map_err(|_| unavailable())?;
+        let listing = response.await.map_err(|_| unavailable())??;
+        let entry = listing
+            .entries
+            .into_iter()
+            .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
+            .ok_or_else(|| {
+                Fault::new(
+                    ErrorCode::NotConfigured,
+                    "channel preset is unavailable on this Node",
+                )
+            })?;
+        if !entry.preset.routes.iter().any(|route| {
+            route.protocol.api() == source.api
+                && reference
+                    .route
+                    .as_ref()
+                    .is_none_or(|key| route.key() == *key)
+        }) {
+            return Err(Fault::invalid(
+                "model discovery protocol does not match its channel preset",
+            ));
+        }
+        if !matches!(
+            entry.preset.auth,
+            sailry_protocol::conversation::presets::Auth::ApiKey { .. }
+                | sailry_protocol::conversation::presets::Auth::None
+        ) {
+            return Err(Fault::invalid(
+                "channel authentication requires a saved sign-in",
+            ));
+        }
+        Ok(Some(entry))
     }
 
     async fn discovery_key(&self, source: &discovery::Draft) -> Result<Option<Secret>, Fault> {

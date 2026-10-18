@@ -9,6 +9,15 @@ pub const DEFAULT_CLAUDE_AGENT: &str = "claude-cli/2.1.280";
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Options {
+    Plugin {
+        package: crate::plugin::Reference,
+        flow: String,
+        endpoint: String,
+        #[serde(default)]
+        consent: Option<Box<super::consent::Approval>>,
+        #[serde(default)]
+        origin: Option<super::consent::Origin>,
+    },
     ChatGpt {
         /// This setting is not sent to SIWC's public account catalog.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -50,12 +59,32 @@ impl Options {
                 editor_version: "vscode/1.107.0".into(),
                 editor_plugin_version: "copilot-chat/0.35.0".into(),
             }),
-            Authentication::ApiKey => None,
+            Authentication::ApiKey | Authentication::Plugin => None,
         }
     }
 
     /// Wire checks only; the execution Node also validates HTTP values.
     pub fn validate(&self, authentication: Authentication, api: ModelApi) -> Result<(), Fault> {
+        if let Self::Plugin {
+            flow,
+            package,
+            endpoint,
+            ..
+        } = self
+        {
+            return if authentication == Authentication::Plugin
+                && !flow.is_empty()
+                && !package.name.is_empty()
+                && !package.digest.is_empty()
+                && !endpoint.is_empty()
+            {
+                Ok(())
+            } else {
+                Err(crate::Fault::invalid(
+                    "plugin OAuth settings do not match the provider",
+                ))
+            };
+        }
         let fields: &[&str] = match (self, authentication, api) {
             (Self::ChatGpt { user_agent, .. }, Authentication::ChatGpt, ModelApi::Responses) => {
                 &[user_agent]
@@ -116,12 +145,16 @@ impl Options {
                     .as_deref()
                     .unwrap_or(DEFAULT_CATALOG_VERSION),
             ),
-            Self::ChatGpt { .. } | Self::ClaudeOAuth { .. } | Self::Copilot { .. } => None,
+            Self::ChatGpt { .. }
+            | Self::ClaudeOAuth { .. }
+            | Self::Copilot { .. }
+            | Self::Plugin { .. } => None,
         }
     }
 
     pub fn user_agent(&self) -> &str {
         match self {
+            Self::Plugin { .. } => "Sailry/0.1",
             Self::ChatGpt { user_agent, .. }
             | Self::ChatGptOAuth { user_agent, .. }
             | Self::ClaudeOAuth { user_agent }

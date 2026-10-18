@@ -41,11 +41,12 @@ pub(crate) fn image_api(provider: &Provider) -> Option<ImageRoute> {
             | ModelApi::OpenCodeZen
             | ModelApi::AzureOpenAi
             | ModelApi::AzureAi => None,
+            ModelApi::Plugin => None,
         },
         Authentication::ChatGptOAuth | Authentication::Copilot => {
             (provider.api == ModelApi::Responses).then_some(ImageRoute::Authorized)
         }
-        Authentication::ChatGpt | Authentication::ClaudeOAuth => None,
+        Authentication::ChatGpt | Authentication::ClaudeOAuth | Authentication::Plugin => None,
     }
 }
 
@@ -61,8 +62,13 @@ pub(crate) fn supports_api(kind: Kind, provider: &Provider) -> bool {
         return false;
     }
     match kind {
+        Kind::Vision if provider.api == ModelApi::Plugin => provider
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.adapter.as_ref())
+            .is_some_and(|adapter| adapter.capabilities.vision),
         Kind::Vision => match provider.authentication {
-            Authentication::ApiKey => true,
+            Authentication::ApiKey | Authentication::Plugin => true,
             Authentication::ChatGpt | Authentication::ChatGptOAuth => {
                 provider.api == ModelApi::Responses
             }
@@ -105,6 +111,9 @@ mod tests {
             default_effort: Effort::Default,
         };
         let provider = Provider {
+            preset: None,
+            binding: None,
+            consent: None,
             id: ProviderId::new(),
             revision: 1,
             name: "Media fixture".into(),

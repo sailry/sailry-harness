@@ -7,6 +7,9 @@ use serde_json::Value;
 
 fn provider() -> Provider {
     Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         id: ProviderId::new(),
         revision: 1,
         name: "Fixture".into(),
@@ -279,4 +282,58 @@ mod cache {
         let adapter = session_adapter(&provider, "fixture", SessionId::new()).unwrap();
         assert!(adapter(&mut Value::Null, &mut HeaderMap::new()).is_err());
     }
+}
+
+#[test]
+fn freezes_policy_and_preserves_builtin_scope() {
+    let mut native = provider();
+    let original = crate::providers::presets::bundled().policies;
+    native.binding = Some(Box::new(sailry_protocol::conversation::presets::Binding {
+        policies: original.clone(),
+        ..Default::default()
+    }));
+    for model in original
+        .iter()
+        .flat_map(|policy| policy.models.iter())
+        .map(String::as_str)
+        .chain(["unknown"])
+    {
+        let mut legacy = provider();
+        let expected = match model {
+            "qwen3.6-plus" | "qwen3.6-plus-2026-04-02" => {
+                json!({"model":model,"preserve_thinking":true})
+            }
+            "glm-4.7" | "glm-5" | "glm-5.1" | "glm-5.2" | "glm-5.3" | "glm-5.3-flash" => {
+                json!({"model":model,"thinking":{"clear_thinking":false}})
+            }
+            _ => json!({"model":model}),
+        };
+        for selected in [&native, &legacy] {
+            let mut body = json!({"model":model});
+            if let Some(adapter) = adapter(selected, model) {
+                adapter(&mut body, &mut HeaderMap::new()).unwrap();
+            }
+            assert_eq!(body, expected);
+            assert_eq!(replay(selected, model), model != "unknown");
+        }
+        legacy.api = ModelApi::Responses;
+        assert!(adapter(&legacy, model).is_none());
+        assert!(!replay(&legacy, model));
+    }
+    let mut override_policy = original[0].clone();
+    override_policy
+        .body
+        .insert("preserve_thinking".into(), false.into());
+    native
+        .binding
+        .as_mut()
+        .unwrap()
+        .policies
+        .push(override_policy);
+    let mut body = json!({"model":"qwen3.6-plus","messages":[],"stream":false,"custom":7});
+    adapter(&native, "qwen3.6-plus").unwrap()(&mut body, &mut HeaderMap::new()).unwrap();
+    assert_eq!(
+        body,
+        json!({"model":"qwen3.6-plus","messages":[],"stream":false,"custom":7,"preserve_thinking":false})
+    );
 }

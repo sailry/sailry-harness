@@ -22,7 +22,7 @@ pub(super) fn capture(
         )?,
         None => run.worktree,
     };
-    let roster = super::super::super::sessions::roles::read(db, run.session, run.revision)?;
+    let roster = super::super::super::sessions::roles::for_turn(db, run.turn)?;
     let role = match args.role.as_deref() {
         Some(key) => Some(
             roster
@@ -82,6 +82,7 @@ pub(super) fn capture(
         provider = Some(selected);
     }
     if let Some(provider) = &mut provider {
+        crate::store::providers::presets::capture(db, provider)?;
         crate::providers::login::capture(provider)?;
     }
     super::super::super::commands::validate_config(db, node, &config)?;

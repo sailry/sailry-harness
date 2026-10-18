@@ -164,6 +164,7 @@ adk-eval = { git = "https://github.com/dux-web/adk-rust.git", rev = "b6b5ce60635
 cpal = "=0.18.2"
 adk-sandbox = { git = "https://github.com/dux-web/adk-rust.git", rev = "b6b5ce6063542c655d57b8aba8700731cd927b6a", default-features = false, features = ["sandbox-macos", "sandbox-linux"] }
 adk-core = { git = "https://github.com/dux-web/adk-rust.git", rev = "b6b5ce6063542c655d57b8aba8700731cd927b6a", default-features = false }
+adk-gemini = { git = "https://github.com/dux-web/adk-rust.git", rev = "b6b5ce6063542c655d57b8aba8700731cd927b6a", default-features = false }
 adk-session = { git = "https://github.com/dux-web/adk-rust.git", rev = "b6b5ce6063542c655d57b8aba8700731cd927b6a", default-features = false }
 adk-runner = { git = "https://github.com/dux-web/adk-rust.git", rev = "b6b5ce6063542c655d57b8aba8700731cd927b6a", default-features = false }
 adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "b6b5ce6063542c655d57b8aba8700731cd927b6a", default-features = false }

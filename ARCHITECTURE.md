@@ -86,6 +86,17 @@ configuration database, never public events, logs or UI caches. Projects remain
 at registered paths; profiles contain Node storage, plugin packages/data and
 uploaded attachments.
 
+Channel presets share one Node-owned directory: bundled declarations, the last
+validated partner catalog and enabled package declarations. Listing the directory
+does not require a public-network read; refreshing partner recommendations is an
+explicit read. Saved channels retain a stable source, preset and route identity,
+with user endpoint and credential overrides kept separately. Admission resolves
+that identity against the current directory and captures its request policies and
+exact package resources. An admitted turn does not consult a newer catalog.
+Role providers are captured on each parent turn as well; delegated work inherits
+that turn's provider declarations rather than resolving the current package.
+Historical turn-role defaults come from their own immutable session revision.
+
 Declared application registration reuses the Node's durable plugin login owner,
 caller-scoped observation and explicit cancellation. The fixed Feishu adapter
 requests only declared tenant scopes. Its verification URL is transient native

@@ -64,6 +64,7 @@ const KEY: &str = "isolated-discovery-key";
 
 fn source(api: ModelApi, server: &Server) -> discovery::Draft {
     discovery::Draft {
+        preset: None,
         provider: ProviderId::new(),
         api,
         endpoint: server.endpoint.clone(),
@@ -151,6 +152,9 @@ async fn discovers_without_persistence() {
                 ]
             );
             let provider = Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 oauth: None,
                 options: None,
                 id: input.provider,

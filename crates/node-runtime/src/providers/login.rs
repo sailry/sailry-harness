@@ -6,6 +6,7 @@ mod copilot;
 mod grant;
 mod headers;
 mod options;
+pub(crate) mod plugin;
 pub(crate) use chatgpt::Authorization;
 pub(crate) use grant::Grant;
 pub(crate) use options::capture;
@@ -67,6 +68,12 @@ impl Service {
             options::validate(grant.authentication(), api(grant.authentication()), options)?;
             let client = client(options)?;
             let refreshed = match grant {
+                Grant::Plugin { .. } => {
+                    return Err(Fault::new(
+                        ErrorCode::NotConfigured,
+                        "model authorization requires its captured plugin flow",
+                    ));
+                }
                 Grant::ChatGpt { .. } => self.refresh_chatgpt(&client, grant).await?,
                 Grant::ChatGptOAuth { .. } => self.refresh_codex(&client, grant).await?,
                 Grant::ClaudeOAuth { .. } => self.refresh_claude(&client, grant).await?,
@@ -174,6 +181,12 @@ impl Service {
                         "provider does not use device authorization",
                     ));
                 }
+                Authentication::Plugin => {
+                    return Err(Fault::new(
+                        ErrorCode::NotConfigured,
+                        "model authorization requires its captured plugin flow",
+                    ));
+                }
             };
             grant.validate(authentication)?;
             if grant.expires_at_ms() <= now_ms()? {
@@ -192,6 +205,7 @@ impl Service {
 pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
     let endpoint = provider.endpoint.trim_end_matches('/');
     let valid = match provider.authentication {
+        Authentication::Plugin => provider.preset.is_some(),
         Authentication::ApiKey => true,
         Authentication::ChatGpt => {
             provider.api == ModelApi::Responses && endpoint == CHATGPT_ENDPOINT
@@ -233,7 +247,10 @@ pub(crate) fn validate(provider: &Provider) -> Result<(), Fault> {
 pub(crate) fn transferable(authentication: Authentication) -> Result<(), Fault> {
     if matches!(
         authentication,
-        Authentication::ChatGpt | Authentication::ChatGptOAuth | Authentication::ClaudeOAuth
+        Authentication::ChatGpt
+            | Authentication::ChatGptOAuth
+            | Authentication::ClaudeOAuth
+            | Authentication::Plugin
     ) {
         // Independent Nodes cannot coordinate a rotating token family after copying it.
         return Err(Fault::new(
@@ -249,10 +266,14 @@ pub(crate) fn transferable(authentication: Authentication) -> Result<(), Fault> 
 }
 
 fn client(options: &Options) -> Result<Client, Fault> {
+    http_client(options.user_agent())
+}
+
+fn http_client(user_agent: &str) -> Result<Client, Fault> {
     Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
-        .user_agent(options.user_agent())
+        .user_agent(user_agent)
         .build()
         .map_err(|_| unavailable())
 }

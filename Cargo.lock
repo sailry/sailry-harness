@@ -14310,6 +14310,7 @@ dependencies = [
  "adk-browser",
  "adk-core",
  "adk-eval",
+ "adk-gemini",
  "adk-model",
  "adk-runner",
  "adk-sandbox",

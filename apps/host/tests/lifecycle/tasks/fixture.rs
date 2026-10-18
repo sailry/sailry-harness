@@ -54,6 +54,9 @@ impl Fixture {
             NodeCommand::PutProvider {
                 expected_revision: 0,
                 provider: Provider {
+                    preset: None,
+                    binding: None,
+                    consent: None,
                     options: None,
                     oauth: None,
                     id: ProviderId::new(),

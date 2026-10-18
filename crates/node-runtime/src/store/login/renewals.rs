@@ -33,22 +33,95 @@ impl Worker {
         options: sailry_protocol::conversation::oauth::Options,
         reply: oneshot::Sender<Result<Authorization, Fault>>,
     ) {
-        let Some((id, grant)) = self.renewals.begin(
-            database,
-            reference,
-            provider,
-            authentication,
-            reply,
-            &self.events,
-        ) else {
+        let plugin = if authentication == Authentication::Plugin {
+            let prepared = crate::store::agent::providers::get(&database.connection, provider)
+                .and_then(|value| {
+                    value.ok_or_else(|| Fault::new(ErrorCode::NotFound, "provider does not exist"))
+                })
+                .and_then(|value| {
+                    super::model_auth::configuration(
+                        &database.connection,
+                        &value,
+                        RequestId::new(),
+                        Some(&options),
+                    )
+                });
+            match prepared {
+                Ok(value) => Some(value),
+                Err(error) => {
+                    let _ = reply.send(Err(error));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let authorization = (|| {
+            let (credential, secret) = database.credential(&reference, provider, authentication)?;
+            let grant = Grant::decode(authentication, &secret)?;
+            if let Grant::Plugin { record, .. } = &grant {
+                record.matches(
+                    &plugin
+                        .as_ref()
+                        .ok_or_else(|| {
+                            Fault::new(ErrorCode::NotConfigured, "channel plugin is not captured")
+                        })?
+                        .target,
+                )?;
+            }
+            Ok::<_, Fault>(Authorization { grant, credential })
+        })();
+        let authorization = match authorization {
+            Ok(value) => value,
+            Err(error) => {
+                let _ = reply.send(Err(error));
+                return;
+            }
+        };
+        let Some((id, grant)) = self
+            .renewals
+            .begin(database, authorization, reply, &self.events)
+        else {
             return;
         };
         self.pending += 1;
         let service = self.service.clone();
+        let plugins = self.plugins.clone();
         let stop = self.closed.clone();
         let sender = self.sender.clone();
         self.runtime.spawn(async move {
-            let result = AssertUnwindSafe(service.refresh(&grant, &options, &stop))
+            let operation = async {
+                if let (Grant::Plugin { record, .. }, Some(plugin)) = (&grant, plugin) {
+                    let bundle = plugin.bundle(&plugins, &stop).await?;
+                    let issued = crate::providers::login::plugin::flow::refresh(
+                        &service,
+                        &plugin.declaration,
+                        &plugin.target.fields,
+                        &record.issued,
+                        bundle,
+                        stop.clone(),
+                    )
+                    .await
+                    .map_err(|_| {
+                        Fault::new(
+                            ErrorCode::OutcomeUnknown,
+                            "authorization refresh did not complete; sign in again",
+                        )
+                    })?;
+                    let grant = Grant::Plugin {
+                        record: Box::new(crate::providers::login::plugin::Record {
+                            target: plugin.target,
+                            issued,
+                        }),
+                        renewal_pending: false,
+                    };
+                    grant.validate(Authentication::Plugin)?;
+                    Ok(grant)
+                } else {
+                    service.refresh(&grant, &options, &stop).await
+                }
+            };
+            let result = AssertUnwindSafe(operation)
                 .catch_unwind()
                 .await
                 .unwrap_or_else(|_| Err(super::super::unavailable()));
@@ -63,25 +136,21 @@ impl Renewals {
     fn begin(
         &mut self,
         database: &mut Database,
-        reference: CredentialRef,
-        provider: ProviderId,
-        authentication: Authentication,
+        authorization: Authorization,
         reply: oneshot::Sender<Result<Authorization, Fault>>,
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Option<(CredentialId, Grant)> {
-        let prepared = (|| {
-            let (metadata, secret) = database.credential(&reference, provider, authentication)?;
-            let grant = Grant::decode(authentication, &secret)?;
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|_| Fault::new(ErrorCode::Internal, "system clock is invalid"))?
-                .as_millis() as u64;
-            Ok::<_, Fault>((metadata, grant, now))
-        })();
-        let (metadata, mut grant, now) = match prepared {
-            Ok(value) => value,
-            Err(error) => {
-                let _ = reply.send(Err(error));
+        let Authorization {
+            credential: metadata,
+            mut grant,
+        } = authorization;
+        let now = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(value) => value.as_millis() as u64,
+            Err(_) => {
+                let _ = reply.send(Err(Fault::new(
+                    ErrorCode::Internal,
+                    "system clock is invalid",
+                )));
                 return None;
             }
         };
@@ -110,6 +179,15 @@ impl Renewals {
                 grant,
                 credential: metadata,
             }));
+            return None;
+        }
+        if let Grant::Plugin { record, .. } = &grant
+            && (record.issued.refresh.is_none() || record.target.refresh.is_none())
+        {
+            let _ = reply.send(Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "model sign-in expired; sign in again",
+            )));
             return None;
         }
         if self.pending.len() >= 4 {

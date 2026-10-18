@@ -6,15 +6,21 @@ use gpui_kit::component::{
 };
 use sailry_protocol::conversation::connection::Product;
 
-impl SearchableListItem for Region {
-    type Value = Self;
+#[derive(Clone)]
+pub(super) struct Choice(Region);
+
+impl SearchableListItem for Choice {
+    type Value = Region;
 
     fn title(&self) -> SharedString {
-        tr(self.key())
+        tr(match self.0 {
+            Region::China => "provider_region_china",
+            Region::Global => "provider_region_global",
+        })
     }
 
     fn value(&self) -> &Self::Value {
-        self
+        &self.0
     }
 }
 
@@ -24,7 +30,7 @@ pub(super) fn new(
     product: Product,
     window: &mut Window,
     cx: &mut Context<Editor>,
-) -> Entity<SelectState<Vec<Region>>> {
+) -> Entity<SelectState<Vec<Choice>>> {
     let (items, selected) = values(preset, endpoint, product);
     let state = cx.new(|cx| SelectState::new(items, selected, window, cx));
     cx.subscribe_in(&state, window, |editor, _, event, window, cx| {
@@ -36,17 +42,17 @@ pub(super) fn new(
     state
 }
 
-fn values(preset: Preset, endpoint: &str, product: Product) -> (Vec<Region>, Option<IndexPath>) {
+fn values(preset: Preset, endpoint: &str, product: Product) -> (Vec<Choice>, Option<IndexPath>) {
     let Preset::Hosted(vendor) = preset else {
         return (Vec::new(), None);
     };
     let items: Vec<_> = hosted::routes(vendor, product)
         .iter()
-        .map(|(region, _)| *region)
+        .map(|(region, _)| Choice(*region))
         .collect();
     let selected = vendor
         .region(endpoint)
-        .and_then(|region| items.iter().position(|item| *item == region))
+        .and_then(|region| items.iter().position(|item| item.0 == region))
         .map(IndexPath::new);
     (items, selected)
 }

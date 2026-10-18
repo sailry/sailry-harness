@@ -17,7 +17,11 @@ pub(crate) fn combines(api: ModelApi, id: &str, effort: Effort, functions: bool)
 pub(crate) fn enable(provider: &mut Provider) {
     let codex = provider.authentication == Authentication::ChatGptOAuth
         && provider.api == ModelApi::Responses;
-    if provider.authentication != Authentication::ApiKey && !codex {
+    let declared = provider
+        .binding
+        .as_ref()
+        .is_some_and(|binding| binding.package.is_some() && binding.capabilities.web_search);
+    if provider.authentication != Authentication::ApiKey && !codex && !declared {
         return;
     }
     for model in &mut provider.models {
@@ -27,7 +31,9 @@ pub(crate) fn enable(provider: &mut Provider) {
             .and_then(|value| value.web_search)
             // Codex's Responses provider declares hosted web search without a model allowlist.
             // https://github.com/openai/codex/blob/e45069d770c6d0b8984c58a6e7cbaf221ad37599/codex-rs/core/src/tools/spec_plan.rs
-            .unwrap_or_else(|| codex || model.web_search || supported(provider.api, &model.id));
+            .unwrap_or_else(|| {
+                codex || declared || model.web_search || supported(provider.api, &model.id)
+            });
     }
 }
 

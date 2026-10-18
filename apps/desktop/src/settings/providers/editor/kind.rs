@@ -1,33 +1,54 @@
 use super::*;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 
-pub(super) fn groups() -> Vec<(&'static str, Vec<Preset>)> {
-    use super::super::data::Family;
-    let mut groups: Vec<(&'static str, Vec<Preset>)> = Vec::new();
-    for family in Family::all() {
-        let presets = Preset::all()
-            .filter(|preset| {
-                preset.offered() && preset.family() == family && preset.kind() == *preset
-            })
-            .collect::<Vec<_>>();
-        if presets.is_empty() {
-            continue;
-        }
-        let key = match family {
-            Family::OpenCodeGo | Family::OpenCodeZen => "provider_opencode",
-            _ => family.key(),
-        };
-        if let Some((_, items)) = groups.iter_mut().find(|(brand, _)| *brand == key) {
-            items.extend(presets);
-        } else {
-            groups.push((key, presets));
-        }
-    }
-    groups
-}
-
 impl Editor {
     pub(super) fn kind_control(&self, cx: &Context<Self>) -> impl IntoElement {
+        if let Some(entry) = self.selected.as_ref() {
+            let mut choices = entry
+                .preset
+                .routes
+                .iter()
+                .filter(|route| {
+                    self.selected_route().is_some_and(|current| {
+                        route.region == current.region && route.product == current.product
+                    })
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            choices.dedup_by_key(|route| route.protocol);
+            let current = self.selected_route().cloned();
+            let owner = cx.entity();
+            return h_flex()
+                .gap_2()
+                .when(choices.len() > 1, |row| {
+                    row.child(
+                        Button::new("provider-api")
+                            .w(rems(9.))
+                            .label(current.as_ref().map_or_else(
+                                || tr("provider_api"),
+                                |route| protocol_label(route.protocol),
+                            ))
+                            .dropdown_caret(true)
+                            .disabled(self.navigation_blocked() || self.editing.is_some())
+                            .dropdown_menu(move |menu, _, _| {
+                                choices.iter().fold(menu, |menu, route| {
+                                    let route = route.clone();
+                                    let owner = owner.clone();
+                                    menu.item(
+                                        PopupMenuItem::new(protocol_label(route.protocol))
+                                            .checked(current.as_ref() == Some(&route))
+                                            .on_click(move |_, window, cx| {
+                                                owner.update(cx, |editor, cx| {
+                                                    editor.change_route(route.clone(), window, cx)
+                                                })
+                                            }),
+                                    )
+                                })
+                            }),
+                    )
+                })
+                .into_any_element();
+        }
         let preset = self.preset;
         let disabled = self.editing.is_some() || self.provider.is_some() || self.pending;
         h_flex()
@@ -53,7 +74,7 @@ impl Editor {
                                         .checked(p == preset)
                                         .on_click(move |_, window, cx| {
                                             owner.update(cx, |editor, cx| {
-                                                editor.select_protocol(p, window, cx)
+                                                editor.select_preset(p, window, cx)
                                             })
                                         }),
                                 )
@@ -61,51 +82,15 @@ impl Editor {
                         }),
                 )
             })
+            .into_any_element()
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use core::prelude::v1::test;
-
-    #[test]
-    fn native_and_compatible_channels() {
-        let brands = groups();
-        assert_eq!(
-            brands
-                .iter()
-                .find(|(key, _)| *key == "provider_opencode")
-                .unwrap()
-                .1,
-            [Preset::OpenCodeGo, Preset::OpenCodeZen]
-        );
-        assert!(!brands.iter().any(|(key, _)| *key == "provider_group_other"));
-        for vendor in super::super::super::vendors::Vendor::FIRST_PARTY {
-            assert!(brands.iter().any(|(key, presets)| {
-                *key == vendor.key() && presets == &[Preset::Hosted(vendor)]
-            }));
-        }
-        let offered: Vec<_> = groups()
-            .into_iter()
-            .flat_map(|(_, presets)| presets)
-            .collect();
-        for kind in Preset::all().filter(|preset| preset.kind() == *preset) {
-            assert_eq!(
-                offered.iter().filter(|&&preset| preset == kind).count(),
-                usize::from(kind.offered()),
-                "{kind:?}"
-            );
-        }
-        assert!(!offered.iter().any(|preset| preset.cloud()));
-        assert!(offered.contains(&Preset::CompatibleResponses));
-        assert!(offered.contains(&Preset::ChatGpt));
-        assert!(offered.contains(&Preset::ChatGptOAuth));
-        assert!(offered.contains(&Preset::ClaudeOAuth));
-        assert!(offered.contains(&Preset::OpenCodeGo));
-        assert!(offered.contains(&Preset::OpenCodeZen));
-        for vendor in super::super::super::vendors::Vendor::FIRST_PARTY {
-            assert!(offered.contains(&Preset::Hosted(vendor)));
-        }
-    }
+fn protocol_label(protocol: sailry_protocol::conversation::presets::Protocol) -> SharedString {
+    use sailry_protocol::conversation::presets::Protocol;
+    tr(match protocol {
+        Protocol::OpenAiChatCompletions => "provider_api_chat",
+        Protocol::OpenAiResponses => "provider_api_responses",
+        _ => "provider_api",
+    })
 }

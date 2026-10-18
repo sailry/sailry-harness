@@ -21,8 +21,8 @@ mod github;
 mod login;
 #[path = "../model_requests.rs"]
 mod model_requests;
-#[path = "../partners.rs"]
-mod partners;
+#[path = "../presets.rs"]
+mod presets;
 #[path = "../roles.rs"]
 mod roles;
 #[path = "../schema.rs"]

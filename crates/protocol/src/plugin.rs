@@ -13,6 +13,8 @@ pub mod github;
 pub mod host;
 pub mod http;
 pub mod mcp;
+pub mod model_adapter;
+pub mod model_auth;
 pub mod model_tools;
 pub mod models;
 pub mod oauth;
@@ -131,6 +133,13 @@ pub struct Extension {
     /// Provider-executed capabilities; these are not local function handlers.
     #[serde(default)]
     pub model_tools: Vec<model_tools::Declaration>,
+    /// Channel declarations supplied by this package.
+    #[serde(default)]
+    pub model_providers: Vec<crate::conversation::presets::Preset>,
+    #[serde(default)]
+    pub model_auth: Vec<model_auth::Declaration>,
+    #[serde(default)]
+    pub model_adapters: Vec<model_adapter::Declaration>,
     /// Controller-rendered entries with state and named action handlers.
     #[serde(default)]
     pub ui: Vec<ui::Contribution>,

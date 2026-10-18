@@ -37,7 +37,7 @@ impl Fields {
                 editor_version,
                 editor_plugin_version,
             }) => (user_agent, editor_version, editor_plugin_version),
-            None => (String::new(), String::new(), String::new()),
+            Some(Options::Plugin { .. }) | None => (String::new(), String::new(), String::new()),
         };
         let focus = cx.focus_handle().tab_stop(true).tab_index(0);
         let mut input = |value| cx.new(|cx| InputState::new(window, cx).default_value(value));

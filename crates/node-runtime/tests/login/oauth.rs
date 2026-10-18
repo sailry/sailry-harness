@@ -112,6 +112,7 @@ async fn rejects_invalid_options_without_http_or_writes() {
             let provider = provider(&fixture.client, authentication).await;
             let mut invalid = options(authentication, "invalid");
             match &mut invalid {
+                Options::Plugin { .. } => unreachable!("native OAuth fixture"),
                 Options::ChatGpt { user_agent, .. }
                 | Options::ChatGptOAuth { user_agent, .. }
                 | Options::ClaudeOAuth { user_agent } => {

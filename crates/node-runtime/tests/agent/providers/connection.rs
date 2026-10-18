@@ -3,6 +3,9 @@ use sailry_protocol::conversation::connection::{Options, Product};
 
 fn provider(api: ModelApi, options: Option<Options>, endpoint: &str) -> Provider {
     Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         id: ProviderId::new(),
         revision: 0,
         name: "Connection fixture".into(),

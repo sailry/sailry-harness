@@ -132,3 +132,177 @@ fn uses_constraints_independently_of_names() {
         assert_eq!(child.child.unwrap().role, Some(role));
     }
 }
+
+#[test]
+fn freezes_role_channels_at_parent_admission() {
+    use crate::store::agent::tests::command;
+    use crate::store::agent::tests::fixture::Fixture;
+    use sailry_protocol::conversation::ModelApi;
+    let mut fixture = setup();
+    let provider_id = ProviderId::new();
+    let configure = |fixture: &mut Fixture, value: u32| {
+        let digest = format!("{value:064x}");
+        let info:plugin::Info=serde_json::from_value(json!({"summary":{"name":"channel-example","revision":value,"digest":digest,"settings_revision":0,"enabled":true},"extension":{"api_version":"v1","model_providers":[{"id":"example","name":"Example","routes":[{"protocol":"openai-chat-completions","endpoint":"http://localhost:11434/v1"}],"policies":[{"models":["fixture"],"body":{"example":value}}]}]}})).unwrap();
+        let db = &fixture.database.connection;
+        db.execute("INSERT OR REPLACE INTO plugins(name,revision,settings_revision,installed,body) VALUES('channel-example',?1,0,1,?2)",params![value,encode(&info).unwrap()]).unwrap();
+        db.execute("INSERT OR REPLACE INTO plugin_packages(digest,name,body) VALUES(?1,'channel-example',?2)",params![digest,encode(&info).unwrap()]).unwrap();
+        info.summary.reference()
+    };
+    let original = configure(&mut fixture, 1);
+    let provider:Provider=serde_json::from_value(json!({"id":provider_id,"revision":0,"name":"Example","api":"chat_completions","authentication":"api_key","endpoint":"http://localhost:11434/v1","enabled":true,"models":[{"id":"fixture","context":4096,"output":512}],"default_model":"fixture","credential":null,"preset":{"source":{"kind":"package","data":{"name":"channel-example"}},"id":"example","route":null}})).unwrap();
+    let Output::Provider(_) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutProvider {
+            provider,
+            expected_revision: 0,
+        },
+    ) else {
+        panic!("provider expected")
+    };
+    let mut role = profile(&mut fixture);
+    role.model = Some(role::Model {
+        provider: provider_id,
+        model: "fixture".into(),
+        effort: Some(Effort::Default),
+    });
+    let Output::Role(role) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutRole {
+            role: role.clone(),
+            expected_revision: role.revision,
+        },
+    ) else {
+        panic!("role expected")
+    };
+    let session =
+        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetSessionRoles {
+            session: session.id,
+            expected_revision: session.revision,
+            roles: vec![role.reference()],
+        },
+    );
+    let first = start(&mut fixture);
+    let updated = configure(&mut fixture, 2);
+    let first_roster =
+        crate::store::sessions::roles::for_turn(&fixture.database.connection, first).unwrap();
+    assert_eq!(
+        first_roster.providers[0].binding.as_ref().unwrap().package,
+        Some(original.clone())
+    );
+    let child = invoke(
+        &mut fixture,
+        first,
+        json!({"role":"review","task":"Inspect the frozen channel"}),
+    )
+    .unwrap();
+    assert_eq!(
+        child.provider.as_ref().unwrap().api,
+        ModelApi::ChatCompletions
+    );
+    assert_eq!(
+        child
+            .provider
+            .as_ref()
+            .unwrap()
+            .binding
+            .as_ref()
+            .unwrap()
+            .package,
+        Some(original)
+    );
+    super::super::fixture::finish(&mut fixture, child.turn.id);
+    super::super::fixture::finish(&mut fixture, first);
+    let second = start(&mut fixture);
+    let roster =
+        crate::store::sessions::roles::for_turn(&fixture.database.connection, second).unwrap();
+    assert_eq!(
+        roster.providers[0].binding.as_ref().unwrap().package,
+        Some(updated)
+    );
+    assert_eq!(
+        crate::store::sessions::roles::for_turn(&fixture.database.connection, first).unwrap(),
+        first_roster
+    );
+}
+
+#[test]
+fn upgrades_from_the_original_role_revision() {
+    use crate::store::{
+        agent::tests::{command, fixture::Fixture},
+        database::Database,
+    };
+    let mut fixture = setup();
+    let mut role = profile(&mut fixture);
+    let turn = fixture.queued();
+    let original =
+        crate::store::sessions::roles::for_turn(&fixture.database.connection, turn).unwrap();
+    role.instructions = "Newly selected instructions".into();
+    let Output::Role(role) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutRole {
+            expected_revision: role.revision,
+            role,
+        },
+    ) else {
+        panic!("role expected")
+    };
+    let current =
+        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::SetSessionRoles {
+            session: current.id,
+            expected_revision: current.revision,
+            roles: vec![role.reference()],
+        },
+    );
+    let current =
+        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    assert_ne!(current.roles, original);
+    fixture
+        .database
+        .connection
+        .execute_batch("ALTER TABLE turns DROP COLUMN roles")
+        .unwrap();
+    let node = fixture.database.node;
+    let Fixture {
+        database, _root, ..
+    } = fixture;
+    database.close().unwrap();
+    let database = Database::open(
+        &_root.path().canonicalize().unwrap().join("node.sqlite3"),
+        node,
+        None,
+    )
+    .unwrap();
+    let body: Vec<u8> = database
+        .connection
+        .query_row(
+            "SELECT roles FROM turns WHERE id=?1",
+            [turn.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<role::Snapshot>(&body).unwrap(),
+        original
+    );
+    assert_eq!(
+        crate::store::sessions::roles::for_turn(&database.connection, turn).unwrap(),
+        original
+    );
+    assert_eq!(
+        crate::store::commands::session(&database.connection, current.id)
+            .unwrap()
+            .roles,
+        current.roles
+    );
+}

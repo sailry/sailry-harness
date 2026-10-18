@@ -365,6 +365,7 @@ mod startup {
             ("agent_runs", "provider"),
             ("agent_runs", "hooks"),
             ("agent_runs", "input"),
+            ("turns", "roles"),
             ("plugin_values", "index_data"),
             ("sessions", "state"),
             ("agent_approvals", "prepared"),

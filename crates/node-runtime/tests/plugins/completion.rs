@@ -31,6 +31,9 @@ pub(super) async fn configure_empty(client: &Client, endpoint: String) -> String
 
 async fn configure_model(client: &Client, endpoint: String, api: conversation::ModelApi) -> String {
     let provider = conversation::Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         oauth: None,
         id: ProviderId::new(),
         revision: 0,

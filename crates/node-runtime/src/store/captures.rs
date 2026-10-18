@@ -51,7 +51,7 @@ pub(super) fn read(db: &Connection, session: SessionId, turn: TurnId) -> Result<
             _ => return Err(storage_error("turn kind is invalid")),
         },
         config: serde_json::from_slice(&config).map_err(storage_error)?,
-        roles: super::sessions::roles::read(db, owner, revision)?,
+        roles: super::sessions::roles::for_turn(db, turn)?,
         plugins: super::agent::plugins::read(db, turn)?,
     })
 }

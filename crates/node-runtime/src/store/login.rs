@@ -3,6 +3,7 @@
 mod account;
 mod github;
 mod mcp;
+mod model_auth;
 mod models;
 mod persistence;
 mod registration;
@@ -60,6 +61,7 @@ pub(super) struct Authorized {
 }
 
 struct Entry {
+    plugin: Option<crate::providers::login::plugin::Capture>,
     provider: Provider,
     credential: Option<Credential>,
     updates: watch::Sender<login::Update>,
@@ -202,16 +204,33 @@ impl Worker {
                 })
                 .transpose()?
                 .flatten();
-            let options = crate::providers::login::effective(&provider)?;
-            let context = registration::prepare(
-                database,
-                &provider,
-                credential.as_ref(),
-                redirect.as_deref(),
-            )?;
-            Ok((provider, credential, options, context))
+            let plugin = (provider.authentication == Authentication::Plugin)
+                .then(|| {
+                    model_auth::prepare(
+                        &database.connection,
+                        &provider,
+                        request.id,
+                        redirect.as_deref(),
+                    )
+                })
+                .transpose()?;
+            let options = match &plugin {
+                Some(plugin) => plugin.configuration.options.clone(),
+                None => crate::providers::login::effective(&provider)?,
+            };
+            let context = if plugin.is_some() {
+                None
+            } else {
+                registration::prepare(
+                    database,
+                    &provider,
+                    credential.as_ref(),
+                    redirect.as_deref(),
+                )?
+            };
+            Ok((provider, credential, options, context, plugin))
         })();
-        let (provider, credential, options, context) = match prepared {
+        let (provider, credential, options, context, mut plugin) = match prepared {
             Ok(value) => value,
             Err(error) => return database.finish_external(caller, request, Err(error), events),
         };
@@ -268,11 +287,17 @@ impl Worker {
                 });
                 (Some(authorization), Some(callback))
             }
-            None => (None, None),
+            None => (
+                None,
+                plugin.as_mut().and_then(|plugin| plugin.returned.take()),
+            ),
         };
         self.entries.insert(
             (caller, request.id),
             Entry {
+                plugin: plugin
+                    .as_ref()
+                    .map(|plugin| plugin.configuration.capture.clone()),
                 provider,
                 credential,
                 updates,
@@ -283,25 +308,46 @@ impl Worker {
         );
         self.pending += 1;
         let service = self.service.clone();
+        let plugins = self.plugins.clone();
         let discovery = self.discovery.clone();
         let sender = self.sender.clone();
         let id = request.id;
         self.runtime.spawn(async move {
             let operation = async {
-                let grant = service
-                    .authorize(
-                        authentication,
-                        &options,
-                        authorization,
+                let grant = if let Some(plugin) = plugin {
+                    model_auth::authorize(
+                        plugin,
+                        service.clone(),
+                        &plugins,
                         |state| async {
                             sender
                                 .send(Job::Login(Box::new(Progress::Prompt { caller, id, state })))
                                 .await
                                 .map_err(|_| super::unavailable())
                         },
-                        &stop,
+                        stop.clone(),
                     )
-                    .await?;
+                    .await?
+                } else {
+                    service
+                        .authorize(
+                            authentication,
+                            &options,
+                            authorization,
+                            |state| async {
+                                sender
+                                    .send(Job::Login(Box::new(Progress::Prompt {
+                                        caller,
+                                        id,
+                                        state,
+                                    })))
+                                    .await
+                                    .map_err(|_| super::unavailable())
+                            },
+                            &stop,
+                        )
+                        .await?
+                };
                 let endpoint = grant.endpoint();
                 #[cfg(any(test, feature = "test-support"))]
                 let endpoint = service.model_endpoint.as_deref().unwrap_or(endpoint);
@@ -457,6 +503,9 @@ impl Worker {
                     return;
                 }
                 let result = result.and_then(|authorized| {
+                    if let Some(capture) = &entry.plugin {
+                        model_auth::complete(&database.connection, &entry.provider, capture)?;
+                    }
                     persistence::save(
                         database,
                         &entry.provider,

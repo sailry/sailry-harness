@@ -94,6 +94,53 @@ leaf emits that leaf's ID through `header_action()`; Header selections do not
 emit Menu events or values. Without `menu`, flat actions remain unchanged.
 Menus reuse the existing declaration validation and 256 top-level item limit.
 
+## Model channels
+
+Declare channels in `extensions.dev.sailry.platform.model_providers`. Each preset
+has an ID, display metadata and routes identified by their protocol, region and
+product. IDs are scoped to the package. The common channel editor combines
+builtins, public recommendations and enabled package declarations; packages do
+not contribute a native settings renderer. A saved channel retains its stable
+package name and preset ID. Each new turn resolves the enabled package and
+captures its exact resources and request policies. Existing turns retain their
+original capture.
+
+Use `models.provide` for model adapters and `models.authenticate` for login
+declarations. A private token-response transformation also requires
+`credentials.inspect`. Installation alone does not approve access: the channel
+editor asks separately for model-message and login-credential access. Approval
+belongs to that configured channel and its package source. A newly requested
+scope needs explicit approval; public catalog permission summaries do not grant
+it.
+
+`model_auth` owns declarative PKCE, device-code, token-exchange or start-and-poll
+flows. The Node owns HTTP, callback state, deadlines, credentials, refresh and
+uncertain outcomes. The public login presentation selects the existing common
+controller interaction. An optional `exchange` pure transformation may normalize
+a private token response only after credential approval. Do not implement login
+through an ordinary host callback, import another application's profile or retry
+an uncertain token rotation.
+
+`model_adapters` declares a script, allowed HTTPS origins, response framing
+(`sse`, `ndjson` or `json`), schema dialect and explicit capabilities. A preset
+using one must select the `plugin` protocol. Its pure exports translate neutral
+model data: `prepare` produces an HTTP request description, `decode` produces
+validated deltas, and `classify` maps an upstream failure. Optional discovery
+uses `prepare_discovery` and `decode_discovery`. See the authoritative
+[wire types](../crates/protocol/src/plugin/model_adapter/wire.rs) and
+[authentication declarations](../crates/protocol/src/plugin/model_auth.rs).
+Do not infer model capabilities from IDs or synthesize fallback context limits.
+
+Pure modules declare their entry and resources under `dev.sailry.platform/`.
+The inert `sailry/adapter` module exposes `version` and `parseJson`; its
+[type declarations](../crates/node-runtime/src/plugins/script/adapter.d.ts) describe
+the neutral input and deltas. These modules have no `sailry/sdk`, filesystem, network or tool dispatch. The Node performs
+transport and credential injection; model translation never receives tokens.
+ADK remains the sole model/tool execution and history owner. Package-owned tests
+can use `translationInput` and `translate` from `scripts/test-host.mjs` with an
+explicit current `SAILRY_PLUGIN_TEST_HOST`; that bridge runs the production pure
+VM without installing an SDK.
+
 ## Storage
 
 Declare `storage.read` and/or `storage.write` in `extensions.dev.sailry.platform.actions`. The Node derives the namespace from the authenticated plugin context; the caller cannot choose another plugin's namespace. Data belongs to the execution Node and plugin name, surviving package updates, configuration edits, removal and reinstallation. No localStorage, filesystem path or credential access is provided.

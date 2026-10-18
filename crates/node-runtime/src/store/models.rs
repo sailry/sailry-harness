@@ -5,16 +5,53 @@ use sailry_protocol::{Command, ErrorCode, Fault, Output, Request};
 use tokio::sync::oneshot;
 
 impl Ingress {
-    pub(super) async fn read_model_partners(&self, request: Request) -> Result<Admission, Fault> {
+    pub(super) async fn list_channel_presets(&self, request: Request) -> Result<Admission, Fault> {
         if request.target != self.node || request.version != sailry_protocol::VERSION {
             return Err(Fault::new(
                 ErrorCode::WrongTarget,
                 "Node or protocol version mismatch",
             ));
         }
-        let listing = self.partners.read(&self.closed).await?;
+        let refresh = matches!(
+            request.command,
+            Command::ListChannelPresets {
+                refresh_partners: true
+            }
+        );
+        let (catalog, unavailable) = if refresh {
+            let (catalog, unavailable) = self.presets.read(&self.closed).await?;
+            ((!unavailable).then_some(catalog), unavailable)
+        } else {
+            (None, false)
+        };
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(super::Job::ChannelPresets {
+                catalog,
+                unavailable,
+                reply,
+            })
+            .map_err(|_| super::unavailable())?;
+        let mut listing = response.await.map_err(|_| super::unavailable())??;
+        let host = self.plugins.clone();
+        let stop = self.closed.clone();
+        listing = tokio::task::spawn_blocking(move || {
+            for entry in &mut listing.entries {
+                if let (Some(package), Some(logo)) = (&entry.package, &entry.preset.logo)
+                    && logo.starts_with("dev.sailry.platform/")
+                {
+                    entry.icon = host
+                        .channel_icon(package, logo, stop.clone())
+                        .ok()
+                        .flatten();
+                }
+            }
+            listing
+        })
+        .await
+        .map_err(|_| super::unavailable())?;
         let (reply, completion) = oneshot::channel();
-        let _ = reply.send(Ok(Output::ModelPartners(listing)));
+        let _ = reply.send(Ok(Output::ChannelPresets(listing)));
         Ok(Admission {
             receipt: sailry_protocol::Receipt {
                 id: request.id,

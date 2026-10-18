@@ -7,7 +7,8 @@ pub(crate) mod cloud;
 pub(crate) mod login;
 pub(crate) mod media;
 mod metadata;
-pub(crate) mod partners;
+pub(crate) mod policy;
+pub(crate) mod presets;
 pub(crate) mod search;
 pub(crate) use metadata::validate;
 
@@ -50,6 +51,12 @@ impl Discovery {
         key: Option<&Secret>,
         closed: CancellationToken,
     ) -> Result<discovery::Catalog, Fault> {
+        if api == ModelApi::Plugin {
+            return Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "custom model discovery requires its captured translation",
+            ));
+        }
         if cloud::deployment(api) {
             return Err(Fault::invalid(
                 "cloud deployments require an explicit model ID",

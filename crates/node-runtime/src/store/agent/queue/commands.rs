@@ -30,8 +30,7 @@ pub(in crate::store) fn execute(
             let mut session = super::super::super::commands::session(db, run.session)?;
             super::super::super::sessions::writable(&session)?;
             session.config = super::super::permissions::config(db, run.turn)?;
-            session.roles =
-                super::super::super::sessions::roles::read(db, run.session, run.revision)?;
+            session.roles = super::super::super::sessions::roles::for_turn(db, run.turn)?;
             super::super::references::validate(
                 db,
                 &session,

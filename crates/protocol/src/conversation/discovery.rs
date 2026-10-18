@@ -22,6 +22,8 @@ pub enum Source {
 pub struct Draft {
     pub provider: ProviderId,
     pub api: ModelApi,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<super::presets::PresetRef>,
     pub endpoint: String,
     pub credential: Option<CredentialRef>,
     pub secret: Option<Secret>,

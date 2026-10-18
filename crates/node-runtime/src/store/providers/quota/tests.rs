@@ -175,6 +175,9 @@ impl Fixture {
         )
         .unwrap();
         let provider = Provider {
+            preset: None,
+            binding: None,
+            consent: None,
             id: provider_id,
             revision: 1,
             name: "Quota fixture".into(),

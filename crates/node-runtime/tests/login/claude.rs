@@ -34,6 +34,9 @@ fn redacted(value: &impl serde::Serialize) {
 
 async fn provider(client: &Client, options: Option<Options>) -> Provider {
     let provider = Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         id: ProviderId::new(),
         revision: 0,
         name: "Claude authorization fixture".into(),

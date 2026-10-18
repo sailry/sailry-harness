@@ -53,6 +53,9 @@ async fn survives_without_projects() {
             .unwrap();
         let server = Server::start(false).await;
         let provider = Provider {
+            preset: None,
+            binding: None,
+            consent: None,
             options: None,
             oauth: None,
             id: ProviderId::new(),

@@ -431,7 +431,7 @@ pub(super) fn execute(
             )?),
             None,
         )),
-        Command::ReadModelPartners => Err(Fault::new(
+        Command::ListChannelPresets { .. } => Err(Fault::new(
             ErrorCode::Internal,
             "model partner loading must run outside the database",
         )),

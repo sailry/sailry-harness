@@ -34,9 +34,11 @@ pub(super) fn retained(kind: &str, name: &str) -> bool {
 
 pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
     let changed = json::reconcile(db)?;
+    // Added turn fields inherit only that turn's existing immutable revision.
+    let captures=db.execute("UPDATE turns SET roles=(SELECT r.roles FROM session_revisions r WHERE r.session=turns.session AND r.revision=turns.revision) WHERE roles IS NULL",[])?;
     crate::store::plugins::storage::search::rebuild(db)
         .map_err(|error| Error::Worker(error.message))?;
     crate::store::plugins::storage::search::validate(db)
         .map_err(|error| Error::Worker(error.message))?;
-    Ok(changed)
+    Ok(changed || captures != 0)
 }

@@ -374,6 +374,9 @@ impl Fixture {
             panic!("project expected");
         };
         let provider = sailry_protocol::conversation::Provider {
+            preset: None,
+            binding: None,
+            consent: None,
             options: None,
             oauth: None,
             id: sailry_protocol::ProviderId::new(),

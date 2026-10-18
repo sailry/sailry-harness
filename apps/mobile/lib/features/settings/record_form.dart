@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/strings.dart';
 import '../../runtime/session.dart' show HostConnection;
 import 'live.dart';
+import 'provider_api.dart' as provider_api;
 import '../../ui/form.dart';
 
 class RecordForm extends StatefulWidget {
@@ -256,30 +257,22 @@ class _RecordFormState extends State<RecordForm> {
           SelectField<String>(
             value: _api,
             label: context.tr('settingsApi'),
-            options:
-                [
-                      'chat_completions',
-                      'responses',
-                      'anthropic',
-                      'gemini',
-                      'deepseek',
-                      'open_code_go',
-                      'open_code_zen',
-                      'azure_open_ai',
-                      'azure_ai',
-                    ]
-                    .map(
-                      (api) => (
-                        api,
-                        switch (api) {
-                          'open_code_go' => context.tr('settingsOpenCodeGo'),
-                          'open_code_zen' => context.tr('settingsOpenCodeZen'),
-                          _ => api,
-                        },
-                      ),
-                    )
-                    .toList(),
-            onChanged: _busy ? null : (value) => setState(() => _api = value),
+            options: provider_api
+                .choices(_api)
+                .map(
+                  (api) => (
+                    api,
+                    switch (api) {
+                      'open_code_go' => context.tr('settingsOpenCodeGo'),
+                      'open_code_zen' => context.tr('settingsOpenCodeZen'),
+                      _ => api,
+                    },
+                  ),
+                )
+                .toList(),
+            onChanged: _busy || !provider_api.editable(_api)
+                ? null
+                : (value) => setState(() => _api = value),
           ),
           if (fixedEndpoint == null) input('endpoint', 'configEndpoint'),
           if (keyAuth)

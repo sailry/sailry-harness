@@ -24,6 +24,9 @@
             "roles.read",
             "roles.write",
             "models.read",
+            "models.provide",
+            "models.authenticate",
+            "credentials.inspect",
             "models.install",
             "media.inspect",
             "media.image",
@@ -75,6 +78,131 @@
       ],
       "type": "string"
     },
+    "Auth": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "header": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "prefix": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "kind": {
+              "const": "api_key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "authentication": {
+                  "$ref": "#/$defs/Authentication"
+                }
+              },
+              "required": [
+                "authentication"
+              ],
+              "type": "object"
+            },
+            "kind": {
+              "const": "builtin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "flow": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "flow"
+              ],
+              "type": "object"
+            },
+            "kind": {
+              "const": "plugin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Authentication": {
+      "oneOf": [
+        {
+          "enum": [
+            "api_key",
+            "copilot"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "chat_gpt",
+          "description": "Official Sign in with ChatGPT registration and public API access.",
+          "type": "string"
+        },
+        {
+          "const": "chat_gpt_oauth",
+          "description": "Codex device authorization and its account-scoped backend.",
+          "type": "string"
+        },
+        {
+          "const": "claude_oauth",
+          "description": "Pi-compatible Claude subscription authorization.",
+          "type": "string"
+        },
+        {
+          "const": "plugin",
+          "description": "A Node-owned login flow declared by the selected channel package.",
+          "type": "string"
+        }
+      ]
+    },
     "Body": {
       "additionalProperties": false,
       "properties": {
@@ -117,11 +245,82 @@
       ],
       "type": "object"
     },
+    "Body2": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "fields": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "kind": {
+              "const": "form",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "fields"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "json",
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Bytes": {
       "enum": [
         "hex"
       ],
       "type": "string"
+    },
+    "Capabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "web_search": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Capabilities2": {
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "default": false,
+          "type": "boolean"
+        },
+        "reasoning": {
+          "default": false,
+          "type": "boolean"
+        },
+        "tools": {
+          "default": false,
+          "type": "boolean"
+        },
+        "vision": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
     },
     "Capability": {
       "enum": [
@@ -364,6 +563,30 @@
       ],
       "type": "object"
     },
+    "Client": {
+      "additionalProperties": false,
+      "properties": {
+        "client_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_id_setting": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "client_secret_setting": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "Command": {
       "additionalProperties": false,
       "properties": {
@@ -448,6 +671,23 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "Condition2": {
+      "additionalProperties": false,
+      "properties": {
+        "pointer": {
+          "type": "string"
+        },
+        "values": {
+          "items": true,
+          "type": "array"
+        }
+      },
+      "required": [
+        "pointer",
+        "values"
+      ],
       "type": "object"
     },
     "Contribution": {
@@ -716,6 +956,126 @@
       ],
       "type": "object"
     },
+    "Declaration6": {
+      "additionalProperties": false,
+      "properties": {
+        "client": {
+          "$ref": "#/$defs/Client",
+          "default": {
+            "client_id": null,
+            "client_id_setting": null,
+            "client_secret_setting": null
+          }
+        },
+        "display": {
+          "$ref": "#/$defs/Navigation"
+        },
+        "exchange": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Transformation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "flow": {
+          "$ref": "#/$defs/Flow2"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inject": {
+          "items": {
+            "$ref": "#/$defs/Injection"
+          },
+          "type": "array"
+        },
+        "refresh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Refresh"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "token": {
+          "$ref": "#/$defs/Mapping"
+        }
+      },
+      "required": [
+        "id",
+        "display",
+        "flow",
+        "token",
+        "inject"
+      ],
+      "type": "object"
+    },
+    "Declaration7": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities2",
+          "default": {
+            "files": false,
+            "reasoning": false,
+            "tools": false,
+            "vision": false
+          }
+        },
+        "discovery": {
+          "default": false,
+          "type": "boolean"
+        },
+        "framing": {
+          "$ref": "#/$defs/Framing"
+        },
+        "id": {
+          "type": "string"
+        },
+        "origins": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schema_dialect": {
+          "$ref": "#/$defs/Dialect",
+          "default": "generic"
+        },
+        "script": {
+          "$ref": "#/$defs/Script"
+        }
+      },
+      "required": [
+        "id",
+        "script",
+        "origins",
+        "framing"
+      ],
+      "type": "object"
+    },
+    "Dialect": {
+      "enum": [
+        "generic",
+        "open_ai",
+        "gemini"
+      ],
+      "type": "string"
+    },
     "Diff": {
       "additionalProperties": false,
       "properties": {
@@ -793,6 +1153,47 @@
       ],
       "type": "object"
     },
+    "Endpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Body2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "method": {
+          "$ref": "#/$defs/Method",
+          "default": "POST"
+        },
+        "query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
     "Field": {
       "additionalProperties": false,
       "properties": {
@@ -858,10 +1259,134 @@
       ],
       "type": "object"
     },
+    "Flow2": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A fixed start-and-poll challenge. State remains private to the Node.",
+          "properties": {
+            "interval_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "polling",
+              "type": "string"
+            },
+            "start": {
+              "$ref": "#/$defs/Endpoint"
+            },
+            "state": {
+              "type": "string"
+            },
+            "success": {
+              "$ref": "#/$defs/Condition2"
+            },
+            "token": {
+              "$ref": "#/$defs/Endpoint"
+            },
+            "verification_url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "start",
+            "state",
+            "verification_url",
+            "token",
+            "success"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "authorize": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "pkce",
+              "type": "string"
+            },
+            "redirect": {
+              "$ref": "#/$defs/Redirect"
+            },
+            "redirect_uri": {
+              "description": "Required for a pasted callback; loopback uses the controller's listener.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "token": {
+              "$ref": "#/$defs/Endpoint"
+            }
+          },
+          "required": [
+            "kind",
+            "authorize",
+            "token",
+            "redirect"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "$ref": "#/$defs/Endpoint"
+            },
+            "kind": {
+              "const": "device_code",
+              "type": "string"
+            },
+            "token": {
+              "$ref": "#/$defs/Endpoint"
+            }
+          },
+          "required": [
+            "kind",
+            "device",
+            "token"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "token_exchange",
+              "type": "string"
+            },
+            "token": {
+              "$ref": "#/$defs/Endpoint"
+            }
+          },
+          "required": [
+            "kind",
+            "token"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Format": {
       "enum": [
         "added",
         "unified"
+      ],
+      "type": "string"
+    },
+    "Framing": {
+      "enum": [
+        "sse",
+        "ndjson",
+        "json"
       ],
       "type": "string"
     },
@@ -939,6 +1464,22 @@
           "type": "object"
         }
       ]
+    },
+    "Injection": {
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "type": "string"
+        },
+        "template": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "header",
+        "template"
+      ],
+      "type": "object"
     },
     "Input": {
       "additionalProperties": false,
@@ -1165,6 +1706,87 @@
         "handlers"
       ],
       "type": "object"
+    },
+    "Mapping": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "type": "string"
+        },
+        "expires_in": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "extra": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "refresh": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "access"
+      ],
+      "type": "object"
+    },
+    "Method": {
+      "enum": [
+        "GET",
+        "POST"
+      ],
+      "type": "string"
+    },
+    "Models": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "discover",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "properties": {
+                "ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "ids"
+              ],
+              "type": "object"
+            },
+            "kind": {
+              "const": "static",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "Navigation": {
       "additionalProperties": false,
@@ -1501,6 +2123,149 @@
         }
       ]
     },
+    "Preset": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "default": {
+            "data": {
+              "header": null,
+              "prefix": null
+            },
+            "kind": "api_key"
+          }
+        },
+        "badge": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "brand": {
+          "description": "Builtin brand identity; package declarations may supply their own logo.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities",
+          "default": {
+            "web_search": false
+          }
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "homepage": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "key_url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "locales": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "logo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "models": {
+          "$ref": "#/$defs/Models",
+          "default": {
+            "kind": "discover"
+          }
+        },
+        "name": {
+          "type": "string"
+        },
+        "offered": {
+          "default": true,
+          "type": "boolean"
+        },
+        "policies": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RequestPolicy"
+          },
+          "type": "array"
+        },
+        "products": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Product2"
+          },
+          "type": "array"
+        },
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/Route"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "routes"
+      ],
+      "type": "object"
+    },
+    "Product": {
+      "enum": [
+        "metered",
+        "coding"
+      ],
+      "type": "string"
+    },
+    "Product2": {
+      "additionalProperties": false,
+      "properties": {
+        "default_model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "discover": {
+          "default": true,
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/Product"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
     "Prompt": {
       "additionalProperties": false,
       "properties": {
@@ -1529,6 +2294,21 @@
         "message"
       ],
       "type": "object"
+    },
+    "Protocol": {
+      "enum": [
+        "openai-responses",
+        "openai-chat-completions",
+        "anthropic",
+        "gemini",
+        "deepseek",
+        "opencode-go",
+        "opencode-zen",
+        "azure-openai",
+        "azure-ai",
+        "plugin"
+      ],
+      "type": "string"
     },
     "Provider": {
       "enum": [
@@ -1572,6 +2352,13 @@
       ],
       "type": "object"
     },
+    "Redirect": {
+      "enum": [
+        "loopback",
+        "paste"
+      ],
+      "type": "string"
+    },
     "Reference": {
       "additionalProperties": false,
       "properties": {
@@ -1587,6 +2374,29 @@
         "path"
       ],
       "type": "object"
+    },
+    "Refresh": {
+      "additionalProperties": false,
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/Endpoint"
+        },
+        "token": {
+          "$ref": "#/$defs/Mapping"
+        }
+      },
+      "required": [
+        "request",
+        "token"
+      ],
+      "type": "object"
+    },
+    "Region": {
+      "enum": [
+        "china",
+        "global"
+      ],
+      "type": "string"
     },
     "Renderer": {
       "additionalProperties": false,
@@ -1613,6 +2423,43 @@
       ],
       "type": "object"
     },
+    "ReplayField": {
+      "enum": [
+        "reasoning_content"
+      ],
+      "type": "string"
+    },
+    "RequestPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        },
+        "models": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reasoning_replay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReplayField"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "models"
+      ],
+      "type": "object"
+    },
     "Resource": {
       "enum": [
         "plugin",
@@ -1630,6 +2477,42 @@
         "git"
       ],
       "type": "string"
+    },
+    "Route": {
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "type": "string"
+        },
+        "product": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Product"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "protocol": {
+          "$ref": "#/$defs/Protocol"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Region"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "protocol",
+        "endpoint"
+      ],
+      "type": "object"
     },
     "Rows": {
       "additionalProperties": false,
@@ -1658,6 +2541,25 @@
         "desktop"
       ],
       "type": "string"
+    },
+    "Script": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "type": "string"
+        },
+        "resources": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "entry"
+      ],
+      "type": "object"
     },
     "Service": {
       "description": "A service binding grants no command capabilities by itself.",
@@ -2003,6 +2905,22 @@
         }
       ]
     },
+    "Transformation": {
+      "additionalProperties": false,
+      "properties": {
+        "handler": {
+          "type": "string"
+        },
+        "script": {
+          "$ref": "#/$defs/Script"
+        }
+      },
+      "required": [
+        "script",
+        "handler"
+      ],
+      "type": "object"
+    },
     "Turn": {
       "additionalProperties": false,
       "properties": {
@@ -2190,6 +3108,28 @@
         "string",
         "null"
       ]
+    },
+    "model_adapters": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Declaration7"
+      },
+      "type": "array"
+    },
+    "model_auth": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Declaration6"
+      },
+      "type": "array"
+    },
+    "model_providers": {
+      "default": [],
+      "description": "Channel declarations supplied by this package.",
+      "items": {
+        "$ref": "#/$defs/Preset"
+      },
+      "type": "array"
     },
     "model_tools": {
       "default": [],

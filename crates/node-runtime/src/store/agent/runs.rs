@@ -8,7 +8,7 @@ pub(in crate::store) fn admit(
     turn: &QueuedTurn,
     ready: bool,
 ) -> Result<(), Fault> {
-    record(db, turn, Status::Queued, ready)?;
+    record_with(db, turn, Status::Queued, ready, true)?;
     super::queue::admit(db, turn, ready)
 }
 
@@ -18,11 +18,26 @@ pub(super) fn record(
     status: Status,
     ready: bool,
 ) -> Result<(), Fault> {
+    record_with(db, turn, status, ready, false)
+}
+
+fn record_with(
+    db: &Connection,
+    turn: &QueuedTurn,
+    status: Status,
+    ready: bool,
+    fresh: bool,
+) -> Result<(), Fault> {
     let mut provider = match super::super::sessions::profile(db, turn.session, turn.revision)? {
         Some(profile) => Some(profile.provider),
         None => providers::get(db, turn.config.provider)?,
     };
     if let Some(provider) = &mut provider {
+        if fresh {
+            crate::store::providers::presets::refresh(db, provider)?;
+        } else {
+            crate::store::providers::presets::capture(db, provider)?;
+        }
         crate::providers::login::capture(provider)?;
         // Freeze automatic tool availability at admission, never at execution/replay.
         super::super::providers::completion::fill(db, provider)?;
@@ -334,6 +349,9 @@ fn claim_with(
     let provider: Option<Provider> = provider
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?;
+    if let Some(provider) = &provider {
+        crate::store::providers::presets::verify(&transaction, provider)?;
+    }
     let media = super::super::media::for_turn(
         super::super::media::session_models(&transaction, queued.turn.session)?,
         provider.as_ref(),

@@ -6,6 +6,7 @@ mod errors;
 pub(super) mod history;
 mod hosted;
 mod opencode;
+pub(super) mod plugin;
 mod reasoning;
 mod retry;
 pub(super) mod timing;
@@ -64,9 +65,19 @@ pub(super) async fn build(
         ingress: ingress.clone(),
         turn: invocation.turn.id,
         current: invocation.message.attachments.clone(),
-        vision: metadata.is_none_or(|model| model.vision),
+        vision: metadata.is_none_or(|model| model.vision)
+            && provider
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.adapter.as_ref())
+                .is_none_or(|adapter| adapter.capabilities.vision),
         api: attachments::api(provider, opencode::api(provider.api, &config.model)?),
-        tools: metadata.is_none_or(|model| model.tools),
+        tools: metadata.is_none_or(|model| model.tools)
+            && provider
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.adapter.as_ref())
+                .is_none_or(|adapter| adapter.capabilities.tools),
         stop: stop.clone(),
         identity: crate::logging::Context {
             node: Some(ingress.node),
@@ -117,7 +128,10 @@ pub(super) async fn configured(
         Effort::Default
     };
     effort.validate(api, metadata.map_or(0, |model| model.output))?;
-    let inner = if provider.authentication == Authentication::ApiKey {
+    let inner = if provider.api == ModelApi::Plugin {
+        Arc::new(plugin::Model::new(ingress, provider, config, session, stop).await?)
+            as Arc<dyn Llm>
+    } else if provider.authentication == Authentication::ApiKey {
         let credential = match &config.credential {
             Some(reference) => Some(
                 ingress
@@ -164,7 +178,56 @@ pub(super) fn native(
     adapter: Option<RequestAdapter>,
     observer: Option<ResponseObserver>,
 ) -> Result<Arc<dyn Llm>, Fault> {
+    let adapter = match provider
+        .binding
+        .as_ref()
+        .and_then(|binding| binding.key_injection.as_ref())
+    {
+        Some(injection) => {
+            use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+            if !matches!(
+                provider.api,
+                ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::Anthropic
+            ) {
+                return Err(Fault::invalid(
+                    "channel protocol does not support custom key headers",
+                ));
+            }
+            let name = HeaderName::from_bytes(injection.header.as_bytes())
+                .map_err(|_| Fault::invalid("channel key header is invalid"))?;
+            let mut value = HeaderValue::from_str(&injection.template.replace("{key}", key))
+                .map_err(|_| Fault::invalid("channel key header is invalid"))?;
+            value.set_sensitive(true);
+            Some(Arc::new(
+                move |body: &mut serde_json::Value, headers: &mut HeaderMap| {
+                    if let Some(adapter) = &adapter {
+                        adapter(body, headers)?;
+                    }
+                    headers.remove("authorization");
+                    headers.remove("x-api-key");
+                    headers.insert(name.clone(), value.clone());
+                    Ok(())
+                },
+            ) as RequestAdapter)
+        }
+        None => adapter,
+    };
+    let key = if provider
+        .binding
+        .as_ref()
+        .is_some_and(|binding| binding.key_injection.is_some())
+    {
+        ""
+    } else {
+        key
+    };
     let inner: Arc<dyn Llm> = match provider.api {
+        ModelApi::Plugin => {
+            return Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "custom model protocol requires its captured translation",
+            ));
+        }
         ModelApi::OpenCodeGo | ModelApi::OpenCodeZen => {
             return Err(Fault::invalid("OpenCode requires a conversation identity"));
         }

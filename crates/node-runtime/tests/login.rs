@@ -28,6 +28,8 @@ mod identity;
 mod lifecycle;
 #[path = "login/oauth.rs"]
 mod oauth;
+#[path = "login/package.rs"]
+mod package;
 #[path = "login/responses.rs"]
 mod responses;
 #[path = "login/synchronization.rs"]
@@ -158,6 +160,9 @@ fn standard(request: &discovery_support::Request) -> Reply {
 
 async fn provider(client: &Client, authentication: Authentication) -> Provider {
     let provider = Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         oauth: None,
         options: None,
         id: ProviderId::new(),
@@ -174,7 +179,7 @@ async fn provider(client: &Client, authentication: Authentication) -> Provider {
             Authentication::ChatGptOAuth => "https://chatgpt.com/backend-api/codex",
             Authentication::ClaudeOAuth => "https://api.anthropic.com",
             Authentication::Copilot => "https://api.githubcopilot.com",
-            Authentication::ApiKey => unreachable!(),
+            Authentication::ApiKey | Authentication::Plugin => unreachable!(),
         }
         .into(),
         enabled: true,
@@ -380,6 +385,7 @@ async fn persists_and_recovers() {
                 .client
                 .execute(fixture.client.prepare(Command::DiscoverModels(Box::new(
                     discovery::Source::Draft(discovery::Draft {
+                        preset: None,
                         provider: saved.id,
                         api: ModelApi::Responses,
                         endpoint: server.endpoint.clone(),

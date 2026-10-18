@@ -297,6 +297,19 @@ pub(in crate::settings) fn local(owner: &mut Workspace, cx: &mut Context<Workspa
 
 /// The editor preset a configured provider corresponds to.
 fn preset(provider: &Provider) -> Preset {
+    if let Some(reference) = &provider.preset
+        && let Some(entry) = super::presets::bundled()
+            .iter()
+            .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
+        && let Some(route) = entry
+            .preset
+            .routes
+            .iter()
+            .find(|route| reference.route.as_ref() == Some(&route.key()))
+            .or_else(|| entry.preset.routes.first())
+    {
+        return super::presets::kind(entry, route);
+    }
     match (provider.authentication, provider.api) {
         (sailry_protocol::Authentication::ChatGptOAuth, _) => Preset::ChatGptOAuth,
         (sailry_protocol::Authentication::ChatGpt, _) => Preset::ChatGpt,
@@ -304,6 +317,7 @@ fn preset(provider: &Provider) -> Preset {
         (sailry_protocol::Authentication::Copilot, ModelApi::Responses) => Preset::CopilotResponses,
         (sailry_protocol::Authentication::Copilot, _) => Preset::Copilot,
         (_, api) => match api {
+            ModelApi::Plugin => Preset::Plugin,
             ModelApi::AzureOpenAi => Preset::AzureOpenAi,
             ModelApi::AzureAi => Preset::AzureAi,
             ModelApi::DeepSeek => Preset::Hosted(super::vendors::Vendor::DeepSeek),
@@ -335,6 +349,13 @@ fn preset(provider: &Provider) -> Preset {
 
 /// Logo asset path of the provider's configured type, or None for generic providers.
 pub(crate) fn logo(provider: &Provider) -> Option<String> {
+    if let Some(reference) = &provider.preset
+        && let Some(entry) = super::presets::bundled()
+            .iter()
+            .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
+    {
+        return entry.preset.logo.clone();
+    }
     preset(provider).category().logo()
 }
 

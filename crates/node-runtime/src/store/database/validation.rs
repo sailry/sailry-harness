@@ -257,6 +257,9 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
             "incompatible stored provider configuration; existing data was not changed".into(),
         )
     })?;
+    super::super::providers::presets::validate_cache(db).map_err(|_| {
+        Error::Worker("invalid stored channel catalog; existing data was not changed".into())
+    })?;
     records::<SessionConfig>(db, "defaults.config", "SELECT config FROM defaults")?;
     records::<SessionConfig>(
         db,
@@ -269,6 +272,15 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         &format!(
             "SELECT plugins FROM turns{}",
             live.replacen("turn IN", "id IN", 1)
+        ),
+    )?;
+    records::<role::Snapshot>(
+        db,
+        "turns.roles",
+        &format!(
+            "SELECT roles FROM turns WHERE roles IS NOT NULL{}",
+            live.replacen(" WHERE ", " AND ", 1)
+                .replacen("turn IN", "id IN", 1)
         ),
     )?;
     records::<Provider>(
@@ -656,6 +668,9 @@ mod tests {
             let node = NodeId([37; 32]);
             let database = Database::open(&path, node, None).unwrap();
             let provider = Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 oauth: None,
                 options: None,
                 id: ProviderId::new(),

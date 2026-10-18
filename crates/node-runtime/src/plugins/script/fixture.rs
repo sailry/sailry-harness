@@ -14,6 +14,7 @@ use std::{
 mod tests;
 
 pub mod schema;
+pub mod translation;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

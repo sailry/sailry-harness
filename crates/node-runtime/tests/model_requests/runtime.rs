@@ -45,6 +45,9 @@ async fn publishes_admitted_retries() {
                 let server =
                     Server::start_with_request(ModelApi::Anthropic, move |_| failed(status)).await;
                 let provider = Provider {
+                    preset: None,
+                    binding: None,
+                    consent: None,
                     oauth: None,
                     options: None,
                     id: ProviderId::new(),

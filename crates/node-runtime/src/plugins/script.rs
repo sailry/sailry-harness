@@ -18,6 +18,11 @@ pub mod fixture;
 mod sdk;
 #[cfg(test)]
 mod tests;
+pub(crate) mod translation;
+
+const MEMORY_BYTES: usize = 64 * 1024 * 1024;
+const STACK_BYTES: usize = 512 * 1024;
+pub(crate) const CALL_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub(crate) struct Bundle {
     pub entry: String,
@@ -85,7 +90,7 @@ pub(crate) fn run_callback(
             }
             dispatch(request)
         },
-        Duration::from_secs(60),
+        CALL_TIMEOUT,
         read_only.then(|| {
             std::sync::Arc::new(std::sync::Mutex::new(execution::State {
                 call_id: None,
@@ -113,7 +118,7 @@ pub(crate) fn run_tool(
         input,
         environment,
         dispatch,
-        Duration::from_secs(60),
+        CALL_TIMEOUT,
         Some(execution),
     )
 }
@@ -186,8 +191,8 @@ fn evaluate_with(
     } = environment;
     let deadline = Instant::now() + timeout;
     let runtime = Runtime::new().map_err(engine)?;
-    runtime.set_memory_limit(64 * 1024 * 1024);
-    runtime.set_max_stack_size(512 * 1024);
+    runtime.set_memory_limit(MEMORY_BYTES);
+    runtime.set_max_stack_size(STACK_BYTES);
     let interrupted = stop.clone();
     runtime.set_interrupt_handler(Some(Box::new(move || {
         interrupted.is_cancelled() || Instant::now() >= deadline

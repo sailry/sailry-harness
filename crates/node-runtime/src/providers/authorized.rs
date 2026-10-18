@@ -58,7 +58,7 @@ fn request(
                 url.query_pairs_mut().append_pair("client_version", version);
             }
         }
-        Authentication::ChatGpt => {}
+        Authentication::ChatGpt | Authentication::Plugin => {}
         Authentication::ClaudeOAuth => {
             return Err(sailry_protocol::Fault::invalid(
                 "Claude uses the native model catalog",

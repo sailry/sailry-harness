@@ -42,6 +42,7 @@ pub(in crate::store) fn capture(
             let mut provider = providers::get(db, model.provider)?.ok_or_else(|| {
                 Fault::new(ErrorCode::NotConfigured, "role provider is unavailable")
             })?;
+            crate::store::providers::presets::capture(db, &mut provider)?;
             crate::providers::login::capture(&mut provider)?;
             snapshot.providers.push(provider);
         }
@@ -146,6 +147,7 @@ pub(in crate::store) fn import(
     }
     let mut snapshot = snapshot.clone();
     for provider in &mut snapshot.providers {
+        crate::store::providers::presets::capture(db, provider)?;
         crate::providers::login::capture(provider)?;
         let original = provider.id;
         provider.id = ProviderId::new();
@@ -181,5 +183,26 @@ pub(in crate::store) fn import(
         crate::store::providers::configuration::retain(db, provider)?;
     }
     validate(db, node, &snapshot)?;
+    Ok(snapshot)
+}
+
+/// Resolve declarations for a newly admitted root turn without changing its selected roles.
+pub(in crate::store) fn refresh(
+    db: &Connection,
+    snapshot: &mut role::Snapshot,
+) -> Result<(), Fault> {
+    for provider in &mut snapshot.providers {
+        crate::store::providers::presets::refresh(db, provider)?;
+        crate::providers::login::capture(provider)?;
+    }
+    Ok(())
+}
+
+pub(in crate::store) fn for_turn(db: &Connection, turn: TurnId) -> Result<role::Snapshot, Fault> {
+    let body:Vec<u8>=db.query_row("SELECT coalesce(t.roles,r.roles) FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision WHERE t.id=?1",[turn.to_string()],|row|row.get(0)).map_err(storage_error)?;
+    let snapshot: role::Snapshot = serde_json::from_slice(&body).map_err(storage_error)?;
+    snapshot
+        .validate()
+        .map_err(|_| storage_error("invalid captured roles"))?;
     Ok(snapshot)
 }

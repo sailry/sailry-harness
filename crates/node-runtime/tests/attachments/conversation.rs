@@ -29,6 +29,9 @@ async fn session(
     api: ModelApi,
 ) -> (Session, Provider) {
     let provider = Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         oauth: None,
         options: match api {
             ModelApi::AzureOpenAi => Some(

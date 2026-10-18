@@ -43,6 +43,8 @@ mod notifications;
 #[cfg(feature = "test-support")]
 #[path = "plugins/oauth.rs"]
 mod oauth;
+#[path = "plugins/providers.rs"]
+mod providers;
 #[cfg(feature = "test-support")]
 #[path = "plugins/python.rs"]
 mod python;

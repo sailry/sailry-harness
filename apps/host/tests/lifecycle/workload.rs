@@ -69,6 +69,9 @@ async fn history_and_terminal_load() {
         NodeCommand::PutProvider {
             expected_revision: 0,
             provider: Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 options: None,
                 oauth: None,
                 id: provider,

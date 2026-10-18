@@ -20,6 +20,9 @@ async fn provider(client: &Client, secret: Option<&str>) -> Provider {
             expected_revision: 0,
             secret: secret.map(|secret| Secret::new(secret.into())),
             provider: Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 oauth: None,
                 options: None,
                 id: ProviderId::new(),

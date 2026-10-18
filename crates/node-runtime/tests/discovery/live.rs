@@ -14,6 +14,7 @@ async fn model_catalog() {
         let result = fixture
             .client
             .execute(fixture.client.prepare(discover(discovery::Draft {
+                preset: None,
                 provider: ProviderId::new(),
                 api,
                 endpoint: endpoint.clone(),

@@ -4,6 +4,9 @@ use serde_json::json;
 
 fn provider() -> Provider {
     Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         id: crate::ProviderId::new(),
         revision: 1,
         name: "Connection fixture".into(),

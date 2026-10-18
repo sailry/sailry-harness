@@ -3,7 +3,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::{CredentialId, ProviderId};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Authentication {
     ApiKey,
@@ -16,6 +16,8 @@ pub enum Authentication {
     #[serde(rename = "claude_oauth")]
     ClaudeOAuth,
     Copilot,
+    /// A Node-owned login flow declared by the selected channel package.
+    Plugin,
 }
 
 /// Private credential value for writes and explicit, revision-bound settings reads.

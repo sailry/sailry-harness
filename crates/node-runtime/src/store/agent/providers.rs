@@ -23,8 +23,14 @@ pub(in crate::store) fn put(
     provider: &Provider,
     expected: u64,
 ) -> Result<Provider, Fault> {
+    if provider.binding.is_some() {
+        return Err(Fault::invalid(
+            "captured channel bindings cannot be saved as configuration",
+        ));
+    }
     validate(db, node, provider)?;
-    let revision = get(db, provider.id)?.map_or(0, |provider| provider.revision);
+    let previous = get(db, provider.id)?;
+    let revision = previous.as_ref().map_or(0, |provider| provider.revision);
     if revision != expected {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -32,6 +38,7 @@ pub(in crate::store) fn put(
         ));
     }
     let mut provider = provider.clone();
+    super::super::providers::consent::stamp(db, &mut provider, previous.as_ref())?;
     super::super::providers::completion::fill(db, &mut provider)?;
     validate(db, node, &provider)?;
     provider.revision = revision
@@ -100,6 +107,11 @@ pub(in crate::store) fn validate(
         ));
     }
     crate::providers::endpoint_url(&provider.endpoint)?;
+    if provider.binding.is_some() {
+        crate::store::providers::presets::verify(db, provider)?;
+    } else {
+        crate::store::providers::presets::validate(db, provider)?;
+    }
     crate::providers::cloud::validate(provider)?;
     crate::providers::login::validate(provider)?;
     Ok(())

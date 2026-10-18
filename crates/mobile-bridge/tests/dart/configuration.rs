@@ -13,6 +13,9 @@ pub(super) async fn provider(client: &Client, endpoint: &str, model: &str) -> Pr
     let Output::Provider(provider) = client
         .execute(client.prepare(Command::SaveProvider {
             provider: Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 options: None,
                 oauth: None,
                 id: ProviderId::new(),

@@ -96,6 +96,17 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                     Ok(parsed)
                         if parsed.actions.len() <= 32
                             && parsed.files_in_namespace()
+                            && parsed.model_auth.iter().enumerate().all(|(index,item)| item.valid() && !parsed.model_auth[..index].iter().any(|other|other.id==item.id)
+                                && parsed.actions.contains(&sailry_protocol::plugin::Action::AuthenticateModels)
+                                && (item.exchange.is_none() || parsed.actions.contains(&sailry_protocol::plugin::Action::InspectCredentials)))
+                            && parsed.model_adapters.iter().enumerate().all(|(index,item)| item.valid() && !parsed.model_adapters[..index].iter().any(|other|other.id==item.id)
+                                && parsed.actions.contains(&sailry_protocol::plugin::Action::ProvideModels))
+                            && parsed.model_providers.iter().enumerate().all(|(index,preset)| {
+                                crate::providers::presets::validate(preset,false,true).is_ok()
+                                    && (match &preset.auth { sailry_protocol::conversation::presets::Auth::Plugin{flow}=>parsed.model_auth.iter().any(|item|&item.id==flow), _=>true })
+                                    && preset.adapter.as_ref().is_none_or(|adapter|parsed.model_adapters.iter().any(|item|&item.id==adapter))
+                                    && !parsed.model_providers[..index].iter().any(|other|other.id==preset.id)
+                            })
                             && parsed.instructions.as_ref().is_none_or(|text| {
                                 !text.trim().is_empty() && text.len() <= 16 * 1024
                             })

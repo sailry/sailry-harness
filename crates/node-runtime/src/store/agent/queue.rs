@@ -59,6 +59,10 @@ fn capture(
     } else {
         super::plugins::capture(db)?
     };
+    let mut roles = session.roles;
+    if session.profile.is_none() {
+        super::super::sessions::roles::refresh(db, &mut roles)?;
+    }
     let turn = QueuedTurn {
         id: TurnId::new(),
         kind,
@@ -66,12 +70,12 @@ fn capture(
         request: request.id,
         revision: session.revision,
         config: session.config,
-        roles: session.roles,
+        roles,
         plugins,
     };
     // The request ledger owns input; this row only freezes its configuration.
     db.execute(
-        "INSERT INTO turns(id,session,revision,request,caller,kind,plugins) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        "INSERT INTO turns(id,session,revision,request,caller,kind,plugins,roles) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
         params![
             turn.id.to_string(),
             turn.session.to_string(),
@@ -83,6 +87,7 @@ fn capture(
                 RunKind::Compaction => "compaction",
             },
             encode(&turn.plugins)?,
+            encode(&turn.roles)?,
         ],
     )
     .map_err(storage_error)?;
@@ -252,7 +257,7 @@ pub(in crate::store) fn message(db: &Connection, turn: TurnId) -> Result<QueuedM
             revision: run.revision,
             request: request.parse().map_err(storage_error)?,
             config: serde_json::from_slice(&config).map_err(storage_error)?,
-            roles: super::super::sessions::roles::read(db, run.session, run.revision)?,
+            roles: super::super::sessions::roles::for_turn(db, run.turn)?,
             plugins: super::plugins::read(db, run.turn)?,
         },
         revision,

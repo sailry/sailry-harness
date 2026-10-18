@@ -43,6 +43,12 @@ pub enum Action {
     WriteRoles,
     #[serde(rename = "models.read")]
     ReadModels,
+    #[serde(rename = "models.provide")]
+    ProvideModels,
+    #[serde(rename = "models.authenticate")]
+    AuthenticateModels,
+    #[serde(rename = "credentials.inspect")]
+    InspectCredentials,
     #[serde(rename = "models.install")]
     InstallModels,
     #[serde(rename = "media.inspect")]

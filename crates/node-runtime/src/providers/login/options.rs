@@ -2,6 +2,10 @@ use super::*;
 use reqwest::header::HeaderValue;
 
 pub(crate) fn capture(provider: &mut Provider) -> Result<(), Fault> {
+    if provider.authentication == Authentication::Plugin {
+        provider.oauth = Some(effective(provider)?);
+        return Ok(());
+    }
     if matches!(
         provider.authentication,
         Authentication::ChatGpt
@@ -15,6 +19,26 @@ pub(crate) fn capture(provider: &mut Provider) -> Result<(), Fault> {
 }
 
 pub(crate) fn effective(provider: &Provider) -> Result<Options, Fault> {
+    if provider.authentication == Authentication::Plugin {
+        let binding = provider.binding.as_ref().ok_or_else(|| {
+            Fault::new(ErrorCode::NotConfigured, "channel plugin is not captured")
+        })?;
+        return Ok(Options::Plugin {
+            endpoint: provider.endpoint.clone(),
+            consent: provider.consent.clone(),
+            origin: binding.origin.clone(),
+            package: binding
+                .package
+                .clone()
+                .ok_or_else(|| Fault::invalid("channel plugin package is missing"))?,
+            flow: binding
+                .auth
+                .as_ref()
+                .ok_or_else(|| Fault::invalid("channel plugin authentication is missing"))?
+                .flow
+                .clone(),
+        });
+    }
     let mut options = provider
         .oauth
         .clone()
@@ -39,6 +63,7 @@ pub(super) fn validate(
 ) -> Result<(), Fault> {
     options.validate(authentication, api)?;
     let fields = match options {
+        Options::Plugin { .. } => vec![],
         Options::ChatGpt { user_agent, .. }
         | Options::ChatGptOAuth { user_agent, .. }
         | Options::ClaudeOAuth { user_agent } => {
@@ -70,6 +95,9 @@ mod tests {
     #[test]
     fn captures_catalog_default() {
         let provider = Provider {
+            preset: None,
+            binding: None,
+            consent: None,
             id: sailry_protocol::ProviderId::new(),
             revision: 1,
             name: "Catalog fixture".into(),
@@ -115,6 +143,9 @@ mod tests {
     fn preserves_siwc_capture_without_catalog_default() {
         for catalog_version in [None, Some("0.161.0".into())] {
             let mut provider = Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 id: sailry_protocol::ProviderId::new(),
                 revision: 1,
                 name: "SIWC fixture".into(),

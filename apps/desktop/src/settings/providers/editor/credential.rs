@@ -8,7 +8,7 @@ impl Editor {
             return;
         };
         let Some(provider) = self.provider.as_ref().filter(|provider| {
-            self.preset.key_auth()
+            self.uses_key()
                 && provider.authentication == sailry_protocol::Authentication::ApiKey
                 && provider.credential.is_some()
         }) else {
@@ -63,7 +63,7 @@ impl Editor {
 
     pub(super) fn draft_key(&self, cx: &App) -> Option<Secret> {
         let value = self.credential.read(cx).value();
-        (self.preset.key_auth()
+        (self.uses_key()
             && !value.trim().is_empty()
             && self.original_key.as_ref().map(Secret::expose) != Some(value.as_ref()))
         .then(|| Secret::new(value.to_string()))

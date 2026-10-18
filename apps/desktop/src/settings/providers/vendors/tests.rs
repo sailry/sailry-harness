@@ -15,6 +15,7 @@ fn regional_routes_round_trip() {
             assert_eq!(vendor.region(endpoint), Some(region));
         }
     }
+    assert_eq!(Vendor::Moonshot.endpoint(), "https://api.moonshot.ai/v1");
     assert!(Vendor::DeepSeek.endpoints().is_empty());
     assert_eq!(Vendor::DeepSeek.endpoint(), "https://api.deepseek.com");
 }

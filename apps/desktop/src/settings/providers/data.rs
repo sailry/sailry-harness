@@ -1,6 +1,6 @@
 // UI contract reference: Sailry Code 67ae9fa0, adapter_catalog.rs and
 // ai_channel_editor_dialog.dart. No runtime adapters or credentials are loaded.
-use super::vendors::Vendor;
+use super::vendors::{Region, Vendor};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Family {
@@ -11,6 +11,7 @@ pub enum Family {
     OpenCodeZen,
     Azure,
     Hosted(Vendor),
+    Other,
 }
 
 impl Family {
@@ -28,6 +29,7 @@ impl Family {
         }
     }
 
+    #[cfg(test)]
     pub fn all() -> impl Iterator<Item = Self> {
         [
             Self::OpenAi,
@@ -36,6 +38,7 @@ impl Family {
             Self::OpenCodeGo,
             Self::OpenCodeZen,
             Self::Azure,
+            Self::Other,
         ]
         .into_iter()
         .chain(Vendor::ALL.map(Self::Hosted))
@@ -50,6 +53,7 @@ impl Family {
             Self::OpenCodeZen => "provider_opencode_zen",
             Self::Azure => "provider_azure",
             Self::Hosted(vendor) => vendor.key(),
+            Self::Other => "provider_other",
         }
     }
 }
@@ -121,6 +125,7 @@ impl Category {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preset {
+    Plugin,
     OpenAi,
     CompatibleResponses,
     CompatibleChat,
@@ -148,6 +153,7 @@ impl Preset {
     pub fn api(self) -> sailry_protocol::conversation::ModelApi {
         use sailry_protocol::conversation::ModelApi;
         match self {
+            Self::Plugin => ModelApi::Plugin,
             Self::OpenAi
             | Self::CompatibleResponses
             | Self::ChatGptOAuth
@@ -164,7 +170,9 @@ impl Preset {
         }
     }
 
-    const CORE: [Self; 16] = [
+    #[cfg(test)]
+    const CORE: [Self; 17] = [
+        Self::Plugin,
         Self::OpenAi,
         Self::CompatibleResponses,
         Self::CompatibleChat,
@@ -183,15 +191,9 @@ impl Preset {
         Self::AzureAi,
     ];
 
+    #[cfg(test)]
     pub fn all() -> impl Iterator<Item = Self> {
         Self::CORE.into_iter().chain(Vendor::ALL.map(Self::Hosted))
-    }
-
-    pub fn offered(self) -> bool {
-        match self {
-            Self::Hosted(vendor) => Vendor::FIRST_PARTY.contains(&vendor),
-            _ => !self.cloud() && !matches!(self, Self::Copilot | Self::CopilotResponses),
-        }
     }
 
     pub fn family(self) -> Family {
@@ -202,6 +204,7 @@ impl Preset {
             Self::OpenCodeZen => Family::OpenCodeZen,
             Self::AzureOpenAi | Self::AzureAi => Family::Azure,
             Self::Hosted(vendor) => Family::Hosted(vendor),
+            Self::Plugin => Family::Other,
             _ => Family::OpenAi,
         }
     }
@@ -231,6 +234,7 @@ impl Preset {
 
     pub fn key(self) -> &'static str {
         match self {
+            Self::Plugin => "provider_plugin",
             Self::OpenAi => "preset_openai",
             Self::CompatibleResponses | Self::CompatibleChat => "preset_compatible",
             Self::ChatGptOAuth => "preset_chatgpt_oauth",
@@ -271,7 +275,8 @@ impl Preset {
     pub fn custom_endpoint(self) -> bool {
         matches!(
             self,
-            Self::CompatibleResponses
+            Self::Plugin
+                | Self::CompatibleResponses
                 | Self::CompatibleChat
                 | Self::CompatibleAnthropic
                 | Self::CompatibleGemini
@@ -400,7 +405,11 @@ impl Channel {
         vendor
             .region(&self.endpoint)
             .map_or(label.clone(), |region| {
-                format!("{label} {}", crate::tr(region.key())).into()
+                let key = match region {
+                    Region::China => "provider_region_china",
+                    Region::Global => "provider_region_global",
+                };
+                format!("{label} {}", crate::tr(key)).into()
             })
     }
 }

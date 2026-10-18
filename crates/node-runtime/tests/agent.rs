@@ -158,6 +158,9 @@ async fn configured_session(
     root: &std::path::Path,
 ) -> (Session, Provider) {
     let provider = Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         oauth: None,
         options: None,
         id: ProviderId::new(),

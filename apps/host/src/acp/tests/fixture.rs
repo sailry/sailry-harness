@@ -402,6 +402,9 @@ pub(super) async fn provider(client: &Client, endpoint: &str) -> conversation::P
         Command::PutProvider {
             expected_revision: 0,
             provider: conversation::Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 id: ProviderId::new(),
                 revision: 0,
                 name: "ACP model".into(),

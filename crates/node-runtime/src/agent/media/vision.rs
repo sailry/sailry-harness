@@ -184,6 +184,9 @@ mod tests {
 
     fn fixture() -> (SessionConfig, crate::store::media::Model) {
         let provider = Provider {
+            preset: None,
+            binding: None,
+            consent: None,
             id: ProviderId::new(),
             revision: 1,
             name: "Vision fixture".into(),

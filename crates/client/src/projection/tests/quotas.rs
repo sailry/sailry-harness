@@ -6,6 +6,9 @@ use sailry_protocol::{
 
 fn provider() -> Provider {
     Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         id: ProviderId::new(),
         revision: 1,
         name: "Quota fixture".into(),

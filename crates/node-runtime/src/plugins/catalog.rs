@@ -131,6 +131,8 @@ impl Host {
                 icon: None,
                 repository: Some(item.repo_url),
                 bundled: false,
+                provides_models: false,
+                permissions: Vec::new(),
             });
         }
         Ok(Page {
@@ -223,7 +225,17 @@ impl Host {
 }
 
 pub(super) fn entry(id: &str, manifest: manifest::Manifest) -> Entry {
+    let provides_models = manifest
+        .extension
+        .as_ref()
+        .is_some_and(|extension| !extension.model_providers.is_empty());
+    let permissions = manifest
+        .extension
+        .as_ref()
+        .map_or_else(Vec::new, |extension| extension.actions.clone());
     Entry {
+        provides_models,
+        permissions,
         id: id.to_owned(),
         name: manifest.name,
         version: manifest.version,

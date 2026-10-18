@@ -37,6 +37,7 @@ pub(super) fn create(
     mut settings: Configuration,
 ) -> Result<(Output, Option<Event>), Fault> {
     if let Some(profile) = &mut settings.profile {
+        super::providers::presets::capture(db, &mut profile.provider)?;
         crate::providers::login::capture(&mut profile.provider)?;
     }
     commands::validate_config(db, node, &settings.config)?;

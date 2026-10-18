@@ -51,8 +51,8 @@ fn same_capture(db: &Connection, source: &Run, target: &Run) -> Result<bool, Fau
         && source.worktree == target.worktree
         && super::super::permissions::config(db, source.turn)?
             == super::super::permissions::config(db, target.turn)?
-        && super::super::super::sessions::roles::read(db, source.session, source.revision)?
-            == super::super::super::sessions::roles::read(db, target.session, target.revision)?
+        && super::super::super::sessions::roles::for_turn(db, source.turn)?
+            == super::super::super::sessions::roles::for_turn(db, target.turn)?
         && super::super::plugins::read(db, source.turn)?
             == super::super::plugins::read(db, target.turn)?
         && super::super::super::hooks::frozen(db, source.turn)?
@@ -157,8 +157,7 @@ pub(in crate::store) fn inherit(
     super::validate(message)?;
     let mut session = super::super::super::commands::session(db, target.session)?;
     session.config = super::super::permissions::config(db, target.turn)?;
-    session.roles =
-        super::super::super::sessions::roles::read(db, target.session, target.revision)?;
+    session.roles = super::super::super::sessions::roles::for_turn(db, target.turn)?;
     let plugins = super::super::plugins::read(db, target.turn)?;
     super::super::references::validate(db, &session, message, Some(&plugins))?;
     let turn = QueuedTurn {
@@ -172,9 +171,9 @@ pub(in crate::store) fn inherit(
         plugins,
     };
     db.execute(
-        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins) VALUES(?1,'task',?2,?3,?4,?5,?6)",
+        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles) VALUES(?1,'task',?2,?3,?4,?5,?6,?7)",
         params![turn.id.to_string(), turn.session.to_string(), turn.revision as i64,
-            request.id.to_string(), &caller.0[..], encode(&turn.plugins)?],
+            request.id.to_string(), &caller.0[..], encode(&turn.plugins)?, encode(&turn.roles)?],
     ).map_err(storage_error)?;
     super::super::super::attachments::turns::bind(db, turn.id, &message.attachments)?;
     runs::inherit(db, &turn, target.turn, Status::Queued, true)?;

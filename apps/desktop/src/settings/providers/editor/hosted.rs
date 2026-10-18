@@ -149,7 +149,21 @@ impl Editor {
     }
 
     pub(super) fn metadata_only(&self) -> bool {
-        self.preset.cloud()
+        self.selected.as_ref().is_some_and(|entry| {
+            matches!(
+                entry.preset.models,
+                sailry_protocol::conversation::presets::Models::Static { .. }
+            ) || self
+                .selected_route()
+                .and_then(|route| route.product)
+                .is_some_and(|product| {
+                    entry
+                        .preset
+                        .products
+                        .iter()
+                        .any(|item| item.kind == product && !item.discover)
+                })
+        }) || self.preset.cloud()
             || (self.product() == Product::Coding
                 && matches!(self.preset, Preset::Hosted(vendor) if vendor != Vendor::MiniMax))
     }

@@ -28,7 +28,7 @@ impl Login {
                 .into_any_element();
         }
         let retry = owner.clone();
-        let manual = self.provider.authentication == sailry_protocol::Authentication::ClaudeOAuth;
+        let manual = self.accepts_callback();
         let footer = dialog::DialogFooter::new()
             .w_full()
             .justify_end()
@@ -156,7 +156,7 @@ impl Render for Login {
             .when(
                 active
                     && !self.pending
-                    && self.provider.authentication == sailry_protocol::Authentication::ClaudeOAuth
+                    && self.accepts_callback()
                     && matches!(self.state(), Some(State::Browser { .. })),
                 |body| {
                     body.child(

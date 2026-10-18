@@ -361,6 +361,9 @@ async fn configure(client: &Client, endpoint: &str) {
             expected_revision: 0,
             secret: Some(Secret::new("isolated-flutter-fixture".into())),
             provider: Provider {
+                preset: None,
+                binding: None,
+                consent: None,
                 id: ProviderId::new(),
                 revision: 0,
                 name: "Flutter fixture".into(),

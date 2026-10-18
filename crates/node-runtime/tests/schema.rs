@@ -270,6 +270,9 @@ async fn upgrades_resources_on_both_paths() {
             &client,
             Command::SaveProvider {
                 provider: Provider {
+                    preset: None,
+                    binding: None,
+                    consent: None,
                     options: None,
                     oauth: None,
                     id: ProviderId::new(),

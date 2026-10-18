@@ -174,7 +174,7 @@ pub(in super::super) fn issued_client(value: &str) -> Result<(), Fault> {
     Ok(())
 }
 
-fn loopback(value: &str) -> Result<(), Fault> {
+pub(in crate::providers::login) fn loopback(value: &str) -> Result<(), Fault> {
     let url = Url::parse(value)
         .map_err(|_| sailry_protocol::Fault::invalid("authorization redirect is invalid"))?;
     if url.scheme() != "http"
@@ -194,7 +194,7 @@ fn loopback(value: &str) -> Result<(), Fault> {
     Ok(())
 }
 
-fn random() -> Secret {
+pub(in crate::providers::login) fn random() -> Secret {
     let mut bytes = [0; 32];
     bytes[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
     bytes[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());

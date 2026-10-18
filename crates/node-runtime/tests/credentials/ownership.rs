@@ -23,6 +23,9 @@ async fn retains_replaced_and_removed_configuration() {
             node.local()
         });
         let provider = Provider {
+            preset: None,
+            binding: None,
+            consent: None,
             oauth: None,
             id: ProviderId::new(),
             revision: 0,

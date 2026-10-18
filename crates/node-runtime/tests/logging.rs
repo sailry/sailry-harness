@@ -60,6 +60,9 @@ async fn session_api(client: &Client, endpoint: &str, root: &Path, api: ModelApi
         .await;
     }
     let provider = Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         id: ProviderId::new(),
         revision: 0,
         name: "Logging fixture".into(),

@@ -18,6 +18,14 @@ const UNAVAILABLE_NOTE: &str =
     "Contents not included; the current model cannot read this attachment";
 
 pub(super) fn api(provider: &Provider, effective: ModelApi) -> Option<ModelApi> {
+    if effective == ModelApi::Plugin {
+        return provider
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.adapter.as_ref())
+            .filter(|adapter| adapter.capabilities.files)
+            .map(|_| ModelApi::Plugin);
+    }
     if provider.authentication != Authentication::ApiKey {
         return None;
     }

@@ -10,6 +10,9 @@ async fn restores_private_readback() {
         let node = Node::start_empty(&profile).await.unwrap();
         let client = Client::new(node.local());
         let provider = Provider {
+            preset: None,
+            binding: None,
+            consent: None,
             oauth: None,
             id: ProviderId::new(),
             revision: 0,

@@ -97,6 +97,9 @@ impl Fixture {
             .client
             .execute(self.client.prepare(Command::PutProvider {
                 provider: Provider {
+                    preset: None,
+                    binding: None,
+                    consent: None,
                     id: ProviderId::new(),
                     revision: 0,
                     name: "Model fixture".into(),

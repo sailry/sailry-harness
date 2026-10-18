@@ -3,6 +3,9 @@ use sailry_protocol::conversation::ModelApi;
 
 fn fixture() -> (Provider, SessionConfig) {
     let provider = Provider {
+        preset: None,
+        binding: None,
+        consent: None,
         id: ProviderId::new(),
         revision: 1,
         name: "Captured media".into(),

@@ -17,6 +17,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let result = sailry_node_runtime::plugin_test::run(input);
             serde_json::to_writer(std::io::stdout().lock(), &result)?;
         }
+        [argument] if argument == "--translation" => {
+            let input = serde_json::from_slice(&bytes)?;
+            let result = sailry_node_runtime::plugin_test::translation::run(input);
+            serde_json::to_writer(std::io::stdout().lock(), &result)?;
+        }
         [argument] if argument == "--validate-schema" => {
             let input = serde_json::from_slice(&bytes)?;
             let result = sailry_node_runtime::plugin_test::schema::validate(input);

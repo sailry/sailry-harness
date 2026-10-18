@@ -59,6 +59,13 @@ impl Llm for Model {
         let base = grant.headers(&options).map_err(failure)?;
         let secrets = credentials(&grant, &base);
         let (access, adapter, stream) = match grant {
+            Grant::Plugin { record, .. } => {
+                let adapter: RequestAdapter = Arc::new(move |_, headers| {
+                    headers.extend(base.clone());
+                    Ok(())
+                });
+                (record.issued.access, adapter, stream)
+            }
             Grant::ChatGpt { access, .. } => {
                 let adapter: RequestAdapter = Arc::new(move |body, headers| {
                     headers.extend(base.clone());
@@ -125,7 +132,10 @@ impl Llm for Model {
     }
 }
 
-fn credentials(grant: &Grant, headers: &HeaderMap) -> Vec<sailry_protocol::Secret> {
+pub(in crate::agent::model) fn credentials(
+    grant: &Grant,
+    headers: &HeaderMap,
+) -> Vec<sailry_protocol::Secret> {
     let mut values: Vec<_> = headers
         .iter()
         .filter(|(name, value)| value.is_sensitive() || name.as_str() == "chatgpt-account-id")
@@ -136,6 +146,10 @@ fn credentials(grant: &Grant, headers: &HeaderMap) -> Vec<sailry_protocol::Secre
     // A generation error can echo any private field of its freshly resolved grant,
     // including a rotated refresh token that was not sent as an HTTP header.
     match grant {
+        Grant::Plugin { record, .. } => {
+            values.extend(record.issued.fields().into_values());
+            values.extend(record.target.fields.values().cloned());
+        }
         Grant::ChatGpt {
             refresh, id_token, ..
         }

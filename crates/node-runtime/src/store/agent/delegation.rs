@@ -111,7 +111,7 @@ pub(in crate::store) fn child(db: &Connection, turn: TurnId) -> Result<Option<Ch
     }
     let role = if let Some(id) = founding.role {
         let parent = runs::get(db, founding.turn)?;
-        let roster = super::super::sessions::roles::read(db, parent.session, parent.revision)?;
+        let roster = super::super::sessions::roles::for_turn(db, parent.turn)?;
         Some(
             roster
                 .profiles
@@ -291,7 +291,7 @@ pub(super) fn admit(
     };
     // The outer request owns durable admission; child rows only freeze scope and ancestry.
     tx.execute(
-        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins) VALUES(?1,'task',?2,?3,?4,?5,?6)",
+        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles) VALUES(?1,'task',?2,?3,?4,?5,?6,?7)",
         params![
             turn.id.to_string(),
             session.id.to_string(),
@@ -299,6 +299,7 @@ pub(super) fn admit(
             request_id,
             &caller.0[..],
             encode(&turn.plugins)?,
+            encode(&turn.roles)?,
         ],
     )
     .map_err(storage_error)?;
@@ -317,6 +318,9 @@ pub(super) fn admit(
     let provider: Option<Provider> = provider
         .map(|body| serde_json::from_slice(&body).map_err(storage_error))
         .transpose()?;
+    if let Some(provider) = &provider {
+        crate::store::providers::presets::verify(&tx, provider)?;
+    }
     let media = super::super::media::for_turn(media, provider.as_ref(), &turn.config);
     let child_run = runs::get(&tx, turn.id)?;
     let summary = children::get(&tx, &child_run)?.expect("admitted child has an origin");

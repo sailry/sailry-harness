@@ -48,6 +48,18 @@ fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
                 retain(reference);
             }
         }
+        let mut query = transaction.prepare(
+            "SELECT json_extract(provider,'$.binding.package') FROM agent_runs WHERE json_type(provider,'$.binding.package')='object'
+             UNION ALL SELECT json_extract(profile,'$.provider.binding.package') FROM session_revisions WHERE json_type(profile,'$.provider.binding.package')='object'
+             UNION ALL SELECT json_extract(item.value,'$.binding.package') FROM session_revisions, json_each(roles,'$.providers') item WHERE json_type(item.value,'$.binding.package')='object'
+             UNION ALL SELECT json_extract(item.value,'$.binding.package') FROM turns,json_each(roles,'$.providers') item WHERE json_type(item.value,'$.binding.package')='object'"
+        ).map_err(storage_error)?;
+        for body in query
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(storage_error)?
+        {
+            retain(serde_json::from_str(&body.map_err(storage_error)?).map_err(storage_error)?);
+        }
         let mut query = transaction.prepare("SELECT json_extract(config,'$.assistant.package') FROM session_revisions WHERE json_extract(config,'$.assistant.package') IS NOT NULL").map_err(storage_error)?;
         for body in query
             .query_map([], |row| row.get::<_, String>(0))

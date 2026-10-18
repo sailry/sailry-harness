@@ -6,6 +6,13 @@ impl Editor {
         &self,
         cx: &App,
     ) -> Result<(sailry_protocol::conversation::ModelApi, String), &'static str> {
+        if let Some(route) = self.selected_route() {
+            let endpoint = self.endpoint.read(cx).value().trim().to_owned();
+            if endpoint.is_empty() {
+                return Err("provider_endpoint_required");
+            }
+            return Ok((route.protocol.api(), endpoint));
+        }
         let api = self.preset.api();
         let endpoint = self.endpoint.read(cx).value().trim().to_owned();
         let endpoint = match self.preset {
@@ -33,9 +40,7 @@ impl Editor {
         if self.pending || self.closed {
             return;
         }
-        if self.preset.key_auth()
-            && !self.key_ready
-            && self.credential.read(cx).value().trim().is_empty()
+        if self.uses_key() && !self.key_ready && self.credential.read(cx).value().trim().is_empty()
         {
             self.report_error("provider_key_failed", window, cx);
             cx.notify();
@@ -63,6 +68,9 @@ impl Editor {
             .expect("live editor is bound to a Node");
         self.probe = None;
         let provider = Provider {
+            preset: self.preset_ref(),
+            binding: None,
+            consent: self.consent().map(Box::new),
             options: channel.options,
             oauth: channel.oauth,
             id: self.provider_id,
@@ -72,7 +80,7 @@ impl Editor {
                 .map_or(0, |provider| provider.revision),
             name: channel.name,
             api,
-            authentication: self.preset.authentication(),
+            authentication: self.authentication(),
             endpoint,
             enabled: self
                 .provider
@@ -105,7 +113,7 @@ impl Editor {
         self.pending = true;
         self.error = None;
         let login_binding = binding.clone();
-        let login = self.editing.is_none() && self.preset.oauth() && !self.configured;
+        let login = self.editing.is_none() && self.can_login() && !self.configured;
         let job = binding
             .runtime
             .spawn(async move { binding.client.execute(request).await });
@@ -136,7 +144,7 @@ impl Editor {
                         }
                     }
                     Ok(Err(error)) => {
-                        let key = if editor.preset.oauth()
+                        let key = if editor.uses_login()
                             && matches!(
                                 error.code,
                                 sailry_protocol::ErrorCode::PermissionDenied
