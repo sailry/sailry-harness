@@ -605,9 +605,9 @@ impl Render for Editor {
                 )
             })
             .child(self.selection(cx))
-            .child(self.source_label())
-            .child(self.consent_form(cx))
-            .child(self.suggestions(cx))
+            .children(self.source_label())
+            .children(self.consent_form(cx))
+            .children(self.suggestions(cx))
             .child(form)
             .when_some(self.partner_key_url.clone(), |body, url| {
                 body.child(

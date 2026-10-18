@@ -56,16 +56,10 @@ impl Editor {
         )
     }
 
-    pub(super) fn consent_form(&self, cx: &Context<Self>) -> Div {
+    pub(super) fn consent_form(&self, cx: &Context<Self>) -> Option<Div> {
+        let entry = self.selected.as_ref()?;
+        let package = entry.package.as_ref()?;
         let body = v_flex().w_full().gap_2();
-        let Some(entry) = self
-            .selected
-            .as_ref()
-            .filter(|entry| entry.package.is_some())
-        else {
-            return body;
-        };
-        let package = entry.package.as_ref().unwrap();
         let body = body.child(
             Field::new().label(tr("provider_package")).child(
                 Button::new("provider-package-reference")
@@ -81,34 +75,36 @@ impl Editor {
                     )),
             ),
         );
-        body.when(entry.requested.messages, |body| {
-            body.child(
-                Checkbox::new("provider-model-consent")
-                    .text_sm()
-                    .label(tr("provider_allow_messages"))
-                    .checked(self.consent_scopes.messages)
-                    .disabled(self.pending)
-                    .on_click(cx.listener(|editor, checked, _, cx| {
-                        editor.consent_scopes.messages = *checked;
-                        editor.consent_changed = true;
-                        cx.notify();
-                    })),
-            )
-        })
-        .when(entry.requested.credentials, |body| {
-            body.child(
-                Checkbox::new("provider-credential-consent")
-                    .text_sm()
-                    .label(tr("provider_allow_credentials"))
-                    .checked(self.consent_scopes.credentials)
-                    .disabled(self.pending)
-                    .on_click(cx.listener(|editor, checked, _, cx| {
-                        editor.consent_scopes.credentials = *checked;
-                        editor.consent_changed = true;
-                        cx.notify();
-                    })),
-            )
-        })
+        Some(
+            body.when(entry.requested.messages, |body| {
+                body.child(
+                    Checkbox::new("provider-model-consent")
+                        .text_sm()
+                        .label(tr("provider_allow_messages"))
+                        .checked(self.consent_scopes.messages)
+                        .disabled(self.pending)
+                        .on_click(cx.listener(|editor, checked, _, cx| {
+                            editor.consent_scopes.messages = *checked;
+                            editor.consent_changed = true;
+                            cx.notify();
+                        })),
+                )
+            })
+            .when(entry.requested.credentials, |body| {
+                body.child(
+                    Checkbox::new("provider-credential-consent")
+                        .text_sm()
+                        .label(tr("provider_allow_credentials"))
+                        .checked(self.consent_scopes.credentials)
+                        .disabled(self.pending)
+                        .on_click(cx.listener(|editor, checked, _, cx| {
+                            editor.consent_scopes.credentials = *checked;
+                            editor.consent_changed = true;
+                            cx.notify();
+                        })),
+                )
+            }),
+        )
     }
 }
 

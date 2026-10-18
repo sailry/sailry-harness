@@ -304,83 +304,69 @@ impl Editor {
         )
     }
 
-    pub(super) fn suggestions(&self, cx: &Context<Self>) -> Div {
-        let body = v_flex().gap_2();
+    pub(super) fn suggestions(&self, cx: &Context<Self>) -> Option<Div> {
         if !self.suggestions_active() {
-            return body;
+            return None;
         }
-        let Some(current) = self.selected_route() else {
-            return body;
-        };
-        let choices = self
-            .directory
-            .iter()
-            .filter(|entry| {
-                !matches!(
-                    entry.source,
-                    sailry_protocol::conversation::presets::Source::Builtin
-                ) && matches!(
-                    entry.preset.auth,
-                    sailry_protocol::conversation::presets::Auth::ApiKey { .. }
-                        | sailry_protocol::conversation::presets::Auth::None
-                )
-            })
-            .filter_map(|entry| {
-                entry
-                    .preset
-                    .routes
-                    .iter()
-                    .find(|route| route.protocol == current.protocol)
-                    .map(|route| (entry.clone(), route.clone()))
-            })
-            .collect::<Vec<_>>();
+        let choices = partner_choices(&self.directory, self.selected_route()?);
         if choices.is_empty() {
-            return body;
+            return None;
         }
-        body.child(
-            div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(tr("provider_partners")),
-        )
-        .child(
-            h_flex()
-                .flex_wrap()
+        Some(
+            v_flex()
                 .gap_2()
-                .children(
-                    choices
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, (entry, route))| {
-                            Button::new(("provider-suggestion", index))
-                                .small()
-                                .outline()
-                                .disabled(self.navigation_blocked())
-                                .child(presets::label(&entry.preset))
-                                .when(entry.provenance == Provenance::ThirdParty, |button| {
-                                    button.child(
-                                        Tag::secondary().small().child(tr("provider_third_party")),
-                                    )
-                                })
-                                .on_click(cx.listener(move |editor, _, window, cx| {
-                                    editor.select_entry(entry.clone(), route.clone(), window, cx)
-                                }))
-                        }),
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(tr("provider_partners")),
+                )
+                .child(
+                    h_flex()
+                        .flex_wrap()
+                        .gap_2()
+                        .children(choices.into_iter().enumerate().map(
+                            |(index, (entry, route))| {
+                                Button::new(("provider-suggestion", index))
+                                    .small()
+                                    .outline()
+                                    .disabled(self.navigation_blocked())
+                                    .child(presets::label(&entry.preset))
+                                    .when(entry.provenance == Provenance::ThirdParty, |button| {
+                                        button.child(
+                                            Tag::secondary()
+                                                .small()
+                                                .child(tr("provider_third_party")),
+                                        )
+                                    })
+                                    .on_click(cx.listener(move |editor, _, window, cx| {
+                                        editor.select_entry(
+                                            entry.clone(),
+                                            route.clone(),
+                                            window,
+                                            cx,
+                                        )
+                                    }))
+                            },
+                        )),
                 ),
         )
     }
 
-    pub(super) fn source_label(&self) -> Div {
+    pub(super) fn source_label(&self) -> Option<Div> {
+        let entry = self.selected.as_ref()?;
+        if entry.provenance != Provenance::ThirdParty && entry.preset.badge.is_none() {
+            return None;
+        }
         let body = h_flex().gap_2();
-        let Some(entry) = &self.selected else {
-            return body;
-        };
-        body.when(entry.provenance == Provenance::ThirdParty, |body| {
-            body.child(Tag::secondary().small().child(tr("provider_third_party")))
-        })
-        .when_some(entry.preset.badge.clone(), |body, badge| {
-            body.child(Tag::secondary().small().child(badge))
-        })
+        Some(
+            body.when(entry.provenance == Provenance::ThirdParty, |body| {
+                body.child(Tag::secondary().small().child(tr("provider_third_party")))
+            })
+            .when_some(entry.preset.badge.clone(), |body, badge| {
+                body.child(Tag::secondary().small().child(badge))
+            }),
+        )
     }
 
     pub(super) fn route_field(&self, form: Form, region: bool, cx: &Context<Self>) -> Form {
@@ -453,6 +439,31 @@ fn route_target(routes: &[Route], current: Option<&Route>, requested: Route) -> 
         })
         .cloned()
         .unwrap_or(requested)
+}
+
+/// Partner entries offering the current route's protocol, for one-shot prefill.
+fn partner_choices(directory: &[Entry], current: &Route) -> Vec<(Entry, Route)> {
+    directory
+        .iter()
+        .filter(|entry| {
+            !matches!(
+                entry.source,
+                sailry_protocol::conversation::presets::Source::Builtin
+            ) && matches!(
+                entry.preset.auth,
+                sailry_protocol::conversation::presets::Auth::ApiKey { .. }
+                    | sailry_protocol::conversation::presets::Auth::None
+            )
+        })
+        .filter_map(|entry| {
+            entry
+                .preset
+                .routes
+                .iter()
+                .find(|route| route.protocol == current.protocol)
+                .map(|route| (entry.clone(), route.clone()))
+        })
+        .collect()
 }
 
 fn route_choices(routes: &[Route], current: &Route, region: bool) -> Vec<Route> {
@@ -552,5 +563,37 @@ mod tests {
             route_target(&entry.preset.routes, Some(current), requested.clone()),
             requested
         );
+    }
+
+    mod partner_choices {
+        use super::*;
+        use sailry_protocol::conversation::presets::Source;
+
+        fn compatible() -> Entry {
+            presets::bundled()
+                .into_iter()
+                .find(|entry| entry.preset.id == "compatible-chat")
+                .unwrap()
+        }
+
+        #[test]
+        fn empty_without_partners() {
+            let entry = compatible();
+            let route = entry.preset.routes[0].clone();
+            assert!(partner_choices(&[], &route).is_empty());
+            assert!(partner_choices(&presets::bundled(), &route).is_empty());
+        }
+
+        #[test]
+        fn matches_route_protocol() {
+            let builtin = compatible();
+            let route = builtin.preset.routes[0].clone();
+            let mut partner = builtin.clone();
+            partner.source = Source::Partner;
+            let choices = partner_choices(&[builtin, partner], &route);
+            assert_eq!(choices.len(), 1);
+            assert_eq!(choices[0].0.source, Source::Partner);
+            assert_eq!(choices[0].1.protocol, route.protocol);
+        }
     }
 }
