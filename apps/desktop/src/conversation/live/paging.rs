@@ -74,6 +74,10 @@ impl View {
     }
     pub(super) fn sync_rows(&mut self, cx: &mut Context<Self>) {
         self.reconcile_outgoing();
+        let child = self
+            .session
+            .as_ref()
+            .is_some_and(|session| session.delegation.is_some());
         let mut rows =
             self.history
                 .snapshot
@@ -91,8 +95,9 @@ impl View {
                             )
                         })
                         .filter(|run| {
-                            run.status != Status::Queued
+                            (run.status != Status::Queued || child)
                                 && (run.status != Status::Cancelled
+                                    || child
                                     || run.kind == RunKind::Compaction
                                     || run.input.is_some()
                                     || snapshot

@@ -21,7 +21,7 @@ pub(in crate::store::agent) fn capture(
 
 pub(in crate::store::agent) fn hydrate(db: &Connection, mut run: Run) -> Result<Run, Fault> {
     run.input = None;
-    if run.kind != RunKind::Task || run.continuation.is_some() {
+    if run.kind != RunKind::Task || run.status == Status::Queued || run.continuation.is_some() {
         return Ok(run);
     }
     let body: Option<Vec<u8>> = db

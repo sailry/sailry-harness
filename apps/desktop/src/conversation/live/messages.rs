@@ -461,6 +461,19 @@ impl View {
             })
             .collect();
         let content = MessageContent::new()
+            .when(run.status == Status::Queued, |content| {
+                content.children(
+                    self.session
+                        .as_ref()
+                        .filter(|session| session.delegation.is_some())
+                        .map(|session| {
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(session.activity.title.clone())
+                        }),
+                )
+            })
             .gap(cx.theme().spacing_tokens().lg)
             .children(crate::conversation::surface::work(
                 rows,

@@ -98,12 +98,27 @@ fn preserves_fifo_when_lowering_budget() {
     let next = self::parent(&mut fixture);
     let third = queued(&mut fixture, next, 2);
     let fourth = queued(&mut fixture, next, 3);
-    let input = runs::hydrate(
-        &fixture.database.connection,
-        runs::get(&fixture.database.connection, third.id).unwrap(),
-    )
-    .unwrap()
-    .input;
+    assert!(
+        runs::hydrate(
+            &fixture.database.connection,
+            runs::get(&fixture.database.connection, third.id).unwrap(),
+        )
+        .unwrap()
+        .input
+        .is_none()
+    );
+    let input = |fixture: &Fixture| {
+        fixture
+            .database
+            .connection
+            .query_row(
+                "SELECT input FROM agent_runs WHERE turn=?1",
+                [third.id.to_string()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .unwrap()
+    };
+    let frozen = input(&fixture);
     runs::stop(&fixture.database.connection, first.id).unwrap();
     assert_eq!(claim(&mut fixture, third.id), Status::Queued);
     limit(&fixture, 1);
@@ -126,8 +141,12 @@ fn preserves_fifo_when_lowering_budget() {
         )
         .unwrap()
         .input,
-        input
+        Some(sailry_protocol::conversation::SentInput {
+            message: serde_json::from_slice(&frozen).unwrap(),
+            attachments: vec![],
+        })
     );
+    assert_eq!(input(&fixture), frozen);
     assert!(
         runs::claim(&mut fixture.database, &fixture.events)
             .unwrap()

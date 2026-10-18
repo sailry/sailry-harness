@@ -13,6 +13,32 @@ fn status(page: &Page, turn: TurnId) -> Status {
         .status
 }
 
+async fn visible(client: &Client, run: &Run) {
+    let page = history(client, run.session).await;
+    assert_eq!(status(&page, run.turn), run.status);
+    if run.status == Status::Queued {
+        assert!(
+            page.runs
+                .iter()
+                .find(|value| value.turn == run.turn)
+                .unwrap()
+                .input
+                .is_none()
+        );
+    }
+    let mut updates = client.subscribe_conversation(run.session).await.unwrap();
+    let mut projection =
+        sailry_client::conversation::Projection::new(client.target(), run.session, 0);
+    assert_eq!(
+        projection.apply(0, updates.next().await.unwrap()).unwrap(),
+        sailry_client::Apply::Applied
+    );
+    assert_eq!(
+        status(&projection.snapshot().unwrap().page, run.turn),
+        run.status
+    );
+}
+
 #[tokio::test]
 async fn isolates_parent_budgets() {
     for remote in [false, true] {
@@ -43,6 +69,9 @@ async fn isolates_parent_budgets() {
         for group in original.as_chunks::<3>().0 {
             assert_eq!(group[0].status, Status::Running);
             assert!(group[1..].iter().all(|run| run.status == Status::Queued));
+        }
+        for run in &original {
+            visible(&fixture.client, run).await;
         }
         fixture.child.wait_count(2).await;
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
@@ -83,6 +112,9 @@ async fn isolates_parent_budgets() {
             assert!(group[..2].iter().all(|run| run.status == Status::Running));
             assert_eq!(group[2].status, Status::Queued);
         }
+        for run in &expanded {
+            visible(&fixture.client, run).await;
+        }
         fixture.child.wait_count(4).await;
         fixture.capacity(1).await;
         let lowered = fixture.runs().await;
@@ -98,6 +130,12 @@ async fn isolates_parent_budgets() {
         for run in &original {
             let page = finished(&fixture.client, run.session, run.turn).await;
             assert_eq!(status(&page, run.turn), Status::Completed);
+            let completed = page
+                .runs
+                .iter()
+                .find(|value| value.turn == run.turn)
+                .unwrap();
+            visible(&fixture.client, completed).await;
         }
         for capture in captures {
             assert_eq!(
