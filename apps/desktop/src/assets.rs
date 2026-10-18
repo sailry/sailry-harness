@@ -147,7 +147,10 @@ gpui_kit::assets::icon_assets!(
         Package,
         Code,
         Clock,
-        CircleQuestionMark
+        CircleQuestionMark,
+        KeyRound,
+        Link,
+        Cloud
     ]
 );
 
@@ -617,6 +620,9 @@ mod tests {
             "icons/pause.svg",
             "icons/house.svg",
             "icons/rotate-ccw.svg",
+            "icons/key-round.svg",
+            "icons/link.svg",
+            "icons/cloud.svg",
         ] {
             let expected = SettingsAssets.load(path).unwrap().unwrap();
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);

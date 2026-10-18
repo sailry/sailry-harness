@@ -98,7 +98,7 @@ pub(super) fn open(
             .on_close(move |_, window, cx| close.update(cx, |editor, cx| editor.close(window, cx)))
             .content({
                 let editor = editor.clone();
-                move |content, _, _| content.min_h_0().pt_4().child(editor.clone())
+                move |content, _, _| content.min_h_0().pt_1().child(editor.clone())
             })
             .footer(
                 DialogFooter::new()
@@ -530,7 +530,8 @@ impl Render for Editor {
         }
         let preset = self.preset;
         let real = self.binding.is_some();
-        let mut form = Form::vertical().child(
+        // Kit's large form spacing separates fields and their labels more clearly.
+        let mut form = Form::vertical().large().child(
             Field::new().label(tr("settings_name")).child(
                 Input::new(&self.name)
                     .disabled(self.pending)
@@ -622,9 +623,10 @@ impl Render for Editor {
             })
             .child(
                 h_flex()
+                    .items_center()
                     .gap_2()
                     .flex_wrap()
-                    .child(div().flex_1().child(tr("provider_models")))
+                    .child(div().flex_1().font_medium().child(tr("provider_models")))
                     .child(
                         Button::new("provider-discover")
                             .loading(self.probe.is_some())

@@ -142,7 +142,11 @@ fn body(
                 ))
                 .child(
                     div()
+                        .size(logo_size)
+                        .flex_shrink_0()
+                        .overflow_hidden()
                         .rounded(cx.theme().radius_lg)
+                        .shadow_lg()
                         .bg(gpui_kit::white())
                         .child(img("branding/sailry.png").size(logo_size)),
                 ),

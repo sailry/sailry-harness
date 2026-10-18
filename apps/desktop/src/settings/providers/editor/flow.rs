@@ -2,7 +2,8 @@
 use super::super::presets;
 use super::entry::brand_label;
 use super::*;
-use gpui_kit::component::{input::Input, tag::Tag};
+use gpui_kit::component::{button::ButtonCustomVariant, input::Input, tag::Tag};
+use sailry_protocol::conversation::presets::{Auth, Provenance};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
@@ -62,6 +63,87 @@ impl Flow {
     }
 }
 
+/// How a method connects, shown as its icon and one-line description.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Access {
+    Key,
+    Endpoint,
+    Login,
+    Cloud,
+}
+
+impl Access {
+    fn of(kind: Preset, login: bool) -> Self {
+        if login {
+            Self::Login
+        } else if kind.cloud() {
+            Self::Cloud
+        } else if kind.custom_endpoint() {
+            Self::Endpoint
+        } else {
+            Self::Key
+        }
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Key => "provider_access_key",
+            Self::Endpoint => "provider_access_endpoint",
+            Self::Login => "provider_access_login",
+            Self::Cloud => "provider_access_cloud",
+        }
+    }
+
+    fn icon(self) -> Icon {
+        use gpui_kit::assets::IconName as Glyph;
+        match self {
+            Self::Key => Icon::new(Glyph::KeyRound),
+            Self::Endpoint => Icon::new(Glyph::Link),
+            Self::Login => Icon::new(IconName::CircleUser),
+            Self::Cloud => Icon::new(Glyph::Cloud),
+        }
+    }
+}
+
+/// Second summary line: the method name, or its access kind when the name
+/// would only repeat the family.
+fn method_summary(family: &SharedString, method: SharedString, access: Access) -> SharedString {
+    if method == *family {
+        tr(access.key())
+    } else {
+        method
+    }
+}
+
+/// Framed choice surface. Kit derives a custom variant's border from its color
+/// in every state, so the theme border stays stable while hover uses the list token.
+fn surface(button: Button, cx: &App) -> Button {
+    button
+        .custom(
+            ButtonCustomVariant::new(cx)
+                .color(cx.theme().border)
+                .foreground(cx.theme().foreground)
+                .hover(cx.theme().list_hover)
+                .active(cx.theme().list_active),
+        )
+        .w_full()
+        .min_w_0()
+        .border_1()
+        .bg(cx.theme().transparent)
+}
+
+fn icon_tile(size: Pixels, icon: impl IntoElement, cx: &App) -> Div {
+    div()
+        .size(size)
+        .flex_shrink_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(cx.theme().radius)
+        .bg(cx.theme().muted)
+        .child(icon)
+}
+
 impl Editor {
     fn choices_count(&self) -> usize {
         self.flow
@@ -89,10 +171,14 @@ impl Editor {
     }
 
     pub(super) fn heading(&self, cx: &Context<Self>) -> AnyElement {
+        // A fixed row height keeps every step's title level with the close button.
         h_flex()
             .debug_selector(|| "provider-dialog-title".into())
             .w_full()
             .min_w_0()
+            .h_6()
+            .pr_6()
+            .items_center()
             .gap_2()
             .when(
                 self.editing.is_none() && self.flow.step != Step::Brand,
@@ -112,6 +198,7 @@ impl Editor {
                 div()
                     .flex_1()
                     .min_w_0()
+                    .truncate()
                     .child(tr(if self.editing.is_some() {
                         "provider_edit_title"
                     } else {
@@ -126,21 +213,35 @@ impl Editor {
     }
 
     pub(super) fn selection(&self, cx: &Context<Self>) -> impl IntoElement {
+        let family = self.selection_name();
+        let method = method_summary(
+            &family,
+            self.method_label(),
+            Access::of(self.preset, self.uses_login()),
+        );
         h_flex()
             .w_full()
             .min_w_0()
+            .items_center()
             .gap_3()
-            .child(self.directory_icon())
+            .p_3()
+            .border_1()
+            .border_color(cx.theme().border)
+            .rounded(cx.theme().radius_lg)
+            .bg(cx.theme().secondary)
+            .child(icon_tile(px(40.), self.directory_icon(), cx))
             .child(
                 v_flex()
                     .flex_1()
                     .min_w_0()
-                    .child(div().truncate().font_medium().child(self.selection_name()))
+                    .gap_0p5()
+                    .child(div().truncate().font_medium().child(family))
                     .child(
                         div()
+                            .truncate()
                             .text_sm()
                             .text_color(cx.theme().muted_foreground)
-                            .child(self.method_label()),
+                            .child(method),
                     ),
             )
             .when(self.editing.is_none(), |row| {
@@ -168,7 +269,7 @@ impl Editor {
             .id("provider-choices")
             .w_full()
             .min_h_0()
-            .gap_4()
+            .gap_3()
             .overflow_y_scroll()
             .track_scroll(&self.scroll);
         if self.flow.step == Step::Brand {
@@ -199,25 +300,35 @@ impl Editor {
                         .map(|(key, choices)| {
                             let first = &choices[0];
                             let name = brand_label(first);
-                            let icon = presets::render_icon(first, rems(2.));
-                            Button::new(SharedString::from(format!("provider-brand-{key}")))
-                                .outline()
-                                .w_full()
-                                .h_auto()
-                                .p_4()
-                                .accessibility_label(name.clone())
-                                .child(
-                                    v_flex()
-                                        .w_full()
-                                        .min_w_0()
-                                        .items_center()
-                                        .gap_3()
-                                        .child(icon)
-                                        .child(div().w_full().truncate().text_sm().child(name)),
-                                )
-                                .on_click(cx.listener(move |editor, _, window, cx| {
+                            surface(
+                                Button::new(SharedString::from(format!("provider-brand-{key}"))),
+                                cx,
+                            )
+                            .h(px(92.))
+                            .p_2()
+                            .accessibility_label(name.clone())
+                            .child(
+                                v_flex()
+                                    .size_full()
+                                    .min_w_0()
+                                    .items_center()
+                                    .justify_center()
+                                    .gap_2()
+                                    .child(presets::render_icon(first, rems(1.75)))
+                                    .child(
+                                        div()
+                                            .max_w_full()
+                                            .truncate()
+                                            .text_center()
+                                            .text_sm()
+                                            .child(name),
+                                    ),
+                            )
+                            .on_click(cx.listener(
+                                move |editor, _, window, cx| {
                                     editor.choose_brand(key.clone(), window, cx);
-                                }))
+                                },
+                            ))
                         }),
                 ),
             );
@@ -227,15 +338,22 @@ impl Editor {
         {
             body = body.child(
                 h_flex()
-                    .gap_3()
-                    .child(presets::render_icon(&choices[0], rems(2.)))
-                    .child(brand_label(&choices[0])),
+                    .min_w_0()
+                    .items_center()
+                    .gap_2()
+                    .child(presets::render_icon(&choices[0], rems(1.5)))
+                    .child(
+                        div()
+                            .truncate()
+                            .font_medium()
+                            .child(brand_label(&choices[0])),
+                    ),
             );
             body = body.child(
                 div()
                     .grid()
                     .w_full()
-                    .gap_3()
+                    .gap_2()
                     .grid_cols(if choices.len() > 4 && width >= px(480.) {
                         2
                     } else {
@@ -243,39 +361,60 @@ impl Editor {
                     })
                     .children(choices.into_iter().map(|entry| {
                         let route = &entry.preset.routes[0];
-                        let preset = presets::kind(&entry, route);
-                        let login = matches!(entry.preset.auth, sailry_protocol::conversation::presets::Auth::Builtin { .. } | sailry_protocol::conversation::presets::Auth::Plugin { .. });
+                        let login = matches!(
+                            entry.preset.auth,
+                            Auth::Builtin { .. } | Auth::Plugin { .. }
+                        );
+                        let access = Access::of(presets::kind(&entry, route), login);
                         let label: SharedString = presets::label(&entry.preset).into();
-                        Button::new(SharedString::from(format!(
-                            "provider-method-{}",
-                            entry.preset.id
-                        )))
-                        .outline()
-                        .w_full()
-                        .h_auto()
-                        .p_4()
+                        surface(
+                            Button::new(SharedString::from(format!(
+                                "provider-method-{}",
+                                entry.preset.id
+                            ))),
+                            cx,
+                        )
+                        .h(px(56.))
+                        .px_3()
                         .accessibility_label(label.clone())
                         .child(
                             h_flex()
-                                .w_full()
+                                .size_full()
                                 .min_w_0()
+                                .items_center()
                                 .gap_3()
+                                .child(icon_tile(px(32.), access.icon().size_4(), cx))
                                 .child(
-                                    Icon::new(if login {
-                                        IconName::CircleUser
-                                    } else if preset.custom_endpoint() {
-                                        IconName::Globe
-                                    } else {
-                                        IconName::Settings2
-                                    })
-                                    .size_5(),
+                                    v_flex()
+                                        .flex_1()
+                                        .min_w_0()
+                                        .items_start()
+                                        .gap_0p5()
+                                        .child(div().max_w_full().truncate().child(label))
+                                        .child(
+                                            div()
+                                                .max_w_full()
+                                                .truncate()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(tr(access.key())),
+                                        ),
                                 )
-                                .child(div().flex_1().min_w_0().text_left().child(label))
-                                .when(entry.provenance == sailry_protocol::conversation::presets::Provenance::ThirdParty, |row| row.child(Tag::secondary().small().child(tr("provider_third_party"))))
-                                .child(Icon::new(IconName::ChevronRight).size_4()),
+                                .when(entry.provenance == Provenance::ThirdParty, |row| {
+                                    row.child(
+                                        Tag::secondary().small().child(tr("provider_third_party")),
+                                    )
+                                })
+                                .child(
+                                    Icon::new(IconName::ChevronRight)
+                                        .size_4()
+                                        .text_color(cx.theme().muted_foreground),
+                                ),
                         )
                         .on_click(cx.listener(
-                            move |editor, _, window, cx| editor.choose_entry(entry.clone(), window, cx),
+                            move |editor, _, window, cx| {
+                                editor.choose_entry(entry.clone(), window, cx)
+                            },
                         ))
                     })),
             );

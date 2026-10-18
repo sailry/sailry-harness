@@ -46,3 +46,28 @@ fn waits_for_package_brand() {
     assert!(flow.requested.is_none());
     assert_eq!(flow.brand.as_deref(), Some("openai"));
 }
+
+mod access {
+    use super::*;
+
+    #[test]
+    fn classifies_methods() {
+        assert_eq!(Access::of(Preset::OpenAi, false), Access::Key);
+        assert_eq!(Access::of(Preset::CompatibleChat, false), Access::Endpoint);
+        assert_eq!(Access::of(Preset::AzureOpenAi, false), Access::Cloud);
+        assert_eq!(Access::of(Preset::ChatGptOAuth, true), Access::Login);
+    }
+
+    #[test]
+    fn summary_never_repeats_family() {
+        let family = SharedString::from("OpenAI");
+        assert_eq!(
+            method_summary(&family, "OpenAI".into(), Access::Key),
+            tr("provider_access_key")
+        );
+        assert_eq!(
+            method_summary(&family, "ChatGPT OAuth".into(), Access::Login),
+            SharedString::from("ChatGPT OAuth")
+        );
+    }
+}
