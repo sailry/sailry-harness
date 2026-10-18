@@ -40,7 +40,7 @@ impl Tool for SetTitle {
     }
 
     fn description(&self) -> &str {
-        "Set a short, recognizable title for this conversation in the user's language. If no title is assigned, you must call this as soon as the task is clear, before your first substantive reply or any other task tool. Do not ask the user for a title or permission, or wait for task completion. Preserve an assigned title across follow-up messages; rename again only if the user requests it. This only changes this session's display title."
+        "Set a short, recognizable title for this conversation in the user's language. This only changes this session's display title; the session title instructions say when to call it."
     }
 
     fn parameters_schema(&self) -> Option<Value> {

@@ -104,6 +104,9 @@ inputs using turn cursors rather than truncation or synthetic history events.
 New managed project checkouts live under the main worktree's
 `.sailry/worktrees/<id>`; existing profile-owned checkouts retain their registered
 paths. Git excludes `.sailry/` through `info/exclude`, preserving user ignore files.
+Removing a clean linked worktree without active or queued turns keeps the history
+of sessions that used it; they cannot admit turns there unless a checkout is
+registered again at that path or the conversation moves to another worktree.
 
 Manual profile backups use the execution Node's consistent SQLite snapshot,
 referenced plugin packages, attachments and session HTML documents, and registered managed workspaces.

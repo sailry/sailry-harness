@@ -16,10 +16,11 @@ fn names_an_unassigned_session() {
         stop: CancellationToken::new(),
     };
     let description = tool.description();
-    assert!(description.contains("If no title is assigned, you must call this"));
-    assert!(description.contains("before your first substantive reply or any other task tool"));
-    assert!(description.contains("Do not ask the user for a title or permission"));
-    assert!(description.contains("Preserve an assigned title across follow-up messages"));
+    assert!(description.contains("short, recognizable title for this conversation"));
+    assert!(description.contains("only changes this session's display title"));
+    // Calling rules stay in the state-specific instruction, not the static description.
+    assert!(!description.contains("before your first substantive reply"));
+    assert!(!description.contains("Do not ask the user for a title or permission"));
 }
 
 #[test]

@@ -31,9 +31,8 @@ fn policy(request: &Value, title: Option<&str>) {
         .find(|tool| tool["function"]["name"] == "set_session_title")
         .unwrap();
     let description = tool["function"]["description"].as_str().unwrap();
-    assert!(description.contains("If no title is assigned, you must call this"));
-    assert!(description.contains("before your first substantive reply or any other task tool"));
-    assert!(description.contains("Preserve an assigned title across follow-up messages"));
+    assert!(description.contains("only changes this session's display title"));
+    assert!(!description.contains("before your first substantive reply"));
 }
 
 async fn read(client: &Client, session: SessionId) -> String {

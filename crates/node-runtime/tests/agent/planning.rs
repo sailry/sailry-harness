@@ -158,6 +158,7 @@ async fn freezes_child_mode() {
         assert!(child_history.questions.is_empty());
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(requests.len(), 3);
+        let mut delegated = 0;
         for request in requests {
             let names = tool_names(&request);
             assert!(
@@ -167,12 +168,16 @@ async fn freezes_child_mode() {
             for name in ["create_worktree", "register_worktree", "remove_worktree"] {
                 assert!(!names.contains(&plugin_tool("worktrees", name).as_str()));
             }
-            assert!(
-                request["messages"]
-                    .to_string()
-                    .contains("This is a planning turn")
-            );
+            let messages = request["messages"].to_string();
+            if messages.contains("You are a delegated child") {
+                delegated += 1;
+                assert!(messages.contains("This delegated task is read-only"));
+                assert!(!messages.contains("This is a planning turn"));
+            } else {
+                assert!(messages.contains("This is a planning turn"));
+            }
         }
+        assert!(delegated > 0);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

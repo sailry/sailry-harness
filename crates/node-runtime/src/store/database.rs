@@ -41,6 +41,7 @@ impl Database {
         let root = path.map(std::path::PathBuf::from).ok_or_else(|| {
             Fault::new(ErrorCode::NotFound, "worktree does not exist on this Node")
         })?;
+        super::worktrees::present(&self.connection, id)?;
         super::worktrees::materialize_session(
             &self.connection,
             self.profile.as_deref(),

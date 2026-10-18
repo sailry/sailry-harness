@@ -13,8 +13,10 @@ pub(super) use role::bind;
 // f03046d9f558bc54a090363fea48441b05f522bf, packages/opencode/src/session/
 // system.ts and prompt/{gpt-astra,codex,default}.txt. Sailry's text is original:
 // it preserves Node tool declarations and mode/permission ownership.
-pub(super) fn instruction(mode: WorkMode, permission: Permission) -> String {
-    let mode = if mode == WorkMode::Plan {
+pub(super) fn instruction(mode: WorkMode, permission: Permission, child: bool) -> String {
+    let mode = if mode == WorkMode::Plan && child {
+        "This delegated task is read-only. Gather evidence with read-only tools, make no changes and run no tools with side effects, then report your findings."
+    } else if mode == WorkMode::Plan {
         "This is a planning turn. Explore with read-only tools and produce a concrete plan for requested multi-step work; answer pure questions directly. Explain the relevant background, recommend one approach, identify key files and reusable existing functions by path, and give implementation steps, verification, risks and open questions. Scale detail to complexity. Do not implement changes or run tools with side effects. An ordinary text or choice answer cannot change work mode."
     } else {
         super::approval::instruction(permission)
@@ -24,7 +26,7 @@ pub(super) fn instruction(mode: WorkMode, permission: Permission) -> String {
 
 pub(super) fn delegation(proactive: bool, child: bool, available: bool) -> Option<&'static str> {
     (proactive && !child && available).then_some(
-        "Proactive delegation\nActively identify useful, self-contained research, implementation or review work that an available child agent can handle independently. Delegate when this improves progress or provides an independent check; keep the critical dependent work moving yourself. Give each child a clear scope and expected result, separate overlapping file ownership, and reuse or guide existing children instead of duplicating their work. Integrate and verify their results. Handle small or tightly coupled tasks directly; do not split work merely to create agents or require delegation on every turn. Use only admitted tools and roles within the current work mode, permissions and agent limits. Children must not delegate further.",
+        "Proactive delegation\nActively identify useful, self-contained research, implementation or review work that an available child agent can handle independently. Delegate when this improves progress or provides an independent check; keep the critical dependent work moving yourself. Give each child a clear scope and expected result, separate overlapping file ownership, and reuse or guide existing children instead of duplicating their work. Handle small or tightly coupled tasks directly; do not split work merely to create agents or require delegation on every turn. Use only admitted tools and roles within the current work mode and permissions. Children must not delegate further.",
     )
 }
 
@@ -42,9 +44,9 @@ mod tests {
 
     #[test]
     fn planning_preserves_read_only_scope() {
-        let prompt = instruction(WorkMode::Plan, Permission::Ask);
+        let prompt = instruction(WorkMode::Plan, Permission::Ask, false);
         for permission in [Permission::Project, Permission::Full] {
-            assert_eq!(instruction(WorkMode::Plan, permission), prompt);
+            assert_eq!(instruction(WorkMode::Plan, permission, false), prompt);
         }
         assert!(prompt.contains("Do not implement changes or run tools with side effects"));
         assert!(prompt.contains("ordinary text or choice answer cannot change work mode"));
@@ -64,10 +66,25 @@ mod tests {
     }
 
     #[test]
+    fn delegated_planning_reports_findings() {
+        let prompt = instruction(WorkMode::Plan, Permission::Full, true);
+        assert!(prompt.contains("This delegated task is read-only"));
+        assert!(prompt.contains("make no changes and run no tools with side effects"));
+        assert!(prompt.contains("report your findings"));
+        assert!(!prompt.contains("This is a planning turn"));
+        assert!(!prompt.contains("produce a concrete plan"));
+        assert!(!prompt.contains("This turn has full permission"));
+        assert_eq!(
+            instruction(WorkMode::Code, Permission::Ask, true),
+            instruction(WorkMode::Code, Permission::Ask, false)
+        );
+    }
+
+    #[test]
     fn execution_selects_admitted_permission() {
         let base = include_str!("prompt.txt").trim();
         for permission in [Permission::Ask, Permission::Project, Permission::Full] {
-            let prompt = instruction(WorkMode::Code, permission);
+            let prompt = instruction(WorkMode::Code, permission, false);
             assert_eq!(
                 prompt,
                 format!(
@@ -97,13 +114,17 @@ mod tests {
 
     #[test]
     fn contains_only_common_workflow() {
-        let prompt = instruction(WorkMode::Code, Permission::Ask);
+        let prompt = instruction(WorkMode::Code, Permission::Ask, false);
         for absent in [
             "admitted roster",
             "update_plan",
             "set_session_title",
             "file card",
             "Finish with an answer",
+            "Delegate only suitable independent work",
+            "find_files and search_files",
+            "Use the browser for interaction",
+            "affected files, implementation steps",
         ] {
             assert!(!prompt.contains(absent), "{absent}");
         }
@@ -128,9 +149,8 @@ mod tests {
             "Run checks directly relevant to changed behavior",
             "broaden only for a concrete risk, failure or uncovered requirement",
             "do not add tests that merely mirror a low-impact implementation",
-            "Prefer available find_files and search_files tools",
             "code_symbols, code_definition and code_references",
-            "Use rg through a command tool only as a supplement",
+            "Use rg through a command tool only as a supplement to dedicated search tools",
             "Use git --no-pager",
             "Avoid interactive prompts or editors",
             "do not print large files through scripts or add echo/printf separators",
@@ -139,8 +159,9 @@ mod tests {
             "Avoid a blocking wait longer than 60 seconds",
             "Project guides shown in this turn are already loaded",
             "Do not reread them with a shell",
-            "prefer available search tools and read-only URL retrieval",
-            "Use the browser for interaction, login, pages that require JavaScript",
+            "verify changing or uncertain facts with current sources",
+            "Plan substantial multi-step work before acting",
+            "A plan does not grant execution authority",
             "Permission, sandbox, dynamic-loader and network errors establish an environment failure",
             "three unsuccessful attempts",
         ] {
@@ -163,9 +184,11 @@ mod tests {
         let policy = delegation(true, false, true).unwrap();
         assert!(policy.contains("Handle small or tightly coupled tasks directly"));
         assert!(policy.contains("reuse or guide existing children"));
-        assert!(policy.contains("current work mode, permissions and agent limits"));
+        assert!(policy.contains("current work mode and permissions"));
         assert!(policy.contains("Children must not delegate further"));
-        assert!(!instruction(WorkMode::Code, Permission::Ask).contains(policy));
+        assert!(!policy.contains("agent limits"));
+        assert!(!policy.contains("Integrate"));
+        assert!(!instruction(WorkMode::Code, Permission::Ask, false).contains(policy));
     }
 
     #[test]
@@ -178,6 +201,7 @@ mod tests {
         assert!(child.contains("rename the conversation"));
         assert!(child.contains("disjoint files"));
         assert!(child.contains("verification actually run"));
+        assert!(child.contains("in the language of the delegated task"));
         assert!(!child.contains("Finish with an answer to the user's request"));
         assert!(!child.contains("renders a file card"));
         assert!(recipient(false).contains("Finish with an answer to the user's request"));

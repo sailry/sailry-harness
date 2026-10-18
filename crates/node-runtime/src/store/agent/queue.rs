@@ -43,6 +43,7 @@ fn capture(
     ready: bool,
 ) -> Result<QueuedTurn, Fault> {
     super::super::sessions::writable(&session)?;
+    super::super::worktrees::present(db, session.worktree)?;
     super::super::commands::validate_config(db, request.target, &session.config)?;
     let plugins = if let Some(binding) = &session.config.assistant {
         super::plugins::assistant(db, binding)?

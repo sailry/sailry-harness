@@ -238,7 +238,7 @@ pub(super) fn capture(
     }
     let mut statement = database
         .connection
-        .prepare("SELECT path FROM worktrees ORDER BY path")
+        .prepare("SELECT path FROM worktrees WHERE id NOT IN (SELECT worktree FROM removed_worktrees) ORDER BY path")
         .map_err(storage_error)?;
     for value in statement
         .query_map([], |row| row.get::<_, String>(0))

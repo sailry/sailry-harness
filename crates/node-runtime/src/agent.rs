@@ -359,6 +359,7 @@ async fn execute_with(
     let mut instruction = prompt::instruction(
         invocation.turn.config.mode,
         invocation.turn.config.permission,
+        invocation.child.is_some(),
     );
     let personal = prompt::personal(ingress, invocation.worktree, &stop).await?;
     if !personal.is_empty() {

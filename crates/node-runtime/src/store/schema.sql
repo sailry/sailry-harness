@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS worktrees (
     main INTEGER NOT NULL CHECK(main IN (0,1))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS worktree_main ON worktrees(project) WHERE main=1;
+CREATE TABLE IF NOT EXISTS removed_worktrees (
+    worktree TEXT PRIMARY KEY REFERENCES worktrees(id)
+);
 CREATE TABLE IF NOT EXISTS attachments (
     id TEXT PRIMARY KEY,
     worktree TEXT NOT NULL REFERENCES worktrees(id) ON DELETE CASCADE,
