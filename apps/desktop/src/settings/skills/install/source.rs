@@ -47,13 +47,13 @@ impl Channel {
         }
     }
 
-    pub fn help(self) -> &'static str {
+    /// Remote sources explain their input; local sources use the path picker.
+    pub fn help(self) -> Option<&'static str> {
         match self {
-            Self::Git => "skill_source_git_help",
-            Self::Skills => "skill_source_skills_help",
-            Self::Hub => "skill_source_hub_help",
-            Self::Directory => "skill_source_directory_help",
-            Self::Archive => "skill_source_archive_help",
+            Self::Git => Some("skill_source_git_help"),
+            Self::Skills => Some("skill_source_skills_help"),
+            Self::Hub => Some("skill_source_hub_help"),
+            Self::Directory | Self::Archive => None,
         }
     }
 

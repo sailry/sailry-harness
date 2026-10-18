@@ -16,8 +16,11 @@ pub(super) struct Snapshot {
     kind: UploadSource,
     size: u64,
     digest: String,
-    pub label: String,
+    pub path: PathBuf,
 }
+
+/// Archive extensions accepted by `archive`, for the path picker filter.
+pub(super) const ARCHIVES: &[&str] = &["zip", "skill", "tar", "tar.gz", "tgz"];
 
 pub(super) struct Lease {
     binding: Binding,
@@ -59,11 +62,7 @@ pub(super) async fn open(path: PathBuf, directory: bool) -> Result<Arc<Snapshot>
     } else {
         archive(&path).ok_or_else(invalid)?
     };
-    let label = path
-        .file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned();
+    let selected = path.clone();
     let opened = tokio::task::spawn_blocking(move || {
         crate::settings::upload::open_skill(path, directory, sailry_link::CancellationToken::new())
     })
@@ -103,7 +102,7 @@ pub(super) async fn open(path: PathBuf, directory: bool) -> Result<Arc<Snapshot>
         },
         size,
         digest: hash.finalize().to_hex().to_string(),
-        label,
+        path: selected,
     }))
 }
 
@@ -321,16 +320,12 @@ impl Editor {
         self.task = Some(cx.spawn_in(window, async move |editor, cx| {
             let selected = selected.await;
             let _ = editor.update_in(cx, |editor, window, cx| {
-                if editor.closed
-                    || editor.pending
-                    || editor.generation != generation
-                    || editor.channel.local() != Some(index)
-                {
+                if editor.generation != generation {
                     return;
                 }
                 match selected {
                     Ok(Ok(Some(mut paths))) if paths.len() == 1 => {
-                        editor.prepare_import(paths.remove(0), directory, window, cx)
+                        editor.pick_import(index, paths.remove(0), window, cx)
                     }
                     Ok(Ok(None)) => {}
                     _ => {
@@ -340,6 +335,45 @@ impl Editor {
                 }
             });
         }));
+    }
+
+    /// Accepts a chosen or dropped path for the local source at `index`.
+    /// The picker has already matched the path to that source's kind.
+    pub(super) fn pick_import(
+        &mut self,
+        index: usize,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.closed
+            || self.pending
+            || self.request.is_some()
+            || self.channel.local() != Some(index)
+        {
+            return;
+        }
+        self.prepare_import(path, index == 0, window, cx);
+    }
+
+    pub(super) fn clear_import(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.closed
+            || self.pending
+            || self.request.is_some()
+            || self.channel.local() != Some(index)
+        {
+            return;
+        }
+        self.invalidate();
+        self.imports[index] = None;
+        cx.notify();
+    }
+
+    /// The selected host name when a local import uploads to another Node.
+    pub(super) fn remote_host(&self, cx: &App) -> Option<SharedString> {
+        let services = cx.try_global::<crate::backend::Services>()?;
+        let local = sailry_link::Transport::target(services.local.as_ref());
+        (self.binding.client.target() != local).then(|| self.binding.label.clone())
     }
 
     fn prepare_import(

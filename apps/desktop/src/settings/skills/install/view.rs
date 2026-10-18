@@ -1,9 +1,11 @@
 use super::*;
 use crate::settings::{entry::Entry, group::Group};
+use crate::ui::path_picker::{Kind, PathPicker, Picked};
 use gpui_kit::component::{
     alert::Alert,
     tab::{Tab, TabBar},
 };
+use std::path::PathBuf;
 
 pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
     let active = editor.clone();
@@ -110,7 +112,9 @@ impl Render for Editor {
                         cx.listener(|editor, index, _, cx| editor.select_channel(*index, cx)),
                     ),
             )
-            .child(Alert::info("skill-install-help", tr(self.channel.help())).small())
+            .when_some(self.channel.help(), |body, help| {
+                body.child(Alert::info("skill-install-help", tr(help)).small())
+            })
             .when(self.channel == Channel::Git, |body| {
                 body.children(
                     ["skills_repository", "skills_revision", "skills_path"]
@@ -143,31 +147,38 @@ impl Render for Editor {
                 },
             )
             .when_some(self.channel.local(), |body, index| {
+                let directory = index == 0;
                 body.child(
-                    h_flex()
-                        .min_w_0()
-                        .gap_2()
-                        .child(
-                            Button::new("skill-import-choose")
-                                .label(tr(if index == 0 {
-                                    "skill_source_choose_directory"
-                                } else {
-                                    "skill_source_choose_archive"
-                                }))
-                                .disabled(locked)
-                                .on_click(cx.listener(|editor, _, window, cx| {
-                                    editor.choose_import(window, cx)
-                                })),
-                        )
-                        .when_some(self.imports[index].as_ref(), |row, snapshot| {
-                            row.child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate()
-                                    .child(snapshot.label.clone()),
-                            )
-                        }),
+                    PathPicker::new(if directory {
+                        "skill-import-directory"
+                    } else {
+                        "skill-import-archive"
+                    })
+                    .kind(if directory {
+                        Kind::Directory
+                    } else {
+                        Kind::File
+                    })
+                    .accept(if directory { &[] } else { import::ARCHIVES })
+                    .label(if directory {
+                        "skill_source_choose_directory"
+                    } else {
+                        "skill_source_choose_archive"
+                    })
+                    .target(self.remote_host(cx))
+                    .value(
+                        self.imports[index]
+                            .as_ref()
+                            .map(|snapshot| Picked::new(snapshot.path.clone())),
+                    )
+                    .busy(self.pending && self.discovery.is_none())
+                    .disabled(locked)
+                    .on_pick(cx.listener(move |editor, path: &PathBuf, window, cx| {
+                        editor.pick_import(index, path.clone(), window, cx)
+                    }))
+                    .on_clear(cx.listener(
+                        move |editor, _: &ClickEvent, _, cx| editor.clear_import(index, cx),
+                    )),
                 )
             });
         v_flex()

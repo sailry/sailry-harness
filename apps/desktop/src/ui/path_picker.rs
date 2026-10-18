@@ -30,7 +30,6 @@ const FIELD_HEIGHT: f32 = 36.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Kind {
-    #[allow(dead_code, reason = "local skill imports adopt directory selection")]
     Directory,
     File,
 }
@@ -144,7 +143,6 @@ impl PathPicker {
     }
 
     /// Accepted file extensions without the leading dot.
-    #[allow(dead_code, reason = "local skill imports adopt archive filters")]
     pub(crate) fn accept(mut self, accept: &'static [&'static str]) -> Self {
         self.accept = accept;
         self
@@ -157,7 +155,6 @@ impl PathPicker {
     }
 
     /// The host that receives an upload, shown under the drop zone.
-    #[allow(dead_code, reason = "local skill imports adopt the upload target")]
     pub(crate) fn target(mut self, host: Option<SharedString>) -> Self {
         self.target = host;
         self
