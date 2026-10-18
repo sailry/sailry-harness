@@ -270,15 +270,6 @@ async fn preserves_protected_worktrees() {
         }
         rejects(client, &stale, ErrorCode::RevisionConflict).await;
         assert_eq!(snapshot(client).await, before);
-        client
-            .execute(client.prepare(Command::CreateSession {
-                project: tree.project,
-                worktree: Some(tree.id),
-                config: Some(config()),
-            }))
-            .await
-            .unwrap();
-        rejects(client, &command, ErrorCode::Conflict).await;
         assert_eq!(repository.head().unwrap().target(), Some(head));
         assert_eq!(std::fs::read(root.join("file")).unwrap(), b"base");
         native.validate().unwrap();
@@ -292,6 +283,86 @@ async fn preserves_protected_worktrees() {
             *worktree = WorktreeId::new();
         }
         rejects(client, &main_command, ErrorCode::NotFound).await;
+    }
+    fixture.close().await;
+}
+
+#[tokio::test]
+async fn retains_session_history() {
+    let fixture = Fixture::empty().await;
+    for (sequence, client) in [&fixture.local, &fixture.remote].into_iter().enumerate() {
+        let name = format!("history-{sequence}");
+        let (tree, command) = fixture.create(&name, client).await;
+        let Output::Session(session) = client
+            .execute(client.prepare(Command::CreateSession {
+                project: tree.project,
+                worktree: Some(tree.id),
+                config: Some(config()),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        let read = Command::ReadConversation {
+            session: session.id,
+            before: None,
+            limit: 100,
+        };
+        let history = client.execute(client.prepare(read.clone())).await.unwrap();
+        let draft = Path::new(&tree.path).join("draft");
+        std::fs::write(&draft, "preserve").unwrap();
+        rejects(client, &command, ErrorCode::Conflict).await;
+        assert_eq!(std::fs::read(&draft).unwrap(), b"preserve");
+        std::fs::remove_file(draft).unwrap();
+        assert_eq!(
+            client.execute(client.prepare(command)).await.unwrap(),
+            Output::WorktreeRemoved { id: tree.id }
+        );
+        assert!(!Path::new(&tree.path).exists());
+        let current = snapshot(client).await;
+        assert!(current.worktrees.iter().all(|entry| entry.id != tree.id));
+        let retained = current
+            .sessions
+            .iter()
+            .find(|entry| entry.id == session.id)
+            .unwrap();
+        assert_eq!(retained.worktree, tree.id);
+        assert_eq!(client.execute(client.prepare(read)).await.unwrap(), history);
+        for turn in [
+            Command::QueueTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Continue".into(),
+            },
+            Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Continue".into(),
+            },
+            Command::CreateSession {
+                project: tree.project,
+                worktree: Some(tree.id),
+                config: Some(config()),
+            },
+        ] {
+            rejects(client, &turn, ErrorCode::NotFound).await;
+        }
+        // Restoring a checkout at the removed path resumes the retained location.
+        let reference = fixture
+            .repository
+            .find_branch(&name, BranchType::Local)
+            .unwrap()
+            .into_reference();
+        let mut options = git2::WorktreeAddOptions::new();
+        options.reference(Some(&reference));
+        fixture
+            .repository
+            .worktree(&name, Path::new(&tree.path), Some(&options))
+            .unwrap();
+        let restored = adopt(client, fixture.project.id, Path::new(&tree.path)).await;
+        assert_eq!(restored.id, tree.id);
+        assert!(snapshot(client).await.worktrees.contains(&restored));
     }
     fixture.close().await;
 }

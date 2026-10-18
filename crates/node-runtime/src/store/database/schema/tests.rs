@@ -340,6 +340,7 @@ mod startup {
             "model_catalog_status",
             "sandbox_settings",
             "search_settings",
+            "removed_worktrees",
         ] {
             let (directory, path, node) = fixture(&format!("DROP TABLE {table}"));
             let connection = upgraded(directory.path(), &path, node);

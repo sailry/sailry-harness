@@ -991,7 +991,8 @@ pub enum Command {
         expected_index: String,
         include_changes: bool,
     },
-    /// Removes an unused, clean linked worktree, retaining its branch.
+    /// Removes a clean linked worktree without active turns, retaining its branch
+    /// and the history of sessions that used it.
     RemoveWorktree {
         worktree: WorktreeId,
         expected_head: String,

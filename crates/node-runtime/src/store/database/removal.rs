@@ -36,6 +36,16 @@ impl Database {
         {
             self.check_removing(id)?;
         }
+        // Retained sessions cannot admit turns while their checkout is being removed.
+        if let Command::QueueTurn { session, .. }
+        | Command::SubmitTurn { session, .. }
+        | Command::SubmitTask { session, .. }
+        | Command::ContinueTurn { session, .. }
+        | Command::CompactContext { session, .. } = command
+            && let Ok(session) = super::super::commands::session(&self.connection, *session)
+        {
+            self.check_removing(session.worktree)?;
+        }
         let project = match command {
             Command::CreateSession { project, .. } => *project,
             Command::CreateWorktree { project, .. }
@@ -236,18 +246,21 @@ impl Database {
                 "worktree registration changed",
             ));
         }
-        let in_use: bool = self
+        // Idle sessions keep their history after removal; active turns still need the checkout.
+        let active: bool = self
             .connection
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM session_revisions WHERE worktree=?1)",
+                "SELECT EXISTS(SELECT 1 FROM agent_runs a JOIN turns t ON t.id=a.turn
+                 JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision
+                 WHERE r.worktree=?1 AND json_extract(a.body,'$.status') IN ('queued','running','stopping'))",
                 [id.to_string()],
                 |row| row.get(0),
             )
             .map_err(storage_error)?;
-        if in_use {
+        if active {
             return Err(Fault::new(
-                ErrorCode::Conflict,
-                "worktree still owns sessions",
+                ErrorCode::Busy,
+                "worktree has active or queued turns",
             ));
         }
         if trees
