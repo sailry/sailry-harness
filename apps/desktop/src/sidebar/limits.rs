@@ -32,16 +32,27 @@ impl Shell {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         more.then(|| {
+            let label = tr(if self.sidebar.sessions_expanded(group) {
+                "sidebar_sessions_less"
+            } else {
+                "sidebar_sessions_more"
+            });
             Button::new(SharedString::from(format!("sidebar-more-{group:?}")))
                 .ghost()
                 .small()
                 .w_full()
+                .pl(px(30.))
                 .justify_start()
-                .label(tr(if self.sidebar.sessions_expanded(group) {
-                    "sidebar_sessions_less"
-                } else {
-                    "sidebar_sessions_more"
-                }))
+                .accessibility_label(label.clone())
+                .child(
+                    div()
+                        .w_full()
+                        .min_w_0()
+                        .text_left()
+                        .text_ellipsis()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(label),
+                )
                 .on_click(cx.listener(move |shell, _, _, cx| {
                     if !shell.sidebar.expanded_sessions.remove(&group) {
                         shell.sidebar.expanded_sessions.insert(group);
