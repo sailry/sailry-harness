@@ -48,6 +48,7 @@ mod model_picker;
 mod native_provider_fixture;
 mod navigation_tabs;
 mod oauth;
+mod onboarding;
 mod pages;
 mod panes;
 mod permissions;

@@ -28,7 +28,7 @@ impl Flow {
         }
     }
 
-    fn select(&mut self, brand: &'static str, count: usize) {
+    pub(super) fn select(&mut self, brand: &'static str, count: usize) {
         if self.editing {
             return;
         }
@@ -98,7 +98,7 @@ impl Editor {
         cx.notify();
     }
 
-    fn choose(&mut self, preset: Preset, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn choose(&mut self, preset: Preset, window: &mut Window, cx: &mut Context<Self>) {
         if self.navigation_blocked() || self.editing.is_some() {
             return;
         }
@@ -245,14 +245,7 @@ impl Editor {
                                         .child(div().w_full().truncate().text_sm().child(tr(key))),
                                 )
                                 .on_click(cx.listener(move |editor, _, window, cx| {
-                                    if editor.navigation_blocked() {
-                                        return;
-                                    }
-                                    editor.flow.select(key, choices.len());
-                                    if choices.len() == 1 {
-                                        editor.choose(choices[0], window, cx);
-                                    }
-                                    cx.notify();
+                                    editor.choose_brand(key, window, cx);
                                 }))
                         }),
                 ),

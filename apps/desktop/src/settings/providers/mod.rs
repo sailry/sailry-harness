@@ -31,6 +31,22 @@ use gpui_kit::component::{
 use gpui_kit::*;
 
 impl Workspace {
+    pub(crate) fn provider_brands() -> Vec<(&'static str, Icon)> {
+        editor::Editor::brands()
+    }
+
+    pub(crate) fn add_provider(
+        owner: Entity<Self>,
+        brand: Option<&'static str>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let editor = editor::open(owner, None, window, cx);
+        if let Some(brand) = brand {
+            editor.update(cx, |editor, cx| editor.choose_brand(brand, window, cx));
+        }
+    }
+
     pub(super) fn providers(&self, cx: &mut Context<Self>) -> AnyElement {
         let category = self.providers.category;
         let real = self.provider_link.is_some();
@@ -184,7 +200,7 @@ impl Workspace {
                                             .label(tr("settings_add"))
                                             .icon(IconName::Plus)
                                             .on_click(move |_, window, cx| {
-                                                editor::open(owner.clone(), None, window, cx);
+                                                Self::add_provider(owner.clone(), None, window, cx);
                                             }),
                                     ),
                             ),

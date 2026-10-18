@@ -20,6 +20,7 @@ mod catalog;
 mod cloud;
 mod credential;
 mod discovery;
+mod entry;
 mod flow;
 mod hosted;
 mod kind;

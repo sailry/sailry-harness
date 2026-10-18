@@ -43,6 +43,7 @@ fn registers_help_actions() {
     let menus = menus("en", &[]);
     let help = &menus[5];
     let expected = [
+        crate::onboarding::ShowWelcome.boxed_clone(),
         Website.boxed_clone(),
         Feedback.boxed_clone(),
         crate::input_diagnostics::CopyInputDiagnostics.boxed_clone(),
@@ -55,7 +56,7 @@ fn registers_help_actions() {
         };
         assert_eq!(action.as_any().type_id(), expected.as_any().type_id());
     }
-    let MenuItem::Action { disabled, .. } = &help.items[3] else {
+    let MenuItem::Action { disabled, .. } = &help.items[4] else {
         panic!("logs action expected")
     };
     assert_eq!(

@@ -73,9 +73,7 @@ impl Owner {
                 signal(SignalKind::interrupt())?,
             )
         };
-        let preferences = crate::preferences::Preferences::open(
-            options.data_dir.join("desktop/preferences.json"),
-        );
+        let preferences = crate::preferences::Preferences::for_startup(&options.data_dir);
         let relays = if options.relays.is_empty() {
             preferences.data.iroh_relays.clone().unwrap_or_default()
         } else {

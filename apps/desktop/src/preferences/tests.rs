@@ -428,3 +428,97 @@ fn missing_speech_selection_uses_default() {
         serde_json::from_str(r#"{"microphone":null,"language":"auto"}"#).unwrap();
     assert_eq!(options.model, None);
 }
+
+mod welcome {
+    use super::*;
+
+    #[test]
+    fn starts_pending_after_logging_creates_directories() {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = directory.path().join("new");
+        std::fs::create_dir_all(profile.join("logs/desktop")).unwrap();
+        let preferences = Preferences::for_startup(&profile);
+        assert!(preferences.welcome_pending());
+        assert_eq!(preferences.data.version, 1);
+        assert_eq!(preferences.error, None);
+        assert!(Preferences::open(profile.join("desktop/preferences.json")).welcome_pending());
+    }
+
+    #[test]
+    fn preserves_pending_until_dismissed() {
+        let directory = tempfile::tempdir().unwrap();
+        let profile = directory.path();
+        Preferences::for_startup(profile);
+        std::fs::create_dir_all(profile.join("storage")).unwrap();
+        std::fs::write(
+            profile.join("storage/node.sqlite3"),
+            b"existing Node storage",
+        )
+        .unwrap();
+        let mut restored = Preferences::for_startup(profile);
+        assert!(restored.welcome_pending());
+        restored.mark_welcome_seen();
+        assert!(!restored.welcome_pending());
+        assert_eq!(restored.error, None);
+        let restored = Preferences::for_startup(profile);
+        assert_eq!(restored.data.welcome_seen, Some(true));
+        assert!(!restored.welcome_pending());
+    }
+
+    #[test]
+    fn skips_existing_preferences_without_marker() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("desktop/preferences.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut expected = Data {
+            toast_seconds: 8,
+            ..Default::default()
+        };
+        expected.notifications[0] = false;
+        let mut old = serde_json::to_value(&expected).unwrap();
+        old.as_object_mut().unwrap().remove("welcome_seen");
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        let preferences = Preferences::for_startup(directory.path());
+        expected.welcome_seen = Some(true);
+        assert_eq!(preferences.data, expected);
+        assert!(!preferences.welcome_pending());
+        assert_eq!(Preferences::open(path).data, expected);
+    }
+
+    #[test]
+    fn skips_existing_node_without_preferences() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("storage/node.sqlite3");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = b"existing Node storage";
+        std::fs::write(&path, original).unwrap();
+        let preferences = Preferences::for_startup(directory.path());
+        assert_eq!(preferences.data.welcome_seen, Some(true));
+        assert!(!preferences.welcome_pending());
+        assert_eq!(std::fs::read(path).unwrap(), original);
+    }
+
+    #[test]
+    fn leaves_unreadable_preferences_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("desktop/preferences.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = b"{invalid preferences";
+        std::fs::write(&path, original).unwrap();
+        let mut preferences = Preferences::for_startup(directory.path());
+        assert_eq!(preferences.error, Some("preferences_read_failed"));
+        assert!(!preferences.welcome_pending());
+        preferences.mark_welcome_seen();
+        assert_eq!(std::fs::read(path).unwrap(), original);
+    }
+
+    #[test]
+    fn preview_never_becomes_pending() {
+        let mut preferences = Preferences::default();
+        preferences.data.welcome_seen = Some(false);
+        assert!(!preferences.welcome_pending());
+        preferences.mark_welcome_seen();
+        assert_eq!(preferences.data.welcome_seen, Some(false));
+        assert_eq!(preferences.path, None);
+    }
+}

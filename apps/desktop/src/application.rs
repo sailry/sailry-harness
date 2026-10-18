@@ -128,7 +128,14 @@ pub(crate) fn run(#[cfg(feature = "workload-tests")] workload: workload::Scenari
                         let view = cx.new(|cx| shell::Shell::new(window, cx));
                         #[cfg(feature = "workload-tests")]
                         workload::attach(workload, view.clone(), window, cx);
-                        cx.new(|cx| Root::new(view, window, cx).bg(transparent_black()))
+                        let root = cx
+                            .new(|cx| Root::new(view.clone(), window, cx).bg(transparent_black()));
+                        window.defer(cx, move |window, cx| {
+                            if crate::preferences::welcome_pending(cx) {
+                                view.update(cx, |shell, cx| shell.open_welcome(window, cx));
+                            }
+                        });
+                        root
                     })
                     .expect("failed to open desktop window");
                 if logging_failed {

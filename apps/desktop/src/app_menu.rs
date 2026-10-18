@@ -173,6 +173,7 @@ fn menus(locale: &str, navigation: &[Navigation]) -> Vec<Menu> {
             MenuItem::action(label("menu_bring_all_to_front"), BringAllToFront),
         ]),
         Menu::new(label("menu_help")).items([
+            MenuItem::action(label("onboarding_reopen"), crate::onboarding::ShowWelcome),
             MenuItem::action(label("menu_website"), Website),
             MenuItem::action(label("menu_feedback"), Feedback),
             MenuItem::action(

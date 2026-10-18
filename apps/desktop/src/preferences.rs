@@ -45,6 +45,7 @@ pub(crate) struct Data {
     pub file_picker: Option<FilePicker>,
     pub language: Option<crate::locale::Language>,
     pub update_channel: Option<crate::updater::Channel>,
+    pub welcome_seen: Option<bool>,
     #[serde(default)]
     pub sidebar_metrics: bool,
 }
@@ -129,6 +130,7 @@ impl Default for Data {
             file_picker: None,
             language: None,
             update_channel: None,
+            welcome_seen: None,
             sidebar_metrics: false,
         }
     }
@@ -191,6 +193,34 @@ impl Global for Preferences {}
 impl Preferences {
     pub fn directory(&self) -> Option<&Path> {
         self.path.as_ref().and_then(|path| path.parent())
+    }
+
+    pub fn for_startup(profile: &Path) -> Self {
+        let path = profile.join("desktop/preferences.json");
+        // Logging creates the profile directory before the Node starts. Existing
+        // preferences or Node storage, rather than the directory, identify an old profile.
+        let existing = path.try_exists().unwrap_or(true)
+            || profile
+                .join("storage/node.sqlite3")
+                .try_exists()
+                .unwrap_or(true);
+        let mut preferences = Self::open(path);
+        if preferences.readable && preferences.data.welcome_seen.is_none() {
+            preferences.data.welcome_seen = Some(existing);
+            preferences.save();
+        }
+        preferences
+    }
+
+    fn welcome_pending(&self) -> bool {
+        self.path.is_some() && self.readable && self.data.welcome_seen == Some(false)
+    }
+
+    fn mark_welcome_seen(&mut self) {
+        if self.welcome_pending() {
+            self.data.welcome_seen = Some(true);
+            self.save();
+        }
     }
 
     pub fn open(path: PathBuf) -> Self {
@@ -274,4 +304,16 @@ pub(crate) fn update(cx: &mut App, change: impl FnOnce(&mut Data)) {
         change(&mut preferences.data);
         preferences.save();
     });
+}
+
+/// Welcome state belongs to this controller profile, independent of the selected Node.
+pub(crate) fn welcome_pending(cx: &App) -> bool {
+    cx.try_global::<Preferences>()
+        .is_some_and(Preferences::welcome_pending)
+}
+
+pub(crate) fn mark_welcome_seen(cx: &mut App) {
+    if welcome_pending(cx) {
+        cx.update_global::<Preferences, _>(|preferences, _| preferences.mark_welcome_seen());
+    }
 }

@@ -162,6 +162,10 @@ pub(crate) const DRAG_ICON: &str = "icons/reicon/move.svg";
 // Kit b79f4ce has no drag handle; use Reicon’s original four-arrow glyph with the grab cursor.
 const ICONS: &[(&str, &[u8])] = &[
     (
+        "branding/sailry.png",
+        include_bytes!("../../../assets/branding/sailry.png"),
+    ),
+    (
         "branding/sailry-mark.svg",
         include_bytes!("../../../assets/branding/sailry-mark.svg"),
     ),
