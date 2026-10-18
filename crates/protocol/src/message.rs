@@ -118,6 +118,11 @@ pub enum Command {
         handler: String,
         input: serde_json::Value,
     },
+    /// Invoke an explicitly read-only host export without a durable receipt.
+    ReadPluginCallback {
+        handler: String,
+        input: serde_json::Value,
+    },
     CancelPluginCall {
         request: RequestId,
     },
@@ -1488,6 +1493,7 @@ impl Command {
                 | Self::CheckPluginUpdates { .. }
                 | Self::UploadPlugin(_)
                 | Self::InspectPluginUpload { .. }
+                | Self::ReadPluginCallback { .. }
                 | Self::ReadPlugin { .. }
                 | Self::ReadPluginVersion { .. }
                 | Self::ReadPluginSettings { .. }

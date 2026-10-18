@@ -1133,6 +1133,13 @@
           },
           "type": "array"
         },
+        "read_only": {
+          "description": "Exports that may execute without admission and cannot dispatch mutations.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "resources": {
           "items": {
             "pattern": "^(\\./)?dev\\.sailry\\.platform/",

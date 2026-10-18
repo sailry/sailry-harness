@@ -30,6 +30,7 @@ pub(crate) struct Environment {
     pub stop: CancellationToken,
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) fn run(
     bundle: Bundle,
     handler: &str,
@@ -39,7 +40,7 @@ pub(crate) fn run(
     stop: CancellationToken,
     dispatch: impl FnMut(sailry_protocol::Request) -> sailry_link::Response + 'static,
 ) -> Result<serde_json::Value, Fault> {
-    evaluate(
+    run_callback(
         bundle,
         handler,
         input,
@@ -48,9 +49,52 @@ pub(crate) fn run(
             target,
             stop,
         },
+        false,
         dispatch,
+    )
+}
+
+pub(crate) fn run_callback(
+    bundle: Bundle,
+    handler: &str,
+    input: serde_json::Value,
+    environment: Environment,
+    read_only: bool,
+    mut dispatch: impl FnMut(sailry_protocol::Request) -> sailry_link::Response + 'static,
+) -> Result<serde_json::Value, Fault> {
+    evaluate(
+        bundle,
+        handler,
+        input,
+        environment,
+        move |request| {
+            // Nondurable cancellation and dismissal are still mutations. Check
+            // at dispatch as well as the SDK's existing durable-write policy.
+            if read_only
+                && (request.command.durable()
+                    || matches!(
+                        request.command,
+                        sailry_protocol::Command::DismissInstallation { .. }
+                            | sailry_protocol::Command::CancelWebFetch { .. }
+                    ))
+            {
+                return Err(Fault::new(
+                    sailry_protocol::ErrorCode::PermissionDenied,
+                    "read-only callbacks cannot dispatch mutations",
+                ));
+            }
+            dispatch(request)
+        },
         Duration::from_secs(60),
-        None,
+        read_only.then(|| {
+            std::sync::Arc::new(std::sync::Mutex::new(execution::State {
+                call_id: None,
+                mode: sailry_protocol::WorkMode::Code,
+                read_only: true,
+                turn: None,
+                staged_turn: None,
+            }))
+        }),
     )
 }
 

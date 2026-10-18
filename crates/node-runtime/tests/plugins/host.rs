@@ -5,6 +5,8 @@ use sailry_protocol::{
 };
 use serde_json::json;
 
+#[path = "host/reads.rs"]
+mod reads;
 #[path = "host/versions.rs"]
 mod versions;
 
@@ -26,6 +28,18 @@ async fn installed_with_actions(
     revision: u64,
     additional: &[Action],
 ) -> Context {
+    installed_with_policy(client, root, worktree, source, revision, additional, false).await
+}
+
+async fn installed_with_policy(
+    client: &Client,
+    root: &Path,
+    worktree: WorktreeId,
+    source: &str,
+    revision: u64,
+    additional: &[Action],
+    read_only: bool,
+) -> Context {
     fs::create_dir_all(root.join(sailry_protocol::plugin::NAMESPACE)).unwrap();
     let path = root.join("plugin.json");
     let mut manifest: serde_json::Value =
@@ -39,7 +53,7 @@ async fn installed_with_actions(
     actions.extend_from_slice(additional);
     manifest["extensions"] = json!({"dev.sailry.platform": {
         "api_version":"v1", "actions":actions,
-        "host":{"entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"], "handlers":["run"]}
+        "host":{"entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"], "handlers":["run"], "read_only": if read_only {vec!["run"]} else {vec![]}}
     }});
     if root.join("dev.sailry.platform/settings.json").exists() {
         manifest["extensions"]["dev.sailry.platform"]["settings_schema"] =

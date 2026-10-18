@@ -426,6 +426,7 @@ impl Database {
             Command::GeneratePluginText { .. }
                 | Command::RequestPluginHttp(_)
                 | Command::CallPlugin { .. }
+                | Command::ReadPluginCallback { .. }
                 | Command::CancelPluginCall { .. }
         ) {
             match super::plugins::execution::prepare(self, caller, &request) {

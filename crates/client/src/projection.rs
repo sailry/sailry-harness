@@ -16,6 +16,8 @@ pub struct Projection {
     generation: u64,
     snapshot: Option<Snapshot>,
     recovery: bool,
+    package_cursors: std::collections::BTreeMap<String, u64>,
+    package_revision: u64,
 }
 
 impl Projection {
@@ -25,11 +27,18 @@ impl Projection {
             generation,
             snapshot: None,
             recovery: true,
+            package_cursors: Default::default(),
+            package_revision: 0,
         }
     }
 
     pub fn snapshot(&self) -> Option<&Snapshot> {
         self.snapshot.as_ref()
+    }
+
+    /// Local invalidation revisions for each currently installed package.
+    pub fn package_cursors(&self) -> &std::collections::BTreeMap<String, u64> {
+        &self.package_cursors
     }
 
     pub fn reconnect(&mut self, generation: u64) -> Result<(), Fault> {
@@ -77,6 +86,14 @@ impl Projection {
                     return Ok(Apply::Ignored);
                 }
                 quotas::retain(&mut snapshot);
+                self.package_revision = self.package_revision.checked_add(1).ok_or_else(|| {
+                    Fault::new(ErrorCode::Internal, "plugin change revision exhausted")
+                })?;
+                self.package_cursors = snapshot
+                    .plugins
+                    .iter()
+                    .map(|plugin| (plugin.name.clone(), self.package_revision))
+                    .collect();
                 self.snapshot = Some(snapshot);
                 self.recovery = false;
                 Ok(Apply::Applied)
@@ -93,16 +110,33 @@ impl Projection {
                     self.recovery = true;
                     return Ok(Apply::Recover);
                 }
+                if matches!(
+                    &envelope.event,
+                    Event::PluginChanged(_)
+                        | Event::PluginValuesChanged { .. }
+                        | Event::PluginRemoved { .. }
+                ) {
+                    self.package_revision =
+                        self.package_revision.checked_add(1).ok_or_else(|| {
+                            Fault::new(ErrorCode::Internal, "plugin change revision exhausted")
+                        })?;
+                }
                 match envelope.event {
                     Event::PluginChanged(plugin) => {
+                        self.package_cursors
+                            .insert(plugin.name.clone(), self.package_revision);
                         snapshot.plugins.retain(|item| item.name != plugin.name);
                         snapshot.plugins.push(plugin);
                         snapshot
                             .plugins
                             .sort_by(|left, right| left.name.cmp(&right.name));
                     }
-                    Event::PluginValuesChanged { .. }
-                    | Event::KnowledgeModelsChanged { .. }
+                    Event::PluginValuesChanged { name } => {
+                        if let Some(cursor) = self.package_cursors.get_mut(&name) {
+                            *cursor = self.package_revision;
+                        }
+                    }
+                    Event::KnowledgeModelsChanged { .. }
                     | Event::KnowledgeSettingsChanged { .. }
                     | Event::BackupSettingsChanged { .. }
                     | Event::PythonSettingsChanged { .. }
@@ -110,6 +144,7 @@ impl Projection {
                     | Event::OcrModelsChanged { .. }
                     | Event::KnowledgeCollectionsChanged => {}
                     Event::PluginRemoved { name } => {
+                        self.package_cursors.remove(&name);
                         snapshot.plugins.retain(|item| item.name != name)
                     }
                     Event::DispatchChanged { .. } => {}

@@ -37,13 +37,23 @@ pub(in crate::store) fn prepare(
     if let Command::CancelPluginCall { request } = &request.command {
         return Ok(Input::Cancel(*request));
     }
-    if let Command::CallPlugin { handler, input } = &request.command {
+    if let Command::CallPlugin { handler, input } | Command::ReadPluginCallback { handler, input } =
+        &request.command
+    {
+        if matches!(request.command, Command::ReadPluginCallback { .. }) {
+            db.check_plugin(caller, request)?;
+        }
         let info = db.plugin_package(caller, request)?;
         if !info
             .extension
             .as_ref()
             .and_then(|extension| extension.host.as_ref())
-            .is_some_and(|host| host.valid() && host.handlers.contains(handler))
+            .is_some_and(|host| {
+                host.valid()
+                    && host.handlers.contains(handler)
+                    && (!matches!(request.command, Command::ReadPluginCallback { .. })
+                        || host.read_only.contains(handler))
+            })
             || serde_json::to_vec(input)
                 .map_err(super::storage_error)?
                 .len()
@@ -166,7 +176,7 @@ impl Worker {
                     },
                     Input::Http(input) => crate::plugins::http::run(input, &ingress, stop.clone()).await.map(Output::PluginHttp),
                     Input::Script(info) => {
-                        // Admission is already durable. Wait for a VM slot without allocating
+                        // Wait for a VM slot without allocating
                         // a VM or failing a valid dispatch group merely because two VMs are busy.
                         let permit = tokio::select! {
                             biased;
@@ -193,7 +203,10 @@ impl Worker {
 
     pub fn finished(&mut self, caller: NodeId, request: &Request) {
         self.pending -= 1;
-        self.scripts -= usize::from(matches!(request.command, Command::CallPlugin { .. }));
+        self.scripts -= usize::from(matches!(
+            request.command,
+            Command::CallPlugin { .. } | Command::ReadPluginCallback { .. }
+        ));
         self.active.remove(&(caller, request.id));
     }
 }

@@ -709,6 +709,7 @@ pub(super) fn execute(
         | Command::FetchWeb(_)
         | Command::CancelWebFetch { .. }
         | Command::CallPlugin { .. }
+        | Command::ReadPluginCallback { .. }
         | Command::CancelPluginCall { .. }
         | Command::ReadPluginView { .. }
         | Command::ReadPluginMcp { .. }

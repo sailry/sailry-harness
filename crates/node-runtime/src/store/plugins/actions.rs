@@ -279,7 +279,11 @@ impl Database {
                     }
                     (Some(Action::StartSessions), None, None)
                 }
-                Command::CallPlugin { .. } if context.invocation.is_none() => (None, None, None),
+                Command::CallPlugin { .. } | Command::ReadPluginCallback { .. }
+                    if context.invocation.is_none() =>
+                {
+                    (None, None, None)
+                }
                 Command::CancelPluginCall { .. } if context.invocation.is_none() => {
                     (None, None, None)
                 }

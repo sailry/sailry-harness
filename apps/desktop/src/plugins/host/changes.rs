@@ -7,8 +7,20 @@ use tokio::sync::{Semaphore, watch};
 #[derive(Clone, Default, PartialEq, Eq)]
 struct State {
     cursor: u64,
+    package: u64,
     connected: bool,
     entry: u64,
+}
+
+impl State {
+    fn token(&self, package: bool) -> String {
+        format!(
+            "{}:{}:{}",
+            if package { self.package } else { self.cursor },
+            self.connected,
+            self.entry
+        )
+    }
 }
 
 pub(super) struct Changes {
@@ -26,12 +38,13 @@ impl Default for Changes {
 }
 
 impl Host {
-    pub(in crate::plugins) fn observe(&self, cursor: u64, connected: bool) {
+    pub(in crate::plugins) fn observe(&self, cursor: u64, package: u64, connected: bool) {
         self.changes.state.send_if_modified(|state| {
-            if state.cursor == cursor && state.connected == connected {
+            if state.cursor == cursor && state.package == package && state.connected == connected {
                 return false;
             }
             state.cursor = cursor;
+            state.package = package;
             state.connected = connected;
             true
         });
@@ -52,6 +65,11 @@ impl Host {
                 .and_then(HostValue::as_str)
                 .unwrap_or_default()
                 .to_owned();
+            let package = match args.get(1) {
+                None => false,
+                Some(value) if value.as_str() == Some("package") => true,
+                _ => return Err(HostError::new("invalid change scope")),
+            };
             let mut updates = owner.changes.state.subscribe();
             let permit = owner
                 .changes
@@ -67,7 +85,7 @@ impl Host {
                         return Err(HostError::new("plugin view is closed"));
                     }
                     let state = updates.borrow_and_update().clone();
-                    let cursor = format!("{}:{}:{}", state.cursor, state.connected, state.entry);
+                    let cursor = state.token(package);
                     if cursor != seen {
                         return Ok(HostObject::new()
                             .field("cursor", cursor)

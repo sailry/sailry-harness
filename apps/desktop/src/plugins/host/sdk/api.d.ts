@@ -36,7 +36,7 @@ export function forgetRequest(id: string): void;
 /** Coalesced Node and cached panel entry invalidation, without resource data.
  * Pass the returned opaque cursor to wait; one pending call per view. Reuses Client recovery.
  * Entry changes on cached panel navigation, independently of Node events. */
-export function nextChange(cursor?: string): Promise<{cursor: string; connected: boolean; entry: string}>;
+export function nextChange(cursor?: string, scope?: "package"): Promise<{cursor: string; connected: boolean; entry: string}>;
 export function getValue(key: string): Promise<Entry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
 /** Prepare a durable compare-and-set write; completeRequest returns its receipt. */

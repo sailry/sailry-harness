@@ -33,6 +33,7 @@ pub(crate) struct Panel {
     pub(super) connected: bool,
     pub(super) source_error: Option<sailry_protocol::Fault>,
     summaries: Vec<Summary>,
+    package_cursors: std::collections::BTreeMap<String, u64>,
     pub(super) snapshot: Snapshot,
     pub(super) selected: Option<Reference>,
     pub(super) target: Option<String>,
@@ -296,6 +297,7 @@ impl Panel {
             connected: false,
             source_error: None,
             summaries: Vec::new(),
+            package_cursors: Default::default(),
             snapshot: Default::default(),
             selected: None,
             target: None,
@@ -320,6 +322,7 @@ impl Panel {
             return;
         }
         let cursor = view.snapshot.as_ref().map_or(0, |snapshot| snapshot.cursor);
+        self.package_cursors = view.package_cursors;
         self.connected = view.connected;
         self.source_error = view.error;
         if let Some(snapshot) = view.snapshot {
@@ -341,7 +344,7 @@ impl Panel {
             return;
         }
         if let Some(mounted) = &self.mounted {
-            mounted.observe(cursor, self.connected);
+            mounted.observe(cursor, &self.package_cursors, self.connected);
             mounted
                 .host()
                 .observe_settings(&self.summaries, self.connected);
@@ -673,6 +676,11 @@ impl Panel {
                                 .borrow()
                                 .as_ref()
                                 .map_or(0, |snapshot| snapshot.cursor),
+                            panel
+                                .package_cursors
+                                .get(&package.name)
+                                .copied()
+                                .unwrap_or(0),
                             panel.connected,
                         );
                         host.observe_settings(&panel.summaries, panel.connected);

@@ -14,6 +14,7 @@ pub use shared::Observers;
 pub struct View {
     pub snapshot: Option<Snapshot>,
     pub notifications: Vec<crate::activity::Notice>,
+    pub package_cursors: std::collections::BTreeMap<String, u64>,
     pub connected: bool,
     pub connection: sailry_link::ConnectionInfo,
     pub error: Option<Fault>,
@@ -117,6 +118,7 @@ impl Client {
                             updates.send_replace(View {
                                 snapshot: projection.snapshot().cloned(),
                                 notifications: activity.notices.clone(),
+                                package_cursors: projection.package_cursors().clone(),
                                 connected: true,
                                 connection,
                                 error: None,
@@ -135,6 +137,7 @@ impl Client {
             updates.send_replace(View {
                 snapshot: projection.snapshot().cloned(),
                 notifications: activity.notices.clone(),
+                package_cursors: projection.package_cursors().clone(),
                 // Backpressure is not evidence that the authenticated transport
                 // or an already-valid projection became unavailable.
                 connected,

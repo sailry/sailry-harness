@@ -14,7 +14,7 @@ share the scoped request contract with bounded snapshot observations.
 | Model request | `prepareRequest(command)`, `completeRequest(id)` |
 | Durable requests | `prepareRequest(command)`, `completeRequest(id)`, `forgetRequest(id)` |
 | Atomic Node mutations | `prepareTransaction(operations)`, `prepareNotification(content)` |
-| Coalesced invalidation | `nextChange(cursor?)` |
+| Coalesced invalidation | `nextChange(cursor?, scope?)` |
 | Model error handling | `errorCode(error.message)` |
 | Plugin storage | `getValue(key)`, `listKeys(prefix?, after?, limit?)`, `setValue(key, value, revision)`, `deleteValue(key, revision)` |
 | Captured session | `readSession()`, `readConversation(before?, limit?)`, `nextConversation(cursor?)`, `sendMessage(input, revision)`, `stopTurn(turn)`, `setSessionConfig(config, revision)` |
@@ -67,6 +67,22 @@ if (!result.Err || result.Err.code !== "outcome_unknown") forgetRequest(id);
 ```
 
 Use `errorCode(error.message)` for model and configuration failures. It accounts for the native bridge's diagnostic prefix and returns a stable code for plugin localization.
+
+Pure host exports may be listed in `host.read_only`, a unique subset of
+`host.handlers`. Invoke them with `prepareRequest({kind: "read_plugin_callback",
+data: {handler: "read", input: {}}})`, then complete and forget the draft through
+the same SDK. These reads have no durable receipt or retained request record;
+Node denies mutations before dispatch. Omitted declarations retain ordinary
+`call_plugin` admission. Writes and controls must keep that durable path and its
+stable request ID. Reads retain their supplied package and scope: a concurrent
+package change can reject a live read rather than switching it to newer code.
+
+`nextChange(cursor, "package")` observes only this package's inventory and private
+storage invalidations, reconnection and view entry. It reuses the existing
+coalesced Client subscription. Its token is package-wide, including changes from
+other controllers; it does not expose storage keys or session values. Omit the
+scope to keep the shared Node cursor. Use the existing composer or conversation
+observations for session execution and draft state.
 
 Keep `id` while a request is unresolved. `completeRequest` observes the original durable receipt after a missing response; an unresolved receipt rejects with `unconfirmed`. A retry uses that same ID. A completed business fault is returned as `{Err: {code, message}}`; success is `{Ok: {kind, data}}`. Forget only confirmed requests, or drafts intentionally abandoned when a view or game closes. Closing a view does not cancel work already admitted by the Node.
 

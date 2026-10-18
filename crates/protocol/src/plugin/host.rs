@@ -14,6 +14,9 @@ pub struct Manifest {
     pub resources: Vec<String>,
     /// Named module exports callable through ordinary durable admission.
     pub handlers: Vec<String>,
+    /// Exports that may execute without admission and cannot dispatch mutations.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub read_only: Vec<String>,
     /// Optional bounded policy for one admitted Agent turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn: Option<Turn>,
@@ -39,7 +42,9 @@ pub struct Turn {
 
 impl Manifest {
     pub fn valid(&self) -> bool {
-        self.commands.len() <= 32
+        self.read_only.iter().enumerate().all(|(index, handler)| {
+            self.handlers.contains(handler) && !self.read_only[..index].contains(handler)
+        }) && self.commands.len() <= 32
             && self.commands.iter().enumerate().all(|(index, command)| {
                 super::ui::command_name(&command.name)
                     && self.handlers.contains(&command.handler)
@@ -93,6 +98,7 @@ mod tests {
             entry: "dev.sailry.platform/host/main.js".into(),
             resources: vec!["dev.sailry.platform/host/main.js".into()],
             handlers: vec!["run".into()],
+            read_only: Vec::new(),
             turn: None,
             commands: Vec::new(),
         };
@@ -121,6 +127,7 @@ mod tests {
             entry: "dev.sailry.platform/host/main.js".into(),
             resources: vec!["dev.sailry.platform/host/main.js".into()],
             handlers: vec!["run".into()],
+            read_only: Vec::new(),
             turn: Some(Turn {
                 initialize: "run".into(),
                 before_model: None,
@@ -145,5 +152,34 @@ mod tests {
         manifest.commands[0].handler = "run".into();
         manifest.turn.as_mut().unwrap().after_turn = Some("missing".into());
         assert!(!manifest.valid());
+    }
+    #[test]
+    fn read_exports_require_unique_declared_handlers() {
+        let mut manifest: Manifest = serde_json::from_value(serde_json::json!({
+            "entry":"dev.sailry.platform/main.js", "resources":["dev.sailry.platform/main.js"],
+            "handlers":["read", "write"]
+        }))
+        .unwrap();
+        assert!(manifest.read_only.is_empty());
+        for handlers in [vec!["read"], vec!["read", "write"]] {
+            manifest.read_only = handlers.into_iter().map(str::to_owned).collect();
+            assert!(manifest.valid());
+        }
+        for handlers in [vec!["missing"], vec!["read", "read"]] {
+            manifest.read_only = handlers.into_iter().map(str::to_owned).collect();
+            assert!(!manifest.valid());
+        }
+        let read = crate::Command::ReadPluginCallback {
+            handler: "read".into(),
+            input: serde_json::json!({}),
+        };
+        assert!(!read.durable());
+        assert!(
+            crate::Command::CallPlugin {
+                handler: "read".into(),
+                input: serde_json::json!({})
+            }
+            .durable()
+        );
     }
 }

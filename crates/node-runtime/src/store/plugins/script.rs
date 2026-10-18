@@ -13,21 +13,29 @@ pub(super) async fn run(
 ) -> Result<Output, Fault> {
     let runtime = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
-        let Command::CallPlugin { handler, input } = request.command else {
+        let read_only = matches!(request.command, Command::ReadPluginCallback { .. });
+        let (Command::CallPlugin { handler, input }
+        | Command::ReadPluginCallback { handler, input }) = request.command
+        else {
             unreachable!()
         };
         let mut context = request.plugin.expect("admitted plugin callback");
-        context.invocation = Some(request.id);
+        if !read_only {
+            context.invocation = Some(request.id);
+        }
         let bundle = ingress.plugins.read_host(&info, stop.clone())?;
         let target = ingress.node;
         let stopped = stop.clone();
-        crate::plugins::script::run(
+        crate::plugins::script::run_callback(
             bundle,
             &handler,
             input,
-            context,
-            target,
-            stop,
+            crate::plugins::script::Environment {
+                context,
+                target,
+                stop,
+            },
+            read_only,
             move |request| {
                 // Await the original child completion before releasing the parent. Closing a
                 // controller never drops admitted writes or causes automatic replay.
