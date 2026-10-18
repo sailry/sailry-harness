@@ -236,13 +236,7 @@ fn validates_choices() {
 
 #[test]
 fn rejects_invalid_specs() {
-    for options in [
-        vec![],
-        vec!["".into()],
-        vec!["same".into(), "same".into()],
-        vec!["x".repeat(1025)],
-        (0..65).map(|index| index.to_string()).collect(),
-    ] {
+    for options in [vec![], vec!["".into()], vec!["same".into(), "same".into()]] {
         let spec = Spec {
             prompt: "Pick".into(),
             input: Input::Choice {
@@ -268,4 +262,71 @@ fn rejects_invalid_specs() {
     }
     let secret = serde_json::json!({"prompt": "secret", "input": {"kind": "text", "multiline": false, "max_bytes": 100, "secret": true}});
     assert!(serde_json::from_value::<Spec>(secret).is_err());
+}
+
+#[test]
+fn preserves_long_prompts_and_complete_choices() {
+    let mut options = (0..65)
+        .map(|number| format!("Option {number}"))
+        .collect::<Vec<_>>();
+    options[0] = "x".repeat(1025);
+    let spec = Spec {
+        prompt: "p".repeat(80 * 1024),
+        input: Input::Choice {
+            options,
+            multiple: false,
+            allow_other: false,
+        },
+    };
+    spec.validate_answer(&Answer::Choices {
+        selected: vec![64],
+        other: None,
+    })
+    .unwrap();
+    assert_eq!(
+        serde_json::from_value::<Spec>(serde_json::to_value(&spec).unwrap()).unwrap(),
+        spec
+    );
+    assert!(
+        spec.validate_answer(&Answer::Choices {
+            selected: vec![65],
+            other: None
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn forms_use_the_existing_complete_payload_budget() {
+    let mut fields = (0..65)
+        .map(|number| form::Field {
+            name: format!("field-{number}"),
+            title: "Title".into(),
+            description: None,
+            required: false,
+            input: form::Input::Boolean,
+        })
+        .collect::<Vec<_>>();
+    fields[0].name = "n".repeat(1025);
+    fields[0].title = "t".repeat(1025);
+    let values = fields
+        .iter()
+        .map(|field| (field.name.clone(), serde_json::json!(true)))
+        .collect();
+    let spec = Spec {
+        prompt: "Form".into(),
+        input: Input::Form {
+            fields: fields.clone(),
+        },
+    };
+    spec.validate_answer(&Answer::Form(values)).unwrap();
+    fields[0].title = "t".repeat(MAX_TEXT_BYTES);
+    assert!(
+        Spec {
+            input: Input::Form { fields },
+            ..spec
+        }
+        .validate()
+        .is_err()
+    );
 }

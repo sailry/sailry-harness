@@ -73,9 +73,6 @@ impl Workspace {
 
     pub(crate) fn validate_role_options(&self, role: &Role) -> Result<(), &'static str> {
         self.validate_role_model(role)?;
-        if role.skills.len() > 3 {
-            return Err("role_skills_limit");
-        }
         if role.skills.iter().any(|id| {
             !self
                 .skills

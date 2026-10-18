@@ -49,12 +49,12 @@ fn preserves_execution_constraint() {
 }
 
 #[test]
-fn bounds_configuration() {
+fn validates_configuration() {
     let mut value = profile();
     value.instructions = "x".repeat(16 * 1024);
     value.validate().unwrap();
     value.instructions.push('x');
-    assert!(value.validate().is_err());
+    value.validate().unwrap();
     value = profile();
     value.name = " ".into();
     assert!(value.validate().is_err());
@@ -62,7 +62,7 @@ fn bounds_configuration() {
     value.description.clear();
     value.validate().unwrap();
     value.description = "x".repeat(1025);
-    assert!(value.validate().is_err());
+    value.validate().unwrap();
     value = profile();
     value.max_turns = Some(0);
     assert!(value.validate().is_err());
@@ -70,7 +70,7 @@ fn bounds_configuration() {
     value.skills = vec!["a".into(), "b".into(), "c".into()];
     value.validate().unwrap();
     value.skills.push("d".into());
-    assert!(value.validate().is_err());
+    value.validate().unwrap();
     value.skills = vec!["a".into(), "a".into()];
     assert!(value.validate().is_err());
     value.skills = vec![String::new()];

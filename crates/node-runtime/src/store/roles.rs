@@ -93,14 +93,6 @@ pub(super) fn put(
             "role key is already in use",
         ));
     }
-    if current.is_none() {
-        let count: i64 = db
-            .query_row("SELECT count(*) FROM roles", [], |row| row.get(0))
-            .map_err(storage_error)?;
-        if count >= role::MAX_PROFILES as i64 {
-            return Err(Fault::new(ErrorCode::Busy, "role catalog is full"));
-        }
-    }
     if let Some(selection) = &role.model {
         let provider = super::agent::providers::get(db, selection.provider)?
             .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "role provider is unavailable"))?;

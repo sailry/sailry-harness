@@ -170,9 +170,11 @@ pub(super) fn admit(
     }
     let args: Arguments = serde_json::from_value(arguments)
         .map_err(|_| sailry_protocol::Fault::invalid("invalid delegation arguments"))?;
-    if args.title.as_ref().is_some_and(|title| {
-        title.trim().is_empty() || title.chars().count() > 80 || title.contains(['\n', '\r'])
-    }) {
+    if args
+        .title
+        .as_ref()
+        .is_some_and(|title| title.trim().is_empty() || title.contains(['\n', '\r']))
+    {
         return Err(sailry_protocol::Fault::invalid("invalid delegation title"));
     }
     let inherits_input = selected.is_some();

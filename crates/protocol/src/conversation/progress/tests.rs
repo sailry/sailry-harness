@@ -11,14 +11,13 @@ fn bounds_complete_snapshots() {
         }],
     };
     progress.validate().unwrap();
-    for text in [
-        "".to_owned(),
-        " \n\t".into(),
-        "x".repeat(MAX_DESCRIPTION_BYTES + 1),
-    ] {
+    for text in ["".to_owned(), " \n\t".into(), "x".repeat(MAX_BYTES + 1)] {
         progress.steps[0].description = text;
         assert!(progress.validate().is_err());
     }
+    progress.title = Some("t".repeat(513));
+    progress.steps[0].description = "d".repeat(8193);
+    progress.validate().unwrap();
     progress.title = None;
     progress.steps = vec![
         Step {
@@ -35,11 +34,11 @@ fn bounds_complete_snapshots() {
             description: "Step".into(),
             state: State::Skipped
         };
-        MAX_STEPS
+        257
     ];
     progress.validate().unwrap();
     progress.steps.push(progress.steps[0].clone());
-    assert!(progress.validate().is_err());
+    progress.validate().unwrap();
     progress.steps.clear();
     assert!(progress.validate().is_err());
 }

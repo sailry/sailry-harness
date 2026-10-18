@@ -247,11 +247,22 @@ async fn restores_scoped_revisions() {
             json!(global.summary.id)
         );
         assert_eq!(search(&client, None, "中文").await, [global]);
-        let mut invalid = entry(None, "Too large");
-        invalid.body = "x".repeat(8193);
+        let mut expanded = entry(None, "Long body");
+        expanded.body = "x".repeat(8193);
+        let expanded = put(&client, expanded, 0).await.unwrap();
+        assert_eq!(expanded.body, "x".repeat(8193));
+        let mut oversized = expanded.clone();
+        oversized.body = "x".repeat(plugin::storage::MAX_VALUE_BYTES + 1);
         assert_eq!(
-            put(&client, invalid, 0).await.unwrap_err().code,
+            put(&client, oversized, expanded.summary.revision)
+                .await
+                .unwrap_err()
+                .code,
             ErrorCode::InvalidRequest
+        );
+        assert_eq!(
+            support::read(&client, expanded.summary.id).await.unwrap(),
+            expanded
         );
         assert_eq!(
             put(&client, entry(Some(ProjectId::new()), "Missing project"), 0)
@@ -271,6 +282,10 @@ async fn restores_scoped_revisions() {
             node.local()
         });
         assert_eq!(client.execute(request).await.unwrap(), saved);
+        assert_eq!(
+            support::read(&client, expanded.summary.id).await.unwrap(),
+            expanded
+        );
         assert_eq!(
             search(&client, Some(projects[0]), "Updated")
                 .await
@@ -502,10 +517,10 @@ async fn separates_archive_capacity() {
         let (directory, node, controller, client) = fixture(remote).await;
         // Build real package data once, then seed the closed profile in one owner transaction.
         let mut values = Vec::new();
-        for index in 0..512 + 2048 - 1 {
+        for index in 0..513 + 2049 {
             let mut value = entry(None, "Capacity fixture");
             value.body = format!("Distinct constraint {index}");
-            value.summary.archived = index >= 512;
+            value.summary.archived = index >= 513;
             values.push(value);
         }
         let context = support::context(&client).await;
@@ -551,45 +566,69 @@ async fn separates_archive_capacity() {
             transaction.commit().unwrap();
         }
         // Startup's existing schema owner rebuilds and validates the derived keyword index.
-        let node = Node::start_empty(profile).await.unwrap();
+        let node = Node::start_empty(profile.clone()).await.unwrap();
         let client = Client::new(if remote {
             controller.handle().remote(node.link().address())
         } else {
             node.local()
         });
-        assert_eq!(support::list(&client).await.unwrap().len(), 2559);
-        let fresh = entry(None, "New constraint");
-        assert_eq!(
-            put(&client, fresh.clone(), 0).await.unwrap_err().code,
-            ErrorCode::Busy
-        );
+        let restored = support::list(&client).await.unwrap();
+        assert_eq!(restored.len(), 2562);
+        assert_eq!(restored.iter().filter(|item| !item.archived).count(), 513);
+        assert_eq!(restored.iter().filter(|item| item.archived).count(), 2049);
+        let fresh = put(&client, entry(None, "New constraint"), 0)
+            .await
+            .unwrap();
         let mut first = seeded[0].clone();
         first.body = "Updated while full".into();
         let mut first = put(&client, first, 1).await.unwrap();
         first.summary.archived = true;
         let mut first = put(&client, first, 2).await.unwrap();
-        let fresh = put(&client, fresh, 0).await.unwrap();
-        assert_eq!(support::list(&client).await.unwrap().len(), 2560);
+        assert_eq!(support::list(&client).await.unwrap().len(), 2563);
         first.summary.archived = false;
-        assert_eq!(
-            put(&client, first.clone(), 3).await.unwrap_err().code,
-            ErrorCode::Busy
-        );
+        let first = put(&client, first, 3).await.unwrap();
+        assert!(!first.summary.archived);
         let mut second = seeded[1].clone();
         second.summary.archived = true;
-        assert_eq!(
-            put(&client, second, 1).await.unwrap_err().code,
-            ErrorCode::Busy
-        );
+        let second = put(&client, second, 1).await.unwrap();
+        assert!(second.summary.archived);
         run::<Vec<MemoryId>>(
             &client,
             json!({"action":"remove","id":fresh.summary.id,"expected_revision":1}),
         )
         .await
         .unwrap();
-        let restored = put(&client, first, 3).await.unwrap();
-        assert!(!restored.summary.archived);
-        assert_eq!(restored.body, "Updated while full");
+        let mut stale = first.clone();
+        stale.summary.revision = 3;
+        assert_eq!(
+            put(&client, stale, 3).await.unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(first.body, "Updated while full");
+        drop(client);
+        node.shutdown().await.unwrap();
+        let node = Node::start_empty(profile).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        assert_eq!(
+            support::read(&client, first.summary.id).await.unwrap(),
+            first
+        );
+        assert_eq!(
+            support::read(&client, second.summary.id).await.unwrap(),
+            second
+        );
+        assert_eq!(support::list(&client).await.unwrap().len(), 2562);
+        assert_eq!(
+            support::read(&client, fresh.summary.id)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

@@ -47,7 +47,7 @@ async function seedPlan(entries, previous) {
 }
 
 async function seed(entries) {
-  if (!Array.isArray(entries) || entries.length < 1 || entries.length > limits.active+limits.archived) {
+  if (!Array.isArray(entries) || entries.length < 1) {
     throw Object.assign(new Error('invalid memory seed'),{code:'invalid_request'});
   }
   const result={saved:[],rows:[],catalog:null,head:headKey};

@@ -8,8 +8,8 @@ pub(in crate::store) fn select(
     references: &[role::Reference],
 ) -> Result<role::Snapshot, Fault> {
     let ids: std::collections::BTreeSet<_> = references.iter().map(|role| role.id).collect();
-    if references.len() > role::MAX_PROFILES || ids.len() != references.len() {
-        return Err(Fault::invalid("session roles must be distinct and bounded"));
+    if ids.len() != references.len() {
+        return Err(Fault::invalid("session roles must be distinct"));
     }
     let profiles = references
         .iter()

@@ -70,7 +70,7 @@ async fn configure(client: &Client) -> SessionConfig {
         .await;
     }
     let suffix = "中文 🙂";
-    for index in 0..role::MAX_PROFILES {
+    for index in 0..33 {
         execute(
             client,
             Command::PutRole {

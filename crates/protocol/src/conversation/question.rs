@@ -111,24 +111,17 @@ pub struct AcceptedPlan {
 
 impl Spec {
     pub fn validate(&self) -> Result<(), Fault> {
-        if (self.prompt.trim().is_empty()
-            && !(self.prompt.is_empty() && matches!(self.input, Input::Plan)))
-            || self.prompt.len() > 16 * 1024
+        if self.prompt.trim().is_empty()
+            && !(self.prompt.is_empty() && matches!(self.input, Input::Plan))
         {
-            return Err(crate::Fault::invalid(
-                "question prompt is empty or too large",
-            ));
+            return Err(crate::Fault::invalid("question prompt is empty"));
         }
         match &self.input {
             Input::Url {
                 url,
                 elicitation_id,
             } => {
-                if url.len() > 16 * 1024
-                    || url.chars().any(char::is_control)
-                    || elicitation_id.is_empty()
-                    || elicitation_id.len() > 1024
-                {
+                if url.chars().any(char::is_control) || elicitation_id.is_empty() {
                     return Err(crate::Fault::invalid("invalid MCP URL request"));
                 }
                 let parsed =
@@ -165,13 +158,12 @@ impl Spec {
             Input::Choice { options, .. } => {
                 let mut seen = std::collections::BTreeSet::new();
                 if options.is_empty()
-                    || options.len() > 64
-                    || options.iter().any(|option| {
-                        option.trim().is_empty() || option.len() > 1024 || !seen.insert(option)
-                    })
+                    || options
+                        .iter()
+                        .any(|option| option.trim().is_empty() || !seen.insert(option))
                 {
                     return Err(crate::Fault::invalid(
-                        "question options are empty, repeated or too large",
+                        "question options are empty or repeated",
                     ));
                 }
                 Ok(())

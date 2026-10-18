@@ -29,7 +29,7 @@ impl Tool for Question {
                     "kind": {"type": "string", "enum": ["text"]}, "multiline": {"type": "boolean"}, "max_bytes": {"type": "integer", "minimum": 1, "maximum": MAX_TEXT_BYTES}
                 }},
                 {"type": "object", "additionalProperties": false, "required": ["kind", "options", "multiple"], "properties": {
-                    "kind": {"type": "string", "enum": ["choice"]}, "options": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 64}, "multiple": {"type": "boolean"}, "allow_other": {"type": "boolean", "default": false}
+                    "kind": {"type": "string", "enum": ["choice"]}, "options": {"type": "array", "items": {"type": "string"}, "minItems": 1}, "multiple": {"type": "boolean"}, "allow_other": {"type": "boolean", "default": false}
                 }}
             ]}
         }});

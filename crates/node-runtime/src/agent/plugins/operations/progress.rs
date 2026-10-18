@@ -2,7 +2,7 @@
 use adk_core::{AdkError, Tool, ToolContext};
 use async_trait::async_trait;
 use sailry_link::CancellationToken;
-use sailry_protocol::conversation::progress::{MAX_DESCRIPTION_BYTES, MAX_STEPS, Progress};
+use sailry_protocol::conversation::progress::Progress;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -28,10 +28,10 @@ impl Tool for UpdatePlan {
     fn parameters_schema(&self) -> Option<Value> {
         Some(
             json!({"type": "object", "additionalProperties": false, "required": ["title", "steps"], "properties": {
-                "title": {"type": ["string", "null"], "maxLength": 512},
-                "steps": {"type": "array", "minItems": 1, "maxItems": MAX_STEPS, "items": {
+                "title": {"type": ["string", "null"]},
+                "steps": {"type": "array", "minItems": 1, "items": {
                     "type": "object", "additionalProperties": false, "required": ["description", "state"], "properties": {
-                        "description": {"type": "string", "minLength": 1, "maxLength": MAX_DESCRIPTION_BYTES},
+                        "description": {"type": "string", "minLength": 1},
                         "state": {"type": "string", "enum": ["pending", "in_progress", "completed", "skipped"]}
                     }
                 }}

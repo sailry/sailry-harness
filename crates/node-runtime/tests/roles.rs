@@ -301,11 +301,11 @@ async fn validates_fixed_models() {
 }
 
 #[tokio::test]
-async fn bounds_new_entries() {
+async fn preserves_expanded_catalog() {
     for remote in [false, true] {
         let (_directory, node, controller, client) = fixture(remote).await;
         let mut first = None;
-        for index in 0..role::MAX_PROFILES {
+        for index in 0..33 {
             let saved = put(&client, profile(&format!("role-{index:02}")), 0)
                 .await
                 .unwrap();
@@ -313,15 +313,12 @@ async fn bounds_new_entries() {
                 first = Some(saved);
             }
         }
-        assert_eq!(
-            put(&client, profile("overflow"), 0).await.unwrap_err().code,
-            ErrorCode::Busy
-        );
+        put(&client, profile("additional"), 0).await.unwrap();
         let mut edited = first.unwrap();
-        edited.name = "Edited at capacity".into();
+        edited.name = "Edited catalog entry".into();
         put(&client, edited, 1).await.unwrap();
         let saved = list(&client).await;
-        assert_eq!(saved.len(), role::MAX_PROFILES);
+        assert_eq!(saved.len(), 34);
         assert!(saved.windows(2).all(|roles| roles[0].key < roles[1].key));
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

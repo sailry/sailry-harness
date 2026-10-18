@@ -43,8 +43,8 @@ async fn accepts_choices_without_other_answers() {
     for remote in [false, true] {
         let server = Server::tools(vec![(
             "ask_user".into(),
-            json!({"prompt":"Pick one", "input":{
-                "kind":"choice", "options":["One", "Two"], "multiple":false
+            json!({"prompt":"p".repeat(16*1024+1), "input":{
+                "kind":"choice", "options":(0..65).map(|number|format!("Option {number}")).collect::<Vec<_>>(), "multiple":false
             }}),
         )])
         .await;
@@ -89,7 +89,7 @@ async fn accepts_choices_without_other_answers() {
                 session,
                 question: question.id,
                 response: Response::Answer(Answer::Choices {
-                    selected: vec![1],
+                    selected: vec![64],
                     other: None,
                 }),
             }))

@@ -2,8 +2,6 @@
 use crate::Fault;
 use serde::{Deserialize, Serialize};
 
-pub const MAX_STEPS: usize = 256;
-pub const MAX_DESCRIPTION_BYTES: usize = 8192;
 pub const MAX_BYTES: usize = 64 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,14 +29,10 @@ pub enum State {
 
 impl Progress {
     pub fn validate(&self) -> Result<(), Fault> {
-        let valid = |text: &str, limit| !text.trim().is_empty() && text.len() <= limit;
-        if self.title.as_ref().is_some_and(|title| !valid(title, 512))
+        let valid = |text: &str| !text.trim().is_empty();
+        if self.title.as_ref().is_some_and(|title| !valid(title))
             || self.steps.is_empty()
-            || self.steps.len() > MAX_STEPS
-            || self
-                .steps
-                .iter()
-                .any(|step| !valid(&step.description, MAX_DESCRIPTION_BYTES))
+            || self.steps.iter().any(|step| !valid(&step.description))
             || self.title.as_ref().map_or(0, String::len)
                 + self
                     .steps

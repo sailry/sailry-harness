@@ -22,7 +22,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
             json!(["role", "expected_revision"]),
         ),
         Operation::ApplyRoles => (
-            json!({"roles":{"type":"array","maxItems":role::MAX_PROFILES,"items":{"type":"object","additionalProperties":false,"required":["id","revision"],"properties":{"id":{"type":"string"},"revision":revision}}},"expected_revision":revision}),
+            json!({"roles":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","revision"],"properties":{"id":{"type":"string"},"revision":revision}}},"expected_revision":revision}),
             json!(["roles", "expected_revision"]),
         ),
         _ => unreachable!(),
@@ -104,8 +104,8 @@ pub(super) fn command(
             let input: Input = serde_json::from_value(arguments).map_err(invalid)?;
             let ids: std::collections::BTreeSet<_> =
                 input.roles.iter().map(|role| role.id).collect();
-            if ids.len() != input.roles.len() || ids.len() > role::MAX_PROFILES {
-                return Err(Fault::invalid("session roles must be distinct and bounded"));
+            if ids.len() != input.roles.len() {
+                return Err(Fault::invalid("session roles must be distinct"));
             }
             let roles = input
                 .roles

@@ -201,13 +201,13 @@ async fn preserves_frozen_revisions() {
                 ErrorCode::InvalidRequest,
             ),
             (
-                (0..=role::MAX_PROFILES)
+                (0..33)
                     .map(|_| role::Reference {
                         id: RoleId::new(),
                         revision: 1,
                     })
                     .collect(),
-                ErrorCode::InvalidRequest,
+                ErrorCode::NotFound,
             ),
         ] {
             assert_eq!(

@@ -44,24 +44,16 @@ pub struct Choice {
 
 pub(super) fn validate(fields: &[Field]) -> Result<(), Fault> {
     let mut names = BTreeSet::new();
-    if fields.len() > 64
-        || serde_json::to_vec(fields)
-            .map_err(|_| crate::Fault::invalid("invalid form"))?
-            .len()
-            > MAX_TEXT_BYTES
+    if serde_json::to_vec(fields)
+        .map_err(|_| crate::Fault::invalid("invalid form"))?
+        .len()
+        > MAX_TEXT_BYTES
     {
         return Err(crate::Fault::invalid("form exceeds the supported size"));
     }
     for field in fields {
-        if field.name.is_empty()
-            || field.name.len() > 1024
-            || !names.insert(&field.name)
-            || field.title.trim().is_empty()
-            || field.title.len() > 1024
-        {
-            return Err(crate::Fault::invalid(
-                "form field is empty, repeated or too large",
-            ));
+        if field.name.is_empty() || !names.insert(&field.name) || field.title.trim().is_empty() {
+            return Err(crate::Fault::invalid("form field is empty or repeated"));
         }
         match &field.input {
             Input::Text {
@@ -86,7 +78,6 @@ pub(super) fn validate(fields: &[Field]) -> Result<(), Fault> {
             } => {
                 let mut values = BTreeSet::new();
                 if options.is_empty()
-                    || options.len() > 64
                     || reversed(*min_items, *max_items)
                     || options.iter().any(|option| {
                         option.title.trim().is_empty() || !values.insert(&option.value)
