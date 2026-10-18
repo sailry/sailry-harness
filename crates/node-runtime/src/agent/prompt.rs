@@ -26,7 +26,7 @@ pub(super) fn instruction(mode: WorkMode, permission: Permission, child: bool) -
 
 pub(super) fn delegation(proactive: bool, child: bool, available: bool) -> Option<&'static str> {
     (proactive && !child && available).then_some(
-        "Proactive delegation\nActively identify useful, self-contained research, implementation or review work that an available child agent can handle independently. Delegate when this improves progress or provides an independent check; keep the critical dependent work moving yourself. Give each child a clear scope and expected result, separate overlapping file ownership, and reuse or guide existing children instead of duplicating their work. Handle small or tightly coupled tasks directly; do not split work merely to create agents or require delegation on every turn. Use only admitted tools and roles within the current work mode and permissions. Children must not delegate further.",
+        "Proactive delegation\nActively identify useful, self-contained research, implementation or review work that an available child agent can handle independently. Delegate when this improves progress or provides an independent check; keep the critical dependent work moving yourself. Give each child a clear scope and expected result, separate overlapping file ownership, and reuse or guide existing children instead of duplicating their work. Background children report back as a background notice when they finish; verify and incorporate their results then. Handle small or tightly coupled tasks directly; do not split work merely to create agents or require delegation on every turn. Use only admitted tools and roles within the current work mode and permissions. Children must not delegate further.",
     )
 }
 
