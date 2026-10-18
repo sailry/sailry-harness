@@ -149,6 +149,10 @@ adapted to Sailry's ownership and local/remote boundaries.
 - Cover data mappings exhaustively in unit tests; use representative integration
   workflows for each distinct behavior instead of repeating identical setup for
   every preset. Preserve local and remote paths and meaningful failure cases.
+- Use neutral contract fixtures for reusable Core services; keep plugin business
+  regressions in the owning package. Report pure JavaScript/mock checks separately
+  from production plugin VM/SDK bridge checks, preserving local and remote coverage
+  for affected service boundaries without requiring every suite for every change.
 - Inject offline catalogs and services in ordinary fixtures. External-service
   acceptance must be explicit and opt-in, not an incidental UI setup dependency.
 - Test conflicts, reconnect and original-request recovery where a changed command
