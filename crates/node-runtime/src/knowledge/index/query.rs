@@ -15,9 +15,13 @@ impl Index {
     ) -> Result<Page, Fault> {
         let (ranked, mode) = self.ranks(query, allowed, embeddings, &[], cancel)?;
         let offset = query.offset as usize;
-        let next_offset = (offset + usize::from(query.limit) < ranked.len())
-            .then_some(query.offset + u32::from(query.limit));
-        let mut hits = self.hits(ranked.into_iter().skip(offset).take(query.limit.into()))?;
+        let limit = query.limit.min(PAGE_LIMIT);
+        let next_offset = if offset.saturating_add(usize::from(limit)) < ranked.len() {
+            query.offset.checked_add(u32::from(limit))
+        } else {
+            None
+        };
+        let mut hits = self.hits(ranked.into_iter().skip(offset).take(limit.into()))?;
         for hit in &mut hits {
             hit.stale = indexing;
         }

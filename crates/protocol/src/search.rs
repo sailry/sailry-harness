@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const DEFAULT_LIMIT: u8 = 5;
-pub const MAX_LIMIT: u8 = 10;
+pub const MAX_LIMIT: u8 = u8::MAX;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -117,11 +117,7 @@ fn default_limit() -> u8 {
 
 impl Request {
     pub fn validate(&self) -> std::result::Result<(), Fault> {
-        if self.query.trim().is_empty()
-            || self.query.len() > 4096
-            || self.query.contains('\0')
-            || !(1..=MAX_LIMIT).contains(&self.limit)
-        {
+        if self.query.trim().is_empty() || self.query.contains('\0') || self.limit == 0 {
             return Err(Fault::invalid("invalid search query or result limit"));
         }
         Ok(())
@@ -165,16 +161,19 @@ mod tests {
         let request: Request = serde_json::from_value(json!({"query":"current sources"})).unwrap();
         assert_eq!(request.limit, DEFAULT_LIMIT);
         request.validate().unwrap();
-        for limit in [0, MAX_LIMIT + 1] {
-            assert!(
-                Request {
-                    query: "source".into(),
-                    limit
-                }
-                .validate()
-                .is_err()
-            );
-        }
+        let expanded = Request {
+            query: "source ".repeat(700),
+            limit: 50,
+        };
+        expanded.validate().unwrap();
+        assert!(
+            Request {
+                limit: 0,
+                ..expanded
+            }
+            .validate()
+            .is_err()
+        );
         assert!(
             serde_json::from_value::<Request>(json!({"query":"source","key":"secret"})).is_err()
         );

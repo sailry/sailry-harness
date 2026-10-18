@@ -81,7 +81,6 @@ pub(super) fn results(
         .ok_or_else(|| Failure::invalid("search service response has no result list"))?;
     entries
         .iter()
-        .take(search::MAX_LIMIT as usize)
         .map(|value| {
             let url = value
                 .get("url")
@@ -93,7 +92,6 @@ pub(super) fn results(
                 || parsed.host_str().is_none()
                 || !parsed.username().is_empty()
                 || parsed.password().is_some()
-                || url.len() > 4096
             {
                 return Err(Failure::invalid("search result URL is invalid"));
             }

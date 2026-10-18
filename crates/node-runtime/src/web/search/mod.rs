@@ -134,6 +134,14 @@ impl Searcher {
             }
             let auth = plan.credentials.get(&driver).cloned().unwrap_or_default();
             let endpoint = self.endpoint(driver, &plan.settings);
+            let mut page_input = input.clone();
+            page_input.limit = match driver {
+                Driver::Brave | Driver::Tavily => input.limit.min(20),
+                Driver::Bocha => input.limit.min(50),
+                Driver::Exa => input.limit.min(100),
+                Driver::Searxng => input.limit,
+            };
+            let input = &page_input;
             let attempt = if driver == Driver::Exa {
                 exa::search(&endpoint, &auth, input, stop).await
             } else {
@@ -158,7 +166,10 @@ impl Searcher {
                         driver,
                         results,
                         untrusted: true,
-                        fetch_hint: "Use an available web_fetch tool on relevant result URLs when more detail is needed".into(),
+                        fetch_hint: format!(
+                            "One provider page, up to {} results; no continuation is exposed. Use web_fetch on relevant URLs for detail",
+                            input.limit
+                        ),
                     });
                 }
                 Err(error) => {

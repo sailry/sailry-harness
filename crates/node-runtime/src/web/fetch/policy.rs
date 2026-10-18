@@ -1,5 +1,5 @@
 use reqwest::Url;
-use sailry_protocol::{ErrorCode, Fault, web};
+use sailry_protocol::{ErrorCode, Fault};
 use std::net::{IpAddr, Ipv4Addr};
 
 pub(super) fn denied() -> Fault {
@@ -11,8 +11,7 @@ pub(super) fn denied() -> Fault {
 
 pub(super) fn url(value: &str) -> Result<Url, Fault> {
     let mut url = Url::parse(value).map_err(|_| Fault::invalid("invalid web URL"))?;
-    if value.len() > web::MAX_URL_BYTES
-        || !matches!(url.scheme(), "http" | "https")
+    if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
         || url.password().is_some()

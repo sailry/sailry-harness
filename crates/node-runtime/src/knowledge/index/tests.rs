@@ -565,6 +565,21 @@ fn pages_stable_candidates_and_observes_cancel() {
             .next_offset
             .is_none()
     );
+    query.limit = u16::MAX;
+    query.offset = 0;
+    let expanded = index
+        .search(&query, &[binding], &[], false, &cancel)
+        .unwrap();
+    assert_eq!(expanded.hits.len(), 3);
+    assert_eq!(expanded.next_offset, None);
+    query.offset = 10_001;
+    assert!(
+        index
+            .search(&query, &[binding], &[], false, &cancel)
+            .unwrap()
+            .hits
+            .is_empty()
+    );
     cancel.cancel();
     query.offset = 0;
     assert_eq!(

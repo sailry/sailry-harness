@@ -536,8 +536,8 @@ pub(in crate::store) fn materialize(
     };
     for key in selection.keys.iter().skip(usize::from(query.offset)) {
         check(stop)?;
-        if page.entries.len() == usize::from(query.limit) {
-            page.next = Some(query.offset + page.entries.len() as u16);
+        if page.entries.len() == usize::from(query.limit.min(plugin::storage::MAX_PAGE_LIMIT)) {
+            page.next = Some(query.offset.saturating_add(page.entries.len() as u16));
             break;
         }
         if let Some(stamp) = stamps.get(key.as_str()) {
@@ -598,7 +598,7 @@ pub(in crate::store) fn materialize(
             > plugin::storage::MAX_SEARCH_BYTES
         {
             page.entries.pop();
-            page.next = Some(query.offset + page.entries.len() as u16);
+            page.next = Some(query.offset.saturating_add(page.entries.len() as u16));
             break;
         }
     }

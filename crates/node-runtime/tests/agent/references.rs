@@ -77,6 +77,7 @@ async fn reads_selected_history_through_tools() {
             ("read_session".into(), json!({"session":source.id,"before":second,"limit":1})),
             ("read_session".into(), json!({"session":source.id,"turn":first,"revision":page.revision,"limit":1})),
             ("read_session".into(), json!({"session":source.id,"turn":first,"revision":page.revision,"before_entry":cursor,"limit":1})),
+            ("read_session".into(), json!({"session":source.id,"limit":100_000})),
             ("read_session".into(), json!({"session":forbidden})),
         ]).await;
         let Output::Providers(providers) = client
@@ -134,7 +135,7 @@ async fn reads_selected_history_through_tools() {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(results.len(), 5, "{results:?}");
+        assert_eq!(results.len(), 6, "{results:?}");
         assert!(results[0].to_string().contains("Second decision"));
         assert_eq!(results[0]["page"]["next_before"], second.to_string());
         assert!(results[1].to_string().contains("First decision"));
@@ -142,14 +143,13 @@ async fn reads_selected_history_through_tools() {
         assert_eq!(results[2]["next_before"], cursor);
         assert!(results[3].to_string().contains("First decision"));
         assert!(results[3]["next_before"].is_null());
-        assert!(
-            results[4]
-                .to_string()
-                .contains("conversation was not referenced")
-        );
+        assert!(results[4].to_string().contains("First decision"));
+        assert!(results[4].to_string().contains("Second decision"));
+        assert!(results[4]["page"]["next_before"].is_null());
+        assert!(results[5].to_string().contains("conversation was not referenced"));
         {
             let requests = reader.requests.lock().unwrap();
-            assert_eq!(requests.len(), 6);
+            assert_eq!(requests.len(), 7);
             assert!(
                 requests
                     .last()

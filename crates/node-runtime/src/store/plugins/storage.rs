@@ -48,7 +48,7 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
             if after
                 .as_ref()
                 .is_some_and(|after| !valid_key(after) || !after.starts_with(prefix))
-                || !(1..=storage::MAX_PAGE_LIMIT).contains(limit)
+                || *limit == 0
             {
                 return Err(sailry_protocol::Fault::invalid("invalid plugin key page"));
             }
@@ -141,7 +141,7 @@ pub(super) fn execute(db: &Connection, request: &Request) -> Result<Output, Faul
                     > storage::MAX_SEARCH_BYTES
                 {
                     page.entries.pop();
-                    page.next = Some(query.offset + page.entries.len() as u16);
+                    page.next = Some(query.offset.saturating_add(page.entries.len() as u16));
                     break;
                 }
             }
@@ -281,6 +281,7 @@ fn list(
     after: Option<&str>,
     limit: u16,
 ) -> Result<Page, Fault> {
+    let limit = limit.min(storage::MAX_PAGE_LIMIT);
     let mut query = db
         .prepare("SELECT key FROM plugin_values WHERE name=?1 AND value IS NOT NULL ORDER BY key")
         .map_err(storage_error)?;

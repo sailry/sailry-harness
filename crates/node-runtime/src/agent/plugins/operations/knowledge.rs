@@ -49,7 +49,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
 
 pub(super) fn parameters(operation: Operation) -> Value {
     let identifier = json!({"type":"string","format":"uuid"});
-    let strings = json!({"type":"array","items":{"type":"string","minLength":1,"maxLength":128},"maxItems":knowledge::MAX_FILTERS,"default":[]});
+    let strings = json!({"type":"array","items":{"type":"string","minLength":1},"default":[]});
     let model = json!({"oneOf":[
         {"type":["string","null"],"enum":["granite-multi","bge-small-zh","potion-multi",null]},
         {"type":"object","properties":{"registered":{"type":"object","properties":{"id":identifier},"required":["id"],"additionalProperties":false}},"required":["registered"],"additionalProperties":false}
@@ -57,14 +57,14 @@ pub(super) fn parameters(operation: Operation) -> Value {
     let (properties, required) = match operation {
         Operation::KnowledgeQuery => (
             json!({
-                "query":{"type":"string","minLength":1,"maxLength":knowledge::MAX_QUERY_BYTES},
-                "collections":{"type":"array","items":identifier,"maxItems":knowledge::MAX_COLLECTIONS,"default":[]},
+                "query":{"type":"string","minLength":1},
+                "collections":{"type":"array","items":identifier,"default":[]},
                 "mode":{"type":"string","enum":["keyword","semantic","hybrid"],"default":"hybrid"},
-                "tags":strings,"path":{"type":["string","null"],"maxLength":8192},
+                "tags":strings,"path":{"type":["string","null"]},
                 "modified_after_ms":{"type":["integer","null"],"minimum":0},
                 "modified_before_ms":{"type":["integer","null"],"minimum":0},
-                "limit":{"type":"integer","minimum":1,"maximum":knowledge::MAX_LIMIT,"default":knowledge::DEFAULT_LIMIT},
-                "offset":{"type":"integer","minimum":0,"maximum":10000,"default":0}
+                "limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":knowledge::DEFAULT_LIMIT},
+                "offset":{"type":"integer","minimum":0,"maximum":u32::MAX,"default":0}
             }),
             vec!["query"],
         ),
@@ -76,18 +76,18 @@ pub(super) fn parameters(operation: Operation) -> Value {
                 "revision":{"type":"string","pattern":"^[a-f0-9]{64}$"},
                 "context":{"type":"boolean","default":true},
                 "offset":{"type":"integer","minimum":0,"maximum":u32::MAX,"default":0},
-                "limit":{"type":"integer","minimum":1,"maximum":64*1024,"default":16*1024}
+                "limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"default":16*1024}
             }),
             vec!["collection", "chunk", "revision"],
         ),
         Operation::KnowledgeCreate => (
             json!({
-                "name":{"type":"string","minLength":1,"maxLength":256},
+                "name":{"type":"string","minLength":1},
                 "source":{"oneOf":[
-                    {"type":"object","properties":{"kind":{"const":"worktree"},"path":{"type":"string","maxLength":8192}},"required":["kind","path"],"additionalProperties":false},
+                    {"type":"object","properties":{"kind":{"const":"worktree"},"path":{"type":"string"}},"required":["kind","path"],"additionalProperties":false},
                     {"type":"object","properties":{"kind":{"const":"storage"},"scope":{"type":"string","enum":["node","conversation"]},"prefix":{"type":"string","maxLength":plugin::storage::MAX_KEY_BYTES}},"required":["kind","scope","prefix"],"additionalProperties":false}
                 ]},
-                "model":model,"globs":{"type":"array","items":{"type":"string","minLength":1,"maxLength":1024},"maxItems":knowledge::MAX_FILTERS,"default":[]},"tags":strings
+                "model":model,"globs":{"type":"array","items":{"type":"string","minLength":1},"default":[]},"tags":strings
             }),
             vec!["name", "source"],
         ),
@@ -107,7 +107,10 @@ pub(super) fn command(
 ) -> Result<Command, Fault> {
     Ok(match operation {
         Operation::KnowledgeQuery => {
-            let query: knowledge::Query = decode(arguments)?;
+            let query: knowledge::Query = decode(super::schema::bounded_page(
+                arguments,
+                u64::from(knowledge::PAGE_LIMIT),
+            )?)?;
             query.validate()?;
             Command::QueryKnowledge(query)
         }
@@ -116,7 +119,8 @@ pub(super) fn command(
                 .get("context")
                 .and_then(Value::as_bool)
                 .unwrap_or(true);
-            let mut input: knowledge::CitationRequest = decode(arguments)?;
+            let mut input: knowledge::CitationRequest =
+                decode(super::schema::bounded_page(arguments, 64 * 1024)?)?;
             input.context = context;
             input.validate()?;
             Command::ReadKnowledgeCitation(input)

@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub const MAX_BODY: usize = 1024 * 1024;
-pub const MAX_HEADERS: usize = 32;
 pub const MAX_TIMEOUT_MS: u32 = 60_000;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -36,8 +36,8 @@ impl Summary {
         self.revision > 0
             && self.size > 0
             && self.size <= MAX_HTML_BYTES as u64
-            && label(&self.title, 120, false)
-            && label(&self.summary, 280, true)
+            && label(&self.title, false)
+            && label(&self.summary, true)
             && self.created_at <= self.updated_at
     }
 }
@@ -185,10 +185,8 @@ pub struct Write {
     pub html: String,
 }
 
-pub fn label(value: &str, limit: usize, empty: bool) -> bool {
-    (empty || !value.trim().is_empty())
-        && value.chars().count() <= limit
-        && !value.chars().any(char::is_control)
+pub fn label(value: &str, empty: bool) -> bool {
+    (empty || !value.trim().is_empty()) && !value.chars().any(char::is_control)
 }
 
 #[cfg(test)]

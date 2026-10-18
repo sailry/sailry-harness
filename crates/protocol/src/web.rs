@@ -1,7 +1,6 @@
 //! Credential-free reads of public web content on the execution Node.
 use serde::{Deserialize, Serialize};
 
-pub const MAX_URL_BYTES: usize = 4096;
 pub const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 pub const MAX_REDIRECTS: usize = 5;
 pub const TIMEOUT_SECS: u64 = 30;

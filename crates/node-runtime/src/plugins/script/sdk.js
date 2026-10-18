@@ -28,7 +28,15 @@ export function prepareTransaction(operations) {
 }
 export async function completeRequest(id) { return call("complete", id); }
 export function forgetRequest(id) { call("forget", id); }
-async function read(kind, data) { return call("read", {kind, data}).data; }
+async function read(kind, data) {
+  const budget = {list_plugin_keys:100,search_plugin_values:100,query_knowledge:100,read_knowledge_citation:65536}[kind];
+  if (budget && data?.limit !== undefined) {
+    if (!Number.isSafeInteger(data.limit) || data.limit < 1) throw new Error("limit must be a positive safe integer");
+    // Bound only the output page; preserve the query and use the Node's exact continuation.
+    data = {...data,limit:Math.min(data.limit,budget)};
+  }
+  return call("read", {kind, data}).data;
+}
 export async function readSettings() { return read("read_plugin_settings", {package: scope.package}); }
 /** Public catalog definitions only; fixed-model provider configuration remains private. */
 export async function listRoles() { return read("list_roles"); }

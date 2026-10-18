@@ -20,7 +20,10 @@ async fn remove(client: &Client, id: SessionId) {
 #[tokio::test]
 async fn preserves_form_until_last_reference() {
     for remote in [false, true] {
-        let mut form = draft(None, None, "Storage choices");
+        let title = "Storage choices ".repeat(12);
+        let summary = "Compare available storage choices ".repeat(12);
+        let mut form = draft(None, None, &title);
+        form["summary"] = json!(summary);
         form["html"] = json!(
             "<section><h1>Storage choices</h1><form data-name='choices'><fieldset data-name='storage'><legend>Storage</legend><label><input type='radio' name='storage' value='node'>Execution Node</label></fieldset><button type='submit'>Send</button></form></section>"
         );
@@ -32,6 +35,18 @@ async fn preserves_form_until_last_reference() {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         let card = cards(&page).remove(0);
         let original = fixture.client.read_artifact(card.id, None).await.unwrap();
+        assert_eq!(original.artifact.title, title);
+        assert_eq!(original.artifact.summary, summary);
+        let inventory = fixture
+            .client
+            .list_artifacts(fixture.session.id, None, u16::MAX)
+            .await
+            .unwrap();
+        assert_eq!(
+            inventory.items.as_slice(),
+            std::slice::from_ref(&original.artifact)
+        );
+        assert!(inventory.next_after.is_none());
         assert!(original.html.contains("<form data-name=\"choices\""));
         assert!(original.html.contains("name=\"storage\""));
         let resources = original.view.as_ref().unwrap();

@@ -385,24 +385,40 @@ async fn checks_revisions_receipts_and_pages() {
                 ErrorCode::InvalidRequest
             );
         }
-        for limit in [0, 101] {
-            assert_eq!(
-                client
-                    .execute(request(
-                        &client,
-                        &context,
-                        Command::ListPluginKeys {
-                            prefix: String::new(),
-                            after: None,
-                            limit,
-                        }
-                    ))
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::InvalidRequest
-            );
-        }
+        assert_eq!(
+            client
+                .execute(request(
+                    &client,
+                    &context,
+                    Command::ListPluginKeys {
+                        prefix: String::new(),
+                        after: None,
+                        limit: 0,
+                    }
+                ))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+        let large = page(
+            run(
+                &client,
+                &context,
+                Command::ListPluginKeys {
+                    prefix: String::new(),
+                    after: None,
+                    limit: u16::MAX,
+                },
+            )
+            .await,
+        );
+        assert_eq!(
+            large.keys,
+            ["city/alpha", "city/zeta", "city/北京🙂", "null"]
+        );
+        assert_eq!(large.after, None);
+
         assert_eq!(
             client
                 .execute(request(

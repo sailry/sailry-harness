@@ -76,19 +76,36 @@ fn bounds_index_metadata_and_query_inputs() {
     index = metadata();
     index.fields[1] = "null\0token".into();
     assert!(validate_index(&index).is_err());
+    for valid in [
+        Search {
+            terms: vec!["term".into(); 257],
+            ..query()
+        },
+        Search {
+            terms: vec!["x".repeat(8193)],
+            ..query()
+        },
+        Search {
+            query: Some("x".repeat(8193)),
+            ..query()
+        },
+        Search {
+            limit: u16::MAX,
+            ..query()
+        },
+        Search {
+            offset: storage::MAX_NAMESPACE_KEYS as u16 + 1,
+            ..query()
+        },
+        Search {
+            all: vec!["tag".into(); 17],
+            any: vec!["x".repeat(129)],
+            ..query()
+        },
+    ] {
+        validate_query(&valid).unwrap();
+    }
     for invalid in [
-        Search {
-            terms: vec!["term".into(); storage::MAX_TERMS + 1],
-            ..query()
-        },
-        Search {
-            terms: vec!["x".repeat(storage::MAX_QUERY_BYTES + 1)],
-            ..query()
-        },
-        Search {
-            query: Some("x".repeat(storage::MAX_QUERY_BYTES + 1)),
-            ..query()
-        },
         Search {
             query: Some("original\0query".into()),
             ..query()
@@ -102,23 +119,7 @@ fn bounds_index_metadata_and_query_inputs() {
             ..query()
         },
         Search {
-            limit: storage::MAX_PAGE_LIMIT + 1,
-            ..query()
-        },
-        Search {
             limit: 0,
-            ..query()
-        },
-        Search {
-            all: vec!["tag".into(); storage::MAX_TAGS + 1],
-            ..query()
-        },
-        Search {
-            any: vec!["x".repeat(storage::MAX_TAG_BYTES + 1)],
-            ..query()
-        },
-        Search {
-            offset: storage::MAX_NAMESPACE_KEYS as u16 + 1,
             ..query()
         },
     ] {
@@ -203,4 +204,41 @@ fn namespace_quota_includes_retained_index_fields() {
             .present
     );
     super::super::write(&db, "arbitrary-package", "ordinary", &value, &body, 0, None).unwrap();
+}
+
+#[test]
+fn bounds_output_without_rejecting_requested_pages() {
+    let db = database();
+    for number in 0..101 {
+        insert(
+            &db,
+            &format!("item-{number:03}"),
+            &json!(number),
+            &metadata(),
+        );
+    }
+    let first = read(
+        &db,
+        "arbitrary-package",
+        &Search {
+            limit: u16::MAX,
+            ..query()
+        },
+    )
+    .unwrap();
+    assert_eq!(first.entries.len(), 100);
+    assert_eq!(first.next, Some(100));
+    let last = read(
+        &db,
+        "arbitrary-package",
+        &Search {
+            limit: u16::MAX,
+            offset: first.next.unwrap(),
+            ..query()
+        },
+    )
+    .unwrap();
+    assert_eq!(last.entries.len(), 1);
+    assert_eq!(last.next, None);
+    assert_ne!(first.entries.last().unwrap().key, last.entries[0].key);
 }

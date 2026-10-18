@@ -14,6 +14,9 @@ mod history;
 #[path = "artifact/reads.rs"]
 mod reads;
 pub(in crate::store) use history::{cleanup, prune};
+#[cfg(test)]
+#[path = "artifact/tests.rs"]
+mod tests;
 
 pub(super) fn execute(
     db: &Connection,
@@ -131,8 +134,8 @@ fn write(
         ));
     }
     authorize(db, request, context, draft)?;
-    if !artifact::label(&draft.title, 120, false)
-        || !artifact::label(&draft.summary, 280, true)
+    if !artifact::label(&draft.title, false)
+        || !artifact::label(&draft.summary, true)
         || draft.id.is_some() != draft.expected_revision.is_some()
     {
         return Err(Fault::invalid(
@@ -185,6 +188,24 @@ fn write(
         updated_at: now,
     };
     artifact.updated_at = artifact.updated_at.max(artifact.created_at);
+    // A tool publishes this summary both as metadata and as an artifact block.
+    let content = tool::Content {
+        version: 1,
+        blocks: vec![tool::Block::Artifact {
+            artifact: artifact.clone(),
+        }],
+    };
+    let output = Output::ArtifactWritten {
+        artifact: artifact.clone(),
+        warnings: warnings.clone(),
+    };
+    if encode(&(&output, content))?.len()
+        > PAGE_BYTES - artifact::MAX_HTML_BYTES - artifact::MAX_VIEW_BYTES
+    {
+        return Err(Fault::invalid(
+            "artifact metadata exceeds the response budget",
+        ));
+    }
     let referenced: bool = db
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM artifact_revisions WHERE artifact=?1 AND revision=?2)",
@@ -327,7 +348,7 @@ pub(in crate::store) fn list(
     limit: u16,
 ) -> Result<artifact::Page, Fault> {
     commands::session(db, session)?;
-    check_limit(limit)?;
+    let limit = page_limit(limit)?;
     let boundary = if let Some(id) = after {
         if required(db, id)?.session != session {
             return Err(Fault::invalid("artifact cursor belongs to another session"));
@@ -346,18 +367,39 @@ pub(in crate::store) fn list(
             "SELECT body FROM artifacts WHERE session=?1 AND rowid<?2 ORDER BY rowid DESC LIMIT ?3",
         )
         .map_err(storage_error)?;
-    let mut items = query
+    let rows = query
         .query_map(
             params![session.to_string(), boundary, i64::from(limit) + 1],
             |row| row.get::<_, Vec<u8>>(0),
         )
-        .map_err(storage_error)?
-        .map(|row| {
-            serde_json::from_slice::<Summary>(&row.map_err(storage_error)?).map_err(storage_error)
-        })
-        .collect::<Result<Vec<_>, Fault>>()?;
-    let more = items.len() > usize::from(limit);
-    items.truncate(usize::from(limit));
+        .map_err(storage_error)?;
+    let mut items = Vec::new();
+    let mut more = false;
+    let mut bytes = encode(&artifact::Page {
+        items: Vec::new(),
+        next_after: Some(ArtifactId::new()),
+    })?
+    .len();
+    for row in rows {
+        if items.len() == usize::from(limit) {
+            more = true;
+            break;
+        }
+        let value: Summary =
+            serde_json::from_slice(&row.map_err(storage_error)?).map_err(storage_error)?;
+        let size = encode(&value)?.len() + usize::from(!items.is_empty());
+        if bytes.saturating_add(size) > PAGE_BYTES {
+            if items.is_empty() {
+                return Err(Fault::invalid(
+                    "artifact metadata exceeds the response budget",
+                ));
+            }
+            more = true;
+            break;
+        }
+        bytes += size;
+        items.push(value);
+    }
     Ok(artifact::Page {
         next_after: more.then(|| items.last().expect("nonempty page").id),
         items,
@@ -372,7 +414,7 @@ fn revisions(
     session: SessionId,
 ) -> Result<artifact::RevisionPage, Fault> {
     let owner = required(db, id)?.session;
-    check_limit(limit)?;
+    let limit = page_limit(limit)?;
     let mut query=db.prepare("SELECT body FROM artifact_revisions WHERE artifact=?1 AND revision<?2 ORDER BY revision DESC").map_err(storage_error)?;
     let mut rows = query
         .query(params![
@@ -381,6 +423,12 @@ fn revisions(
         ])
         .map_err(storage_error)?;
     let mut items = Vec::new();
+    let mut more = false;
+    let mut bytes = encode(&artifact::RevisionPage {
+        items: Vec::new(),
+        next_before: Some(u32::MAX),
+    })?
+    .len();
     while let Some(row) = rows.next().map_err(storage_error)? {
         let value: Summary =
             serde_json::from_slice(&row.get::<_, Vec<u8>>(0).map_err(storage_error)?)
@@ -388,7 +436,11 @@ fn revisions(
         if owner != session && !history::published(db, session, &value)? {
             continue;
         }
-        items.push(Revision {
+        if items.len() == usize::from(limit) {
+            more = true;
+            break;
+        }
+        let value = Revision {
             id: value.id,
             kind: value.kind,
             revision: value.revision,
@@ -397,27 +449,37 @@ fn revisions(
             summary: value.summary,
             size: value.size,
             created_at: value.updated_at,
-        });
-        if items.len() > usize::from(limit) {
+        };
+        let size = encode(&value)?.len() + usize::from(!items.is_empty());
+        if bytes.saturating_add(size) > PAGE_BYTES {
+            if items.is_empty() {
+                return Err(Fault::invalid(
+                    "artifact metadata exceeds the response budget",
+                ));
+            }
+            more = true;
             break;
         }
+        bytes += size;
+        items.push(value);
     }
     if owner != session && items.is_empty() && before.is_none() {
         return Err(denied("artifact has no publication in this conversation"));
     }
-    let more = items.len() > usize::from(limit);
-    items.truncate(usize::from(limit));
     Ok(artifact::RevisionPage {
         next_before: more.then(|| items.last().expect("nonempty page").revision),
         items,
     })
 }
 
-fn check_limit(limit: u16) -> Result<(), Fault> {
-    if !(1..=artifact::MAX_PAGE_LIMIT).contains(&limit) {
+// Conversation snapshots also carry history and lifecycle metadata.
+const PAGE_BYTES: usize = MAX_FRAME_BYTES / 2;
+
+fn page_limit(limit: u16) -> Result<u16, Fault> {
+    if limit == 0 {
         Err(Fault::invalid("artifact page limit is invalid"))
     } else {
-        Ok(())
+        Ok(limit.min(artifact::MAX_PAGE_LIMIT))
     }
 }
 fn denied(message: &str) -> Fault {

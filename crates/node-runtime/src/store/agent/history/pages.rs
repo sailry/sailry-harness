@@ -12,7 +12,7 @@ pub(in crate::store) fn read(
     limit: u16,
 ) -> Result<History, Fault> {
     check_session(db, session)?;
-    check_limit(limit)?;
+    let limit = bounded_limit(limit)?;
     let boundary = before
         .map(|turn| runs::visible(db, session, turn).map(|run| run.sequence))
         .transpose()?
@@ -115,7 +115,7 @@ pub(in crate::store) fn turn(
     before: Option<u64>,
     limit: u16,
 ) -> Result<TurnHistory, Fault> {
-    check_limit(limit)?;
+    let limit = bounded_limit(limit)?;
     if before.is_some_and(|value| value > i64::MAX as u64) {
         return Err(sailry_protocol::Fault::invalid(
             "turn history cursor is invalid",
@@ -145,13 +145,13 @@ pub(in crate::store) fn turn(
     })
 }
 
-fn check_limit(limit: u16) -> Result<(), Fault> {
-    if !(1..=100).contains(&limit) {
+fn bounded_limit(limit: u16) -> Result<u16, Fault> {
+    if limit == 0 {
         return Err(sailry_protocol::Fault::invalid(
-            "history limit must be between one and one hundred",
+            "history limit must be positive",
         ));
     }
-    Ok(())
+    Ok(limit.min(100))
 }
 
 fn entries(

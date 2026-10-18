@@ -60,7 +60,7 @@ fn preserves_queries_and_revision_checks() {
     for args in [
         json!({"query":""}),
         json!({"query":"text","owner":"other"}),
-        json!({"query":"text","limit":knowledge::MAX_LIMIT+1}),
+        json!({"query":"text","limit":0}),
     ] {
         assert!(command(Operation::KnowledgeQuery, args, &context).is_err());
     }
@@ -146,9 +146,17 @@ fn reads_verified_citation_context() {
         panic!("citation command expected")
     };
     assert!(!input.context);
+    let mut expanded = arguments.clone();
+    expanded["limit"] = json!(65537);
+    assert!(validator.is_valid(&expanded));
+    let Command::ReadKnowledgeCitation(input) = command(operation, expanded, &context()).unwrap()
+    else {
+        panic!("citation command expected")
+    };
+    assert_eq!(input.limit, 64 * 1024);
     for (key, value) in [
         ("chunk", json!("invalid")),
-        ("limit", json!(65537)),
+        ("limit", json!(0)),
         ("offset", json!(4294967296_u64)),
         ("path", json!("/private/file")),
         ("context", json!("yes")),
@@ -158,4 +166,19 @@ fn reads_verified_citation_context() {
         assert!(!validator.is_valid(&invalid));
         assert!(command(operation, invalid, &context()).is_err());
     }
+}
+
+#[test]
+fn projects_only_the_output_window() {
+    let arguments = json!({"query":"q".repeat(8193),"limit":9007199254740991_u64,"offset":10001,"tags":vec!["t".repeat(129);33]});
+    let Command::QueryKnowledge(query) =
+        command(Operation::KnowledgeQuery, arguments.clone(), &context()).unwrap()
+    else {
+        panic!("knowledge query expected")
+    };
+    assert_eq!(query.query, arguments["query"].as_str().unwrap());
+    assert_eq!(query.limit, knowledge::PAGE_LIMIT);
+    assert_eq!(query.offset, 10001);
+    assert_eq!(query.tags.len(), 33);
+    assert_eq!(arguments["limit"], json!(9007199254740991_u64));
 }

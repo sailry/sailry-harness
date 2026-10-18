@@ -246,7 +246,6 @@ pub(super) fn formatted(text: &str) -> Result<Vec<search::Result>, Failure> {
     }
     let entries: Result<Vec<_>, Failure> = text
         .split("\n\n---\n\n")
-        .take(search::MAX_LIMIT as usize)
         .map(|entry| {
             let mut title = None;
             let mut url = None;

@@ -61,7 +61,7 @@ pub(super) fn permits(
 pub(super) fn validate(db: &Connection, sharing: Option<&Sharing>) -> Result<(), Fault> {
     if let Some(Sharing::Projects(projects)) = sharing {
         let unique: std::collections::BTreeSet<_> = projects.iter().collect();
-        if projects.is_empty() || projects.len() > 128 || unique.len() != projects.len() {
+        if projects.is_empty() || unique.len() != projects.len() {
             return Err(Fault::invalid("select distinct projects for sharing"));
         }
         for project in projects {
@@ -82,3 +82,39 @@ fn missing() -> Fault {
 
 mod workspace;
 pub(super) use workspace::workspace;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_larger_project_sets() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE projects(id TEXT PRIMARY KEY); CREATE TABLE removed_projects(project TEXT)").unwrap();
+        let projects: Vec<_> = (0..129).map(|_| ProjectId::new()).collect();
+        for project in &projects {
+            db.execute("INSERT INTO projects VALUES(?1)", [project.to_string()])
+                .unwrap();
+        }
+        validate(&db, Some(&Sharing::Projects(projects.clone()))).unwrap();
+        for invalid in [Vec::new(), vec![projects[0], projects[0]]] {
+            assert_eq!(
+                validate(&db, Some(&Sharing::Projects(invalid)))
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidRequest
+            );
+        }
+        db.execute(
+            "INSERT INTO removed_projects VALUES(?1)",
+            [projects[0].to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            validate(&db, Some(&Sharing::Projects(projects)))
+                .unwrap_err()
+                .code,
+            ErrorCode::NotFound
+        );
+    }
+}

@@ -105,21 +105,21 @@ pub(in crate::store) fn validate_index(index: &Index) -> Result<(), Fault> {
 }
 
 fn validate_query(query: &Search) -> Result<(), Fault> {
-    if query.terms.len() > storage::MAX_TERMS
-        || query
-            .query
-            .as_ref()
-            .is_some_and(|text| text.len() > storage::MAX_QUERY_BYTES || text.contains('\0'))
+    if query.query.as_ref().is_some_and(|text| text.contains('\0'))
         || query
             .terms
             .iter()
             .any(|term| term.is_empty() || term.contains('\0'))
-        || query.terms.iter().map(String::len).sum::<usize>() > storage::MAX_QUERY_BYTES
-        || !valid_tags(&query.all)
-        || !valid_tags(&query.any)
+        || query
+            .all
+            .iter()
+            .any(|tag| tag.is_empty() || tag.contains('\0'))
+        || query
+            .any
+            .iter()
+            .any(|tag| tag.is_empty() || tag.contains('\0'))
         || query.weights.contains(&0)
-        || !(1..=storage::MAX_PAGE_LIMIT).contains(&query.limit)
-        || usize::from(query.offset) > storage::MAX_NAMESPACE_KEYS
+        || query.limit == 0
     {
         return Err(sailry_protocol::Fault::invalid(
             "invalid plugin search query",
@@ -179,13 +179,18 @@ pub(super) fn read(db: &Connection, name: &str, query: &Search) -> Result<Search
     let table = table(name);
     let sql = statement(&table, query, "v.key,v.revision,v.value");
     let mut statement = db.prepare(&sql).map_err(storage_error)?;
-    let parameters = parameters(name, query, i64::from(query.limit) + 1, query.offset)?;
+    let parameters = parameters(
+        name,
+        query,
+        i64::from(query.limit.min(storage::MAX_PAGE_LIMIT)) + 1,
+        query.offset,
+    )?;
     let mut rows = statement
         .query(rusqlite::params_from_iter(parameters.iter()))
         .map_err(storage_error)?;
     while let Some(row) = rows.next().map_err(storage_error)? {
-        if page.entries.len() == usize::from(query.limit) {
-            page.next = Some(query.offset + page.entries.len() as u16);
+        if page.entries.len() == usize::from(query.limit.min(storage::MAX_PAGE_LIMIT)) {
+            page.next = Some(query.offset.saturating_add(page.entries.len() as u16));
             break;
         }
         let revision: i64 = row.get(1).map_err(storage_error)?;
@@ -209,7 +214,7 @@ pub(super) fn read(db: &Connection, name: &str, query: &Search) -> Result<Search
             > storage::MAX_SEARCH_BYTES
         {
             page.entries.pop();
-            page.next = Some(query.offset + page.entries.len() as u16);
+            page.next = Some(query.offset.saturating_add(page.entries.len() as u16));
             break;
         }
     }

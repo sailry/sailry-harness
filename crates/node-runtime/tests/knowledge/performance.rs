@@ -102,7 +102,7 @@ async fn retrieval(
     let mut input = query(text, id);
     input.mode = mode;
     input.offset = offset;
-    input.limit = MAX_LIMIT;
+    input.limit = PAGE_LIMIT;
     input.path = path.map(str::to_owned);
     let admission = client
         .dispatch(client.prepare(Command::QueryKnowledge(input)))

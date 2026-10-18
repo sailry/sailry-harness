@@ -429,8 +429,11 @@ async fn supports_bound_connections() {
             }
             server.replace_tools(vec![
                 (plugin_tool(PACKAGE, "read"), json!({"id":document.id})),
-                (plugin_tool(PACKAGE, "list"), json!({"limit":64})),
-                (plugin_tool(PACKAGE, "revisions"), json!({"id":document.id})),
+                (plugin_tool(PACKAGE, "list"), json!({"limit":100_000})),
+                (
+                    plugin_tool(PACKAGE, "revisions"),
+                    json!({"id":document.id,"limit":100_000}),
+                ),
             ]);
             let turn = submit(&fixture, "Inspect the saved connection summary").await;
             let page = questions::finish_plan(&fixture.client, fixture.session.id, turn).await;

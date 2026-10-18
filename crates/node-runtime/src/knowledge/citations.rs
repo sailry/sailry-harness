@@ -315,7 +315,9 @@ fn page(
             "knowledge citation offset is not a text boundary",
         ));
     }
-    let mut end = start.saturating_add(input.limit as usize).min(text.len());
+    let mut end = start
+        .saturating_add(input.limit.min(64 * 1024) as usize)
+        .min(text.len());
     while !text.is_char_boundary(end) {
         end -= 1;
     }

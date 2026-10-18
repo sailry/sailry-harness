@@ -96,6 +96,8 @@ impl Server {
                             release.cancelled().await;
                             b"HTTP/1.1 302 Found\r\nLocation: /html\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec()
                         }
+                        "/long-redirect" => format!("HTTP/1.1 302 Found\r\nLocation: /html?query={}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", "x".repeat(8193)).into_bytes(),
+                        "/long-private-redirect" => format!("HTTP/1.1 302 Found\r\nLocation: http://{address}/html?query={}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", "x".repeat(8193)).into_bytes(),
                         "/private" => format!("HTTP/1.1 302 Found\r\nLocation: http://{address}/html\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes(),
                         "/credentials" => format!("HTTP/1.1 302 Found\r\nLocation: http://user@{HOST}:{}/html\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", address.port()).into_bytes(),
                         "/declared" => format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", sailry_protocol::web::MAX_BODY_BYTES + 1).into_bytes(),

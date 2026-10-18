@@ -48,6 +48,38 @@ async fn reads_public_text_and_bounded_redirects() {
 }
 
 #[tokio::test]
+async fn preserves_long_urls_through_redirects() {
+    let server = server::Server::start().await;
+    let owner = owner(&server);
+    let suffix = format!("/html?query={}", "x".repeat(8193));
+    let url = format!("{}{suffix}", server.origin);
+    let direct = fetch(&owner, url.clone()).await.unwrap();
+    assert_eq!(direct.url, url);
+    assert_eq!(direct.content, server::TEXT);
+    let redirected = fetch(&owner, format!("{}/long-redirect", server.origin))
+        .await
+        .unwrap();
+    assert_eq!(redirected.url, url);
+    assert_eq!(redirected.content, server::TEXT);
+    assert_eq!(
+        fetch(&owner, format!("{}/long-private-redirect", server.origin))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::PermissionDenied
+    );
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 4);
+    assert!(requests[0].starts_with(&format!("GET {suffix} HTTP/1.1")));
+    assert!(requests[2].starts_with(&format!("GET {suffix} HTTP/1.1")));
+    assert!(
+        requests
+            .iter()
+            .all(|request| !request.to_ascii_lowercase().contains("authorization:"))
+    );
+}
+
+#[tokio::test]
 async fn pages_cached_content_without_refetching() {
     let server = server::Server::start().await;
     let owner = owner(&server);

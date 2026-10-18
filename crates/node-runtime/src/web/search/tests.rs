@@ -458,3 +458,46 @@ async fn keyless_live_smoke() {
     assert!(!page.results.is_empty());
     assert!(page.untrusted);
 }
+
+#[tokio::test]
+async fn requests_each_provider_page_without_requerying() {
+    let server = Server::start().await;
+    let owner = Arc::new(Searcher::default());
+    for driver in Driver::ALL {
+        let plan = plan(&[driver]);
+        owner.configure(plan.settings.clone());
+        owner.fixture(driver, &server.url(driver));
+        let input = search::Request {
+            query: "source".into(),
+            limit: 50,
+        };
+        let page = owner
+            .search(
+                NodeId([1; 32]),
+                RequestId::new(),
+                plan,
+                &input,
+                &CancellationToken::new(),
+            )
+            .await
+            .unwrap();
+        let limit = match driver {
+            Driver::Brave | Driver::Tavily => 20,
+            _ => 50,
+        };
+        assert!(page.fetch_hint.contains(&format!("up to {limit} results")));
+    }
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests.len(), 5);
+    for (header, body) in requests.iter() {
+        if header.starts_with("GET /brave") {
+            assert!(header.contains("count=20"));
+        } else if header.starts_with("POST /tavily") {
+            assert_eq!(body["max_results"], 20);
+        } else if header.starts_with("POST /bocha") {
+            assert_eq!(body["count"], 50);
+        } else if header.starts_with("POST /exa") {
+            assert_eq!(body["numResults"], 50);
+        }
+    }
+}

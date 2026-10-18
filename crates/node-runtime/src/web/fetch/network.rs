@@ -129,9 +129,6 @@ pub(super) async fn fetch(owner: &Fetcher, mut url: Url) -> Result<Document, Fau
                 .get(header::LOCATION)
                 .and_then(|value| value.to_str().ok())
                 .ok_or_else(|| unavailable("web redirect has no valid location"))?;
-            if target.len() > web::MAX_URL_BYTES {
-                return Err(Fault::invalid("web redirect URL exceeds the size limit"));
-            }
             let target = url
                 .join(target)
                 .map_err(|_| Fault::invalid("invalid web redirect URL"))?;

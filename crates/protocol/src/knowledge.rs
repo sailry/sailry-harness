@@ -3,10 +3,8 @@ use crate::{Fault, KnowledgeId, WorktreeId, plugin::storage::Scope};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_LIMIT: u16 = 5;
-pub const MAX_LIMIT: u16 = 20;
-pub const MAX_QUERY_BYTES: usize = 8192;
+pub const PAGE_LIMIT: u16 = 100;
 pub const MAX_COLLECTIONS: usize = 128;
-pub const MAX_FILTERS: usize = 32;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -159,18 +157,14 @@ impl Draft {
 impl Definition {
     pub fn validate(&self) -> Result<(), Fault> {
         if self.name.trim().is_empty()
-            || self.name.len() > 256
             || self.name.contains('\0')
             || !filters(&self.tags)
-            || self.globs.len() > MAX_FILTERS
             || self
                 .globs
                 .iter()
-                .any(|glob| glob.is_empty() || glob.len() > 1024 || glob.contains('\0'))
-            || self.shared_with.len() > MAX_FILTERS
+                .any(|glob| glob.is_empty() || glob.contains('\0'))
             || self.shared_with.iter().any(|name| {
                 name.is_empty()
-                    || name.len() > 128
                     || !name.bytes().all(|byte| {
                         byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.')
                     })
@@ -192,7 +186,7 @@ impl Definition {
                 return Ok(());
             }
         };
-        if path.len() > 8192 || path.contains('\0') {
+        if path.contains('\0') {
             return Err(Fault::invalid("invalid knowledge source path"));
         }
         Ok(())
@@ -283,25 +277,18 @@ fn default_limit() -> u16 {
 }
 
 fn filters(values: &[String]) -> bool {
-    values.len() <= MAX_FILTERS
-        && values
-            .iter()
-            .all(|value| !value.is_empty() && value.len() <= 128 && !value.contains('\0'))
+    values
+        .iter()
+        .all(|value| !value.is_empty() && !value.contains('\0'))
 }
 
 impl Query {
     pub fn validate(&self) -> Result<(), Fault> {
         if self.query.trim().is_empty()
-            || self.query.len() > MAX_QUERY_BYTES
             || self.query.contains('\0')
-            || self.collections.len() > MAX_COLLECTIONS
             || !filters(&self.tags)
-            || !(1..=MAX_LIMIT).contains(&self.limit)
-            || self.offset > 10_000
-            || self
-                .path
-                .as_ref()
-                .is_some_and(|path| path.len() > 8192 || path.contains('\0'))
+            || self.limit == 0
+            || self.path.as_ref().is_some_and(|path| path.contains('\0'))
             || matches!((self.modified_after_ms, self.modified_before_ms), (Some(after), Some(before)) if after > before)
         {
             return Err(Fault::invalid("invalid knowledge query or filters"));
@@ -384,7 +371,7 @@ impl CitationRequest {
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         };
-        if !hash(&self.chunk) || !hash(&self.revision) || !(1..=64 * 1024).contains(&self.limit) {
+        if !hash(&self.chunk) || !hash(&self.revision) || self.limit == 0 {
             return Err(Fault::invalid("invalid knowledge citation request"));
         }
         Ok(())
@@ -472,11 +459,15 @@ mod tests {
         assert_eq!(query.limit, DEFAULT_LIMIT);
         query.validate().unwrap();
         assert!(serde_json::from_str::<Query>(r#"{"query":"local","owner":"other"}"#).is_err());
-        for limit in [0, MAX_LIMIT + 1] {
-            let mut invalid = query.clone();
-            invalid.limit = limit;
-            assert!(invalid.validate().is_err());
-        }
+        let mut expanded = query.clone();
+        expanded.limit = u16::MAX;
+        expanded.offset = 10_001;
+        expanded.query = "q".repeat(8193);
+        expanded.tags = vec!["tag".repeat(129); 33];
+        expanded.validate().unwrap();
+        let mut invalid = query.clone();
+        invalid.limit = 0;
+        assert!(invalid.validate().is_err());
         let mut invalid = query;
         invalid.modified_after_ms = Some(20);
         invalid.modified_before_ms = Some(10);
@@ -523,6 +514,8 @@ mod tests {
         assert!(invalid.validate().is_err());
         invalid = valid.clone();
         invalid.limit += 1;
+        invalid.validate().unwrap();
+        invalid.limit = 0;
         assert!(invalid.validate().is_err());
         let mut value = serde_json::to_value(valid).unwrap();
         value["path"] = serde_json::json!("/private/source");

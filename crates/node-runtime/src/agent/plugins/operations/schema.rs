@@ -236,7 +236,7 @@ pub(super) fn parameters(operation: Operation) -> Value {
         Operation::Http => (
             json!({
                 "method":{"type":"string", "enum":["GET","HEAD","POST","PUT","PATCH","DELETE","OPTIONS"]},
-                "url":{"type":"string", "minLength":1, "maxLength":4096},
+                "url":{"type":"string", "minLength":1},
                 "headers":{"type":"object", "additionalProperties":{"type":"string"}},
                 "body":{"type":["string","null"]},
                 "credential":{"type":["string","null"]},
@@ -245,16 +245,16 @@ pub(super) fn parameters(operation: Operation) -> Value {
             vec!["method", "url"],
         ),
         Operation::FetchWeb => (
-            json!({"url":{"type":"string", "minLength":1, "maxLength":sailry_protocol::web::MAX_URL_BYTES}, "offset":{"type":"integer", "minimum":0, "default":0}}),
+            json!({"url":{"type":"string", "minLength":1}, "offset":{"type":"integer", "minimum":0, "default":0}}),
             vec!["url"],
         ),
         Operation::SearchWeb => (
-            json!({"query":{"type":"string", "minLength":1}, "limit":{"type":"integer", "default":5, "minimum":1, "maximum":10}}),
+            json!({"query":{"type":"string", "minLength":1}, "limit":{"type":"integer", "default":5, "minimum":1, "maximum":9_007_199_254_740_991u64}}),
             vec!["query"],
         ),
         Operation::GetValue => (json!({"key":key}), vec!["key"]),
         Operation::ListKeys => (
-            json!({"prefix":{"type":"string"}, "after":{"type":["string","null"]}, "limit":{"type":"integer", "minimum":1, "maximum":plugin::storage::MAX_PAGE_LIMIT}}),
+            json!({"prefix":{"type":"string"}, "after":{"type":["string","null"]}, "limit":{"type":"integer", "minimum":1, "maximum":9_007_199_254_740_991u64}}),
             vec!["prefix", "after", "limit"],
         ),
         Operation::SetValue => (
@@ -271,11 +271,11 @@ pub(super) fn parameters(operation: Operation) -> Value {
         ),
         Operation::RunCommand => (
             json!({
-                "command":{"type":"string"}, "access":{"type":["string","null"],"enum":["workspace","unrestricted",null],"description":"Workspace access is confined and has no network on macOS/Linux. Unrestricted access needs fresh approval in Ask/Project and runs automatically in Full."}, "description":{"type":["string","null"],"maxLength":2000}, "cwd":{"type":"string"},
-                "timeout_ms":{"type":"integer", "minimum":1, "maximum":900000},
+                "command":{"type":"string"}, "access":{"type":["string","null"],"enum":["workspace","unrestricted",null],"description":"Workspace access is confined and has no network on macOS/Linux. Unrestricted access needs fresh approval in Ask/Project and runs automatically in Full."}, "description":{"type":["string","null"]}, "cwd":{"type":"string"},
+                "timeout_ms":{"type":"integer", "minimum":1, "maximum":9_007_199_254_740_991u64},
                 "background":{"type":"boolean"},
                 "pty":{"type":"boolean", "default":false},
-                "attachments":{"type":"array", "items":{"type":"string"}, "maxItems":8, "uniqueItems":true}
+                "attachments":{"type":"array", "items":{"type":"string"}, "uniqueItems":true}
             }),
             vec![
                 "command",
@@ -671,7 +671,26 @@ pub(super) fn command(
         | Operation::ReadBrowser
         | Operation::ControlBrowser => unreachable!(),
     };
+    let arguments = match operation {
+        Operation::SearchWeb => {
+            bounded_page(arguments, u64::from(sailry_protocol::search::MAX_LIMIT))?
+        }
+        Operation::ListKeys => bounded_page(arguments, u64::from(plugin::storage::MAX_PAGE_LIMIT))?,
+        _ => arguments,
+    };
     serde_json::from_value(json!({"kind":kind, "data":arguments})).map_err(invalid)
+}
+
+// Read limits describe requested output, not an allocation or an atomic write.
+pub(super) fn bounded_page(mut arguments: Value, budget: u64) -> Result<Value, Fault> {
+    if let Some(limit) = arguments.get_mut("limit") {
+        let requested = limit
+            .as_u64()
+            .filter(|value| *value > 0 && *value <= 9_007_199_254_740_991)
+            .ok_or_else(|| Fault::invalid("limit must be a positive safe integer"))?;
+        *limit = json!(requested.min(budget));
+    }
+    Ok(arguments)
 }
 
 fn invalid(error: serde_json::Error) -> Fault {
@@ -695,6 +714,21 @@ mod tests {
             worktree: Some(sailry_protocol::WorktreeId::new()),
             session: Some(sailry_protocol::SessionId::new()),
         }
+    }
+
+    #[test]
+    fn fetch_preserves_long_urls_and_defaults() {
+        let url = format!("https://example.com/page?query={}", "x".repeat(8193));
+        let arguments = json!({"url":url});
+        let schema = parameters(Operation::FetchWeb);
+        let validator = jsonschema::draft202012::options().build(&schema).unwrap();
+        assert!(validator.is_valid(&arguments));
+        let Command::FetchWeb(request) = command(Operation::FetchWeb, arguments, &scope()).unwrap()
+        else {
+            panic!("web request expected")
+        };
+        assert_eq!(request.url, url);
+        assert_eq!(request.offset, 0);
     }
 
     #[test]

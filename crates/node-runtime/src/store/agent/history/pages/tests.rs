@@ -149,8 +149,22 @@ fn validates_resource_boundaries_and_limits() {
         )
         .is_err()
     );
-    for limit in [0, 101] {
-        assert!(read(&fixture.database.connection, fixture.session, None, limit).is_err());
+    assert!(read(&fixture.database.connection, fixture.session, None, 0).is_err());
+    assert!(
+        turn(
+            &fixture.database.connection,
+            fixture.session,
+            first,
+            None,
+            0
+        )
+        .is_err()
+    );
+    for limit in [101, u16::MAX] {
+        assert_eq!(
+            read(&fixture.database.connection, fixture.session, None, limit).unwrap(),
+            original
+        );
         assert!(
             turn(
                 &fixture.database.connection,
@@ -159,7 +173,9 @@ fn validates_resource_boundaries_and_limits() {
                 None,
                 limit
             )
-            .is_err()
+            .unwrap()
+            .entries
+            .is_empty()
         );
     }
     assert!(

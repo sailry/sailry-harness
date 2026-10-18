@@ -7,6 +7,7 @@ mod conversation;
 mod errors;
 mod knowledge;
 mod models;
+mod paging;
 mod planning;
 mod roles;
 mod web;

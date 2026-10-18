@@ -266,9 +266,11 @@ fn validate_binding(
             }
             let header = reqwest::header::HeaderName::from_bytes(name.as_bytes())
                 .map_err(|_| sailry_protocol::Fault::invalid("invalid secret header name"))?;
-            if binding.prefix.as_ref().is_some_and(|prefix| {
-                prefix.len() > 128 || reqwest::header::HeaderValue::from_str(prefix).is_err()
-            }) {
+            if binding
+                .prefix
+                .as_ref()
+                .is_some_and(|prefix| reqwest::header::HeaderValue::from_str(prefix).is_err())
+            {
                 return Err(sailry_protocol::Fault::invalid(
                     "invalid MCP credential prefix",
                 ));

@@ -43,7 +43,7 @@ struct Arguments {
     turn: Option<TurnId>,
     revision: Option<u64>,
     before_entry: Option<u64>,
-    limit: Option<u16>,
+    limit: Option<u64>,
 }
 
 #[async_trait]
@@ -61,7 +61,7 @@ impl Definition for ReadSession {
             "turn":{"type":["string","null"],"description":"Incomplete turn ID from missing"},
             "revision":{"type":["integer","null"],"description":"page.revision, required with turn"},
             "before_entry":{"type":["integer","null"],"description":"next_before from a turn read"},
-            "limit":{"type":"integer","minimum":1,"maximum":20}
+            "limit":{"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64,"description":"Requested turns or entries; each response has an independent output budget and continuation"}
         }})
     }
     fn read_only(&self) -> bool {
@@ -76,11 +76,12 @@ impl Definition for ReadSession {
             ));
         }
         let limit = args.limit.unwrap_or(5);
-        if !(1..=20).contains(&limit) {
+        if !(1..=9_007_199_254_740_991).contains(&limit) {
             return Err(sailry_protocol::Fault::invalid(
-                "history limit must be between 1 and 20",
+                "history limit must be a positive safe integer",
             ));
         }
+        let limit = limit.min(100) as u16;
         if let Some(turn) = args.turn {
             if args.before.is_some() {
                 return Err(sailry_protocol::Fault::invalid(
