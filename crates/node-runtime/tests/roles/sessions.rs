@@ -324,7 +324,19 @@ async fn preserves_frozen_revisions() {
         });
         let restored = snapshot(&client).await;
         assert_eq!(restored.sessions, [cleared]);
-        assert_eq!(restored.turns, [turn, second]);
+        assert_eq!(
+            restored.turns,
+            [TurnSummary::from(&turn), TurnSummary::from(&second)]
+        );
+        for capture in [&turn, &second] {
+            assert_eq!(
+                client
+                    .read_turn_capture(capture.session, capture.id)
+                    .await
+                    .unwrap(),
+                *capture
+            );
+        }
         assert_eq!(
             client.execute(request).await.unwrap(),
             Output::Session(revised)
@@ -419,7 +431,14 @@ async fn imports_private_providers() {
         });
         let restored = snapshot(&destination).await;
         assert_eq!(restored.sessions, [imported, default]);
-        assert_eq!(restored.turns, [queued]);
+        assert_eq!(restored.turns, [TurnSummary::from(&queued)]);
+        assert_eq!(
+            destination
+                .read_turn_capture(queued.session, queued.id)
+                .await
+                .unwrap(),
+            queued
+        );
         controller.close().await.unwrap();
         target.shutdown().await.unwrap();
     }

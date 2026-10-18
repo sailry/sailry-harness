@@ -8,6 +8,24 @@ use sailry_protocol::{
 use std::collections::{BTreeMap, BTreeSet};
 
 impl Client {
+    /// Loads the original admission capture without copying it into every Node snapshot.
+    /// Inherited turns retain their original session and frozen configuration.
+    pub async fn read_turn_capture(
+        &self,
+        session: SessionId,
+        turn: TurnId,
+    ) -> Result<QueuedTurn, Fault> {
+        match self
+            .execute(self.prepare(Command::ReadTurnCapture { session, turn }))
+            .await?
+        {
+            Output::QueuedTurn(capture) if capture.id == turn => Ok(capture),
+            _ => Err(Fault::invalid(
+                "turn capture response does not match the query",
+            )),
+        }
+    }
+
     pub async fn read_conversation(
         &self,
         session: SessionId,

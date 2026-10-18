@@ -93,9 +93,18 @@ async fn retains_admitted_versions() {
         let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
             panic!("snapshot expected")
         };
-        assert!(snapshot.turns.contains(&old));
-        assert!(snapshot.turns.contains(&new));
-        assert!(snapshot.turns.contains(&disabled));
+        for turn in [&old, &new, &disabled] {
+            assert!(snapshot.turns.contains(&TurnSummary::from(turn)));
+            assert_eq!(
+                client.read_turn_capture(session.id, turn.id).await.unwrap(),
+                *turn
+            );
+        }
+        assert_eq!(
+            client.read_turn_capture(branch.id, old.id).await.unwrap(),
+            old
+        );
+        assert!(client.read_turn_capture(branch.id, new.id).await.is_err());
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

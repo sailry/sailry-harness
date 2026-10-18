@@ -610,6 +610,11 @@ pub enum Command {
     ReadActivity {
         sessions: Vec<SessionId>,
     },
+    /// Reads the immutable admission capture of a visible turn on demand.
+    ReadTurnCapture {
+        session: SessionId,
+        turn: crate::TurnId,
+    },
     ReadTurn {
         session: SessionId,
         turn: crate::TurnId,
@@ -1522,6 +1527,7 @@ impl Command {
                 | Self::ReadSession { .. }
                 | Self::ReadUsage(_)
                 | Self::ReadActivity { .. }
+                | Self::ReadTurnCapture { .. }
                 | Self::ReadTurn { .. }
                 | Self::SearchConversation { .. }
                 | Self::ListConversationAssets { .. }
@@ -1673,7 +1679,8 @@ pub struct Snapshot {
     pub databases: Vec<crate::database::Profile>,
     pub plugins: Vec<crate::plugin::Summary>,
     pub notifications: Vec<crate::notification::Notice>,
-    pub turns: Vec<QueuedTurn>,
+    /// Admission identities only; complete captures are read with ReadTurnCapture.
+    pub turns: Vec<crate::TurnSummary>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

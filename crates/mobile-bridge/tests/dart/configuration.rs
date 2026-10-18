@@ -214,8 +214,26 @@ fn resumes_without_source() {
         assert_eq!(after.turns, before.turns);
         assert_eq!(after.roles, before.roles);
         assert_eq!(after.turns.len(), 4);
-        assert_eq!(after.turns[2].roles.profiles[0].key, "source-review");
-        assert_eq!(after.turns[3].roles.profiles[0].key, "target-review");
+        assert_eq!(
+            client
+                .read_turn_capture(after.turns[2].session, after.turns[2].id)
+                .await
+                .unwrap()
+                .roles
+                .profiles[0]
+                .key,
+            "source-review"
+        );
+        assert_eq!(
+            client
+                .read_turn_capture(after.turns[3].session, after.turns[3].id)
+                .await
+                .unwrap()
+                .roles
+                .profiles[0]
+                .key,
+            "target-review"
+        );
         target.shutdown().await.unwrap();
     });
     assert_eq!(selected.requests.lock().unwrap().len(), 1);

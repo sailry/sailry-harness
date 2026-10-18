@@ -165,7 +165,8 @@ async fn preserves_large_history_and_sessions() {
     }
     let history = snapshot(&local).await;
     assert_eq!(history.turns.len(), 34);
-    assert!(serde_json::to_vec(&history.turns).unwrap().len() > MAX_FRAME_BYTES);
+    // Role captures remain stored once per admission, not repeated in the index.
+    assert!(serde_json::to_vec(&history.turns).unwrap().len() < 16 * 1024);
     for client in [&local, &remote] {
         observe(client, &history).await;
     }
@@ -175,7 +176,16 @@ async fn preserves_large_history_and_sessions() {
     let Output::QueuedTurn(first) = result.unwrap() else {
         panic!("queued turn expected")
     };
-    assert_eq!(history.turns[0], first);
+    assert_eq!(history.turns[0], TurnSummary::from(&first));
+    for client in [&local, &remote] {
+        assert_eq!(
+            client
+                .read_turn_capture(session.id, first.id)
+                .await
+                .unwrap(),
+            first
+        );
+    }
     let mut changed = session.roles.profiles[0].clone();
     changed.instructions = "Updated role".into();
     execute(

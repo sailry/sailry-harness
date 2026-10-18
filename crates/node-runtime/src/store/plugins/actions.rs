@@ -588,6 +588,7 @@ impl Database {
                 ),
                 Command::ReadSession { session }
                 | Command::ReadConversation { session, .. }
+                | Command::ReadTurnCapture { session, .. }
                 | Command::ReadTurn { session, .. }
                 | Command::SearchConversation { session, .. }
                 | Command::ListConversationAssets { session, .. } => {

@@ -317,6 +317,16 @@ fn read(
     let (body, digest, warnings) =
         row.ok_or_else(|| Fault::new(ErrorCode::NotFound, "artifact revision does not exist"))?;
     let artifact: Summary = serde_json::from_slice(&body).map_err(storage_error)?;
+    if !artifact.valid()
+        || artifact.id != id
+        || artifact.revision != revision
+        || artifact.session != latest.session
+        || artifact.created_at != latest.created_at
+        || artifact.package.name != latest.package.name
+        || artifact.revision > latest.revision
+    {
+        return Err(storage_error("invalid stored artifact revision"));
+    }
     if artifact.session != session && !history::published(db, session, &artifact)? {
         return Err(denied(
             "artifact revision is outside the conversation history",
@@ -413,7 +423,8 @@ fn revisions(
     limit: u16,
     session: SessionId,
 ) -> Result<artifact::RevisionPage, Fault> {
-    let owner = required(db, id)?.session;
+    let latest = required(db, id)?;
+    let owner = latest.session;
     let limit = page_limit(limit)?;
     let mut query=db.prepare("SELECT body FROM artifact_revisions WHERE artifact=?1 AND revision<?2 ORDER BY revision DESC").map_err(storage_error)?;
     let mut rows = query
@@ -433,6 +444,15 @@ fn revisions(
         let value: Summary =
             serde_json::from_slice(&row.get::<_, Vec<u8>>(0).map_err(storage_error)?)
                 .map_err(storage_error)?;
+        if !value.valid()
+            || value.id != id
+            || value.session != owner
+            || value.created_at != latest.created_at
+            || value.package.name != latest.package.name
+            || value.revision > latest.revision
+        {
+            return Err(storage_error("invalid stored artifact revision"));
+        }
         if owner != session && !history::published(db, session, &value)? {
             continue;
         }
@@ -487,8 +507,17 @@ fn denied(message: &str) -> Fault {
 }
 
 pub(in crate::store) fn validate_stored(db: &Connection) -> Result<(), Fault> {
+    validate(db, true)
+}
+
+pub(in crate::store) fn validate_current(db: &Connection) -> Result<(), Fault> {
+    validate(db, false)
+}
+
+fn validate(db: &Connection, archives: bool) -> Result<(), Fault> {
     let missing: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL) OR EXISTS(SELECT 1 FROM artifact_revisions WHERE json_type(body,'$.kind') IS NULL)",
+        if archives { "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL) OR EXISTS(SELECT 1 FROM artifact_revisions WHERE json_type(body,'$.kind') IS NULL)" }
+        else { "SELECT EXISTS(SELECT 1 FROM artifacts WHERE json_type(body,'$.kind') IS NULL)" },
         [], |row| row.get(0),
     ).map_err(storage_error)?;
     if missing {
@@ -496,7 +525,12 @@ pub(in crate::store) fn validate_stored(db: &Connection) -> Result<(), Fault> {
             "stored artifact metadata is missing its kind",
         ));
     }
-    let mut query=db.prepare("SELECT a.id,a.session,a.body,r.revision,r.body,r.digest,r.warnings FROM artifacts a JOIN artifact_revisions r ON r.artifact=a.id").map_err(storage_error)?;
+    let sql = if archives {
+        "SELECT a.id,a.session,a.body,r.revision,r.body,r.digest,r.warnings FROM artifacts a JOIN artifact_revisions r ON r.artifact=a.id"
+    } else {
+        "SELECT a.id,a.session,a.body,r.revision,r.body,r.digest,r.warnings FROM artifacts a JOIN artifact_revisions r ON r.artifact=a.id AND r.revision=json_extract(a.body,'$.revision')"
+    };
+    let mut query = db.prepare(sql).map_err(storage_error)?;
     let mut rows = query.query([]).map_err(storage_error)?;
     while let Some(row) = rows.next().map_err(storage_error)? {
         let id: String = row.get(0).map_err(storage_error)?;
@@ -534,6 +568,8 @@ pub(in crate::store) fn validate_stored(db: &Connection) -> Result<(), Fault> {
     if missing {
         return Err(storage_error("artifact latest revision is missing"));
     }
-    history::validate(db)?;
+    if archives {
+        history::validate(db)?;
+    }
     Ok(())
 }

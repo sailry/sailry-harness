@@ -165,7 +165,10 @@ fn scheduled_session_recovers_workspace_and_keeps_turn() {
         );
         if known {
             assert_eq!(projection.snapshot().unwrap().sessions, vec![created]);
-            assert_eq!(projection.snapshot().unwrap().turns, vec![turn]);
+            assert_eq!(
+                projection.snapshot().unwrap().turns,
+                vec![TurnSummary::from(&turn)]
+            );
             assert_eq!(projection.apply(1, update).unwrap(), Apply::Ignored);
         }
     }

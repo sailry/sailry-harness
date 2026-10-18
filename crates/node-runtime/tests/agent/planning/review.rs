@@ -136,7 +136,8 @@ async fn starts_one_coding_turn() {
                     assert!(!covered, "plan acceptance must follow the initial snapshot");
                     let snapshot = projection.snapshot().unwrap();
                     assert_eq!(snapshot.sessions.iter().find(|item| item.id == session).unwrap(), &accepted.session);
-                    assert_eq!(snapshot.turns.iter().find(|turn| turn.id == accepted.turn.id).unwrap(), &accepted.turn);
+                    assert_eq!(snapshot.turns.iter().find(|turn| turn.id == accepted.turn.id).unwrap(), &TurnSummary::from(&accepted.turn));
+                    assert_eq!(fixture.client.read_turn_capture(accepted.turn.session, accepted.turn.id).await.unwrap(), accepted.turn);
                     assert_eq!(projection.apply(0, update.clone()).unwrap(), Apply::Ignored);
                     projection.reconnect(1).unwrap();
                     assert_eq!(projection.apply(0, update).unwrap(), Apply::Ignored);

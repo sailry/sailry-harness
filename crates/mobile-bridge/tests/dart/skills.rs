@@ -70,6 +70,16 @@ fn controls_host_skills() {
         let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
             panic!("snapshot expected")
         };
+        for turn in &snapshot.turns {
+            assert_eq!(
+                client
+                    .read_turn_capture(turn.session, turn.id)
+                    .await
+                    .unwrap()
+                    .plugins,
+                references
+            );
+        }
         let pages = tools::pages(&client, &sessions).await;
         node.shutdown().await.unwrap();
         (snapshot, pages)
@@ -77,7 +87,6 @@ fn controls_host_skills() {
     assert!(status.success());
     assert_eq!(pages[0].runs[0].status, Status::Completed);
     assert_eq!(pages[1].runs[0].status, Status::Cancelled);
-    assert!(snapshot.turns.iter().all(|turn| turn.plugins == references));
     assert_eq!(
         fs::read_to_string(root.join("script-count.txt")).unwrap(),
         "x"
@@ -93,6 +102,16 @@ fn controls_host_skills() {
         };
         assert_eq!(restored.sessions, snapshot.sessions);
         assert_eq!(restored.turns, snapshot.turns);
+        for turn in &restored.turns {
+            assert_eq!(
+                client
+                    .read_turn_capture(turn.session, turn.id)
+                    .await
+                    .unwrap()
+                    .plugins,
+                references
+            );
+        }
         node.shutdown().await.unwrap();
     });
     let requests = server.requests.lock().unwrap();

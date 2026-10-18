@@ -58,5 +58,6 @@ pub(super) fn resolve(status: &str, result: Option<String>) -> Result<RequestOut
 
 /// Decode the existing receipt without changing its status, body, or replay identity.
 pub(in crate::store) fn decode(body: &str) -> Result<Result<Output, Fault>, Fault> {
-    serde_json::from_str(body).map_err(storage_error)
+    serde_json::from_str(body)
+        .map_err(|_| Fault::new(ErrorCode::Internal, "stored request outcome is invalid"))
 }

@@ -122,6 +122,24 @@ pub struct SessionImport {
     pub role_credentials: Vec<crate::role::ProviderSecret>,
 }
 
+/// Lightweight admission identity used to reconcile requests after reconnects.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TurnSummary {
+    pub id: TurnId,
+    pub session: SessionId,
+    pub request: RequestId,
+}
+
+impl From<&QueuedTurn> for TurnSummary {
+    fn from(turn: &QueuedTurn) -> Self {
+        Self {
+            id: turn.id,
+            session: turn.session,
+            request: turn.request,
+        }
+    }
+}
+
 /// Admission metadata only, not another Agent conversation history.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueuedTurn {

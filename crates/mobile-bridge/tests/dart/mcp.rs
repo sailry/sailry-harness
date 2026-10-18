@@ -79,6 +79,16 @@ fn controls_host_tools() {
         let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
             panic!("snapshot expected")
         };
+        for turn in &snapshot.turns {
+            assert_eq!(
+                client
+                    .read_turn_capture(turn.session, turn.id)
+                    .await
+                    .unwrap()
+                    .plugins,
+                references
+            );
+        }
         (snapshot, tools::pages(&client, &sessions).await)
     });
     let data = node.profile().join("plugins/data/example");
@@ -100,7 +110,6 @@ fn controls_host_tools() {
     );
     assert_eq!(pages[0].runs[0].status, Status::Completed);
     assert_eq!(pages[1].runs[0].status, Status::Cancelled);
-    assert!(snapshot.turns.iter().all(|turn| turn.plugins == references));
     assert_eq!(fs::read_to_string(data.join("effects")).unwrap(), content);
     assert_eq!(fs::read_to_string(data.join("launches")).unwrap(), "xx");
     assert!(!directory.path().join("controller/plugins").exists());
@@ -113,6 +122,16 @@ fn controls_host_tools() {
         };
         assert_eq!(restored.sessions, snapshot.sessions);
         assert_eq!(restored.turns, snapshot.turns);
+        for turn in &restored.turns {
+            assert_eq!(
+                client
+                    .read_turn_capture(turn.session, turn.id)
+                    .await
+                    .unwrap()
+                    .plugins,
+                references
+            );
+        }
         node.shutdown().await.unwrap();
     });
     assert_eq!(fs::read_to_string(data.join("effects")).unwrap(), content);

@@ -806,6 +806,43 @@ mod catalog {
     }
 }
 
+#[test]
+fn streams_all_rows_without_skipping_updates() {
+    let fixture = Fixture::new();
+    for row in [i64::MIN, -1, 0, 1, i64::MAX] {
+        fixture
+            .db
+            .execute(
+                "INSERT INTO code_settings(rowid,body) VALUES(?1,?2)",
+                params![row, b"{}".as_slice()],
+            )
+            .unwrap();
+    }
+    let transaction = fixture.db.unchecked_transaction().unwrap();
+    assert!(reconcile(&transaction).unwrap());
+    let count: i64 = transaction
+        .query_row(
+            "SELECT count(*) FROM code_settings WHERE json_extract(body,'$.editor_enabled')=0",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 5);
+    assert!(!reconcile(&transaction).unwrap());
+    transaction.rollback().unwrap();
+    assert_eq!(
+        fixture
+            .db
+            .query_row(
+                "SELECT count(*) FROM code_settings WHERE body=X'7b7d'",
+                [],
+                |row| row.get::<_, i64>(0)
+            )
+            .unwrap(),
+        5
+    );
+}
+
 struct Fixture {
     db: Connection,
 }

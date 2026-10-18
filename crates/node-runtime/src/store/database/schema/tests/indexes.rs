@@ -170,3 +170,92 @@ fn rolls_back_failed_upgrade_transaction() {
     assert_eq!(records(&db), original);
     assert_eq!(startup::entries(&directory.path().join("backups")).len(), 1);
 }
+
+#[test]
+fn uses_session_lookup_and_preserves_records() {
+    let (directory, path, node) = startup::fixture("DROP INDEX turns_session");
+    let original = Connection::open(&path).unwrap();
+    let plan = |db: &Connection| -> Vec<String> {
+        db.prepare("EXPLAIN QUERY PLAN SELECT id FROM turns WHERE session=?1 ORDER BY rowid")
+            .unwrap()
+            .query_map(["session"], |row| row.get(3))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    assert!(
+        plan(&original)
+            .iter()
+            .any(|line| line.contains("SCAN turns"))
+    );
+    let before = original
+        .query_row("SELECT body FROM requests", [], |row| {
+            row.get::<_, Vec<u8>>(0)
+        })
+        .unwrap();
+    original.close().unwrap();
+    let upgraded = startup::upgraded(directory.path(), &path, node);
+    assert!(
+        plan(&upgraded)
+            .iter()
+            .any(|line| line.contains("USING INDEX turns_session"))
+    );
+    assert_eq!(
+        upgraded
+            .query_row("SELECT body FROM requests", [], |row| row
+                .get::<_, Vec<u8>>(0))
+            .unwrap(),
+        before
+    );
+    let backups = directory.path().join("backups");
+    let saved = Connection::open_with_flags(
+        backups.join(&startup::entries(&backups)[0]),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    assert!(plan(&saved).iter().any(|line| line.contains("SCAN turns")));
+    assert_eq!(
+        saved
+            .query_row("SELECT body FROM requests", [], |row| row
+                .get::<_, Vec<u8>>(0))
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        upgraded
+            .pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
+fn rolls_back_session_index_on_validation_failure() {
+    let (directory, path, node) = startup::fixture("DROP INDEX turns_session");
+    let mut db = Connection::open(&path).unwrap();
+    let schema = prepare(&db, &path, node).unwrap();
+    db.execute(
+        "UPDATE requests SET status='completed', result=?1",
+        [b"{".as_slice()],
+    )
+    .unwrap();
+    let before = objects(&db).unwrap();
+    {
+        let transaction = db.transaction().unwrap();
+        assert!(schema.initialize(&transaction).is_err());
+        assert!(
+            objects(&transaction)
+                .unwrap()
+                .contains_key(&("index".into(), "turns_session".into()))
+        );
+        transaction.rollback().unwrap();
+    }
+    assert_eq!(objects(&db).unwrap(), before);
+    assert_eq!(
+        db.query_row("SELECT result FROM requests", [], |row| row
+            .get::<_, Vec<u8>>(0))
+            .unwrap(),
+        b"{"
+    );
+    assert_eq!(startup::entries(&directory.path().join("backups")).len(), 1);
+}

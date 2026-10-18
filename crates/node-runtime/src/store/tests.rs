@@ -144,7 +144,14 @@ async fn freezes_session_and_queue_config() {
     assert_eq!(replayed.config, original);
     let state = snapshot(&second).await;
     assert_eq!(state.sessions[0].config, changed);
-    assert_eq!(state.turns[0].config, original);
+    assert_eq!(
+        client
+            .read_turn_capture(session.id, state.turns[0].id)
+            .await
+            .unwrap()
+            .config,
+        original
+    );
     assert_eq!(state.turns.len(), 1);
     node.shutdown().await.unwrap();
 }

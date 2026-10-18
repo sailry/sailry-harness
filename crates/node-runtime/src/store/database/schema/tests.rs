@@ -295,7 +295,7 @@ mod startup {
     }
 
     #[test]
-    fn rejects_invalid_queue_identity() {
+    fn rejects_invalid_queue_identity_during_upgrade() {
         for missing_revision in [false, true] {
             let (directory, path, node) = fixture("");
             let connection = Connection::open(&path).unwrap();
@@ -312,6 +312,13 @@ mod startup {
                     [receipt.to_string()],
                 )
                 .unwrap();
+            // Unused completed receipts validate when read, and always during upgrades.
+            assert!(matches!(
+                prepare(&connection, &path, node).unwrap().0,
+                State::Current
+            ));
+            assert!(crate::store::outcomes::decode(&receipt.to_string()).is_err());
+            connection.execute_batch("DROP INDEX events_kind").unwrap();
             let before = std::fs::read(&path).unwrap();
             let files = entries(directory.path());
             let changes = connection.total_changes();

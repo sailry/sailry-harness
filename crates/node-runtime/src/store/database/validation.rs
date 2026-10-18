@@ -6,7 +6,40 @@ use sailry_protocol::{
 };
 use serde::de::DeserializeOwned;
 
+#[cfg(test)]
+#[path = "validation/startup_tests.rs"]
+mod startup_tests;
+
+/// Complete validation remains mandatory for upgrades and backup acceptance.
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    validate(db, true)
+}
+
+/// Validate state that startup can consume or mutate; archives validate on read.
+pub(super) fn startup(db: &Connection) -> Result<(), Error> {
+    validate(db, false)
+}
+
+const LIVE_TURNS: &str = "SELECT turn FROM agent_pending
+    UNION SELECT turn FROM agent_runs WHERE json_extract(body,'$.status') IN ('queued','running','stopping')
+    UNION SELECT turn FROM agent_approvals WHERE json_extract(body,'$.state')='pending'
+    UNION SELECT turn FROM agent_questions WHERE json_extract(body,'$.state.kind')='pending'
+    UNION SELECT turn FROM agent_background WHERE state IN ('running','pending')
+    UNION SELECT delivery FROM agent_background WHERE state IN ('running','pending') AND delivery IS NOT NULL";
+
+fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
+    let live = if archives {
+        String::new()
+    } else {
+        format!(" WHERE turn IN ({LIVE_TURNS})")
+    };
+    let revisions = if archives {
+        String::new()
+    } else {
+        format!(
+            " WHERE (session,revision) IN (SELECT id,revision FROM sessions WHERE state!='removed' UNION SELECT session,revision FROM turns WHERE id IN ({LIVE_TURNS}))"
+        )
+    };
     if db.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='network_settings')",
         [],
@@ -25,12 +58,17 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
         "artifacts.body",
         "SELECT body FROM artifacts",
     )?;
-    records::<sailry_protocol::artifact::Summary>(
-        db,
-        "artifact_revisions.body",
-        "SELECT body FROM artifact_revisions",
-    )?;
-    crate::store::artifacts::validate_stored(db).map_err(|error| Error::Worker(error.message))?;
+    if archives {
+        records::<sailry_protocol::artifact::Summary>(
+            db,
+            "artifact_revisions.body",
+            "SELECT body FROM artifact_revisions",
+        )?;
+        crate::store::artifacts::validate_stored(db)
+    } else {
+        crate::store::artifacts::validate_current(db)
+    }
+    .map_err(|error| Error::Worker(error.message))?;
     records::<crate::store::backup::Stored>(
         db,
         "backup_settings.body",
@@ -77,12 +115,19 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
     records::<sailry_protocol::hooks::Settings>(
         db,
         "agent_runs.hooks",
-        "SELECT hooks FROM agent_runs",
+        &format!("SELECT hooks FROM agent_runs{live}"),
     )?;
     records::<Result<sailry_protocol::process::Outcome, Fault>>(
         db,
         "hook_executions.result",
-        "SELECT result FROM hook_executions WHERE result IS NOT NULL",
+        &format!(
+            "SELECT result FROM hook_executions WHERE result IS NOT NULL{}",
+            if archives {
+                String::new()
+            } else {
+                format!(" AND turn IN ({LIVE_TURNS})")
+            }
+        ),
     )?;
     records::<sailry_protocol::code::Settings>(
         db,
@@ -106,17 +151,17 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
     records::<sailry_protocol::conversation::Approval>(
         db,
         "agent_approvals.body",
-        "SELECT body FROM agent_approvals",
+        &format!("SELECT body FROM agent_approvals{live}"),
     )?;
     records::<Option<crate::store::agent::ApprovalBinding>>(
         db,
         "agent_approvals.binding",
-        "SELECT binding FROM agent_approvals",
+        &format!("SELECT binding FROM agent_approvals{live}"),
     )?;
     records::<Option<crate::store::agent::approvals::Prepared>>(
         db,
         "agent_approvals.prepared",
-        "SELECT prepared FROM agent_approvals",
+        &format!("SELECT prepared FROM agent_approvals{live}"),
     )?;
     records::<crate::store::agent::ApprovalBinding>(
         db,
@@ -146,33 +191,55 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
     records::<sailry_protocol::dispatch::Job>(
         db,
         "dispatch_jobs.body",
-        "SELECT body FROM dispatch_jobs",
+        if archives {
+            "SELECT body FROM dispatch_jobs"
+        } else {
+            "SELECT body FROM dispatch_jobs WHERE status IN ('queued','running')"
+        },
     )?;
     records::<sailry_protocol::dispatch::Callback>(
         db,
         "dispatch_jobs.callback",
-        "SELECT callback FROM dispatch_jobs",
+        if archives {
+            "SELECT callback FROM dispatch_jobs"
+        } else {
+            "SELECT callback FROM dispatch_jobs WHERE status IN ('queued','running')"
+        },
     )?;
-    records::<sailry_protocol::dispatch::Event>(
-        db,
-        "dispatch_events.body",
-        "SELECT body FROM dispatch_events",
-    )?;
+    if archives {
+        records::<sailry_protocol::dispatch::Event>(
+            db,
+            "dispatch_events.body",
+            "SELECT body FROM dispatch_events",
+        )?;
+    }
     records::<sailry_protocol::plugin::Info>(db, "plugins.body", "SELECT body FROM plugins")?;
     records::<sailry_protocol::plugin::Info>(
         db,
         "plugin_packages.body",
-        "SELECT body FROM plugin_packages",
+        if archives {
+            "SELECT body FROM plugin_packages"
+        } else {
+            "SELECT p.body FROM plugin_packages p JOIN plugins c ON json_extract(c.body,'$.summary.digest')=p.digest WHERE c.installed=1"
+        },
     )?;
     records::<crate::store::plugins::settings::Stored>(
         db,
         "plugin_settings.body",
-        "SELECT body FROM plugin_settings",
+        if archives {
+            "SELECT body FROM plugin_settings"
+        } else {
+            "SELECT p.body FROM plugin_settings p JOIN plugins c ON c.name=p.plugin AND json_extract(c.body,'$.summary.settings_revision')=p.revision WHERE c.installed=1"
+        },
     )?;
     records::<crate::store::agent::background::Record>(
         db,
         "agent_background.body",
-        "SELECT body FROM agent_background",
+        if archives {
+            "SELECT body FROM agent_background"
+        } else {
+            "SELECT body FROM agent_background WHERE state IN ('running','pending')"
+        },
     )?;
     records::<sailry_protocol::conversation::background::Settings>(
         db,
@@ -182,7 +249,7 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
     records::<crate::store::agent::continuation::Fence>(
         db,
         "agent_continuations.body",
-        "SELECT body FROM agent_continuations",
+        &format!("SELECT body FROM agent_continuations{live}"),
     )?;
     records::<super::super::providers::Stored>(db, "providers.body", "SELECT body FROM providers")?;
     super::super::providers::validate_stored(db).map_err(|_| {
@@ -194,27 +261,44 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
     records::<SessionConfig>(
         db,
         "session_revisions.config",
-        "SELECT config FROM session_revisions",
+        &format!("SELECT config FROM session_revisions{revisions}"),
+    )?;
+    records::<Vec<sailry_protocol::plugin::Reference>>(
+        db,
+        "turns.plugins",
+        &format!(
+            "SELECT plugins FROM turns{}",
+            live.replacen("turn IN", "id IN", 1)
+        ),
     )?;
     records::<Provider>(
         db,
         "agent_runs.provider",
-        "SELECT provider FROM agent_runs WHERE provider IS NOT NULL",
+        &format!(
+            "SELECT provider FROM agent_runs WHERE provider IS NOT NULL{}",
+            live.replacen(" WHERE ", " AND ", 1)
+        ),
     )?;
     records::<sailry_protocol::conversation::Input>(
         db,
         "agent_runs.input",
-        "SELECT input FROM agent_runs WHERE input IS NOT NULL",
+        &format!(
+            "SELECT input FROM agent_runs WHERE input IS NOT NULL{}",
+            live.replacen(" WHERE ", " AND ", 1)
+        ),
     )?;
     records::<SessionProfile>(
         db,
         "session_revisions.profile",
-        "SELECT profile FROM session_revisions WHERE profile IS NOT NULL",
+        &format!(
+            "SELECT profile FROM session_revisions WHERE profile IS NOT NULL{}",
+            revisions.replacen(" WHERE ", " AND ", 1)
+        ),
     )?;
     records::<role::Snapshot>(
         db,
         "session_revisions.roles",
-        "SELECT roles FROM session_revisions",
+        &format!("SELECT roles FROM session_revisions{revisions}"),
     )?;
     records::<crate::store::media::Snapshot>(
         db,
@@ -226,12 +310,51 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
         "media_settings.body",
         "SELECT body FROM media_settings",
     )?;
-    records::<Event>(db, "events.body", "SELECT body FROM events")?;
+    records::<Event>(
+        db,
+        "events.body",
+        if archives {
+            "SELECT body FROM events"
+        } else {
+            "SELECT body FROM events WHERE json_extract(body,'$.kind')='sessions_reordered' ORDER BY cursor DESC LIMIT 1"
+        },
+    )?;
     records::<Result<Output, Fault>>(
         db,
         "requests.result",
-        "SELECT CAST(result AS BLOB) FROM requests WHERE result IS NOT NULL",
+        if archives {
+            "SELECT CAST(result AS BLOB) FROM requests WHERE result IS NOT NULL"
+        } else {
+            "SELECT CAST(result AS BLOB) FROM requests WHERE result IS NOT NULL AND status IN ('admitted','unknown')"
+        },
     )?;
+    records::<sailry_protocol::conversation::Run>(
+        db,
+        "agent_runs.body",
+        &format!("SELECT body FROM agent_runs{live}"),
+    )?;
+    records::<sailry_protocol::conversation::question::Question>(
+        db,
+        "agent_questions.body",
+        &format!("SELECT body FROM agent_questions{live}"),
+    )?;
+    records::<sailry_protocol::Request>(
+        db,
+        "requests.body",
+        "SELECT r.body FROM agent_pending p JOIN requests r ON r.caller=p.caller AND r.id=p.request",
+    )?;
+    if archives {
+        records::<adk_core::Event>(db, "agent_events.body", "SELECT body FROM agent_events")?;
+    } else {
+        // These completed receipts can participate in recovery, unlike unused archives.
+        records::<Result<Output, Fault>>(
+            db,
+            "requests.result",
+            &format!(
+                "SELECT CAST(result AS BLOB) FROM requests WHERE result IS NOT NULL AND (caller,id) IN (SELECT caller,request FROM turns WHERE id IN ({LIVE_TURNS}) UNION SELECT caller,request FROM agent_pending UNION SELECT n.identity,json_extract(j.body,'$.request') FROM node n JOIN dispatch_jobs j ON j.status='running')"
+            ),
+        )?;
+    }
     Ok(())
 }
 
@@ -241,11 +364,14 @@ pub(in crate::store) fn records<T: DeserializeOwned>(
     sql: &str,
 ) -> Result<(), Error> {
     let mut query = db.prepare(sql)?;
-    for (index, body) in query
-        .query_map([], |row| row.get::<_, Vec<u8>>(0))?
-        .enumerate()
-    {
-        serde_json::from_slice::<T>(&body?).map_err(|error| {
+    let mut rows = query.query([])?;
+    let mut index = 0;
+    while let Some(row) = rows.next()? {
+        let value = row.get_ref(0)?;
+        let body = value.as_blob().map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(0, value.data_type(), Box::new(error))
+        })?;
+        serde_json::from_slice::<T>(body).map_err(|error| {
             // Serde messages can include invalid values. Report the location, not the payload.
             Error::Worker(format!(
                 "invalid stored JSON in {source}, record {}, line {}, column {} ({:?}); existing data was not changed",
@@ -255,6 +381,7 @@ pub(in crate::store) fn records<T: DeserializeOwned>(
                 error.classify(),
             ))
         })?;
+        index += 1;
     }
     Ok(())
 }
@@ -318,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_continuation_scope_preserves_profile() {
+    fn rejects_invalid_continuation_during_upgrade() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory
             .path()
@@ -341,6 +468,10 @@ mod tests {
                     serde_json::to_vec(&fence).unwrap()
                 ],
             )
+            .unwrap();
+        database
+            .connection
+            .execute_batch("DROP INDEX events_kind")
             .unwrap();
         database.close().unwrap();
         let before = std::fs::read(&path).unwrap();
@@ -514,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_models() {
+    fn rejects_invalid_models_during_upgrade() {
         for owner in ["provider", "event", "receipt"] {
             let directory = tempfile::tempdir().unwrap();
             let path = directory
@@ -601,6 +732,10 @@ mod tests {
                     ],
                 )
                 .unwrap();
+            database
+                .connection
+                .execute_batch("DROP INDEX events_kind")
+                .unwrap();
             database.close().unwrap();
             let before = std::fs::read(&path).unwrap();
             let error = Database::open(&path, node, None).err().unwrap();
@@ -653,6 +788,11 @@ mod tests {
                 .query_row("SELECT count(*) FROM sessions", [], |row| row.get(0))
                 .unwrap();
             assert_eq!(sessions, 0);
+            // Upgrade acceptance still checks every archive before touching the source.
+            database
+                .connection
+                .execute_batch("DROP INDEX events_kind")
+                .unwrap();
             database.close().unwrap();
             let connection = Connection::open(path).unwrap();
             connection
@@ -886,7 +1026,7 @@ mod tests {
         }
 
         #[test]
-        fn unknown_output_rejects_before_writes() {
+        fn unknown_output_rejects_upgrade() {
             let (_directory, path, node, database) = fixture();
             for table in ["defaults", "plugins", "plugin_packages", "plugin_settings"] {
                 let count: i64 = database
@@ -909,7 +1049,7 @@ mod tests {
         }
 
         #[test]
-        fn unknown_event_rejects_before_writes() {
+        fn unknown_event_rejects_upgrade() {
             let (_directory, path, node, database) = fixture();
             let value = json!({
                 "kind": "unrecognized", "data": {"token": "diagnostic-secret-marker"}

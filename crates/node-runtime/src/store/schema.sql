@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS turns (
     FOREIGN KEY(session,revision) REFERENCES session_revisions(session,revision),
     FOREIGN KEY(caller,request) REFERENCES requests(caller,id)
 );
+CREATE INDEX IF NOT EXISTS turns_session ON turns(session);
 CREATE TABLE IF NOT EXISTS events (
     cursor INTEGER PRIMARY KEY AUTOINCREMENT,
     body BLOB NOT NULL
@@ -442,3 +443,12 @@ CREATE TABLE IF NOT EXISTS network_settings (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     body BLOB NOT NULL
 );
+
+-- Startup and recovery visit current state without decoding historical payloads.
+CREATE INDEX IF NOT EXISTS requests_status ON requests(status);
+CREATE INDEX IF NOT EXISTS events_kind ON events(json_extract(body,'$.kind'));
+CREATE INDEX IF NOT EXISTS agent_runs_status ON agent_runs(json_extract(body,'$.status'));
+CREATE INDEX IF NOT EXISTS agent_approvals_state ON agent_approvals(json_extract(body,'$.state'));
+CREATE INDEX IF NOT EXISTS agent_questions_state ON agent_questions(json_extract(body,'$.state.kind'));
+CREATE INDEX IF NOT EXISTS agent_background_state ON agent_background(state);
+CREATE INDEX IF NOT EXISTS dispatch_jobs_status ON dispatch_jobs(status);

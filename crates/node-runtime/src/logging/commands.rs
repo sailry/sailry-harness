@@ -13,6 +13,9 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         Command::ResolveQuestion { session, .. } => ("resolve_question", Some(*session), None),
         Command::ResolveApproval { session, .. } => ("resolve_approval", Some(*session), None),
         Command::ReadConversation { session, .. } => ("read_conversation", Some(*session), None),
+        Command::ReadTurnCapture { session, turn } => {
+            ("read_turn_capture", Some(*session), Some(*turn))
+        }
         Command::ReadTurn { session, turn, .. } => ("read_turn", Some(*session), Some(*turn)),
         _ if request.plugin.is_some() => (
             "plugin_command",

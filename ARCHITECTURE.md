@@ -606,7 +606,12 @@ fills missing storage fields with their defaults. Updates remain centralized and
 simple, with no historical state inference or versioned migration framework. Each
 update is validated on an isolated snapshot, backed up privately and applied with
 current-format validation in one transaction. The backup retains original records;
-startup does not reset or delete user data. Third-party dependency versions, ordinary
+startup does not reset or delete user data. Normal startup validates current
+configuration and records used by recovery, including the latest saved session
+order. Immutable historical captures, receipts and history are validated when their
+authoritative readers load them; unrelated archive damage therefore fails that
+read instead of blocking startup. Upgrades and backup acceptance still validate
+the complete stored data before applying changes. Third-party dependency versions, ordinary
 data revisions and event sequences are independent. Release compatibility remains
 a separate decision.
 

@@ -262,7 +262,7 @@ impl Projection {
                         }
                         update_session(&mut snapshot.sessions, *session);
                         snapshot.turns.retain(|item| item.id != turn.id);
-                        snapshot.turns.push(turn);
+                        snapshot.turns.push((&turn).into());
                     }
                     Event::SessionChanged(session) => {
                         // Creating a projectless session also reserves its workspace.
@@ -319,12 +319,12 @@ impl Projection {
                             session.activity = *activity;
                         }
                         snapshot.turns.retain(|item| item.id != turn.id);
-                        snapshot.turns.push(turn);
+                        snapshot.turns.push((&turn).into());
                     }
                     Event::PlanAccepted(accepted) => {
                         update_session(&mut snapshot.sessions, accepted.session);
                         snapshot.turns.retain(|item| item.id != accepted.turn.id);
-                        snapshot.turns.push(accepted.turn);
+                        snapshot.turns.push((&accepted.turn).into());
                     }
                 }
                 snapshot.cursor = envelope.cursor;

@@ -463,7 +463,15 @@ async fn injects_frozen_roles() {
             .iter()
             .find(|turn| turn.session == child.id)
             .unwrap();
-        assert_eq!(child_turn.plugins, parent_turn.plugins);
+        let parent_capture = client
+            .read_turn_capture(session.id, parent_turn.id)
+            .await
+            .unwrap();
+        let child_capture = client
+            .read_turn_capture(child.id, child_turn.id)
+            .await
+            .unwrap();
+        assert_eq!(child_capture.plugins, parent_capture.plugins);
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

@@ -7,6 +7,42 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 mod tests;
 
+/// Own the file and any SQLite sidecars until the preview connection closes.
+pub(super) struct Preview {
+    pub connection: Connection,
+    _file: tempfile::NamedTempFile,
+    _directory: tempfile::TempDir,
+}
+
+pub(super) fn preview(source: &Connection, path: &Path) -> Result<Preview, Error> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| Error::Worker("database directory is unavailable".into()))?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".upgrade-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let directory = builder.tempdir_in(parent)?;
+    crate::profile::private_directory(directory.path())?;
+    let file = tempfile::Builder::new()
+        .prefix("snapshot-")
+        .suffix(".sqlite3")
+        .tempfile_in(directory.path())?;
+    let mut connection = Connection::open_with_flags(
+        file.path(),
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    copy(source, &mut connection)?;
+    Ok(Preview {
+        connection,
+        _file: file,
+        _directory: directory,
+    })
+}
+
 pub(super) fn copy(source: &Connection, destination: &mut Connection) -> Result<(), Error> {
     let backup = Backup::new(source, destination)?;
     loop {

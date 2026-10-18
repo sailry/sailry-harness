@@ -515,6 +515,10 @@ pub(super) fn execute(
             Output::Conversation(super::agent::read(db, *session, *before, *limit)?),
             None,
         )),
+        Command::ReadTurnCapture { session, turn } => Ok((
+            Output::QueuedTurn(super::captures::read(db, *session, *turn)?),
+            None,
+        )),
         Command::ReadTurn {
             session,
             turn,
@@ -1160,44 +1164,7 @@ fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         .into_iter()
         .map(|id| session(db, id))
         .collect::<Result<Vec<_>, Fault>>()?;
-    let mut query = db.prepare("SELECT t.id,t.session,t.request,t.revision,r.config,t.kind FROM turns t JOIN session_revisions r ON r.session=t.session AND r.revision=t.revision JOIN sessions s ON s.id=t.session WHERE s.state!='removed' ORDER BY t.rowid").map_err(storage_error)?;
-    let turns = query
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, Vec<u8>>(4)?,
-                row.get::<_, String>(5)?,
-            ))
-        })
-        .map_err(storage_error)?
-        .map(|row| {
-            let (id, session, request, revision, config, kind) = row.map_err(storage_error)?;
-            Ok(QueuedTurn {
-                id: id.parse().map_err(storage_error)?,
-                kind: match kind.as_str() {
-                    "task" => conversation::RunKind::Task,
-                    "compaction" => conversation::RunKind::Compaction,
-                    _ => return Err(storage_error("turn kind is invalid")),
-                },
-                session: session.parse().map_err(storage_error)?,
-                request: request.parse().map_err(storage_error)?,
-                revision: revision.try_into().map_err(storage_error)?,
-                config: serde_json::from_slice(&config).map_err(storage_error)?,
-                roles: super::sessions::roles::read(
-                    db,
-                    session.parse().map_err(storage_error)?,
-                    revision.try_into().map_err(storage_error)?,
-                )?,
-                plugins: crate::store::agent::plugins::read(
-                    db,
-                    id.parse().map_err(storage_error)?,
-                )?,
-            })
-        })
-        .collect::<Result<Vec<_>, Fault>>()?;
+    let turns = super::captures::list(db)?;
     let cursor = db
         .query_row("SELECT coalesce(max(cursor),0) FROM events", [], |row| {
             row.get::<_, i64>(0)

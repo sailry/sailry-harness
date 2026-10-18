@@ -350,6 +350,7 @@ fn allowed(command: &Command) -> bool {
             | Command::ListArtifactRevisions { .. }
             | Command::ReadSession { .. }
             | Command::ReadConversation { .. }
+            | Command::ReadTurnCapture { .. }
             | Command::ReadTurn { .. }
             | Command::SubmitTurn { .. }
             | Command::ContinueTurn { .. }

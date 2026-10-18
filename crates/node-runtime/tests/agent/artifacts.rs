@@ -397,17 +397,12 @@ async fn supports_bound_connections() {
             );
             let documents = cards(&page);
             let document = documents.last().unwrap();
-            let snapshot = configuration::snapshot(&fixture.client).await;
-            assert_eq!(
-                snapshot
-                    .turns
-                    .iter()
-                    .find(|capture| capture.id == turn)
-                    .unwrap()
-                    .config
-                    .resource,
-                Some(resource)
-            );
+            let capture = fixture
+                .client
+                .read_turn_capture(fixture.session.id, turn)
+                .await
+                .unwrap();
+            assert_eq!(capture.config.resource, Some(resource));
             {
                 let requests = server.requests.lock().unwrap();
                 let request = requests.last().unwrap();

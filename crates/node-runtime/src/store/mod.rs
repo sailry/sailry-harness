@@ -4,6 +4,7 @@ mod artifacts;
 mod attachments;
 mod background_settings;
 mod backup;
+mod captures;
 mod code;
 mod commands;
 mod connections;

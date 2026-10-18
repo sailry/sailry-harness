@@ -171,11 +171,20 @@ async fn preserves_child_history_and_configuration() {
                 .count(),
             1
         );
-        let admitted: Vec<_> = snapshot
+        let mut admitted = Vec::new();
+        for turn in snapshot
             .turns
             .iter()
             .filter(|turn| turn.session == child.id)
-            .collect();
+        {
+            admitted.push(
+                fixture
+                    .client
+                    .read_turn_capture(child.id, turn.id)
+                    .await
+                    .unwrap(),
+            );
+        }
         assert_eq!(admitted.len(), 2);
         assert_eq!(admitted[0].config, admitted[1].config);
         assert!(

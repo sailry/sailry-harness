@@ -1,6 +1,6 @@
 //! Startup defaults for stored approvals and metadata for retired tools.
 use crate::Error;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 #[cfg(test)]
@@ -26,16 +26,21 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
         if !exists {
             continue;
         }
+        // Keyset iteration releases each read before updating that row and keeps
+        // startup memory bounded even when historical receipts contain snapshots.
         let sql = format!(
-            "SELECT rowid,CAST({column} AS BLOB) FROM {table} WHERE {column} IS NOT NULL ORDER BY rowid"
+            "SELECT rowid,CAST({column} AS BLOB) FROM {table} WHERE rowid>=?1 AND {column} IS NOT NULL ORDER BY rowid LIMIT 1"
         );
-        let records = db
-            .prepare(&sql)?
-            .query_map([], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()?;
-        for (row, before) in records {
+        let mut query = db.prepare(&sql)?;
+        let mut next = Some(i64::MIN);
+        while let Some(after) = next {
+            let record = query
+                .query_row([after], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
+                })
+                .optional()?;
+            let Some((row, before)) = record else { break };
+            next = row.checked_add(1);
             let Ok(mut value) = serde_json::from_slice::<Value>(&before) else {
                 // The canonical validator reports syntax locations without payload values.
                 continue;

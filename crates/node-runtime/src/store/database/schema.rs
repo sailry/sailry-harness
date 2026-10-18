@@ -51,14 +51,13 @@ pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Res
     }
     identity(connection, path, node)?;
     if verify(connection, path, DDL).is_ok()
-        && super::validation::stored(connection).is_ok()
+        && super::validation::startup(connection).is_ok()
         && crate::store::plugins::storage::search::validate(connection).is_ok()
     {
         return Ok(Schema(State::Current));
     }
-    let mut preview = Connection::open_in_memory()?;
-    backup::copy(connection, &mut preview)?;
-    let transaction = preview.transaction()?;
+    let mut preview = backup::preview(connection, path)?;
+    let transaction = preview.connection.transaction()?;
     let plan = plan::Plan::prepare(&transaction, path)?;
     plan.apply(&transaction)?;
     verify_owned(&transaction, path, DDL)?;
