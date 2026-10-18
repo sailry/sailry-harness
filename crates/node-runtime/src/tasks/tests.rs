@@ -45,6 +45,60 @@ async fn bounds_admitted_work() {
 }
 
 #[tokio::test]
+async fn supervises_children_beyond_generic_capacity() {
+    let supervisor = Supervisor::start(1);
+    let stop = sailry_link::CancellationToken::new();
+    let release = sailry_link::CancellationToken::new();
+    let held = release.clone();
+    let ordinary = supervisor
+        .tasks
+        .spawn(async move { held.cancelled().await })
+        .unwrap();
+    let mut children = Vec::new();
+    // The generic pool has 64 slots in a Node; it is not a child policy limit.
+    for index in 0..65 {
+        let held = release.clone();
+        children.push(
+            supervisor
+                .tasks
+                .spawn_child(&stop, async move {
+                    held.cancelled().await;
+                    index
+                })
+                .await
+                .unwrap(),
+        );
+    }
+    assert!(matches!(supervisor.tasks.spawn(async {}), Err(Error::Busy)));
+    release.cancel();
+    ordinary.await.unwrap();
+    for (index, child) in children.into_iter().enumerate() {
+        assert_eq!(child.await.unwrap(), index);
+    }
+    supervisor.shutdown(Duration::from_secs(1)).await.unwrap();
+}
+
+#[tokio::test]
+async fn rejects_stopped_children_before_execution() {
+    let supervisor = Supervisor::start(1);
+    let stop = sailry_link::CancellationToken::new();
+    stop.cancel();
+    let executed = Arc::new(AtomicBool::new(false));
+    let observed = executed.clone();
+    assert!(matches!(
+        supervisor
+            .tasks
+            .spawn_child(&stop, async move {
+                observed.store(true, Ordering::SeqCst);
+            })
+            .await,
+        Err(Error::Stopped)
+    ));
+    supervisor.shutdown(Duration::from_secs(1)).await.unwrap();
+    assert!(!executed.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
 async fn drains_on_shutdown() {
     let supervisor = Supervisor::start(2);
     let tasks = supervisor.tasks.clone();

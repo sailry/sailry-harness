@@ -87,7 +87,7 @@ fn canonical_admission_and_recovery() {
     let captured =
         history::pages::read(&fixture.database.connection, child.turn.session, None, 20).unwrap();
     assert!(captured.page.entries.is_empty());
-    assert_eq!(captured.page.runs[0].status, Status::Running);
+    assert_eq!(captured.page.runs[0].status, Status::Queued);
     assert_eq!(
         captured.page.runs[0].input.as_ref().unwrap().message.text,
         "Independent task"

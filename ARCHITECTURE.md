@@ -397,7 +397,13 @@ its founding ancestry. The same parent session may reuse an idle child without
 losing history or changing its role, effective configuration or worktree. Idle
 reuse captures current packages and settings; initial delegation inherits the
 parent's frozen capture, and guidance retains the active recipient's capture.
-Delegation waits synchronously by default. Opt-in background children remain
+Delegation waits synchronously by default.
+Node-wide child concurrency defaults to eight and is configurable independently
+of automatic completion notices. Children exceeding the running budget remain
+durably queued with their admitted captures; they do not occupy root workers.
+Lowering the budget leaves existing executions running. Stop cancels queued
+work, and restart interrupts owned execution waiters without replaying calls.
+Opt-in background children remain
 owned by their main session across guidance handoffs; the main agent can guide
 and wait for them through Node-owned tools in later turns. A successful main turn
 completes after its own execution, hooks and admitted operations settle, without

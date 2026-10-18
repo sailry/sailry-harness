@@ -130,6 +130,17 @@ pub(super) enum Operation {
         token: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Invocation, Fault>>,
     },
+    ClaimChild {
+        turn: TurnId,
+        token: sailry_link::CancellationToken,
+        reply: oneshot::Sender<Result<Status, Fault>>,
+    },
+    FinishQueuedChild {
+        turn: TurnId,
+        status: Status,
+        error: Option<Fault>,
+        reply: oneshot::Sender<Result<Status, Fault>>,
+    },
     CommandFinished(crate::process::background::Finished),
     ConsumeCommand {
         parent: TurnId,
@@ -599,6 +610,37 @@ pub(super) fn execute(
             if let Ok(invocation) = &result {
                 controls.register(invocation.turn.id, invocation.turn.session, token);
             }
+            let _ = reply.send(result);
+        }
+        Operation::ClaimChild { turn, token, reply } => {
+            let result = if controls.stopped.is_cancelled() || token.is_cancelled() {
+                let status = if controls.stopped.is_cancelled() {
+                    Status::Interrupted
+                } else {
+                    Status::Cancelled
+                };
+                delegation::finish_queued(database, turn, status, None, events)
+            } else {
+                delegation::claim(database, turn, events)
+            };
+            if matches!(result, Ok(status) if status != Status::Queued) {
+                controls.wake.notify_waiters();
+            }
+            let _ = reply.send(result);
+        }
+        Operation::FinishQueuedChild {
+            turn,
+            status,
+            error,
+            reply,
+        } => {
+            let status = if controls.stopped.is_cancelled() {
+                Status::Interrupted
+            } else {
+                status
+            };
+            let result = delegation::finish_queued(database, turn, status, error, events);
+            controls.wake.notify_waiters();
             let _ = reply.send(result);
         }
         Operation::CommandFinished(completed) => {

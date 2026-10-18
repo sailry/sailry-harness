@@ -512,6 +512,7 @@ fn explicit_input_preserves_speech_with_resume_disabled() {
         &sailry_protocol::conversation::background::Settings {
             revision: 0,
             resume: false,
+            ..Default::default()
         },
     )
     .unwrap();

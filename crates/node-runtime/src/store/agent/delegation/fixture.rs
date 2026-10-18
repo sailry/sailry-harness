@@ -4,6 +4,16 @@ pub(super) use crate::store::agent::tests::fixture::Fixture;
 
 pub(super) fn setup() -> Fixture {
     let fixture = Fixture::new();
+    // These cases explicitly drive parent turns; automatic completion notices
+    // have their own fixtures and must not create additional model work here.
+    crate::store::background_settings::save(
+        &fixture.database.connection,
+        &sailry_protocol::conversation::background::Settings {
+            resume: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     for name in ["delegation", "files"] {
         crate::store::agent::tests::fixture::package(&fixture.database, fixture._root.path(), name);
     }
@@ -25,6 +35,19 @@ pub(super) fn start(fixture: &mut Fixture) -> TurnId {
 }
 
 pub(super) fn invoke(
+    fixture: &mut Fixture,
+    parent: TurnId,
+    args: Value,
+) -> Result<Invocation, Fault> {
+    let invocation = queued(fixture, parent, args)?;
+    assert_eq!(
+        claim(&mut fixture.database, invocation.turn.id, &fixture.events)?,
+        Status::Running
+    );
+    Ok(invocation)
+}
+
+pub(super) fn queued(
     fixture: &mut Fixture,
     parent: TurnId,
     args: Value,

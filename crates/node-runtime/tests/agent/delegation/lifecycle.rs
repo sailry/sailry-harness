@@ -36,6 +36,21 @@ async fn drains_with_full_root_pool() {
         .await;
         let child = Server::start(true).await;
         let (session, provider, role) = setup(&client, &root, &parent, &child).await;
+        let Output::BackgroundSettings(mut settings) = client
+            .execute(client.prepare(Command::ReadBackgroundSettings))
+            .await
+            .unwrap()
+        else {
+            panic!("settings expected")
+        };
+        settings.child_concurrency = 16;
+        client
+            .execute(client.prepare(Command::SaveBackgroundSettings(settings)))
+            .await
+            .unwrap();
+        let captured = session.roles.providers.clone();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].id, provider.id);
         let config = session.config.clone();
         let mut parents = Vec::new();
         for _ in 0..8 {
@@ -52,7 +67,7 @@ async fn drains_with_full_root_pool() {
             };
             assert_eq!(session.config, config);
             assert!(session.roles.profiles.contains(&role));
-            assert_eq!(session.roles.providers, vec![provider.clone()]);
+            assert_eq!(session.roles.providers, captured);
             let Output::QueuedTurn(turn) = client
                 .execute(client.prepare(Command::SubmitTurn {
                     session: session.id,

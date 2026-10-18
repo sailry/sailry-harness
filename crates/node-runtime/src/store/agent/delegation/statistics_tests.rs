@@ -60,6 +60,10 @@ fn follows_visible_delegations_without_duplication() {
     let claimed = runs::claim_guidance(&mut fixture.database, child.turn.id, &fixture.events)
         .unwrap()
         .unwrap();
+    assert_eq!(
+        claim(&mut fixture.database, claimed.turn.id, &fixture.events).unwrap(),
+        Status::Running
+    );
     assert_eq!(claimed.turn.id, guidance.id);
     append(
         &mut fixture,

@@ -17,6 +17,9 @@ pub(super) fn read(db: &Connection) -> Result<Settings, Fault> {
 }
 
 pub(super) fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>), Fault> {
+    if settings.child_concurrency == 0 {
+        return Err(Fault::invalid("child concurrency must be positive"));
+    }
     if read(db)?.revision != settings.revision {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -29,6 +32,7 @@ pub(super) fn save(db: &Connection, settings: &Settings) -> Result<(Output, Opti
             .checked_add(1)
             .ok_or_else(|| Fault::invalid("background continuation revision is exhausted"))?,
         resume: settings.resume,
+        child_concurrency: settings.child_concurrency,
     };
     db.execute(
         "INSERT INTO background_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",

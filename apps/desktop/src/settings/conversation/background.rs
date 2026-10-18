@@ -6,10 +6,12 @@ use crate::{
     tr,
 };
 use gpui_kit::{
-    component::{button::Button, switch::Switch, *},
+    component::{button::Button, input::InputState, switch::Switch, *},
     *,
 };
 use sailry_protocol::{Command, ErrorCode, Output, conversation::background::Settings};
+
+mod capacity;
 
 pub(super) struct Host {
     binding: Option<Binding>,
@@ -17,6 +19,7 @@ pub(super) struct Host {
     observed: Option<u64>,
     pending: bool,
     error: Option<&'static str>,
+    concurrency: Entity<InputState>,
 }
 
 impl Host {
@@ -43,6 +46,7 @@ impl Host {
             },
         );
         Self {
+            concurrency: capacity::input(window, cx),
             saved: binding.is_none().then(Settings::default),
             binding,
             observed: None,
@@ -74,7 +78,12 @@ impl Host {
             return;
         };
         settings.resume = enabled;
+        self.persist(settings, window, cx);
+    }
+
+    fn persist(&mut self, settings: Settings, window: &mut Window, cx: &mut Context<Self>) {
         if self.binding.is_none() {
+            self.sync_capacity(&settings, Some(settings.child_concurrency), window, cx);
             self.saved = Some(settings);
             cx.notify();
             return;
@@ -92,6 +101,10 @@ impl Host {
         self.pending = true;
         self.error = None;
         let writing = command.durable();
+        let submitted = match &command {
+            Command::SaveBackgroundSettings(settings) => Some(settings.child_concurrency),
+            _ => None,
+        };
         let request = binding.client.prepare(command);
         let job = binding
             .runtime
@@ -102,6 +115,7 @@ impl Host {
                 this.pending = false;
                 match result {
                     Ok(Ok(Output::BackgroundSettings(settings))) => {
+                        this.sync_capacity(&settings, submitted, window, cx);
                         this.saved = Some(settings);
                         if writing {
                             window.push_notification(
@@ -139,24 +153,24 @@ impl Host {
 
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        Group::new("background_settings_group").child(
-            Row::new(
-                "background_settings_title",
-                div().debug_selector(|| "background-settings".into()).child(
-                    Switch::new("background-settings")
-                        .checked(self.saved.as_ref().is_none_or(|settings| settings.resume))
-                        .disabled(
-                            self.pending
-                                || self.saved.is_none()
-                                || self.error == Some("background_settings_unknown"),
-                        )
-                        .accessibility_label(tr("background_settings_title"))
-                        .on_click(
-                            cx.listener(|host, value, window, cx| host.save(*value, window, cx)),
-                        ),
-                ),
+        Group::new("background_settings_group")
+            .child(
+                Row::new(
+                    "background_settings_title",
+                    div().debug_selector(|| "background-settings".into()).child(
+                        Switch::new("background-settings")
+                            .checked(self.saved.as_ref().is_none_or(|settings| settings.resume))
+                            .disabled(self.locked())
+                            .accessibility_label(tr("background_settings_title"))
+                            .on_click(
+                                cx.listener(|host, value, window, cx| {
+                                    host.save(*value, window, cx)
+                                }),
+                            ),
+                    ),
+                )
+                .description("background_settings_description"),
             )
-            .description("background_settings_description"),
-        )
+            .child(self.capacity(cx))
     }
 }

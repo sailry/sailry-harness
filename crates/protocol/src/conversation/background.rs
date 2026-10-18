@@ -73,6 +73,22 @@ pub struct Notice {
 pub struct Settings {
     pub revision: u64,
     pub resume: bool,
+    #[serde(default = "default_concurrency", deserialize_with = "concurrency")]
+    pub child_concurrency: u64,
+}
+
+fn default_concurrency() -> u64 {
+    8
+}
+
+fn concurrency<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    let value = u64::deserialize(deserializer)?;
+    if value == 0 {
+        return Err(serde::de::Error::custom(
+            "child concurrency must be positive",
+        ));
+    }
+    Ok(value)
 }
 
 impl Default for Settings {
@@ -80,6 +96,7 @@ impl Default for Settings {
         Self {
             revision: 0,
             resume: true,
+            child_concurrency: default_concurrency(),
         }
     }
 }

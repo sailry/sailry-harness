@@ -1,0 +1,302 @@
+use super::*;
+use crate::store::agent::tests::{command, fixture::Fixture};
+use sailry_protocol::conversation::background::Settings;
+
+fn parent(fixture: &mut Fixture) -> TurnId {
+    let turn = fixture.queued();
+    runs::start(&fixture.database.connection, turn).unwrap();
+    assert_eq!(
+        runs::claim(&mut fixture.database, &fixture.events)
+            .unwrap()
+            .unwrap()
+            .turn
+            .id,
+        turn
+    );
+    turn
+}
+
+fn queued(fixture: &mut Fixture, parent: TurnId, index: usize) -> QueuedTurn {
+    let session =
+        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    let Output::Session(child) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::CreateSession {
+            project: session.project,
+            worktree: Some(session.worktree),
+            config: Some(session.config),
+        },
+    ) else {
+        panic!("session expected")
+    };
+    let message: Input = format!("Frozen child {index}").into();
+    let Output::QueuedTurn(turn) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::QueueTurn {
+            session: child.id,
+            expected_revision: child.revision,
+            message: message.clone(),
+        },
+    ) else {
+        panic!("queued turn expected")
+    };
+    let db = &fixture.database.connection;
+    insert(
+        db,
+        turn.id,
+        &Delegation {
+            session: fixture.session,
+            turn: parent,
+            entry: format!("neutral-call-{index}"),
+            index,
+            role: None,
+        },
+    )
+    .unwrap();
+    // These fixtures model selected, supervised invocations, independently of
+    // any plugin package. Unselected guidance keeps its agent_pending row.
+    runs::start(db, turn.id).unwrap();
+    queue::remove(db, turn.id, turn.session).unwrap();
+    runs::capture(db, &turn, false, &message).unwrap();
+    let parent = runs::get(db, parent).unwrap();
+    let child = runs::get(db, turn.id).unwrap();
+    super::super::super::background::child_started(db, &parent, &child, "Neutral child").unwrap();
+    turn
+}
+
+fn limit(fixture: &Fixture, value: u64) {
+    let mut settings =
+        crate::store::background_settings::read(&fixture.database.connection).unwrap();
+    settings.child_concurrency = value;
+    crate::store::background_settings::save(&fixture.database.connection, &settings).unwrap();
+}
+
+fn claim(fixture: &mut Fixture, turn: TurnId) -> Status {
+    super::claim(&mut fixture.database, turn, &fixture.events).unwrap()
+}
+
+fn finish(fixture: &mut Fixture, turn: TurnId) {
+    runs::finish(
+        &mut fixture.database,
+        turn,
+        Status::Completed,
+        None,
+        &fixture.events,
+    )
+    .unwrap();
+}
+
+#[test]
+fn preserves_fifo_when_lowering_budget() {
+    let mut fixture = Fixture::new();
+    let parent = parent(&mut fixture);
+    limit(&fixture, 2);
+    let first = queued(&mut fixture, parent, 0);
+    let second = queued(&mut fixture, parent, 1);
+    let third = queued(&mut fixture, parent, 2);
+    let fourth = queued(&mut fixture, parent, 3);
+    let input = runs::hydrate(
+        &fixture.database.connection,
+        runs::get(&fixture.database.connection, third.id).unwrap(),
+    )
+    .unwrap()
+    .input;
+    assert_eq!(claim(&mut fixture, second.id), Status::Queued);
+    assert_eq!(claim(&mut fixture, first.id), Status::Running);
+    assert_eq!(claim(&mut fixture, second.id), Status::Running);
+    runs::stop(&fixture.database.connection, first.id).unwrap();
+    assert_eq!(claim(&mut fixture, third.id), Status::Queued);
+    limit(&fixture, 1);
+    assert_eq!(claim(&mut fixture, third.id), Status::Queued);
+    finish(&mut fixture, first.id);
+    assert_eq!(claim(&mut fixture, third.id), Status::Queued);
+    assert_eq!(
+        runs::get(&fixture.database.connection, second.id)
+            .unwrap()
+            .status,
+        Status::Running
+    );
+    finish(&mut fixture, second.id);
+    assert_eq!(claim(&mut fixture, fourth.id), Status::Queued);
+    assert_eq!(claim(&mut fixture, third.id), Status::Running);
+    assert_eq!(
+        runs::hydrate(
+            &fixture.database.connection,
+            runs::get(&fixture.database.connection, third.id).unwrap()
+        )
+        .unwrap()
+        .input,
+        input
+    );
+    assert!(
+        runs::claim(&mut fixture.database, &fixture.events)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn cancels_waiters_without_starting_execution() {
+    let mut fixture = Fixture::new();
+    let parent = parent(&mut fixture);
+    limit(&fixture, 1);
+    let first = queued(&mut fixture, parent, 0);
+    let cancelled = queued(&mut fixture, parent, 1);
+    let next = queued(&mut fixture, parent, 2);
+    assert_eq!(claim(&mut fixture, first.id), Status::Running);
+    assert_eq!(claim(&mut fixture, cancelled.id), Status::Queued);
+    runs::stop(&fixture.database.connection, cancelled.id).unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            finish_queued(
+                &mut fixture.database,
+                cancelled.id,
+                Status::Cancelled,
+                None,
+                &fixture.events
+            )
+            .unwrap(),
+            Status::Cancelled
+        );
+    }
+    let run = runs::get(&fixture.database.connection, cancelled.id).unwrap();
+    assert!(run.started_ms.is_none());
+    assert!(run.finished_ms.is_some());
+    let tasks =
+        super::super::super::background::list(&fixture.database.connection, fixture.session)
+            .unwrap();
+    let task = tasks
+        .iter()
+        .find(|task| task.id == format!("agent:{}", cancelled.id))
+        .unwrap();
+    assert_eq!(
+        task.outcome,
+        Some(sailry_protocol::conversation::background::Outcome::Cancelled)
+    );
+    finish(&mut fixture, first.id);
+    assert_eq!(claim(&mut fixture, next.id), Status::Running);
+}
+
+#[test]
+fn interrupts_waiters_and_keeps_captures_on_restart() {
+    let mut fixture = Fixture::new();
+    let parent = parent(&mut fixture);
+    limit(&fixture, 1);
+    let active = queued(&mut fixture, parent, 0);
+    let waiting = queued(&mut fixture, parent, 1);
+    assert_eq!(claim(&mut fixture, active.id), Status::Running);
+    assert_eq!(claim(&mut fixture, waiting.id), Status::Queued);
+    runs::recover(&fixture.database.connection).unwrap();
+    for turn in [active.id, waiting.id] {
+        let run = runs::get(&fixture.database.connection, turn).unwrap();
+        assert_eq!(run.status, Status::Interrupted);
+        assert_eq!(run.error.unwrap().code, ErrorCode::OutcomeUnknown);
+        assert_eq!(claim(&mut fixture, turn), Status::Interrupted);
+    }
+    let waiting = runs::hydrate(
+        &fixture.database.connection,
+        runs::get(&fixture.database.connection, waiting.id).unwrap(),
+    )
+    .unwrap();
+    assert!(waiting.started_ms.is_none());
+    assert_eq!(waiting.input.unwrap().message.text, "Frozen child 1");
+    assert!(
+        runs::claim(&mut fixture.database, &fixture.events)
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[test]
+fn keeps_guidance_out_of_unrelated_fifo() {
+    let mut fixture = Fixture::new();
+    let parent = parent(&mut fixture);
+    limit(&fixture, 1);
+    let guidance = queued(&mut fixture, parent, 0);
+    queue::admit(&fixture.database.connection, &guidance, true).unwrap();
+    let other = queued(&mut fixture, parent, 1);
+    assert_eq!(claim(&mut fixture, other.id), Status::Running);
+    assert_eq!(claim(&mut fixture, guidance.id), Status::Queued);
+    assert_eq!(
+        runs::get(&fixture.database.connection, guidance.id)
+            .unwrap()
+            .status,
+        Status::Queued
+    );
+}
+
+#[test]
+fn applies_increases_without_recapturing_waiters() {
+    let mut fixture = Fixture::new();
+    let parent = parent(&mut fixture);
+    limit(&fixture, 1);
+    let first = queued(&mut fixture, parent, 0);
+    let second = queued(&mut fixture, parent, 1);
+    // Explicitly selected work can reuse an idle child whose old queue was
+    // paused by Stop or restart; unselected guidance remains in agent_pending.
+    queue::pause(&fixture.database.connection, second.session, true).unwrap();
+    assert_eq!(claim(&mut fixture, first.id), Status::Running);
+    assert_eq!(claim(&mut fixture, second.id), Status::Queued);
+    let capture = |fixture: &Fixture| {
+        fixture.database.connection.query_row(
+        "SELECT t.revision,t.plugins,t.roles,a.provider,a.hooks,a.input FROM turns t JOIN agent_runs a ON a.turn=t.id WHERE t.id=?1",
+        [second.id.to_string()], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?, row.get::<_, Vec<u8>>(2)?, row.get::<_, Option<Vec<u8>>>(3)?, row.get::<_, Vec<u8>>(4)?, row.get::<_, Vec<u8>>(5)?)),
+    ).unwrap()
+    };
+    let frozen = capture(&fixture);
+    limit(&fixture, u64::MAX);
+    assert_eq!(claim(&mut fixture, second.id), Status::Running);
+    assert_eq!(capture(&fixture), frozen);
+    assert_eq!(
+        super::claim(&mut fixture.database, parent, &fixture.events)
+            .unwrap_err()
+            .code,
+        ErrorCode::WrongTarget
+    );
+}
+
+#[test]
+fn validates_settings_without_an_extra_ceiling() {
+    let fixture = Fixture::new();
+    let db = &fixture.database.connection;
+    let original = crate::store::background_settings::read(db).unwrap();
+    assert_eq!(original.child_concurrency, 8);
+    assert_eq!(
+        crate::store::background_settings::save(
+            db,
+            &Settings {
+                child_concurrency: 0,
+                ..original.clone()
+            }
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::InvalidRequest
+    );
+    assert_eq!(
+        crate::store::background_settings::read(db).unwrap(),
+        original
+    );
+    let Output::BackgroundSettings(saved) = crate::store::background_settings::save(
+        db,
+        &Settings {
+            child_concurrency: u64::MAX,
+            ..original.clone()
+        },
+    )
+    .unwrap()
+    .0
+    else {
+        panic!("settings expected")
+    };
+    assert_eq!(saved.child_concurrency, u64::MAX);
+    assert_eq!(crate::store::background_settings::read(db).unwrap(), saved);
+    assert_eq!(
+        crate::store::background_settings::save(db, &original)
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+}

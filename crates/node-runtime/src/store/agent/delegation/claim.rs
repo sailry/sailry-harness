@@ -1,0 +1,94 @@
+//! The store is the sole authority for child execution slots and FIFO order.
+use super::*;
+
+#[cfg(test)]
+mod tests;
+
+pub(in crate::store::agent) fn claim(
+    database: &mut Database,
+    turn: TurnId,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<Status, Fault> {
+    let mut run = runs::get(&database.connection, turn)?;
+    if origin(&database.connection, turn)?.is_none() {
+        return Err(Fault::new(
+            ErrorCode::WrongTarget,
+            "turn is not a delegated child",
+        ));
+    }
+    if run.status != Status::Queued {
+        return Ok(run.status);
+    }
+    let tx = database.connection.transaction().map_err(storage_error)?;
+    let limit = crate::store::background_settings::read(&tx)?.child_concurrency;
+    let active: i64 = tx.query_row(
+        "SELECT count(*) FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn WHERE json_extract(a.body,'$.status') IN ('running','stopping')",
+        [], |row| row.get(0),
+    ).map_err(storage_error)?;
+    if u64::try_from(active).map_err(storage_error)? >= limit {
+        return Ok(Status::Queued);
+    }
+    // Unselected guidance still belongs to its existing queue owner. It must
+    // not block unrelated children while its preceding execution is running.
+    let next: Option<String> = tx.query_row(
+        "SELECT a.turn FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn JOIN turns t ON t.id=a.turn
+         WHERE a.ready=1 AND json_extract(a.body,'$.status')='queued'
+           AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn)
+           AND NOT EXISTS(SELECT 1 FROM agent_runs running JOIN turns current ON current.id=running.turn WHERE current.session=t.session AND json_extract(running.body,'$.status') IN ('running','stopping'))
+         ORDER BY t.rowid LIMIT 1",
+        [], |row| row.get(0),
+    ).optional().map_err(storage_error)?;
+    if next != Some(turn.to_string()) {
+        return Ok(Status::Queued);
+    }
+    run.status = Status::Running;
+    run.started_ms = Some(chrono::Utc::now().timestamp_millis());
+    runs::put(&tx, &run)?;
+    let child = super::super::children::get(&tx, &run)?;
+    let envelope = super::super::changed(&tx, database.node, run.session)?;
+    tx.commit().map_err(storage_error)?;
+    let _ = events.send(envelope);
+    super::super::feed::run(database, run);
+    if let Some(child) = child {
+        database
+            .feeds
+            .publish(database.node, child.origin.session, Change::Child(child));
+    }
+    Ok(Status::Running)
+}
+
+pub(in crate::store::agent) fn finish_queued(
+    database: &mut Database,
+    turn: TurnId,
+    status: Status,
+    error: Option<Fault>,
+    events: &broadcast::Sender<EventEnvelope>,
+) -> Result<Status, Fault> {
+    let run = runs::get(&database.connection, turn)?;
+    if origin(&database.connection, turn)?.is_none()
+        || !matches!(
+            status,
+            Status::Cancelled | Status::Interrupted | Status::Failed
+        )
+    {
+        return Err(Fault::invalid("invalid queued child completion"));
+    }
+    if run.finished_ms.is_some() {
+        return Ok(run.status);
+    }
+    if run.started_ms.is_some() || !matches!(run.status, Status::Queued | Status::Cancelled) {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "child execution is no longer queued",
+        ));
+    }
+    let error = if status == Status::Interrupted && error.is_none() {
+        Some(Fault::new(
+            ErrorCode::OutcomeUnknown,
+            "Node stopped execution; calls were not replayed",
+        ))
+    } else {
+        error
+    };
+    runs::finish_with(database, turn, status, error, None, events)
+}

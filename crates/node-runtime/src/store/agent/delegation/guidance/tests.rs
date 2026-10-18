@@ -136,6 +136,10 @@ fn captures_input_and_call_ancestry() {
     let next = runs::claim_guidance(&mut fixture.database, child.turn.id, &fixture.events)
         .unwrap()
         .unwrap();
+    assert_eq!(
+        claim(&mut fixture.database, next.turn.id, &fixture.events).unwrap(),
+        Status::Running
+    );
     assert_eq!(next.turn.id, source.id);
     assert_eq!(next.message, message);
     let claimed =

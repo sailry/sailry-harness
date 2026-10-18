@@ -36,6 +36,19 @@ fn install_provider(fixture: &mut Fixture) -> Provider {
     provider
 }
 
+fn captured(fixture: &Fixture, turn: TurnId) -> Provider {
+    let body: Vec<u8> = fixture
+        .database
+        .connection
+        .query_row(
+            "SELECT provider FROM agent_runs WHERE turn=?1",
+            [turn.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    serde_json::from_slice(&body).unwrap()
+}
+
 fn settings_package(fixture: &Fixture) -> plugin::Info {
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../plugins/examples")
@@ -69,6 +82,7 @@ fn preserves_snapshots() {
     let provider = install_provider(&mut fixture);
     let role = profile(&mut fixture);
     let first = start(&mut fixture);
+    let admitted = captured(&fixture, first);
     let child = invoke(
         &mut fixture,
         first,
@@ -77,7 +91,7 @@ fn preserves_snapshots() {
     .unwrap();
     let original =
         crate::store::commands::session(&fixture.database.connection, child.turn.session).unwrap();
-    assert_eq!(original.profile.as_ref().unwrap().provider, provider);
+    assert_eq!(original.profile.as_ref().unwrap().provider, admitted);
     let mut event = AdkEvent::new("child-history-fixture");
     event.author = "assistant".into();
     event.set_content(adk_core::Content::new("model").with_text("Original child history 中文 🙂"));
@@ -186,7 +200,7 @@ fn preserves_snapshots() {
             .iter()
             .any(|package| package.summary.name == "files")
     );
-    assert_eq!(resumed.provider, Some(provider.clone()));
+    assert_eq!(resumed.provider, Some(admitted.clone()));
     assert_eq!(resumed.child.as_ref().unwrap().role, Some(role));
     let body: Vec<u8> = fixture
         .database
@@ -197,7 +211,7 @@ fn preserves_snapshots() {
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(body, encode(&provider).unwrap());
+    assert_eq!(body, encode(&admitted).unwrap());
     let db = &fixture.database.connection;
     let current = crate::store::commands::session(db, child.turn.session).unwrap();
     assert_eq!(current.id, original.id);
@@ -408,6 +422,7 @@ fn keeps_unlisted_provider() {
     let mut fixture = setup();
     let provider = install_provider(&mut fixture);
     let parent = start(&mut fixture);
+    let admitted = captured(&fixture, parent);
     let child = invoke(
         &mut fixture,
         parent,
@@ -440,7 +455,7 @@ fn keeps_unlisted_provider() {
     .unwrap();
     assert_eq!(resumed.turn.session, child.turn.session);
     assert_eq!(resumed.turn.config, original.config);
-    assert_eq!(resumed.provider, Some(provider));
+    assert_eq!(resumed.provider, Some(admitted));
     assert_eq!(
         crate::store::commands::session(&fixture.database.connection, child.turn.session)
             .unwrap()

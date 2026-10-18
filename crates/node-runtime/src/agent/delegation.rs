@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use sailry_protocol::conversation::Input;
 use serde_json::{Value, json};
 mod control;
+mod scheduler;
 pub(super) mod selected;
 pub(in crate::agent) use control::Control;
 
@@ -188,7 +189,7 @@ impl Delegate {
         };
         let (admitted, admission) = tokio::sync::oneshot::channel();
         let task_stop = stop.clone();
-        let result = self.tasks.spawn(async move {
+        let result = self.tasks.spawn_child(&self.ingress.agents.stopped, async move {
             let stop = task_stop;
             let _cancel = stop.clone().drop_guard();
             let mut active = Some(active);
@@ -205,11 +206,11 @@ impl Delegate {
             } else {
                 None
             };
-            let _ = admitted.send(json!({"session":invocation.turn.session,"turn":invocation.turn.id,"status":"running"}));
+            let _ = admitted.send(json!({"session":invocation.turn.session,"turn":invocation.turn.id,"status":"queued"}));
             loop {
                 let session = invocation.turn.session;
                 let turn = invocation.turn.id;
-                let mut result = Box::pin(run(&ingress, &tasks, invocation, token, Some(stop.clone()))).await;
+                let mut result = scheduler::run(&ingress, &tasks, invocation, token, stop.clone()).await;
                 let next_token = stop.child_token();
                 let next = if result.is_err() || stop.is_cancelled() || ingress.agents.stopped.is_cancelled() {
                     ingress.retain_guidance(turn).await?;
@@ -234,7 +235,7 @@ impl Delegate {
                     Err(error) => json!({"isError": true, "session": session, "turn": turn, "error": error}),
                 });
             }
-        }).map_err(|_| AdkError::tool("child task capacity is unavailable"))?;
+        }).await.map_err(|_| AdkError::tool("child supervisor is unavailable"))?;
         if background {
             return match admission.await {
                 Ok(value) => Ok(value),

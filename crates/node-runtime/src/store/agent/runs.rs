@@ -408,8 +408,10 @@ fn claim_with(
     } else {
         Vec::new()
     };
-    run.status = Status::Running;
-    run.started_ms = Some(chrono::Utc::now().timestamp_millis());
+    if invocation.child.is_none() {
+        run.status = Status::Running;
+        run.started_ms = Some(chrono::Utc::now().timestamp_millis());
+    }
     capture(
         &transaction,
         &invocation.turn,
@@ -470,13 +472,21 @@ pub(super) fn finish_with(
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Status, Fault> {
     let mut run = get(&database.connection, turn)?;
-    if !matches!(run.status, Status::Running | Status::Stopping) {
+    let queued_child = run.started_ms.is_none()
+        && run.finished_ms.is_none()
+        && matches!(run.status, Status::Queued | Status::Cancelled)
+        && matches!(
+            status,
+            Status::Cancelled | Status::Interrupted | Status::Failed
+        )
+        && super::delegation::origin(&database.connection, turn)?.is_some();
+    if !matches!(run.status, Status::Running | Status::Stopping) && !queued_child {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "turn execution has already ended",
         ));
     }
-    run.status = if run.status == Status::Stopping
+    run.status = if matches!(run.status, Status::Stopping | Status::Cancelled)
         && !matches!(status, Status::Continued | Status::Interrupted)
     {
         Status::Cancelled
@@ -489,6 +499,9 @@ pub(super) fn finish_with(
     let transaction = database.connection.transaction().map_err(storage_error)?;
     run.error = error;
     run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+    if queued_child {
+        super::queue::remove(&transaction, turn, run.session)?;
+    }
     put(&transaction, &run)?;
     let approvals = super::approvals::close(
         &transaction,
@@ -606,13 +619,16 @@ pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {
     super::continuation::recover(db)?;
     super::queue::guidance::recover(db)?;
     super::delegation::retain_guidance(db, None)?;
-    let mut query = db.prepare("SELECT body FROM agent_runs WHERE json_extract(body,'$.status') IN ('running','stopping')").map_err(storage_error)?;
+    let mut query = db.prepare("SELECT a.body FROM agent_runs a WHERE json_extract(a.body,'$.status') IN ('running','stopping') OR (json_extract(a.body,'$.status')='queued' AND EXISTS(SELECT 1 FROM agent_delegations d WHERE d.turn=a.turn) AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn))").map_err(storage_error)?;
     let rows = query
         .query_map([], |row| row.get::<_, Vec<u8>>(0))
         .map_err(storage_error)?;
     for body in rows {
         let mut run: Run =
             serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error)?;
+        if run.status == Status::Queued {
+            run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
+        }
         run.status = Status::Interrupted;
         super::approvals::close(db, run.turn, ApprovalState::Interrupted)?;
         super::questions::close(db, run.turn, question::State::Interrupted)?;

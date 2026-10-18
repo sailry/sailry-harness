@@ -4,7 +4,9 @@ use adk_core::ToolConfirmationRequest;
 use serde::Deserialize;
 use serde_json::Value;
 
+mod claim;
 pub(super) mod control;
+pub(super) use claim::{claim, finish_queued};
 mod fresh;
 mod guidance;
 mod reuse;
@@ -34,6 +36,42 @@ struct Arguments {
 }
 
 impl Ingress {
+    pub(crate) async fn claim_child(
+        &self,
+        turn: TurnId,
+        token: sailry_link::CancellationToken,
+    ) -> Result<Status, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::ClaimChild {
+                turn,
+                token,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::super::unavailable())?;
+        response.await.map_err(|_| super::super::unavailable())?
+    }
+
+    pub(crate) async fn finish_queued_child(
+        &self,
+        turn: TurnId,
+        status: Status,
+        error: Option<Fault>,
+    ) -> Result<Status, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::FinishQueuedChild {
+                turn,
+                status,
+                error,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::super::unavailable())?;
+        response.await.map_err(|_| super::super::unavailable())?
+    }
+
     pub(crate) async fn delegate(
         &self,
         turn: TurnId,
@@ -304,9 +342,10 @@ pub(super) fn admit(
     )
     .map_err(storage_error)?;
     insert(&tx, turn.id, &origin)?;
-    // Child work already has a supervisor slot; it must not wait behind its parent in the root queue.
+    // The supervisor owns the waiter before admission. Only the child claim may
+    // start execution; root workers can be waiting for these children.
     super::super::attachments::turns::bind(&tx, turn.id, &message.attachments)?;
-    runs::record(&tx, &turn, Status::Running, false)?;
+    runs::record(&tx, &turn, Status::Queued, true)?;
     runs::capture(&tx, &turn, false, &message)?;
     let provider: Option<Vec<u8>> = tx
         .query_row(

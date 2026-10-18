@@ -76,12 +76,13 @@ async fn recovers_and_preserves_stopped_output() {
         assert_eq!(snapshot.drafts[0].turn, child_turn);
         assert!(!text(&history(&client, child.id).await).contains("partial-fixture"));
         tokio::time::timeout(Duration::from_secs(10), async {
-            while parent_projection
+            while !parent_projection
                 .snapshot()
                 .unwrap()
                 .page
                 .children
-                .is_empty()
+                .iter()
+                .any(|child| child.run.turn == child_turn && child.run.status == Status::Running)
             {
                 parent_projection
                     .apply(0, parent_updates.next().await.unwrap())

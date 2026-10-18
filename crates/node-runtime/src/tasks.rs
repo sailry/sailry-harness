@@ -12,7 +12,7 @@ type Work = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 struct Task {
     work: Work,
-    _permit: OwnedSemaphorePermit,
+    _permit: Option<OwnedSemaphorePermit>,
 }
 
 #[derive(Clone)]
@@ -47,12 +47,37 @@ impl Tasks {
                 work: Box::pin(async move {
                     let _ = reply.send(work.await);
                 }),
-                _permit: permit,
+                _permit: Some(permit),
             })
             .map_err(|error| match error {
                 mpsc::error::TrySendError::Full(_) => Error::Busy,
                 mpsc::error::TrySendError::Closed(_) => Error::Stopped,
             })?;
+        Ok(result)
+    }
+
+    /// Child execution is budgeted by the Node's durable claim transaction.
+    /// Acquire supervisor ownership before admitting any child side effects.
+    pub(crate) async fn spawn_child<T: Send + 'static>(
+        &self,
+        stop: &sailry_link::CancellationToken,
+        work: impl Future<Output = T> + Send + 'static,
+    ) -> Result<oneshot::Receiver<T>, Error> {
+        if self.capacity.is_closed() {
+            return Err(Error::Stopped);
+        }
+        let (reply, result) = oneshot::channel();
+        let task = Task {
+            work: Box::pin(async move {
+                let _ = reply.send(work.await);
+            }),
+            _permit: None,
+        };
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => return Err(Error::Stopped),
+            sent = self.sender.send(task) => sent.map_err(|_| Error::Stopped)?,
+        }
         Ok(result)
     }
 }
