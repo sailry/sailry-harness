@@ -114,6 +114,8 @@ async fn recovers_overflow() {
         finished_ms: None,
         origin: None,
         continuation: None,
+        notice: false,
+        notices: Vec::new(),
         input: None,
     };
     let feeds = Feeds::default();
@@ -128,6 +130,7 @@ async fn recovers_overflow() {
         approvals: Vec::new(),
         questions: Vec::new(),
         children: Vec::new(),
+        background: Vec::new(),
     };
     let closed = CancellationToken::new();
     let history = History {
@@ -204,6 +207,8 @@ fn seals_stopping_before_cancellation() {
         finished_ms: None,
         origin: None,
         continuation: None,
+        notice: false,
+        notices: Vec::new(),
         input: None,
     };
     let controls = crate::agent::Controls::default();

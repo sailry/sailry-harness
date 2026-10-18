@@ -394,6 +394,19 @@ waiting for background children. Explicit Stop of an active main turn still
 cancels its owned children; stopping a completed turn does not. Child views are read-only;
 their approvals retain the child identity and are presented in the main session.
 
+Background child and command completions have durable, session-owned evidence.
+An idle main session may continue through the ordinary queue using its current
+configuration when Node-wide automatic continuation is enabled (the default).
+Busy sessions collect a bounded batch on their next eligible input. Pending
+consent, paused queues and removed or archived owners prevent automatic input;
+restart preserves evidence without restarting work or automatically continuing.
+Reservations become delivered only when their marked input is appended to the
+canonical ADK history. Completion input is identified as Node-supplied,
+untrusted result data rather than user speech or new authorization. Explicit
+model result collection consumes the exact source execution; controller polling
+does not. Command summaries and bounded output tails survive restart, while
+complete output remains available only while its process cache entry is retained.
+
 Guidance is durably admitted before execution. While the recipient awaits or
 streams a model response, admission interrupts that response and retains its
 visible output; once the response's tools start, guidance waits until the whole

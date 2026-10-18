@@ -249,6 +249,7 @@ mod tests {
                     approvals: vec![approval.clone()],
                     questions: Vec::new(),
                     children: Vec::new(),
+                    background: Vec::new(),
                 }),
                 missing: Vec::new(),
                 drafts: Vec::new(),

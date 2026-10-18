@@ -7,5 +7,14 @@
   "artifactFormRequired": "Preencha os campos obrigatórios",
   "artifactFormInvalid": "Não foi possível enviar as respostas",
   "artifactRenderFailed": "Não foi possível exibir o gráfico",
-  "artifactReply": "Resposta a “{title}” v{revision} ({id}/{form})"
+  "artifactReply": "Resposta a “{title}” v{revision} ({id}/{form})",
+  "backgroundNoticeTitle": "Resultados em segundo plano",
+  "backgroundCompleted": "Concluído",
+  "backgroundFailed": "Falhou",
+  "backgroundCancelled": "Cancelado",
+  "backgroundStopped": "Parado",
+  "backgroundTimedOut": "Tempo esgotado",
+  "backgroundInterrupted": "Interrompido",
+  "backgroundUnknown": "Resultado incerto",
+  "backgroundPending": "Resultados pendentes"
 }

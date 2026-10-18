@@ -32,12 +32,14 @@ impl View {
             .then(|| self.child_activity(cx))
             .flatten();
         let commands = self.command_activity(cx);
+        let background = self.background_activity(cx);
         let approval = self.pending_approvals(cx);
         let question = self.pending_question(cx);
         // An empty strip still reserves one chip row so the composer never shifts.
         let selector = if progress.is_none()
             && children.is_none()
             && commands.is_none()
+            && background.is_none()
             && badges.is_empty()
             && approval.is_none()
             && question.is_none()
@@ -89,6 +91,7 @@ impl View {
                 )
             })
             .children(commands)
+            .children(background)
             .children(children)
             .child(div().flex_1())
             .children(approval)

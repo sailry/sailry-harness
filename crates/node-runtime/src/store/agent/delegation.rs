@@ -4,12 +4,12 @@ use adk_core::ToolConfirmationRequest;
 use serde::Deserialize;
 use serde_json::Value;
 
-mod control;
+pub(super) mod control;
 mod fresh;
 mod guidance;
 mod reuse;
 pub(crate) use control::State;
-pub(in crate::store) use control::{owned, state};
+pub(in crate::store) use control::owned;
 pub(in crate::store) use guidance::{guide, queued_guidance, retain_guidance};
 
 #[cfg(test)]
@@ -320,6 +320,12 @@ pub(super) fn admit(
     let media = super::super::media::for_turn(media, provider.as_ref(), &turn.config);
     let child_run = runs::get(&tx, turn.id)?;
     let summary = children::get(&tx, &child_run)?.expect("admitted child has an origin");
+    let background = super::background::child_started(
+        &tx,
+        &run,
+        &child_run,
+        args.title.as_deref().unwrap_or(&args.task),
+    )?;
     let mut envelopes = Vec::with_capacity(2);
     for event in created
         .then(|| Event::SessionChanged(Box::new(session)))
@@ -337,6 +343,7 @@ pub(super) fn admit(
     tx.commit().map_err(storage_error)?;
     // Activate temporary output before returning the invocation to the runner.
     super::feed::run(database, child_run);
+    super::background::publish(database, [background]);
     database.feeds.publish(
         database.node,
         summary.origin.session,
@@ -348,6 +355,9 @@ pub(super) fn admit(
     Ok(Invocation {
         hooks: super::super::hooks::frozen(&database.connection, turn.id)?,
         automatic: false,
+        notice: false,
+        notice_input: None,
+        notices: Vec::new(),
         title: None,
         project: previous.project,
         connections: connections::catalog(&database.connection, turn.session)?,

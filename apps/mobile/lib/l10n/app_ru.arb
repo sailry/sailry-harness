@@ -811,5 +811,14 @@
   "artifactFormRequired": "Заполните обязательные поля",
   "artifactFormInvalid": "Не удалось отправить ответы",
   "artifactRenderFailed": "Не удалось отобразить график",
-  "artifactReply": "Ответ к «{title}» v{revision} ({id}/{form})"
+  "artifactReply": "Ответ к «{title}» v{revision} ({id}/{form})",
+  "backgroundNoticeTitle": "Фоновые результаты",
+  "backgroundCompleted": "Завершено",
+  "backgroundFailed": "Ошибка",
+  "backgroundCancelled": "Отменено",
+  "backgroundStopped": "Остановлено",
+  "backgroundTimedOut": "Время истекло",
+  "backgroundInterrupted": "Прервано",
+  "backgroundUnknown": "Результат неизвестен",
+  "backgroundPending": "Фоновые результаты готовы"
 }

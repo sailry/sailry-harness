@@ -22,6 +22,7 @@ fn page(parts: Vec<Part>) -> Page {
         approvals: vec![],
         questions: vec![],
         children: vec![],
+        background: Vec::new(),
         next_before: None,
     }
 }
@@ -287,4 +288,28 @@ fn preserves_formula_delimiters_and_code() {
     assert!(document.content.contains(r"\(y^2\)"));
     assert!(document.content.contains(r"\[a &lt; b\]"));
     assert!(document.content.contains(r"<code>\(literal\)</code>"));
+}
+
+#[test]
+fn excludes_notice_input_but_keeps_user_speech() {
+    let mut page = page(vec![Part::Text("Node notice fixture".into())]);
+    let turn = page.entries[0].turn;
+    let run: sailry_protocol::conversation::Run = serde_json::from_value(serde_json::json!({
+        "worktree":WorktreeId::new(),"kind":"task","turn":turn,"session":page.session,"sequence":1,
+        "revision":1,"status":"completed","notice":true
+    }))
+    .unwrap();
+    page.runs.push(run);
+    let mut answer = page.entries[0].clone();
+    answer.id = "answer".into();
+    answer.sequence = 2;
+    answer.author = "assistant".into();
+    answer.parts = vec![Part::Text("Actual answer".into())];
+    page.entries.push(answer);
+    let document = render(&page, "Notices", Format::Markdown, "assets").unwrap();
+    assert!(!document.content.contains("Node notice fixture"));
+    assert!(document.content.contains("Actual answer"));
+    page.runs[0].notice = false;
+    let document = render(&page, "User input", Format::Markdown, "assets").unwrap();
+    assert!(document.content.contains("Node notice fixture"));
 }

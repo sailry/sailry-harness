@@ -2093,4 +2093,31 @@ class AppLocalizationsJa extends AppLocalizations {
   String artifactReply(String id, String revision, String title, String form) {
     return '「$title」v$revision（$id/$form）への回答';
   }
+
+  @override
+  String get backgroundNoticeTitle => 'バックグラウンドの結果';
+
+  @override
+  String get backgroundCompleted => '完了';
+
+  @override
+  String get backgroundFailed => '失敗';
+
+  @override
+  String get backgroundCancelled => 'キャンセル済み';
+
+  @override
+  String get backgroundStopped => '停止済み';
+
+  @override
+  String get backgroundTimedOut => 'タイムアウト';
+
+  @override
+  String get backgroundInterrupted => '中断';
+
+  @override
+  String get backgroundUnknown => '結果は不確定';
+
+  @override
+  String get backgroundPending => 'バックグラウンドの結果を処理できます';
 }

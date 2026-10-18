@@ -49,6 +49,8 @@ fn retains_canonical_failure_details() {
         finished_ms: None,
         origin: None,
         continuation: None,
+        notice: false,
+        notices: Vec::new(),
         input: None,
     });
     let mut feed = Feed::default();

@@ -2,6 +2,7 @@ mod admission;
 pub(crate) mod agent;
 mod artifacts;
 mod attachments;
+mod background_settings;
 mod backup;
 mod code;
 mod commands;
@@ -464,6 +465,24 @@ impl Store {
             installations: Arc::default(),
             closed,
             dispatch: Arc::new(crate::dispatch::Controls::default()),
+        });
+        let (finished, mut completions) = mpsc::unbounded_channel();
+        ingress.commands.set_sink(finished);
+        let completion_sender = ingress.sender.clone();
+        let completion_closed = ingress.closed.clone();
+        let completion_agents = ingress.agents.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = completion_closed.cancelled() => break,
+                    completed = completions.recv() => {
+                        let Some(completed) = completed else { break };
+                        if completion_sender.send(Job::Agent(Box::new(agent::Operation::CommandFinished(completed)))).await.is_err() { break; }
+                        completion_agents.wake.notify_one();
+                    }
+                }
+            }
         });
         let (ready, initialized) = oneshot::channel();
         let completed = ingress.sender.clone();

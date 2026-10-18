@@ -109,6 +109,7 @@ fn merge_turn(page: &mut Page, chunk: TurnHistory) -> Result<(), Fault> {
         approvals: chunk.approvals,
         questions: chunk.questions,
         children: chunk.children,
+        background: Vec::new(),
         queue: Default::default(),
         next_before: None,
     };
@@ -167,6 +168,7 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
         {
             if previous.sequence != run.sequence
                 || previous.kind != run.kind
+                || previous.notice != run.notice
                 || previous.revision != run.revision
                 || previous.worktree != run.worktree
                 || previous.origin != run.origin
@@ -249,6 +251,9 @@ pub(super) fn merge(current: &mut Page, incoming: Page, keep_current: bool) -> R
             question.index,
         )
     });
+    for task in incoming.background {
+        super::projection::background::merge(&mut merged, task)?;
+    }
     for run in &mut merged.runs {
         if merged
             .entries

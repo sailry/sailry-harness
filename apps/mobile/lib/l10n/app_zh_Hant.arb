@@ -811,5 +811,14 @@
   "artifactFormRequired": "請填寫必填項",
   "artifactFormInvalid": "無法提交回答",
   "artifactRenderFailed": "無法呈現圖表",
-  "artifactReply": "關於「{title}」v{revision}（{id}/{form}）的回覆"
+  "artifactReply": "關於「{title}」v{revision}（{id}/{form}）的回覆",
+  "backgroundNoticeTitle": "背景結果",
+  "backgroundCompleted": "已完成",
+  "backgroundFailed": "失敗",
+  "backgroundCancelled": "已取消",
+  "backgroundStopped": "已停止",
+  "backgroundTimedOut": "逾時",
+  "backgroundInterrupted": "已中斷",
+  "backgroundUnknown": "結果不確定",
+  "backgroundPending": "背景結果待處理"
 }

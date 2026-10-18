@@ -417,3 +417,23 @@ CREATE TABLE hook_executions (
 );
 
 CREATE TABLE backup_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
+
+CREATE TABLE IF NOT EXISTS agent_background (
+    id TEXT PRIMARY KEY,
+    session TEXT NOT NULL REFERENCES sessions(id),
+    turn TEXT NOT NULL REFERENCES turns(id),
+    kind TEXT NOT NULL CHECK(kind IN ('agent','command')),
+    source TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('running','pending','delivered','consumed','dismissed')),
+    delivery TEXT REFERENCES turns(id),
+    sequence INTEGER NOT NULL,
+    body BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agent_background_session ON agent_background(session,state,sequence);
+CREATE INDEX IF NOT EXISTS agent_background_sequence ON agent_background(sequence);
+CREATE TABLE IF NOT EXISTS background_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS agent_background_source ON agent_background(kind,source,state);

@@ -79,6 +79,7 @@ mod tests {
             terminals: vec![],
             terminal_settings_revision: 0,
             sandbox_settings_revision: 0,
+            background_settings_revision: 0,
             search_settings_revision: 0,
             media_settings: Default::default(),
             providers: vec![],

@@ -31,6 +31,7 @@ fn keeps_native_references_in_canonical_copy_source() {
                 approvals: vec![],
                 questions: vec![],
                 children: vec![],
+                background: Vec::new(),
                 runs: vec![],
                 entries: vec![Entry {
                     sequence: 1,
@@ -116,6 +117,7 @@ fn preserves_image_message_boundaries() {
                 approvals: vec![],
                 questions: vec![],
                 children: vec![],
+                background: Vec::new(),
                 runs: vec![],
                 entries,
             }),
@@ -185,6 +187,7 @@ fn retains_text_boundaries() {
                 approvals: Vec::new(),
                 questions: Vec::new(),
                 children: Vec::new(),
+                background: Vec::new(),
                 runs: Vec::new(),
                 entries: vec![Entry {
                     sequence: 1,

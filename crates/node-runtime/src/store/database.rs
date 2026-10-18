@@ -453,7 +453,14 @@ impl Database {
                 Err(error) => self.finish_external(caller, &request, Err(error), events),
             }
         } else if matches!(request.command, Command::RunCommand { .. }) {
-            match super::processes::prepare(self, &request) {
+            match super::processes::prepare(self, &request).and_then(|launch| {
+                if let Some(task) =
+                    super::agent::background::command_started(&self.connection, &request)?
+                {
+                    super::agent::background::publish(self, [task]);
+                }
+                Ok(launch)
+            }) {
                 Ok(launch) => {
                     return Some(Work::Process(super::processes::Execution {
                         caller,
@@ -853,6 +860,8 @@ impl Database {
         }
         self.end_removal(caller, request);
         self.relocations.remove(&(caller, request.id));
+        let mut background = Vec::new();
+        let mut deliveries = Vec::new();
         let recorded = (|| -> Result<Vec<EventEnvelope>, Fault> {
             let transaction = self.connection.transaction().map_err(storage_error)?;
             let event = finish(&transaction, &mut result)?;
@@ -877,6 +886,16 @@ impl Database {
                 None => super::projects::finish(&transaction, &request.command, &mut result)?,
             };
             super::attachments::finish(&transaction, caller, &request.command, &result)?;
+            if let Some(task) =
+                super::agent::background::finish_request(&transaction, request, &result)?
+            {
+                if let Some(turn) =
+                    super::agent::background::schedule(&transaction, self.node, task.session)?
+                {
+                    deliveries.push(turn);
+                }
+                background.push(task);
+            }
             let mut changes: Vec<_> = event.into_iter().collect();
             if self.profile.is_some()
                 && changes
@@ -915,6 +934,17 @@ impl Database {
                 Err(error)
             }
             Ok(envelopes) => {
+                super::agent::background::publish(self, background);
+                for turn in deliveries {
+                    super::agent::publish_run(
+                        self,
+                        super::agent::runs::get(&self.connection, turn.id)?,
+                    );
+                    super::agent::background::publish(
+                        self,
+                        super::agent::background::list(&self.connection, turn.session)?,
+                    );
+                }
                 for event in envelopes {
                     match &event.event {
                         Event::PluginChanged(package) => {

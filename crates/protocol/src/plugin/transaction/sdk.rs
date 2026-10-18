@@ -197,6 +197,7 @@ mod tests {
                 approvals: vec![],
                 questions: vec![],
                 children: vec![],
+                background: vec![],
                 next_before: None,
             },
             missing: vec![],

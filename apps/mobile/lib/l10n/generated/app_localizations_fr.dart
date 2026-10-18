@@ -2146,4 +2146,31 @@ class AppLocalizationsFr extends AppLocalizations {
   String artifactReply(String id, String revision, String title, String form) {
     return 'Réponse à « $title » v$revision ($id/$form)';
   }
+
+  @override
+  String get backgroundNoticeTitle => 'Résultats en arrière-plan';
+
+  @override
+  String get backgroundCompleted => 'Terminé';
+
+  @override
+  String get backgroundFailed => 'Échec';
+
+  @override
+  String get backgroundCancelled => 'Annulé';
+
+  @override
+  String get backgroundStopped => 'Arrêté';
+
+  @override
+  String get backgroundTimedOut => 'Délai dépassé';
+
+  @override
+  String get backgroundInterrupted => 'Interrompu';
+
+  @override
+  String get backgroundUnknown => 'Résultat incertain';
+
+  @override
+  String get backgroundPending => 'Résultats en attente';
 }

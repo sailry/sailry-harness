@@ -2095,4 +2095,31 @@ class AppLocalizationsKo extends AppLocalizations {
   String artifactReply(String id, String revision, String title, String form) {
     return '“$title” v$revision ($id/$form)에 대한 답변';
   }
+
+  @override
+  String get backgroundNoticeTitle => '백그라운드 결과';
+
+  @override
+  String get backgroundCompleted => '완료';
+
+  @override
+  String get backgroundFailed => '실패';
+
+  @override
+  String get backgroundCancelled => '취소됨';
+
+  @override
+  String get backgroundStopped => '중지됨';
+
+  @override
+  String get backgroundTimedOut => '시간 초과';
+
+  @override
+  String get backgroundInterrupted => '중단됨';
+
+  @override
+  String get backgroundUnknown => '결과 불확실';
+
+  @override
+  String get backgroundPending => '백그라운드 결과 대기 중';
 }

@@ -34,6 +34,15 @@ pub(in crate::store) fn compact(
     capture(db, caller, request, session, RunKind::Compaction, true)
 }
 
+pub(in crate::store) fn notice(
+    db: &Connection,
+    caller: NodeId,
+    request: &Request,
+    session: sailry_protocol::Session,
+) -> Result<QueuedTurn, Fault> {
+    capture(db, caller, request, session, RunKind::Task, true)
+}
+
 fn capture(
     db: &Connection,
     caller: NodeId,
@@ -202,6 +211,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Queue, Fault> 
             preview.truncate(end);
             Ok(Pending {
                 turn: run.turn,
+                notice: run.notice,
                 request: Some(request.id),
                 kind: run.kind,
                 revision,
@@ -272,7 +282,7 @@ fn input(command: Command) -> Result<Input, Fault> {
             response: question::Response::StartCoding { message, .. },
             ..
         } => Ok(message),
-        Command::CompactContext { .. } => Ok(Input::default()),
+        Command::CompactContext { .. } | Command::DeliverBackground { .. } => Ok(Input::default()),
         _ => Err(storage_error("pending input is not a message")),
     }
 }

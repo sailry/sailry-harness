@@ -21,6 +21,7 @@ pub(super) fn append(
         let Some(entry) = insert(&transaction, session, turn, event)? else {
             return Ok(());
         };
+        let background = super::background::list(&transaction, session)?;
         let statistics = super::statistics::read(&transaction, session)?;
         let parents = super::statistics::parents(&transaction, turn)?
             .into_iter()
@@ -37,6 +38,7 @@ pub(super) fn append(
         database
             .feeds
             .publish(database.node, session, Change::Statistics(statistics));
+        super::background::publish(database, background);
         for (parent, statistics) in parents {
             database
                 .feeds
@@ -122,6 +124,7 @@ pub(super) fn insert(
         params![session.to_string(), sequence as i64],
     )
     .map_err(storage_error)?;
+    super::background::confirm(db, session, turn, &event)?;
     apply_state(db, session, &event)?;
     Ok(Some(project(db, sequence, turn, &event)?))
 }
@@ -291,7 +294,7 @@ pub(crate) fn project(
             .into_iter()
             .flat_map(|content| &content.parts)
             .enumerate()
-            .skip(usize::from(!references.is_empty()))
+            .skip(usize::from(!references.is_empty()) + usize::from(event.provider_metadata.contains_key(super::background::INPUT_IDS)))
             .map(|(index, part)| {
                 Ok(match part {
                     adk_core::Part::FileData {

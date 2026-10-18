@@ -72,6 +72,7 @@ fn page() -> Page {
         approvals: Vec::new(),
         questions: Vec::new(),
         children: Vec::new(),
+        background: Vec::new(),
         entries: vec![entry(1, turn, "", false)],
         runs: vec![Run {
             worktree: sailry_protocol::WorktreeId::new(),
@@ -86,6 +87,8 @@ fn page() -> Page {
             finished_ms: None,
             origin: None,
             continuation: None,
+            notice: false,
+            notices: Vec::new(),
             input: None,
         }],
     }

@@ -512,3 +512,132 @@ async fn orders_batch_results() {
         fixture.node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn delivers_completion_without_consuming_controller_reads() {
+    use sailry_protocol::conversation::background::{Kind, State};
+    for remote in [false, true] {
+        let release = sailry_link::CancellationToken::new();
+        let server = Server::markdown_held("Parent finished".into(), release.clone()).await;
+        let fixture = Fixture::packages(remote, &server, &[]).await;
+        let Output::QueuedTurn(parent) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                message: "Keep the existing task active".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("turn expected")
+        };
+        server.wait_count(1).await;
+        let command = fixture.client.prepare(Command::RunCommand {
+            turn: parent.id,
+            command: "printf 'Completed background evidence'".into(),
+            description: Some("Background fixture".into()),
+            access: sailry_protocol::process::Access::Workspace,
+            cwd: String::new(),
+            timeout_ms: 10_000,
+            background: true,
+            pty: false,
+            attachments: Vec::new(),
+        });
+        let Output::CommandStarted(info) = fixture.client.execute(command.clone()).await.unwrap()
+        else {
+            panic!("started command expected")
+        };
+        let id = format!("command:{}", info.id);
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let page = history(&fixture.client, fixture.session.id).await;
+                if page
+                    .background
+                    .iter()
+                    .any(|task| task.id == id && task.state == State::Pending)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("finished command must persist while the parent is busy");
+        for _ in 0..3 {
+            let Output::CommandOutput(snapshot) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ReadCommand {
+                    session: fixture.session.id,
+                    id: info.id,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("command snapshot expected")
+            };
+            assert_eq!(snapshot.stdout.text, "Completed background evidence");
+            assert!(matches!(
+                snapshot.info.status,
+                sailry_protocol::process::Status::Finished(Outcome::Exited(0))
+            ));
+        }
+        let page = history(&fixture.client, fixture.session.id).await;
+        assert_eq!(
+            page.background
+                .iter()
+                .find(|task| task.id == id)
+                .unwrap()
+                .state,
+            State::Pending
+        );
+        assert!(page.runs.iter().all(|run| !run.notice));
+        release.cancel();
+        let page = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let page = history(&fixture.client, fixture.session.id).await;
+                if page
+                    .runs
+                    .iter()
+                    .any(|run| run.notice && run.status == Status::Completed)
+                {
+                    break page;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("idle parent must receive the completed command");
+        let task = page.background.iter().find(|task| task.id == id).unwrap();
+        assert_eq!(task.state, State::Delivered);
+        assert_eq!(task.kind, Kind::Command { id: info.id });
+        let notice = page.runs.iter().find(|run| run.notice).unwrap();
+        assert_eq!(task.delivery, Some(notice.turn));
+        assert_eq!(notice.notices.len(), 1);
+        assert_eq!(notice.notices[0].id, id);
+        assert!(notice.input.is_none());
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        let request = server.requests.lock().unwrap().last().unwrap().clone();
+        let content = request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rfind(|message| message["role"] == "user")
+            .unwrap()["content"]
+            .as_str()
+            .unwrap();
+        let data: serde_json::Value =
+            serde_json::from_str(content.split_once('\n').unwrap().1).unwrap();
+        assert_eq!(
+            data[0]["output"]["stdout_tail"],
+            "Completed background evidence"
+        );
+        // The original durable request remains an idempotent start receipt.
+        assert_eq!(
+            fixture.client.execute(command).await.unwrap(),
+            Output::CommandStarted(info)
+        );
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}

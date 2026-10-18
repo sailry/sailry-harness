@@ -20,6 +20,7 @@ import 'draft_attachments.dart';
 import 'queue.dart';
 import 'presentation.dart';
 import 'timeline.dart';
+import 'background_data.dart';
 import 'statistics.dart';
 import 'voice.dart';
 import 'message_data.dart';
@@ -630,6 +631,7 @@ class _LiveConversationPageState extends State<LiveConversationPage> {
                       : connected &&
                             objects(_page['entries']).isEmpty &&
                             objects(_page['runs']).isEmpty &&
+                            pendingBackground(_page).isEmpty &&
                             objects(object(view['snapshot'])['drafts']).isEmpty
                       ? CustomScrollView(
                           slivers: [

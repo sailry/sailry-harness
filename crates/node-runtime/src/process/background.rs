@@ -10,7 +10,7 @@ use sailry_protocol::{
 };
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{sync::watch, task::JoinHandle};
@@ -22,9 +22,17 @@ struct Entry {
     task: Option<JoinHandle<()>>,
     watch: Option<(sailry_protocol::WorktreeId, Arc<crate::code::Pool>)>,
     input: Option<tokio::sync::mpsc::Sender<Vec<u8>>>,
+    explicit: bool,
+}
+
+pub(crate) struct Finished {
+    pub snapshot: Snapshot,
+    pub elapsed_ms: Option<u64>,
+    pub explicit: bool,
 }
 
 pub(crate) struct Commands {
+    sink: OnceLock<tokio::sync::mpsc::UnboundedSender<Finished>>,
     entries: Mutex<BTreeMap<RequestId, Entry>>,
     changes: watch::Sender<()>,
 }
@@ -32,6 +40,7 @@ pub(crate) struct Commands {
 impl Default for Commands {
     fn default() -> Self {
         Self {
+            sink: OnceLock::new(),
             entries: Mutex::default(),
             changes: watch::channel(()).0,
         }
@@ -39,6 +48,13 @@ impl Default for Commands {
 }
 
 impl Commands {
+    pub(crate) fn set_sink(&self, sink: tokio::sync::mpsc::UnboundedSender<Finished>) {
+        assert!(
+            self.sink.set(sink).is_ok(),
+            "command completion sink was already set"
+        );
+    }
+
     pub(crate) fn watch(
         &self,
         id: RequestId,
@@ -126,6 +142,7 @@ impl Commands {
                 task: None,
                 watch: None,
                 input: Some(input),
+                explicit: false,
             },
         );
         let owner = self.clone();
@@ -158,8 +175,10 @@ impl Commands {
                     }
                 }
             };
+            let mut elapsed_ms = None;
             let status = match result {
                 Ok(Ok(result)) => {
+                    elapsed_ms = Some(result.elapsed_ms);
                     progress.send_replace((result.stdout, result.stderr));
                     Status::Finished(result.outcome)
                 }
@@ -173,6 +192,20 @@ impl Commands {
                     entry.input.take();
                     entry.info.services.clear();
                     owner.changes.send_replace(());
+                    if !closed.is_cancelled()
+                        && let Some(sink) = owner.sink.get()
+                    {
+                        let (stdout, stderr) = entry.output.borrow().clone();
+                        let _ = sink.send(Finished {
+                            snapshot: Snapshot {
+                                info: entry.info.clone(),
+                                stdout,
+                                stderr,
+                            },
+                            elapsed_ms,
+                            explicit: entry.explicit,
+                        });
+                    }
                     entry.watch.take()
                 } else {
                     None
@@ -224,6 +257,7 @@ impl Commands {
             if entry.info.status == Status::Running {
                 entry.info.status = Status::Stopping;
             }
+            entry.explicit = true;
             entry.stop.cancel();
         }
         self.changes.send_replace(());

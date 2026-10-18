@@ -164,18 +164,23 @@ class _LiveQueueState extends State<LiveQueue> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     InkWell(
-                      onTap: enabled ? () => _edit(item) : null,
+                      onTap: enabled && item['notice'] != true
+                          ? () => _edit(item)
+                          : null,
                       child: Text(
-                        item['preview'] as String? ?? '',
+                        item['notice'] == true
+                            ? context.tr('backgroundNoticeTitle')
+                            : item['preview'] as String? ?? '',
                         style: const TextStyle(height: 1.5),
                       ),
                     ),
                     Wrap(
                       children: [
-                        TextButton(
-                          onPressed: enabled ? () => _edit(item) : null,
-                          child: Text(context.tr('edit')),
-                        ),
+                        if (item['notice'] != true)
+                          TextButton(
+                            onPressed: enabled ? () => _edit(item) : null,
+                            child: Text(context.tr('edit')),
+                          ),
                         TextButton(
                           onPressed: enabled
                               ? () => _run('remove_queued_turn', {
@@ -185,7 +190,9 @@ class _LiveQueueState extends State<LiveQueue> {
                               : null,
                           child: Text(context.tr('delete')),
                         ),
-                        if (index > 0)
+                        if (index > 0 &&
+                            item['notice'] != true &&
+                            items[index - 1]['notice'] != true)
                           TextButton(
                             onPressed: enabled
                                 ? () => _run('move_queued_turn', {
@@ -197,15 +204,16 @@ class _LiveQueueState extends State<LiveQueue> {
                                 : null,
                             child: Text(context.tr('moveUp')),
                           ),
-                        TextButton(
-                          onPressed: enabled
-                              ? () => _run('send_queued_turn', {
-                                  'turn': item['turn'],
-                                  'expected_revision': item['revision'],
-                                })
-                              : null,
-                          child: Text(context.tr('send')),
-                        ),
+                        if (item['notice'] != true)
+                          TextButton(
+                            onPressed: enabled
+                                ? () => _run('send_queued_turn', {
+                                    'turn': item['turn'],
+                                    'expected_revision': item['revision'],
+                                  })
+                                : null,
+                            child: Text(context.tr('send')),
+                          ),
                       ],
                     ),
                   ],

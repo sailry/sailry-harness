@@ -417,6 +417,11 @@ impl Script {
                 turn: turn_state.as_deref().cloned(),
                 staged_turn: None,
             }));
+            let consumed = Arc::new(Mutex::new(Vec::new()));
+            let reads = consumed.clone();
+            let collector = ingress.clone();
+            let collect_runtime = runtime.clone();
+            let parent = card_scope.turn.expect("agent tool has a captured turn");
             let mut result = crate::plugins::script::run_tool(
                 bundle,
                 &handler,
@@ -429,12 +434,24 @@ impl Script {
                 move |request| {
                     runtime.block_on(async {
                         let admitted = ingress.dispatch(caller, request).await?;
-                        admitted.completion.await.map_err(|_| {
+                        let output = admitted.completion.await.map_err(|_| {
                             Fault::new(
                                 ErrorCode::OutcomeUnknown,
                                 "plugin SDK completion is unknown",
                             )
-                        })?
+                        })??;
+                        if let sailry_protocol::Output::CommandOutput(snapshot) = &output {
+                            reads
+                                .lock()
+                                .map_err(|_| {
+                                    Fault::new(
+                                        ErrorCode::Internal,
+                                        "command read tracking is unavailable",
+                                    )
+                                })?
+                                .push(snapshot.clone());
+                        }
+                        Ok(output)
                     })
                 },
                 state.clone(),
@@ -452,6 +469,18 @@ impl Script {
             }
             if context.is_cancelled() {
                 return Err(AdkError::tool("plugin tool was cancelled"));
+            }
+            if result.get("isError").and_then(Value::as_bool) != Some(true) {
+                let snapshots = std::mem::take(
+                    &mut *consumed
+                        .lock()
+                        .map_err(|_| AdkError::tool("command read tracking is unavailable"))?,
+                );
+                for snapshot in snapshots {
+                    collect_runtime
+                        .block_on(collector.collect_command(parent, snapshot))
+                        .map_err(|fault| AdkError::tool(fault.message))?;
+                }
             }
             Ok(result)
         })

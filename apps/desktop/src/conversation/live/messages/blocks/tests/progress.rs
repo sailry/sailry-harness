@@ -69,6 +69,7 @@ fn updates_preserve_failures() {
         approvals: vec![],
         questions: vec![],
         children: vec![],
+        background: Vec::new(),
         runs: vec![],
         entries,
     };

@@ -5,6 +5,7 @@ use sailry_protocol::{
 };
 use std::sync::Arc;
 pub(super) mod approvals;
+pub(super) mod background;
 pub(super) mod children;
 mod questions;
 
@@ -264,6 +265,7 @@ impl Projection {
                         {
                             if previous.revision != run.revision
                                 || previous.kind != run.kind
+                                || previous.notice != run.notice
                                 || previous.sequence != run.sequence
                                 || previous.worktree != run.worktree
                                 || previous.origin != run.origin
@@ -338,6 +340,7 @@ impl Projection {
                                 .find(|previous| previous.turn == item.turn)
                                 && (previous.config_revision != item.config_revision
                                     || previous.kind != item.kind
+                                    || previous.notice != item.notice
                                     || previous.revision > item.revision
                                     || previous.revision == item.revision
                                         && (previous.request != item.request
@@ -373,6 +376,9 @@ impl Projection {
                     Change::Question(question) => {
                         questions::apply(Arc::make_mut(&mut snapshot.page), question)?;
                     }
+                    Change::Background(task) => {
+                        background::merge(Arc::make_mut(&mut snapshot.page), task)?;
+                    }
                     Change::Child(child) => {
                         children::merge(Arc::make_mut(&mut snapshot.page), child, false)?;
                     }
@@ -404,6 +410,7 @@ impl Projection {
 
 pub(super) fn validate_page(page: &Page) -> Result<(), Fault> {
     children::validate(page)?;
+    background::validate(page)?;
     questions::validate(page)?;
     validate_queue(&page.queue)?;
     if page.revision == 0
@@ -459,6 +466,7 @@ fn valid_run(run: &conversation::Run, session: SessionId) -> bool {
             run.kind == conversation::RunKind::Task
                 && run.status != Status::Queued
                 && run.continuation.is_none()
+                && !run.notice
                 && input
                     .message
                     .attachments

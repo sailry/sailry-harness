@@ -694,6 +694,10 @@ pub enum Command {
         expected_revision: u64,
         message: crate::conversation::Input,
     },
+    /// Node-internal admission of completed background work.
+    DeliverBackground {
+        session: SessionId,
+    },
     /// Atomically admits an idle continuation fenced by the calling package's private data.
     ContinueTurn {
         session: SessionId,
@@ -791,6 +795,8 @@ pub enum Command {
         paused: bool,
     },
     ReadTerminalSettings,
+    ReadBackgroundSettings,
+    SaveBackgroundSettings(crate::conversation::background::Settings),
     ReadSandboxSettings,
     SaveSandboxSettings(crate::sandbox::Settings),
     ReadSearchSettings,
@@ -1514,6 +1520,7 @@ impl Command {
                 | Self::ListCommands { .. }
                 | Self::ReadCommand { .. }
                 | Self::ReadTerminalSettings
+                | Self::ReadBackgroundSettings
                 | Self::ReadSandboxSettings
                 | Self::ReadSearchSettings
                 | Self::ReadBackupSettings
@@ -1638,6 +1645,8 @@ pub struct Snapshot {
     pub terminals: Vec<crate::terminal::Info>,
     pub terminal_settings_revision: u64,
     pub sandbox_settings_revision: u64,
+    #[serde(default)]
+    pub background_settings_revision: u64,
     pub search_settings_revision: u64,
     pub media_settings: crate::media::Settings,
     pub providers: Vec<crate::conversation::Provider>,
@@ -1810,6 +1819,7 @@ pub enum Output {
     QueuedMessage(crate::conversation::QueuedMessage),
     Terminal(crate::terminal::Info),
     TerminalSettings(crate::terminal::Settings),
+    BackgroundSettings(crate::conversation::background::Settings),
     SandboxSettings(crate::sandbox::Settings),
     SearchSettings(crate::search::Settings),
     BackupSettings(crate::backup::Settings),
@@ -1968,6 +1978,9 @@ pub enum Event {
     },
     MediaSettingsChanged(crate::media::Settings),
     TerminalSettingsChanged {
+        revision: u64,
+    },
+    BackgroundSettingsChanged {
         revision: u64,
     },
     SandboxSettingsChanged {

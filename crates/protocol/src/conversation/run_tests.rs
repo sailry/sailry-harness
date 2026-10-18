@@ -35,6 +35,8 @@ fn preserves_explicit_kind() {
             finished_ms: None,
             origin: None,
             continuation: None,
+            notice: false,
+            notices: Vec::new(),
             input: None,
         };
         let body = serde_json::to_value(&run).unwrap();

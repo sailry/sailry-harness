@@ -91,6 +91,7 @@ fn merges_turns_after_watermark() {
             approvals: vec![],
             questions: vec![],
             children: Vec::new(),
+            background: Vec::new(),
             queue: Default::default(),
             next_before: None,
         },

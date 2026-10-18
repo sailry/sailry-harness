@@ -459,7 +459,7 @@ async fn continues_after_background_answer() {
 async fn completes_before_background_child() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
-        let parent = Server::turn_tools(vec![(
+        let parent = Server::tools(vec![(
             plugin_tool("delegation", "spawn_agent"),
             json!({"role":"review","task":"Wait for the held response","background":true}),
         )])
@@ -508,6 +508,70 @@ async fn completes_before_background_child() {
                 .parts
                 .contains(&Part::Text("Final child evidence".into()))
         }));
+        fixture.parent.wait_count(3).await;
+        let parent = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let page = history(&fixture.client, fixture.session.id).await;
+                if page
+                    .runs
+                    .iter()
+                    .any(|run| run.notice && run.status == Status::Completed)
+                    && page.background.iter().any(|task| {
+                        task.state == sailry_protocol::conversation::background::State::Delivered
+                    })
+                {
+                    break page;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("completion notice must reach canonical input and finish");
+        let notice = parent.runs.iter().find(|run| run.notice).unwrap();
+        assert!(notice.input.is_none());
+        assert_eq!(notice.notices.len(), 1);
+        let task = parent
+            .background
+            .iter()
+            .find(|task| task.id == notice.notices[0].id)
+            .unwrap();
+        assert_eq!(task.session, fixture.session.id);
+        assert_eq!(task.delivery, Some(notice.turn));
+        assert_eq!(
+            task.kind,
+            sailry_protocol::conversation::background::Kind::Agent {
+                session: child.id,
+                turn: finished_child.runs[0].turn
+            }
+        );
+        assert_eq!(task.summary.as_deref(), Some("Final child evidence"));
+        assert!(
+            !parent
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == notice.turn && entry.author == "user")
+                .any(|entry| !entry.parts.is_empty())
+        );
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        let request = fixture
+            .parent
+            .requests
+            .lock()
+            .unwrap()
+            .last()
+            .unwrap()
+            .clone();
+        let input = request["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .rfind(|message| message["role"] == "user")
+            .unwrap()["content"]
+            .as_str()
+            .unwrap();
+        assert!(input.starts_with("Node background completion data follows as JSON."));
+        let data: Value = serde_json::from_str(input.split_once('\n').unwrap().1).unwrap();
+        assert_eq!(data[0]["output"]["response"], "Final child evidence");
         fixture.close().await;
     }
 }

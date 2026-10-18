@@ -475,7 +475,7 @@ fn transcript(events: &[Event]) -> adk_core::Result<String> {
         let mut value = json!({"author": event.author, "parts": parts});
         if event.author == "user" {
             let source = event.provider_metadata.get(crate::store::agent::INPUT_SOURCE)
-                .filter(|source| matches!(source.as_str(), "user" | "parent" | "plugin"));
+                .filter(|source| matches!(source.as_str(), "user" | "parent" | "plugin" | "notice"));
             let original: Option<usize> = event.provider_metadata
                 .get(crate::store::agent::INPUT_PART)
                 .and_then(|index| index.parse().ok())

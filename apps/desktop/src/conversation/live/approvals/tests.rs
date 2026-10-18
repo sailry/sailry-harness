@@ -50,6 +50,7 @@ fn sample(display: Option<serde_json::Value>) -> (Call, Page) {
         approvals: vec![],
         questions: vec![],
         children: vec![],
+        background: Vec::new(),
         next_before: None,
     };
     (call, page)

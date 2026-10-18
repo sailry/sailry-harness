@@ -51,6 +51,7 @@ impl Control {
 struct Arguments {
     session: SessionId,
     message: Option<String>,
+    turn: Option<TurnId>,
 }
 
 #[async_trait]
@@ -65,7 +66,7 @@ impl Tool for Control {
         Some(if self.operation == Operation::GuideAgent {
             json!({"type":"object","properties":{"session":{"type":"string"},"message":{"type":"string","minLength":1}},"required":["session","message"],"additionalProperties":false})
         } else {
-            json!({"type":"object","properties":{"session":{"type":"string"}},"required":["session"],"additionalProperties":false})
+            json!({"type":"object","properties":{"session":{"type":"string"},"turn":{"type":"string","description":"Exact execution from a completion notice; omit for the latest execution"}},"required":["session"],"additionalProperties":false})
         })
     }
     async fn execute(
@@ -84,6 +85,9 @@ impl Tool for Control {
                 .map_err(|_| Fault::invalid("invalid child control arguments"))?;
             let state = self.ingress.child_state(self.turn, args.session).await?;
             if self.operation == Operation::GuideAgent {
+                if args.turn.is_some() {
+                    return Err(Fault::invalid("guidance does not accept an execution turn"));
+                }
                 let message = args
                     .message
                     .ok_or_else(|| Fault::invalid("child guidance message is required"))?;
@@ -123,7 +127,10 @@ impl Tool for Control {
                 return Err(Fault::invalid("waiting does not accept a message"));
             }
             loop {
-                let state = self.ingress.child_state(self.turn, args.session).await?;
+                let state = self
+                    .ingress
+                    .child_state_at(self.turn, args.session, args.turn)
+                    .await?;
                 if state.paused && state.run.status == sailry_protocol::conversation::Status::Queued
                 {
                     return Ok(
@@ -136,6 +143,9 @@ impl Tool for Control {
                         | sailry_protocol::conversation::Status::Running
                         | sailry_protocol::conversation::Status::Stopping
                 ) {
+                    self.ingress
+                        .collect_child(self.turn, args.session, state.run.turn)
+                        .await?;
                     return Ok(
                         json!({"session":state.run.session,"turn":state.run.turn,"status":state.run.status,"response":state.response,"error":state.run.error}),
                     );

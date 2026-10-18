@@ -18,6 +18,8 @@ pub(crate) struct Sessions {
     turn: TurnId,
     input_source: &'static str,
     references: Vec<reference::Reference>,
+    notices: Vec<sailry_protocol::conversation::background::Notice>,
+    notice_input: Option<String>,
     groupings: std::collections::BTreeMap<String, sailry_protocol::tool::Grouping>,
     presentations: std::collections::BTreeMap<String, sailry_protocol::tool::Presentation>,
     displays: std::collections::BTreeMap<String, sailry_protocol::tool::Display>,
@@ -32,12 +34,24 @@ impl Sessions {
             turn,
             input_source: "user",
             references: Vec::new(),
+            notices: Vec::new(),
+            notice_input: None,
             presentations: Default::default(),
             groupings: Default::default(),
             displays: Default::default(),
             bindings: Default::default(),
             connections: Default::default(),
         }
+    }
+
+    pub(crate) fn with_notices(
+        mut self,
+        notices: Vec<sailry_protocol::conversation::background::Notice>,
+        input: Option<String>,
+    ) -> Self {
+        self.notices = notices;
+        self.notice_input = input;
+        self
     }
 
     pub(crate) fn with_references(mut self, references: Vec<reference::Reference>) -> Self {
@@ -249,7 +263,21 @@ impl SessionService for Sessions {
             event
                 .provider_metadata
                 .insert(INPUT_SOURCE.into(), self.input_source.into());
-            let index = usize::from(!self.references.is_empty());
+            let notice = self.notice_input.as_ref().is_some_and(|expected| matches!(event.content().and_then(|content| content.parts.first()), Some(adk_core::Part::Text {text}) if text == expected));
+            if notice {
+                event.provider_metadata.insert(
+                    super::background::INPUT_IDS.into(),
+                    serde_json::to_string(
+                        &self
+                            .notices
+                            .iter()
+                            .map(|notice| &notice.id)
+                            .collect::<Vec<_>>(),
+                    )
+                    .map_err(|error| AdkError::session(error.to_string()))?,
+                );
+            }
+            let index = usize::from(!self.references.is_empty()) + usize::from(notice);
             if event.content().is_some_and(|content| {
                 matches!(content.parts.get(index), Some(adk_core::Part::Text { .. }))
             }) {

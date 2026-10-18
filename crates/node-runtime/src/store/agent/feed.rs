@@ -126,7 +126,7 @@ impl Feeds {
             | Change::Question(_)
             | Change::Child(_)
             | Change::Statistics(_) => {}
-            Change::Artifact(_) => {}
+            Change::Artifact(_) | Change::Background(_) => {}
         }
         feed.bytes = feed
             .drafts
@@ -386,6 +386,9 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
         for current in &update.runs {
             run(database, current.clone());
         }
+        if let Ok(tasks) = super::background::list(&database.connection, update.session) {
+            super::background::publish(database, tasks);
+        }
         database.feeds.publish(
             database.node,
             update.session,
@@ -409,12 +412,16 @@ pub(in crate::store) fn command(database: &mut Database, output: &Output) {
                 .feeds
                 .publish(database.node, run.session, Change::Queue(queue));
         }
+        let session = run.session;
         self::run(database, run);
+        if let Ok(tasks) = super::background::list(&database.connection, session) {
+            super::background::publish(database, tasks);
+        }
     }
 }
 
 /// Conversation-only capture hydration must not change a committed business result.
-pub(super) fn run(database: &Database, current: Run) {
+pub(in crate::store) fn run(database: &Database, current: Run) {
     let session = current.session;
     match runs::hydrate(&database.connection, current) {
         Ok(current) => database

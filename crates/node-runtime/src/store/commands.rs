@@ -11,6 +11,10 @@ pub(super) fn execute(
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
+        Command::DeliverBackground { .. } => Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "background delivery is internal Node input",
+        )),
         Command::WriteArtifact(_)
         | Command::ReadArtifact { .. }
         | Command::ListArtifacts { .. }
@@ -191,6 +195,11 @@ pub(super) fn execute(
             None,
         )),
         Command::SaveTerminalSettings(settings) => super::terminals::settings::save(db, settings),
+        Command::ReadBackgroundSettings => Ok((
+            Output::BackgroundSettings(super::background_settings::read(db)?),
+            None,
+        )),
+        Command::SaveBackgroundSettings(settings) => super::background_settings::save(db, settings),
         Command::ReadSandboxSettings => {
             Ok((Output::SandboxSettings(super::sandbox::read(db)?), None))
         }
@@ -1191,6 +1200,7 @@ fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         terminals: super::terminals::list(db)?,
         terminal_settings_revision: super::terminals::settings::read(db)?.revision,
         sandbox_settings_revision: super::sandbox::read(db)?.revision,
+        background_settings_revision: super::background_settings::read(db)?.revision,
         search_settings_revision: super::search::read(db)?.revision,
         media_settings: super::media::read(db)?,
         providers: super::agent::providers(db)?,

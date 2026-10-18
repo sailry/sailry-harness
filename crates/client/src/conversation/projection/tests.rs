@@ -3,6 +3,7 @@ use sailry_protocol::conversation::{Entry, Frame, Run};
 
 mod approvals;
 mod artifacts;
+mod background;
 mod children;
 mod forks;
 mod history;
@@ -27,6 +28,8 @@ fn fixture() -> (Projection, Snapshot, Run, Draft) {
         finished_ms: None,
         origin: None,
         continuation: None,
+        notice: false,
+        notices: Vec::new(),
         input: None,
     };
     let snapshot = Snapshot {
@@ -44,6 +47,7 @@ fn fixture() -> (Projection, Snapshot, Run, Draft) {
             approvals: Vec::new(),
             questions: Vec::new(),
             children: Vec::new(),
+            background: Vec::new(),
         }),
         drafts: Vec::new(),
         statistics: Default::default(),

@@ -1,5 +1,6 @@
 //! UI-independent conversation projections; execution-engine types stay on the Node.
 pub mod assets;
+pub mod background;
 pub mod catalog;
 pub mod connection;
 pub mod discovery;
@@ -168,6 +169,10 @@ pub struct Run {
     /// Package-owned automatic input, distinct from inherited history ownership.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continuation: Option<Continuation>,
+    #[serde(default)]
+    pub notice: bool,
+    #[serde(default)]
+    pub notices: Vec<background::Notice>,
     /// Claimed ordinary input until canonical user history is available.
     /// Included only in the owning conversation, never in activity summaries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -222,6 +227,8 @@ pub struct Queue {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pending {
     pub turn: TurnId,
+    #[serde(default)]
+    pub notice: bool,
     /// Durable input identity, absent only when an older receipt did not record it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub request: Option<crate::RequestId>,
@@ -434,6 +441,8 @@ pub struct Page {
     pub approvals: Vec<Approval>,
     pub questions: Vec<question::Question>,
     pub children: Vec<Child>,
+    #[serde(default)]
+    pub background: Vec<background::Task>,
     /// Logical history pages start and end at turn boundaries.
     pub next_before: Option<TurnId>,
 }
@@ -486,6 +495,7 @@ pub struct Snapshot {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Change {
+    Background(background::Task),
     Artifact(crate::artifact::Summary),
     /// Published only after the canonical event transaction commits.
     Entry(Entry),

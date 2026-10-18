@@ -55,6 +55,9 @@ pub(crate) fn id(uri: &str) -> Result<AttachmentId, Fault> {
 
 pub(super) async fn input(ingress: &Ingress, invocation: &Invocation) -> Result<Content, Fault> {
     let mut content = Content::new("user");
+    if let Some(notice) = &invocation.notice_input {
+        content = content.with_text(notice.clone());
+    }
     if !invocation.message.references.is_empty() {
         // The canonical user event retains this context; projection uses its typed metadata.
         content = content.with_text(format!(

@@ -6,6 +6,7 @@ fn pending() -> Queue {
         revision: 1,
         paused: true,
         items: vec![Pending {
+            notice: false,
             kind: sailry_protocol::conversation::RunKind::Task,
             attachments: vec![],
             turn: TurnId::new(),

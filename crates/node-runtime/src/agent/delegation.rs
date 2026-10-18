@@ -247,7 +247,19 @@ impl Delegate {
             };
         }
         match result.await {
-            Ok(Ok(value)) => Ok(value),
+            Ok(Ok(value)) => {
+                if let (Some(session), Some(turn)) = (value.get("session"), value.get("turn")) {
+                    let session = serde_json::from_value(session.clone())
+                        .map_err(|_| AdkError::tool("child result session is invalid"))?;
+                    let turn = serde_json::from_value(turn.clone())
+                        .map_err(|_| AdkError::tool("child result turn is invalid"))?;
+                    self.ingress
+                        .collect_child(self.turn, session, turn)
+                        .await
+                        .map_err(|fault| AdkError::tool(fault.message))?;
+                }
+                Ok(value)
+            }
             Ok(Err(error)) => Ok(json!({"isError":true, "error": error})),
             Err(_) => Err(AdkError::tool("child task outcome is unknown")),
         }

@@ -811,5 +811,14 @@
   "artifactFormRequired": "필수 항목을 입력하세요",
   "artifactFormInvalid": "답변을 제출할 수 없습니다",
   "artifactRenderFailed": "시각 자료를 표시할 수 없습니다",
-  "artifactReply": "“{title}” v{revision} ({id}/{form})에 대한 답변"
+  "artifactReply": "“{title}” v{revision} ({id}/{form})에 대한 답변",
+  "backgroundNoticeTitle": "백그라운드 결과",
+  "backgroundCompleted": "완료",
+  "backgroundFailed": "실패",
+  "backgroundCancelled": "취소됨",
+  "backgroundStopped": "중지됨",
+  "backgroundTimedOut": "시간 초과",
+  "backgroundInterrupted": "중단됨",
+  "backgroundUnknown": "결과 불확실",
+  "backgroundPending": "백그라운드 결과 대기 중"
 }

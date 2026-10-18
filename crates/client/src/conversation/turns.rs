@@ -14,6 +14,9 @@ pub fn pending(queue: &Queue, request: RequestId) -> Option<&Pending> {
 
 /// Canonical user content replaces the claim capture without inventing history entries.
 pub fn input(page: &Page, turn: TurnId) -> Option<SentInput> {
+    if page.runs.iter().any(|run| run.turn == turn && run.notice) {
+        return None;
+    }
     let mut canonical = false;
     let mut message = Input::default();
     let mut attachments = Vec::new();

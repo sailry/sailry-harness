@@ -17,11 +17,21 @@ impl Ingress {
         parent: TurnId,
         child: SessionId,
     ) -> Result<State, Fault> {
+        self.child_state_at(parent, child, None).await
+    }
+
+    pub(crate) async fn child_state_at(
+        &self,
+        parent: TurnId,
+        child: SessionId,
+        exact: Option<TurnId>,
+    ) -> Result<State, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(Job::Agent(Box::new(Operation::ChildState {
                 parent,
                 child,
+                exact,
                 reply,
             })))
             .await
@@ -79,19 +89,62 @@ pub(in crate::store) fn owned(
     Ok(run)
 }
 
+#[cfg(test)]
 pub(in crate::store) fn state(
     db: &Connection,
     parent: TurnId,
     child: SessionId,
 ) -> Result<State, Fault> {
-    let run = owned(db, parent, child)?;
+    state_at(db, parent, child, None)
+}
+
+pub(in crate::store) fn state_at(
+    db: &Connection,
+    parent: TurnId,
+    child: SessionId,
+    exact: Option<TurnId>,
+) -> Result<State, Fault> {
+    let latest = owned(db, parent, child)?;
+    let run = if let Some(turn) = exact {
+        let run = runs::get(db, turn)?;
+        let parent = calls::active(db, parent)?;
+        let origin = origin(db, turn)?.ok_or_else(|| {
+            Fault::new(
+                ErrorCode::PermissionDenied,
+                "turn is not a delegated execution",
+            )
+        })?;
+        if run.session != child || origin.session != parent.session {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "child execution belongs to another owner",
+            ));
+        }
+        run
+    } else {
+        latest
+    };
+    let response = if run.status == Status::Completed {
+        response(db, run.turn)?
+    } else {
+        None
+    };
+    let paused = queue::read(db, child)?.paused;
+    Ok(State {
+        run,
+        response,
+        paused,
+    })
+}
+
+pub(in crate::store) fn response(db: &Connection, turn: TurnId) -> Result<Option<String>, Fault> {
     let mut query = db
         .prepare("SELECT body FROM agent_events WHERE turn=?1 ORDER BY sequence DESC")
         .map_err(storage_error)?;
     let mut response = None;
-    if run.status == Status::Completed {
+    {
         for body in query
-            .query_map([run.turn.to_string()], |row| row.get::<_, Vec<u8>>(0))
+            .query_map([turn.to_string()], |row| row.get::<_, Vec<u8>>(0))
             .map_err(storage_error)?
         {
             let event: AdkEvent =
@@ -115,10 +168,5 @@ pub(in crate::store) fn state(
             }
         }
     }
-    let paused = queue::read(db, child)?.paused;
-    Ok(State {
-        run,
-        response,
-        paused,
-    })
+    Ok(response)
 }

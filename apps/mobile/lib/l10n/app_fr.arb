@@ -811,5 +811,14 @@
   "artifactFormRequired": "Remplissez les champs obligatoires",
   "artifactFormInvalid": "Impossible d’envoyer les réponses",
   "artifactRenderFailed": "Impossible d’afficher le graphique",
-  "artifactReply": "Réponse à « {title} » v{revision} ({id}/{form})"
+  "artifactReply": "Réponse à « {title} » v{revision} ({id}/{form})",
+  "backgroundNoticeTitle": "Résultats en arrière-plan",
+  "backgroundCompleted": "Terminé",
+  "backgroundFailed": "Échec",
+  "backgroundCancelled": "Annulé",
+  "backgroundStopped": "Arrêté",
+  "backgroundTimedOut": "Délai dépassé",
+  "backgroundInterrupted": "Interrompu",
+  "backgroundUnknown": "Résultat incertain",
+  "backgroundPending": "Résultats en attente"
 }

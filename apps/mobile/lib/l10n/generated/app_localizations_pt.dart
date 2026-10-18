@@ -2134,6 +2134,33 @@ class AppLocalizationsPt extends AppLocalizations {
   String artifactReply(String id, String revision, String title, String form) {
     return 'Resposta a “$title” v$revision ($id/$form)';
   }
+
+  @override
+  String get backgroundNoticeTitle => 'Resultados em segundo plano';
+
+  @override
+  String get backgroundCompleted => 'Concluído';
+
+  @override
+  String get backgroundFailed => 'Falhou';
+
+  @override
+  String get backgroundCancelled => 'Cancelado';
+
+  @override
+  String get backgroundStopped => 'Parado';
+
+  @override
+  String get backgroundTimedOut => 'Tempo esgotado';
+
+  @override
+  String get backgroundInterrupted => 'Interrompido';
+
+  @override
+  String get backgroundUnknown => 'Resultado incerto';
+
+  @override
+  String get backgroundPending => 'Resultados pendentes';
 }
 
 /// The translations for Portuguese, as used in Brazil (`pt_BR`).
@@ -2165,4 +2192,31 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
   String artifactReply(String id, String revision, String title, String form) {
     return 'Resposta a “$title” v$revision ($id/$form)';
   }
+
+  @override
+  String get backgroundNoticeTitle => 'Resultados em segundo plano';
+
+  @override
+  String get backgroundCompleted => 'Concluído';
+
+  @override
+  String get backgroundFailed => 'Falhou';
+
+  @override
+  String get backgroundCancelled => 'Cancelado';
+
+  @override
+  String get backgroundStopped => 'Parado';
+
+  @override
+  String get backgroundTimedOut => 'Tempo esgotado';
+
+  @override
+  String get backgroundInterrupted => 'Interrompido';
+
+  @override
+  String get backgroundUnknown => 'Resultado incerto';
+
+  @override
+  String get backgroundPending => 'Resultados pendentes';
 }

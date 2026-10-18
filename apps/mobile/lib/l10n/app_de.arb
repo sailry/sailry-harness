@@ -811,5 +811,14 @@
   "artifactFormRequired": "Pflichtfelder ausfüllen",
   "artifactFormInvalid": "Antworten konnten nicht gesendet werden",
   "artifactRenderFailed": "Grafik konnte nicht dargestellt werden",
-  "artifactReply": "Antwort zu „{title}“ v{revision} ({id}/{form})"
+  "artifactReply": "Antwort zu „{title}“ v{revision} ({id}/{form})",
+  "backgroundNoticeTitle": "Hintergrundergebnisse",
+  "backgroundCompleted": "Abgeschlossen",
+  "backgroundFailed": "Fehlgeschlagen",
+  "backgroundCancelled": "Abgebrochen",
+  "backgroundStopped": "Gestoppt",
+  "backgroundTimedOut": "Zeitüberschreitung",
+  "backgroundInterrupted": "Unterbrochen",
+  "backgroundUnknown": "Ergebnis ungewiss",
+  "backgroundPending": "Hintergrundergebnisse stehen bereit"
 }

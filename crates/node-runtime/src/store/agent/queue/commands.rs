@@ -38,6 +38,12 @@ pub(in crate::store) fn execute(
                 message,
                 Some(&super::super::plugins::read(db, run.turn)?),
             )?;
+            if run.notice {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "background notice input is read-only",
+                ));
+            }
             if run.kind != RunKind::Task {
                 return Err(sailry_protocol::Fault::invalid(
                     "context compaction has no editable input",

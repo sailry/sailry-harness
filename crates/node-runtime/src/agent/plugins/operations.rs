@@ -365,6 +365,13 @@ impl HostOperation {
                     "plugin tool response is unavailable",
                 )
             })??;
+            if self.operation == Operation::ReadCommand
+                && let sailry_protocol::Output::CommandOutput(snapshot) = &output
+            {
+                self.ingress
+                    .collect_command(self.turn, snapshot.clone())
+                    .await?;
+            }
             if roles::handles(self.operation) {
                 return roles::output(output);
             }

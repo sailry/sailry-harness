@@ -827,5 +827,14 @@
         "type": "String"
       }
     }
-  }
+  },
+  "backgroundNoticeTitle": "Background results",
+  "backgroundCompleted": "Completed",
+  "backgroundFailed": "Failed",
+  "backgroundCancelled": "Cancelled",
+  "backgroundStopped": "Stopped",
+  "backgroundTimedOut": "Timed out",
+  "backgroundInterrupted": "Interrupted",
+  "backgroundUnknown": "Outcome uncertain",
+  "backgroundPending": "Background results ready"
 }

@@ -171,7 +171,7 @@ fn render(page: &Page, title: &str, format: Format, assets: &str) -> Result<Docu
             && page
                 .runs
                 .iter()
-                .any(|run| run.turn == entry.turn && run.continuation.is_some())
+                .any(|run| run.turn == entry.turn && (run.continuation.is_some() || run.notice))
         {
             continue;
         }

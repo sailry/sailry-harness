@@ -811,5 +811,14 @@
   "artifactFormRequired": "必須項目を入力してください",
   "artifactFormInvalid": "回答を送信できません",
   "artifactRenderFailed": "図を表示できません",
-  "artifactReply": "「{title}」v{revision}（{id}/{form}）への回答"
+  "artifactReply": "「{title}」v{revision}（{id}/{form}）への回答",
+  "backgroundNoticeTitle": "バックグラウンドの結果",
+  "backgroundCompleted": "完了",
+  "backgroundFailed": "失敗",
+  "backgroundCancelled": "キャンセル済み",
+  "backgroundStopped": "停止済み",
+  "backgroundTimedOut": "タイムアウト",
+  "backgroundInterrupted": "中断",
+  "backgroundUnknown": "結果は不確定",
+  "backgroundPending": "バックグラウンドの結果を処理できます"
 }

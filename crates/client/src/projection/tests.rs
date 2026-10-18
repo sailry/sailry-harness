@@ -1,5 +1,6 @@
 use super::*;
 use sailry_protocol::{Defaults, EventEnvelope};
+mod background;
 mod notifications;
 mod plugins;
 mod quotas;
@@ -20,6 +21,7 @@ fn snapshot(cursor: u64) -> Snapshot {
         terminals: vec![],
         terminal_settings_revision: 0,
         sandbox_settings_revision: 0,
+        background_settings_revision: 0,
         search_settings_revision: 0,
         media_settings: Default::default(),
         providers: vec![],

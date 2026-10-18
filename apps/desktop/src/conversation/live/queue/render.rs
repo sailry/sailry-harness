@@ -85,7 +85,11 @@ impl Panel {
             }));
         let guide = self
             .recipient
-            .filter(|_| !self.child && item.kind == sailry_protocol::conversation::RunKind::Task)
+            .filter(|_| {
+                !self.child
+                    && !item.notice
+                    && item.kind == sailry_protocol::conversation::RunKind::Task
+            })
             .map(|recipient| {
                 Button::new(format!("live-queue-guide-{turn}"))
                     .rounded_full()
@@ -122,18 +126,18 @@ impl Panel {
             key,
             label(item),
             !item.attachments.is_empty(),
-            !self.child,
-            (item.kind == sailry_protocol::conversation::RunKind::Task)
+            !self.child && !item.notice,
+            (!item.notice && item.kind == sailry_protocol::conversation::RunKind::Task)
                 .then_some(edit.into_any_element())
                 .into_iter()
                 .chain(guide)
-                .chain((!self.child).then_some(send.into_any_element()))
+                .chain((!self.child && !item.notice).then_some(send.into_any_element()))
                 .chain([remove.into_any_element()]),
             cx,
         )
         .debug_selector(move || format!("queue-row-{turn}"))
         .when(
-            !self.child && !self.blocked() && item.guidance.is_none(),
+            !self.child && !item.notice && !self.blocked() && item.guidance.is_none(),
             |row| {
                 row.on_drag(drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
                     .on_drop(cx.listener(move |panel, source: &Drag, window, cx| {
@@ -342,7 +346,9 @@ impl Render for Panel {
 }
 
 pub(super) fn label(item: &Pending) -> SharedString {
-    if item.kind == sailry_protocol::conversation::RunKind::Compaction {
+    if item.notice {
+        tr("background_notice_title")
+    } else if item.kind == sailry_protocol::conversation::RunKind::Compaction {
         tr("chat_compact")
     } else if item.preview.is_empty() {
         item.attachments

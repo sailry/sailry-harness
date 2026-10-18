@@ -85,6 +85,8 @@ fn history() -> (TurnId, View) {
                     finished_ms: Some(2),
                     origin: None,
                     continuation: None,
+                    notice: false,
+                    notices: Vec::new(),
                     input: None,
                 },
                 origin: Delegation {
@@ -120,6 +122,7 @@ fn history() -> (TurnId, View) {
                 approvals: vec![],
                 questions: vec![],
                 children,
+                background: Vec::new(),
                 runs: vec![],
                 entries,
             }),

@@ -21,6 +21,7 @@ fn queue_outputs_preserve_exact_revisions() {
             approvals: vec![],
             questions: vec![],
             children: vec![],
+            background: Vec::new(),
             next_before: None,
         },
         missing: vec![],

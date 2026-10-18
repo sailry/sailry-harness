@@ -811,5 +811,14 @@
   "artifactFormRequired": "请填写必填项",
   "artifactFormInvalid": "无法提交回答",
   "artifactRenderFailed": "无法渲染图表",
-  "artifactReply": "关于「{title}」v{revision}（{id}/{form}）的回复"
+  "artifactReply": "关于「{title}」v{revision}（{id}/{form}）的回复",
+  "backgroundNoticeTitle": "后台结果",
+  "backgroundCompleted": "已完成",
+  "backgroundFailed": "失败",
+  "backgroundCancelled": "已取消",
+  "backgroundStopped": "已停止",
+  "backgroundTimedOut": "超时",
+  "backgroundInterrupted": "已中断",
+  "backgroundUnknown": "结果不确定",
+  "backgroundPending": "后台结果待处理"
 }

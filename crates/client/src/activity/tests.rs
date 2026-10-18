@@ -43,6 +43,8 @@ fn session(status: Option<Status>) -> Session {
         finished_ms: None,
         origin: None,
         continuation: None,
+        notice: false,
+        notices: Vec::new(),
         input: None,
     });
     session

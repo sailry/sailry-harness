@@ -158,6 +158,15 @@ impl Ingress {
         internal: bool,
     ) -> Pending<'_, Result<Admission, Fault>> {
         Box::pin(async move {
+            if matches!(
+                request.command,
+                sailry_protocol::Command::DeliverBackground { .. }
+            ) {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "background delivery is internal Node input",
+                ));
+            }
             if !self.accepting.load(Ordering::Acquire) {
                 return Err(unavailable());
             }

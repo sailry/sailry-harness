@@ -4199,6 +4199,60 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Reply to “{title}” v{revision} ({id}/{form})'**
   String artifactReply(String id, String revision, String title, String form);
+
+  /// No description provided for @backgroundNoticeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Background results'**
+  String get backgroundNoticeTitle;
+
+  /// No description provided for @backgroundCompleted.
+  ///
+  /// In en, this message translates to:
+  /// **'Completed'**
+  String get backgroundCompleted;
+
+  /// No description provided for @backgroundFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed'**
+  String get backgroundFailed;
+
+  /// No description provided for @backgroundCancelled.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancelled'**
+  String get backgroundCancelled;
+
+  /// No description provided for @backgroundStopped.
+  ///
+  /// In en, this message translates to:
+  /// **'Stopped'**
+  String get backgroundStopped;
+
+  /// No description provided for @backgroundTimedOut.
+  ///
+  /// In en, this message translates to:
+  /// **'Timed out'**
+  String get backgroundTimedOut;
+
+  /// No description provided for @backgroundInterrupted.
+  ///
+  /// In en, this message translates to:
+  /// **'Interrupted'**
+  String get backgroundInterrupted;
+
+  /// No description provided for @backgroundUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'Outcome uncertain'**
+  String get backgroundUnknown;
+
+  /// No description provided for @backgroundPending.
+  ///
+  /// In en, this message translates to:
+  /// **'Background results ready'**
+  String get backgroundPending;
 }
 
 class _AppLocalizationsDelegate

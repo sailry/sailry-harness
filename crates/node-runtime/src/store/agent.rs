@@ -2,6 +2,7 @@
 pub(super) mod activity;
 pub(super) mod approvals;
 pub(super) mod assets;
+pub(in crate::store) mod background;
 mod calls;
 pub(super) mod checkpoints;
 mod children;
@@ -44,6 +45,7 @@ use tokio::sync::{broadcast, oneshot};
 pub(crate) use approvals::Binding as ApprovalBinding;
 pub(crate) use approvals::results::{Denial, enrich as enrich_denials};
 pub(super) use delegation::read as delegation;
+pub(in crate::store) use feed::run as publish_run;
 pub(super) use feed::{Feeds, command as publish_command, package as invalidate_package};
 pub(super) use history::pages::{read, turn as read_turn};
 pub(super) use history::{
@@ -128,9 +130,22 @@ pub(super) enum Operation {
         token: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Invocation, Fault>>,
     },
+    CommandFinished(crate::process::background::Finished),
+    ConsumeCommand {
+        parent: TurnId,
+        snapshot: sailry_protocol::process::Snapshot,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
+    CollectChild {
+        parent: TurnId,
+        child: SessionId,
+        turn: TurnId,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
     ChildState {
         parent: TurnId,
         child: SessionId,
+        exact: Option<TurnId>,
         reply: oneshot::Sender<Result<delegation::State, Fault>>,
     },
     PendingGuidance {
@@ -225,6 +240,9 @@ pub(super) enum Operation {
 pub(crate) struct Invocation {
     pub hooks: hooks::Settings,
     pub automatic: bool,
+    pub notice: bool,
+    pub notice_input: Option<String>,
+    pub notices: Vec<sailry_protocol::conversation::background::Notice>,
     pub title: Option<String>,
     pub connections: connections::Catalog,
     pub turn: QueuedTurn,
@@ -583,12 +601,78 @@ pub(super) fn execute(
             }
             let _ = reply.send(result);
         }
+        Operation::CommandFinished(completed) => {
+            let result = (|| -> Result<(), Fault> {
+                let tx = database.connection.transaction().map_err(storage_error)?;
+                let task = background::command_finished(
+                    &tx,
+                    &completed.snapshot,
+                    completed.elapsed_ms,
+                    completed.explicit,
+                )?;
+                let scheduled =
+                    background::schedule(&tx, database.node, completed.snapshot.info.session)?;
+                tx.commit().map_err(storage_error)?;
+                background::publish(database, task);
+                if let Some(turn) = scheduled {
+                    feed::run(database, runs::get(&database.connection, turn.id)?);
+                    database.feeds.publish(
+                        database.node,
+                        turn.session,
+                        Change::Queue(queue::read(&database.connection, turn.session)?),
+                    );
+                    background::publish(
+                        database,
+                        background::list(&database.connection, turn.session)?,
+                    );
+                }
+                Ok(())
+            })();
+            if let Err(error) = result {
+                eprintln!("background completion persistence failed: {error}");
+            }
+        }
+        Operation::ConsumeCommand {
+            parent,
+            snapshot,
+            reply,
+        } => {
+            let result = (|| -> Result<(), Fault> {
+                let tx = database.connection.transaction().map_err(storage_error)?;
+                let tasks = background::consume_command(&tx, parent, &snapshot)?;
+                tx.commit().map_err(storage_error)?;
+                background::publish(database, tasks);
+                Ok(())
+            })();
+            let _ = reply.send(result);
+        }
+        Operation::CollectChild {
+            parent,
+            child,
+            turn,
+            reply,
+        } => {
+            let result = (|| -> Result<(), Fault> {
+                let tx = database.connection.transaction().map_err(storage_error)?;
+                let tasks = background::consume_child(&tx, parent, child, turn)?;
+                tx.commit().map_err(storage_error)?;
+                background::publish(database, tasks);
+                Ok(())
+            })();
+            let _ = reply.send(result);
+        }
         Operation::ChildState {
             parent,
             child,
+            exact,
             reply,
         } => {
-            let _ = reply.send(delegation::state(&database.connection, parent, child));
+            let _ = reply.send(delegation::control::state_at(
+                &database.connection,
+                parent,
+                child,
+                exact,
+            ));
         }
         Operation::PendingGuidance { recipient, reply } => {
             let _ = reply.send(

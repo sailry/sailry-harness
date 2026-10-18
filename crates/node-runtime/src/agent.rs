@@ -510,11 +510,14 @@ async fn execute_with(
         crate::store::agent::Sessions::new(ingress.clone(), invocation.turn.id)
             .with_input_source(if invocation.child.is_some() {
                 "parent"
+            } else if invocation.notice {
+                "notice"
             } else if invocation.automatic {
                 "plugin"
             } else {
                 "user"
             })
+            .with_notices(invocation.notices.clone(), invocation.notice_input.clone())
             .with_references(invocation.message.references.clone())
             .with_groupings(catalog.groupings())
             .with_displays(catalog.displays())

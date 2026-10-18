@@ -14,6 +14,8 @@ fn run() -> Run {
         error: None,
         origin: None,
         continuation: None,
+        notice: false,
+        notices: Vec::new(),
         input: None,
         started_ms: Some(1000),
         finished_ms: None,
@@ -70,6 +72,7 @@ fn active_phase_lifecycle() {
         approvals: vec![],
         questions: vec![],
         children: vec![],
+        background: Vec::new(),
         next_before: None,
     };
     assert_eq!(phase(&run, &page, &[]), Some("turn_awaiting_response"));
@@ -180,6 +183,7 @@ fn excludes_later_child_calls() {
         approvals: vec![],
         questions: vec![],
         children: vec![original.clone(), reused],
+        background: Vec::new(),
         next_before: None,
     };
     let blocks = [

@@ -164,3 +164,88 @@ fn retained_direction_reports_paused() {
     assert_eq!(state.run.status, Status::Queued);
     assert!(state.paused);
 }
+
+#[test]
+fn reads_prior_execution_after_child_reuse() {
+    let mut fixture = setup();
+    let parent = start(&mut fixture);
+    let first = invoke(
+        &mut fixture,
+        parent,
+        json!({"task":"First task","background":true}),
+    )
+    .unwrap();
+    let mut event = AdkEvent::new("first-child-answer");
+    event.author = "assistant".into();
+    event.set_content(adk_core::Content::new("model").with_text("First execution evidence"));
+    history::append(
+        &mut fixture.database,
+        first.turn.session,
+        first.turn.id,
+        event,
+        &fixture.events,
+    )
+    .unwrap();
+    finish(&mut fixture, first.turn.id);
+    let second = invoke(
+        &mut fixture,
+        parent,
+        json!({"session":first.turn.session,"task":"Second task","background":true}),
+    )
+    .unwrap();
+    assert_ne!(first.turn.id, second.turn.id);
+    assert_eq!(first.turn.session, second.turn.session);
+    let latest = state(&fixture.database.connection, parent, first.turn.session).unwrap();
+    assert_eq!(latest.run.turn, second.turn.id);
+    assert_eq!(latest.run.status, Status::Running);
+    let prior = state_at(
+        &fixture.database.connection,
+        parent,
+        first.turn.session,
+        Some(first.turn.id),
+    )
+    .unwrap();
+    assert_eq!(prior.run.turn, first.turn.id);
+    assert_eq!(prior.run.status, Status::Completed);
+    assert_eq!(prior.response.as_deref(), Some("First execution evidence"));
+    let consumed = super::super::super::background::consume_child(
+        &fixture.database.connection,
+        parent,
+        first.turn.session,
+        first.turn.id,
+    )
+    .unwrap();
+    assert_eq!(consumed.len(), 1);
+    assert_eq!(
+        consumed[0].state,
+        sailry_protocol::conversation::background::State::Consumed
+    );
+    let tasks =
+        super::super::super::background::list(&fixture.database.connection, fixture.session)
+            .unwrap();
+    let first_id = format!("agent:{}", first.turn.id);
+    let second_id = format!("agent:{}", second.turn.id);
+    assert_eq!(
+        tasks.iter().find(|task| task.id == first_id).unwrap().state,
+        sailry_protocol::conversation::background::State::Consumed
+    );
+    assert_eq!(
+        tasks
+            .iter()
+            .find(|task| task.id == second_id)
+            .unwrap()
+            .state,
+        sailry_protocol::conversation::background::State::Running
+    );
+    assert_eq!(
+        state_at(
+            &fixture.database.connection,
+            parent,
+            first.turn.session,
+            Some(parent)
+        )
+        .unwrap_err()
+        .code,
+        ErrorCode::PermissionDenied
+    );
+}

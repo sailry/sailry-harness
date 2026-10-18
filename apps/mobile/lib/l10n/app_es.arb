@@ -811,5 +811,14 @@
   "artifactFormRequired": "Completa los campos obligatorios",
   "artifactFormInvalid": "No se pudieron enviar las respuestas",
   "artifactRenderFailed": "No se pudo mostrar el gráfico",
-  "artifactReply": "Respuesta a «{title}» v{revision} ({id}/{form})"
+  "artifactReply": "Respuesta a «{title}» v{revision} ({id}/{form})",
+  "backgroundNoticeTitle": "Resultados en segundo plano",
+  "backgroundCompleted": "Completado",
+  "backgroundFailed": "Error",
+  "backgroundCancelled": "Cancelado",
+  "backgroundStopped": "Detenido",
+  "backgroundTimedOut": "Tiempo agotado",
+  "backgroundInterrupted": "Interrumpido",
+  "backgroundUnknown": "Resultado incierto",
+  "backgroundPending": "Resultados pendientes"
 }

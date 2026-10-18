@@ -57,6 +57,7 @@ pub(in crate::store) fn remove(
         }
     }
     for id in &ids {
+        crate::store::agent::background::dismiss(db, *id)?;
         db.execute(
             "UPDATE sessions SET state='removed' WHERE id=?1",
             [id.to_string()],

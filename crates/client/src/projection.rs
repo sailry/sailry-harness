@@ -190,6 +190,9 @@ impl Projection {
                     Event::SandboxSettingsChanged { revision } => {
                         snapshot.sandbox_settings_revision = revision;
                     }
+                    Event::BackgroundSettingsChanged { revision } => {
+                        snapshot.background_settings_revision = revision;
+                    }
                     Event::SearchSettingsChanged { revision } => {
                         snapshot.search_settings_revision = revision;
                     }

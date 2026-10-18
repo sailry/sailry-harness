@@ -2133,4 +2133,31 @@ class AppLocalizationsRu extends AppLocalizations {
   String artifactReply(String id, String revision, String title, String form) {
     return 'Ответ к «$title» v$revision ($id/$form)';
   }
+
+  @override
+  String get backgroundNoticeTitle => 'Фоновые результаты';
+
+  @override
+  String get backgroundCompleted => 'Завершено';
+
+  @override
+  String get backgroundFailed => 'Ошибка';
+
+  @override
+  String get backgroundCancelled => 'Отменено';
+
+  @override
+  String get backgroundStopped => 'Остановлено';
+
+  @override
+  String get backgroundTimedOut => 'Время истекло';
+
+  @override
+  String get backgroundInterrupted => 'Прервано';
+
+  @override
+  String get backgroundUnknown => 'Результат неизвестен';
+
+  @override
+  String get backgroundPending => 'Фоновые результаты готовы';
 }

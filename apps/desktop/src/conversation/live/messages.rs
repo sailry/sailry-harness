@@ -285,7 +285,7 @@ impl View {
         if run.kind == sailry_protocol::conversation::RunKind::Compaction {
             return self.compaction_turn(run, &snapshot.page, cx);
         }
-        let automatic = run.continuation.is_some();
+        let automatic = run.continuation.is_some() || run.notice;
 
         let mut prompt = String::new();
         let mut sent_ms = None;
@@ -615,9 +615,11 @@ impl View {
                             }),
                     )
                 })
-                .when(!self.readonly(), |row| row.child(self.turn_menu(turn, cx)))
+                .when(!self.readonly() && !run.notice, |row| {
+                    row.child(self.turn_menu(turn, cx))
+                })
                 .when(
-                    !self.readonly() && super::resend::resendable(run.status),
+                    !self.readonly() && !run.notice && super::resend::resendable(run.status),
                     |row| row.child(self.resend_button(turn, cx)),
                 )
                 .when(!frame::active(run.status), |row| {
@@ -652,6 +654,7 @@ impl View {
                 MessageGroup::new()
                     .gap(px(10.))
                     .pb(px(28.))
+                    .children(self.background_notices(turn, &run.notices, cx))
                     .when(
                         !automatic
                             && (!prompt.is_empty()

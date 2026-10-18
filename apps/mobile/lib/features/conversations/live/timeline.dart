@@ -22,6 +22,8 @@ import 'activity.dart';
 import 'turn_frame.dart';
 import 'connection_status.dart';
 import 'children.dart';
+import 'background.dart';
+import 'background_data.dart';
 import 'progress.dart';
 import 'sources.dart';
 import 'references.dart';
@@ -390,7 +392,14 @@ class _LiveTimelineState extends State<LiveTimeline> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final entry in rows.where((entry) => entry['author'] == 'user'))
+          BackgroundNotices(
+            items: objects(run['notices']),
+            children: objects(page['children']),
+            onOpenChild: onOpenChild,
+          ),
+          for (final entry in rows.where(
+            (entry) => entry['author'] == 'user' && !noticeTurn(run),
+          ))
             UserBubble(
               onEdit: onTurnAction == null || !canChangeHistory
                   ? null
@@ -468,6 +477,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             changes: widget.artifactChanges,
           ),
           if (!active &&
+              !noticeTurn(run) &&
               !widget.sending &&
               run ==
                   runs.where((run) => run['kind'] != 'compaction').lastOrNull &&
@@ -486,6 +496,7 @@ class _LiveTimelineState extends State<LiveTimeline> {
             TurnActions(
               canEdit:
                   canChangeHistory &&
+                  !noticeTurn(run) &&
                   rows.any((entry) => entry['author'] == 'user'),
               copy: rows
                   .where((entry) => entry['author'] != 'user')
@@ -493,8 +504,11 @@ class _LiveTimelineState extends State<LiveTimeline> {
                   .where((part) => part['kind'] == 'text')
                   .map((part) => text(part['data']))
                   .join('\n\n'),
-              failed: ['failed', 'interrupted'].contains(run['status']),
-              canRewind: canChangeHistory && run != runs.last,
+              failed:
+                  !noticeTurn(run) &&
+                  ['failed', 'interrupted'].contains(run['status']),
+              canRewind:
+                  canChangeHistory && !noticeTurn(run) && run != runs.last,
               onAction: onTurnAction == null
                   ? null
                   : (action) => onTurnAction(action, run['turn'] as String),
@@ -517,6 +531,12 @@ class _LiveTimelineState extends State<LiveTimeline> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          BackgroundNotices(
+            items: pendingBackground(page),
+            children: objects(page['children']),
+            pending: true,
+            onOpenChild: onOpenChild,
+          ),
           for (final run in runs)
             KeyedSubtree(
               key:

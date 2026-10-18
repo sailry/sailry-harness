@@ -156,6 +156,16 @@ pub(super) fn stored(db: &Connection) -> Result<(), Error> {
         "plugin_settings.body",
         "SELECT body FROM plugin_settings",
     )?;
+    records::<crate::store::agent::background::Record>(
+        db,
+        "agent_background.body",
+        "SELECT body FROM agent_background",
+    )?;
+    records::<sailry_protocol::conversation::background::Settings>(
+        db,
+        "background_settings.body",
+        "SELECT body FROM background_settings",
+    )?;
     records::<crate::store::agent::continuation::Fence>(
         db,
         "agent_continuations.body",

@@ -29,6 +29,7 @@ pub(super) struct Panel {
     session: Option<SessionId>,
     state: sailry_client::commands::View,
     selected: watch::Sender<Option<RequestId>>,
+    open: bool,
     stop: CancellationToken,
     watcher: Option<Task<()>>,
     action: Option<Task<()>>,
@@ -42,12 +43,17 @@ impl Drop for Panel {
 }
 
 impl Panel {
+    pub(super) fn contains(&self, id: RequestId) -> bool {
+        self.state.items.iter().any(|info| info.id == id)
+    }
+
     pub fn new(binding: Binding) -> Self {
         Self {
             binding,
             session: None,
             state: Default::default(),
             selected: watch::channel(None).0,
+            open: false,
             stop: CancellationToken::new(),
             watcher: None,
             action: None,
@@ -66,6 +72,7 @@ impl Panel {
         self.binding = view.binding.clone();
         self.session = view.session();
         self.state = Default::default();
+        self.open = false;
         self.action = None;
         self.error = None;
         self.watcher = None;
@@ -101,13 +108,7 @@ impl Panel {
 
     fn sync_selection(&mut self) {
         let selected = *self.selected.borrow();
-        if selected.is_some_and(|id| {
-            !self
-                .state
-                .items
-                .iter()
-                .any(|info| info.id == id && active(info))
-        }) {
+        if selected.is_some_and(|id| !self.state.items.iter().any(|info| info.id == id)) {
             self.selected.send_replace(None);
             self.state.output = None;
         }
@@ -185,6 +186,7 @@ impl Panel {
             id,
             panel: cx.entity().downgrade(),
             open: *self.selected.borrow() == Some(id),
+            running: active(info),
             disabled: !self.state.connected
                 || self.action.is_some()
                 || info.status == CommandStatus::Stopping,
@@ -265,11 +267,20 @@ impl View {
         .detach();
     }
 
+    pub(super) fn open_background_command(&self, id: RequestId, cx: &mut Context<Self>) {
+        self.commands.update(cx, |panel, cx| {
+            panel.sync(self, cx);
+            panel.selected.send_replace(Some(id));
+            panel.open = true;
+            cx.notify();
+        });
+    }
+
     pub(super) fn command_activity(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.commands.update(cx, |panel, cx| panel.sync(self, cx));
         let panel = self.commands.read(cx);
         let count = panel.state.items.iter().filter(|info| active(info)).count();
-        if count == 0 {
+        if count == 0 && !panel.open {
             return None;
         }
         let services = self
@@ -295,6 +306,7 @@ impl View {
                 crate::ports::Workspace::service_buttons(ports, sources, panel.state.connected, cx)
             })
             .unwrap_or_default();
+        let open = panel.open;
         let panel = self.commands.clone();
         Some(
             h_flex()
@@ -302,6 +314,16 @@ impl View {
                 .flex_wrap()
                 .child(
                     Popover::new("background-popover")
+                        .open(open)
+                        .on_open_change({
+                            let panel = self.commands.downgrade();
+                            move |open, _, cx| {
+                                _ = panel.update(cx, |panel, cx| {
+                                    panel.open = *open;
+                                    cx.notify();
+                                });
+                            }
+                        })
                         .anchor(Anchor::BottomLeft)
                         .bottom_2()
                         .p_2()
@@ -315,9 +337,11 @@ impl View {
                                 .text_color(cx.theme().muted_foreground)
                                 .icon(IconName::SquareTerminal)
                                 .debug_selector(|| "composer-background".into())
-                                .label(
-                                    rust_i18n::t!("background_count", count = count).to_string(),
-                                ),
+                                .label(if count == 0 {
+                                    tr("background_notice_title").to_string()
+                                } else {
+                                    rust_i18n::t!("background_count", count = count).to_string()
+                                }),
                         )
                         .content(move |_, _, _| panel.clone()),
                 )
@@ -330,7 +354,12 @@ impl View {
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut commands = v_flex().w_full().h_auto().flex_shrink_0();
-        for info in self.state.items.iter().filter(|info| active(info)) {
+        for info in self
+            .state
+            .items
+            .iter()
+            .filter(|info| active(info) || *self.selected.borrow() == Some(info.id))
+        {
             let title = self.row(info, cx);
             let output = self.output_text(info.id);
             commands = commands.child(

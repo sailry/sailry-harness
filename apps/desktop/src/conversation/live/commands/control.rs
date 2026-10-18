@@ -1,5 +1,5 @@
 //! Kit Accordion fixes its trailing chevron, so this header composes Kit controls.
-//! The shared selection still owns expansion; the one trailing button always stops.
+//! Shared selection owns expansion; active commands retain the trailing stop action.
 use super::*;
 
 #[derive(IntoElement)]
@@ -7,6 +7,7 @@ pub(super) struct Header {
     pub id: RequestId,
     pub panel: WeakEntity<Panel>,
     pub open: bool,
+    pub running: bool,
     pub disabled: bool,
     pub status: AnyElement,
     pub command: SharedString,
@@ -86,47 +87,49 @@ impl RenderOnce for Header {
                         });
                     }),
             )
-            .child(
-                Button::new(SharedString::from(format!("background-stop-{id}")))
-                    .debug_selector(move || format!("background-stop-{id}"))
-                    .ghost()
-                    .small()
-                    .flex_shrink_0()
-                    .w_6()
-                    .px_0()
-                    .child(
-                        div()
-                            .debug_selector(move || {
-                                format!(
-                                    "background-{}-{id}",
-                                    if stopping {
-                                        "stop-icon"
-                                    } else if self.open {
-                                        "expanded"
-                                    } else {
-                                        "collapsed"
-                                    }
-                                )
-                            })
-                            .child(
-                                Icon::new(if stopping {
-                                    IconName::Square
-                                } else if self.open {
-                                    IconName::ChevronDown
-                                } else {
-                                    IconName::ChevronRight
+            .when(self.running, |row| {
+                row.child(
+                    Button::new(SharedString::from(format!("background-stop-{id}")))
+                        .debug_selector(move || format!("background-stop-{id}"))
+                        .ghost()
+                        .small()
+                        .flex_shrink_0()
+                        .w_6()
+                        .px_0()
+                        .child(
+                            div()
+                                .debug_selector(move || {
+                                    format!(
+                                        "background-{}-{id}",
+                                        if stopping {
+                                            "stop-icon"
+                                        } else if self.open {
+                                            "expanded"
+                                        } else {
+                                            "collapsed"
+                                        }
+                                    )
                                 })
-                                .small(),
-                            ),
-                    )
-                    .accessibility_label(tr("background_end"))
-                    .tooltip(tr("background_end"))
-                    .disabled(self.disabled)
-                    .on_click(move |_, window, cx| {
-                        cx.stop_propagation();
-                        let _ =
-                            stop_panel.update(cx, |panel, cx| panel.stop_command(id, window, cx));
-                    }),
-            )
+                                .child(
+                                    Icon::new(if stopping {
+                                        IconName::Square
+                                    } else if self.open {
+                                        IconName::ChevronDown
+                                    } else {
+                                        IconName::ChevronRight
+                                    })
+                                    .small(),
+                                ),
+                        )
+                        .accessibility_label(tr("background_end"))
+                        .tooltip(tr("background_end"))
+                        .disabled(self.disabled)
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            let _ = stop_panel
+                                .update(cx, |panel, cx| panel.stop_command(id, window, cx));
+                        }),
+                )
+            })
     }
 }

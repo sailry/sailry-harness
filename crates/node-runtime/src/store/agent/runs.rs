@@ -95,6 +95,8 @@ fn insert(
         finished_ms: None,
         origin: None,
         continuation: None,
+        notice: false,
+        notices: Vec::new(),
         input: None,
     };
     db.execute(
@@ -223,6 +225,7 @@ pub(in crate::store) fn stop(db: &Connection, turn: TurnId) -> Result<Run, Fault
     let mut run = get(db, turn)?;
     visible(db, run.session, turn)?;
     if run.status == Status::Queued {
+        super::background::release(db, turn, true)?;
         super::queue::remove(db, turn, run.session)?;
         super::super::attachments::turns::clear(db, turn)?;
     } else if matches!(run.status, Status::Running | Status::Stopping) {
@@ -304,7 +307,9 @@ fn claim_with(
         return Ok(None);
     };
     let mut run: Run = serde_json::from_slice(&body).map_err(storage_error)?;
-    if let Some(fault) = super::continuation::check(&transaction, &run)? {
+    if let Some(fault) = super::continuation::check(&transaction, &run)?
+        .or(super::background::check(&transaction, &run)?)
+    {
         run = stop(&transaction, run.turn)?;
         run.error = Some(fault);
         run.finished_ms = Some(chrono::Utc::now().timestamp_millis());
@@ -334,7 +339,11 @@ fn claim_with(
         provider.as_ref(),
         &queued.turn.config,
     );
+    let background = super::background::bind(&transaction, &mut run)?;
     let invocation = Invocation {
+        notice_input: super::background::render(&transaction, &run.notices)?,
+        notices: run.notices.clone(),
+        notice: run.notice,
         hooks: super::super::hooks::frozen(&transaction, queued.turn.id)?,
         title: super::activity::assigned_title(&transaction, queued.turn.session)?,
         automatic: transaction
@@ -372,18 +381,21 @@ fn claim_with(
             None
         },
     };
-    let review_changes =
-        if invocation.child.is_none() && !invocation.automatic && run.kind == RunKind::Task {
-            super::review::supersede(&transaction, run.session)?
-        } else {
-            Vec::new()
-        };
+    let review_changes = if invocation.child.is_none()
+        && !invocation.automatic
+        && !run.notice
+        && run.kind == RunKind::Task
+    {
+        super::review::supersede(&transaction, run.session)?
+    } else {
+        Vec::new()
+    };
     run.status = Status::Running;
     run.started_ms = Some(chrono::Utc::now().timestamp_millis());
     capture(
         &transaction,
         &invocation.turn,
-        invocation.automatic,
+        invocation.automatic || run.notice,
         &invocation.message,
     )?;
     put(&transaction, &run)?;
@@ -411,6 +423,7 @@ fn claim_with(
     diagnostic.status = Some(run.status);
     diagnostic.emit();
     super::feed::run(database, run);
+    super::background::publish(database, background);
     if let Some(child) = child {
         database
             .feeds
@@ -492,6 +505,17 @@ pub(super) fn finish_with(
     let envelope = changed(&transaction, database.node, run.session)?;
     let child = super::children::get(&transaction, &run)?;
     let status = run.status;
+    let background = super::background::child_finished(&transaction, &run)?;
+    let released = super::background::release(&transaction, turn, run.notice)?;
+    let mut owners: std::collections::BTreeSet<_> =
+        background.iter().map(|task| task.session).collect();
+    owners.insert(run.session);
+    let mut scheduled = Vec::new();
+    for owner in owners {
+        if let Some(turn) = super::background::schedule(&transaction, database.node, owner)? {
+            scheduled.push(turn);
+        }
+    }
     transaction.commit().map_err(storage_error)?;
     let mut diagnostic = crate::logging::Entry::new(
         crate::logging::Area::Run,
@@ -545,6 +569,18 @@ pub(super) fn finish_with(
             .feeds
             .publish(database.node, child.origin.session, Change::Child(child));
     }
+    super::background::publish(database, background.into_iter().chain(released));
+    for turn in scheduled {
+        super::feed::run(database, get(&database.connection, turn.id)?);
+        let queue = super::queue::read(&database.connection, turn.session)?;
+        database
+            .feeds
+            .publish(database.node, turn.session, Change::Queue(queue));
+        super::background::publish(
+            database,
+            super::background::list(&database.connection, turn.session)?,
+        );
+    }
     Ok(status)
 }
 
@@ -569,5 +605,6 @@ pub(in crate::store) fn recover(db: &Connection) -> Result<(), Fault> {
         ));
         put(db, &run)?;
     }
+    super::background::recover(db)?;
     super::queue::recover(db)
 }

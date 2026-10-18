@@ -94,6 +94,7 @@ fn preserves_word_boundaries() {
             approvals: vec![],
             questions: vec![],
             children: vec![],
+            background: vec![],
             next_before: None,
         },
         "Complete answer",

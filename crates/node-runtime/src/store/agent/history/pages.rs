@@ -226,6 +226,7 @@ fn page(
     questions.retain(|question| turns.contains(&question.turn));
     let children = super::super::children::list(db, &entries)?;
     Ok(Page {
+        background: super::super::background::list(db, session)?,
         session,
         revision: crate::store::sessions::history_revision(db, session)?,
         entries,

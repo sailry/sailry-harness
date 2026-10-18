@@ -20,6 +20,8 @@ fn fixture() -> (Connection, TurnId, WorktreeId, std::path::PathBuf) {
         finished_ms: None,
         origin: None,
         continuation: None,
+        notice: false,
+        notices: Vec::new(),
         input: None,
     };
     db.execute(

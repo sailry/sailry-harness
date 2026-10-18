@@ -2086,6 +2086,33 @@ class AppLocalizationsZh extends AppLocalizations {
   String artifactReply(String id, String revision, String title, String form) {
     return '关于「$title」v$revision（$id/$form）的回复';
   }
+
+  @override
+  String get backgroundNoticeTitle => '后台结果';
+
+  @override
+  String get backgroundCompleted => '已完成';
+
+  @override
+  String get backgroundFailed => '失败';
+
+  @override
+  String get backgroundCancelled => '已取消';
+
+  @override
+  String get backgroundStopped => '已停止';
+
+  @override
+  String get backgroundTimedOut => '超时';
+
+  @override
+  String get backgroundInterrupted => '已中断';
+
+  @override
+  String get backgroundUnknown => '结果不确定';
+
+  @override
+  String get backgroundPending => '后台结果待处理';
 }
 
 /// The translations for Chinese, using the Han script (`zh_Hant`).
@@ -4170,4 +4197,31 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String artifactReply(String id, String revision, String title, String form) {
     return '關於「$title」v$revision（$id/$form）的回覆';
   }
+
+  @override
+  String get backgroundNoticeTitle => '背景結果';
+
+  @override
+  String get backgroundCompleted => '已完成';
+
+  @override
+  String get backgroundFailed => '失敗';
+
+  @override
+  String get backgroundCancelled => '已取消';
+
+  @override
+  String get backgroundStopped => '已停止';
+
+  @override
+  String get backgroundTimedOut => '逾時';
+
+  @override
+  String get backgroundInterrupted => '已中斷';
+
+  @override
+  String get backgroundUnknown => '結果不確定';
+
+  @override
+  String get backgroundPending => '背景結果待處理';
 }

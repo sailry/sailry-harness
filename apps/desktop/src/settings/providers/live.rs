@@ -26,6 +26,7 @@ pub(in crate::settings) struct Binding {
 pub(in crate::settings) struct Live {
     pub terminal_revision: u64,
     pub sandbox_revision: u64,
+    pub background_revision: u64,
     pub search_revision: u64,
     pub binding: Binding,
     pub providers: BTreeMap<usize, Provider>,
@@ -127,6 +128,7 @@ impl Workspace {
         self.provider_link = Some(Live {
             terminal_revision: 0,
             sandbox_revision: 0,
+            background_revision: 0,
             search_revision: 0,
             binding,
             providers: BTreeMap::new(),
@@ -168,6 +170,7 @@ impl Workspace {
             self.extensions.retain(&snapshot.plugins, cx);
             live.terminal_revision = snapshot.terminal_settings_revision;
             live.sandbox_revision = snapshot.sandbox_settings_revision;
+            live.background_revision = snapshot.background_settings_revision;
             live.search_revision = snapshot.search_settings_revision;
             if snapshot.model_catalog.revision > live.catalog.status.revision {
                 live.catalog.error = None;

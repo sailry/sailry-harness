@@ -566,7 +566,7 @@ fn excludes_authored_reference_context_from_user_instruction() {
 #[test]
 fn identifies_input_sources_and_original_parts() {
     let mut events = Vec::new();
-    for source in ["user", "parent", "plugin"] {
+    for source in ["user", "parent", "plugin", "notice"] {
         let mut input = Event::new(source);
         input.author = "user".into();
         input.set_content(
@@ -583,7 +583,7 @@ fn identifies_input_sources_and_original_parts() {
         events.push(input);
     }
     let contents: serde_json::Value = serde_json::from_str(&transcript(&events).unwrap()).unwrap();
-    for (index, source) in ["user", "parent", "plugin"].iter().enumerate() {
+    for (index, source) in ["user", "parent", "plugin", "notice"].iter().enumerate() {
         assert_eq!(contents[index]["author"], "user");
         assert_eq!(contents[index]["input_source"], *source);
         assert_eq!(contents[index]["original_text_part"], 1);
