@@ -31,6 +31,7 @@ async fn launches_the_bundled_interpreter() {
         assert_eq!(
             installed.mcp,
             [plugin::Mcp {
+                host: None,
                 name: "native".into(),
                 transport: plugin::McpTransport::Stdio,
             }]

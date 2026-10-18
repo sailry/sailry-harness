@@ -9,7 +9,8 @@ use std::collections::BTreeSet;
 mod import;
 mod source;
 mod view;
-use source::{Channel, Discovery, Selection};
+pub(in crate::settings) use source::Channel;
+use source::{Discovery, Selection};
 
 struct Editor {
     binding: Binding,
@@ -34,7 +35,7 @@ struct Editor {
 }
 
 pub(super) fn open(binding: Binding, known: Vec<Summary>, window: &mut Window, cx: &mut App) {
-    open_source(binding, known, Channel::Git, None, window, cx);
+    open_source(binding, known, Channel::Git, None, None, window, cx);
 }
 
 pub(super) fn reimport(
@@ -49,7 +50,36 @@ pub(super) fn reimport(
         sailry_protocol::plugin::UploadSource::Directory => Channel::Directory,
         sailry_protocol::plugin::UploadSource::Archive => Channel::Archive,
     };
-    open_source(binding, known, channel, Some(summary.name), window, cx);
+    open_source(
+        binding,
+        known,
+        channel,
+        Some(summary.name),
+        None,
+        window,
+        cx,
+    );
+}
+
+pub(in crate::settings) fn open_channel(
+    binding: Binding,
+    known: Vec<Summary>,
+    channel: Channel,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    open_source(binding, known, channel, None, None, window, cx);
+}
+
+pub(in crate::settings) fn open_catalog(
+    binding: Binding,
+    known: Vec<Summary>,
+    source: sailry_protocol::plugin::skills::Source,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let editor = open_source(binding, known, Channel::Git, None, Some(source), window, cx);
+    editor.update(cx, |editor, cx| editor.discover(window, cx));
 }
 
 fn open_source(
@@ -57,16 +87,32 @@ fn open_source(
     known: Vec<Summary>,
     channel: Channel,
     target: Option<String>,
+    initial: Option<sailry_protocol::plugin::skills::Source>,
     window: &mut Window,
     cx: &mut App,
-) {
+) -> Entity<Editor> {
+    let values: [String; 3] = initial
+        .map(|source| {
+            [
+                source.repository,
+                source.git_ref.unwrap_or_default(),
+                source.path.unwrap_or_default(),
+            ]
+        })
+        .unwrap_or_default();
     let editor = cx.new(|cx| {
-        let fields = [
+        let placeholders = [
             "skills_repository_hint",
             "skills_revision_hint",
             "skills_path_hint",
-        ]
-        .map(|key| cx.new(|cx| InputState::new(window, cx).placeholder(tr(key))));
+        ];
+        let fields = std::array::from_fn(|index| {
+            cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(tr(placeholders[index]))
+                    .default_value(values[index].clone())
+            })
+        });
         let links = ["skill_source_skills_hint", "skill_source_hub_hint"]
             .map(|key| cx.new(|cx| InputState::new(window, cx).placeholder(tr(key))));
         for input in fields.iter().chain(links.iter()) {
@@ -106,7 +152,8 @@ fn open_source(
             task: None,
         }
     });
-    view::open(editor, window, cx);
+    view::open(editor.clone(), window, cx);
+    editor
 }
 
 impl Editor {

@@ -1,11 +1,15 @@
 use super::*;
 use std::sync::Arc;
 
-fn entries() -> Vec<Entry> {
-    bundled::entries().unwrap()
+fn entries() -> Data {
+    Data {
+        entries: bundled::entries().unwrap(),
+        skills: bundled::skills().unwrap(),
+        commit: None,
+    }
 }
 
-async fn seed(cache: &Cache) -> Vec<Entry> {
+async fn seed(cache: &Cache) -> Data {
     let entries = entries();
     assert_eq!(
         cache
@@ -39,7 +43,7 @@ async fn replaces_expired_entries() {
     let cache = Cache::default();
     let mut expected = seed(&cache).await;
     cache.0.lock().await.as_mut().unwrap().fetched = Instant::now() - TTL;
-    expected[0].version = Some("fresh".into());
+    expected.entries[0].version = Some("fresh".into());
     assert_eq!(
         cache
             .fetch(INDEX, false, &CancellationToken::new(), || async {
@@ -49,7 +53,7 @@ async fn replaces_expired_entries() {
             .unwrap(),
         expected
     );
-    assert_eq!(cache.0.lock().await.as_ref().unwrap().entries, expected);
+    assert_eq!(cache.0.lock().await.as_ref().unwrap().document, expected);
     assert!(cache.0.lock().await.as_ref().unwrap().fetched.elapsed() < TTL);
 }
 
@@ -57,7 +61,7 @@ async fn replaces_expired_entries() {
 async fn force_replaces_fresh_entries() {
     let cache = Cache::default();
     let mut expected = seed(&cache).await;
-    expected[0].version = Some("forced".into());
+    expected.entries[0].version = Some("forced".into());
     assert_eq!(
         cache
             .fetch(INDEX, true, &CancellationToken::new(), || async {
@@ -96,7 +100,7 @@ async fn failure_preserves_entries_and_timestamp() {
         );
         let document = cache.0.lock().await;
         let document = document.as_ref().unwrap();
-        assert_eq!(document.entries, expected);
+        assert_eq!(document.document, expected);
         assert_eq!(document.fetched, fetched);
     }
 }
@@ -127,7 +131,7 @@ async fn failed_miss_does_not_cache() {
 async fn source_identity_does_not_share_entries() {
     let cache = Cache::default();
     let mut expected = seed(&cache).await;
-    expected[0].version = Some("other source".into());
+    expected.entries[0].version = Some("other source".into());
     assert_eq!(
         cache
             .fetch(
@@ -210,14 +214,14 @@ async fn cancellation_during_fetch_preserves_cache() {
     let fetched = cache.0.lock().await.as_ref().unwrap().fetched;
     let stop = CancellationToken::new();
     let mut fetch = Box::pin(cache.fetch(INDEX, true, &stop, || async {
-        std::future::pending::<Result<Vec<Entry>, Fault>>().await
+        std::future::pending::<Result<Data, Fault>>().await
     }));
     assert!(futures::poll!(&mut fetch).is_pending());
     stop.cancel();
     assert_eq!(fetch.await.unwrap_err().code, ErrorCode::Cancelled);
     let document = cache.0.lock().await;
     let document = document.as_ref().unwrap();
-    assert_eq!(document.entries, expected);
+    assert_eq!(document.document, expected);
     assert_eq!(document.fetched, fetched);
 }
 

@@ -355,6 +355,7 @@ impl Ingress {
             if matches!(
                 request.command,
                 sailry_protocol::Command::SearchPluginCatalog { .. }
+                    | sailry_protocol::Command::SearchSkillCatalog { .. }
                     | sailry_protocol::Command::ReadCatalogPlugin { .. }
                     | sailry_protocol::Command::ReadCatalogPluginInfo { .. }
                     | sailry_protocol::Command::InspectPluginSource { .. }

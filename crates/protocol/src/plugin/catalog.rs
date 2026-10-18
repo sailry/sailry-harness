@@ -18,6 +18,12 @@ pub struct Selection {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<super::Category>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tint: Option<super::Tint>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_notes: Option<ReleaseNotes>,
     pub id: String,
     pub name: String,
     pub version: Option<String>,
@@ -49,4 +55,38 @@ pub struct Page {
     pub page: u32,
     pub pages: u32,
     pub unavailable: bool,
+}
+
+/// Public text for the package version being offered, never an executable document.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReleaseNotes {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub locales: std::collections::BTreeMap<String, String>,
+}
+
+impl ReleaseNotes {
+    pub fn text(&self, locale: &str) -> &str {
+        self.locales
+            .get(locale)
+            .map(String::as_str)
+            .unwrap_or(&self.text)
+    }
+    pub fn valid(&self) -> bool {
+        std::iter::once(&self.text)
+            .chain(self.locales.values())
+            .all(|value| {
+                !value.trim().is_empty()
+                    && !value.chars().any(|character| {
+                        character.is_control() && !matches!(character, '\r' | '\n' | '\t')
+                    })
+            })
+            && self.locales.keys().all(|locale| {
+                !locale.is_empty()
+                    && locale.split('-').all(|part| {
+                        !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric())
+                    })
+            })
+    }
 }

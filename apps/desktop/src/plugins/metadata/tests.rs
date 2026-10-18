@@ -123,6 +123,7 @@ fn info(name: &str) -> Info {
             description: None,
         },
         origin: None,
+        release_notes: None,
         icon: None,
         skill: None,
         mcp_source: None,

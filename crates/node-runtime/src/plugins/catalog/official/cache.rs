@@ -10,7 +10,7 @@ pub(in crate::plugins) struct Cache(tokio::sync::Mutex<Option<Document>>);
 
 struct Document {
     source: String,
-    entries: Vec<Entry>,
+    document: Data,
     fetched: Instant,
 }
 
@@ -21,10 +21,10 @@ impl Cache {
         force: bool,
         stop: &CancellationToken,
         load: F,
-    ) -> Result<Vec<Entry>, Fault>
+    ) -> Result<Data, Fault>
     where
         F: FnOnce() -> Future,
-        Future: std::future::Future<Output = Result<Vec<Entry>, Fault>>,
+        Future: std::future::Future<Output = Result<Data, Fault>>,
     {
         let mut current = tokio::select! {
             biased;
@@ -36,7 +36,7 @@ impl Cache {
             && document.source == source
             && document.fetched.elapsed() < TTL
         {
-            return Ok(document.entries.clone());
+            return Ok(document.document.clone());
         }
         // Hold the slot during acquisition so ordinary simultaneous calls share one fetch.
         let entries = tokio::select! {
@@ -49,7 +49,7 @@ impl Cache {
         }
         *current = Some(Document {
             source: source.into(),
-            entries: entries.clone(),
+            document: entries.clone(),
             fetched: Instant::now(),
         });
         Ok(entries)

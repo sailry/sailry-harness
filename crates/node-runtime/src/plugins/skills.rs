@@ -159,7 +159,32 @@ pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
             "skill metadata must map strings to strings",
         ));
     }
+    let display_locales: std::collections::BTreeMap<_, _> = object
+        .get("metadata")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, value)| {
+            key.strip_prefix("display-name.").map(|locale| {
+                (
+                    locale.to_owned(),
+                    value.as_str().unwrap_or_default().to_owned(),
+                )
+            })
+        })
+        .collect();
+    if display_locales.iter().any(|(locale, name)| {
+        locale.is_empty()
+            || !locale.split('-').all(|part| {
+                !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_alphanumeric())
+            })
+            || name.trim().is_empty()
+            || name.chars().any(char::is_control)
+    }) {
+        return Err(Fault::invalid("invalid localized skill name"));
+    }
     Ok(Skill {
+        display_locales,
         name: name.into(),
         display_name: object
             .get("metadata")

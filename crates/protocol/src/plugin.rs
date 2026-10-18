@@ -2,7 +2,7 @@
 use serde::{Deserialize, Serialize};
 
 mod action;
-pub use action::Action;
+pub use action::{Access, Action};
 pub mod authorization;
 pub mod card;
 pub mod catalog;
@@ -21,6 +21,7 @@ pub mod oauth;
 pub mod registration;
 pub mod schema;
 pub mod settings;
+pub mod skillcatalog;
 pub mod skills;
 pub mod storage;
 pub mod transaction;
@@ -81,11 +82,35 @@ pub struct Text {
     pub tokens: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    Development,
+    Documents,
+    Data,
+    Automation,
+    Entertainment,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Tint {
+    Blue,
+    Violet,
+    Teal,
+    Amber,
+    Gray,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct Extension {
     #[schemars(extend("const" = API_VERSION))]
     pub api_version: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<Category>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tint: Option<Tint>,
     /// Package-owned instructions supplied once with its available tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
@@ -242,6 +267,8 @@ impl Summary {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Info {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_notes: Option<catalog::ReleaseNotes>,
     pub summary: Summary,
     /// Installation provenance of the current inventory entry, not package content.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -295,6 +322,8 @@ pub enum Origin {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Skill {
     pub name: String,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub display_locales: std::collections::BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
     pub description: String,
@@ -304,8 +333,20 @@ pub struct Skill {
     pub compatibility: Option<String>,
 }
 
+impl Skill {
+    pub fn display_name(&self, locale: &str) -> &str {
+        self.display_locales
+            .get(locale)
+            .map(String::as_str)
+            .or(self.display_name.as_deref())
+            .unwrap_or(&self.name)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mcp {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
     pub name: String,
     pub transport: McpTransport,
 }

@@ -1,30 +1,43 @@
 use super::*;
 use crate::settings::providers::Binding;
-use crate::theme::DialogStyle as _;
-use gpui_kit::component::{
-    dialog::{DialogClose, DialogFooter},
-    skeleton::Skeleton,
-};
+use gpui_kit::assets::IconName;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Command, Output,
-    plugin::{Info, IssueKind, McpTransport, Summary, catalog::Source},
+    plugin::{Info, IssueKind, Summary, catalog::Source},
 };
+
+mod contents;
+mod permissions;
+mod rows;
+mod versions;
+mod view;
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Tab {
+    #[default]
+    Overview,
+    Contents,
+    Permissions,
+    Versions,
+}
 
 enum Target {
     Installed(Summary),
     Catalog {
         market: WeakEntity<market::Market>,
-        entry: sailry_protocol::plugin::catalog::Entry,
+        entry: Box<sailry_protocol::plugin::catalog::Entry>,
         source: Source,
     },
 }
 
-pub(super) struct Details {
+pub(in crate::settings) struct Details {
     binding: Binding,
     target: Target,
     info: Option<Info>,
     authorization: Entity<authorization::Capabilities>,
+    updates: Entity<updates::State>,
+    tab: Tab,
     error: Option<&'static str>,
     stop: CancellationToken,
     task: Option<Task<()>>,
@@ -37,7 +50,12 @@ impl Drop for Details {
     }
 }
 
-pub(super) fn open(owner: Entity<Workspace>, expected: Summary, window: &mut Window, cx: &mut App) {
+pub(in crate::settings) fn open(
+    owner: Entity<Workspace>,
+    expected: Summary,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let Some(live) = &owner.read(cx).provider_link else {
         return;
     };
@@ -69,7 +87,7 @@ pub(crate) fn open_bound(
     );
 }
 
-pub(super) fn open_catalog(
+pub(in crate::settings) fn open_catalog(
     market: Entity<market::Market>,
     binding: Binding,
     source: Source,
@@ -81,7 +99,7 @@ pub(super) fn open_catalog(
         binding,
         Target::Catalog {
             market: market.downgrade(),
-            entry,
+            entry: Box::new(entry),
             source,
         },
         window,
@@ -91,10 +109,14 @@ pub(super) fn open_catalog(
 
 fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) -> Entity<Details> {
     let capabilities = cx.new(|_| authorization::Capabilities::new(binding.clone()));
+    let update_state = updates::bind(binding.clone(), cx);
     let details = cx.new(|cx| {
+        cx.observe(&update_state, |_, _, cx| cx.notify()).detach();
         cx.observe(&capabilities, |_, _, cx| cx.notify()).detach();
         Details {
             authorization: capabilities,
+            updates: update_state,
+            tab: Tab::Overview,
             binding,
             target,
             info: None,
@@ -127,95 +149,14 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
     });
     details.update(cx, |details, cx| details.load(cx));
     let entity = details.clone();
-    window.open_dialog(cx, move |dialog, window, cx| {
+    window.open_sheet_at(Placement::Right, cx, move |sheet, window, cx| {
         let close = details.clone();
-        let action = details.clone();
-        let configure = details.clone();
-        let state = details.read(cx);
-        let installed = matches!(&state.target, Target::Installed(_));
-        let pending = state.pending(cx);
-        let action_id = if installed {
-            "plugin-details-uninstall"
-        } else {
-            "plugin-details-install"
-        };
-        dialog
-            .form_title(
-                h_flex()
-                    .gap_3()
-                    .pr_6()
-                    .child(
-                        div().min_w_0().truncate().child(
-                            details
-                                .read(cx)
-                                .info
-                                .as_ref()
-                                .map(metadata::title)
-                                .unwrap_or_else(|| details.read(cx).name().to_owned()),
-                        ),
-                    )
-                    .when_some(details.read(cx).version(), |header, version| {
-                        header.child(
-                            div()
-                                .text_sm()
-                                .font_normal()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(version),
-                        )
-                    }),
-                cx,
-            )
-            .w((window.viewport_size().width - px(48.)).min(px(520.)))
+        sheet
+            .size(px(480.).min(window.viewport_size().width))
+            .resizable(false)
+            .title(view::header(&details, cx))
             .on_close(move |_, _, cx| close.read(cx).stop.cancel())
             .child(details.clone())
-            .footer(
-                DialogFooter::new()
-                    .child(
-                        h_flex()
-                            .w_auto()
-                            .flex_shrink_0()
-                            .child(DialogClose::new().trigger(|button| {
-                                button
-                                    .label(tr("settings_cancel"))
-                                    .debug_selector(|| "plugin-details-cancel".into())
-                            })),
-                    )
-                    .when(
-                        installed
-                            && state
-                                .info
-                                .as_ref()
-                                .is_some_and(super::super::extensions::modal::configurable),
-                        |footer| {
-                            footer.child(
-                                Button::new("plugin-details-configure")
-                                    .label(tr("plugins_configure"))
-                                    .debug_selector(|| "plugin-details-configure".into())
-                                    .disabled(state.error.is_some() || pending)
-                                    .on_click(move |_, window, cx| {
-                                        configure.update(cx, |details, cx| {
-                                            details.configure(window, cx)
-                                        });
-                                    }),
-                            )
-                        },
-                    )
-                    .child(
-                        Button::new(action_id)
-                            .primary()
-                            .label(tr(if installed {
-                                "plugins_uninstall"
-                            } else {
-                                "plugins_install"
-                            }))
-                            .debug_selector(move || action_id.into())
-                            .disabled(state.info.is_none() || state.error.is_some() || pending)
-                            .loading(pending)
-                            .on_click(move |_, window, cx| {
-                                action.update(cx, |details, cx| details.submit(window, cx));
-                            }),
-                    ),
-            )
     });
     entity
 }
@@ -240,14 +181,16 @@ impl Details {
         }
         let binding = self.binding.clone();
         self.stop.cancel();
-        window.close_dialog(cx);
+        window.close_sheet(cx);
         super::super::extensions::modal::open(binding, info, window, cx);
     }
 
     fn pending(&self, cx: &App) -> bool {
-        self.removal
-            .as_ref()
-            .is_some_and(|editor| editor.read(cx).pending())
+        self.updates.read(cx).busy()
+            || self
+                .removal
+                .as_ref()
+                .is_some_and(|editor| editor.read(cx).pending())
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -275,7 +218,7 @@ impl Details {
                             .update(cx, |details, _| !details.stop.is_cancelled())
                             .unwrap_or(false);
                         if active {
-                            window.close_dialog(cx);
+                            window.close_sheet(cx);
                         }
                     },
                 );
@@ -292,11 +235,11 @@ impl Details {
                 let Some(market) = market.upgrade() else {
                     return;
                 };
-                let entry = entry.clone();
+                let entry = entry.as_ref().clone();
                 let source = *source;
                 // Dismiss Details before acquisition opens its own dialog.
                 self.stop.cancel();
-                window.close_dialog(cx);
+                window.close_sheet(cx);
                 market.update(cx, |market, cx| market.install(source, entry, window, cx));
             }
         }
@@ -313,12 +256,9 @@ impl Details {
         self.info
             .as_ref()
             .and_then(|info| info.summary.version.clone())
-            .or_else(|| {
-                if let Target::Installed(expected) = &self.target {
-                    expected.version.clone()
-                } else {
-                    None
-                }
+            .or_else(|| match &self.target {
+                Target::Installed(expected) => expected.version.clone(),
+                Target::Catalog { entry, .. } => entry.version.clone(),
             })
     }
 
@@ -376,154 +316,6 @@ impl Details {
         }));
         cx.notify();
     }
-}
-
-impl Render for Details {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut body = v_flex().gap_4();
-        let pending = self.pending(cx);
-        if let Some(info) = &self.info {
-            let installed = matches!(&self.target, Target::Installed(_));
-            body = body.child(crate::plugins::emblem::render(
-                &info.summary.name,
-                crate::plugins::emblem::glyph(info),
-                info.icon.as_deref(),
-                px(48.),
-                cx,
-            ));
-            body = body.when_some(metadata::description(info), |view, text| {
-                view.child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .whitespace_normal()
-                        .child(text),
-                )
-            });
-            let mut skills = Group::new("skills_details").outline();
-            for skill in &info.skills {
-                skills = skills.child(Entry::new(
-                    format!("plugin-skill-{}", skill.name),
-                    v_flex().gap_1().child(skill.name.clone()).child(
-                        div()
-                            .text_sm()
-                            .whitespace_normal()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(skill.description.clone()),
-                    ),
-                ));
-            }
-            let mut mcp = Group::new("mcp_servers").outline();
-            for server in &info.mcp {
-                let binding = self.binding.clone();
-                let package = info.summary.reference();
-                let name = server.name.clone();
-                mcp = mcp.child(
-                    Entry::new(
-                        format!("plugin-server-{}", server.name),
-                        server.name.clone(),
-                    )
-                    .control(tr(match server.transport {
-                        McpTransport::Stdio => "plugins_stdio",
-                        McpTransport::StreamableHttp => "plugins_http",
-                        McpTransport::Sse => "plugins_sse",
-                    }))
-                    .when(
-                        installed && self.authorization.read(cx).allows(&package, &name),
-                        |entry| {
-                            entry.action(
-                                authorization::action(
-                                    binding,
-                                    package,
-                                    name.clone(),
-                                    format!("plugin-authorize-{name}"),
-                                )
-                                .disabled(pending),
-                            )
-                        },
-                    ),
-                );
-            }
-            body = body
-                .when(!info.skills.is_empty(), |view| view.child(skills))
-                .when(!info.mcp.is_empty(), |view| view.child(mcp));
-            if let Some(extension) = &info.extension {
-                let mut tools = Group::new("plugins_tools").outline();
-                for tool in &extension.tools {
-                    tools = tools.child(Entry::new(
-                        format!("plugin-tool-{}", tool.name),
-                        tool.name.clone(),
-                    ));
-                }
-                body = body.when(!extension.tools.is_empty(), |view| view.child(tools));
-            }
-            body = body.child(
-                Group::new("plugins_information")
-                    .outline()
-                    .child(
-                        Entry::new("plugin-info-name", tr("plugins_identifier"))
-                            .control(info.summary.name.clone()),
-                    )
-                    .child(
-                        Entry::new("plugin-info-version", tr("plugins_version"))
-                            .control(info.summary.version.clone().unwrap_or_else(|| "—".into())),
-                    ),
-            );
-            let visible_issues: Vec<_> = info
-                .issues
-                .iter()
-                .filter(|issue| {
-                    !matches!(
-                        issue.kind,
-                        IssueKind::InvalidSkill | IssueKind::InvalidSkills
-                    )
-                })
-                .collect();
-            if !visible_issues.is_empty() {
-                let mut issues = Group::new("plugins_issues").outline();
-                for (index, issue) in visible_issues.iter().enumerate() {
-                    issues = issues.child(Entry::new(
-                        format!("plugin-issue-{index}"),
-                        v_flex().gap_1().child(tr(issue_key(issue.kind))).child(
-                            div()
-                                .text_sm()
-                                .whitespace_normal()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(issue.path.clone()),
-                        ),
-                    ));
-                }
-                body = body.child(issues);
-            }
-        } else if self.error.is_none() {
-            body = body.child(skeleton(cx));
-        }
-        body.id("plugin-live-details")
-            .debug_selector(|| "plugin-live-details".into())
-            // Kit's Dialog owns the single bounded scroll area.
-            .flex_none()
-            .p_1()
-    }
-}
-
-fn skeleton(cx: &App) -> impl IntoElement {
-    v_flex()
-        .gap_4()
-        .debug_selector(|| "plugin-details-skeleton".into())
-        .child(Skeleton::new().size_12().rounded(cx.theme().radius_2xl()))
-        .child(
-            v_flex()
-                .gap_2()
-                .child(Skeleton::new().w_full().rounded_md())
-                .child(Skeleton::new().w_2_3().rounded_md()),
-        )
-        .child(Skeleton::new().w_1_3().rounded_md())
-        .child(
-            Skeleton::new()
-                .w_full()
-                .h_20()
-                .rounded(cx.theme().radius_lg),
-        )
 }
 
 pub(super) fn issue_key(issue: IssueKind) -> &'static str {

@@ -103,7 +103,7 @@ async fn selects_the_highest_newer_version() {
                     assert_eq!(entry.version.as_deref(), Some(available));
                 }
             }
-            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
             assert_eq!(stored(&node), before);
             assert_eq!(
                 info(
@@ -177,7 +177,7 @@ async fn skips_same_and_older_content_versions() {
             let batch = check(&client, std::slice::from_ref(&current.summary)).await;
             assert!(batch.failures.is_empty());
             assert!(batch.reports[0].available.is_none());
-            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
             assert_eq!(stored(&node), before);
             assert_eq!(
                 info(
@@ -255,7 +255,7 @@ async fn skips_same_version_bundled_content() {
         let batch = check(&client, std::slice::from_ref(&current.summary)).await;
         assert!(batch.failures.is_empty());
         assert!(batch.reports[0].available.is_none());
-        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+        assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
         catalog.status.store(503, Ordering::SeqCst);
         let offline = check(&client, std::slice::from_ref(&current.summary)).await;
         assert!(offline.reports.is_empty());
@@ -442,7 +442,7 @@ async fn offers_bundled_updates_on_catalog_failure() {
             let invalid = check(&client, std::slice::from_ref(&current.summary)).await;
             assert!(invalid.failures.is_empty());
             assert_eq!(invalid.reports[0].available, offline.reports[0].available);
-            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
             assert_eq!(stored(&node), before);
             assert_eq!(private(), body);
             assert_eq!(
@@ -559,7 +559,7 @@ async fn checks_one_index_without_installing_packages() {
         let batch = check(&client, &packages).await;
         assert!(batch.failures.is_empty(), "{:?}", batch.failures);
         assert_eq!(batch.reports.len(), packages.len());
-        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+        assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
         for report in batch.reports {
             assert!(packages.contains(&report.current));
             assert!(!report.manual);
@@ -607,7 +607,7 @@ async fn reports_offline_and_invalid_indexes() {
                     .iter()
                     .all(|failure| failure.error.code == expected)
             );
-            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
             assert_eq!(installed(&client).await, packages);
         }
         node.shutdown().await.unwrap();
@@ -650,7 +650,7 @@ async fn checks_semantic_catalog_versions() {
                     assert_eq!(batch.failures[0].error.code, ErrorCode::InvalidRequest);
                 }
             }
-            assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+            assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
         }
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
@@ -697,7 +697,7 @@ async fn keeps_local_checks_when_official_fetch_fails() {
         };
         assert_eq!(candidate.summary.version.as_deref(), Some("1.0.1"));
         assert_ne!(candidate.summary.digest, current.summary.digest);
-        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+        assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
         assert_eq!(
             info(
                 execute(

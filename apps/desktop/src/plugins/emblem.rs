@@ -95,6 +95,85 @@ fn tile(size: Pixels, cx: &App) -> Div {
         })
 }
 
+/// Marketplace identity artwork leaves navigation's existing palette unchanged.
+pub(crate) fn grid(
+    name: &str,
+    tint: Option<sailry_protocol::plugin::Tint>,
+    glyph: Option<&Glyph>,
+    data: Option<&str>,
+    size: Pixels,
+) -> AnyElement {
+    use sailry_protocol::plugin::Tint;
+    let hash = name.bytes().fold(2_166_136_261_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
+    });
+    let tint = tint.unwrap_or(
+        [
+            Tint::Blue,
+            Tint::Violet,
+            Tint::Teal,
+            Tint::Amber,
+            Tint::Gray,
+        ][hash as usize % 5],
+    );
+    let (top, base) = match tint {
+        Tint::Blue => (0x45b8ff, 0x1d6ef0),
+        Tint::Violet => (0xa98bff, 0x6440dc),
+        Tint::Teal => (0x3fd3b4, 0x0f8c7c),
+        Tint::Amber => (0xffc65c, 0xe07a18),
+        Tint::Gray => (0xa2a7b2, 0x565b66),
+    };
+    let icon_size = if size <= px(40.) { px(22.) } else { px(28.) };
+    let icon = if let Some((format, bytes)) = image_source(None, data) {
+        img(std::sync::Arc::new(Image::from_bytes(format, bytes)))
+            .size(icon_size)
+            .into_any_element()
+    } else {
+        glyph
+            .map(crate::assets::icons::icon)
+            .unwrap_or_else(|| Icon::default().path("reicon:ui/puzzle-piece"))
+            .size(icon_size)
+            .text_color(gpui_kit::white())
+            .into_any_element()
+    };
+    h_flex()
+        .relative()
+        .size(size)
+        .flex_shrink_0()
+        .items_center()
+        .justify_center()
+        .rounded(if size <= px(40.) { px(11.) } else { px(14.) })
+        .overflow_hidden()
+        .bg(gpui_kit::linear_gradient(
+            180.,
+            gpui_kit::linear_color_stop(rgb(top), 0.),
+            gpui_kit::linear_color_stop(rgb(base), 1.),
+        ))
+        .children((1..4).flat_map(|index| {
+            let position = size * (index as f32 / 4.);
+            [
+                gpui_kit::div()
+                    .absolute()
+                    .left(position)
+                    .top_0()
+                    .w(px(1.))
+                    .h_full()
+                    .bg(gpui_kit::hsla(0., 0., 1., 0.1))
+                    .into_any_element(),
+                gpui_kit::div()
+                    .absolute()
+                    .top(position)
+                    .left_0()
+                    .h(px(1.))
+                    .w_full()
+                    .bg(gpui_kit::hsla(0., 0., 1., 0.1))
+                    .into_any_element(),
+            ]
+        }))
+        .child(icon)
+        .into_any_element()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -21,7 +21,7 @@ struct Download {
     task: Option<Task<()>>,
 }
 
-pub(super) fn install(
+pub(in crate::settings) fn install(
     owner: Entity<Workspace>,
     source: Source,
     name: String,

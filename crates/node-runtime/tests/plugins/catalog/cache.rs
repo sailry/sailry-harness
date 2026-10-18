@@ -15,7 +15,7 @@ fn index_requests(catalog: &Catalog) -> usize {
         .lock()
         .unwrap()
         .iter()
-        .filter(|path| path.as_str() == "/catalog.json")
+        .filter(|path| path.ends_with("/catalog.json"))
         .count()
 }
 

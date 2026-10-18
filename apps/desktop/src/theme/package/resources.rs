@@ -113,7 +113,7 @@ pub(super) fn load_files(
     })
 }
 
-fn manifest(bytes: &[u8]) -> Result<Manifest, String> {
+pub(super) fn manifest(bytes: &[u8]) -> Result<Manifest, String> {
     if bytes.len() > MANIFEST_LIMIT {
         return Err("theme manifest exceeds file limit".into());
     }

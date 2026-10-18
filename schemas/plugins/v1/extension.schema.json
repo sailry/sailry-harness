@@ -492,6 +492,16 @@
       ],
       "type": "object"
     },
+    "Category": {
+      "enum": [
+        "development",
+        "documents",
+        "data",
+        "automation",
+        "entertainment"
+      ],
+      "type": "string"
+    },
     "Cell": {
       "additionalProperties": false,
       "properties": {
@@ -2822,6 +2832,16 @@
       ],
       "type": "object"
     },
+    "Tint": {
+      "enum": [
+        "blue",
+        "violet",
+        "teal",
+        "amber",
+        "gray"
+      ],
+      "type": "string"
+    },
     "Tool": {
       "oneOf": [
         {
@@ -3021,6 +3041,16 @@
       },
       "type": "array"
     },
+    "category": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Category"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "continuation_marker": {
       "anyOf": [
         {
@@ -3196,6 +3226,16 @@
         }
       ],
       "description": "Inline schemas for package-owned Node and conversation values."
+    },
+    "tint": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Tint"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "tools": {
       "default": [],

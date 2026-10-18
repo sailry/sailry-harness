@@ -439,6 +439,7 @@ mod tests {
             skill: plugin::Skill {
                 name: "Analysis".into(),
                 display_name: None,
+                display_locales: Default::default(),
                 description: "Fixture skill".into(),
                 path: "SKILL.md".into(),
                 license: Some("MIT".into()),

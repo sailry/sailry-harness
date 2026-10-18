@@ -355,6 +355,10 @@ pub enum Command {
         timeout_ms: u64,
     },
     ListPlugins,
+    SearchSkillCatalog {
+        query: String,
+        force: bool,
+    },
     SearchPluginCatalog {
         source: crate::plugin::catalog::Source,
         query: String,
@@ -1502,6 +1506,7 @@ impl Command {
                 | Self::DiscoverSkillUpload { .. }
                 | Self::DiscoverLocalSkills { .. }
                 | Self::SearchPluginCatalog { .. }
+                | Self::SearchSkillCatalog { .. }
                 | Self::ReadCatalogPlugin { .. }
                 | Self::ReadCatalogPluginInfo { .. }
                 | Self::InspectPluginSource { .. }
@@ -1806,6 +1811,7 @@ pub enum Output {
     RegistrySkillDiscovery(crate::plugin::skills::RegistryDiscovery),
     SkillImportDiscovery(crate::plugin::skills::ImportDiscovery),
     PluginCatalog(crate::plugin::catalog::Page),
+    SkillCatalog(crate::plugin::skillcatalog::Page),
     PluginSource(crate::plugin::catalog::Selection),
     PluginUpdate(crate::plugin::updates::Report),
     PluginUpdates(crate::plugin::updates::Batch),

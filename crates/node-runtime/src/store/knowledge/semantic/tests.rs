@@ -19,6 +19,7 @@ fn package(db: &Connection, digest: char, semantic: bool) -> plugin::Reference {
         description: None,
     };
     let info = plugin::Info {
+        release_notes: None,
         summary, origin: None, icon: None, skill: None, mcp_source: None,
         extension: Some(serde_json::from_value(json!({
             "api_version":"v1", "actions":["storage.read","storage.write"],

@@ -121,6 +121,28 @@ impl Drop for State {
 }
 
 impl State {
+    pub(super) fn candidate(&self, current: &Summary) -> Option<&Info> {
+        let entry = self
+            .entries
+            .get(&current.name)
+            .filter(|entry| entry.current == *current)?;
+        match entry.candidate.as_ref()? {
+            Candidate::Node(info) => Some(info),
+            Candidate::Upload(package) => Some(&package.info),
+        }
+    }
+
+    pub(super) fn added_actions(&self, current: &Info) -> Vec<String> {
+        self.candidate(&current.summary)
+            .map(|candidate| changes::Changes::between(current, candidate).actions.added)
+            .unwrap_or_default()
+    }
+
+    pub(in crate::settings) fn has_candidate(&self, name: &str) -> bool {
+        self.entries
+            .get(name)
+            .is_some_and(|entry| entry.candidate.is_some())
+    }
     pub(super) fn busy(&self) -> bool {
         self.check.is_some() || self.batch.is_some()
     }
@@ -282,7 +304,7 @@ impl Workspace {
         }
     }
 
-    pub(super) fn update_plugins(
+    pub(in crate::settings) fn update_plugins(
         &mut self,
         name: Option<&str>,
         window: &mut Window,
@@ -432,7 +454,12 @@ impl State {
         cx.notify();
     }
 
-    fn apply(&mut self, name: Option<&str>, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn apply(
+        &mut self,
+        name: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.busy() || (self.dialog.is_some() && !self.popup.focused(window, cx)) {
             return;
         }

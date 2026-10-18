@@ -14,6 +14,7 @@ pub(crate) mod http;
 pub(crate) mod icon;
 mod manifest;
 pub(crate) mod mcp;
+mod notes;
 pub(crate) mod oauth;
 pub(crate) mod options;
 mod package;
@@ -370,10 +371,31 @@ fn describe(
         .map(|(name, server)| sailry_protocol::plugin::Mcp {
             name: name.clone(),
             transport: server.transport(),
+            host: match server {
+                mcp::Server::Http { url, .. } | mcp::Server::Sse { url, .. } => {
+                    url::Url::parse(url)
+                        .ok()
+                        .and_then(|url| url.host_str().map(str::to_owned))
+                }
+                mcp::Server::Stdio { .. } => None,
+            },
         })
         .collect();
     let icon = icon::read(source, manifest.extension.as_ref(), &mut manifest.issues);
+    let release_notes = match notes::read(manifest.version.as_deref(), |name| {
+        package::read(source, name, sailry_protocol::MAX_FRAME_BYTES)
+    }) {
+        Ok(notes) => notes,
+        Err(_) => {
+            manifest.issues.push(sailry_protocol::plugin::Issue {
+                path: "CHANGELOG.md".into(),
+                kind: sailry_protocol::plugin::IssueKind::InvalidExtensions,
+            });
+            None
+        }
+    };
     let info = Info {
+        release_notes,
         origin: None,
         icon,
         skill: None,

@@ -479,11 +479,21 @@ route and RTT are local Link telemetry, separate from the Node event cursor.
 
 Official theme source lives in `sailry-themes`, pinned by the `themes/` Git
 submodule. Its generated `catalog.json` records manifest metadata and resource
-digests for discovery. Official theme package versions stay `0.1.0` before the
-first release, with numeric manifest and index formats at `1`. Desktop owns the
-reusable local theme loader, importer and renderer; repository theme sources are
+digests for discovery. Theme updates require strictly newer SemVer precedence;
+same-version changes and build metadata alone do not offer updates. Digests
+verify integrity. Numeric manifest and index formats remain at `1`. Desktop owns
+the reusable local theme loader, importer and renderer; repository theme sources are
 not embedded or installed automatically. Updating the source Gitlink does not
 change a user's selected or installed theme.
+
+The theme marketplace runs on the controller, including when a remote execution
+Node is selected. It resolves the official source to one immutable commit and
+acquires the strict manifest and its declared assets at that commit. Catalog
+resource hints add integrity checks; cached metadata alone does not make an
+unavailable package installable. Installation uses the existing staged
+publication and rollback path, preserves manual imports, and records verified
+official provenance. Updating the active package refreshes its decoded images
+and colors without changing the selected appearance mode.
 
 The application lives in `sailry-harness`; official plugin source lives only in
 `sailry-plugins`. The `plugins/` Git submodule pins a reviewed plugin commit.
@@ -499,15 +509,22 @@ not plugin update detectors. Standalone imported skills retain their repository
 commit update identity. This package policy does not declare a product release or
 change Sailry's v1 contracts.
 Removed packages and packages from other sources are not changed by this refresh.
-The online official marketplace reads the plugin repository's `catalog.json`.
-The execution Node shares its validated index across listings, source lookup and
-update checks for fifteen minutes. Explicit update checks and marketplace retries
+The online official marketplace resolves the plugin repository's `main` to an
+immutable commit and reads its `catalog.json` and skill sources at that commit.
+The execution Node shares its validated index across plugin and skill listings,
+source lookup and update checks for fifteen minutes. Explicit update checks and marketplace retries
 refresh it; only successful validation replaces the Node-lifetime cache.
 Unavailable networks leave the bundled snapshot installable. Invalid indexes are
 reported, not treated as an offline result. Official installation and updates
 capture immutable repository commits through Node's shared acquisition path.
 Preinstalled packages can update from the official repository without an app
 upgrade; update failures preserve installed packages and are reported honestly.
+Official skill entries come from actual package skill frontmatter, not a separate
+curated history. Older catalogs without a skill inventory use the real bundled
+inventory; those entries remain identified as bundled and resolve their public
+source through ordinary discovery before installation. Package category, icon
+tint and localized names are presentation metadata. Release notes are plain text
+for the exact package version; displayed access categories do not grant permission.
 
 Packages use the Agent Plugins manifest and Sailry's v1 extension contract.
 Node owns validation, immutable resources, grants, private KV, callbacks,

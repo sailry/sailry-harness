@@ -150,7 +150,13 @@ gpui_kit::assets::icon_assets!(
         CircleQuestionMark,
         KeyRound,
         Link,
-        Cloud
+        Cloud,
+        Database,
+        Users,
+        Shield,
+        Wrench,
+        Server,
+        Tag
     ]
 );
 

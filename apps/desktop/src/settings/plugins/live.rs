@@ -4,9 +4,9 @@ use sailry_protocol::{Command, ErrorCode, Fault, Output, Request, Snapshot, plug
 
 #[derive(Default)]
 pub(in crate::settings) struct Catalog {
-    pub(super) python: sailry_client::python::View,
+    pub(in crate::settings) python: sailry_client::python::View,
     pub packages: Vec<Summary>,
-    pub(super) market: Option<Entity<super::market::Market>>,
+    pub(in crate::settings) market: Option<Entity<super::market::Market>>,
     pub metadata: Option<Entity<Metadata>>,
     pub(in crate::settings) authorization: Option<Entity<super::authorization::Capabilities>>,
     pub(in crate::settings) updates: Option<Entity<super::updates::State>>,
@@ -51,7 +51,7 @@ impl Catalog {
 }
 
 impl Workspace {
-    pub(super) fn install_bundled(
+    pub(in crate::settings) fn install_bundled(
         &mut self,
         name: &str,
         window: &mut Window,

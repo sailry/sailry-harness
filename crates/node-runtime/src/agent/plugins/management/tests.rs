@@ -2,6 +2,7 @@ use super::*;
 
 fn info(version: &str, origin: plugin::Origin) -> plugin::Info {
     plugin::Info {
+        release_notes: None,
         summary: plugin::Summary {
             name: "fixture".into(),
             revision: 7,

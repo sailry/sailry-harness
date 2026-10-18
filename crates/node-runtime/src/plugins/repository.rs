@@ -62,7 +62,11 @@ impl Host {
                 git_ref: Some(selected.git_ref.clone()),
                 path: Some(selected.path.clone()),
             })?;
-            let resolved = if let Some(commit) = commit {
+            let fixed = commit.or_else(|| {
+                super::github::source::commit(&selected.git_ref)
+                    .then_some(selected.git_ref.as_str())
+            });
+            let resolved = if let Some(commit) = fixed {
                 Resolved {
                     repository: selected.repository.clone(),
                     git_ref: selected.git_ref.clone(),

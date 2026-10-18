@@ -25,6 +25,7 @@ fn package(db: &Connection, name: &str, digest: char, actions: &[&str]) -> plugi
     };
     let reference = summary.reference();
     let info = plugin::Info {
+        release_notes: None,
         summary,
         origin: None,
         icon: None,

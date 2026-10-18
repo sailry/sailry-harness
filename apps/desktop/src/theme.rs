@@ -17,6 +17,7 @@ mod controls;
 mod decoration;
 mod dialog;
 pub(crate) mod effects;
+pub(crate) mod market;
 pub(crate) mod messages;
 mod neutral;
 mod preview;

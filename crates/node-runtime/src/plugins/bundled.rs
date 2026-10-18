@@ -47,10 +47,38 @@ pub(super) fn entries() -> Result<Vec<sailry_protocol::plugin::catalog::Entry>, 
                 .and_then(|(_, bytes)| super::icon::encode(bytes));
             let mut entry = catalog::entry(name, manifest);
             entry.icon = icon;
+            entry.release_notes = notes::read(entry.version.as_deref(), |name| {
+                Ok(files
+                    .iter()
+                    .find(|(path, _)| *path == name)
+                    .map(|(_, bytes)| bytes.to_vec()))
+            })?;
             entry.bundled = true;
             Ok(entry)
         })
         .collect()
+}
+
+pub(super) fn skills() -> Result<Vec<sailry_protocol::plugin::skillcatalog::Entry>, Fault> {
+    let mut entries = vec![];
+    for (package, files) in PACKAGES {
+        for (path, bytes) in *files {
+            let Some(name) = path
+                .strip_prefix("skills/")
+                .and_then(|path| path.strip_suffix("/SKILL.md"))
+            else {
+                continue;
+            };
+            if name.contains('/') {
+                continue;
+            }
+            let text =
+                std::str::from_utf8(bytes).map_err(|_| Fault::invalid("invalid bundled skill"))?;
+            let skill = super::skills::parse(name, text)?;
+            entries.push(catalog::skills::entry(package, skill, true)?);
+        }
+    }
+    Ok(entries)
 }
 
 impl Host {

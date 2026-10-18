@@ -8,6 +8,7 @@ use sailry_protocol::plugin::{
 use serde::Deserialize;
 use std::io::{Read, Seek};
 pub(super) mod official;
+pub(super) mod skills;
 
 #[derive(Deserialize)]
 struct Response<T> {
@@ -122,6 +123,9 @@ impl Host {
                 path: None,
             })?;
             entries.push(Entry {
+                category: None,
+                tint: None,
+                release_notes: None,
                 id: item.slug,
                 name: item.name,
                 version: None,
@@ -234,6 +238,15 @@ pub(super) fn entry(id: &str, manifest: manifest::Manifest) -> Entry {
         .as_ref()
         .map_or_else(Vec::new, |extension| extension.actions.clone());
     Entry {
+        category: manifest
+            .extension
+            .as_ref()
+            .and_then(|extension| extension.category),
+        tint: manifest
+            .extension
+            .as_ref()
+            .and_then(|extension| extension.tint),
+        release_notes: None,
         provides_models,
         permissions,
         id: id.to_owned(),

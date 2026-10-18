@@ -25,6 +25,7 @@ pub(super) struct Catalog {
     pub updated: Arc<AtomicBool>,
     pub status: Arc<AtomicU16>,
     pub invalid: Arc<AtomicBool>,
+    pub legacy: Arc<AtomicBool>,
     pub obsolete: Arc<AtomicBool>,
     pub requests: Arc<Mutex<Vec<String>>>,
     pub version: Arc<Mutex<Option<String>>>,
@@ -32,6 +33,18 @@ pub(super) struct Catalog {
 }
 
 impl Catalog {
+    pub fn index_paths(&self) -> Vec<String> {
+        let commit = if self.updated.load(Ordering::SeqCst) {
+            SECOND
+        } else {
+            FIRST
+        };
+        vec![
+            "/repos/sailry/sailry-plugins/commits/main".into(),
+            format!("/{commit}/catalog.json"),
+        ]
+    }
+
     pub async fn start() -> Self {
         Self::with_reminders("0.1.0").await
     }
@@ -64,6 +77,8 @@ impl Catalog {
         let response_status = status.clone();
         let invalid = Arc::new(AtomicBool::new(false));
         let malformed = invalid.clone();
+        let legacy = Arc::new(AtomicBool::new(false));
+        let old_format = legacy.clone();
         let obsolete = Arc::new(AtomicBool::new(false));
         let incompatible = obsolete.clone();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -93,19 +108,24 @@ impl Catalog {
                     .unwrap();
                 captured.lock().unwrap().push(path.to_owned());
                 let (code, content_type, body) = match path {
-                    "/catalog.json" => (
-                        response_status.load(Ordering::SeqCst),
-                        "application/json",
-                        if malformed.load(Ordering::SeqCst) {
-                            b"{\"version\":2,\"packages\":[]}".to_vec()
-                        } else {
-                            index(
-                                current.load(Ordering::SeqCst),
-                                selected_version.lock().unwrap().as_deref(),
-                                incompatible.load(Ordering::SeqCst),
-                            )
-                        },
-                    ),
+                    path if path == format!("/{FIRST}/catalog.json")
+                        || path == format!("/{SECOND}/catalog.json") =>
+                    {
+                        (
+                            response_status.load(Ordering::SeqCst),
+                            "application/json",
+                            if malformed.load(Ordering::SeqCst) {
+                                b"{\"version\":2,\"packages\":[]}".to_vec()
+                            } else {
+                                index(
+                                    path == format!("/{SECOND}/catalog.json"),
+                                    selected_version.lock().unwrap().as_deref(),
+                                    incompatible.load(Ordering::SeqCst),
+                                    old_format.load(Ordering::SeqCst),
+                                )
+                            },
+                        )
+                    }
                     "/repos/sailry/sailry-plugins/commits/main" => (
                         200,
                         "application/vnd.github.sha",
@@ -125,6 +145,13 @@ impl Catalog {
                     }
                     _ => panic!("unexpected catalog fixture path: {path}"),
                 };
+                // The client rejects error status at the headers without reading its body.
+                // Do not stream a complete success catalog into that closed connection.
+                let body = if (200..300).contains(&code) {
+                    body
+                } else {
+                    Vec::new()
+                };
                 socket.write_all(format!(
                     "HTTP/1.1 {code} Fixture\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()
                 ).as_bytes()).await.unwrap();
@@ -137,6 +164,7 @@ impl Catalog {
             updated,
             status,
             invalid,
+            legacy,
             obsolete,
             requests,
             version,
@@ -158,7 +186,7 @@ fn manifest(version: &str) -> serde_json::Value {
     })
 }
 
-fn index(updated: bool, version: Option<&str>, obsolete: bool) -> Vec<u8> {
+fn index(updated: bool, version: Option<&str>, obsolete: bool, legacy: bool) -> Vec<u8> {
     let mut index: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../plugins/catalog.json")).unwrap();
     index["packages"]
@@ -186,8 +214,23 @@ fn index(updated: bool, version: Option<&str>, obsolete: bool) -> Vec<u8> {
         package["manifest"]["extensions"]["dev.sailry.platform"]["tools"][0]["operation"] =
             "office.export".into();
     }
+    if legacy {
+        index.as_object_mut().unwrap().remove("skills");
+    } else {
+        let skills = index
+            .as_object_mut()
+            .unwrap()
+            .entry("skills")
+            .or_insert_with(|| serde_json::json!([]));
+        skills.as_array_mut().unwrap().push(serde_json::json!({
+            "package":"official-new", "path":"skills/fixture-skill/SKILL.md",
+            "frontmatter": SKILL,
+        }));
+    }
     serde_json::to_vec(&index).unwrap()
 }
+
+const SKILL: &str = "---\nname: fixture-skill\ndescription: Searchable neutral skill\nmetadata:\n  display-name: Fixture skill\n  display-name.zh-CN: 测试技能\n---\n";
 
 fn archive(version: &str, reminders: &str, mcp: bool) -> Vec<u8> {
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -201,6 +244,13 @@ fn archive(version: &str, reminders: &str, mcp: bool) -> Vec<u8> {
     zip.start_file("repo-source/official-new/LICENSE", options)
         .unwrap();
     zip.write_all(b"Fixture package license").unwrap();
+    zip.start_file(
+        "repo-source/official-new/skills/fixture-skill/SKILL.md",
+        options,
+    )
+    .unwrap();
+    zip.write_all(format!("{SKILL}Neutral instructions\n").as_bytes())
+        .unwrap();
     let index: serde_json::Value =
         serde_json::from_str(include_str!("../../../../../plugins/catalog.json")).unwrap();
     for package in index["packages"].as_array().unwrap() {

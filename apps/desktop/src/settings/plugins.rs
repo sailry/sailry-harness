@@ -2,14 +2,14 @@ use super::entry::Entry;
 pub(super) mod authorization;
 mod cards;
 pub(super) mod configuration;
-mod details;
+pub(in crate::settings) mod details;
 pub(crate) use details::open_bound;
 pub(super) mod dialog;
-mod download;
+pub(in crate::settings) mod download;
 mod editor;
 mod inventory;
 pub(super) mod live;
-mod market;
+use super::market;
 pub(in crate::settings) mod preparation;
 pub(in crate::settings) mod updates;
 use super::{Section, Workspace, draft, group::Group};
@@ -69,66 +69,8 @@ impl Workspace {
                 cx,
             ));
         }
-        let owner = cx.entity();
         v_flex()
             .gap_4()
-            .child(
-                h_flex()
-                    .justify_between()
-                    .child(tr("plugins_installed"))
-                    .child(
-                        Button::new("plugins-manage")
-                            .ghost()
-                            .icon(IconName::Settings2)
-                            .debug_selector(|| "plugins-manage".into())
-                            .accessibility_label(tr("plugins_manage"))
-                            .tooltip(tr("plugins_manage"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.select(Section::Plugins, cx);
-                            })),
-                    ),
-            )
-            .child(
-                h_flex()
-                    .gap_2()
-                    .flex_wrap()
-                    .children(self.plugin_catalog.packages.iter().map(|plugin| {
-                        let info = self
-                            .plugin_catalog
-                            .metadata
-                            .as_ref()
-                            .and_then(|state| state.read(cx).entries.get(&plugin.name));
-                        let emblem = crate::plugins::emblem::render(
-                            &plugin.name,
-                            info.and_then(crate::plugins::emblem::glyph),
-                            info.and_then(|info| info.icon.as_deref()),
-                            px(48.),
-                            cx,
-                        );
-                        let plugin = plugin.clone();
-                        let owner = owner.clone();
-                        let title = info
-                            .map(metadata::title)
-                            .unwrap_or_else(|| plugin.name.clone());
-                        Button::new(SharedString::from(format!(
-                            "installed-icon-{}",
-                            plugin.name
-                        )))
-                        .ghost()
-                        .h_auto()
-                        .p_1()
-                        .accessibility_label(title.clone())
-                        .tooltip(title)
-                        .debug_selector({
-                            let name = plugin.name.clone();
-                            move || format!("installed-icon-{name}")
-                        })
-                        .child(emblem)
-                        .on_click(move |_, window, cx| {
-                            details::open(owner.clone(), plugin.clone(), window, cx)
-                        })
-                    })),
-            )
             .when(self.plugin_catalog.retryable(cx), |view| {
                 view.child(
                     crate::feedback::retry("plugins-retry")

@@ -15,6 +15,11 @@ impl Ingress {
             ));
         }
         let result = match &request.command {
+            Command::SearchSkillCatalog { query, force } => Output::SkillCatalog(
+                self.plugins
+                    .skill_catalog(query, *force, self.closed.clone())
+                    .await?,
+            ),
             Command::SearchPluginCatalog {
                 source,
                 query,

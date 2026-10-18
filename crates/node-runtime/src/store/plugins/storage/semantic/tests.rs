@@ -27,6 +27,7 @@ impl Fixture {
             "storage":{"collections":[{"scope":"node","prefix":"entry/","schema":true,"index":{"semantic":semantic}}]}
         })).unwrap();
         let info = plugin::Info {
+            release_notes: None,
             summary,
             origin: None,
             icon: None,

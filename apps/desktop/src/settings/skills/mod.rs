@@ -16,7 +16,7 @@ use sailry_protocol::{Command, ErrorCode, Fault, Output, Request, plugin::Info};
 
 mod action;
 mod details;
-mod install;
+pub(in crate::settings) mod install;
 mod preview;
 pub(super) use preview::Skill;
 

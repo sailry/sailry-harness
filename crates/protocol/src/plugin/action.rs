@@ -122,7 +122,79 @@ pub enum Action {
     WriteKnowledge,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Access {
+    Read,
+    Modify,
+    Operate,
+}
+
 impl Action {
+    /// Presentation classification only; execution and permission checks retain their owners.
+    pub fn access(&self) -> Access {
+        match self {
+            Self::ReadArtifacts
+            | Self::ReadCode
+            | Self::ReadCodeSettings
+            | Self::ReadSearchSettings
+            | Self::ReadActivity
+            | Self::ReadUsage
+            | Self::ReadDatabases
+            | Self::ReadSsh
+            | Self::ReadRoles
+            | Self::ReadModels
+            | Self::InspectMedia
+            | Self::ReadMediaSettings
+            | Self::ReadComputer
+            | Self::ReadBrowser
+            | Self::ReadExternalBrowser
+            | Self::ReadFiles
+            | Self::ReadGit
+            | Self::ReadWorktrees
+            | Self::ReadCommands
+            | Self::ReadTerminals
+            | Self::ReadConversation
+            | Self::ReadProjects
+            | Self::ReadWeb
+            | Self::ReadStorage
+            | Self::ReadKnowledge => Access::Read,
+            Self::WriteArtifacts
+            | Self::ManageCode
+            | Self::SaveCodeSettings
+            | Self::SaveSearchSettings
+            | Self::ManageDatabases
+            | Self::ManageSsh
+            | Self::WriteRoles
+            | Self::InstallModels
+            | Self::SaveMediaSettings
+            | Self::WriteFiles
+            | Self::WriteGit
+            | Self::WriteWorktrees
+            | Self::WriteStorage
+            | Self::WriteKnowledge => Access::Modify,
+            Self::ControlDatabases
+            | Self::ControlSsh
+            | Self::DelegateAgents
+            | Self::ProvideModels
+            | Self::AuthenticateModels
+            | Self::InspectCredentials
+            | Self::GenerateImage
+            | Self::GenerateVideo
+            | Self::ControlComputer
+            | Self::ControlBrowser
+            | Self::ControlExternalBrowser
+            | Self::Notify
+            | Self::Dispatch
+            | Self::ControlCommands
+            | Self::ControlTerminals
+            | Self::ControlConversation
+            | Self::StartSessions
+            | Self::Http
+            | Self::GenerateText => Access::Operate,
+        }
+    }
+
     pub fn read_only(&self) -> bool {
         matches!(
             self,
@@ -227,6 +299,32 @@ mod tests {
             serde_json::from_value::<Action>(variants[1]["const"].clone()).unwrap(),
             Action::StartSessions
         );
+    }
+
+    #[test]
+    fn keeps_access_distinct_from_read_only() {
+        let schema = serde_json::to_value(schemars::schema_for!(Action)).unwrap();
+        for name in schema["oneOf"][0]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(std::iter::once(&schema["oneOf"][1]["const"]))
+        {
+            let action: Action = serde_json::from_value(name.clone()).unwrap();
+            assert_eq!(
+                action.access() == Access::Read,
+                action.read_only(),
+                "{name}"
+            );
+        }
+        assert_eq!(Action::ReadFiles.access(), Access::Read);
+        assert!(Action::ReadFiles.read_only());
+        assert_eq!(Action::WriteFiles.access(), Access::Modify);
+        assert!(!Action::WriteFiles.read_only());
+        assert_eq!(Action::ControlConversation.access(), Access::Operate);
+        assert!(!Action::ControlConversation.read_only());
+        assert_eq!(Action::InspectCredentials.access(), Access::Operate);
+        assert!(!Action::InspectCredentials.read_only());
     }
 
     #[test]

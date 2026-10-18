@@ -775,6 +775,7 @@ pub(super) fn execute(
         | Command::DiscoverSkillUpload { .. }
         | Command::DiscoverLocalSkills { .. }
         | Command::SearchPluginCatalog { .. }
+        | Command::SearchSkillCatalog { .. }
         | Command::ReadCatalogPlugin { .. }
         | Command::ReadCatalogPluginInfo { .. }
         | Command::InspectPluginSource { .. }

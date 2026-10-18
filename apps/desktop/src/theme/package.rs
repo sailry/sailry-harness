@@ -2,6 +2,7 @@
 mod archive;
 mod effects;
 mod installation;
+pub(in crate::theme) mod market;
 mod resources;
 #[cfg(test)]
 mod tests;

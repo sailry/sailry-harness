@@ -119,6 +119,34 @@ leaf emits that leaf's ID through `header_action()`; Header selections do not
 emit Menu events or values. Without `menu`, flat actions remain unchanged.
 Menus reuse the existing declaration validation and 256 top-level item limit.
 
+## Marketplace metadata
+
+The v1 extension may declare `category` (`development`, `documents`, `data`,
+`automation`, `entertainment`) and `tint` (`blue`, `violet`, `teal`, `amber`,
+`gray`). These are package-owned presentation metadata, not native renderer or
+permission selectors. Tool `display.locales` contains localized user-facing names;
+tool descriptions remain model-facing text. Skill frontmatter accepts string
+metadata keys `display-name` and `display-name.<locale>`. Readers fall back from
+the requested locale to the source display name, then to the immutable skill ID.
+
+`CHANGELOG.md` may contain `## <version>` sections; optional
+`CHANGELOG.<locale>.md` files use the same headings. The Node and official catalog
+generator select only the section matching the inspected manifest version.
+`Info.release_notes` and catalog entries expose `{text, locales}` as plain text,
+without HTML execution or an arbitrary per-language display cutoff. Existing
+package, response and resource budgets still apply. `Mcp.host` contains only the
+endpoint hostname, never headers, credentials or the full URL. `Action.access()`
+groups permissions for display; `read_only()` and execution checks are unchanged.
+
+`SearchSkillCatalog {query, force}` is a read-only execution-Node command returning
+`SkillCatalog {entries, unavailable}`. Each entry retains its package, skill
+metadata, source and bundled status. Official plugin and skill listings share one
+cache; online refresh resolves `main` once and binds the catalog and skill sources
+to that immutable commit. An older catalog without skills falls back to actual
+bundled skills, whose public source is resolved by normal discovery. Listing does
+not install anything or create a durable request record. Installation retains the
+existing selected-Node, source-inspection and immutable-commit boundaries.
+
 ## Model channels
 
 Declare channels in `extensions.dev.sailry.platform.model_providers`. Each preset

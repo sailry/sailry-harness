@@ -637,6 +637,7 @@ impl Render for Shell {
             .on_action(cx.listener(Self::search))
             .on_action(cx.listener(Self::open_page))
             .on_action(cx.listener(Self::open_settings_panel))
+            .on_action(cx.listener(Self::open_settings_section))
             .on_action(cx.listener(Self::refresh_host))
             .on_action(cx.listener(Self::close_active_terminal))
             .on_action(cx.listener(Self::find_conversation))

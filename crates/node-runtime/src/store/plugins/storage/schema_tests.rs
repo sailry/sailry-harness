@@ -21,6 +21,7 @@ fn package(db: &Connection, digest: &str, declaration: Declaration) -> plugin::R
     let reference = summary.reference();
     let extension = serde_json::from_value(json!({"api_version":"v1","actions":["storage.read","storage.write"],"storage":declaration})).unwrap();
     let info = plugin::Info {
+        release_notes: None,
         summary,
         origin: None,
         icon: None,

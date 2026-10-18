@@ -1,0 +1,87 @@
+use super::*;
+
+async fn listing(client: &Client, query: &str, force: bool) -> plugin::skillcatalog::Page {
+    let request = client.prepare(Command::SearchSkillCatalog {
+        query: query.into(),
+        force,
+    });
+    assert!(!request.command.durable());
+    let pending = client.dispatch(request).await.unwrap();
+    assert!(!pending.receipt.durable);
+    let Output::SkillCatalog(page) = pending.completion.await.unwrap().unwrap() else {
+        panic!("skill catalog expected");
+    };
+    page
+}
+
+#[tokio::test]
+async fn shares_immutable_sources_and_preserves_offline_inventory() {
+    for remote in [false, true] {
+        let catalog = Catalog::start().await;
+        let (_directory, node, controller, client) = connection(remote, &catalog).await;
+        let ledger = node.profile().join("storage/node.sqlite3");
+        let count = || {
+            rusqlite::Connection::open_with_flags(
+                &ledger,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap()
+            .query_row::<i64, _, _>("SELECT count(*) FROM requests", [], |row| row.get(0))
+            .unwrap()
+        };
+        let before = count();
+        execute(&client, search("official-new")).await;
+        let page = listing(&client, "fixture-skill", false).await;
+        assert!(!page.unavailable);
+        assert_eq!(page.entries.len(), 1);
+        let entry = &page.entries[0];
+        assert_eq!(entry.id, "official-new/fixture-skill");
+        assert_eq!(entry.skill.display_name("zh-CN"), "测试技能");
+        assert!(!entry.bundled);
+        assert_eq!(entry.source.git_ref.as_deref(), Some(FIRST));
+        assert_eq!(
+            entry.source.path.as_deref(),
+            Some("official-new/skills/fixture-skill")
+        );
+        assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
+
+        catalog.updated.store(true, Ordering::SeqCst);
+        catalog.invalid.store(true, Ordering::SeqCst);
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::SearchSkillCatalog {
+                    query: String::new(),
+                    force: true,
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+        assert_eq!(listing(&client, "fixture-skill", false).await, page);
+        catalog.invalid.store(false, Ordering::SeqCst);
+        catalog.legacy.store(true, Ordering::SeqCst);
+        let legacy = listing(&client, "", true).await;
+        assert!(!legacy.unavailable);
+        assert!(!legacy.entries.is_empty());
+        assert!(
+            legacy
+                .entries
+                .iter()
+                .all(|entry| entry.bundled && entry.source.git_ref.as_deref() == Some("main"))
+        );
+        assert!(
+            legacy
+                .entries
+                .iter()
+                .all(|entry| entry.id == format!("{}/{}", entry.package, entry.skill.name))
+        );
+        catalog.status.store(503, Ordering::SeqCst);
+        let offline = listing(&client, "", true).await;
+        assert!(offline.unavailable);
+        assert_eq!(offline.entries, legacy.entries);
+        assert_eq!(count(), before);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

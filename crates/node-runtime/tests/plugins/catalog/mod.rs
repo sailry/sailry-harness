@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
 mod cache;
 mod fixture;
 mod live;
+mod skills;
 mod updates;
 use fixture::{Catalog, FIRST, SECOND};
 
@@ -72,7 +73,7 @@ async fn installs_pinned_packages() {
             _ => panic!("source expected"),
         };
         assert_eq!(source.path.as_deref(), Some("official-new"));
-        assert_eq!(source.git_ref.as_deref(), Some("main"));
+        assert_eq!(source.git_ref.as_deref(), Some(FIRST));
         let details = info(
             execute(
                 &client,
@@ -161,7 +162,7 @@ async fn updates_preinstalled() {
             panic!("official catalog entry expected");
         };
         assert_eq!(candidate.version.as_deref(), Some("0.2.0"));
-        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+        assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
         let Output::PluginSource(selected) = execute(
             &client,
             Command::InspectPluginSource {
@@ -222,7 +223,7 @@ async fn updates_preinstalled() {
             panic!("update report expected");
         };
         assert!(report.available.is_none());
-        assert_eq!(*catalog.requests.lock().unwrap(), ["/catalog.json"]);
+        assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

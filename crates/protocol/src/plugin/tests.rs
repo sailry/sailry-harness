@@ -6,6 +6,44 @@ mod extension {
     use serde_json::json;
 
     #[test]
+    fn validates_optional_market_metadata() {
+        let empty: Extension = serde_json::from_value(json!({"api_version":"v1"})).unwrap();
+        assert_eq!(empty.category, None);
+        assert_eq!(empty.tint, None);
+        for (category, tint) in [
+            ("development", "blue"),
+            ("documents", "violet"),
+            ("data", "teal"),
+            ("automation", "amber"),
+            ("entertainment", "gray"),
+        ] {
+            let extension: Extension = serde_json::from_value(
+                json!({"api_version":"v1", "category":category, "tint":tint}),
+            )
+            .unwrap();
+            let value = serde_json::to_value(extension).unwrap();
+            assert_eq!(value["category"], category);
+            assert_eq!(value["tint"], tint);
+        }
+        for value in [
+            json!({"api_version":"v1", "category":"unknown"}),
+            json!({"api_version":"v1", "tint":"red"}),
+        ] {
+            assert!(serde_json::from_value::<Extension>(value).is_err());
+        }
+        let mut notes = catalog::ReleaseNotes {
+            text: "Long notes\n".repeat(1000),
+            locales: Default::default(),
+        };
+        assert!(notes.valid());
+        assert_eq!(notes.text("fr"), notes.text);
+        notes.locales.insert("zh-CN".into(), "变更说明".into());
+        assert_eq!(notes.text("zh-CN"), "变更说明");
+        notes.locales.insert("fr".into(), "bad\0notes".into());
+        assert!(!notes.valid());
+    }
+
+    #[test]
     fn ignores_extra_fields() {
         let extension: Extension = serde_json::from_value(json!({
             "api_version": API_VERSION,

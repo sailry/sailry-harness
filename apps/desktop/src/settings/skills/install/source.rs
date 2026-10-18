@@ -7,7 +7,7 @@ use sailry_protocol::{
 };
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub(super) enum Channel {
+pub(in crate::settings) enum Channel {
     #[default]
     Git,
     Skills,
@@ -304,6 +304,7 @@ mod tests {
                     skill: sailry_protocol::plugin::Skill {
                         name: (*name).into(),
                         display_name: None,
+                        display_locales: Default::default(),
                         description: "Fixture skill".into(),
                         path: "SKILL.md".into(),
                         license: Some("MIT".into()),

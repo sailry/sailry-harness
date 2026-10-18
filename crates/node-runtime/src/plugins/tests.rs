@@ -425,9 +425,11 @@ mod skill_loading {
     fn reads_display_names_without_changing_skill_ids() {
         let (_temp, host, package) = fixture();
         let skill = package.join("skills/analysis");
-        fs::write(skill.join("SKILL.md"), "---\nname: analysis\ndescription: Analyze project data\nmetadata:\n  display-name: Budget Analysis\n---\nInstructions\n").unwrap();
+        fs::write(skill.join("SKILL.md"), "---\nname: analysis\ndescription: Analyze project data\nmetadata:\n  display-name: Budget Analysis\n  display-name.zh-CN: 预算分析\n---\nInstructions\n").unwrap();
         let info = host.install(&package, "", "example").unwrap();
         assert_eq!(info.skills[0].name, "analysis");
+        assert_eq!(info.skills[0].display_name("zh-CN"), "预算分析");
+        assert_eq!(info.skills[0].display_name("fr"), "Budget Analysis");
         assert_eq!(
             info.skills[0].display_name.as_deref(),
             Some("Budget Analysis")
