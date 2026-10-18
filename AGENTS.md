@@ -38,6 +38,7 @@
 - A compile pass, model response, or mocked transport test proves only its own scope. Do not report full integration or performance acceptance from narrower evidence.
 - Stage only files owned by the current task. Preserve unrelated changes. Commit locally unless the user explicitly requests a push or PR.
 - Coordinate one Cargo owner per target directory when agents share a checkout. Independent build lanes use separate worktrees and `CARGO_TARGET_DIR`; keep SDK, `PKG_CONFIG_PATH`, target and Rust flags stable within a lane. Do not start competing Cargo processes or delete another lane's artifacts to resolve lock waits.
+- Reuse fixed-purpose `.runtime` directories, worktree paths and persistent build lanes. Do not create a fresh run ID, timestamp or UUID directory for each iteration of the same purpose. If a reusable directory is invalid, its owner must stop the affected work, inspect its contents and then clear and regenerate only that directory. Never include plugin or theme repositories, their worktrees, active lanes, user profiles or unrelated source in cleanup.
 - Reconcile the active task with committed implementation and verified results when resuming. Keep delivery evidence in tests and Git; do not append reports, test transcripts, or commit ledgers to docs.
 
 ## Code and dependency boundaries

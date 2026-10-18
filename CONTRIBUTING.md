@@ -121,6 +121,14 @@ per target directory. Use a separate worktree and `CARGO_TARGET_DIR` for indepen
 builds; do not launch competing builds against the same target or change its build
 environment between them. Keep `PKG_CONFIG_PATH`, SDK, target and Rust flags stable
 for a build lane. Do not delete another lane's artifacts to resolve a lock wait.
+Reuse fixed-purpose paths such as `.runtime/worktrees/<purpose>` and one persistent
+target per lane across iterations; do not append run IDs, timestamps or UUIDs to
+create replacement caches or source checkouts. An invalid reusable directory may
+be cleared and regenerated only by its owner after the affected work has stopped
+and its contents have been inspected. Cleanup must preserve plugin and theme
+repositories and their worktrees, active lanes, user profiles and unrelated source.
+Disposable test profiles and atomic staging files still need their existing
+isolation and lifetime cleanup; they are not persistent build caches.
 
 ## Test conventions
 
