@@ -1,3 +1,4 @@
+mod context;
 use super::*;
 use git2::{Repository, Signature};
 use std::{

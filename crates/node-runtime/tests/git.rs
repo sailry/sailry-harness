@@ -9,6 +9,9 @@ use sailry_protocol::*;
 #[path = "git/history.rs"]
 mod history;
 
+#[path = "git/context.rs"]
+mod context;
+
 #[path = "git/inspection.rs"]
 mod inspection;
 

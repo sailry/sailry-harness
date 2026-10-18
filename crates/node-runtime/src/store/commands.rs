@@ -745,6 +745,7 @@ pub(super) fn execute(
         | Command::ReadGitBlame { .. }
         | Command::ListGitChanges { .. }
         | Command::ReadGitChange { .. }
+        | Command::ReadGitContext { .. }
         | Command::ReadGitCommit { .. }
         | Command::ReadGitDiff { .. }
         | Command::ListDirectory { .. }

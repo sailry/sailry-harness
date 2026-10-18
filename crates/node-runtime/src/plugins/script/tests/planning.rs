@@ -24,6 +24,7 @@ export async function run() {
     () => deleteValue('seed','1'),
     () => indexedValue('indexed',1,{fields:['title','body'],tags:[],order:0},'0'),
     () => prepareTransaction([{kind:'write',data:{key:'bulk',value:1,expected_revision:'0'}}]),
+    () => prepareTransaction([{kind:'remove',data:{key:'bulk',expected_revision:'1'}}]),
     () => setConversationValue('scoped',1,'0'),
     () => deleteConversationValue('scoped','1'),
     () => prepareTransaction([{kind:'conversation_write',data:{key:'bulk-scoped',value:1,expected_revision:'0'}}]),
@@ -57,7 +58,7 @@ export async function run() {
     )
     .unwrap();
         assert_eq!(result["read"]["value"], "original");
-        assert_eq!(result["errors"], json!(vec!["permission_denied"; 8]));
+        assert_eq!(result["errors"], json!(vec!["permission_denied"; 9]));
     }
 }
 
@@ -77,6 +78,8 @@ fn admits_scoped_control_transactions_with_stable_identity() {
 import {prepareTransaction,completeRequest} from 'sailry/sdk';
 export async function run() {
   const id = prepareTransaction([
+    {kind:'write',data:{key:'guard',value:1,expected_revision:'0'}},
+    {kind:'remove',data:{key:'chunk',expected_revision:'1'}},
     {kind:'conversation_write',data:{key:'item',value:1,expected_revision:'0'}},
     {kind:'conversation_remove',data:{key:'item',expected_revision:'1'}},
     {kind:'queue_pause',data:{session:'11111111-1111-4111-8111-111111111111',expected_revision:'1',paused:false}},
@@ -97,7 +100,7 @@ export async function run() {
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0], requests[1]);
     assert!(
-        matches!(&requests[0].command, sailry_protocol::Command::PluginTransaction { operations } if operations.len() == 5)
+        matches!(&requests[0].command, sailry_protocol::Command::PluginTransaction { operations } if operations.len() == 7)
     );
 }
 
@@ -121,8 +124,6 @@ import {prepareTransaction} from 'sailry/sdk';
 export function run() {
   const errors=[];
   for (const operation of [
-    {kind:'write',data:{key:'node',value:1,expected_revision:'0'}},
-    {kind:'remove',data:{key:'node',expected_revision:'1'}},
     {kind:'index',data:{key:'node',value:1,index:{fields:['title','body'],tags:[],order:0},expected_revision:'0'}},
     {kind:'submit',data:{session:'11111111-1111-4111-8111-111111111111',expected_revision:'1',message:{text:'Submit',references:[],attachments:[]}}},
     {kind:'notify',data:{title:'Notice',message:'Do not publish',kind:'info',session:null}},
@@ -138,6 +139,6 @@ export function run() {
             Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new() },
             |_| panic!("denied mixed transactions must not dispatch or partially write"), state,
         ).unwrap();
-        assert_eq!(result, json!(vec!["permission_denied"; 6]));
+        assert_eq!(result, json!(vec!["permission_denied"; 4]));
     }
 }

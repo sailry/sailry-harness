@@ -113,6 +113,31 @@ pub struct GitChange {
     pub first_line: Option<String>,
 }
 
+/// Exact source-side lines from the same buffers as a mapped change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitContextSide {
+    Old,
+    New,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GitContext {
+    pub snapshot: GitChangeSnapshot,
+    pub path: String,
+    pub old_path: Option<String>,
+    pub metadata_revision: String,
+    pub revision: String,
+    pub side: GitContextSide,
+    pub offset: usize,
+    pub next: Option<usize>,
+    /// Unnumbered complete source lines, retaining CR/LF and an unterminated final line.
+    pub text: String,
+    pub binary: bool,
+    pub skip_reason: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitFile {
     pub commit: String,

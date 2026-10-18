@@ -1096,6 +1096,16 @@ pub enum Command {
         offset: usize,
         limit: usize,
     },
+    ReadGitContext {
+        worktree: WorktreeId,
+        snapshot: crate::git::GitChangeSnapshot,
+        path: String,
+        expected_metadata_revision: String,
+        expected_revision: String,
+        side: crate::git::GitContextSide,
+        offset: usize,
+        limit: usize,
+    },
     ReadGitShow {
         worktree: WorktreeId,
         revision: String,
@@ -1622,6 +1632,7 @@ impl Command {
                 | Self::ReadGitShow { .. }
                 | Self::ListGitChanges { .. }
                 | Self::ReadGitChange { .. }
+                | Self::ReadGitContext { .. }
                 | Self::ReadGitBlame { .. }
                 | Self::ReadGitDiff { .. }
         )
@@ -1944,6 +1955,7 @@ pub enum Output {
     GitFile(crate::git::GitFile),
     GitChanges(crate::git::GitChanges),
     GitChange(crate::git::GitChange),
+    GitContext(crate::git::GitContext),
     GitBlame(crate::git::GitBlame),
     GitActionCompleted,
     GitOutput {

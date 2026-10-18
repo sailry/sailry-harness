@@ -83,6 +83,25 @@ Node denies mutations before dispatch. Omitted declarations retain ordinary
 stable request ID. Reads retain their supplied package and scope: a concurrent
 package change can reject a live read rather than switching it to newer code.
 
+Authorized Code tools may use `prepareTransaction` with their own namespace's
+`write` and `remove` operations. They retain the ordinary atomic batch budget,
+revision checks and stable request ID. Plan and read-only callbacks cannot write;
+a transaction grants no access to another package's data.
+Flow callbacks return declared `call` transitions for mutations; do not issue
+durable SDK writes from multiple evaluations of the same flow call. SDK write
+ordinals belong to one evaluation. Keep a multi-batch capture and its cleanup in
+one ordinary handler evaluation so every prepared write retains its own identity.
+
+`prepareRequest({kind: 'read_git_context', data: ...})` reads an `old` or `new`
+source side using the same worktree, snapshot, path, metadata revision and strong
+content revision returned by `read_git_change`. It requires `git.read` and the
+captured repository scope. `offset` and `next` count source lines; concatenated
+`text` pages preserve CR/LF and an unterminated final line without adding line
+numbers. Binary, unsupported and oversized resources have an explicit
+`skip_reason`. Working-tree reads still reject concurrent changes. A feature
+that needs a retained snapshot must store its complete captured pages before
+publishing them; these read commands do not create a persisted snapshot.
+
 `nextChange(cursor, "package")` observes only this package's inventory and private
 storage invalidations, reconnection and view entry. It reuses the existing
 coalesced Client subscription. Its token is package-wide, including changes from

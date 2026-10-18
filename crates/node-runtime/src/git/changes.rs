@@ -128,6 +128,36 @@ pub(super) fn read(
     Ok(result)
 }
 
+pub(super) fn context(
+    root: &Path,
+    snapshot: GitChangeSnapshot,
+    path: &str,
+    expected_metadata: &str,
+    side: GitContextSide,
+    page: Page<'_>,
+    control: &Control,
+) -> Result<GitContext, Fault> {
+    validate_page(page.offset, page.limit)?;
+    super::valid_path(path)?;
+    digest(expected_metadata)?;
+    digest(
+        page.expected_revision
+            .ok_or_else(|| Fault::invalid("Git context requires the content revision"))?,
+    )?;
+    let repository = open(root)?;
+    let capture = inventory::restore(root, &repository, &snapshot, control)?;
+    let candidate = capture
+        .entries
+        .get(path)
+        .ok_or_else(|| Fault::invalid("Git context path is outside the snapshot"))?;
+    if candidate.entry.metadata_revision != expected_metadata {
+        return Err(stale());
+    }
+    let result = contents::context(root, &repository, &snapshot, candidate, side, page, control)?;
+    inventory::restore(root, &repository, &snapshot, control)?;
+    Ok(result)
+}
+
 fn validate_page(offset: usize, limit: usize) -> Result<(), Fault> {
     if limit == 0 || offset.checked_add(limit).is_none() {
         return Err(Fault::invalid("invalid Git change page"));

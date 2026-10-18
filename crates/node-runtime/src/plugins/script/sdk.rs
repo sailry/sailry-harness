@@ -220,7 +220,9 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     )
                     && !matches!(&command, Command::PluginTransaction { operations }
                         if operations.iter().all(|operation| matches!(operation,
-                            plugin::transaction::Operation::ConversationWrite { .. }
+                            plugin::transaction::Operation::Write { .. }
+                                | plugin::transaction::Operation::Remove { .. }
+                                | plugin::transaction::Operation::ConversationWrite { .. }
                                 | plugin::transaction::Operation::ConversationRemove { .. }
                                 | plugin::transaction::Operation::QueuePause { .. }
                                 | plugin::transaction::Operation::Continue { .. }
@@ -407,6 +409,7 @@ fn allowed(command: &Command) -> bool {
             | Command::ReadGitBlame { .. }
             | Command::ListGitChanges { .. }
             | Command::ReadGitChange { .. }
+            | Command::ReadGitContext { .. }
             | Command::ReadGitCommit { .. }
             | Command::ListGitBranches { .. }
             | Command::ResolveGitRevision { .. }

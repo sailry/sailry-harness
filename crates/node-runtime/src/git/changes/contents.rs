@@ -30,38 +30,11 @@ pub(super) fn read(
         offset,
         limit,
     } = page;
-    let old = bytes(
-        root,
-        repository,
-        &candidate.entry.path,
-        candidate.old.as_ref(),
-        control,
-    )?;
-    let new = bytes(
-        root,
-        repository,
-        &candidate.entry.path,
-        candidate.new.as_ref(),
-        control,
-    )?;
+    let (old, new, revision) = capture(root, repository, candidate, control)?;
     let skip = match (&old, &new) {
         (Bytes::Skipped(reason), _) | (_, Bytes::Skipped(reason)) => Some(*reason),
         _ => None,
     };
-    let mut revision = blake3::Hasher::new();
-    revision.update(candidate.entry.metadata_revision.as_bytes());
-    for content in [&old, &new] {
-        match content {
-            Bytes::Ready(bytes) => {
-                revision.update(&(bytes.len() as u64).to_le_bytes());
-                revision.update(bytes);
-            }
-            Bytes::Skipped(reason) => {
-                revision.update(reason.as_bytes());
-            }
-        }
-    }
-    let revision = revision.finalize().to_hex().to_string();
     if expected_revision.is_some_and(|expected| expected != revision) {
         return Err(stale());
     }
@@ -173,6 +146,138 @@ pub(super) fn read(
     if encoded(&Output::GitChange(result.clone()))? > MAX_DIFF_BYTES {
         return Err(Fault::invalid(
             "Git change metadata exceeds the page size limit",
+        ));
+    }
+    Ok(result)
+}
+
+fn capture(
+    root: &Path,
+    repository: &Repository,
+    candidate: &Candidate,
+    control: &Control,
+) -> Result<(Bytes, Bytes, String), Fault> {
+    let old = bytes(
+        root,
+        repository,
+        &candidate.entry.path,
+        candidate.old.as_ref(),
+        control,
+    )?;
+    let new = bytes(
+        root,
+        repository,
+        &candidate.entry.path,
+        candidate.new.as_ref(),
+        control,
+    )?;
+    let mut revision = blake3::Hasher::new();
+    revision.update(candidate.entry.metadata_revision.as_bytes());
+    for content in [&old, &new] {
+        match content {
+            Bytes::Ready(bytes) => {
+                revision.update(&(bytes.len() as u64).to_le_bytes());
+                revision.update(bytes);
+            }
+            Bytes::Skipped(reason) => {
+                revision.update(reason.as_bytes());
+            }
+        }
+    }
+    let revision = revision.finalize().to_hex().to_string();
+    Ok((old, new, revision))
+}
+
+pub(super) fn context(
+    root: &Path,
+    repository: &Repository,
+    snapshot: &GitChangeSnapshot,
+    candidate: &Candidate,
+    side: GitContextSide,
+    page: Page<'_>,
+    control: &Control,
+) -> Result<GitContext, Fault> {
+    let (old, new, revision) = capture(root, repository, candidate, control)?;
+    if page.expected_revision != Some(revision.as_str()) {
+        return Err(stale());
+    }
+    let mut result = GitContext {
+        snapshot: snapshot.clone(),
+        path: candidate.entry.path.clone(),
+        old_path: candidate.entry.old_path.clone(),
+        metadata_revision: candidate.entry.metadata_revision.clone(),
+        revision,
+        side,
+        offset: page.offset,
+        next: None,
+        text: String::new(),
+        binary: false,
+        skip_reason: None,
+    };
+    for content in [&old, &new] {
+        match content {
+            Bytes::Skipped(reason) => result.skip_reason = Some((*reason).into()),
+            Bytes::Ready(bytes) if bytes.contains(&0) => {
+                result.binary = true;
+                result.skip_reason = Some("binary".into());
+            }
+            Bytes::Ready(bytes) if std::str::from_utf8(bytes).is_err() => {
+                result.skip_reason = Some("non_utf8".into());
+            }
+            _ => {}
+        }
+    }
+    if result.skip_reason.is_some() {
+        if page.offset != 0 {
+            return Err(Fault::invalid(
+                "skipped Git context does not have line pages",
+            ));
+        }
+        return Ok(result);
+    }
+    let Bytes::Ready(bytes) = (match side {
+        GitContextSide::Old => old,
+        GitContextSide::New => new,
+    }) else {
+        unreachable!("skipped sources returned above")
+    };
+    let text = std::str::from_utf8(&bytes).expect("validated UTF-8");
+    let mut position = 0;
+    let mut full = false;
+    for line in text.split_inclusive('\n') {
+        control.check()?;
+        if position >= page.offset && !full {
+            let mut single = result.clone();
+            single.text = line.into();
+            single.next = Some(position + 1);
+            if encoded(&Output::GitContext(single))? > MAX_DIFF_BYTES {
+                result.text.clear();
+                result.next = None;
+                result.skip_reason = Some("line_too_large".into());
+                return Ok(result);
+            }
+            let previous = result.text.len();
+            result.text.push_str(line);
+            result.next = Some(position + 1);
+            if position - page.offset >= page.limit.min(MAX_GIT_LINES)
+                || encoded(&Output::GitContext(result.clone()))? > MAX_DIFF_BYTES
+            {
+                result.text.truncate(previous);
+                result.next = Some(position);
+                full = true;
+            }
+        }
+        position += 1;
+    }
+    if page.offset > position {
+        return Err(Fault::invalid("Git context offset is beyond the source"));
+    }
+    if !full {
+        result.next = None;
+    }
+    if encoded(&Output::GitContext(result.clone()))? > MAX_DIFF_BYTES {
+        return Err(Fault::invalid(
+            "Git context metadata exceeds the page size limit",
         ));
     }
     Ok(result)

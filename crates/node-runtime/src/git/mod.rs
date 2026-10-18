@@ -166,6 +166,29 @@ impl Git {
                     &control,
                 )
                 .map(Output::GitChange),
+                Command::ReadGitContext {
+                    snapshot,
+                    path,
+                    expected_metadata_revision,
+                    expected_revision,
+                    side,
+                    offset,
+                    limit,
+                    ..
+                } => changes::context(
+                    &root,
+                    snapshot,
+                    &path,
+                    &expected_metadata_revision,
+                    side,
+                    changes::Page {
+                        expected_revision: Some(&expected_revision),
+                        offset,
+                        limit,
+                    },
+                    &control,
+                )
+                .map(Output::GitContext),
                 Command::ReadGitShow {
                     revision,
                     path,

@@ -62,6 +62,7 @@ impl Ingress {
                 | Command::ReadGitBlame { worktree, .. }
                 | Command::ListGitChanges { worktree, .. }
                 | Command::ReadGitChange { worktree, .. }
+                | Command::ReadGitContext { worktree, .. }
                 | Command::ReadGitCommit { worktree, .. }
                 | Command::ReadGitDiff { worktree, .. } => *worktree,
                 _ => {
@@ -147,6 +148,7 @@ impl Ingress {
                 | Command::ReadGitBlame { .. }
                 | Command::ListGitChanges { .. }
                 | Command::ReadGitChange { .. }
+                | Command::ReadGitContext { .. }
                 | Command::ReadGitCommit { .. }
         ) {
             self.git

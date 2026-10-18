@@ -3,7 +3,7 @@ use std::fs::FileTimes;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
 #[tokio::test]
-async fn rejects_changed_working_snapshots() {
+async fn preserves_published_working_snapshots() {
     for remote in [false, true] {
         for change in [
             "head",
@@ -13,7 +13,7 @@ async fn rejects_changed_working_snapshots() {
             "same-stat",
             "new-candidate",
         ] {
-            let (fixture, package) = start(remote).await;
+            let (mut fixture, package) = start(remote).await;
             let repository = Repository::init(&fixture.root).unwrap();
             write(&fixture.root, "src/value.rs", "original_value();\n");
             write(&fixture.root, "other/clean.rs", "initial_value();\n");
@@ -23,6 +23,18 @@ async fn rejects_changed_working_snapshots() {
             let key = format!("review/{}/head", scope["review_id"].as_str().unwrap());
             let before = value(&fixture, &package, &key).await;
             assert!(before.present);
+            let reads = || {
+                ["diff", "old", "new"].into_iter().map(|part| (
+                plugin_tool(PACKAGE, "read_review_change"),
+                json!({"review_id":scope["review_id"],"path":"src/value.rs","part":part}),
+            )).collect()
+            };
+            let (saved, _) = calls(&fixture, reads()).await;
+            for content in &saved {
+                success(content);
+            }
+            assert_eq!(saved[1]["text"], "original_value();\n");
+            assert_eq!(saved[2]["text"], "changed_value();\n");
             let path = fixture.root.join("src/value.rs");
             match change {
                 "head" => {
@@ -62,21 +74,6 @@ async fn rejects_changed_working_snapshots() {
                     assert_eq!(changed.ino(), original.ino());
                     assert_eq!(changed.dev(), original.dev());
                     assert_eq!(changed.mode(), original.mode());
-                    if change == "new-candidate" {
-                        let fresh = fixture::scope(
-                            &fixture,
-                            json!({"kind":"worktree","data":{"scope":"all"}}),
-                        )
-                        .await;
-                        assert!(
-                            fresh["files"]
-                                .as_array()
-                                .unwrap()
-                                .iter()
-                                .any(|file| file["path"] == "other/clean.rs"),
-                            "{fresh}"
-                        );
-                    }
                 }
                 _ => unreachable!(),
             }
@@ -86,10 +83,81 @@ async fn rejects_changed_working_snapshots() {
                 finding(&scope, "src/value.rs", "new", 1, "changed_value();"),
             )
             .await;
-            failure(&report, "revision_conflict");
+            success(&report);
+            assert_eq!(report["finding"]["line"], 1);
+            let (retained, _) = calls(&fixture, reads()).await;
+            assert_eq!(retained, saved, "change={change} remote={remote}");
+            fixture = restart(fixture, remote).await;
+            let (reopened, _) = calls(&fixture, reads()).await;
+            assert_eq!(reopened, saved, "change={change} remote={remote}");
+            let fresh =
+                fixture::scope(&fixture, json!({"kind":"worktree","data":{"scope":"all"}})).await;
+            assert_ne!(fresh["review_id"], scope["review_id"]);
+            if change == "head" {
+                assert_eq!(fresh["counts"]["files"], 0);
+            } else if change == "index" {
+                assert_ne!(
+                    fresh["snapshot"]["target"]["data"]["index_revision"],
+                    scope["snapshot"]["target"]["data"]["index_revision"],
+                    "change={change} remote={remote}",
+                );
+                assert_ne!(fresh["snapshot"], scope["snapshot"]);
+                // Staging preserves the HEAD-to-working-tree bytes in an all-scope review.
+                let (current, _) = calls(
+                    &fixture,
+                    ["diff", "old", "new"]
+                        .into_iter()
+                        .map(|part| {
+                            (
+                                plugin_tool(PACKAGE, "read_review_change"),
+                                json!({"review_id":fresh["review_id"],"path":"src/value.rs","part":part}),
+                            )
+                        })
+                        .collect(),
+                )
+                .await;
+                for (current, saved) in current.iter().zip(&saved) {
+                    success(current);
+                    assert_eq!(current["snapshot"], fresh["snapshot"]);
+                    for field in [
+                        "path",
+                        "old_path",
+                        "metadata_revision",
+                        "revision",
+                        "part",
+                        "offset",
+                        "next",
+                        "lines",
+                        "text",
+                    ] {
+                        assert_eq!(
+                            current[field], saved[field],
+                            "field={field} remote={remote}"
+                        );
+                    }
+                }
+            } else if change == "new-candidate" {
+                assert!(
+                    fresh["files"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|file| file["path"] == "other/clean.rs")
+                );
+            } else {
+                assert_ne!(
+                    file(&fresh, "src/value.rs")["revision"],
+                    file(&scope, "src/value.rs")["revision"]
+                );
+            }
             let complete = call(&fixture, "review_complete", receipts(&scope, true)).await;
-            failure(&complete, "revision_conflict");
-            assert_eq!(value(&fixture, &package, &key).await, before);
+            success(&complete);
+            assert_eq!(complete["status"], "complete");
+            assert_eq!(complete["findings"], 1);
+            let after = value(&fixture, &package, &key).await;
+            for field in ["snapshot", "pages", "package", "creator", "worktree"] {
+                assert_eq!(after.value[field], before.value[field]);
+            }
             stop(fixture).await;
         }
     }

@@ -95,3 +95,55 @@ fn rejects_unknown_snapshot_and_target_fields() {
         result
     );
 }
+
+#[test]
+fn preserves_exact_context_contract() {
+    let snapshot = GitChangeSnapshot {
+        target: GitChangeState::Commit {
+            revision: "a".repeat(40),
+            parent: None,
+        },
+        metadata_revision: "b".repeat(64),
+    };
+    for side in [GitContextSide::Old, GitContextSide::New] {
+        let command = Command::ReadGitContext {
+            worktree: WorktreeId::new(),
+            snapshot: snapshot.clone(),
+            path: "file.txt".into(),
+            expected_metadata_revision: "c".repeat(64),
+            expected_revision: "d".repeat(64),
+            side,
+            offset: 0,
+            limit: 100,
+        };
+        assert!(!command.durable());
+        let mut value = serde_json::to_value(&command).unwrap();
+        assert_eq!(
+            serde_json::from_value::<Command>(value.clone()).unwrap(),
+            command
+        );
+        value["data"]
+            .as_object_mut()
+            .unwrap()
+            .remove("expected_revision");
+        assert!(serde_json::from_value::<Command>(value).is_err());
+        let context = GitContext {
+            snapshot: snapshot.clone(),
+            path: "file.txt".into(),
+            old_path: None,
+            metadata_revision: "c".repeat(64),
+            revision: "d".repeat(64),
+            side,
+            offset: 0,
+            next: None,
+            text: "first\r\nlast".into(),
+            binary: false,
+            skip_reason: None,
+        };
+        let value = serde_json::to_value(&context).unwrap();
+        assert_eq!(
+            serde_json::from_value::<GitContext>(value).unwrap(),
+            context
+        );
+    }
+}

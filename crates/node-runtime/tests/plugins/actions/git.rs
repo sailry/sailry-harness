@@ -344,3 +344,113 @@ async fn manages_branches_with_captured_revisions() {
         node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn confines_source_context_to_git_grants() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let root = directory.path().join("source");
+        let _repository = repository(&root);
+        let context = install_actions(
+            &client,
+            &root.join("package"),
+            worktree,
+            0,
+            &[Action::ReadGit],
+        )
+        .await;
+        let Output::GitChanges(scope) = client
+            .execute(
+                client
+                    .prepare(Command::ListGitChanges {
+                        worktree,
+                        target: Some(GitChangeTarget::Worktree {
+                            scope: GitDiffScope::All,
+                        }),
+                        cursor: None,
+                        limit: 100,
+                    })
+                    .with_plugin(context.clone()),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("inventory expected")
+        };
+        let metadata = scope
+            .entries
+            .iter()
+            .find(|entry| entry.path == "notes.txt")
+            .unwrap()
+            .metadata_revision
+            .clone();
+        let Output::GitChange(diff) = client
+            .execute(
+                client
+                    .prepare(Command::ReadGitChange {
+                        worktree,
+                        snapshot: scope.snapshot.clone(),
+                        path: "notes.txt".into(),
+                        expected_metadata_revision: metadata.clone(),
+                        expected_revision: None,
+                        offset: 0,
+                        limit: 100,
+                    })
+                    .with_plugin(context.clone()),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("change expected")
+        };
+        let command = Command::ReadGitContext {
+            worktree,
+            snapshot: scope.snapshot,
+            path: "notes.txt".into(),
+            expected_metadata_revision: metadata,
+            expected_revision: diff.revision,
+            side: GitContextSide::New,
+            offset: 0,
+            limit: 100,
+        };
+        let Output::GitContext(page) = client
+            .execute(client.prepare(command.clone()).with_plugin(context.clone()))
+            .await
+            .unwrap()
+        else {
+            panic!("context expected")
+        };
+        assert_eq!(page.text, "First revision\n");
+        for captured in [None, Some(WorktreeId::new())] {
+            let mut outside = context.clone();
+            outside.worktree = captured;
+            assert_eq!(
+                client
+                    .execute(client.prepare(command.clone()).with_plugin(outside))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::PermissionDenied
+            );
+        }
+        let denied = install_actions(&client, &root.join("package"), worktree, 1, &[]).await;
+        assert_eq!(
+            client
+                .execute(client.prepare(command.clone()).with_plugin(context))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        assert_eq!(
+            client
+                .execute(client.prepare(command).with_plugin(denied))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

@@ -11,6 +11,7 @@ pub(super) async fn validate(binding: &Binding, command: &Command) -> Result<(),
         | Command::ReadGitBlame { worktree, .. }
         | Command::ListGitChanges { worktree, .. }
         | Command::ReadGitChange { worktree, .. }
+        | Command::ReadGitContext { worktree, .. }
         | Command::ListWorktrees { worktree }
         | Command::RemoveWorktree { worktree, .. } => *worktree,
         Command::CreateManagedWorktree { source, .. } => *source,
