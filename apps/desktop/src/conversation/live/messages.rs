@@ -667,7 +667,6 @@ impl View {
                 MessageGroup::new()
                     .gap(px(10.))
                     .pb(px(28.))
-                    .children(self.background_notices(turn, &run.notices, cx))
                     .when(
                         !automatic
                             && (!prompt.is_empty()

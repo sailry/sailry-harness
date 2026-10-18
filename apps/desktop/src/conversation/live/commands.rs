@@ -17,12 +17,12 @@ use tokio::sync::watch;
 mod control;
 const PANEL_WIDTH: f32 = 400.;
 
-fn active(info: &Info) -> bool {
-    matches!(
-        info.status,
-        CommandStatus::Running | CommandStatus::Stopping
-    )
+fn active(status: &CommandStatus) -> bool {
+    *status == CommandStatus::Running
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(super) struct Panel {
     binding: Binding,
@@ -43,10 +43,6 @@ impl Drop for Panel {
 }
 
 impl Panel {
-    pub(super) fn contains(&self, id: RequestId) -> bool {
-        self.state.items.iter().any(|info| info.id == id)
-    }
-
     pub fn new(binding: Binding) -> Self {
         Self {
             binding,
@@ -108,9 +104,18 @@ impl Panel {
 
     fn sync_selection(&mut self) {
         let selected = *self.selected.borrow();
-        if selected.is_some_and(|id| !self.state.items.iter().any(|info| info.id == id)) {
+        if selected.is_some_and(|id| {
+            !self
+                .state
+                .items
+                .iter()
+                .any(|info| info.id == id && active(&info.status))
+        }) {
             self.selected.send_replace(None);
             self.state.output = None;
+        }
+        if !self.state.items.iter().any(|info| active(&info.status)) {
+            self.open = false;
         }
     }
 
@@ -186,7 +191,7 @@ impl Panel {
             id,
             panel: cx.entity().downgrade(),
             open: *self.selected.borrow() == Some(id),
-            running: active(info),
+            running: active(&info.status),
             disabled: !self.state.connected
                 || self.action.is_some()
                 || info.status == CommandStatus::Stopping,
@@ -267,20 +272,16 @@ impl View {
         .detach();
     }
 
-    pub(super) fn open_background_command(&self, id: RequestId, cx: &mut Context<Self>) {
-        self.commands.update(cx, |panel, cx| {
-            panel.sync(self, cx);
-            panel.selected.send_replace(Some(id));
-            panel.open = true;
-            cx.notify();
-        });
-    }
-
     pub(super) fn command_activity(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         self.commands.update(cx, |panel, cx| panel.sync(self, cx));
         let panel = self.commands.read(cx);
-        let count = panel.state.items.iter().filter(|info| active(info)).count();
-        if count == 0 && !panel.open {
+        let count = panel
+            .state
+            .items
+            .iter()
+            .filter(|info| active(&info.status))
+            .count();
+        if count == 0 {
             return None;
         }
         let services = self
@@ -292,7 +293,7 @@ impl View {
                     .state
                     .items
                     .iter()
-                    .filter(|info| active(info))
+                    .filter(|info| active(&info.status))
                     .flat_map(|info| {
                         info.services
                             .iter()
@@ -337,11 +338,9 @@ impl View {
                                 .text_color(cx.theme().muted_foreground)
                                 .icon(IconName::SquareTerminal)
                                 .debug_selector(|| "composer-background".into())
-                                .label(if count == 0 {
-                                    tr("background_notice_title").to_string()
-                                } else {
-                                    rust_i18n::t!("background_count", count = count).to_string()
-                                }),
+                                .label(
+                                    rust_i18n::t!("background_count", count = count).to_string(),
+                                ),
                         )
                         .content(move |_, _, _| panel.clone()),
                 )
@@ -354,12 +353,7 @@ impl View {
 impl Render for Panel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let mut commands = v_flex().w_full().h_auto().flex_shrink_0();
-        for info in self
-            .state
-            .items
-            .iter()
-            .filter(|info| active(info) || *self.selected.borrow() == Some(info.id))
-        {
+        for info in self.state.items.iter().filter(|info| active(&info.status)) {
             let title = self.row(info, cx);
             let output = self.output_text(info.id);
             commands = commands.child(

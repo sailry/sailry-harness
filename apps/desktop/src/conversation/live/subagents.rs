@@ -46,6 +46,20 @@ pub(super) fn key(child: &Child) -> String {
     )
 }
 
+fn running(children: &[Child], session: Option<SessionId>) -> Vec<&Child> {
+    latest(
+        children
+            .iter()
+            .filter(|child| Some(child.origin.session) == session),
+    )
+    .into_iter()
+    .filter(|child| child.run.status == Status::Running)
+    .collect()
+}
+
+#[cfg(test)]
+mod tests;
+
 impl View {
     pub(crate) fn child(&self, id: SessionId) -> Option<&Child> {
         self.history
@@ -98,27 +112,7 @@ impl View {
         let Some(snapshot) = &self.history.snapshot else {
             return Vec::new();
         };
-        let children = latest(
-            snapshot
-                .page
-                .children
-                .iter()
-                .filter(|child| Some(child.origin.session) == self.session()),
-        );
-        let origins = children
-            .iter()
-            .filter(|child| {
-                matches!(
-                    child.run.status,
-                    Status::Queued | Status::Running | Status::Stopping
-                )
-            })
-            .map(|child| child.origin.turn)
-            .collect::<std::collections::BTreeSet<_>>();
-        children
-            .into_iter()
-            .filter(|child| origins.contains(&child.origin.turn))
-            .collect()
+        running(&snapshot.page.children, self.session())
     }
 
     pub(super) fn child_summary(

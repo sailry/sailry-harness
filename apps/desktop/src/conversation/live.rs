@@ -20,7 +20,6 @@ mod activity;
 mod approvals;
 mod assets;
 mod attachments;
-mod background;
 mod cards;
 mod commands;
 mod compaction;
