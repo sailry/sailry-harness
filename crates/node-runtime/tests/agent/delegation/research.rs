@@ -41,7 +41,10 @@ async fn loads_the_skill_without_expanding_authority() {
         let mut config = fixture.session.config.clone();
         config.mode = WorkMode::Code;
         config.permission = Permission::Full;
-        config.delegation_proactive = true;
+        config.options.insert(
+            "delegation".into(),
+            [("proactive".into(), json!(true))].into(),
+        );
         let Output::Session(session) = fixture
             .client
             .execute(fixture.client.prepare(Command::SetSessionConfig {
@@ -78,7 +81,7 @@ async fn loads_the_skill_without_expanding_authority() {
         let mut expected = turn.config;
         expected.mode = WorkMode::Plan;
         assert_eq!(child.config, expected);
-        assert!(child.config.delegation_proactive);
+        assert_eq!(child.config.options["delegation"]["proactive"], json!(true));
         assert_eq!(child.delegation.as_ref().unwrap().role, Some(role.id));
         let requests = fixture.parent.requests.lock().unwrap().clone();
         let request = requests

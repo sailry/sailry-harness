@@ -33,6 +33,12 @@ Optional positive pixel `width` and `height` set explicit image bounds and their
 layout aspect ratio. Atlas layers can use these to avoid Kit inferring an
 intrinsic source ratio from percentage heights during layout.
 
+`sailry/forms.NumberField` reuses Kit's native number input over a `createText`
+handle. `readText` retains the exact string; `nextTextEvent` reports `increment`
+or `decrement` without converting the value to a floating-point number. Packages
+own validation, exact arithmetic and saving. The bridge covers the pinned Kit
+script control's missing text-handle and step-event bindings.
+
 Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
 
 Use `sailry/models` for public `search`, `versions` and `resolve` with `models.read`.
@@ -271,7 +277,26 @@ Conversation components are available in workspace and resource panels, includin
 
 ## Contributions and operations
 
-Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `context`, `statistics`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics popover.
+Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `statistics`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics popover.
+
+The `model` slot places ordinary contribution controls in the model popover.
+Its state segments also appear beside the model label; `accent` uses the semantic
+primary color. Labels, selection and visibility remain package-owned.
+
+Declare public `conversation_options` with the existing settings schema subset.
+Values live under `SessionConfig.options[package]`, share the conversation's
+revision and freeze at turn admission. `readComposer()` exposes only the calling
+package's options with its declared defaults. Use
+`setComposerOption(cursor, 'plugin', {key, value})` for the same draft/configuration
+path, including before a session exists. The Node validates changed values and
+rejects cross-package writes. The `turn.initialize` input's `options` field
+contains only that package's captured namespace. An explicit `conversation.read`
+declaration retains access to the existing complete public configuration;
+conversation options are not secrets. Removed option keys remain stored without
+becoming executable.
+A field may declare `x-sailry-import` naming a retired public configuration field.
+Installation imports explicit current values once, without overwriting an existing
+namespaced value or rewriting historical revisions. Imports grant no authority.
 
 Tools can bind public operations (`progress.update`, `storage.get/list/set/delete`, `settings.read`, `http.request`, `artifacts.write/read/list`) without an MCP server. Declare each operation's required action. Node owns approval, planning restrictions, cancellation and durable outcomes; a desktop JavaScript callback is not an Agent tool implementation.
 

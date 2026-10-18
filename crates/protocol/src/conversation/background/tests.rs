@@ -25,28 +25,6 @@ fn preserves_source_identity() {
     assert_eq!(value["outcome"], "timed_out");
     assert_eq!(value["kind"]["kind"], "command");
     assert_eq!(serde_json::from_value::<Task>(value).unwrap(), task);
-    assert_eq!(
-        Settings::default(),
-        Settings {
-            revision: 0,
-            resume: true,
-        }
-    );
-    assert!(
-        serde_json::from_value::<Settings>(json!({"revision":0,"resume":true,"extra":false}))
-            .is_err()
-    );
-}
-
-#[test]
-fn round_trips_continuation_preferences() {
-    let settings: Settings = serde_json::from_value(json!({"revision":4,"resume":false})).unwrap();
-    assert!(!settings.resume);
-    assert_eq!(settings.revision, 4);
-    assert_eq!(
-        serde_json::from_value::<Settings>(serde_json::to_value(&settings).unwrap()).unwrap(),
-        settings
-    );
 }
 
 #[test]

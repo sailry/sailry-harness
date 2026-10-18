@@ -422,8 +422,8 @@ cancels its owned children; stopping a completed turn does not. Child views are 
 their approvals retain the child identity and are presented in the main session.
 
 Background child and command completions have durable, session-owned evidence.
-An idle main session may continue through the ordinary queue using its current
-configuration when Node-wide automatic continuation is enabled (the default).
+An idle main session continues through the ordinary queue using its current
+configuration when background work completes, without an enable switch.
 Busy sessions collect a bounded batch on their next eligible input. Pending
 consent, paused queues and removed or archived owners prevent automatic input;
 restart preserves evidence without restarting work or automatically continuing.
@@ -520,6 +520,11 @@ use the shared configuration form. Core never selects a feature page by package
 name or a package-specific native renderer ID. It owns reusable execution,
 persistence, transport and protected credential services; native UI adapters
 cover documented Kit or platform gaps, without plugin business workflows.
+Package-owned conversation options use the same revision-checked configuration
+and immutable turn capture. Composer contributions select their own behavior;
+initializers receive only the owning package's captured option namespace.
+Retired expanded instructions remain private captured metadata conditioned on
+their exact available tools, without replacing frozen package resources.
 Controller settings actions require a declared settings surface and capability;
 Agent calls retain their existing tool approvals. An optional `enabled_service`
 binds one installed package's switch to a Node service. The binding is exclusive,

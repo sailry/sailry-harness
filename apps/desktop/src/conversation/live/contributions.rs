@@ -141,7 +141,7 @@ impl View {
                     Form::Toolbar | Form::Icons => {
                         !self.compact_composer || entry.declaration.overflow != ui::Overflow::Menu
                     }
-                    Form::Project => false,
+                    Form::Project | Form::Model => false,
                 }
             {
                 entries.push((

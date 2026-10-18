@@ -284,7 +284,7 @@ async fn capture(client: &Client, worktree: WorktreeId) -> (Session, TurnId) {
                 provider: model.split('/').next().unwrap().parse().unwrap(),
                 model: "fixture".into(),
                 mode: WorkMode::Code,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: Permission::Ask,
                 effort: Effort::Default,
                 credential: None,

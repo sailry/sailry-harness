@@ -403,17 +403,18 @@ async fn execute_with(
     extensions.tools.retain(|registration| {
         !planning || registration.managed || registration.tool.is_read_only()
     });
-    if let Some(policy) = prompt::delegation(
-        invocation.turn.config.delegation_proactive,
-        invocation.child.is_some(),
-        tool_capable
-            && extensions
-                .tools
-                .iter()
-                .any(|registration| registration.tool.is_agent_delegation()),
-    ) {
-        instruction.push_str("\n\n");
-        instruction.push_str(policy);
+    for captured in &invocation.instructions {
+        if tool_capable
+            && extensions.tools.iter().any(|registration| {
+                captured
+                    .any_tools
+                    .iter()
+                    .any(|name| name == registration.tool.name())
+            })
+        {
+            instruction.push_str("\n\n");
+            instruction.push_str(&captured.text);
+        }
     }
     if !extensions.instruction.is_empty() {
         instruction.push_str("\n\n");

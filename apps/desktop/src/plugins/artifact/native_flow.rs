@@ -134,7 +134,7 @@ pub(in crate::plugins) async fn prepare(
                     effort: Effort::Default,
                     assistant: None,
                     resource: None,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     credential: None,
                 }),
             },

@@ -40,9 +40,44 @@ impl View {
                 .filter(|key| self.contributions.read(cx).message_command(key, name, cx))
                 .map(|key| json!({"name":name,"arguments":arguments,"package":key.package}))
         });
-        json!({"command":command,"mode":self.current_mode(),"session":self.session(),"connected":self.connected(),
+        let model_tools = self
+            .config
+            .as_ref()
+            .and_then(|config| {
+                self.providers()
+                    .find(|provider| provider.id == config.provider)?
+                    .models
+                    .iter()
+                    .find(|model| model.id == config.model)
+            })
+            .is_some_and(|model| model.tools);
+        let operations = self.contribution_metadata.read(cx).operations(
+            self.binding.project,
+            self.resource,
+            self.session
+                .as_ref()
+                .and_then(|session| session.config.assistant.as_ref())
+                .or(self.assistant.as_ref()),
+        );
+        json!({"configuring":self.configuration_blocked(),"model_tools":model_tools,"operations":operations,"command":command,"mode":self.current_mode(),"session":self.session(),"connected":self.connected(),
             "busy":self.busy(),"readonly":self.readonly(),"statistics":statistics,"context_limit":self.context_limit(),
             "compacting":compacting,"sidebar":self.sidebar,"has_messages":!self.rows.is_empty()})
+    }
+
+    pub(crate) fn package_options(
+        &self,
+        owner: &sailry_protocol::plugin::Reference,
+        cx: &App,
+    ) -> Value {
+        serde_json::to_value(
+            self.contribution_metadata.read(cx).options(
+                owner,
+                self.config
+                    .as_ref()
+                    .and_then(|config| config.options.get(&owner.name)),
+            ),
+        )
+        .expect("serializable public package options")
     }
 
     pub(crate) fn set_composer_option(
@@ -57,6 +92,39 @@ impl View {
             return Err("composer is unavailable".into());
         }
         match key {
+            "plugin" => {
+                if self.configuration_blocked() {
+                    return Err("composer configuration is unavailable".into());
+                }
+                let key = value
+                    .get("key")
+                    .and_then(Value::as_str)
+                    .ok_or("plugin option requires a key")?;
+                let value = value.get("value").ok_or("plugin option requires a value")?;
+                if !self
+                    .contribution_metadata
+                    .read(cx)
+                    .option_declared(owner, key, value)
+                {
+                    return Err("plugin option is unavailable".into());
+                }
+                let mut config = self
+                    .config
+                    .clone()
+                    .ok_or("composer configuration is unavailable")?;
+                let mut options = self
+                    .contribution_metadata
+                    .read(cx)
+                    .options(owner, config.options.get(&owner.name));
+                options.insert(key.to_owned(), value.clone());
+                config
+                    .options
+                    .entry(owner.name.clone())
+                    .or_default()
+                    .extend(options);
+                self.configure(config, window, cx);
+                Ok(())
+            }
             "mode" => {
                 let mode = serde_json::from_value(value).map_err(|_| "invalid composer mode")?;
                 self.select_mode(mode, window, cx);

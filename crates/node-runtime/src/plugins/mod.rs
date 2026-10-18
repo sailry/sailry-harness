@@ -15,6 +15,7 @@ pub(crate) mod icon;
 mod manifest;
 pub(crate) mod mcp;
 pub(crate) mod oauth;
+pub(crate) mod options;
 mod package;
 pub(crate) mod registration;
 pub(crate) mod registry;

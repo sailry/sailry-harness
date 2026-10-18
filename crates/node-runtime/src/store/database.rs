@@ -915,6 +915,11 @@ impl Database {
                 background.push(task);
             }
             let mut changes: Vec<_> = event.into_iter().collect();
+            if let Some(Event::PluginChanged(summary)) = changes.first() {
+                let info = super::plugins::get(&transaction, &summary.name)?
+                    .ok_or_else(|| storage_error("updated plugin is missing"))?;
+                changes.extend(super::plugins::options::migrate(&transaction, &info)?);
+            }
             if self.profile.is_some()
                 && changes
                     .iter()

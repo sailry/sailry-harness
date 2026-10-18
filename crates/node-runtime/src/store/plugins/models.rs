@@ -62,7 +62,7 @@ pub(super) fn resolve(db: &Connection, selected: &str) -> Result<(Provider, Sess
         model: model.id.clone(),
         effort: Effort::initial(&model.efforts, model.default_effort),
         mode: WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: Permission::Ask,
         credential: provider.credential.clone(),
     };

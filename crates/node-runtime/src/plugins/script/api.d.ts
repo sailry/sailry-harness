@@ -5,7 +5,7 @@ export type Entry = { key: string; revision: string; value: Json; present: boole
 export type ConversationEntry = Entry & { restored: boolean };
 /** Turn initialization receives the admitted configuration, never live session defaults.
  * config is null unless the package declares conversation.read. */
-export type TurnInput = { project: string | null; tools: string[]; mode: "plan" | "code"; config: Json; session_revision: string | null };
+export type TurnInput = { project: string | null; tools: string[]; mode: "plan" | "code"; config: Json; options: Record<string, Json>; session_revision: string | null };
 export function context(): Json;
 /** Registered projects and worktrees only; requires projects.read and an unscoped context. */
 export function readProjectCatalog(): Promise<Json>;

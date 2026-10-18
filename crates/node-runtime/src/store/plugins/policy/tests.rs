@@ -19,9 +19,6 @@ fn retains_previous_values_and_ignores_absent_owners() {
     )
     .unwrap();
     assert_eq!(child_limit(db).unwrap(), None);
-    let mut settings = crate::store::background_settings::read(db).unwrap();
-    settings.resume = true;
-    crate::store::background_settings::save(db, &settings).unwrap();
     assert_eq!(
         crate::store::background_settings::retained(db).unwrap(),
         Some(u64::MAX)

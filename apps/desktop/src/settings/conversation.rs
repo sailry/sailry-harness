@@ -14,15 +14,12 @@ use gpui_kit::{
     *,
 };
 
-mod background;
 mod sandbox;
 mod text_size;
 
 pub(super) struct State {
     pub text_size: Entity<SliderState>,
     preview: Entity<sandbox::Host>,
-    background_preview: Entity<background::Host>,
-    background_hosts: std::collections::BTreeMap<sailry_protocol::NodeId, Entity<background::Host>>,
     hosts: std::collections::BTreeMap<sailry_protocol::NodeId, Entity<sandbox::Host>>,
 }
 
@@ -49,8 +46,6 @@ impl State {
         Self {
             text_size,
             preview: cx.new(|cx| sandbox::Host::new(None, window, cx)),
-            background_preview: cx.new(|cx| background::Host::new(None, window, cx)),
-            background_hosts: Default::default(),
             hosts: Default::default(),
         }
     }
@@ -79,28 +74,10 @@ impl Workspace {
         } else {
             self.conversation.preview.clone()
         };
-        let background = if let Some(live) = &self.provider_link {
-            let binding = live.binding.clone();
-            let host = self
-                .conversation
-                .background_hosts
-                .entry(binding.client.target())
-                .or_insert_with(|| cx.new(|cx| background::Host::new(Some(binding), window, cx)))
-                .clone();
-            if live.connected {
-                host.update(cx, |host, cx| {
-                    host.accept(live.background_revision, window, cx)
-                });
-            }
-            host
-        } else {
-            self.conversation.background_preview.clone()
-        };
         let display = preferences::data(cx).message_display.unwrap_or_default();
         gpui_kit::component::v_flex()
             .gap_6()
             .child(host)
-            .child(background)
             .child(
                 Group::new("settings_messages")
                     .child(

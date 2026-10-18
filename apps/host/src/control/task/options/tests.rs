@@ -137,7 +137,7 @@ fn loads_only_explicit_new_task_configuration() {
         model: "fixture".into(),
         effort: Effort::Default,
         mode: WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: Permission::Ask,
         credential: None,
     };

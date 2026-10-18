@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn freezes_delegation_policy_across_resume() {
+async fn freezes_package_options_across_resume() {
     for remote in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let profile = directory.path().join("node");
@@ -20,6 +20,37 @@ async fn freezes_delegation_policy_across_resume() {
         } else {
             node.local()
         });
+        let root = directory.path().join("source");
+        std::fs::create_dir_all(root.join("package")).unwrap();
+        std::fs::write(root.join("package/plugin.json"),serde_json::json!({
+            "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"example","version":"0.1.0",
+            "extensions":{"dev.sailry.platform":{"api_version":"v1","conversation_options":{
+                "$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","additionalProperties":false,
+                "properties":{"enabled":{"type":"boolean","default":false}},"required":["enabled"]
+            }}}
+        }).to_string()).unwrap();
+        client
+            .execute(client.prepare(Command::RegisterProject {
+                name: "Options fixture".into(),
+                path: root.to_str().unwrap().into(),
+            }))
+            .await
+            .unwrap();
+        let worktree = snapshot(&client).await.worktrees[0].id;
+        let Output::Plugin(package) = client
+            .execute(client.prepare(Command::InstallPlugin {
+                worktree,
+                path: "package".into(),
+                name: "example".into(),
+                expected_revision: 0,
+                expected_digest: None,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("package expected")
+        };
+        assert!(package.issues.is_empty(), "{:?}", package.issues);
         let config = SessionConfig {
             assistant: None,
             resource: None,
@@ -28,7 +59,10 @@ async fn freezes_delegation_policy_across_resume() {
             effort: Effort::Default,
             mode: WorkMode::Code,
             permission: Permission::Ask,
-            delegation_proactive: true,
+            options: std::collections::BTreeMap::from([(
+                "example".into(),
+                std::collections::BTreeMap::from([("enabled".into(), serde_json::json!(true))]),
+            )]),
             credential: None,
         };
         client
@@ -53,13 +87,17 @@ async fn freezes_delegation_policy_across_resume() {
         let request = client.prepare(Command::QueueTurn {
             session: session.id,
             expected_revision: session.revision,
-            message: "Capture the coordinator policy".into(),
+            message: "Capture the package option".into(),
         });
         let Output::QueuedTurn(queued) = client.execute(request.clone()).await.unwrap() else {
             panic!("queued turn expected");
         };
         let mut standard = session.config.clone();
-        standard.delegation_proactive = false;
+        standard
+            .options
+            .get_mut("example")
+            .unwrap()
+            .insert("enabled".into(), serde_json::json!(false));
         client
             .execute(client.prepare(Command::SetSessionConfig {
                 session: session.id,
@@ -72,7 +110,10 @@ async fn freezes_delegation_policy_across_resume() {
             client.execute(request).await.unwrap(),
             Output::QueuedTurn(queued.clone())
         );
-        assert!(queued.config.delegation_proactive);
+        assert_eq!(
+            queued.config.options["example"]["enabled"],
+            serde_json::json!(true)
+        );
         let state = snapshot(&client).await;
         assert_eq!(state.sessions[0].config, standard);
         assert_eq!(
@@ -136,7 +177,7 @@ async fn defers_unused_archive_validation() {
                 effort: Effort::Default,
                 mode: WorkMode::Code,
                 permission: Permission::Ask,
-                delegation_proactive: false,
+                options: Default::default(),
                 credential: None,
             };
             let Output::Session(session) = client

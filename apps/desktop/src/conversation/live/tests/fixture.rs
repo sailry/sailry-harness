@@ -123,7 +123,7 @@ impl Fixture {
                 config: Some(SessionConfig {
                     assistant: None,
                     resource: None,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     provider: model.id,
                     model: model.default_model,
                     effort: Effort::High,

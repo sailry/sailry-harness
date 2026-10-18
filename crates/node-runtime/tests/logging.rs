@@ -124,7 +124,7 @@ async fn session_api(client: &Client, endpoint: &str, root: &Path, api: ModelApi
                 model: "fixture-a".into(),
                 effort: Effort::Default,
                 mode: WorkMode::Code,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: Permission::Ask,
                 credential: None,
             }),

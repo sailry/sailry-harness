@@ -89,7 +89,7 @@ mod history {
                 model: "fixture".into(),
                 effort: crate::Effort::Default,
                 mode: crate::WorkMode::Code,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: crate::Permission::Ask,
                 credential: None,
             },

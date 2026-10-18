@@ -503,20 +503,12 @@ fn pending_question_blocks_delivery() {
 }
 
 #[test]
-fn explicit_input_preserves_speech_with_resume_disabled() {
+fn explicit_input_preserves_speech_before_delivery() {
     let mut fixture = Fixture::new();
     let source = fixture.completed(&["Earlier task"]);
     let id = pending(&fixture, source, "Untrusted result text");
-    crate::store::background_settings::save(
-        &fixture.database.connection,
-        &sailry_protocol::conversation::background::Settings {
-            revision: 0,
-            resume: false,
-        },
-    )
-    .unwrap();
-    assert!(schedule(&fixture).is_none());
     let user = fixture.queued();
+    assert!(schedule(&fixture).is_none());
     runs::start(&fixture.database.connection, user).unwrap();
     let invocation = claim(&mut fixture);
     assert!(!invocation.notice);

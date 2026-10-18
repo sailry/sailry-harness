@@ -117,6 +117,9 @@ pub struct Extension {
     pub host: Option<host::Manifest>,
     #[schemars(transform = schema::resource_path)]
     pub settings_schema: Option<String>,
+    /// Public package-owned options frozen with each conversation turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_options: Option<serde_json::Value>,
     /// Settings navigation and an optional custom desktop entry.
     pub settings_page: Option<desktop::Settings>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

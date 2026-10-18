@@ -41,6 +41,7 @@ pub(super) fn create(
         crate::providers::login::capture(&mut profile.provider)?;
     }
     commands::validate_config(db, node, &settings.config)?;
+    super::plugins::options::validate(db, None, &settings.config, None)?;
     validate_model(db, &settings.config, settings.profile.as_ref())?;
     assistants::validate(db, project, &settings.config)?;
     let id = SessionId::new();

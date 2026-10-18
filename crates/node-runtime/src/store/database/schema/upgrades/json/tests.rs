@@ -607,7 +607,7 @@ mod catalog {
                         model: "fixture".into(),
                         effort: Default::default(),
                         mode: WorkMode::Code,
-                        delegation_proactive: false,
+                        options: Default::default(),
                         permission: Permission::Ask,
                         credential: provider.credential.clone(),
                     }),

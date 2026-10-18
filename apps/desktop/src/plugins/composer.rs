@@ -18,6 +18,7 @@ pub(super) struct Scope {
 pub(super) struct State {
     source: WeakEntity<View>,
     node: sailry_protocol::NodeId,
+    package: sailry_protocol::plugin::Reference,
     changes: tokio::sync::watch::Sender<Value>,
     cursor: u64,
     _observer: Subscription,
@@ -38,6 +39,7 @@ impl State {
             return;
         };
         let mut next = source.read(cx).composer_options(cx);
+        next["options"] = source.read(cx).package_options(&self.package, cx);
         next["cursor"] = self.cursor.to_string().into();
         if *self.changes.borrow() != next {
             self.cursor += 1;
@@ -50,7 +52,8 @@ impl State {
         self.source.upgrade().is_some_and(|source| {
             let source = source.read(cx);
             let binding = source.binding();
-            self.node == binding.client.target()
+            self.package == host.context().package
+                && self.node == binding.client.target()
                 && host.context().worktree == binding.worktree
                 && host.context().session == source.session()
         })
@@ -105,8 +108,10 @@ pub(super) fn extend(
                 .detach();
                 let mut snapshot = source.read(cx).composer_options(cx);
                 snapshot["cursor"] = "0".into();
+                snapshot["options"] = source.read(cx).package_options(&host.context().package, cx);
                 State {
                     node: source.read(cx).binding().client.target(),
+                    package: host.context().package.clone(),
                     source: source.downgrade(),
                     changes: tokio::sync::watch::channel(snapshot).0,
                     cursor: 0,
@@ -120,7 +125,7 @@ pub(super) fn extend(
     let read_host = host.clone();
     let change_host = host.clone();
     let declarations = format!(
-        "{}\nexport interface ComposerState {{cursor:string;command:{{name:string;arguments:string;package:import('sailry/sdk').Json}}|null;mode:'plan'|'code';session:string|null;connected:boolean;busy:boolean;readonly:boolean;statistics:Record<string,unknown>|null;context_limit:number|null;compacting:boolean;has_messages:boolean;sidebar:boolean}}\nexport function readComposer():ComposerState;\nexport function nextComposerChange(cursor:string):Promise<ComposerState>;\nexport function setComposerOption(cursor:string,key:'command'|'mode',value:unknown):Promise<ComposerState>;",
+        "{}\nexport interface ComposerState {{cursor:string;command:{{name:string;arguments:string;package:import('sailry/sdk').Json}}|null;mode:'plan'|'code';session:string|null;connected:boolean;busy:boolean;configuring:boolean;model_tools:boolean;operations:string[];options:Record<string,unknown>;readonly:boolean;statistics:Record<string,unknown>|null;context_limit:number|null;compacting:boolean;has_messages:boolean;sidebar:boolean}}\nexport function readComposer():ComposerState;\nexport function nextComposerChange(cursor:string):Promise<ComposerState>;\nexport function setComposerOption(cursor:string,key:'command'|'mode'|'plugin',value:unknown):Promise<ComposerState>;",
         module.declared().unwrap_or_default()
     );
     let module = module

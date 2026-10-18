@@ -107,7 +107,7 @@ pub(super) async fn prepare(
                 config: Some(SessionConfig {
                     assistant: None,
                     resource: None,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     provider,
                     model: "fixture".into(),
                     effort: Effort::Default,

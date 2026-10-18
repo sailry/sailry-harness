@@ -47,7 +47,7 @@ fn resolves_the_admitted_worktree() {
                 model: "fixture".into(),
                 effort: Effort::Low,
                 mode: WorkMode::Code,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: Permission::Ask,
                 credential: None,
             }),

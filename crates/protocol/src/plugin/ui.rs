@@ -14,6 +14,7 @@ pub const MAX_STATE_BYTES: usize = 64 * 1024;
 #[serde(rename_all = "snake_case")]
 pub enum Slot {
     Composer,
+    Model,
     Context,
     Statistics,
     Status,
@@ -317,7 +318,7 @@ impl State {
             && (!self.dropdown || matches!(entry.kind, Kind::Button | Kind::Popover))
             && self.choices.as_ref().is_none_or(|entries| choices(entries))
             && self.segments.len() <= 16
-            && (self.segments.is_empty() || entry.slot == Slot::Status)
+            && (self.segments.is_empty() || matches!(entry.slot, Slot::Status | Slot::Model))
             && self.segments.iter().all(|segment| segment.label.valid())
             && self.details.len() <= MAX_ENTRIES
             && self
@@ -376,6 +377,7 @@ pub struct Segment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SegmentTone {
+    Accent,
     Muted,
     Success,
     Warning,

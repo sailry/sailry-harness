@@ -246,7 +246,7 @@ pub(super) async fn session(fixture: &Fixture, provider: &Provider) -> Session {
                 model: provider.models[0].id.clone(),
                 effort: provider.models[0].default_effort,
                 mode: sailry_protocol::WorkMode::Code,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: Permission::Ask,
                 credential: provider.credential.clone(),
             }),

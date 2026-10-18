@@ -55,3 +55,25 @@ pub(super) fn read(db: &Connection, session: SessionId, turn: TurnId) -> Result<
         plugins: super::agent::plugins::read(db, turn)?,
     })
 }
+
+pub(in crate::store) fn instructions(
+    db: &Connection,
+    turn: TurnId,
+) -> Result<Vec<Instruction>, Fault> {
+    let bytes: Vec<u8> = db
+        .query_row(
+            "SELECT instructions FROM turns WHERE id=?1",
+            [turn.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    serde_json::from_slice(&bytes).map_err(storage_error)
+}
+
+/// Frozen expanded text is private execution metadata, not another history.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Instruction {
+    pub text: String,
+    pub any_tools: Vec<String>,
+}

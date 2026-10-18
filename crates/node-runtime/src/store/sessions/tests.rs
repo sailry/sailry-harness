@@ -26,7 +26,7 @@ async fn restores_config_revisions() {
         model: "fixture".into(),
         effort: Effort::High,
         mode: sailry_protocol::WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: sailry_protocol::Permission::Ask,
         credential: None,
     };

@@ -816,8 +816,6 @@ pub enum Command {
         expected_revision: u64,
         selection: crate::network::Selection,
     },
-    ReadBackgroundSettings,
-    SaveBackgroundSettings(crate::conversation::background::Settings),
     ReadSandboxSettings,
     SaveSandboxSettings(crate::sandbox::Settings),
     ReadSearchSettings,
@@ -1545,7 +1543,6 @@ impl Command {
                 | Self::ReadCommand { .. }
                 | Self::ReadTerminalSettings
                 | Self::ReadNetworkSettings
-                | Self::ReadBackgroundSettings
                 | Self::ReadSandboxSettings
                 | Self::ReadSearchSettings
                 | Self::ReadBackupSettings
@@ -1670,8 +1667,6 @@ pub struct Snapshot {
     pub terminals: Vec<crate::terminal::Info>,
     pub terminal_settings_revision: u64,
     pub sandbox_settings_revision: u64,
-    #[serde(default)]
-    pub background_settings_revision: u64,
     pub search_settings_revision: u64,
     pub media_settings: crate::media::Settings,
     pub providers: Vec<crate::conversation::Provider>,
@@ -1686,9 +1681,18 @@ pub struct Snapshot {
     pub turns: Vec<crate::TurnSummary>,
 }
 
+/// Retained metadata keeps its original meaning without reviving a retired command.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RetainedRecord {
+    pub kind: String,
+    pub data: serde_json::Value,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Output {
+    RetainedRecord(RetainedRecord),
     InstallationDismissed {
         request: RequestId,
     },
@@ -1847,7 +1851,6 @@ pub enum Output {
     Terminal(crate::terminal::Info),
     TerminalSettings(crate::terminal::Settings),
     NetworkSettings(crate::network::Settings),
-    BackgroundSettings(crate::conversation::background::Settings),
     SandboxSettings(crate::sandbox::Settings),
     SearchSettings(crate::search::Settings),
     BackupSettings(crate::backup::Settings),
@@ -1985,6 +1988,8 @@ pub enum RequestOutcome {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Event {
+    /// Historical metadata whose original feature no longer has a live API.
+    RetainedRecord(RetainedRecord),
     KnowledgeModelsChanged {
         models: Vec<crate::knowledge::ModelInfo>,
     },
@@ -2006,9 +2011,6 @@ pub enum Event {
     },
     MediaSettingsChanged(crate::media::Settings),
     TerminalSettingsChanged {
-        revision: u64,
-    },
-    BackgroundSettingsChanged {
         revision: u64,
     },
     SandboxSettingsChanged {

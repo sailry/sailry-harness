@@ -14,6 +14,7 @@ use ui::{EventKind, Kind};
 pub(crate) enum Form {
     Toolbar,
     Icons,
+    Model,
     Menu,
     Project,
 }
@@ -58,6 +59,28 @@ impl Entry {
             .find(|choice| self.state.value.as_str() == Some(&choice.id))
             .map(|choice| label(&choice.label))
             .unwrap_or_else(|| label(self.state.label.as_ref().unwrap_or(&self.declaration.label)))
+    }
+
+    pub(crate) fn segments(&self, cx: &App) -> Vec<AnyElement> {
+        self.state
+            .segments
+            .iter()
+            .map(|segment| {
+                let color = match segment.tone {
+                    ui::SegmentTone::Accent => cx.theme().primary,
+                    ui::SegmentTone::Success => cx.theme().success,
+                    ui::SegmentTone::Danger => cx.theme().danger,
+                    ui::SegmentTone::Warning => cx.theme().warning,
+                    ui::SegmentTone::Muted => cx.theme().muted_foreground,
+                };
+                div()
+                    .flex_shrink_0()
+                    .text_xs()
+                    .text_color(color)
+                    .child(label(&segment.label))
+                    .into_any_element()
+            })
+            .collect()
     }
 
     pub(crate) fn value(&self) -> SharedString {
@@ -192,6 +215,7 @@ impl Registry {
                 form != Form::Menu && entry.declaration.slot == Slot::Context,
                 |button| button.small().max_w_48().min_w_0().flex_shrink_1(),
             )
+            .when(form == Form::Model, |button| button.small().h_6())
             .debug_selector(move || selector.clone())
             .accessibility_label(entry.text());
         if form == Form::Menu {
@@ -237,15 +261,7 @@ impl Registry {
                         .gap_2()
                         .text_sm()
                         .font_normal()
-                        .children(entry.state.segments.iter().map(|segment| {
-                            let color = match segment.tone {
-                                ui::SegmentTone::Success => cx.theme().success,
-                                ui::SegmentTone::Danger => cx.theme().danger,
-                                ui::SegmentTone::Warning => cx.theme().warning,
-                                ui::SegmentTone::Muted => cx.theme().muted_foreground,
-                            };
-                            div().text_color(color).child(label(&segment.label))
-                        }))
+                        .children(entry.segments(cx))
                         .when(entry.state.segments.is_empty(), |line| {
                             line.child(entry.text())
                         }),
@@ -254,11 +270,13 @@ impl Registry {
             button = button
                 .when(form != Form::Project, |button| button.rounded_full())
                 .icon(control_icon)
-                .dropdown_caret(entry.state.dropdown && form != Form::Icons)
+                .dropdown_caret(entry.state.dropdown && !matches!(form, Form::Icons | Form::Model))
                 .when(matches!(form, Form::Toolbar | Form::Project), |button| {
                     button.label(entry.text())
                 })
-                .when(form == Form::Icons, |button| button.tooltip(entry.text()));
+                .when(matches!(form, Form::Icons | Form::Model), |button| {
+                    button.tooltip(entry.text())
+                });
             if entry.declaration.kind == Kind::Toggle {
                 button = button.selected(selected).toggled(selected);
             }

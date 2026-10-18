@@ -8,6 +8,10 @@ export function releaseText(handle: string): void;
 export const TextField: {
   new(handle: string, props?: { disabled?: boolean; readonly?: boolean; appearance?: boolean; bordered?: boolean; height?: number; size?: "small"; adornment?: "prefix"|"suffix" }): import("gpui-kit").Element;
 };
+/** Native Kit NumberInput over the same exact text handle. Step events never round the value. */
+export const NumberField: {
+  new(handle:string, props?:{disabled?:boolean;readonly?:boolean;size?:"small"}):import("gpui-kit").Element;
+};
 /** Milliseconds since epoch, edited in the controller's local timezone. */
 export function createDateTime(value: number, label: string): string;
 /** Rejects missing, invalid and ambiguous local times; preserves unchanged milliseconds. */
@@ -20,4 +24,4 @@ export const DateTimeField: {
 export function setText(handle:string, value:string): void;
 export function focusText(handle:string): void;
 export function isTextFocused(handle:string): boolean;
-export function nextTextEvent(): Promise<{id:string;kind:'enter'|'change'|'focus'|'blur'}>;
+export function nextTextEvent(): Promise<{id:string;kind:'enter'|'change'|'focus'|'blur'|'increment'|'decrement'}>;

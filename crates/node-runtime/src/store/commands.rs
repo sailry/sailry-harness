@@ -199,11 +199,6 @@ pub(super) fn execute(
             ErrorCode::Internal,
             "network configuration requires the Link worker",
         )),
-        Command::ReadBackgroundSettings => Ok((
-            Output::BackgroundSettings(super::background_settings::read(db)?),
-            None,
-        )),
-        Command::SaveBackgroundSettings(settings) => super::background_settings::save(db, settings),
         Command::ReadSandboxSettings => {
             Ok((Output::SandboxSettings(super::sandbox::read(db)?), None))
         }
@@ -838,11 +833,23 @@ pub(super) fn execute(
             super::sessions::validate_model(db, config, None)?;
             let current = defaults(db)?;
             check_revision(current.revision, *expected_revision)?;
+            super::plugins::options::validate(
+                db,
+                current.config.as_ref(),
+                config,
+                request.plugin.as_ref().map(|scope| &scope.package),
+            )?;
+            let previous: Option<Vec<u8>> = db
+                .query_row("SELECT config FROM defaults WHERE singleton=1", [], |row| {
+                    row.get(0)
+                })
+                .optional()
+                .map_err(storage_error)?;
             let defaults = Defaults {
                 revision: next_revision(current.revision)?,
                 config: Some(config.clone()),
             };
-            db.execute("INSERT INTO defaults(singleton,revision,config) VALUES(1,?1,?2) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision,config=excluded.config", params![defaults.revision as i64, encode(config)?]).map_err(storage_error)?;
+            db.execute("INSERT INTO defaults(singleton,revision,config) VALUES(1,?1,?2) ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision,config=excluded.config", params![defaults.revision as i64, super::plugins::options::preserve(previous.as_deref(),config)?]).map_err(storage_error)?;
             Ok((
                 Output::Defaults(defaults.clone()),
                 Some(Event::DefaultsChanged(defaults)),
@@ -926,6 +933,12 @@ pub(super) fn execute(
             validate_config(db, node, config)?;
             let mut session = session(db, *id)?;
             check_revision(session.revision, *expected_revision)?;
+            super::plugins::options::validate(
+                db,
+                Some(&session.config),
+                config,
+                request.plugin.as_ref().map(|scope| &scope.package),
+            )?;
             if session.delegation.is_some()
                 && config.mode != sailry_protocol::WorkMode::Plan
                 && super::agent::delegation::read_only(db, session.id)?
@@ -1098,12 +1111,20 @@ pub(super) fn revise_session(
 }
 
 pub(super) fn insert_revision(db: &Connection, session: &Session) -> Result<(), Fault> {
+    let previous: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT config FROM session_revisions WHERE session=?1 ORDER BY revision DESC LIMIT 1",
+            [session.id.to_string()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
     db.execute(
         "INSERT INTO session_revisions(session,revision,config,profile,roles,worktree) VALUES(?1,?2,?3,?4,?5,?6)",
         params![
             session.id.to_string(),
             session.revision as i64,
-            encode(&session.config)?,
+            super::plugins::options::preserve(previous.as_deref(),&session.config)?,
             session.profile.as_ref().map(encode).transpose()?,
             encode(&session.roles)?,
             session.worktree.to_string()
@@ -1176,7 +1197,6 @@ fn snapshot(db: &Connection, node: NodeId) -> Result<Snapshot, Fault> {
         terminals: super::terminals::list(db)?,
         terminal_settings_revision: super::terminals::settings::read(db)?.revision,
         sandbox_settings_revision: super::sandbox::read(db)?.revision,
-        background_settings_revision: super::background_settings::read(db)?.revision,
         search_settings_revision: super::search::read(db)?.revision,
         media_settings: super::media::read(db)?,
         providers: super::agent::providers(db)?,

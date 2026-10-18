@@ -224,7 +224,7 @@ void main() {
     expect(calls.single.$2, {
       'project': 'project-a',
       'worktree': 'tree-a',
-      'config': {...config, 'delegation_proactive': false},
+      'config': {...config, 'options': <String, dynamic>{}},
     });
     await tester.pump(const Duration(seconds: 3));
     expect(find.text('Keep this draft'), findsOneWidget);
@@ -500,7 +500,7 @@ void main() {
       'effort': 'high',
       'mode': 'plan',
       'permission': 'project',
-      'delegation_proactive': false,
+      'options': <String, dynamic>{},
     });
     expect((host.snapshot['defaults'] as Map)['config'], isNull);
     final page = tester.widget<LiveConversationPage>(
@@ -567,7 +567,7 @@ void main() {
     await tester.tapAt(const Offset(4, 80));
     await tester.pumpAndSettle();
     await submit(tester);
-    final expected = {...config, 'delegation_proactive': false};
+    final expected = {...config, 'options': <String, dynamic>{}};
     expect(requested!['config'], expected);
     expect(requested!['project'], 'project-b');
     expect(requested!['worktree'], 'tree-b');

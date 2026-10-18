@@ -23,7 +23,7 @@ fn config(model: &str) -> SessionConfig {
         model: model.into(),
         effort: Effort::High,
         mode: sailry_protocol::WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: sailry_protocol::Permission::Ask,
         credential: None,
     }
@@ -110,7 +110,7 @@ async fn freezes_session_and_queue_config() {
     });
     client.execute(turn.clone()).await.unwrap();
     let mut changed = config("changed");
-    changed.delegation_proactive = true;
+    changed.effort = Effort::High;
     client
         .execute(client.prepare(Command::SetDefaults {
             expected_revision: 1,

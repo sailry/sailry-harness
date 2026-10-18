@@ -519,7 +519,123 @@ async fn delivers_completion_without_consuming_controller_reads() {
     for remote in [false, true] {
         let release = sailry_link::CancellationToken::new();
         let server = Server::markdown_held("Parent finished".into(), release.clone()).await;
-        let fixture = Fixture::packages(remote, &server, &[]).await;
+        let mut fixture = Fixture::packages(remote, &server, &[]).await;
+        let target = fixture.node.id();
+        let caller = if remote {
+            NodeId(*fixture.controller.handle().address().id.as_bytes())
+        } else {
+            target
+        };
+        let completed = RequestId::new();
+        let uncertain = RequestId::new();
+        let mut retained_bodies = Vec::new();
+        drop(fixture.client);
+        fixture.node.shutdown().await.unwrap();
+        let path = fixture.directory.path().join("node/storage/node.sqlite3");
+        let old_event_cursor;
+        {
+            let db = rusqlite::Connection::open(&path).unwrap();
+            db.execute_batch("ALTER TABLE turns DROP COLUMN instructions")
+                .unwrap();
+            let settings = json!({"revision":3,"resume":false});
+            db.execute(
+                "INSERT INTO background_settings(singleton,body) VALUES(1,?1)",
+                [serde_json::to_vec(&settings).unwrap()],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO events(body) VALUES(?1)",
+                [serde_json::to_vec(
+                    &json!({"kind":"background_settings_changed","data":{"revision":3}}),
+                )
+                .unwrap()],
+            )
+            .unwrap();
+            old_event_cursor = db.last_insert_rowid();
+            for (id, status) in [(completed, "completed"), (uncertain, "admitted")] {
+                let mut request =
+                    serde_json::to_value(Request::new(target, Command::ReadNetworkSettings))
+                        .unwrap();
+                request["id"] = json!(id);
+                request["command"] = json!({"kind":"save_background_settings","data":settings});
+                let body = serde_json::to_vec(&request).unwrap();
+                let result = (status == "completed").then(|| {
+                    json!({"Ok":{"kind":"background_settings","data":settings}}).to_string()
+                });
+                db.execute(
+                    "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,?4,?5)",
+                    rusqlite::params![caller.0.as_slice(), id.to_string(), body, status, result],
+                )
+                .unwrap();
+                retained_bodies.push((id, body));
+            }
+        }
+        fixture.node = Node::start_empty(fixture.directory.path().join("node"))
+            .await
+            .unwrap();
+        fixture.client = Client::new(if remote {
+            fixture
+                .controller
+                .handle()
+                .remote(fixture.node.link().address())
+        } else {
+            fixture.node.local()
+        });
+        for (id, body) in &retained_bodies {
+            let Output::RequestOutcome { outcome, .. } = fixture
+                .client
+                .execute(fixture.client.prepare(Command::InspectRequest {
+                    id: *id,
+                    digest: blake3::hash(body).to_hex().to_string(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("request outcome expected")
+            };
+            if *id == completed {
+                assert_eq!(
+                    outcome,
+                    RequestOutcome::Completed(Box::new(Ok(Output::RetainedRecord(
+                        RetainedRecord {
+                            kind: "background_settings".into(),
+                            data: json!({"revision":3,"resume":false})
+                        }
+                    ))))
+                );
+            } else {
+                assert_eq!(outcome, RequestOutcome::Unknown);
+            }
+        }
+        {
+            let db = rusqlite::Connection::open_with_flags(
+                &path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap();
+            for (id, body) in &retained_bodies {
+                let retained: Vec<u8> = db
+                    .query_row(
+                        "SELECT body FROM requests WHERE caller=?1 AND id=?2",
+                        rusqlite::params![caller.0.as_slice(), id.to_string()],
+                        |row| row.get(0),
+                    )
+                    .unwrap();
+                assert_eq!(&retained, body);
+            }
+            let bytes: Vec<u8> = db
+                .query_row(
+                    "SELECT body FROM events WHERE cursor=?1",
+                    [old_event_cursor],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            let Event::RetainedRecord(event) = serde_json::from_slice(&bytes).unwrap() else {
+                panic!("retained event expected")
+            };
+            assert_eq!(event.kind, "background_settings_changed");
+            assert_eq!(event.data, json!({"revision":3}));
+        }
         let Output::QueuedTurn(parent) = fixture
             .client
             .execute(fixture.client.prepare(Command::SubmitTurn {

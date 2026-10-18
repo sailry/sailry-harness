@@ -43,7 +43,7 @@ fn fixture() -> (Provider, SessionConfig) {
         model: "image-model".into(),
         effort: Effort::High,
         mode: WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: Permission::Ask,
         credential: Some(CredentialRef {
             node: NodeId([17; 32]),

@@ -414,7 +414,7 @@ impl Fixture {
             config: Some(sailry_protocol::SessionConfig {
                 assistant: None,
                 resource: None,
-                delegation_proactive: false,
+                options: Default::default(),
                 provider: provider.id,
                 model: "fixture".into(),
                 effort: sailry_protocol::Effort::Medium,

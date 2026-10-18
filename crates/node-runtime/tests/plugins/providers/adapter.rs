@@ -103,7 +103,7 @@ async fn runs_captured_translations_with_scoped_approval() {
                     effort: Effort::Default,
                     mode: WorkMode::Code,
                     permission: Permission::Full,
-                    delegation_proactive: false,
+                    options: Default::default(),
                 }),
             },
         )

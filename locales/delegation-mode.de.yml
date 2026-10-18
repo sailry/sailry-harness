@@ -1,7 +1,2 @@
-composer_delegation_proactive: "Proaktive Unteragenten"
-composer_delegation_normal: "Unteragenten: nach Bedarf"
-composer_delegation_active: "Unteragenten: unabhängige Aufgaben proaktiv delegieren"
-composer_delegation_unavailable: "Unteragenten sind in dieser Unterhaltung nicht verfügbar"
 menu_input_diagnostics: "Eingabediagnose kopieren"
 input_diagnostics_copied: "Eingabediagnose kopiert"
-composer_delegation_super: "super"

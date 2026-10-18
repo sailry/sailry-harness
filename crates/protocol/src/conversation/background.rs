@@ -68,21 +68,5 @@ pub struct Notice {
     pub summary: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Settings {
-    pub revision: u64,
-    pub resume: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            revision: 0,
-            resume: true,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests;

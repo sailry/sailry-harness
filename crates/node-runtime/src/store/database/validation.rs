@@ -246,7 +246,7 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         "background_settings.body",
         "SELECT body FROM background_settings",
     )?;
-    crate::store::background_settings::read(db)
+    crate::store::background_settings::retained(db)
         .map_err(|_| Error::Worker("incompatible stored background settings".into()))?;
     records::<crate::store::agent::continuation::Fence>(
         db,
@@ -273,6 +273,14 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         "turns.plugins",
         &format!(
             "SELECT plugins FROM turns{}",
+            live.replacen("turn IN", "id IN", 1)
+        ),
+    )?;
+    records::<Vec<crate::store::captures::Instruction>>(
+        db,
+        "turns.instructions",
+        &format!(
+            "SELECT instructions FROM turns{}",
             live.replacen("turn IN", "id IN", 1)
         ),
     )?;
@@ -905,7 +913,7 @@ mod tests {
                     model: "fixture".into(),
                     effort: Effort::Low,
                     mode: sailry_protocol::WorkMode::Code,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     permission: sailry_protocol::Permission::Ask,
                     credential: None,
                 };
@@ -949,7 +957,7 @@ mod tests {
                     model: "fixture".into(),
                     effort: Effort::Default,
                     mode: WorkMode::Code,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     permission: Permission::Ask,
                     credential: None,
                 },

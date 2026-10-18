@@ -14,6 +14,7 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
         ("plugins", "body"),
         ("plugin_packages", "body"),
         ("requests", "result"),
+        ("events", "body"),
         ("artifacts", "body"),
         ("artifact_revisions", "body"),
         ("code_settings", "body"),
@@ -48,6 +49,7 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
             let updated = match table {
                 "agent_approvals" => approval(&mut value),
                 "requests" => receipt(&mut value),
+                "events" => retained(&mut value, "background_settings_changed"),
                 "artifacts" | "artifact_revisions" => artifact(&mut value),
                 "code_settings" => code(&mut value),
                 _ => package(&mut value),
@@ -168,6 +170,19 @@ fn receipt(value: &mut Value) -> bool {
     match output.get("kind").and_then(Value::as_str) {
         Some("approval") => output.get_mut("data").is_some_and(approval),
         Some("plugin") => output.get_mut("data").is_some_and(package),
+        Some("background_settings") => retained(output, "background_settings"),
         _ => false,
     }
+}
+
+fn retained(value: &mut Value, kind: &str) -> bool {
+    if value.get("kind").and_then(Value::as_str) != Some(kind) {
+        return false;
+    }
+    let Some(data) = value.get_mut("data") else {
+        return false;
+    };
+    let original = data.take();
+    *value = serde_json::json!({"kind":"retained_record","data":{"kind":kind,"data":original}});
+    true
 }

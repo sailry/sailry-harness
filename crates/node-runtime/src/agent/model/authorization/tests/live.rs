@@ -146,7 +146,7 @@ async fn streams_before_completion() {
         model: source.model.clone(),
         effort: Effort::Low,
         mode: WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: Permission::Ask,
         credential: source.provider.credential.clone(),
     };

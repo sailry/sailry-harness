@@ -62,7 +62,7 @@ async fn retains_replaced_and_removed_configuration() {
                     model: "fixture".into(),
                     effort: Effort::Default,
                     mode: WorkMode::Code,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     permission: Permission::Ask,
                     credential: Some(original.clone()),
                 }),

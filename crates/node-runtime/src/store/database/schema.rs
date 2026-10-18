@@ -36,7 +36,7 @@ impl Schema {
             State::Upgrade { plan, path } => {
                 plan.apply(connection)?;
                 verify_owned(connection, path, DDL)?;
-                upgrades::reconcile(connection)?;
+                upgrades::reconcile(connection, plan.instructions)?;
                 verify(connection, path, DDL)?;
                 super::validation::stored(connection)?;
             }
@@ -61,7 +61,7 @@ pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Res
     let plan = plan::Plan::prepare(&transaction, path)?;
     plan.apply(&transaction)?;
     verify_owned(&transaction, path, DDL)?;
-    upgrades::reconcile(&transaction)?;
+    upgrades::reconcile(&transaction, plan.instructions)?;
     verify(&transaction, path, DDL)?;
     super::validation::stored(&transaction)?;
     identity(&transaction, path, node)?;

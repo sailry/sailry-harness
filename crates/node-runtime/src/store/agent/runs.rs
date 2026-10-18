@@ -359,6 +359,7 @@ fn claim_with(
     );
     let background = super::background::bind(&transaction, &mut run)?;
     let invocation = Invocation {
+        instructions: super::super::captures::instructions(&transaction, run.turn)?,
         notice_input: super::background::render(&transaction, &run.notices)?,
         notices: run.notices.clone(),
         notice: run.notice,

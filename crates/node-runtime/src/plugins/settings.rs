@@ -79,5 +79,65 @@ pub(crate) fn child_limit(value: &serde_json::Value) -> Result<u64, Fault> {
         .ok_or_else(|| Fault::invalid("child concurrency must be a positive decimal integer"))
 }
 
+pub(super) fn option_schema(value: &serde_json::Value) -> Result<Schema, Fault> {
+    let bytes = serde_json::to_vec(value)
+        .map_err(|_| Fault::invalid("invalid conversation option schema"))?;
+    let schema = validation::parse(&bytes, &Default::default())?;
+    if schema.properties.values().any(|field| {
+        field.secret.is_some()
+            || field.model
+            || field.effort.is_some()
+            || field.child_concurrency
+            || field
+                .import
+                .as_ref()
+                .is_some_and(|name| !sailry_protocol::plugin::ui::identifier(name))
+    }) {
+        return Err(Fault::invalid(
+            "conversation options must be public scalar values",
+        ));
+    }
+    let imports = schema
+        .properties
+        .values()
+        .filter_map(|field| field.import.as_ref())
+        .collect::<std::collections::BTreeSet<_>>();
+    if imports.len()
+        != schema
+            .properties
+            .values()
+            .filter(|field| field.import.is_some())
+            .count()
+    {
+        return Err(Fault::invalid(
+            "conversation option imports must be distinct",
+        ));
+    }
+    Ok(schema)
+}
+
+pub(super) fn validate_options(
+    schema: &Schema,
+    values: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Result<(), Fault> {
+    let value =
+        serde_json::to_value(values).map_err(|_| Fault::invalid("invalid conversation options"))?;
+    if serde_json::to_vec(&value)
+        .map_err(|_| Fault::invalid("invalid conversation options"))?
+        .len()
+        > MAX_BYTES
+        || !validation::build(
+            &serde_json::to_value(schema)
+                .map_err(|_| Fault::invalid("invalid conversation option schema"))?,
+        )?
+        .is_valid(&value)
+    {
+        return Err(Fault::invalid(
+            "conversation options do not match their declared schema",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;

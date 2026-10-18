@@ -1,7 +1,2 @@
-composer_delegation_proactive: "主動使用子代理"
-composer_delegation_normal: "子代理：按需使用"
-composer_delegation_active: "子代理：主動委派獨立任務"
-composer_delegation_unavailable: "此會話暫不可使用子代理"
 menu_input_diagnostics: "複製輸入診斷"
 input_diagnostics_copied: "已複製輸入診斷"
-composer_delegation_super: "super"

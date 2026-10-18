@@ -64,7 +64,7 @@ async fn archives_restores_and_removes() {
                     model: "fixture".into(),
                     effort: Effort::Default,
                     mode: WorkMode::Code,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     permission: Permission::Ask,
                     credential: None,
                 }),

@@ -9,6 +9,7 @@ use std::path::Path;
 
 pub(super) struct Plan {
     statements: Vec<String>,
+    pub(super) instructions: bool,
 }
 
 impl Plan {
@@ -17,6 +18,11 @@ impl Plan {
         reference.execute_batch(DDL)?;
         let expected = objects(&reference)?;
         let actual = objects(connection)?;
+        let instructions = actual
+            .get(&("table".into(), "turns".into()))
+            .map(|sql| Table::parse(sql).map(|table| !table.columns.contains_key("instructions")))
+            .transpose()?
+            .unwrap_or(false);
         let mut statements = Vec::new();
         for ((kind, name), wanted) in &expected {
             if kind != "table" {
@@ -97,7 +103,10 @@ impl Plan {
                 }
             }
         }
-        Ok(Self { statements })
+        Ok(Self {
+            statements,
+            instructions,
+        })
     }
 
     pub(super) fn apply(&self, connection: &Connection) -> Result<(), Error> {

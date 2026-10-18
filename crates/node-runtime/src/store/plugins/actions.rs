@@ -266,6 +266,14 @@ impl Database {
                 Command::StartSession(draft)
                     if context.turn.is_none() && context.session.is_none() =>
                 {
+                    if let Some(config) = &draft.config {
+                        super::options::validate(
+                            &self.connection,
+                            None,
+                            config,
+                            Some(&context.package),
+                        )?;
+                    }
                     if context.worktree.is_some() && context.worktree != draft.worktree {
                         return Err(denied("session creation is outside the captured worktree"));
                     }

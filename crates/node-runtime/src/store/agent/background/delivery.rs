@@ -128,9 +128,6 @@ pub(in crate::store) fn confirm(
 }
 
 fn available(db: &Connection, session: SessionId) -> Result<bool, Fault> {
-    if !super::super::super::background_settings::read(db)?.resume {
-        return Ok(false);
-    }
     let session = super::super::super::commands::session(db, session)?;
     if session.archived
         || session.delegation.is_some()
@@ -164,16 +161,12 @@ pub(in crate::store) fn check(db: &Connection, run: &Run) -> Result<Option<Fault
     }
     let pending:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM agent_background WHERE session=?1 AND state='pending' AND delivery=?2)",params![run.session.to_string(),run.turn.to_string()],|row|row.get(0)).map_err(storage_error)?;
     let user:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM agent_pending p JOIN turns t ON t.id=p.turn JOIN agent_runs a ON a.turn=p.turn WHERE t.session=?1 AND p.turn!=?2 AND coalesce(json_extract(a.body,'$.notice'),0)=0)",params![run.session.to_string(),run.turn.to_string()],|row|row.get(0)).map_err(storage_error)?;
-    Ok(
-        (!pending || user || !super::super::super::background_settings::read(db)?.resume).then(
-            || {
-                Fault::new(
-                    ErrorCode::Conflict,
-                    "background delivery is no longer available",
-                )
-            },
-        ),
-    )
+    Ok((!pending || user).then(|| {
+        Fault::new(
+            ErrorCode::Conflict,
+            "background delivery is no longer available",
+        )
+    }))
 }
 
 pub(in crate::store) fn schedule(

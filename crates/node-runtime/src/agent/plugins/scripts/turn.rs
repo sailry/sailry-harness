@@ -96,7 +96,7 @@ impl Turn {
             invocation.turn.config.assistant.as_ref(),
             package,
         );
-        let mut input = catalog::input(invocation, package, &tools);
+        let mut input = catalog::input(invocation, package, &tools)?;
         input["tools"] = json!(tools);
         input["project"] = json!(invocation.project);
         input["resources"] = json!(resources);

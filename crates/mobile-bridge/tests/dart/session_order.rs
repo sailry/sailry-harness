@@ -34,7 +34,7 @@ fn observes_desktop_order() {
                     model: "fixture".into(),
                     effort: Effort::Default,
                     mode: WorkMode::Code,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     permission: Permission::Ask,
                     credential: None,
                 }),

@@ -16,6 +16,7 @@ pub(super) mod invocations;
 pub(in crate::store) mod mcp;
 pub(super) mod models;
 pub(in crate::store) mod oauth;
+pub(in crate::store) mod options;
 pub(in crate::store) mod policy;
 pub(in crate::store) mod registration;
 mod repository;
@@ -349,6 +350,7 @@ fn finish_package(
     };
     services::check(db, info)?;
     policy::check(db, info)?;
+    options::check(db, info)?;
     if let Some(previous) = &current
         && previous
             .extension

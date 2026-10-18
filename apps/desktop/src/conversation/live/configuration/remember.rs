@@ -17,7 +17,7 @@ impl View {
         Some(SessionConfig {
             assistant: None,
             resource: None,
-            delegation_proactive: false,
+            options: Default::default(),
             provider: provider.id,
             model: model.model,
             effort: model.effort,

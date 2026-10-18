@@ -147,7 +147,7 @@ impl Projection {
                         self.package_cursors.remove(&name);
                         snapshot.plugins.retain(|item| item.name != name)
                     }
-                    Event::DispatchChanged { .. } => {}
+                    Event::DispatchChanged { .. } | Event::RetainedRecord(_) => {}
                     Event::NotificationChanged(notice) => {
                         snapshot.notifications.retain(|entry| entry.id != notice.id);
                         snapshot.notifications.push(notice);
@@ -224,9 +224,6 @@ impl Projection {
                     }
                     Event::SandboxSettingsChanged { revision } => {
                         snapshot.sandbox_settings_revision = revision;
-                    }
-                    Event::BackgroundSettingsChanged { revision } => {
-                        snapshot.background_settings_revision = revision;
                     }
                     Event::SearchSettingsChanged { revision } => {
                         snapshot.search_settings_revision = revision;

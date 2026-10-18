@@ -1,9 +1,14 @@
 //! Kit b79f4ce retained script inputs have no value accessor or change callback.
 //! These view-local handles expose the existing native editing states. Kit owns
 //! selection, undo, clipboard, focus, IME, accessibility and native context menus.
+//! Kit 98a5e5d script NumberInput cannot bind these handles or publish step events.
+//! NumberField reuses its native control and leaves exact arithmetic to the caller.
 use gpui_kit::{component::Sizable, prelude::FluentBuilder};
 use gpui_kit::{
-    component::input::{Enter, Input, InputEvent, InputState, Textarea, TextareaState},
+    component::input::{
+        Enter, Input, InputEvent, InputState, NumberInput, NumberInputEvent, StepAction, Textarea,
+        TextareaState,
+    },
     *,
 };
 use gpui_shell::{HostError, HostModule, HostValue};
@@ -31,6 +36,7 @@ struct Draft {
     focus: bool,
     focused: Rc<Cell<bool>>,
     subscription: Option<Subscription>,
+    steps: Option<Subscription>,
 }
 
 struct Appearance {
@@ -40,6 +46,7 @@ struct Appearance {
 }
 
 struct Options {
+    number: bool,
     disabled: bool,
     readonly: bool,
     small: bool,
@@ -74,6 +81,7 @@ impl Draft {
         cx: &mut App,
     ) -> AnyElement {
         let Options {
+            number,
             disabled,
             readonly,
             small,
@@ -123,6 +131,20 @@ impl Draft {
             }
         }
         match input {
+            Text::Input(input) if number => {
+                use gpui_kit::base::Disableable as _;
+                if self.steps.is_none() {
+                    // Step events carry direction only; packages retain their exact numeric domain.
+                    input.update(cx, |input, cx| input.set_step(None, window, cx));
+                    self.steps = Some(observe_steps(input, id, events, cx));
+                }
+                NumberInput::new(input)
+                    .appearance(style.appearance)
+                    .when_some(style.height, |input, height| input.h(px(height)))
+                    .when(small, |input| input.small())
+                    .disabled(disabled || readonly)
+                    .into_any_element()
+            }
             Text::Input(input) => Input::new(input)
                 .appearance(style.appearance)
                 .bordered(style.bordered)
@@ -170,7 +192,7 @@ pub(super) fn module() -> HostModule {
     let create = fields.clone();
     let read = fields.clone();
     let release = fields.clone();
-    let module = HostModule::new("sailry/forms")
+    let mut module = HostModule::new("sailry/forms")
         .function("createText", move |args| {
             let value = args.string(0)?.to_owned();
             let options = args.get(1).and_then(HostValue::as_object);
@@ -221,6 +243,7 @@ pub(super) fn module() -> HostModule {
                     focus: false,
                     focused: Rc::new(Cell::new(false)),
                     subscription: None,
+                    steps: None,
                 },
             );
             Ok(HostValue::from(id))
@@ -275,16 +298,24 @@ pub(super) fn module() -> HostModule {
         .function("releaseText", move |args| {
             release.borrow_mut().text.remove(args.string(0)?);
             Ok(HostValue::Null)
-        })
-        .component("TextField", move |mut args, window, cx| {
+        });
+    for (name, number) in [("TextField", false), ("NumberField", true)] {
+        let fields = fields.clone();
+        let events = events.clone();
+        module = module.component(name, move |mut args, window, cx| {
             let adornment = args.take_children().into_iter().next();
             let mut fields = fields.borrow_mut();
             let Some(draft) = fields.text.get_mut(args.id()) else {
                 return div().into_any_element();
             };
+            if number && draft.multiline {
+                return div().into_any_element();
+            }
             let disabled = args.props().get("disabled").and_then(HostValue::as_bool) == Some(true);
             let view = div()
+                .id(SharedString::from(args.id().to_owned()))
                 .w_full()
+                .when(number, |view| view.aria_label(draft.label.clone()))
                 // Kit emits submission and propagates Enter; stop it before native text input.
                 .when(!draft.multiline, |view| {
                     view.on_action(|_: &Enter, _, _| {})
@@ -294,6 +325,7 @@ pub(super) fn module() -> HostModule {
                         args.id(),
                         &events,
                         Options {
+                            number,
                             disabled,
                             readonly: args.props().get("readonly").and_then(HostValue::as_bool)
                                 == Some(true),
@@ -327,6 +359,7 @@ pub(super) fn module() -> HostModule {
                 );
             view.into_any_element()
         });
+    }
     date::extend(module).declarations(include_str!("forms/api.d.ts"))
 }
 
@@ -362,6 +395,24 @@ fn observe<T: EventEmitter<InputEvent> + 'static>(
                 focused.set(false);
                 "blur"
             }
+        };
+        let _ = events.try_send(serde_json::json!({"id":id,"kind":kind}));
+    })
+}
+
+fn observe_steps(
+    input: &Entity<InputState>,
+    id: &str,
+    events: &tokio::sync::mpsc::Sender<serde_json::Value>,
+    cx: &mut App,
+) -> Subscription {
+    let id = id.to_owned();
+    let events = events.clone();
+    cx.subscribe(input, move |_, event: &NumberInputEvent, _| {
+        let NumberInputEvent::Step(action) = event;
+        let kind = match action {
+            StepAction::Increment => "increment",
+            StepAction::Decrement => "decrement",
         };
         let _ = events.try_send(serde_json::json!({"id":id,"kind":kind}));
     })

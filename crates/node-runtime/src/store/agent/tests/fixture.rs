@@ -37,7 +37,7 @@ impl Fixture {
                     model: "fixture".into(),
                     effort: Effort::Low,
                     mode: sailry_protocol::WorkMode::Code,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     permission: Permission::Ask,
                     credential: None,
                 }),

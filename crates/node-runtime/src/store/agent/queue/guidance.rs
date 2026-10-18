@@ -171,9 +171,9 @@ pub(in crate::store) fn inherit(
         plugins,
     };
     db.execute(
-        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles) VALUES(?1,'task',?2,?3,?4,?5,?6,?7)",
+        "INSERT INTO turns(id,kind,session,revision,request,caller,plugins,roles,instructions) VALUES(?1,'task',?2,?3,?4,?5,?6,?7,?8)",
         params![turn.id.to_string(), turn.session.to_string(), turn.revision as i64,
-            request.id.to_string(), &caller.0[..], encode(&turn.plugins)?, encode(&turn.roles)?],
+            request.id.to_string(), &caller.0[..], encode(&turn.plugins)?, encode(&turn.roles)?, encode(&super::super::super::captures::instructions(db, target.turn)?)?],
     ).map_err(storage_error)?;
     super::super::super::attachments::turns::bind(db, turn.id, &message.attachments)?;
     runs::inherit(db, &turn, target.turn, Status::Queued, true)?;

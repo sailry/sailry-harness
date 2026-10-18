@@ -1,7 +1,2 @@
-composer_delegation_proactive: "Проактивные субагенты"
-composer_delegation_normal: "Субагенты: по необходимости"
-composer_delegation_active: "Субагенты: активно делегировать независимые задачи"
-composer_delegation_unavailable: "Субагенты недоступны в этом разговоре"
 menu_input_diagnostics: "Копировать диагностику ввода"
 input_diagnostics_copied: "Диагностика ввода скопирована"
-composer_delegation_super: "super"

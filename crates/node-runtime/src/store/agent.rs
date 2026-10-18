@@ -249,6 +249,7 @@ pub(super) enum Operation {
 }
 
 pub(crate) struct Invocation {
+    pub instructions: Vec<super::captures::Instruction>,
     pub hooks: hooks::Settings,
     pub automatic: bool,
     pub notice: bool,

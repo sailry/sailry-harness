@@ -333,7 +333,7 @@ fn bounded_text(value: Option<&str>) -> bool {
     value.is_none_or(|value| value.len() <= MAX_STRING && !value.contains('\0'))
 }
 
-fn build(value: &Value) -> Result<jsonschema::Validator, Fault> {
+pub(super) fn build(value: &Value) -> Result<jsonschema::Validator, Fault> {
     jsonschema::draft202012::options()
         .build(value)
         .map_err(|_| sailry_protocol::Fault::invalid("invalid settings schema constraints"))

@@ -78,7 +78,7 @@ impl Fixture {
                     model: "fixture".into(),
                     effort: Effort::Low,
                     mode,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     permission,
                     credential: None,
                 }),

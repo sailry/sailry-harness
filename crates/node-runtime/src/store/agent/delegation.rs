@@ -396,6 +396,7 @@ pub(super) fn admit(
         let _ = events.send(envelope);
     }
     Ok(Invocation {
+        instructions: super::super::captures::instructions(&database.connection, turn.id)?,
         hooks: super::super::hooks::frozen(&database.connection, turn.id)?,
         automatic: false,
         notice: false,

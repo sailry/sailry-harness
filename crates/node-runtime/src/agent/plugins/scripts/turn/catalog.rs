@@ -7,7 +7,11 @@ use sailry_protocol::{
 
 const ROLE_SUMMARY_CHARS: usize = 1024;
 
-pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &[String]) -> Value {
+pub(super) fn input(
+    invocation: &Invocation,
+    package: &plugin::Info,
+    selected: &[String],
+) -> Result<Value, Fault> {
     let operations: Vec<_> = package
         .extension
         .iter()
@@ -90,7 +94,10 @@ pub(super) fn input(invocation: &Invocation, package: &plugin::Info, selected: &
     let session_revision = operations
         .contains(&Operation::ApplyRoles)
         .then(|| invocation.turn.revision.to_string());
-    json!({"roles":roles,"session_revision":session_revision,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}})
+    let options = crate::plugins::options::captured(package, &invocation.turn.config)?;
+    Ok(
+        json!({"roles":roles,"options":options,"session_revision":session_revision,"automatic":invocation.automatic,"mode":invocation.turn.config.mode,"config":config,"names":names,"connections":{"bound":invocation.connections.bound,"databases":databases,"ssh":ssh}}),
+    )
 }
 
 fn role_tools(

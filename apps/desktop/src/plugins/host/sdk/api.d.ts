@@ -95,6 +95,7 @@ export type ContributionChoice = {
 export type ContributionState = {
   id: string; enabled?: boolean; visible?: boolean; label?: LocalizedLabel; icon?: string; dropdown?: boolean; value?: string | number | boolean | null;
   choices?: ContributionChoice[]; details?: { label: LocalizedLabel; value: string }[];
+  segments?: {label:LocalizedLabel;tone:"muted"|"success"|"danger"|"warning"|"accent"}[];
   reply_to?: number;
 };
 export type ContributionEvent = {

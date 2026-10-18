@@ -110,6 +110,7 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             && parsed.instructions.as_ref().is_none_or(|text| {
                                 !text.trim().is_empty() && text.len() <= 16 * 1024
                             })
+                            && super::options::schema(&parsed).is_ok()
                             && sailry_protocol::plugin::model_tools::valid(&parsed.model_tools)
                             && parsed.host.as_ref().is_none_or(|host| host.valid())
                             && parsed.artifact_view.as_ref().is_none_or(|view| view.valid() && parsed.actions.contains(&sailry_protocol::plugin::Action::ReadArtifacts) && parsed.actions.contains(&sailry_protocol::plugin::Action::WriteArtifacts))

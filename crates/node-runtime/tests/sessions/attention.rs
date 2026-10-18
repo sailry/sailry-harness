@@ -57,7 +57,7 @@ async fn synchronizes_and_persists_read_state() {
                 model: "fixture".into(),
                 effort: Effort::Default,
                 mode: WorkMode::Code,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: Permission::Ask,
                 credential: None,
             }),

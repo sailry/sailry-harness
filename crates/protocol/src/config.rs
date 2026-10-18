@@ -56,9 +56,10 @@ pub struct SessionConfig {
     #[serde(default)]
     pub effort: Effort,
     pub mode: WorkMode,
-    /// Prefer useful delegation in coordinator turns without changing tool authority.
+    /// Public package-owned choices, separate from model and tool authority.
     #[serde(default)]
-    pub delegation_proactive: bool,
+    pub options:
+        std::collections::BTreeMap<String, std::collections::BTreeMap<String, serde_json::Value>>,
     pub permission: Permission,
     pub credential: Option<CredentialRef>,
 }
@@ -171,7 +172,7 @@ mod permission {
                 model: "fixture".into(),
                 effort: Effort::Low,
                 mode: WorkMode::Code,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: mode,
                 credential: None,
             };
@@ -222,18 +223,18 @@ mod configuration {
     fn defaults_only_optional_choices() {
         let config: SessionConfig = serde_json::from_value(value()).unwrap();
         assert_eq!(config.effort, Effort::Default);
-        assert!(!config.delegation_proactive);
+        assert!(config.options.is_empty());
         assert!(config.assistant.is_none());
         assert!(config.resource.is_none());
         assert!(config.credential.is_none());
     }
 
     #[test]
-    fn preserves_proactive_delegation() {
+    fn preserves_package_options() {
         let mut body = value();
-        body["delegation_proactive"] = json!(true);
+        body["options"] = json!({"example":{"enabled":true}});
         let config: SessionConfig = serde_json::from_value(body).unwrap();
-        assert!(config.delegation_proactive);
+        assert_eq!(config.options["example"]["enabled"], json!(true));
         let copied: SessionConfig =
             serde_json::from_value(serde_json::to_value(&config).unwrap()).unwrap();
         assert_eq!(copied, config);
@@ -284,7 +285,7 @@ mod work_mode {
                 model: "fixture".into(),
                 effort: Effort::Default,
                 mode,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: Permission::Full,
                 credential: None,
             };

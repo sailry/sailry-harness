@@ -87,7 +87,7 @@ async fn lifecycle(remote: bool) {
         model: "configured".into(),
         effort: Effort::High,
         mode: sailry_protocol::WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: sailry_protocol::Permission::Ask,
         credential: Some(reference.clone()),
     };
@@ -225,7 +225,7 @@ async fn rejects_unavailable_credentials() {
         model: "configured".into(),
         effort: Effort::High,
         mode: sailry_protocol::WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: sailry_protocol::Permission::Ask,
         credential: Some(reference.clone()),
     };

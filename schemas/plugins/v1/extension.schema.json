@@ -2633,6 +2633,7 @@
     "Slot": {
       "enum": [
         "composer",
+        "model",
         "context",
         "statistics",
         "status",
@@ -3030,6 +3031,9 @@
         }
       ],
       "description": "Localized controller marker for this package's automatic continuations."
+    },
+    "conversation_options": {
+      "description": "Public package-owned options frozen with each conversation turn."
     },
     "credential_source": {
       "anyOf": [

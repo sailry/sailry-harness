@@ -145,7 +145,7 @@ impl Fixture {
                     model: "fixture-a".into(),
                     effort: Effort::High,
                     mode: WorkMode::Code,
-                    delegation_proactive: false,
+                    options: Default::default(),
                     permission: Permission::Full,
                     credential: None,
                 }),

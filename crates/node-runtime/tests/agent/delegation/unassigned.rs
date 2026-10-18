@@ -74,7 +74,7 @@ async fn delegates_from_private_workspaces() {
                         resource: None,
                         effort: Effort::High,
                         mode: WorkMode::Code,
-                        delegation_proactive: false,
+                        options: Default::default(),
                         credential: None,
                     }),
                 }))
@@ -176,18 +176,6 @@ async fn delegates_from_private_workspaces() {
                 panic!("snapshot expected")
             };
             assert!(snapshot.projects.is_empty());
-            let Output::BackgroundSettings(mut settings) = client
-                .execute(client.prepare(Command::ReadBackgroundSettings))
-                .await
-                .unwrap()
-            else {
-                panic!("settings expected")
-            };
-            settings.resume = false;
-            client
-                .execute(client.prepare(Command::SaveBackgroundSettings(settings)))
-                .await
-                .unwrap();
             let Output::QueuedTurn(turn) = client
                 .execute(client.prepare(Command::SubmitTurn {
                     session: session.id,

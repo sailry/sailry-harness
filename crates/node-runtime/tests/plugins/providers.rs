@@ -99,7 +99,7 @@ async fn freezes_updates_at_turn_admission() {
                     effort: Effort::Default,
                     mode: WorkMode::Code,
                     permission: Permission::Ask,
-                    delegation_proactive: false,
+                    options: Default::default(),
                 }),
             },
         )

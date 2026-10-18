@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS turns (
     kind TEXT NOT NULL CHECK(kind IN ('task','compaction')),
     plugins BLOB NOT NULL,
     roles BLOB,
+    instructions BLOB NOT NULL DEFAULT X'5B5D',
     session TEXT NOT NULL,
     revision INTEGER NOT NULL,
     request TEXT NOT NULL,

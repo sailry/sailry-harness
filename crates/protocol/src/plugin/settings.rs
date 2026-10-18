@@ -69,6 +69,13 @@ pub struct Field {
         skip_serializing_if = "std::ops::Not::not"
     )]
     pub child_concurrency: bool,
+    /// One-time import from a retired public conversation configuration field.
+    #[serde(
+        default,
+        rename = "x-sailry-import",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub import: Option<String>,
     #[serde(
         default,
         rename = "x-sailry-model",

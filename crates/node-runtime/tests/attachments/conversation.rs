@@ -113,7 +113,7 @@ async fn session(
                 model: "fixture".into(),
                 effort: Effort::Medium,
                 mode: sailry_protocol::WorkMode::Code,
-                delegation_proactive: false,
+                options: Default::default(),
                 permission: Permission::Ask,
                 credential: provider.credential.clone(),
             }),

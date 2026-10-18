@@ -107,10 +107,11 @@ impl View {
                     SessionConfig {
                         assistant: None,
                         resource: None,
-                        delegation_proactive: self
+                        options: self
                             .config
                             .as_ref()
-                            .is_some_and(|config| config.delegation_proactive),
+                            .map(|config| config.options.clone())
+                            .unwrap_or_default(),
                         provider: provider.id,
                         model: selected.model.clone(),
                         credential: provider.credential.clone(),
@@ -184,7 +185,7 @@ impl View {
                                 .map(|provider| SessionConfig {
                                     assistant: None,
                                     resource: None,
-                                    delegation_proactive: false,
+                                    options: Default::default(),
                                     provider: provider.id,
                                     model: provider.default_model.clone(),
                                     credential: provider.credential.clone(),

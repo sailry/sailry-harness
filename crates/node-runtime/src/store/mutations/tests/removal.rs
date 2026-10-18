@@ -11,7 +11,7 @@ fn session(worktree: &Worktree) -> Command {
             model: "test".into(),
             effort: Effort::High,
             mode: sailry_protocol::WorkMode::Code,
-            delegation_proactive: false,
+            options: Default::default(),
             permission: sailry_protocol::Permission::Ask,
             credential: None,
         }),

@@ -94,7 +94,7 @@ async fn independent_resume() {
             model: "fixture-a".into(),
             effort: Effort::High,
             mode: sailry_protocol::WorkMode::Code,
-            delegation_proactive: true,
+            options: Default::default(),
             permission: sailry_protocol::Permission::Ask,
             credential: provider.credential.clone(),
         };
@@ -122,7 +122,7 @@ async fn independent_resume() {
             origin.execute(create.clone()).await.unwrap(),
             Output::Session(session.clone())
         );
-        assert!(session.config.delegation_proactive);
+        assert_eq!(session.config.options, config.options);
         let imported = session.profile.as_ref().unwrap();
         assert_eq!(imported.source, source_id);
         assert_eq!(imported.provider.models, provider.models);
@@ -167,7 +167,7 @@ async fn independent_resume() {
             target: target.id(),
             project: session.project,
             worktree: Some(session.worktree),
-            config: Box::new(config),
+            config: Box::new(config.clone()),
             provider_revision: provider.revision,
         });
         assert_eq!(
@@ -196,7 +196,7 @@ async fn independent_resume() {
         else {
             panic!("turn expected")
         };
-        assert!(turn.config.delegation_proactive);
+        assert_eq!(turn.config.options, config.options);
         let page = finished(&destination, session.id, turn.id).await;
         assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
         assert!(defaults.requests.lock().unwrap().is_empty());

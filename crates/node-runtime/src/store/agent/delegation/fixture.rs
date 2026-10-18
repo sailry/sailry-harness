@@ -4,16 +4,6 @@ pub(super) use crate::store::agent::tests::fixture::Fixture;
 
 pub(super) fn setup() -> Fixture {
     let fixture = Fixture::new();
-    // These cases explicitly drive parent turns; automatic completion notices
-    // have their own fixtures and must not create additional model work here.
-    crate::store::background_settings::save(
-        &fixture.database.connection,
-        &sailry_protocol::conversation::background::Settings {
-            resume: false,
-            ..Default::default()
-        },
-    )
-    .unwrap();
     for name in ["delegation", "files"] {
         crate::store::agent::tests::fixture::package(&fixture.database, fixture._root.path(), name);
     }

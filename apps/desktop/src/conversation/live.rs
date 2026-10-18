@@ -30,7 +30,6 @@ mod connection;
 mod context;
 mod contributions;
 mod controls;
-mod delegation;
 mod documents;
 mod draft;
 mod export;
@@ -108,6 +107,7 @@ pub(crate) enum Event {
 
 pub(crate) struct View {
     contributions: Entity<crate::plugins::contributions::Registry>,
+    contribution_metadata: Entity<crate::plugins::metadata::Metadata>,
     sidebar: bool,
     external_header: bool,
     compact_composer: bool,
@@ -260,6 +260,7 @@ impl View {
         let composer_source = cx.weak_entity();
         let contributions = cx
             .new(|cx| crate::plugins::contributions::Registry::new(&binding, composer_source, cx));
+        let contribution_metadata = contributions.read(cx).metadata();
         cx.observe_in(&contributions, window, |view, _, window, cx| {
             view.refresh_commands(window, cx);
             cx.notify();
@@ -286,8 +287,15 @@ impl View {
         let composer_owner = cx.entity();
         let composer_settings = cx.new(|cx| composer::Panel::new(composer_owner, cx));
         let owner = cx.weak_entity();
-        let model_controls =
-            cx.new(|cx| model_controls::Panel::new(owner, model_picker.clone(), window, cx));
+        let model_controls = cx.new(|cx| {
+            model_controls::Panel::new(
+                owner,
+                model_picker.clone(),
+                contributions.clone(),
+                window,
+                cx,
+            )
+        });
         let attachments = attachments::Drafts::default();
         let images = cx.new(|cx| {
             attachments::images::Images::new(
@@ -363,6 +371,7 @@ impl View {
         crate::updater::recovery::register(window, cx);
         Self {
             contributions,
+            contribution_metadata,
             sidebar: false,
             external_header: false,
             compact_composer: false,

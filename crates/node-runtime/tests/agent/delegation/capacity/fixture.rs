@@ -178,22 +178,6 @@ impl Fixture {
 
     pub async fn capacity(&self, count: u64) {
         super::super::capacity(&self.client, "example", count).await;
-        let Output::BackgroundSettings(mut settings) = self
-            .client
-            .execute(self.client.prepare(Command::ReadBackgroundSettings))
-            .await
-            .unwrap()
-        else {
-            panic!("settings expected")
-        };
-        settings.resume = false;
-        self.client
-            .execute(
-                self.client
-                    .prepare(Command::SaveBackgroundSettings(settings)),
-            )
-            .await
-            .unwrap();
     }
 
     pub async fn upgrade(&mut self) {

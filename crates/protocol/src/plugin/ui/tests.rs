@@ -128,3 +128,23 @@ fn indicators_accept_only_finite_passive_composer_state() {
     entry.slot = Slot::Statistics;
     assert!(!entry.valid());
 }
+
+#[test]
+fn model_controls_share_labeled_segments() {
+    let mut entry = contribution(Slot::Model, Kind::Toggle);
+    assert!(entry.valid());
+    let mut state = State::pending(&entry);
+    state.value = true.into();
+    state.segments = vec![Segment {
+        label: super::super::desktop::Navigation {
+            label: "Active".into(),
+            icon: None,
+            locales: Default::default(),
+        },
+        tone: SegmentTone::Accent,
+    }];
+    assert!(state.valid(&entry));
+    entry.slot = Slot::Context;
+    assert!(!state.valid(&entry));
+    assert_eq!(serde_json::to_value(Slot::Model).unwrap(), "model");
+}

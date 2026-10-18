@@ -62,7 +62,7 @@ pub(super) fn config(provider: &Provider) -> SessionConfig {
         model: provider.default_model.clone(),
         effort: Effort::Low,
         mode: sailry_protocol::WorkMode::Code,
-        delegation_proactive: false,
+        options: Default::default(),
         permission: sailry_protocol::Permission::Ask,
         credential: provider.credential.clone(),
     }

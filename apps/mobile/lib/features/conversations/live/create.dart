@@ -106,7 +106,7 @@ class _NewConversationPageState extends State<NewConversationPage> {
       _config = {
         'mode': defaults['mode'] ?? 'code',
         'permission': defaults['permission'] ?? 'ask',
-        'delegation_proactive': defaults['delegation_proactive'] ?? false,
+        'options': defaults['options'] ?? <String, dynamic>{},
         'provider': defaults['provider'],
         'model': defaults['model'],
         'effort': defaults['effort'] ?? 'default',

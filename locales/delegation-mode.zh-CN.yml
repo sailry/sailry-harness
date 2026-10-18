@@ -1,7 +1,2 @@
-composer_delegation_proactive: "主动使用子代理"
-composer_delegation_normal: "子代理：按需使用"
-composer_delegation_active: "子代理：主动委派独立任务"
-composer_delegation_unavailable: "此会话暂不可使用子代理"
 menu_input_diagnostics: "复制输入诊断"
 input_diagnostics_copied: "已复制输入诊断"
-composer_delegation_super: "super"
