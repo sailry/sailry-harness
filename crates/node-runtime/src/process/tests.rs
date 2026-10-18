@@ -27,11 +27,12 @@ fn rejects_invalid_inputs() {
         request.cwd = cwd.into();
         assert!(request.validate().is_err());
     }
-    for timeout in [0, 900_001] {
-        let mut request = launch(directory.path(), "echo test");
-        request.timeout_ms = timeout;
-        assert!(request.validate().is_err());
-    }
+    let mut request = launch(directory.path(), "echo test");
+    request.timeout_ms = 0;
+    assert!(request.validate().is_err());
+    request.timeout_ms = 900_001;
+    request.command = "echo ".repeat(14_000);
+    request.validate().unwrap();
 }
 
 #[test]

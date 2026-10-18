@@ -173,7 +173,7 @@ async fn checks_grants_and_arguments_before_provisioning() {
                 BrowserAction::Navigate,
                 json!({"url":"https://user:secret@example.com"}),
             ),
-            (BrowserAction::Wait, json!({"seconds":31})),
+            (BrowserAction::Wait, json!({"seconds":1e300})),
             (BrowserAction::Wait, json!({"seconds":-1})),
             (BrowserAction::Wait, json!([])),
         ] {

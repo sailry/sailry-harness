@@ -77,19 +77,10 @@ impl Call {
     ) -> Result<Value> {
         let directory = session.temporary.path().join("downloads");
         if self.action == Action::Downloads {
-            let files = tokio::task::spawn_blocking(move || {
-                let root = crate::files::path::root(&directory)?;
-                let mut files = Vec::new();
-                for entry in root.entries().map_err(|error| Fault::invalid(error.to_string()))? {
-                    let entry = entry.map_err(|error| Fault::invalid(error.to_string()))?;
-                    let name = entry.file_name().to_string_lossy().into_owned();
-                    if name.ends_with(".crdownload") || !entry.file_type().is_ok_and(|kind| kind.is_file()) { continue; }
-                    files.push(json!({"name":name,"size":entry.metadata().map_err(|error| Fault::invalid(error.to_string()))?.len()}));
-                    if files.len() >= 128 { break; }
-                }
-                Ok::<_, Fault>(files)
-            }).await.map_err(|_| Fault::invalid("browser download listing failed"))??;
-            return Ok(json!({"execution_node":self.ingress.node,"files":files,"limit":128}));
+            let node = self.ingress.node;
+            return tokio::task::spawn_blocking(move || listing(&directory, node))
+                .await
+                .map_err(|_| Fault::invalid("browser download listing failed"))?;
         }
         let name = args
             .get("name")
@@ -121,3 +112,33 @@ impl Call {
             .await
     }
 }
+
+fn listing(directory: &std::path::Path, node: sailry_protocol::NodeId) -> Result<Value> {
+    let root = crate::files::path::root(directory)?;
+    let mut result = json!({"execution_node":node,"files":[],"truncated":false});
+    for entry in root
+        .entries()
+        .map_err(|error| Fault::invalid(error.to_string()))?
+    {
+        let entry = entry.map_err(|error| Fault::invalid(error.to_string()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.ends_with(".crdownload") || !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+            continue;
+        }
+        let item = json!({"name":name,"size":entry.metadata().map_err(|error|Fault::invalid(error.to_string()))?.len()});
+        result["files"].as_array_mut().unwrap().push(item);
+        if serde_json::to_vec(&result)
+            .map_err(|error| Fault::invalid(error.to_string()))?
+            .len()
+            > RESULT_BYTES
+        {
+            result["files"].as_array_mut().unwrap().pop();
+            result["truncated"] = json!(true);
+            break;
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+mod tests;

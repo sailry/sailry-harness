@@ -52,12 +52,12 @@ fn package_preserves_actions_and_schemas() {
             .iter()
             .find(|declaration| declaration.name == tool.name())
             .unwrap();
-        assert_eq!(
-            Some(declaration.handler.as_ref().unwrap().parameters.clone()),
-            tool.parameters_schema(),
-            "{}",
-            tool.name()
-        );
+        let mut declared = declaration.handler.as_ref().unwrap().parameters.clone();
+        let mut native = tool.parameters_schema().unwrap();
+        // Descriptions can document the local adapter; validation constraints stay identical.
+        strip_descriptions(&mut declared);
+        strip_descriptions(&mut native);
+        assert_eq!(declared, native, "{}", tool.name());
     }
     for name in local {
         let declaration = extension
@@ -71,5 +71,36 @@ fn package_preserves_actions_and_schemas() {
             json!({"type":"object","properties":{},"required":[],"additionalProperties":false})
         };
         assert_eq!(declaration.handler.as_ref().unwrap().parameters, expected);
+    }
+}
+
+fn strip_descriptions(value: &mut Value) {
+    match value {
+        Value::Object(values) => {
+            values.remove("description");
+            for value in values.values_mut() {
+                strip_descriptions(value);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                strip_descriptions(value);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn validates_unclamped_wait_durations() {
+    for seconds in [0.0, 0.25, 31.0, 60.0] {
+        validate(Action::Wait, &json!({"seconds":seconds})).unwrap();
+        assert_eq!(
+            execute::wait_duration(seconds).unwrap().as_secs_f64(),
+            seconds
+        );
+    }
+    for seconds in [-1.0, 1e300, f64::INFINITY, f64::NAN] {
+        assert!(execute::wait_duration(seconds).is_err());
     }
 }

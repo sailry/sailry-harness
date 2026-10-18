@@ -21,15 +21,14 @@ pub(crate) fn validate(action: Action, arguments: &Value) -> Result<(), Fault> {
             "browser arguments must be an object of at most 64 KiB",
         ));
     }
-    if action == Action::Wait
-        && !arguments
+    if action == Action::Wait {
+        let seconds = arguments
             .get("seconds")
             .and_then(Value::as_f64)
-            .is_some_and(|seconds| seconds.is_finite() && (0.0..=30.0).contains(&seconds))
-    {
-        return Err(sailry_protocol::Fault::invalid(
-            "browser wait must be between 0 and 30 seconds",
-        ));
+            .ok_or_else(|| {
+                Fault::invalid("browser wait seconds must be a non-negative representable duration")
+            })?;
+        wait_duration(seconds)?;
     }
     if let Some(url) = arguments.get("url").and_then(Value::as_str)
         && !url::Url::parse(url).is_ok_and(|url| {
@@ -43,6 +42,17 @@ pub(crate) fn validate(action: Action, arguments: &Value) -> Result<(), Fault> {
         ));
     }
     Ok(())
+}
+
+pub(super) const RESULT_BYTES: usize = 48 * 1024;
+
+pub(super) fn wait_duration(seconds: f64) -> Result<Duration, Fault> {
+    let duration = Duration::try_from_secs_f64(seconds)
+        .ok()
+        .filter(|duration| std::time::Instant::now().checked_add(*duration).is_some());
+    duration.ok_or_else(|| {
+        Fault::invalid("browser wait seconds must be a non-negative representable duration")
+    })
 }
 
 impl Call {
@@ -118,7 +128,7 @@ impl Call {
                 result["uploaded_file"] = path;
             }
             self.artifact(self.request.id, &mut result).await?;
-            let mut remaining = 48 * 1024;
+            let mut remaining = RESULT_BYTES;
             let truncated = bound(&mut result, &mut remaining);
             Ok(json!({"execution_node":self.ingress.node,"result":result,"truncated":truncated}))
         };

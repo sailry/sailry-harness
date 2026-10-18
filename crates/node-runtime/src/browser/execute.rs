@@ -29,7 +29,7 @@ pub(crate) fn validate(action: &Action) -> Result<(), Fault> {
                 selector
             }
         };
-        if !(1..=20000).contains(timeout_ms) || query.is_empty() || query.len() > 2000 {
+        if *timeout_ms == 0 || query.is_empty() {
             return Err(Fault::invalid("invalid browser wait condition or timeout"));
         }
     }

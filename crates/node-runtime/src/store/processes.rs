@@ -49,11 +49,10 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
             "command execution expected",
         ));
     };
-    if description.as_ref().is_some_and(|description| {
-        description.trim().is_empty()
-            || description.chars().count() > 2000
-            || description.contains('\0')
-    }) {
+    if description
+        .as_ref()
+        .is_some_and(|description| description.trim().is_empty() || description.contains('\0'))
+    {
         return Err(Fault::invalid("invalid command description"));
     }
     let row: Option<(String, String, String, String)> = database.connection.query_row(
@@ -68,12 +67,11 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<Prepared
     if state != "running" {
         return Err(Fault::new(ErrorCode::Conflict, "turn is not running"));
     }
-    if attachments.len() > 8
-        || attachments
-            .iter()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len()
-            != attachments.len()
+    if attachments
+        .iter()
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        != attachments.len()
     {
         return Err(Fault::invalid("invalid command attachments"));
     }

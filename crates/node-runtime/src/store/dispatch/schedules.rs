@@ -13,11 +13,10 @@ pub(super) fn save(db: &Connection, package: &str, schedule: &Schedule) -> Resul
             anchor_ms,
             interval_ms,
         } => {
-            if !(1000..=31_536_000_000).contains(interval_ms) {
-                return Err(sailry_protocol::Fault::invalid(
-                    "schedule interval must be between one second and one year",
-                ));
-            }
+            let interval = interval(*interval_ms)?;
+            anchor_ms
+                .checked_add(interval)
+                .ok_or_else(|| Fault::invalid("schedule time is not representable"))?;
             *anchor_ms
         }
         Timing::Weekly {
@@ -100,7 +99,7 @@ pub(super) fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault>
         let (scheduled_ms, next_ms) = match &schedule.timing {
             Timing::Once { .. } => (first, None),
             Timing::Every { interval_ms, .. } => {
-                let interval = *interval_ms as i64;
+                let interval = interval(*interval_ms)?;
                 let latest = first + ((timestamp - first) / interval) * interval;
                 (latest, latest.checked_add(interval))
             }
@@ -168,4 +167,11 @@ pub(super) fn next(db: &Connection, timestamp: i64) -> Result<Option<i64>, Fault
         }
     }
     Ok(next)
+}
+
+fn interval(milliseconds: u64) -> Result<i64, Fault> {
+    i64::try_from(milliseconds)
+        .ok()
+        .filter(|value| *value > 0)
+        .ok_or_else(|| Fault::invalid("schedule interval must be positive and representable"))
 }

@@ -40,10 +40,9 @@ pub(super) async fn wait(_browser: &BrowserSession, args: Value) -> Result<Value
         .and_then(|v| v.as_f64())
         .ok_or_else(|| adk_core::AdkError::tool("Missing 'seconds' parameter"))?;
 
-    // Cap at 30 seconds
-    let seconds = seconds.min(30.0);
-
-    tokio::time::sleep(Duration::from_secs_f64(seconds)).await;
+    let duration = super::super::execute::wait_duration(seconds)
+        .map_err(|error| adk_core::AdkError::tool(error.message))?;
+    tokio::time::sleep(duration).await;
 
     Ok(json!({
         "success": true,

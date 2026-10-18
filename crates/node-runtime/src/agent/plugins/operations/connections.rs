@@ -117,14 +117,16 @@ pub(super) fn parameters(operation: Operation) -> Value {
         }
         Operation::RunSsh => {
             properties["command"] = json!({"type":"string"});
-            properties["timeout_ms"] = json!({"type":"integer","minimum":1,"maximum":900000});
+            properties["timeout_ms"] =
+                json!({"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64});
             required.extend(["command", "timeout_ms"]);
         }
         Operation::TransferSsh => {
             properties["path"] = json!({"type":"string"});
             properties["remote_path"] = json!({"type":"string"});
             properties["direction"] = json!({"enum":["upload","download"]});
-            properties["timeout_ms"] = json!({"type":"integer","minimum":1,"maximum":900000});
+            properties["timeout_ms"] =
+                json!({"type":"integer","minimum":1,"maximum":9_007_199_254_740_991u64});
             required.extend(["path", "remote_path", "direction", "timeout_ms"]);
         }
         _ => unreachable!(),

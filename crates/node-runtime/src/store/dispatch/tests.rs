@@ -310,6 +310,81 @@ fn schedules_coalesce_and_consume_once() {
 }
 
 #[test]
+fn schedules_preserve_representable_intervals() {
+    for interval_ms in [1, 31_536_000_001, 9_007_199_254_740_991] {
+        let fixture = Fixture::new();
+        fixture.setup("tick");
+        let db = &fixture.database.connection;
+        let schedule = schedules::save(
+            db,
+            &fixture.package.name,
+            &Schedule {
+                id: protocol::ScheduleId::new(),
+                revision: 0,
+                enabled: true,
+                topic: "tick".into(),
+                payload: json!(null),
+                timing: Timing::Every {
+                    anchor_ms: 1000,
+                    interval_ms,
+                },
+                next_ms: None,
+            },
+        )
+        .unwrap();
+        let tick = 1000 + i64::try_from(interval_ms).unwrap();
+        schedules::due(db, tick).unwrap();
+        let page = jobs::list(db, &fixture.package.name, None, 100).unwrap();
+        assert_eq!(page.jobs.len(), 1);
+        assert_eq!(page.jobs[0].event.scheduled_ms, Some(tick));
+        let stored: Schedule = required(
+            db,
+            "dispatch_schedules",
+            &fixture.package.name,
+            "id",
+            &schedule.id.to_string(),
+        )
+        .unwrap();
+        assert_eq!(stored.next_ms, tick.checked_add(interval_ms as i64));
+    }
+}
+
+#[test]
+fn schedules_reject_unrepresentable_times() {
+    let fixture = Fixture::new();
+    let db = &fixture.database.connection;
+    for (anchor_ms, interval_ms) in [(0, 0), (0, u64::MAX), (i64::MAX, 1)] {
+        let schedule = Schedule {
+            id: protocol::ScheduleId::new(),
+            revision: 0,
+            enabled: true,
+            topic: "tick".into(),
+            payload: json!(null),
+            timing: Timing::Every {
+                anchor_ms,
+                interval_ms,
+            },
+            next_ms: None,
+        };
+        assert_eq!(
+            schedules::save(db, &fixture.package.name, &schedule)
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+        let stored: Option<Schedule> = get(
+            db,
+            "dispatch_schedules",
+            &fixture.package.name,
+            "id",
+            &schedule.id.to_string(),
+        )
+        .unwrap();
+        assert!(stored.is_none());
+    }
+}
+
+#[test]
 fn callbacks_preserve_event_data_and_request_identity() {
     let fixture = Fixture::new();
     let mut handler = fixture.setup("bound");

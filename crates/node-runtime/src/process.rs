@@ -43,13 +43,15 @@ pub(crate) struct Launch {
 impl Launch {
     pub fn validate(&self) -> Result<(), Fault> {
         if self.command.trim().is_empty()
-            || self.command.len() > 64 * 1024
             || self.command.contains('\0')
-            || !(1..=900_000).contains(&self.timeout_ms)
+            || self.timeout_ms == 0
+            || Instant::now()
+                .checked_add(Duration::from_millis(self.timeout_ms))
+                .is_none()
         {
             return Err(Fault::invalid("invalid command or timeout"));
         }
-        if self.cwd.len() > 4096 || self.cwd.chars().any(char::is_control) {
+        if self.cwd.chars().any(char::is_control) {
             return Err(Fault::invalid("invalid command working directory"));
         }
         Ok(())

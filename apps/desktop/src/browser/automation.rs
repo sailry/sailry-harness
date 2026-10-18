@@ -106,17 +106,8 @@ impl Browser {
             self.tabs[index].background = *background;
             self.load_at(index, url.clone(), window, cx);
         }
-        if let Action::Input { text, .. } = &action
-            && text.len() > 16000
-        {
-            return Task::ready(Err(Fault::invalid("browser input is too large")));
-        }
-        if let Action::Wait { timeout_ms, .. } = &action
-            && !(1..=20000).contains(timeout_ms)
-        {
-            return Task::ready(Err(Fault::invalid(
-                "browser wait must be between 1 and 20000 ms",
-            )));
+        if let Action::Wait { timeout_ms: 0, .. } = &action {
+            return Task::ready(Err(Fault::invalid("browser wait timeout must be positive")));
         }
         if matches!(action, Action::Screenshot { .. }) {
             return self.screenshot(tab, window, cx);

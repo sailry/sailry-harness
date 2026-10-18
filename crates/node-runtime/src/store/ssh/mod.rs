@@ -119,12 +119,6 @@ pub(super) fn execute(
                 .filter(|r| *r <= i64::MAX as u64)
                 .ok_or_else(|| sailry_protocol::Fault::invalid("SSH profile revision exhausted"))?;
             if previous.is_none() {
-                if list(db)?.len() >= 128 {
-                    return Err(Fault::new(
-                        ErrorCode::Busy,
-                        "SSH profile capacity exhausted",
-                    ));
-                }
                 db.execute(
                     "INSERT INTO ssh_profiles(id,body,credential) VALUES(?1,?2,?3)",
                     params![
@@ -299,8 +293,10 @@ pub(super) fn prepare(
             timeout_ms,
         } => {
             if command.trim().is_empty()
-                || command.len() > 65536
-                || !(1..=3_600_000).contains(timeout_ms)
+                || *timeout_ms == 0
+                || std::time::Instant::now()
+                    .checked_add(std::time::Duration::from_millis(*timeout_ms))
+                    .is_none()
             {
                 return Err(sailry_protocol::Fault::invalid(
                     "invalid SSH command or timeout",
@@ -322,7 +318,11 @@ pub(super) fn prepare(
             timeout_ms,
         } => {
             crate::ssh::transfer::validate(transfer)?;
-            if !(1..=3_600_000).contains(timeout_ms) {
+            if *timeout_ms == 0
+                || std::time::Instant::now()
+                    .checked_add(std::time::Duration::from_millis(*timeout_ms))
+                    .is_none()
+            {
                 return Err(sailry_protocol::Fault::invalid(
                     "invalid SSH transfer timeout",
                 ));
