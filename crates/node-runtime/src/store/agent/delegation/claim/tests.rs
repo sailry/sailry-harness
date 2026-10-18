@@ -95,17 +95,19 @@ fn preserves_fifo_when_lowering_budget() {
     limit(&fixture, 2);
     let first = queued(&mut fixture, parent, 0);
     let second = queued(&mut fixture, parent, 1);
-    let third = queued(&mut fixture, parent, 2);
-    let fourth = queued(&mut fixture, parent, 3);
+    assert_eq!(claim(&mut fixture, second.id), Status::Queued);
+    assert_eq!(claim(&mut fixture, first.id), Status::Running);
+    assert_eq!(claim(&mut fixture, second.id), Status::Running);
+    finish(&mut fixture, parent);
+    let next = self::parent(&mut fixture);
+    let third = queued(&mut fixture, next, 2);
+    let fourth = queued(&mut fixture, next, 3);
     let input = runs::hydrate(
         &fixture.database.connection,
         runs::get(&fixture.database.connection, third.id).unwrap(),
     )
     .unwrap()
     .input;
-    assert_eq!(claim(&mut fixture, second.id), Status::Queued);
-    assert_eq!(claim(&mut fixture, first.id), Status::Running);
-    assert_eq!(claim(&mut fixture, second.id), Status::Running);
     runs::stop(&fixture.database.connection, first.id).unwrap();
     assert_eq!(claim(&mut fixture, third.id), Status::Queued);
     limit(&fixture, 1);
@@ -134,6 +136,53 @@ fn preserves_fifo_when_lowering_budget() {
         runs::claim(&mut fixture.database, &fixture.events)
             .unwrap()
             .is_none()
+    );
+}
+
+#[test]
+fn isolates_session_capacity_and_fifo() {
+    let mut fixture = Fixture::new();
+    let first_parent = parent(&mut fixture);
+    limit(&fixture, 1);
+    let first = queued(&mut fixture, first_parent, 0);
+    let second = queued(&mut fixture, first_parent, 1);
+    let third = queued(&mut fixture, first_parent, 2);
+    assert_eq!(claim(&mut fixture, first.id), Status::Running);
+    assert_eq!(claim(&mut fixture, second.id), Status::Queued);
+
+    let original =
+        crate::store::commands::session(&fixture.database.connection, fixture.session).unwrap();
+    let Output::Session(other) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::CreateSession {
+            project: original.project,
+            worktree: Some(original.worktree),
+            config: Some(original.config),
+        },
+    ) else {
+        panic!("session expected")
+    };
+    fixture.session = other.id;
+    let other_parent = parent(&mut fixture);
+    let other_first = queued(&mut fixture, other_parent, 0);
+    let other_second = queued(&mut fixture, other_parent, 1);
+    // Both the active count and the oldest eligible turn are session-scoped.
+    assert_eq!(claim(&mut fixture, other_second.id), Status::Queued);
+    assert_eq!(claim(&mut fixture, other_first.id), Status::Running);
+    assert_eq!(claim(&mut fixture, other_second.id), Status::Queued);
+    runs::stop(&fixture.database.connection, first.id).unwrap();
+    finish(&mut fixture, other_first.id);
+    assert_eq!(claim(&mut fixture, other_second.id), Status::Running);
+    assert_eq!(claim(&mut fixture, second.id), Status::Queued);
+    finish(&mut fixture, first.id);
+    assert_eq!(claim(&mut fixture, third.id), Status::Queued);
+    assert_eq!(claim(&mut fixture, second.id), Status::Running);
+    assert_eq!(
+        runs::get(&fixture.database.connection, other_second.id)
+            .unwrap()
+            .status,
+        Status::Running
     );
 }
 

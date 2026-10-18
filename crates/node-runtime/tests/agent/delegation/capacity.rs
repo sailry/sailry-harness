@@ -14,11 +14,11 @@ fn status(page: &Page, turn: TurnId) -> Status {
 }
 
 #[tokio::test]
-async fn shares_slots_without_blocking_parents() {
+async fn isolates_parent_budgets() {
     for remote in [false, true] {
         let release = CancellationToken::new();
         let child = Server::markdown_held("Frozen child output".into(), release.clone()).await;
-        let mut fixture = Fixture::start(remote, true, child).await;
+        let mut fixture = Fixture::start(remote, true, child, 3).await;
         fixture.capacity(1).await;
         let first = fixture.push(0).await;
         assert_eq!(
@@ -28,7 +28,7 @@ async fn shares_slots_without_blocking_parents() {
             ),
             Status::Completed
         );
-        fixture.wait(2, 1).await;
+        fixture.wait(3, 1).await;
         let second = fixture.push(1).await;
         for (index, turn) in [(0, first), (1, second)] {
             let page = finished(&fixture.client, fixture.parents[index].id, turn.id).await;
@@ -39,10 +39,13 @@ async fn shares_slots_without_blocking_parents() {
                     .all(|value| value["status"] == "queued")
             );
         }
-        let original = fixture.wait(4, 1).await;
-        assert_eq!(original[0].status, Status::Running);
-        assert!(original[1..].iter().all(|run| run.status == Status::Queued));
-        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        let original = fixture.wait(6, 2).await;
+        for group in original.as_chunks::<3>().0 {
+            assert_eq!(group[0].status, Status::Running);
+            assert!(group[1..].iter().all(|run| run.status == Status::Queued));
+        }
+        fixture.child.wait_count(2).await;
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
         let mut captures = Vec::new();
         for run in &original {
             captures.push(
@@ -75,14 +78,12 @@ async fn shares_slots_without_blocking_parents() {
             .unwrap();
         fixture.upgrade().await;
         fixture.capacity(2).await;
-        let expanded = fixture.wait(4, 2).await;
-        assert!(
-            expanded[..2]
-                .iter()
-                .all(|run| run.status == Status::Running)
-        );
-        assert!(expanded[2..].iter().all(|run| run.status == Status::Queued));
-        fixture.child.wait_count(2).await;
+        let expanded = fixture.wait(6, 4).await;
+        for group in expanded.as_chunks::<3>().0 {
+            assert!(group[..2].iter().all(|run| run.status == Status::Running));
+            assert_eq!(group[2].status, Status::Queued);
+        }
+        fixture.child.wait_count(4).await;
         fixture.capacity(1).await;
         let lowered = fixture.runs().await;
         assert_eq!(
@@ -90,9 +91,9 @@ async fn shares_slots_without_blocking_parents() {
                 .iter()
                 .filter(|run| run.status == Status::Running)
                 .count(),
-            2
+            4
         );
-        assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 4);
         release.cancel();
         for run in &original {
             let page = finished(&fixture.client, run.session, run.turn).await;
@@ -109,7 +110,7 @@ async fn shares_slots_without_blocking_parents() {
             );
         }
         let requests = fixture.child.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 4);
+        assert_eq!(requests.len(), 6);
         for request in requests {
             let text = request["messages"].to_string();
             assert!(text.contains("Frozen capacity instructions"));
@@ -124,7 +125,7 @@ async fn cancels_waiters_without_replaying() {
     for remote in [false, true] {
         let child =
             Server::markdown_held("Unreleased output".into(), CancellationToken::new()).await;
-        let mut fixture = Fixture::start(remote, false, child).await;
+        let mut fixture = Fixture::start(remote, false, child, 2).await;
         fixture.capacity(1).await;
         let parent = fixture.push(0).await;
         let runs = fixture.wait(2, 1).await;
@@ -140,6 +141,7 @@ async fn cancels_waiters_without_replaying() {
             .iter()
             .find(|run| run.status == Status::Queued)
             .unwrap();
+        fixture.child.wait_count(1).await;
         fixture
             .client
             .execute(
@@ -159,7 +161,8 @@ async fn cancels_waiters_without_replaying() {
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
         // A second root is free to admit work while the first synchronously waits.
         let second = fixture.push(1).await;
-        fixture.wait(4, 1).await;
+        fixture.wait(4, 2).await;
+        fixture.child.wait_count(2).await;
         fixture = fixture.restart().await;
         for run in fixture.runs().await {
             let expected = if run.turn == queued.turn {
@@ -178,7 +181,7 @@ async fn cancels_waiters_without_replaying() {
                 Status::Interrupted
             );
         }
-        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
         fixture.close().await;
     }
 }
@@ -186,7 +189,7 @@ async fn cancels_waiters_without_replaying() {
 #[tokio::test]
 async fn failures_release_slots() {
     for remote in [false, true] {
-        let fixture = Fixture::start(remote, false, Server::http(usize::MAX, 400).await).await;
+        let fixture = Fixture::start(remote, false, Server::http(usize::MAX, 400).await, 2).await;
         fixture.capacity(1).await;
         let turn = fixture.push(0).await;
         let page = finished(&fixture.client, fixture.parents[0].id, turn.id).await;

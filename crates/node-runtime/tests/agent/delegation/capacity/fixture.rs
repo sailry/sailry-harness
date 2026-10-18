@@ -15,7 +15,7 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
-    pub async fn start(remote: bool, background: bool, child: Server) -> Self {
+    pub async fn start(remote: bool, background: bool, child: Server, tasks: usize) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project");
         std::fs::create_dir(&root).unwrap();
@@ -38,12 +38,11 @@ impl Fixture {
         });
         let tool = plugin_tool("example", "spawn");
         let parent = Server::batch(
-            ["First task", "Second task"]
-                .into_iter()
-                .map(|task| {
+            (0..tasks)
+                .map(|index| {
                     (
                         tool.clone(),
-                        json!({"role":"review","task":task,"background":background}),
+                        json!({"role":"review","task":format!("Task {index}"),"background":background}),
                     )
                 })
                 .collect(),

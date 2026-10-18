@@ -171,6 +171,6 @@ impl Render for Host {
                 )
                 .description("background_settings_description"),
             )
-            .child(self.capacity(cx))
+            .child(self.capacity())
     }
 }

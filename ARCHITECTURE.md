@@ -398,9 +398,12 @@ losing history or changing its role, effective configuration or worktree. Idle
 reuse captures current packages and settings; initial delegation inherits the
 parent's frozen capture, and guidance retains the active recipient's capture.
 Delegation waits synchronously by default.
-Node-wide child concurrency defaults to eight and is configurable independently
-of automatic completion notices. Children exceeding the running budget remain
-durably queued with their admitted captures; they do not occupy root workers.
+Each main session has a child concurrency budget, defaulting to eight through
+the Node's shared setting, independently of automatic completion notices.
+Running children and FIFO order are scoped to their root parent session, so one
+busy conversation does not queue children from another. Children exceeding that
+budget remain durably queued with their admitted captures; they do not occupy
+root workers.
 Lowering the budget leaves existing executions running. Stop cancels queued
 work, and restart interrupts owned execution waiters without replaying calls.
 Opt-in background children remain

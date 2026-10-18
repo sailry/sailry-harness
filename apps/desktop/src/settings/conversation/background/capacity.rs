@@ -14,7 +14,7 @@ pub(super) fn input(window: &mut Window, cx: &mut Context<Host>) -> Entity<Input
         &input,
         window,
         |host, _, event: &InputEvent, window, cx| match event {
-            InputEvent::PressEnter { .. } => host.save_capacity(window, cx),
+            InputEvent::Blur | InputEvent::PressEnter { .. } => host.save_capacity(window, cx),
             InputEvent::Change => cx.notify(),
             _ => {}
         },
@@ -32,7 +32,7 @@ pub(super) fn input(window: &mut Window, cx: &mut Context<Host>) -> Entity<Input
                 input.update(cx, |input, cx| {
                     input.set_value(value.to_string(), window, cx)
                 });
-                cx.notify();
+                host.save_capacity(window, cx);
             }
         },
     )
@@ -45,27 +45,12 @@ impl Host {
         self.pending || self.saved.is_none() || self.error == Some("background_settings_unknown")
     }
 
-    pub(super) fn capacity(&self, cx: &Context<Self>) -> Row {
-        let unchanged = self.saved.as_ref().is_some_and(|saved| {
-            count(self.concurrency.read(cx).value().as_ref()) == Some(saved.child_concurrency)
-        });
+    pub(super) fn capacity(&self) -> Row {
         Row::new(
             "child_concurrency_title",
-            h_flex()
-                .gap_2()
-                .child(
-                    NumberInput::new(&self.concurrency)
-                        .w_40()
-                        .disabled(self.locked()),
-                )
-                .child(
-                    Button::new("child-concurrency-save")
-                        .label(tr("settings_save"))
-                        .disabled(self.locked() || unchanged)
-                        .on_click(
-                            cx.listener(|host, _, window, cx| host.save_capacity(window, cx)),
-                        ),
-                ),
+            NumberInput::new(&self.concurrency)
+                .w_40()
+                .disabled(self.locked()),
         )
     }
 

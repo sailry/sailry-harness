@@ -1,4 +1,4 @@
-//! The store is the sole authority for child execution slots and FIFO order.
+//! The store owns each main session's child execution slots and FIFO order.
 use super::*;
 
 #[cfg(test)]
@@ -10,20 +10,21 @@ pub(in crate::store::agent) fn claim(
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Status, Fault> {
     let mut run = runs::get(&database.connection, turn)?;
-    if origin(&database.connection, turn)?.is_none() {
-        return Err(Fault::new(
-            ErrorCode::WrongTarget,
-            "turn is not a delegated child",
-        ));
-    }
+    let association = origin(&database.connection, turn)?
+        .ok_or_else(|| Fault::new(ErrorCode::WrongTarget, "turn is not a delegated child"))?;
     if run.status != Status::Queued {
         return Ok(run.status);
     }
+    // Guidance retains the original parent turn, and later parent turns share
+    // its session identity. Neither a turn boundary nor another main session
+    // changes this execution's concurrency owner.
+    let owner = runs::get(&database.connection, association.turn)?.session;
     let tx = database.connection.transaction().map_err(storage_error)?;
     let limit = crate::store::background_settings::read(&tx)?.child_concurrency;
     let active: i64 = tx.query_row(
-        "SELECT count(*) FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn WHERE json_extract(a.body,'$.status') IN ('running','stopping')",
-        [], |row| row.get(0),
+        "SELECT count(*) FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn JOIN turns parent ON parent.id=d.parent_turn
+         WHERE parent.session=?1 AND json_extract(a.body,'$.status') IN ('running','stopping')",
+        [owner.to_string()], |row| row.get(0),
     ).map_err(storage_error)?;
     if u64::try_from(active).map_err(storage_error)? >= limit {
         return Ok(Status::Queued);
@@ -31,12 +32,12 @@ pub(in crate::store::agent) fn claim(
     // Unselected guidance still belongs to its existing queue owner. It must
     // not block unrelated children while its preceding execution is running.
     let next: Option<String> = tx.query_row(
-        "SELECT a.turn FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn JOIN turns t ON t.id=a.turn
-         WHERE a.ready=1 AND json_extract(a.body,'$.status')='queued'
+        "SELECT a.turn FROM agent_runs a JOIN agent_delegations d ON d.turn=a.turn JOIN turns t ON t.id=a.turn JOIN turns parent ON parent.id=d.parent_turn
+         WHERE parent.session=?1 AND a.ready=1 AND json_extract(a.body,'$.status')='queued'
            AND NOT EXISTS(SELECT 1 FROM agent_pending p WHERE p.turn=a.turn)
            AND NOT EXISTS(SELECT 1 FROM agent_runs running JOIN turns current ON current.id=running.turn WHERE current.session=t.session AND json_extract(running.body,'$.status') IN ('running','stopping'))
          ORDER BY t.rowid LIMIT 1",
-        [], |row| row.get(0),
+        [owner.to_string()], |row| row.get(0),
     ).optional().map_err(storage_error)?;
     if next != Some(turn.to_string()) {
         return Ok(Status::Queued);
