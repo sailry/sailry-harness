@@ -23,6 +23,7 @@ struct Editor {
     discovery: Option<Discovery>,
     selected: BTreeSet<usize>,
     completed: BTreeSet<usize>,
+    scroll: ScrollHandle,
     request: Option<(usize, Request)>,
     pending: bool,
     generation: u64,
@@ -95,6 +96,7 @@ fn open_source(
             discovery: None,
             selected: BTreeSet::new(),
             completed: BTreeSet::new(),
+            scroll: ScrollHandle::default(),
             request: None,
             pending: false,
             generation: 0,
@@ -119,6 +121,7 @@ impl Editor {
     }
 
     fn invalidate(&mut self) {
+        self.scroll.set_offset(point(px(0.), px(0.)));
         self.generation = self.generation.wrapping_add(1);
         self.discovery = None;
         self.selected.clear();

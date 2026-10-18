@@ -23,7 +23,10 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                     editor.dialog.dismissed();
                 })
             })
-            .child(editor.clone())
+            .content({
+                let editor = editor.clone();
+                move |content, _, _| content.min_h_0().overflow_hidden().child(editor.clone())
+            })
             .footer(
                 DialogFooter::new()
                     .w_full()
@@ -77,9 +80,9 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
 impl Render for Editor {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let locked = self.pending || self.request.is_some();
-        v_flex()
+        let source = v_flex()
+            .flex_shrink_0()
             .gap_3()
-            .debug_selector(|| "skill-install-editor".into())
             .child(
                 TabBar::new("skill-install-sources")
                     .segmented()
@@ -166,88 +169,109 @@ impl Render for Editor {
                             )
                         }),
                 )
-            })
+            });
+        v_flex()
+            .flex_1()
+            .min_h_0()
+            .gap_3()
+            .debug_selector(|| "skill-install-editor".into())
+            .child(source)
             .when_some(self.discovery.as_ref(), |view, discovery| {
                 view.child(
                     v_flex()
                         .id("skill-candidates")
                         .w_full()
                         .min_w_0()
+                        .min_h_0()
                         .max_h(px(280.))
-                        .overflow_y_scrollbar()
+                        .overflow_y_scroll()
+                        .track_scroll(&self.scroll)
                         .child(
-                            Group::new("skills_candidates")
-                                .outline()
-                                .heading(false)
-                                .empty(IconName::Inbox, "skills_no_candidates")
-                                .children(discovery.skills().iter().enumerate().map(
-                                    |(index, candidate)| {
-                                        let completed = self.completed.contains(&index);
-                                        let installed = self
-                                            .known
-                                            .iter()
-                                            .any(|known| known.name == candidate.name);
-                                        let checked = self.selected.contains(&index);
-                                        Entry::new(
-                                            format!("skill-result-{index}"),
-                                            v_flex()
-                                                .min_w_0()
-                                                .gap_1()
-                                                .child(
-                                                    div()
-                                                        .debug_selector(move || {
-                                                            format!("skill-title-{index}")
-                                                        })
-                                                        .font_medium()
-                                                        .whitespace_normal()
-                                                        .child(candidate.skill.name.clone()),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .debug_selector(move || {
-                                                            format!("skill-description-{index}")
-                                                        })
-                                                        .text_sm()
-                                                        .text_color(cx.theme().muted_foreground)
-                                                        .whitespace_normal()
-                                                        .child(candidate.skill.description.clone()),
-                                                )
-                                                .when(installed, |view| {
-                                                    view.child(
+                            div().flex_shrink_0().child(
+                                Group::new("skills_candidates")
+                                    .outline()
+                                    .heading(false)
+                                    .empty(IconName::Inbox, "skills_no_candidates")
+                                    .children(discovery.skills().iter().enumerate().map(
+                                        |(index, candidate)| {
+                                            let completed = self.completed.contains(&index);
+                                            let installed = self
+                                                .known
+                                                .iter()
+                                                .any(|known| known.name == candidate.name);
+                                            let checked = self.selected.contains(&index);
+                                            Entry::new(
+                                                format!("skill-result-{index}"),
+                                                v_flex()
+                                                    .min_w_0()
+                                                    .gap_1()
+                                                    .child(
                                                         div()
-                                                            .text_xs()
-                                                            .text_color(cx.theme().muted_foreground)
-                                                            .child(tr("skills_already_installed")),
+                                                            .debug_selector(move || {
+                                                                format!("skill-title-{index}")
+                                                            })
+                                                            .font_medium()
+                                                            .whitespace_normal()
+                                                            .child(candidate.skill.name.clone()),
                                                     )
-                                                }),
-                                        )
-                                        .control(
-                                            div()
-                                                .debug_selector(move || {
-                                                    format!("skill-candidate-{index}")
-                                                })
-                                                .child(
-                                                    Checkbox::new(("skill-candidate", index))
-                                                        .accessibility_label(
-                                                            candidate.skill.name.clone(),
+                                                    .child(
+                                                        div()
+                                                            .debug_selector(move || {
+                                                                format!("skill-description-{index}")
+                                                            })
+                                                            .text_sm()
+                                                            .text_color(cx.theme().muted_foreground)
+                                                            .whitespace_normal()
+                                                            .child(
+                                                                candidate.skill.description.clone(),
+                                                            ),
+                                                    )
+                                                    .when(installed, |view| {
+                                                        view.child(
+                                                            div()
+                                                                .text_xs()
+                                                                .text_color(
+                                                                    cx.theme().muted_foreground,
+                                                                )
+                                                                .child(tr(
+                                                                    "skills_already_installed",
+                                                                )),
                                                         )
-                                                        .checked(checked)
-                                                        .disabled(locked || completed)
-                                                        .on_click(cx.listener(
-                                                            move |editor, checked, _, cx| {
-                                                                if *checked {
-                                                                    editor.selected.insert(index);
-                                                                } else {
-                                                                    editor.selected.remove(&index);
-                                                                }
-                                                                cx.notify();
-                                                            },
-                                                        )),
-                                                ),
-                                        )
-                                    },
-                                )),
-                        ),
+                                                    }),
+                                            )
+                                            .control(
+                                                div()
+                                                    .debug_selector(move || {
+                                                        format!("skill-candidate-{index}")
+                                                    })
+                                                    .child(
+                                                        Checkbox::new(("skill-candidate", index))
+                                                            .accessibility_label(
+                                                                candidate.skill.name.clone(),
+                                                            )
+                                                            .checked(checked)
+                                                            .disabled(locked || completed)
+                                                            .on_click(cx.listener(
+                                                                move |editor, checked, _, cx| {
+                                                                    if *checked {
+                                                                        editor
+                                                                            .selected
+                                                                            .insert(index);
+                                                                    } else {
+                                                                        editor
+                                                                            .selected
+                                                                            .remove(&index);
+                                                                    }
+                                                                    cx.notify();
+                                                                },
+                                                            )),
+                                                    ),
+                                            )
+                                        },
+                                    )),
+                            ),
+                        )
+                        .vertical_scrollbar(&self.scroll),
                 )
             })
             .when(self.discovery.is_some(), |view| {
