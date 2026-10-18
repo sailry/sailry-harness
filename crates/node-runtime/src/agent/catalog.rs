@@ -1,5 +1,7 @@
 //! Registration separates tool execution from its controller-facing presentation.
 use adk_core::Tool;
+use sailry_link::CancellationToken;
+mod arguments;
 use sailry_protocol::Fault;
 use sailry_protocol::tool::Presentation;
 use std::{collections::BTreeMap, sync::Arc};
@@ -44,18 +46,34 @@ impl From<Arc<dyn Tool>> for Registration {
     }
 }
 
-#[derive(Default)]
 pub(super) struct Catalog {
+    session: String,
+    stop: CancellationToken,
     presentations: BTreeMap<String, Presentation>,
     groupings: BTreeMap<String, sailry_protocol::tool::Grouping>,
     displays: BTreeMap<String, sailry_protocol::tool::Display>,
 }
 
 impl Catalog {
+    pub fn new(session: String, stop: CancellationToken) -> Self {
+        Self {
+            session,
+            stop,
+            presentations: BTreeMap::new(),
+            groupings: BTreeMap::new(),
+            displays: BTreeMap::new(),
+        }
+    }
+
     pub fn register(&mut self, registration: Registration) -> Result<Arc<dyn Tool>, Fault> {
         if self.presentations.contains_key(registration.tool.name()) {
             return Err(Fault::invalid("tool registration has a duplicate name"));
         }
+        let tool = arguments::Validated::bind(
+            registration.tool.clone(),
+            self.session.clone(),
+            self.stop.clone(),
+        )?;
         self.groupings
             .insert(registration.tool.name().into(), registration.grouping);
         if let Some((name, display)) = registration.display {
@@ -63,7 +81,7 @@ impl Catalog {
         }
         self.presentations
             .insert(registration.tool.name().into(), registration.presentation);
-        Ok(registration.tool)
+        Ok(tool)
     }
 
     pub fn groupings(&self) -> BTreeMap<String, sailry_protocol::tool::Grouping> {

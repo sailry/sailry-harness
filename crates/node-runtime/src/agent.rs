@@ -440,7 +440,7 @@ async fn execute_with(
         &extensions.tools,
         stop.clone(),
     );
-    let mut catalog = catalog::Catalog::default();
+    let mut catalog = catalog::Catalog::new(invocation.turn.session.to_string(), stop.clone());
     let bindings = approval::bindings(&invocation, &extensions.tools)?;
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         .model(model.clone())

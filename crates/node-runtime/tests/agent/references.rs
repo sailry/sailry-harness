@@ -146,7 +146,10 @@ async fn reads_selected_history_through_tools() {
         assert!(results[4].to_string().contains("First decision"));
         assert!(results[4].to_string().contains("Second decision"));
         assert!(results[4]["page"]["next_before"].is_null());
-        assert!(results[5].to_string().contains("conversation was not referenced"));
+        assert_eq!(
+            results[5],
+            json!({"isError":true,"error":{"code":"invalid_request","message":"Invalid tool arguments: /session: expected a declared option"}})
+        );
         {
             let requests = reader.requests.lock().unwrap();
             assert_eq!(requests.len(), 7);

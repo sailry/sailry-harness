@@ -55,7 +55,7 @@ async fn rejects_public_session_substitution() {
     let names = ["list_apps", "list_windows"];
     let success = driver::result(json!({"apps":[],"windows":[]}));
     let refusal = json!({"error":{"code":"invalid_request",
-        "message":"computer argument session is not supported"},"isError":true});
+        "message":"Invalid tool arguments: /: unsupported field"},"isError":true});
     for remote in [false, true] {
         let mut retained: Option<Fixture> = None;
         for label in ["wechat-hello", ""] {
