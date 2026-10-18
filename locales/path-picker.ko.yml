@@ -1,0 +1,8 @@
+path_picker_choose: "선택"
+path_picker_replace: "변경"
+path_picker_remove: "제거"
+path_picker_empty: "선택 안 됨"
+path_picker_drop_hint: "또는 여기에 끌어다 놓기"
+path_picker_release: "놓아서 추가"
+path_picker_unsupported: "지원하지 않는 형식입니다"
+path_picker_target: "%{name}에 업로드"

@@ -1,57 +1,54 @@
 use super::*;
+use crate::ui::path_picker::{Kind, PathPicker, Picked};
 use std::{io::Read, path::PathBuf};
 
 pub(super) struct Imported {
-    pub name: SharedString,
+    pub path: PathBuf,
     pub key: Secret,
 }
 
 impl Editor {
-    pub(super) fn key_file_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        Button::new("ssh-key-file")
-            .debug_selector(|| "ssh-key-file".into())
-            .w_full()
-            .icon(IconName::Folder)
-            .label(
-                self.file
-                    .as_ref()
-                    .map(|file| file.name.clone())
-                    .unwrap_or_else(|| tr("ssh_key_choose")),
-            )
-            .disabled(self.locked || self.picking)
-            .on_click(cx.listener(|this, _, window, cx| this.choose_key(window, cx)))
+    pub(super) fn key_file_field(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div().debug_selector(|| "ssh-key-file".into()).child(
+            PathPicker::new("ssh-key-file")
+                .kind(Kind::File)
+                .label("ssh_key_choose")
+                .compact(true)
+                .value(
+                    self.file
+                        .as_ref()
+                        .map(|file| Picked::new(file.path.clone())),
+                )
+                .busy(self.picking)
+                .disabled(self.locked)
+                .on_pick(cx.listener(|this, path: &PathBuf, window, cx| {
+                    this.load_key(path.clone(), window, cx)
+                }))
+                .on_clear(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    if !this.locked && !this.picking {
+                        this.file = None;
+                        cx.notify();
+                    }
+                })),
+        )
     }
 
-    fn choose_key(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn load_key(&mut self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if self.locked || self.picking {
             return;
         }
         self.picking = true;
         self.file_error = None;
-        let selected = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(tr("ssh_key_choose")),
-        });
-        let executor = cx.background_executor().clone();
+        let read = cx.background_executor().spawn(async move { read(path) });
         cx.spawn_in(window, async move |this, cx| {
-            let result = match selected.await {
-                Ok(Ok(Some(paths))) => match paths.into_iter().next() {
-                    Some(path) => executor.spawn(async move { read(path) }).await.map(Some),
-                    None => Ok(None),
-                },
-                Ok(Ok(None)) => Ok(None),
-                _ => Err("ssh_key_read_failed"),
-            };
+            let result = read.await;
             let _ = this.update_in(cx, |this, _, cx| {
                 this.picking = false;
                 match result {
-                    Ok(Some(file)) => {
+                    Ok(file) => {
                         this.file = Some(file);
                         this.invalid = false;
                     }
-                    Ok(None) => {}
                     Err(error) => this.file_error = Some(error),
                 }
                 cx.notify();
@@ -81,7 +78,7 @@ fn read(path: PathBuf) -> Result<Imported, &'static str> {
     // Import credentials into the execution Node's existing protected storage.
     // A controller-local path must never be interpreted on a remote Node.
     Ok(Imported {
-        name: path.to_string_lossy().into_owned().into(),
+        path,
         key: Secret::new(contents),
     })
 }

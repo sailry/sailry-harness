@@ -308,7 +308,7 @@ impl Render for Editor {
             form = form.child(
                 Field::new()
                     .label(tr("ssh_key_path"))
-                    .child(self.key_file_button(cx)),
+                    .child(self.key_file_field(cx)),
             );
         } else if self.authentication != Authentication::Agent {
             form = form.child(

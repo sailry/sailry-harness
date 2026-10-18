@@ -1,0 +1,8 @@
+path_picker_choose: "Choisir"
+path_picker_replace: "Changer"
+path_picker_remove: "Retirer"
+path_picker_empty: "Aucune sélection"
+path_picker_drop_hint: "ou déposez-le ici"
+path_picker_release: "Relâchez pour ajouter"
+path_picker_unsupported: "Ce type n’est pas pris en charge"
+path_picker_target: "Envoyer vers %{name}"

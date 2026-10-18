@@ -7,6 +7,7 @@ pub(crate) mod keys;
 pub(crate) mod loading;
 mod motion;
 pub(crate) mod overlays;
+pub(crate) mod path_picker;
 pub(crate) mod pending;
 pub(crate) mod session_preview;
 pub(crate) mod settings_page;

@@ -1,0 +1,8 @@
+path_picker_choose: "Choose"
+path_picker_replace: "Change"
+path_picker_remove: "Remove"
+path_picker_empty: "None selected"
+path_picker_drop_hint: "or drop it here"
+path_picker_release: "Release to add"
+path_picker_unsupported: "This type isn't supported"
+path_picker_target: "Upload to %{name}"

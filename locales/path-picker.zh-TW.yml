@@ -1,0 +1,8 @@
+path_picker_choose: "選擇"
+path_picker_replace: "更換"
+path_picker_remove: "移除"
+path_picker_empty: "未選擇"
+path_picker_drop_hint: "或拖到這裡"
+path_picker_release: "放開以新增"
+path_picker_unsupported: "不支援這個類型"
+path_picker_target: "上傳到 %{name}"
