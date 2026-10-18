@@ -311,6 +311,8 @@ pub enum Command {
     InstallHost {
         profile: crate::SshId,
         expected_revision: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        network: Option<crate::network::Selection>,
     },
     UpdateSshHost {
         profile: crate::SshId,
@@ -795,6 +797,11 @@ pub enum Command {
         paused: bool,
     },
     ReadTerminalSettings,
+    ReadNetworkSettings,
+    SaveNetworkSettings {
+        expected_revision: u64,
+        selection: crate::network::Selection,
+    },
     ReadBackgroundSettings,
     SaveBackgroundSettings(crate::conversation::background::Settings),
     ReadSandboxSettings,
@@ -1520,6 +1527,7 @@ impl Command {
                 | Self::ListCommands { .. }
                 | Self::ReadCommand { .. }
                 | Self::ReadTerminalSettings
+                | Self::ReadNetworkSettings
                 | Self::ReadBackgroundSettings
                 | Self::ReadSandboxSettings
                 | Self::ReadSearchSettings
@@ -1819,6 +1827,7 @@ pub enum Output {
     QueuedMessage(crate::conversation::QueuedMessage),
     Terminal(crate::terminal::Info),
     TerminalSettings(crate::terminal::Settings),
+    NetworkSettings(crate::network::Settings),
     BackgroundSettings(crate::conversation::background::Settings),
     SandboxSettings(crate::sandbox::Settings),
     SearchSettings(crate::search::Settings),

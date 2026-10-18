@@ -1,7 +1,50 @@
 //! Dialog-owned debounce and code observation; Link owns live relay configuration.
 use super::*;
+use sailry_client::Client;
 use sailry_link::rendezvous::ShareState;
+use sailry_protocol::{Command, ErrorCode, Fault, Output, network::Settings};
 use std::time::Duration;
+
+async fn prepare(
+    client: &Client,
+    selection: RelaySelection,
+    stop: &CancellationToken,
+) -> Result<(), Fault> {
+    let Output::NetworkSettings(current) = client
+        .execute(client.prepare(Command::ReadNetworkSettings))
+        .await?
+    else {
+        return Err(Fault::invalid("network settings response expected"));
+    };
+    let selection = edit::preserve_relays(edit::desired(selection), &current);
+    if current.selection.as_ref() == Some(&selection)
+        && current.effective.as_ref() == Some(&selection)
+    {
+        return Ok(());
+    }
+    if stop.is_cancelled() {
+        return Err(Fault::new(
+            ErrorCode::Unavailable,
+            "pairing preparation cancelled",
+        ));
+    }
+    let Output::NetworkSettings(Settings { effective, .. }) = client
+        .execute(client.prepare(Command::SaveNetworkSettings {
+            expected_revision: current.revision,
+            selection: selection.clone(),
+        }))
+        .await?
+    else {
+        return Err(Fault::invalid("network settings response expected"));
+    };
+    if effective.as_ref() != Some(&selection) {
+        return Err(Fault::new(
+            ErrorCode::OutcomeUnknown,
+            "network selection could not be confirmed",
+        ));
+    }
+    Ok(())
+}
 
 impl Connections {
     pub(super) fn share(&mut self, cx: &mut Context<Self>) {
@@ -30,13 +73,13 @@ impl Connections {
             if stop.is_cancelled() {
                 return;
             }
-            let link = services.link.clone();
+            let local = Client::new(services.local.clone());
             let chosen = selection.clone();
             let token = stop.clone();
             let enabled = services.relay_enabled;
             let probe = services.runtime.spawn(async move {
                 if enabled {
-                    link.select_relays(chosen, token).await
+                    prepare(&local, chosen, &token).await
                 } else {
                     Ok(())
                 }
@@ -55,20 +98,15 @@ impl Connections {
                     view.status = tr("pairing_idle");
                     view.relay_feedback = Some(if matches!(probe, Ok(Err(ref error)) if error.code == sailry_protocol::ErrorCode::InvalidRequest) {
                         "pairing_relay_invalid"
+                    } else if matches!(probe, Ok(Err(ref error)) if matches!(error.code, ErrorCode::OutcomeUnknown | ErrorCode::Unavailable)) {
+                        "host_network_unknown"
                     } else {
                         "pairing_relay_failed"
                     });
                 } else {
                     view.status = tr("pairing_preparing");
-                    if enabled {
-                        let custom = match &selection {
-                            RelaySelection::Default => None,
-                            RelaySelection::Custom(urls) => Some(urls.clone()),
-                        };
-                        crate::preferences::update(cx, |data| data.iroh_relays = custom);
-                        if matches!(selection, RelaySelection::Custom(_)) {
-                            view.relay_feedback = Some("pairing_relay_ready");
-                        }
+                    if enabled && matches!(selection, RelaySelection::Custom(_)) {
+                        view.relay_feedback = Some("pairing_relay_ready");
                     }
                 }
                 cx.notify();

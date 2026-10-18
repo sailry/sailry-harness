@@ -7,6 +7,19 @@ use sailry_protocol::{
 use serde::de::DeserializeOwned;
 
 pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+    if db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='network_settings')",
+        [],
+        |row| row.get::<_, bool>(0),
+    )? {
+        records::<crate::store::network::Stored>(
+            db,
+            "network_settings.body",
+            "SELECT body FROM network_settings",
+        )?;
+        crate::store::network::validate_stored(db)
+            .map_err(|_| Error::Worker("incompatible stored network configuration".into()))?;
+    }
     records::<sailry_protocol::artifact::Summary>(
         db,
         "artifacts.body",

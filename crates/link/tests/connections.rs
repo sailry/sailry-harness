@@ -62,3 +62,62 @@ async fn follows_disconnect_and_reconnect() {
     host.close().await.unwrap();
     controller.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn follows_fresh_peer_addresses() {
+    let directory = tempfile::tempdir().unwrap();
+    let host_path = directory.path().join("host");
+    let mut host = Link::controller(&host_path, NetworkScope::default())
+        .await
+        .unwrap();
+    let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
+        .await
+        .unwrap();
+    let handle = controller.handle();
+    let target = handle
+        .pair(host.handle().invite().unwrap().ticket())
+        .await
+        .unwrap();
+    let peer = NodeId(*target.id.as_bytes());
+    let remote = handle.remote(target.clone());
+    for _ in 0..2 {
+        // Reserve a distinct port while the previous endpoint is still bound.
+        let reservation = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let bind = reservation.local_addr().unwrap();
+        assert!(
+            !host
+                .handle()
+                .address()
+                .ip_addrs()
+                .any(|address| *address == bind)
+        );
+        host.close().await.unwrap();
+        handle.disconnect(peer).await;
+        drop(reservation);
+        host = Link::controller(&host_path, NetworkScope::Direct(bind))
+            .await
+            .unwrap();
+        let fresh = host.handle().address();
+        assert_eq!(fresh.id, target.id);
+        assert!(fresh.ip_addrs().any(|address| *address == bind));
+        handle.inspect(&fresh).await.unwrap();
+        handle.update_peer(fresh).await.unwrap();
+        handle.disconnect(peer).await;
+        let stop = CancellationToken::new();
+        let (sender, mut receiver) = watch::channel(ConnectionInfo::default());
+        let task = tokio::spawn({
+            let remote = remote.clone();
+            let stop = stop.clone();
+            async move { remote.watch_connection(sender, stop).await }
+        });
+        until(&mut receiver, Some(Route::P2p)).await;
+        stop.cancel();
+        tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(*receiver.borrow(), ConnectionInfo::default());
+    }
+    host.close().await.unwrap();
+    controller.close().await.unwrap();
+}

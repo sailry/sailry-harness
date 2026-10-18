@@ -11,9 +11,12 @@ impl Connections {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !sharing {
+            crate::hosts::open_add(window, cx);
+            return;
+        }
         self.cancel(cx);
-        self.sharing = sharing;
-        self.pin.update(cx, |pin, cx| pin.set_value("", window, cx));
+        self.sharing = true;
         let owner = cx.entity().downgrade();
         let closing = owner.clone();
         window.open_dialog(cx, move |dialog, window, cx| {
@@ -21,20 +24,7 @@ impl Connections {
                 return dialog;
             };
             dialog
-                .map(|dialog| {
-                    if sharing {
-                        dialog.p_6().title(
-                            div()
-                                .w_full()
-                                .text_center()
-                                .text_xl()
-                                .font_semibold()
-                                .child(tr("pairing_local_code")),
-                        )
-                    } else {
-                        dialog.form_title(tr("connections_pair"), cx)
-                    }
-                })
+                .form_title(tr("pairing_local_code"), cx)
                 .w(px(400.).min(window.viewport_size().width - px(48.)))
                 .overlay_closable(false)
                 .on_close({
@@ -48,55 +38,72 @@ impl Connections {
                         });
                     }
                 })
-                .child(owner.update(cx, |this, cx| {
-                    let mut body = v_flex().items_center().gap_3().py_5();
-                    if sharing {
-                        body = this.shared_code(window, cx);
-                    } else {
-                        body = body.child(
-                            OtpInput::new(&this.pin)
-                                .groups(2)
-                                .large()
-                                .disabled(this.stop.is_some()),
-                        );
-                    }
-                    body
-                }))
-                .when(!sharing, |dialog| {
-                    dialog.footer(owner.update(cx, |this, cx| {
-                        DialogFooter::new()
-                            .child(
-                                Button::new("pairing-cancel")
-                                    .debug_selector(|| "pairing-cancel".into())
-                                    .label(tr("settings_cancel"))
-                                    .on_click(cx.listener(|this, _, window, cx| {
-                                        this.cancel(cx);
-                                        this.dialog = None;
-                                        window.close_dialog(cx);
-                                    })),
-                            )
-                            .when(!sharing, |footer| {
-                                footer.child(
-                                    Button::new("pairing-connect")
-                                        .debug_selector(|| "pairing-connect".into())
-                                        .primary()
-                                        .label(tr("pairing_connect"))
-                                        .loading(this.stop.is_some())
-                                        .disabled(
-                                            this.stop.is_some()
-                                                || this.pin.read(cx).value().len() != 6,
-                                        )
-                                        .on_click(cx.listener(|this, _, _, cx| this.pair(cx))),
-                                )
-                            })
-                    }))
-                })
+                .child(owner.update(cx, |this, cx| this.shared_code(window, cx)))
         });
         self.dialog = window.focused(cx);
-        if sharing {
-            self.share(cx);
-        }
+        self.share(cx);
     }
+
+    pub(crate) fn pairing_body(&self, cx: &App) -> Div {
+        v_flex()
+            .w_full()
+            .items_center()
+            .gap_3()
+            .py_5()
+            .child(
+                OtpInput::new(&self.pin)
+                    .groups(2)
+                    .large()
+                    .disabled(self.stop.is_some()),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(tr("host_pairing_hint")),
+            )
+    }
+
+    pub(crate) fn target_network_fields(&self, disabled: bool, cx: &App) -> Div {
+        relay::controls(&self.relay_select, &self.relay_address, disabled, cx)
+    }
+
+    pub(crate) fn target_network(&self, cx: &App) -> Option<sailry_protocol::network::Selection> {
+        self.relay_selection(cx)
+            .filter(|selection| selection.validate().is_ok())
+            .map(edit::desired)
+    }
+
+    pub(crate) fn pairing_pending(&self) -> bool {
+        self.stop.is_some()
+    }
+
+    pub(crate) fn pairing_footer(&self, cx: &mut Context<Self>) -> DialogFooter {
+        DialogFooter::new()
+            .child(
+                Button::new("pairing-cancel")
+                    .debug_selector(|| "pairing-cancel".into())
+                    .label(tr("settings_cancel"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.cancel(cx);
+                        window.close_dialog(cx);
+                    })),
+            )
+            .child(
+                Button::new("pairing-connect")
+                    .debug_selector(|| "pairing-connect".into())
+                    .primary()
+                    .label(tr("pairing_connect"))
+                    .loading(self.stop.is_some())
+                    .disabled(
+                        self.stop.is_some()
+                            || self.pin.read(cx).value().len() != 6
+                            || self.target_network(cx).is_none(),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.pair(cx))),
+            )
+    }
+
     fn shared_code(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let width = ((window.viewport_size().width - px(96.) - px(40.)) / 6.).min(px(48.));
         let body = v_flex()

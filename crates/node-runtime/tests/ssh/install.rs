@@ -206,6 +206,7 @@ async fn rejects_unverified_installer_without_replay() {
         let request = client.prepare(Command::InstallHost {
             profile: profile.id,
             expected_revision: profile.revision,
+            network: None,
         });
         let fault = client.execute(request.clone()).await.unwrap_err();
         assert_eq!(fault.code, ErrorCode::Unavailable);
@@ -274,6 +275,7 @@ async fn deploys_and_pairs() {
             Command::InstallHost {
                 profile: profile.id,
                 expected_revision: profile.revision,
+                network: None,
             },
         )
         .await;
@@ -286,6 +288,7 @@ async fn deploys_and_pairs() {
         let request = client.prepare(Command::InstallHost {
             profile: profile.id,
             expected_revision: profile.revision,
+            network: None,
         });
         let install = client.execute(request.clone());
         tokio::pin!(install);
@@ -468,4 +471,139 @@ exec /bin/launchctl "$@"
     )
     .unwrap();
     std::fs::set_permissions(launchctl, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[tokio::test]
+async fn preserves_uncertain_installation_outcomes() {
+    use sailry_protocol::network::Selection;
+    use sha2::Digest as _;
+    use std::os::unix::fs::PermissionsExt;
+    for (remote, failed) in [(false, false), (true, false), (false, true), (true, true)] {
+        let directory = tempfile::tempdir().unwrap();
+        downloads(directory.path());
+        let node = Node::start_empty(directory.path().join("execution"))
+            .await
+            .unwrap();
+        let target = Node::start_empty(directory.path().join("target"))
+            .await
+            .unwrap();
+        let invitation = target.link().invite().unwrap();
+        let bootstrap = directory.path().join(".sailry-host");
+        std::fs::create_dir(&bootstrap).unwrap();
+        std::fs::write(bootstrap.join("bootstrap.ticket"), invitation.ticket()).unwrap();
+        // Replace only the downloaded release installer; SSH, pairing, and the
+        // target's real direct-only network service still execute normally.
+        let version = env!("SAILRY_HOST_VERSION");
+        let installer = format!(
+            "#!/bin/sh\nset -eu\ntest \"$#\" = 3\ntest \"$1\" = --version\ntest \"$2\" = '{version}'\ntest \"$3\" = --internet\nprintf installed >> \"$HOME/install-calls\"\n"
+        );
+        let installer = if failed {
+            format!("{installer}exit 1\n")
+        } else {
+            installer
+        };
+        let asset = directory.path().join(".fixture/assets/install-host.sh");
+        std::fs::write(&asset, &installer).unwrap();
+        std::fs::set_permissions(&asset, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(
+            directory
+                .path()
+                .join(".fixture/assets/SHA256SUMS-installer"),
+            format!(
+                "{:x}  install-host.sh\n",
+                sha2::Sha256::digest(installer.as_bytes())
+            ),
+        )
+        .unwrap();
+        let server = server::Server::deployment(directory.path().into(), 64).await;
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let pairing = node.link().invite().unwrap();
+        let address = controller.handle().pair(pairing.ticket()).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let profile = save(
+            &client,
+            profile(server.port),
+            Some(Credential::Password {
+                password: Secret::new("isolated-ssh-password".into()),
+            }),
+        )
+        .await;
+        let profile = trust(&client, &profile, &server.key).await;
+        for selection in [
+            Selection::Custom { relays: vec![] },
+            Selection::Custom {
+                relays: vec!["http://relay.example".into()],
+            },
+        ] {
+            let error = client
+                .execute(client.prepare(Command::InstallHost {
+                    profile: profile.id,
+                    expected_revision: profile.revision,
+                    network: Some(selection),
+                }))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert!(server.commands.lock().unwrap().is_empty());
+            assert_eq!(server.authentication.load(Ordering::SeqCst), 0);
+        }
+        let request = client.prepare(Command::InstallHost {
+            profile: profile.id,
+            expected_revision: profile.revision,
+            network: Some(Selection::Iroh),
+        });
+        let admission = client.dispatch(request.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        let result = admission.completion.await.unwrap();
+        if failed {
+            let error = result.unwrap_err();
+            assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+            assert_eq!(client.execute(request).await.unwrap_err(), error);
+        } else {
+            let result = result.unwrap();
+            assert_eq!(
+                result,
+                Output::SshOutcome(Outcome::HostNetworkUnconfirmed {
+                    node: target.id(),
+                    selection: Selection::Iroh
+                })
+            );
+            assert_ne!(target.id(), node.id());
+            assert_eq!(client.execute(request).await.unwrap(), result);
+            assert!(
+                node.link()
+                    .peers()
+                    .await
+                    .unwrap()
+                    .iter()
+                    .any(|address| address.id.as_bytes() == &target.id().0)
+            );
+            let target_client = Client::new(node.link().remote(target.link().address()));
+            let Output::NetworkSettings(settings) = target_client
+                .execute(target_client.prepare(Command::ReadNetworkSettings))
+                .await
+                .unwrap()
+            else {
+                panic!("network settings expected");
+            };
+            assert_eq!(settings.revision, 0);
+            assert_eq!(settings.selection, None);
+            assert_eq!(settings.effective, None);
+        }
+        assert_eq!(
+            std::fs::read(directory.path().join("install-calls")).unwrap(),
+            b"installed"
+        );
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+        target.shutdown().await.unwrap();
+        server.close().await;
+    }
 }

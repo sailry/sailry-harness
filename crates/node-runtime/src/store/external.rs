@@ -3,6 +3,7 @@ use sailry_protocol::{NodeId, Request};
 use tokio::sync::oneshot;
 
 pub(super) enum Work {
+    Network(super::network::Execution),
     PluginExecution(super::plugins::execution::Execution),
     Login(super::login::Operation),
     Process(super::processes::Execution),

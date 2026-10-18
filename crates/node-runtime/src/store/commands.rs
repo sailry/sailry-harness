@@ -195,6 +195,10 @@ pub(super) fn execute(
             None,
         )),
         Command::SaveTerminalSettings(settings) => super::terminals::settings::save(db, settings),
+        Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. } => Err(Fault::new(
+            ErrorCode::Internal,
+            "network configuration requires the Link worker",
+        )),
         Command::ReadBackgroundSettings => Ok((
             Output::BackgroundSettings(super::background_settings::read(db)?),
             None,

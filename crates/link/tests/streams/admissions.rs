@@ -57,6 +57,7 @@ fn installation(target: NodeId) -> Request {
         Command::InstallHost {
             profile: SshId::new(),
             expected_revision: 1,
+            network: None,
         },
     )
 }

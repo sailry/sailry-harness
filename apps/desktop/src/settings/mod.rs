@@ -2,6 +2,8 @@ mod appearance;
 mod backup;
 mod catalog;
 mod connections;
+pub(crate) use connections::Connections as Pairing;
+pub(crate) use connections::edit::open as edit_host_network;
 mod conversation;
 mod dictation;
 mod draft;

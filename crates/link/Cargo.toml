@@ -9,6 +9,9 @@ license.workspace = true
 [lib]
 doctest = false
 
+[features]
+test-support = []
+
 [dependencies]
 sailry-protocol.workspace = true
 tokio.workspace = true

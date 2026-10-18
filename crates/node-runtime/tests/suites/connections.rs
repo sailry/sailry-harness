@@ -5,6 +5,8 @@
 #[path = "../support/files.rs"]
 mod file_fixture;
 
+#[path = "../network.rs"]
+mod network;
 #[path = "../pairing.rs"]
 mod pairing;
 #[path = "../ports.rs"]

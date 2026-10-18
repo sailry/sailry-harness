@@ -27,6 +27,7 @@ pub(crate) struct Editor {
     key: Entity<TextareaState>,
     passphrase: Entity<InputState>,
     pub locked: bool,
+    pub(super) show_authentication: bool,
     pub action: &'static str,
     invalid: bool,
     file: Option<key_file::Imported>,
@@ -36,6 +37,34 @@ pub(crate) struct Editor {
 impl EventEmitter<Event> for Editor {}
 
 impl Editor {
+    pub(super) fn blocked(&self) -> bool {
+        self.locked || self.picking
+    }
+
+    pub(super) fn select_authentication(
+        &mut self,
+        authentication: Authentication,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.blocked() {
+            return;
+        }
+        self.authentication = authentication;
+        self.secret.update(cx, |input, cx| {
+            input.set_placeholder(
+                tr(if authentication == Authentication::KeyPath {
+                    "form_key_path_hint"
+                } else {
+                    "form_password_hint"
+                }),
+                window,
+                cx,
+            )
+        });
+        cx.notify();
+    }
+
     pub(super) fn saved(&mut self, profile: Profile) {
         self.original = profile;
     }
@@ -126,6 +155,7 @@ impl Editor {
                     .placeholder(tr("form_passphrase_hint"))
             }),
             locked: false,
+            show_authentication: true,
             action: "settings_save",
             invalid: false,
             file: None,
@@ -262,22 +292,7 @@ impl Render for Editor {
                     .debug_selector(move || format!("ssh-auth-{index}"))
             }))
             .on_click(cx.listener(move |this, &index, window, cx| {
-                if this.locked || this.picking {
-                    return;
-                }
-                this.authentication = methods[index];
-                this.secret.update(cx, |input, cx| {
-                    input.set_placeholder(
-                        tr(if methods[index] == Authentication::KeyPath {
-                            "form_key_path_hint"
-                        } else {
-                            "form_password_hint"
-                        }),
-                        window,
-                        cx,
-                    );
-                });
-                cx.notify();
+                this.select_authentication(methods[index], window, cx);
             }));
         if self.authentication == Authentication::PrivateKey {
             form = form.child(
@@ -326,7 +341,9 @@ impl Render for Editor {
             .update(cx, |sharing, _| sharing.locked = self.locked);
         v_flex()
             .gap_4()
-            .child(div().debug_selector(|| "ssh-auth-tabs".into()).child(tabs))
+            .when(self.show_authentication, |body| {
+                body.child(div().debug_selector(|| "ssh-auth-tabs".into()).child(tabs))
+            })
             .child(form)
             .child(self.sharing.clone())
             .when(

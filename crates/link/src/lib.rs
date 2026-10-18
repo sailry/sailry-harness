@@ -142,3 +142,6 @@ impl Transport for Local {
         })
     }
 }
+
+#[cfg(any(test, feature = "test-support"))]
+pub use iroh::tls::CaTlsConfig;

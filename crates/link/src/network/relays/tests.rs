@@ -8,17 +8,26 @@ use std::{collections::BTreeSet, net::Ipv4Addr, sync::Mutex as StdMutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Default)]
-struct Peers(StdMutex<BTreeSet<NodeId>>);
+struct Peers(
+    StdMutex<BTreeSet<NodeId>>,
+    StdMutex<HashMap<NodeId, EndpointAddr>>,
+);
 
 impl PeerStore for Peers {
     fn peers(&self) -> Pending<'_, Result<Vec<NodeId>, Fault>> {
         Box::pin(async { Ok(self.0.lock().unwrap().iter().copied().collect()) })
     }
     fn addresses(&self) -> Pending<'_, Result<Vec<EndpointAddr>, Fault>> {
-        Box::pin(async { Ok(vec![]) })
+        Box::pin(async { Ok(self.1.lock().unwrap().values().cloned().collect()) })
     }
-    fn remember(&self, _: EndpointAddr) -> Pending<'_, Result<(), Fault>> {
-        Box::pin(async { Ok(()) })
+    fn remember(&self, address: EndpointAddr) -> Pending<'_, Result<(), Fault>> {
+        Box::pin(async move {
+            self.1
+                .lock()
+                .unwrap()
+                .insert(NodeId(*address.id.as_bytes()), address);
+            Ok(())
+        })
     }
     fn set_trust(&self, peer: NodeId, trusted: bool) -> Pending<'_, Result<(), Fault>> {
         Box::pin(async move {
@@ -366,4 +375,86 @@ async fn observes_selected_relay_and_ip_paths() {
         first.close().await.unwrap();
         second.close().await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn reconnects_existing_handles_after_host_switch() {
+    let mut fixtures = RelayFixture::start_many(2).await;
+    let next = fixtures.pop().unwrap();
+    let previous = fixtures.pop().unwrap();
+    let handler = Arc::new(Echo(StreamId::new()));
+    let host = previous.link(handler.clone()).await;
+    let controller = previous.link(handler.clone()).await;
+    host.handle().online().await.unwrap();
+    controller.handle().online().await.unwrap();
+    let mut invitation = host.handle().invite().unwrap();
+    assert_eq!(
+        controller
+            .handle()
+            .pair_on_network(invitation.ticket(), &next.selection)
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    let address = controller
+        .handle()
+        .pair_on_network(invitation.ticket(), &previous.selection)
+        .await
+        .unwrap();
+    invitation.paired().await.unwrap();
+    let remote = controller.handle().remote(address.clone());
+    drop(remote.open(handler.0).await.unwrap());
+    let id = host.handle().address().id;
+    host.handle()
+        .select_relays(next.selection.clone(), CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(host.handle().address().id, id);
+    let candidate = controller
+        .handle()
+        .candidate_address(&address, &next.selection)
+        .unwrap();
+    assert_eq!(candidate.id, id);
+    assert_eq!(
+        candidate.ip_addrs().collect::<Vec<_>>(),
+        address.ip_addrs().collect::<Vec<_>>()
+    );
+    controller
+        .handle()
+        .update_peer(candidate.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        controller.handle().relay_selection().unwrap(),
+        Some(previous.selection)
+    );
+    assert_eq!(
+        controller.handle().peers().await.unwrap(),
+        vec![candidate.clone()]
+    );
+    controller.handle().disconnect(NodeId(*id.as_bytes())).await;
+    let mut stream = remote.open(handler.0).await.unwrap();
+    stream
+        .write_all(b"same identity, new host relay")
+        .await
+        .unwrap();
+    stream.shutdown().await.unwrap();
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).await.unwrap();
+    assert_eq!(bytes, b"same identity, new host relay");
+    assert_eq!(
+        controller
+            .handle
+            .core
+            .outgoing
+            .lock()
+            .await
+            .get(&NodeId(*id.as_bytes()))
+            .unwrap()
+            .address,
+        candidate
+    );
+    controller.close().await.unwrap();
+    host.close().await.unwrap();
 }

@@ -315,6 +315,7 @@ impl Connections {
                     ]
                 };
                 h_flex()
+                    .id(SharedString::from(format!("connection-device-{id:?}")))
                     .py_3()
                     .gap_3()
                     .w_full()
@@ -347,6 +348,34 @@ impl Connections {
                             ),
                     )
                     .children(columns)
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |_, event: &MouseDownEvent, window, cx| {
+                            if !execution {
+                                return;
+                            }
+                            cx.stop_propagation();
+                            if !cfg!(any(target_os = "macos", target_os = "windows")) {
+                                crate::feedback::error(
+                                    "",
+                                    &tr("workspace_native_menu_platform"),
+                                    window,
+                                    cx,
+                                );
+                                return;
+                            }
+                            gpui_kit::component::native_menu::NativeMenu::new()
+                                .menu(
+                                    tr("connection_action_edit"),
+                                    Box::new(crate::live::menus::Dispatch {
+                                        node: id,
+                                        target: crate::live::menus::Target::Host,
+                                        command: crate::live::menus::Command::Edit,
+                                    }),
+                                )
+                                .show(event.position, window, cx);
+                        }),
+                    )
                     .into_any_element()
             })
             .collect()

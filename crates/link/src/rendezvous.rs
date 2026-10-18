@@ -116,6 +116,28 @@ impl Relay {
         code: &str,
         request_id: &RequestId,
     ) -> Result<EndpointAddr, Fault> {
+        self.pair_selected(link, code, request_id, None).await
+    }
+
+    pub async fn pair_on_network(
+        &self,
+        link: &LinkHandle,
+        code: &str,
+        request_id: &RequestId,
+        selection: &crate::RelaySelection,
+    ) -> Result<EndpointAddr, Fault> {
+        selection.validate()?;
+        self.pair_selected(link, code, request_id, Some(selection))
+            .await
+    }
+
+    async fn pair_selected(
+        &self,
+        link: &LinkHandle,
+        code: &str,
+        request_id: &RequestId,
+        selection: Option<&crate::RelaySelection>,
+    ) -> Result<EndpointAddr, Fault> {
         if !valid_code(code) {
             return Err(invalid());
         }
@@ -131,7 +153,10 @@ impl Relay {
         if redemption.expires_at_ms <= now_ms()? {
             return Err(expired());
         }
-        link.pair(&redemption.ticket).await
+        match selection {
+            Some(selection) => link.pair_on_network(&redemption.ticket, selection).await,
+            None => link.pair(&redemption.ticket).await,
+        }
     }
 
     pub async fn cancel(&self, code: &Code) -> Result<(), Fault> {

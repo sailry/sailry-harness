@@ -31,7 +31,7 @@ pub(crate) struct Operation {
 pub(crate) enum Task {
     Files(files::Operation),
     Check,
-    Install,
+    Install(Option<sailry_protocol::network::Selection>),
     Update(sailry_protocol::NodeId),
     Terminal(sailry_protocol::ssh::TerminalLaunch),
     Run {
@@ -143,6 +143,7 @@ pub(crate) async fn execute(
     deployment: Option<(
         sailry_link::LinkHandle,
         tokio::sync::watch::Sender<sailry_protocol::ssh::InstallProgress>,
+        sailry_protocol::RequestId,
     )>,
     transfers: Arc<crate::files::transfers::Transfers>,
 ) -> Result<Outcome, Fault> {
@@ -197,18 +198,19 @@ pub(crate) async fn execute(
             }
         }
         Task::Check => Ok(Outcome::Connected),
-        task @ (Task::Install | Task::Update(_)) => {
-            let expected = if let Task::Update(node) = task {
-                Some(node)
-            } else {
-                None
+        task @ (Task::Install(_) | Task::Update(_)) => {
+            let (expected, selected) = match task {
+                Task::Install(network) => (None, network),
+                Task::Update(node) => (Some(node), None),
+                _ => unreachable!(),
             };
-            let (link, progress) =
+            let (link, progress, request) =
                 deployment.ok_or_else(|| unavailable("Node Link is unavailable"))?;
+            let network = selected.map(|selection| (request, selection));
             tokio::select! {
                 _ = stop.cancelled() => Err(unknown("Host installation cancelled; inspect the host before retrying")),
                 _ = closed.cancelled() => Err(unknown("Host installation interrupted; inspect the host before retrying")),
-                result = tokio::time::timeout(Duration::from_secs(600), install::execute(&session, &link, &progress, expected)) => result.unwrap_or_else(|_| Err(unknown("Host installation timed out; inspect the host before retrying"))),
+                result = tokio::time::timeout(Duration::from_secs(600), install::execute(&session, &link, &progress, expected, network)) => result.unwrap_or_else(|_| Err(unknown("Host installation timed out; inspect the host before retrying"))),
             }
         }
         Task::Transfer {

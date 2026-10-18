@@ -43,12 +43,27 @@ impl RelaySelection {
 }
 
 impl LinkHandle {
+    /// Construct a reconnection candidate without changing either endpoint or trust.
+    /// Retain old hints until the uncertain request can be inspected on either network.
+    pub fn candidate_address(
+        &self,
+        address: &EndpointAddr,
+        selection: &RelaySelection,
+    ) -> Result<EndpointAddr, Fault> {
+        let relays = selection.map()?;
+        let mut candidate = address.clone();
+        for relay in relays.urls::<Vec<_>>() {
+            candidate = candidate.with_relay_url(relay);
+        }
+        Ok(candidate)
+    }
+
     /// `None` identifies a direct-only endpoint, which has no relay transport.
     pub fn relay_selection(&self) -> Result<Option<RelaySelection>, Fault> {
         Ok(self.core.relay_selection.read().map_err(network)?.clone())
     }
 
-    /// Local configuration only, never an authenticated remote business command.
+    /// Low-level apply on the existing endpoint; Node owns persisted controller settings.
     /// Success means an iroh handshake on the selected network, not HTTP reachability.
     /// The Link worker completes rollback even if the caller drops its future.
     pub async fn select_relays(

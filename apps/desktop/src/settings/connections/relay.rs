@@ -29,6 +29,33 @@ pub(super) fn fields(
     let selection = cx
         .try_global::<Services>()
         .and_then(|services| services.link.relay_selection().ok().flatten());
+    let (select, input) = fields_for(selection.as_ref(), window, cx);
+    cx.subscribe(&select, |view, _, event, cx| {
+        if matches!(event, SelectEvent::Confirm(_)) {
+            if view.sharing {
+                view.share(cx);
+            }
+            cx.notify();
+        }
+    })
+    .detach();
+    cx.subscribe(&input, |view, _, event, cx| {
+        if matches!(event, InputEvent::Change) {
+            if view.sharing && view.custom_relay(cx) {
+                view.start_share(Duration::from_millis(650), cx);
+            }
+            cx.notify();
+        }
+    })
+    .detach();
+    (select, input)
+}
+
+pub(super) fn fields_for<T: 'static>(
+    selection: Option<&RelaySelection>,
+    window: &mut Window,
+    cx: &mut Context<T>,
+) -> (Entity<SelectState<Vec<Network>>>, Entity<InputState>) {
     let address = match &selection {
         Some(RelaySelection::Custom(urls)) => urls.first().cloned().unwrap_or_default(),
         _ => String::new(),
@@ -47,19 +74,62 @@ pub(super) fn fields(
             .placeholder(tr("pairing_relay_address_hint"))
             .default_value(address)
     });
-    cx.subscribe(&select, |view, _, event, cx| {
-        if matches!(event, SelectEvent::Confirm(_)) && view.sharing {
-            view.share(cx);
-        }
-    })
-    .detach();
-    cx.subscribe(&input, |view, _, event, cx| {
-        if matches!(event, InputEvent::Change) && view.sharing && view.custom_relay(cx) {
-            view.start_share(Duration::from_millis(650), cx);
-        }
-    })
-    .detach();
     (select, input)
+}
+
+pub(super) fn selection(
+    select: &Entity<SelectState<Vec<Network>>>,
+    address: &Entity<InputState>,
+    cx: &App,
+) -> Option<RelaySelection> {
+    if select.read(cx).selected_value() != Some(&Network::Custom) {
+        return Some(RelaySelection::Default);
+    }
+    let address = address.read(cx).value().trim().to_string();
+    (!address.is_empty()).then_some(RelaySelection::Custom(vec![address]))
+}
+
+pub(super) fn controls(
+    select: &Entity<SelectState<Vec<Network>>>,
+    address: &Entity<InputState>,
+    disabled: bool,
+    cx: &App,
+) -> Div {
+    v_flex()
+        .w_full()
+        .gap_4()
+        .child(
+            Field::new().label_indent(false).child(
+                div()
+                    .w_full()
+                    .debug_selector(|| "pairing-relay-select".into())
+                    .child(
+                        Select::new(select)
+                            .w_full()
+                            .disabled(disabled)
+                            .accessibility_label(tr("pairing_relay_server")),
+                    ),
+            ),
+        )
+        .when(
+            select.read(cx).selected_value() == Some(&Network::Custom),
+            |body| {
+                body.child(
+                    Field::new().label(tr("pairing_relay_address")).child(
+                        div()
+                            .w_full()
+                            .debug_selector(|| "pairing-relay-address".into())
+                            .child(
+                                Input::new(address)
+                                    .w_full()
+                                    .disabled(disabled)
+                                    .content_type(gpui_kit::component::input::InputContentType::Url)
+                                    .aria_label(tr("pairing_relay_address")),
+                            ),
+                    ),
+                )
+            },
+        )
 }
 
 impl Connections {
@@ -68,43 +138,10 @@ impl Connections {
     }
 
     pub(super) fn relay_selection(&self, cx: &App) -> Option<RelaySelection> {
-        if !self.custom_relay(cx) {
-            return Some(RelaySelection::Default);
-        }
-        let address = self.relay_address.read(cx).value().trim().to_string();
-        (!address.is_empty()).then_some(RelaySelection::Custom(vec![address]))
+        selection(&self.relay_select, &self.relay_address, cx)
     }
 
     pub(super) fn relay_fields(&self, cx: &App) -> Div {
-        v_flex()
-            .w_full()
-            .gap_4()
-            .child(
-                Field::new().label_indent(false).child(
-                    div()
-                        .w_full()
-                        .debug_selector(|| "pairing-relay-select".into())
-                        .child(
-                            Select::new(&self.relay_select)
-                                .w_full()
-                                .accessibility_label(tr("pairing_relay_server")),
-                        ),
-                ),
-            )
-            .when(self.custom_relay(cx), |body| {
-                body.child(
-                    Field::new().label(tr("pairing_relay_address")).child(
-                        div()
-                            .w_full()
-                            .debug_selector(|| "pairing-relay-address".into())
-                            .child(
-                                Input::new(&self.relay_address)
-                                    .w_full()
-                                    .content_type(gpui_kit::component::input::InputContentType::Url)
-                                    .aria_label(tr("pairing_relay_address")),
-                            ),
-                    ),
-                )
-            })
+        controls(&self.relay_select, &self.relay_address, false, cx)
     }
 }

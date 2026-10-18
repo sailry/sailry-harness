@@ -268,7 +268,13 @@ pub(super) fn prepare(
         Command::InstallHost {
             profile,
             expected_revision,
-        } => (*profile, *expected_revision, Task::Install),
+            network,
+        } => {
+            if let Some(selection) = network {
+                super::network::transport(selection).validate()?;
+            }
+            (*profile, *expected_revision, Task::Install(network.clone()))
+        }
         Command::UpdateSshHost {
             profile,
             expected_revision,

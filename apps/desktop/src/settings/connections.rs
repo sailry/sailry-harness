@@ -13,6 +13,7 @@ use sailry_link::{
 use super::group::Group;
 mod devices;
 mod dialog;
+pub(super) mod edit;
 mod relay;
 mod sharing;
 use crate::{backend::Services, tr};
@@ -153,6 +154,14 @@ impl Connections {
         let Some((services, relay)) = self.setup(cx) else {
             return;
         };
+        let Some(selection) = self
+            .relay_selection(cx)
+            .filter(|value| value.validate().is_ok())
+        else {
+            self.relay_feedback = Some("pairing_relay_invalid");
+            cx.notify();
+            return;
+        };
         let pin = self.pin.read(cx).value().to_string();
         if self
             .claim
@@ -168,7 +177,7 @@ impl Connections {
         let job = services.runtime.spawn(async move {
             tokio::select! {
                 _ = stop.cancelled() => None,
-                result = relay.pair(&services.link, &pin, &request) => Some(result),
+                result = relay.pair_on_network(&services.link, &pin, &request, &selection) => Some(result),
             }
         });
         self.task = Some(cx.spawn(async move |this, cx| {

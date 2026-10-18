@@ -65,6 +65,7 @@ pub(super) fn items(target: Target, local: bool) -> Vec<(Command, &'static str)>
         Target::Host => {
             let mut items = vec![
                 (Command::Open, "workspace_host"),
+                (Command::Edit, "connection_action_edit"),
                 (Command::AddProject, "project_add"),
             ];
             if !local {
@@ -200,6 +201,8 @@ impl Shell {
                 self.show_host_ports(action.node, window, cx);
             } else if action.command == Command::Revoke {
                 self.revoke_device(action.node, window, cx);
+            } else if action.command == Command::Edit {
+                crate::settings::edit_host_network(action.node, window, cx);
             } else {
                 let deferred = action.clone();
                 if self.guard_file_navigation(window, cx, move |shell, window, cx| {

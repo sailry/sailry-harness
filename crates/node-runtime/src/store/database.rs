@@ -22,6 +22,8 @@ pub(super) struct Database {
     pub(super) approvals: super::agent::approvals::Waiting,
     pub(super) questions: super::agent::questions::Waiting,
     pub(super) profile: Option<std::path::PathBuf>,
+    pub(super) network_link: Option<sailry_link::LinkHandle>,
+    pub(super) network_request: Option<RequestId>,
     removals: std::collections::BTreeMap<WorktreeId, removal::Pending>,
     relocations: std::collections::BTreeMap<(NodeId, RequestId), Vec<std::path::PathBuf>>,
 }
@@ -241,6 +243,8 @@ impl Database {
             removals: Default::default(),
             profile,
             relocations: Default::default(),
+            network_link: None,
+            network_request: None,
             feeds: Default::default(),
             approvals: Default::default(),
             questions: Default::default(),
@@ -324,6 +328,19 @@ impl Database {
                     reply: completion,
                 },
             ));
+        } else if matches!(
+            request.command,
+            Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. }
+        ) {
+            match super::network::prepare(self, caller, request, completion) {
+                Ok(execution) => return Some(Work::Network(execution)),
+                Err(failure) => {
+                    let (request, completion, error) = *failure;
+                    let result = self.finish_external(caller, &request, Err(error), events);
+                    let _ = completion.send(result);
+                    return None;
+                }
+            }
         } else if matches!(
             request.command,
             Command::BeginProviderLogin { .. }

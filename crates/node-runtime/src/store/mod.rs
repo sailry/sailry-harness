@@ -20,6 +20,7 @@ mod mcp;
 pub(crate) mod media;
 mod models;
 mod mutations;
+mod network;
 mod notifications;
 mod ocr;
 mod outcomes;
@@ -201,6 +202,11 @@ enum Job {
     PluginExecution(Box<external::Completed>),
     Ssh(Box<external::Completed>),
     Database(Box<external::Completed>),
+    Network(Box<external::Completed>),
+    NetworkScope {
+        fallback: sailry_link::NetworkScope,
+        reply: oneshot::Sender<Result<sailry_link::NetworkScope, Fault>>,
+    },
     BindLink {
         link: sailry_link::LinkHandle,
         reply: oneshot::Sender<()>,
@@ -499,6 +505,11 @@ impl Store {
         let computer = ingress.computer.clone();
         let attachment_profile = profile.clone();
         let terminal_profile = profile.clone();
+        let mut network_work = network::Worker::new(
+            tokio::runtime::Handle::current(),
+            ingress.sender.clone(),
+            ingress.closed.clone(),
+        );
         let mut forwarder = forwarding::Forwarder::new(
             tokio::runtime::Handle::current(),
             ingress.sender.clone(),
@@ -845,7 +856,11 @@ impl Store {
                                 logins.subscribe(caller, id)
                             });
                         }
+                        Job::NetworkScope { fallback, reply } => {
+                            let _ = reply.send(network::scope(&database.connection, fallback));
+                        }
                         Job::BindLink { link, reply } => {
+                            database.network_link = Some(link.clone());
                             // The worker owns this handle, not Ingress: no Arc ownership cycle.
                             ssh.link = Some(link.clone());
                             forwarder.link = Some(link);
@@ -914,6 +929,14 @@ impl Store {
                                 agents.finish_operation(turn);
                             }
                             let _ = release.send(());
+                        }
+                        Job::Network(completed) => {
+                            network::release(&mut database, &completed.request);
+                            let result = database.finish_external(
+                                completed.caller, &completed.request, completed.result, &events,
+                            );
+                            let _ = completed.reply.send(result);
+                            network_work.pending -= 1;
                         }
                         Job::Transferred(completed) => {
                             let result = database.finish_external(
@@ -1205,6 +1228,11 @@ impl Store {
                                 database.dispatch_with(caller, *request, reply, &events, access)
                             {
                                 let rejected = match work {
+                                    external::Work::Network(execution) => {
+                                        network_work.submit(execution).err().map(|execution| {
+                                            (execution.caller, execution.request, execution.reply)
+                                        })
+                                    }
                                     external::Work::PluginExecution(execution) => {
                                         plugin_work.submit(execution).err().map(|execution| {
                                             (execution.caller, execution.request, execution.reply)
@@ -1259,6 +1287,7 @@ impl Store {
                                     }
                                 };
                                 if let Some((caller, request, reply)) = rejected {
+                                    network::release(&mut database, &request);
                                     let result = database.finish_external(
                                         caller,
                                         &request,
@@ -1323,6 +1352,7 @@ impl Store {
                     }
                     if closing.load(Ordering::Acquire)
                         && mutations.pending
+                            + network_work.pending
                             + forwarder.pending
                             + processes.pending
                             + plugin_work.pending
@@ -1366,6 +1396,19 @@ impl Store {
             return Err(Error::from(error));
         }
         Ok(store)
+    }
+
+    pub(crate) async fn network_scope(
+        &self,
+        fallback: sailry_link::NetworkScope,
+    ) -> Result<sailry_link::NetworkScope, Fault> {
+        let (reply, result) = oneshot::channel();
+        self.ingress
+            .sender
+            .send(Job::NetworkScope { fallback, reply })
+            .await
+            .map_err(|_| unavailable())?;
+        result.await.map_err(|_| unavailable())?
     }
 
     pub(crate) async fn bind_link(&self, link: sailry_link::LinkHandle) -> Result<(), Error> {

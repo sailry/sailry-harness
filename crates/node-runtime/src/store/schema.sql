@@ -437,3 +437,8 @@ CREATE TABLE IF NOT EXISTS background_settings (
 );
 
 CREATE INDEX IF NOT EXISTS agent_background_source ON agent_background(kind,source,state);
+
+CREATE TABLE IF NOT EXISTS network_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);

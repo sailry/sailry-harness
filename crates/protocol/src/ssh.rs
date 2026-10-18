@@ -88,6 +88,10 @@ pub enum Outcome {
     HostInstalled {
         node: crate::NodeId,
     },
+    HostNetworkUnconfirmed {
+        node: crate::NodeId,
+        selection: crate::network::Selection,
+    },
     Connected,
     Terminal(crate::terminal::Info),
     Transferred {

@@ -19,7 +19,9 @@ else
 fi
 if test "${install_actual%% *}" != "$install_expected"; then echo 'Installer checksum does not match' >&2; exit 1; fi
 if test "${install_update:-0}" = 1; then
-  bash "$install_stage/install-host.sh" --update --version "$install_version"
+  bash "$install_stage/install-host.sh" --update --version "$install_version" "$@"
 else
-  bash "$install_stage/install-host.sh" --version "$install_version"
+  # Once the installer runs, a failure may already have published files or a service.
+  # Keep this distinct from the checksum failures above so controllers never reinstall blindly.
+  bash "$install_stage/install-host.sh" --version "$install_version" "$@" || exit 73
 fi

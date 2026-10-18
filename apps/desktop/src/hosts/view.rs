@@ -2,7 +2,7 @@ use super::*;
 
 impl Installer {
     pub(super) fn footer(&self, cx: &mut Context<Self>) -> AnyElement {
-        if self.form {
+        if self.form && self.recovery.is_none() {
             return self
                 .editor
                 .update(cx, |editor, cx| editor.footer(cx).into_any_element());
@@ -16,6 +16,21 @@ impl Installer {
                         this.cancel();
                         cx.emit(DismissEvent);
                     })),
+            )
+            .when(
+                self.recovery
+                    .as_ref()
+                    .is_some_and(|recovery| !matches!(recovery, recovery::Recovery::Partial)),
+                |footer| {
+                    footer.child(
+                        Button::new("host-install-inspect")
+                            .primary()
+                            .label(tr("ssh_inspect"))
+                            .loading(self.checking)
+                            .disabled(self.checking)
+                            .on_click(cx.listener(|this, _, window, cx| this.inspect(window, cx))),
+                    )
+                },
             )
             .when(self.key.is_some(), |footer| {
                 footer.child(

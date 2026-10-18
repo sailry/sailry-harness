@@ -69,6 +69,8 @@ struct Core {
     store: Arc<dyn PeerStore>,
     trusted: RwLock<BTreeSet<NodeId>>,
     outgoing: Mutex<HashMap<NodeId, CachedConnection>>,
+    // Authenticated migration hints supplement addresses held by existing Remote handles.
+    addresses: RwLock<HashMap<NodeId, EndpointAddr>>,
     stop: CancellationToken,
     work: mpsc::Sender<Work>,
     trust_update: Mutex<()>,
@@ -127,6 +129,28 @@ impl Link {
         handler: Arc<dyn Handler>,
         store: Arc<dyn PeerStore>,
     ) -> Result<Self, Fault> {
+        Self::bind_configured(identity, scope, handler, store, None).await
+    }
+
+    /// Isolated TLS relay fixtures reuse the same endpoint bootstrap and authentication.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn bind_with_roots(
+        identity: &Identity,
+        scope: NetworkScope,
+        handler: Arc<dyn Handler>,
+        store: Arc<dyn PeerStore>,
+        roots: iroh::tls::CaTlsConfig,
+    ) -> Result<Self, Fault> {
+        Self::bind_configured(identity, scope, handler, store, Some(roots)).await
+    }
+
+    async fn bind_configured(
+        identity: &Identity,
+        scope: NetworkScope,
+        handler: Arc<dyn Handler>,
+        store: Arc<dyn PeerStore>,
+        roots: Option<iroh::tls::CaTlsConfig>,
+    ) -> Result<Self, Fault> {
         let relay_selection = match &scope {
             NetworkScope::Internet => Some(RelaySelection::Default),
             NetworkScope::CustomRelays(urls) => Some(RelaySelection::Custom(urls.clone())),
@@ -144,6 +168,11 @@ impl Link {
                 .clear_ip_transports()
                 .bind_addr(address)
                 .map_err(network)?,
+        };
+        let builder = if let Some(roots) = roots {
+            builder.ca_tls_config(roots)
+        } else {
+            builder
         };
         let endpoint = builder
             .secret_key(identity.0.clone())
@@ -178,6 +207,7 @@ impl Link {
             store,
             trusted: RwLock::new(trusted),
             outgoing: Mutex::new(HashMap::new()),
+            addresses: RwLock::new(HashMap::new()),
             stop: CancellationToken::new(),
             work,
             trust_update: Mutex::new(()),
@@ -252,6 +282,75 @@ impl LinkHandle {
         self.core.trust_changed.send_replace(());
         Ok(())
     }
+    /// Authenticate the same paired identity before publishing a replacement route.
+    /// Existing Remote handles resolve this route on their next connection attempt.
+    pub async fn update_peer(&self, address: EndpointAddr) -> Result<(), Fault> {
+        let _update = self.core.trust_update.lock().await;
+        let peer = NodeId(*address.id.as_bytes());
+        if !self.core.trusted(peer) {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "peer is not paired",
+            ));
+        }
+        let mut outgoing = self.core.outgoing.lock().await;
+        outgoing.retain(|_, cached| cached.connection.close_reason().is_none());
+        if !outgoing.contains_key(&peer) && outgoing.len() >= MAX_CONNECTIONS {
+            return Err(Fault::new(
+                ErrorCode::Busy,
+                "Link connection capacity exhausted",
+            ));
+        }
+        let connection = self
+            .core
+            .wait(self.core.endpoint.connect(address.clone(), ALPN))
+            .await?
+            .map_err(network)?;
+        let info = match self.core.inspect_connection(&connection).await {
+            Ok(info) => info,
+            Err(error) => {
+                connection.close(0u32.into(), b"peer inspection failed");
+                return Err(error);
+            }
+        };
+        crate::compatibility::check(
+            self.core.handler.product_version(),
+            info.software_version.as_deref(),
+        )?;
+        self.core.store.remember(address.clone()).await?;
+        self.core
+            .addresses
+            .write()
+            .map_err(network)?
+            .insert(peer, address.clone());
+        if let Some(previous) = outgoing.remove(&peer) {
+            // iroh may return an already established connection for this identity.
+            if previous.connection.stable_id() != connection.stable_id() {
+                previous
+                    .connection
+                    .close(0u32.into(), b"peer address changed");
+            }
+        }
+        let (updates, telemetry) = watch::channel(connection::snapshot(&connection));
+        let sampler = tokio::spawn(connection::monitor(
+            connection.clone(),
+            updates,
+            self.core.stop.clone(),
+        ));
+        outgoing.insert(
+            peer,
+            CachedConnection {
+                address,
+                connection,
+                software_version: info.software_version,
+                telemetry,
+                sampler,
+            },
+        );
+        self.core.trust_changed.send_replace(());
+        Ok(())
+    }
+
     /// Wait before issuing an Internet invitation so its ticket includes the home relay.
     /// Direct-only callers should not call this method.
     pub async fn online(&self) -> Result<(), Fault> {
@@ -291,6 +390,9 @@ impl LinkHandle {
                     }
                 }
                 core.trust_changed.send_replace(());
+                if !trusted {
+                    core.addresses.write().map_err(network)?.remove(&peer);
+                }
                 if !trusted && let Some(connection) = core.outgoing.lock().await.remove(&peer) {
                     connection.connection.close(1u32.into(), b"peer revoked");
                 }
@@ -362,6 +464,19 @@ impl Core {
             .map_err(|_| Fault::new(ErrorCode::Busy, "Link task capacity exhausted"))
     }
 
+    fn current_address(&self, address: &EndpointAddr) -> Result<EndpointAddr, Fault> {
+        let mut target = address.clone();
+        if let Some(migrated) = self
+            .addresses
+            .read()
+            .map_err(network)?
+            .get(&NodeId(*address.id.as_bytes()))
+        {
+            target.addrs.extend(migrated.addrs.iter().cloned());
+        }
+        Ok(target)
+    }
+
     async fn connection(
         &self,
         target: &EndpointAddr,
@@ -379,21 +494,16 @@ impl Core {
         }
         // One outgoing connection owner per peer; reconnection never replays a request itself.
         let mut outgoing = self.outgoing.lock().await;
+        let target = self.current_address(target)?;
         outgoing.retain(|_, cached| cached.connection.close_reason().is_none());
         if let Some(cached) = outgoing.get(&id) {
-            if cached.address == *target {
-                if execution {
-                    crate::compatibility::check(
-                        self.handler.product_version(),
-                        cached.software_version.as_deref(),
-                    )?;
-                }
-                return Ok(cached.connection.clone());
+            if execution {
+                crate::compatibility::check(
+                    self.handler.product_version(),
+                    cached.software_version.as_deref(),
+                )?;
             }
-            cached
-                .connection
-                .close(0u32.into(), b"peer address changed");
-            outgoing.remove(&id);
+            return Ok(cached.connection.clone());
         }
         if outgoing.len() >= MAX_CONNECTIONS {
             return Err(Fault::new(

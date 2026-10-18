@@ -117,7 +117,7 @@ impl Worker {
             let (sender, receiver) = tokio::sync::watch::channel(ssh::InstallProgress::Connecting);
             self.progress
                 .insert((execution.caller, execution.request.id), receiver);
-            Some((link, sender))
+            Some((link, sender, execution.request.id))
         } else {
             None
         };

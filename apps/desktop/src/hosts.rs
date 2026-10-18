@@ -18,13 +18,21 @@ use sailry_protocol::{
 };
 use std::{sync::Arc, time::Duration};
 
+mod add;
+pub(crate) use add::open as open_add;
 mod editor;
+mod recovery;
 mod sharing;
 mod view;
 use editor::{Editor, Event};
 
 struct Installer {
+    services: Services,
+    recovery: Option<recovery::Recovery>,
+    checking: bool,
     expected: Option<NodeId>,
+    network: Option<sailry_protocol::network::Selection>,
+    network_draft: Option<Entity<crate::settings::Pairing>>,
     client: Arc<Client>,
     runtime: Arc<tokio::runtime::Runtime>,
     editor: Entity<Editor>,
@@ -67,22 +75,7 @@ impl Shell {
     }
 
     pub(crate) fn add_host(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(services) = cx.try_global::<Services>().cloned() else {
-            return;
-        };
-        let installer = cx.new(|cx| Installer::new(services, None, window, cx));
-        let owner = installer.clone();
-        window.open_dialog(cx, move |dialog, window, cx| {
-            let closing = owner.clone();
-            dialog
-                .form_title(tr("host_add"), cx)
-                .w(px(560.).min(window.viewport_size().width - px(48.)))
-                .max_h(window.viewport_size().height * 0.85)
-                .overlay_closable(false)
-                .on_close(move |_, _, cx| closing.update(cx, |view, _| view.cancel()))
-                .child(owner.clone())
-                .footer(owner.update(cx, |view, cx| view.footer(cx)))
-        });
+        open_add(window, cx);
     }
 }
 impl Installer {
@@ -99,8 +92,8 @@ impl Installer {
                 view.error
                     .as_ref()
                     .map(|error| {
-                        if error.code == ErrorCode::OutcomeUnknown {
-                            "host_install_unknown"
+                        if view.recovery.is_some() || error.code == ErrorCode::OutcomeUnknown {
+                            "host_setup_unconfirmed"
                         } else {
                             "host_install_failed"
                         }
@@ -143,7 +136,12 @@ impl Installer {
         )
         .detach();
         Self {
+            services: services.clone(),
+            recovery: None,
+            checking: false,
             expected,
+            network: None,
+            network_draft: None,
             client: Arc::new(Client::new(services.local)),
             runtime: services.runtime,
             editor,
@@ -166,6 +164,7 @@ impl Installer {
                 node,
             },
             None => Command::InstallHost {
+                network: self.network.clone(),
                 profile: profile.id,
                 expected_revision: profile.revision,
             },
@@ -175,6 +174,15 @@ impl Installer {
     fn execute(&mut self, command: Command, window: &mut Window, cx: &mut Context<Self>) {
         if self.request.is_some() {
             return;
+        }
+        if matches!(command, Command::SaveSsh { .. })
+            && let Some(draft) = &self.network_draft
+        {
+            let Some(network) = draft.read(cx).target_network(cx) else {
+                crate::feedback::error("", &tr("pairing_relay_invalid"), window, cx);
+                return;
+            };
+            self.network = Some(network);
         }
         self.error = None;
         self.editor.update(cx, |editor, cx| {
@@ -215,8 +223,19 @@ impl Installer {
             .request
             .as_ref()
             .is_some_and(|request| matches!(request.command, Command::TrustSsh { .. }));
-        self.request = None;
         self.polling = None;
+        if let Err(error) = &result
+            && matches!(
+                error.code,
+                ErrorCode::OutcomeUnknown | ErrorCode::Unavailable
+            )
+        {
+            self.recovery = Some(recovery::Recovery::Receipt);
+            self.unconfirmed(error.clone(), cx);
+            return;
+        }
+        self.request = None;
+        self.recovery = None;
         match result {
             Ok(Output::SshProfile(profile)) => {
                 self.editor.update(cx, |editor, _| {
@@ -268,6 +287,16 @@ impl Installer {
                     cx,
                 );
                 cx.emit(DismissEvent);
+            }
+            Ok(Output::SshOutcome(Outcome::HostNetworkUnconfirmed { node, selection })) => {
+                self.recovery = Some(recovery::Recovery::Network { node, selection });
+                self.unconfirmed(
+                    Fault::new(
+                        ErrorCode::OutcomeUnknown,
+                        "Host network setup is unconfirmed",
+                    ),
+                    cx,
+                );
             }
             Err(error) => {
                 self.failed(error, cx);

@@ -116,6 +116,8 @@ struct Bootstrap {
     computer: Option<ComputerWorker>,
     environment: process::environment::Source,
     skip_bundled: bool,
+    #[cfg(any(test, feature = "test-support"))]
+    network_roots: Option<sailry_link::CaTlsConfig>,
 }
 
 impl Node {
@@ -413,6 +415,27 @@ impl Node {
         Self::start_empty_with_computer(path, network, None).await
     }
 
+    /// Adds private fixture trust roots to the same Node endpoint, never the OS store.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_network_roots(
+        path: impl AsRef<Path>,
+        network: NetworkScope,
+        roots: sailry_link::CaTlsConfig,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                network,
+                network_roots: Some(roots),
+                catalog: providers::catalog::Catalog::empty(),
+                skip_bundled: true,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
     /// Preserves isolated environment and code downloads without unrelated bundled packages.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn start_empty_with_code(
@@ -562,6 +585,8 @@ impl Node {
             computer,
             environment,
             skip_bundled,
+            #[cfg(any(test, feature = "test-support"))]
+            network_roots,
         } = bootstrap;
         let mut entry = logging::Entry::new(logging::Area::Node, logging::Phase::Begin);
         entry.reason = Some("startup");
@@ -591,16 +616,47 @@ impl Node {
             .await?;
             let ingress = store.ingress.clone();
             ingress.computer.configure_worker(computer).await;
-            let network =
-                match sailry_link::Link::bind(&identity, network, ingress.clone(), ingress.clone())
-                    .await
-                {
-                    Ok(network) => network,
-                    Err(error) => {
-                        store.shutdown().await?;
-                        return Err(error.into());
+            let network = match store.network_scope(network).await {
+                Ok(network) => network,
+                Err(error) => {
+                    store.shutdown().await?;
+                    return Err(error.into());
+                }
+            };
+            #[cfg(not(any(test, feature = "test-support")))]
+            let binding =
+                sailry_link::Link::bind(&identity, network, ingress.clone(), ingress.clone());
+            #[cfg(any(test, feature = "test-support"))]
+            let binding = async {
+                match network_roots {
+                    Some(roots) => {
+                        sailry_link::Link::bind_with_roots(
+                            &identity,
+                            network,
+                            ingress.clone(),
+                            ingress.clone(),
+                            roots,
+                        )
+                        .await
                     }
-                };
+                    None => {
+                        sailry_link::Link::bind(
+                            &identity,
+                            network,
+                            ingress.clone(),
+                            ingress.clone(),
+                        )
+                        .await
+                    }
+                }
+            };
+            let network = match binding.await {
+                Ok(network) => network,
+                Err(error) => {
+                    store.shutdown().await?;
+                    return Err(error.into());
+                }
+            };
             let link = network.handle();
             if let Err(error) = store.bind_link(link.clone()).await {
                 let _ = network.close().await;

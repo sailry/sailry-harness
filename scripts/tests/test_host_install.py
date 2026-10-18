@@ -3,7 +3,9 @@
 import hashlib
 import os
 from pathlib import Path
+import shlex
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -60,6 +62,9 @@ shutil.copyfile(source, destination)
         (package / "sailry").write_bytes((ROOT / "scripts/host-command.sh").read_bytes())
         (package / "install-host.sh").write_bytes((ROOT / "scripts/install-host.sh").read_bytes())
         (package / "service.sh").write_bytes((ROOT / "crates/node-runtime/src/ssh/install/service.sh").read_bytes())
+        interpreter = package / "python/bin/python3.12"
+        interpreter.parent.mkdir(parents=True)
+        interpreter.symlink_to(sys.executable)
         for target in TARGETS.values():
             name = f"sailry-host-{target}.tar.gz"
             archive = self.assets / name
@@ -97,6 +102,34 @@ shutil.copyfile(source, destination)
         for command in ("start", "stop", "restart", "status"):
             self.assertEqual(self.command(command).returncode, 0)
             self.assertIn(f"--user {command} sailry-host.service", self.log.read_text())
+
+    def test_custom_network_keeps_literal_arguments(self):
+        marker = self.home / "unexpected"
+        relays = [f"https://relay.example/net/'\"$name%20;$(touch {marker})", "https://backup.example:8443"]
+        result = self.install(*[argument for relay in relays for argument in ("--relay", relay)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        unit = self.home / ".config/systemd/user/sailry-host.service"
+        command = next(line.removeprefix("ExecStart=") for line in unit.read_text().splitlines() if line.startswith("ExecStart="))
+        arguments = shlex.split(command)
+        self.assertEqual(arguments[-5:], ["--relay", relays[0].replace("$", "$$").replace("%", "%%"), "--relay", relays[1], "--bootstrap"])
+        self.assertNotIn("--internet", arguments)
+        self.assertFalse(marker.exists())
+
+    def test_explicit_internet_uses_existing_service(self):
+        result = self.install("--internet")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        unit = self.home / ".config/systemd/user/sailry-host.service"
+        command = next(line.removeprefix("ExecStart=") for line in unit.read_text().splitlines() if line.startswith("ExecStart="))
+        self.assertEqual(shlex.split(command)[-2:], ["--internet", "--bootstrap"])
+
+    def test_network_update_flags_preserve_existing_installation(self):
+        self.assertEqual(self.install().returncode, 0)
+        unit = self.home / ".config/systemd/user/sailry-host.service"
+        before = unit.read_bytes()
+        result = self.install("--update", "--relay", "https://relay.example")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(unit.read_bytes(), before)
+        self.assertNotIn("--user stop", self.log.read_text())
 
     def test_existing_data_and_unrelated_command_are_preserved(self):
         profile = self.home / ".sailry-host"

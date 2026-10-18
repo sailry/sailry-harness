@@ -441,6 +441,13 @@ is unavailable. Pairing-service and data-relay URLs are different configuration.
 Cloudflare and EdgeOne adapters share ticket-exchange logic, with native storage
 adapters. See the [service contract](services/pairing-relay/README.md).
 
+Relay settings belong to the execution Node and apply to its existing Link
+identity and endpoint. A revision-checked durable command persists the desired
+network before applying it; clients distinguish desired and effective settings
+and recover uncertain completion through the original request ID. Pairing on a
+selected network does not change the controller's own relay settings. Connection
+route and RTT are local Link telemetry, separate from the Node event cursor.
+
 ## Extension and presentation boundaries
 
 Official theme source lives in `sailry-themes`, pinned by the `themes/` Git

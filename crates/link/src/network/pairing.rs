@@ -124,10 +124,27 @@ impl LinkHandle {
     /// Iroh verifies the endpoint key in the ticket. The execution Node must then
     /// accept its short-lived invitation before either side grants normal access.
     pub async fn pair(&self, ticket: &str) -> Result<EndpointAddr, Fault> {
+        self.pair_selected(ticket, None).await
+    }
+
+    /// Restrict invitation relay hints without reconfiguring this controller's endpoint.
+    pub async fn pair_on_network(
+        &self,
+        ticket: &str,
+        selection: &super::RelaySelection,
+    ) -> Result<EndpointAddr, Fault> {
+        self.pair_selected(ticket, Some(selection)).await
+    }
+
+    async fn pair_selected(
+        &self,
+        ticket: &str,
+        selection: Option<&super::RelaySelection>,
+    ) -> Result<EndpointAddr, Fault> {
         if ticket.len() > 8192 {
             return Err(rejected());
         }
-        let ticket: Ticket = serde_json::from_str(ticket).map_err(|_| rejected())?;
+        let mut ticket: Ticket = serde_json::from_str(ticket).map_err(|_| rejected())?;
         let now = now_ms()?;
         if ticket.version != 1
             || ticket.expires_at_ms <= now
@@ -136,6 +153,23 @@ impl LinkHandle {
             || ticket.address.addrs.len() > 16
         {
             return Err(rejected());
+        }
+        if let Some(selection) = selection {
+            let relays = selection.map()?;
+            let offered = ticket.address.relay_urls().cloned().collect::<Vec<_>>();
+            if !offered.is_empty() && !offered.iter().any(|relay| relays.contains(relay)) {
+                return Err(Fault::invalid(
+                    "pairing invitation uses another relay network",
+                ));
+            }
+            let mut address = EndpointAddr::new(ticket.address.id);
+            for ip in ticket.address.ip_addrs() {
+                address = address.with_ip_addr(*ip);
+            }
+            for relay in offered.into_iter().filter(|relay| relays.contains(relay)) {
+                address = address.with_relay_url(relay);
+            }
+            ticket.address = address;
         }
         let connection = self
             .core

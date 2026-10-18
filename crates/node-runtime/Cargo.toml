@@ -55,7 +55,7 @@ name = "knowledge"
 path = "tests/suites/knowledge.rs"
 
 [features]
-test-support = []
+test-support = ["sailry-link/test-support"]
 computer-worker = ["dep:cua-platform-macos"]
 
 [[example]]
@@ -181,6 +181,7 @@ windows-registry.workspace = true
 objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }
 
 [dev-dependencies]
+iroh-relay = { workspace = true, features = ["server", "test-utils"] }
 tokio-rustls.workspace = true
 rcgen.workspace = true
 sailry-node-runtime = { workspace = true, features = ["test-support"] }

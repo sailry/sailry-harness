@@ -4,6 +4,7 @@ use core::prelude::v1::test;
 #[test]
 fn limits_host_actions() {
     for local in [true, false] {
+        assert!(items(Target::Host, local).contains(&(Command::Edit, "connection_action_edit")));
         assert_eq!(
             items(Target::Project(ProjectId::new()), local),
             vec![

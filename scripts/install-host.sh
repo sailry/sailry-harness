@@ -4,13 +4,21 @@ set -euo pipefail
 # Install only official release assets. Existing profiles are never changed.
 task_version=""
 task_update=0
+task_network=()
+task_network_mode=""
 while test "$#" -gt 0; do
   case "$1" in
     --version) test "$#" -ge 2; test -z "$task_version"; task_version="${2#v}"; shift 2 ;;
     --update) task_update=1; shift ;;
-    *) echo 'Usage: install-host.sh [--version <version>] [--update]' >&2; exit 1 ;;
+    --internet) test -z "$task_network_mode"; task_network_mode=iroh; task_network=(--internet); shift ;;
+    --relay) test "$#" -ge 2; test "$task_network_mode" != iroh; task_network_mode=custom; task_network+=(--relay "$2"); shift 2 ;;
+    *) echo 'Usage: install-host.sh [--version <version>] [--update] [--internet | --relay <HTTPS URL> ...]' >&2; exit 1 ;;
   esac
 done
+if test "$task_update" = 1 && test -n "$task_network_mode"; then
+  echo 'Network options apply to new installations; edit an existing Host network through its controller' >&2
+  exit 1
+fi
 task_repository=https://github.com/sailry/sailry-harness
 if test -z "$task_version"; then
   task_version="$(curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
@@ -102,6 +110,10 @@ if test "$task_update" = 1; then
   fi
   printf 'Host updated; previous files: %s\n' "$task_backup"
 else
-  bash "$task_root/service.sh"
+  if test -n "$task_network_mode"; then
+    bash "$task_root/service.sh" "${task_network[@]}"
+  else
+    bash "$task_root/service.sh"
+  fi
   printf 'Host installed; run %s share to pair\n' "$task_command"
 fi
