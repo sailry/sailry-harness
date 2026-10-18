@@ -104,6 +104,8 @@ impl Editor {
         self.request = Some(request.clone());
         self.pending = true;
         self.error = None;
+        let login_binding = binding.clone();
+        let login = self.editing.is_none() && self.preset.oauth() && !self.configured;
         let job = binding
             .runtime
             .spawn(async move { binding.client.execute(request).await });
@@ -129,6 +131,9 @@ impl Editor {
                         });
                         editor.close(window, cx);
                         window.close_dialog(cx);
+                        if login {
+                            super::super::login::open_for(login_binding, provider, window, cx);
+                        }
                     }
                     Ok(Err(error)) => {
                         let key = if editor.preset.oauth()

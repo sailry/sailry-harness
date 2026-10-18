@@ -579,6 +579,7 @@ pub enum Command {
         attempt: RequestId,
     },
     ReadCatalogStatus,
+    ReadModelPartners,
     RefreshModelCatalog,
     ReadModelCatalog(crate::conversation::catalog::Query),
     DiscoverModels(Box<crate::conversation::discovery::Source>),
@@ -1505,6 +1506,7 @@ impl Command {
                 | Self::ListRoles
                 | Self::ListProviders
                 | Self::ReadProviderKey { .. }
+                | Self::ReadModelPartners
                 | Self::ReadCatalogStatus
                 | Self::RefreshModelCatalog
                 | Self::ReadModelCatalog(_)
@@ -1798,6 +1800,7 @@ pub enum Output {
     Providers(Vec<crate::conversation::Provider>),
     ProviderKey(Option<crate::Secret>),
     ProviderLogin(crate::conversation::login::Attempt),
+    ModelPartners(crate::conversation::partners::Listing),
     CatalogStatus(crate::conversation::catalog::Status),
     ModelCatalog(crate::conversation::catalog::Page),
     Conversation(crate::conversation::History),

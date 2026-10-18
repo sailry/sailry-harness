@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "partners": [
+    {
+      "id": "example",
+      "name": "Example connection",
+      "logo": "icons/providers/openai.svg",
+      "description": "A neutral catalog fixture",
+      "homepage": "https://example.com/",
+      "key_url": "https://example.com/account/keys?source=sailry",
+      "badge": "Example",
+      "routes": [
+        {"protocol": "openai-responses", "endpoint": "https://example.com/v1"},
+        {"protocol": "openai-chat-completions", "endpoint": "https://example.com/chat/v1"},
+        {"protocol": "anthropic", "endpoint": "https://example.com/anthropic"},
+        {"protocol": "gemini", "endpoint": "https://example.com/v1beta"}
+      ],
+      "models": ["example-text", "example-vision"]
+    }
+  ]
+}

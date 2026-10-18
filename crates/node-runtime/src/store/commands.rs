@@ -431,6 +431,10 @@ pub(super) fn execute(
             )?),
             None,
         )),
+        Command::ReadModelPartners => Err(Fault::new(
+            ErrorCode::Internal,
+            "model partner loading must run outside the database",
+        )),
         Command::ReadCatalogStatus => Ok((
             Output::CatalogStatus(super::providers::catalog::status(db)?),
             None,

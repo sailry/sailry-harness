@@ -1,8 +1,7 @@
 use super::*;
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
-mod picker;
 
-fn groups() -> Vec<(&'static str, Vec<Preset>)> {
+pub(super) fn groups() -> Vec<(&'static str, Vec<Preset>)> {
     use super::super::data::Family;
     let mut groups: Vec<(&'static str, Vec<Preset>)> = Vec::new();
     for family in Family::all() {
@@ -30,26 +29,11 @@ fn groups() -> Vec<(&'static str, Vec<Preset>)> {
 impl Editor {
     pub(super) fn kind_control(&self, cx: &Context<Self>) -> impl IntoElement {
         let preset = self.preset;
-        let owner = cx.entity();
         let disabled = self.editing.is_some() || self.provider.is_some() || self.pending;
-        let button = Button::new("provider-type")
-            .debug_selector(|| "provider-type".into())
-            .w_full()
-            .min_w_0()
-            .label(tr(preset.key()))
-            .dropdown_caret(true)
-            .disabled(disabled);
-        let control = if disabled {
-            button.into_any_element()
-        } else {
-            picker::popover(owner.downgrade(), button).into_any_element()
-        };
-
         h_flex()
             .debug_selector(|| "provider-kind-row".into())
-            .w_full()
+            .flex_shrink_0()
             .gap_2()
-            .child(div().flex_1().min_w_0().child(control))
             .when(!preset.protocols().is_empty(), |row| {
                 let owner = cx.entity();
                 row.child(
@@ -60,7 +44,7 @@ impl Editor {
                         .label(tr(preset.protocol_key()))
                         .accessibility_label(tr("provider_api"))
                         .dropdown_caret(true)
-                        .disabled(self.editing.is_some() || self.provider.is_some() || self.pending)
+                        .disabled(disabled)
                         .dropdown_menu(move |menu, _, _| {
                             preset.protocols().iter().fold(menu, |menu, &p| {
                                 let owner = owner.clone();
@@ -69,7 +53,7 @@ impl Editor {
                                         .checked(p == preset)
                                         .on_click(move |_, window, cx| {
                                             owner.update(cx, |editor, cx| {
-                                                editor.select_preset(p, window, cx)
+                                                editor.select_protocol(p, window, cx)
                                             })
                                         }),
                                 )

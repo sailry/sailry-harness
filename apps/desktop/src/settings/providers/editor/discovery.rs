@@ -16,6 +16,7 @@ impl Drop for Probe {
 impl Editor {
     pub(super) fn close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.closed = true;
+        self.partner_task = None;
         self.probe = None;
         self.request = None;
         self.original_key = None;

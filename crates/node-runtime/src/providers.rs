@@ -7,6 +7,7 @@ pub(crate) mod cloud;
 pub(crate) mod login;
 pub(crate) mod media;
 mod metadata;
+pub(crate) mod partners;
 pub(crate) mod search;
 pub(crate) use metadata::validate;
 

@@ -305,6 +305,7 @@ pub(crate) struct Ingress {
     profile: Option<PathBuf>,
     host: Arc<crate::host::Host>,
     discovery: crate::providers::Discovery,
+    pub(crate) partners: Arc<crate::providers::partners::Directory>,
     catalog: crate::providers::catalog::Catalog,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) authorization_endpoint: Option<String>,
@@ -437,6 +438,7 @@ impl Store {
             profile: profile.clone(),
             host: crate::host::Host::new(),
             discovery: crate::providers::Discovery::new(),
+            partners: Arc::default(),
             catalog,
             files: crate::files::Files::new().with_ocr(ocr.clone()),
             oauth: Arc::default(),

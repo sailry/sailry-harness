@@ -566,6 +566,12 @@ impl Node {
         self.ingress.search.fixture(driver, endpoint);
     }
 
+    /// Routes public partner requests to an isolated loopback catalog.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_model_partners_fixture(&self, endpoint: &str) -> Result<(), sailry_protocol::Fault> {
+        self.ingress.partners.fixture(endpoint)
+    }
+
     /// Routes model metadata requests to an explicit loopback test catalog.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_model_catalog_fixture(

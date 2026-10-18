@@ -5,6 +5,25 @@ use sailry_protocol::{Command, ErrorCode, Fault, Output, Request};
 use tokio::sync::oneshot;
 
 impl Ingress {
+    pub(super) async fn read_model_partners(&self, request: Request) -> Result<Admission, Fault> {
+        if request.target != self.node || request.version != sailry_protocol::VERSION {
+            return Err(Fault::new(
+                ErrorCode::WrongTarget,
+                "Node or protocol version mismatch",
+            ));
+        }
+        let listing = self.partners.read(&self.closed).await?;
+        let (reply, completion) = oneshot::channel();
+        let _ = reply.send(Ok(Output::ModelPartners(listing)));
+        Ok(Admission {
+            receipt: sailry_protocol::Receipt {
+                id: request.id,
+                durable: false,
+            },
+            completion,
+        })
+    }
+
     pub(super) async fn model_catalog(&self, request: Request) -> Result<Admission, Fault> {
         if request.target != self.node || request.version != sailry_protocol::VERSION {
             return Err(Fault::new(

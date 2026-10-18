@@ -6,6 +6,7 @@ pub mod connection;
 pub mod discovery;
 pub mod login;
 pub mod oauth;
+pub mod partners;
 pub mod progress;
 pub mod question;
 pub mod quota;

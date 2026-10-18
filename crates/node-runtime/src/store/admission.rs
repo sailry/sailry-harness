@@ -244,6 +244,9 @@ impl Ingress {
             ) {
                 return self.search_web(caller, request).await;
             }
+            if matches!(request.command, sailry_protocol::Command::ReadModelPartners) {
+                return self.read_model_partners(request).await;
+            }
             if matches!(
                 request.command,
                 sailry_protocol::Command::SearchModels(_)

@@ -20,14 +20,22 @@ mod catalog;
 mod cloud;
 mod credential;
 mod discovery;
+mod flow;
 mod hosted;
 mod kind;
 mod live;
 mod oauth;
+mod partners;
 mod region;
 
 pub(super) struct Editor {
     pub(super) focus: FocusHandle,
+    flow: flow::Flow,
+    search: Entity<InputState>,
+    partners: sailry_protocol::conversation::partners::Catalog,
+    partner_key_url: Option<String>,
+    partner: Option<String>,
+    partner_task: Option<Task<()>>,
     owner: Entity<Workspace>,
     editing: Option<usize>,
     pub preset: Preset,
@@ -66,22 +74,13 @@ pub(super) fn open(
     let editor = cx.new(|cx| Editor::new(owner, editing, window, cx));
     let entity = editor.clone();
     window.open_dialog(cx, move |dialog, window, cx| {
-        let width = (window.viewport_size().width - px(48.)).min(px(680.));
+        let width = (window.viewport_size().width - px(48.)).min(px(760.));
         let save = editor.clone();
         let close = editor.clone();
         let cancel = editor.clone();
         let real = editor.read(cx).binding.is_some();
         dialog
-            .form_title(
-                div()
-                    .debug_selector(|| "provider-dialog-title".into())
-                    .child(tr(if editing.is_some() {
-                        "provider_edit_title"
-                    } else {
-                        "provider_add_title"
-                    })),
-                cx,
-            )
+            .form_title(editor.update(cx, |editor, cx| editor.heading(cx)), cx)
             .w(width)
             .max_h(window.viewport_size().height * 0.8)
             .margin_top(window.viewport_size().height * 0.1)
@@ -105,19 +104,32 @@ pub(super) fn open(
                                 window.close_dialog(cx);
                             }),
                     )
-                    .child(
-                        Button::new("provider-save")
-                            .primary()
-                            .debug_selector(|| "provider-save".into())
-                            .label(tr(if real {
-                                "provider_save"
-                            } else {
-                                "settings_save_preview"
-                            }))
-                            .disabled(editor.read(cx).pending)
-                            .on_click(move |_, window, cx| {
-                                save.update(cx, |editor, cx| editor.save(window, cx))
-                            }),
+                    .when(
+                        editor.read(cx).flow.step == flow::Step::Configure,
+                        |footer| {
+                            footer.child(
+                                Button::new("provider-save")
+                                    .primary()
+                                    .debug_selector(|| "provider-save".into())
+                                    .label(tr(
+                                        if real
+                                            && editor.read(cx).editing.is_none()
+                                            && editor.read(cx).preset.oauth()
+                                            && !editor.read(cx).configured
+                                        {
+                                            "provider_save_login"
+                                        } else if real {
+                                            "provider_save"
+                                        } else {
+                                            "settings_save_preview"
+                                        },
+                                    ))
+                                    .disabled(editor.read(cx).pending)
+                                    .on_click(move |_, window, cx| {
+                                        save.update(cx, |editor, cx| editor.save(window, cx))
+                                    }),
+                            )
+                        },
                     ),
             )
     });
@@ -198,7 +210,18 @@ impl Editor {
             window,
             cx,
         );
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(tr("provider_search")));
+        cx.observe(&search, |_, _, cx| cx.notify()).detach();
         let mut editor = Self {
+            flow: flow::Flow::new(editing.is_some()),
+            search,
+            partners: sailry_protocol::conversation::partners::Catalog {
+                version: 1,
+                partners: Vec::new(),
+            },
+            partner_key_url: None,
+            partner: None,
+            partner_task: None,
             focus: cx.focus_handle(),
             cloud,
             oauth,
@@ -247,6 +270,8 @@ impl Editor {
         }
         let same_kind = self.preset.kind() == preset.kind();
         self.preset = preset;
+        self.partner_key_url = None;
+        self.partner = None;
         self.hosted_product = matches!(preset, Preset::Hosted(_))
             .then_some(sailry_protocol::conversation::connection::Product::Metered);
         self.probe = None;
@@ -350,6 +375,9 @@ impl Editor {
     }
 
     pub fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.flow.step != flow::Step::Configure {
+            return;
+        }
         if self.binding.is_some() {
             self.save_live(window, cx);
             return;
@@ -462,21 +490,25 @@ impl Editor {
 
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.flow.step != flow::Step::Configure {
+            return self.choices(window, cx).into_any_element();
+        }
         let preset = self.preset;
         let real = self.binding.is_some();
-        let mut form = Form::vertical()
-            .child(
-                Field::new().label(tr("settings_name")).child(
-                    Input::new(&self.name)
-                        .disabled(self.pending)
-                        .aria_label(tr("settings_name")),
-                ),
-            )
-            .child(
+        let mut form = Form::vertical().child(
+            Field::new().label(tr("settings_name")).child(
+                Input::new(&self.name)
+                    .disabled(self.pending)
+                    .aria_label(tr("settings_name")),
+            ),
+        );
+        if !preset.protocols().is_empty() {
+            form = form.child(
                 Field::new()
-                    .label(tr("provider_type"))
+                    .label(tr("provider_api"))
                     .child(self.kind_control(cx)),
             );
+        }
         if preset.custom_endpoint() {
             form = form.child(
                 Field::new().label(tr("provider_endpoint")).child(
@@ -524,7 +556,18 @@ impl Render for Editor {
                         .child(tr("provider_editor_preview")),
                 )
             })
+            .child(self.selection(cx))
+            .child(self.partner_choices(cx))
             .child(form)
+            .when_some(self.partner_key_url.clone(), |body, url| {
+                body.child(
+                    Button::new("provider-key-link")
+                        .link()
+                        .small()
+                        .label(tr("provider_get_key"))
+                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                )
+            })
             .when(preset.oauth(), |body| {
                 body.child(self.oauth_form(window, cx))
             })
@@ -576,5 +619,6 @@ impl Render for Editor {
             })
             .children(models)
             .vertical_scrollbar(&self.scroll)
+            .into_any_element()
     }
 }
