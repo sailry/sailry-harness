@@ -7,6 +7,7 @@ struct Feed {
     node: NodeId,
     changes: watch::Sender<Result<Update, Fault>>,
     subscriptions: AtomicUsize,
+    telemetry: watch::Sender<sailry_link::ConnectionInfo>,
 }
 
 impl Feed {
@@ -16,11 +17,29 @@ impl Feed {
             node,
             changes: watch::channel(Ok(Update::Snapshot(snapshot(node)))).0,
             subscriptions: AtomicUsize::new(0),
+            telemetry: watch::channel(Default::default()).0,
         })
     }
 }
 
 impl Transport for Feed {
+    fn watch_connection(
+        &self,
+        updates: watch::Sender<sailry_link::ConnectionInfo>,
+        stop: CancellationToken,
+    ) -> Pending<'_, ()> {
+        Box::pin(async move {
+            let mut values = self.telemetry.subscribe();
+            loop {
+                updates.send_replace(*values.borrow_and_update());
+                tokio::select! {
+                    _ = stop.cancelled() => return,
+                    _ = updates.closed() => return,
+                    result = values.changed() => if result.is_err() { return; },
+                }
+            }
+        })
+    }
     fn target(&self) -> NodeId {
         self.node
     }
@@ -202,4 +221,44 @@ async fn busy_does_not_claim_an_initial_connection() {
     assert!(view.snapshot.is_none());
     stop.cancel();
     job.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn telemetry_preserves_node_projection() {
+    use sailry_link::{ConnectionInfo, Route};
+    let feed = Feed::new();
+    let separate = Feed::new();
+    let observers = Arc::new(Observers::default());
+    let (first_stop, mut first, first_job) = start(feed.clone(), observers.clone());
+    let (second_stop, mut second, second_job) = start(feed.clone(), observers.clone());
+    let (other_stop, mut other, other_job) = start(separate.clone(), observers);
+    receive(&mut first, |view| view.connected).await;
+    receive(&mut second, |view| view.connected).await;
+    receive(&mut other, |view| view.connected).await;
+    let original = first.borrow().snapshot.clone();
+    for state in [
+        ConnectionInfo {
+            route: Some(Route::Relay),
+            rtt_ms: Some(124),
+        },
+        ConnectionInfo {
+            route: Some(Route::P2p),
+            rtt_ms: Some(8),
+        },
+        ConnectionInfo::default(),
+    ] {
+        feed.telemetry.send_replace(state);
+        let view = receive(&mut first, |view| view.connection == state).await;
+        receive(&mut second, |view| view.connection == state).await;
+        assert_eq!(view.snapshot, original);
+        assert_eq!(other.borrow().connection, ConnectionInfo::default());
+        assert_eq!(feed.subscriptions.load(Ordering::SeqCst), 1);
+    }
+    first_stop.cancel();
+    second_stop.cancel();
+    other_stop.cancel();
+    first_job.await.unwrap().unwrap();
+    second_job.await.unwrap().unwrap();
+    other_job.await.unwrap().unwrap();
+    assert_eq!(first.borrow().connection, ConnectionInfo::default());
 }

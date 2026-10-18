@@ -14233,6 +14233,7 @@ dependencies = [
 name = "sailry-link"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "iroh",
  "iroh-relay",
  "libc",

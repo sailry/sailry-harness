@@ -5,6 +5,7 @@ import '../../runtime/json.dart';
 import 'pair_form.dart';
 import '../../runtime/session.dart';
 import '../../ui/kit.dart';
+import '../../ui/connection_status.dart';
 import '../../ui/project_icon.dart';
 import 'resources_page.dart';
 import 'projects_page.dart';
@@ -79,17 +80,39 @@ class _HostsPageState extends State<HostsPage> {
     final selected = await showAppSheet<String>(
       context,
       context.tr('selectHost'),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final host in session.hosts)
-            ListTile(
-              title: Text(host.label),
-              subtitle: Text(context.tr(host.connected ? 'online' : 'offline')),
-              trailing: _host == host ? const AppIcon('check') : null,
-              onTap: () => Navigator.pop(context, host.id),
-            ),
-        ],
+      child: ListenableBuilder(
+        listenable: session,
+        builder: (context, _) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final host in session.hosts)
+              ListTile(
+                title: Text(
+                  host.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  context.tr(host.connected ? 'online' : 'offline'),
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ConnectionStatus(
+                      connected: host.connected,
+                      transport: host.transport,
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 20,
+                      child: _host == host ? const AppIcon('check') : null,
+                    ),
+                  ],
+                ),
+                onTap: () => Navigator.pop(context, host.id),
+              ),
+          ],
+        ),
       ),
     );
     if (selected != null) session.selectHost(selected);
@@ -239,6 +262,14 @@ class _HostsPageState extends State<HostsPage> {
                         ),
                       ),
                     ],
+                  ),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: ConnectionStatus(
+                      connected: host.connected,
+                      transport: host.transport,
+                    ),
                   ),
                 ],
               ),

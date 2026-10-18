@@ -4200,6 +4200,24 @@ abstract class AppLocalizations {
   /// **'Reply to “{title}” v{revision} ({id}/{form})'**
   String artifactReply(String id, String revision, String title, String form);
 
+  /// No description provided for @connectionRouteP2p.
+  ///
+  /// In en, this message translates to:
+  /// **'P2P'**
+  String get connectionRouteP2p;
+
+  /// No description provided for @connectionRouteRelay.
+  ///
+  /// In en, this message translates to:
+  /// **'Relay'**
+  String get connectionRouteRelay;
+
+  /// No description provided for @connectionRouteUnknown.
+  ///
+  /// In en, this message translates to:
+  /// **'—'**
+  String get connectionRouteUnknown;
+
   /// No description provided for @backgroundNoticeTitle.
   ///
   /// In en, this message translates to:

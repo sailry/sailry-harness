@@ -2136,6 +2136,15 @@ class AppLocalizationsPt extends AppLocalizations {
   }
 
   @override
+  String get connectionRouteP2p => 'P2P';
+
+  @override
+  String get connectionRouteRelay => 'Relay';
+
+  @override
+  String get connectionRouteUnknown => '—';
+
+  @override
   String get backgroundNoticeTitle => 'Resultados em segundo plano';
 
   @override
@@ -2192,6 +2201,15 @@ class AppLocalizationsPtBr extends AppLocalizationsPt {
   String artifactReply(String id, String revision, String title, String form) {
     return 'Resposta a “$title” v$revision ($id/$form)';
   }
+
+  @override
+  String get connectionRouteP2p => 'P2P';
+
+  @override
+  String get connectionRouteRelay => 'Relay';
+
+  @override
+  String get connectionRouteUnknown => '—';
 
   @override
   String get backgroundNoticeTitle => 'Resultados em segundo plano';

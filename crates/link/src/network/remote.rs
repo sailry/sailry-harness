@@ -19,6 +19,19 @@ pub(super) struct Remote {
 }
 
 impl Transport for Remote {
+    fn watch_connection(
+        &self,
+        updates: tokio::sync::watch::Sender<crate::ConnectionInfo>,
+        stop: crate::CancellationToken,
+    ) -> Pending<'_, ()> {
+        Box::pin(super::connection::observe(
+            &self.core,
+            &self.address,
+            updates,
+            stop,
+        ))
+    }
+
     fn open(
         &self,
         resource: sailry_protocol::StreamId,

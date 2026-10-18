@@ -15,13 +15,17 @@ pub struct View {
     pub snapshot: Option<Snapshot>,
     pub notifications: Vec<crate::activity::Notice>,
     pub connected: bool,
+    pub connection: sailry_link::ConnectionInfo,
     pub error: Option<Fault>,
 }
 
 struct Closing(watch::Sender<View>);
 impl Drop for Closing {
     fn drop(&mut self) {
-        self.0.send_modify(|view| view.connected = false);
+        self.0.send_modify(|view| {
+            view.connected = false;
+            view.connection = Default::default();
+        });
     }
 }
 
@@ -40,6 +44,25 @@ impl Client {
     }
 
     async fn watch_node(
+        &self,
+        updates: watch::Sender<View>,
+        stop: CancellationToken,
+    ) -> Result<(), Fault> {
+        let (sender, mut connection) = watch::channel(Default::default());
+        let telemetry = self.watch_connection(sender, stop.child_token());
+        let merge = async {
+            while connection.changed().await.is_ok() {
+                let state = *connection.borrow_and_update();
+                updates.send_modify(|view| view.connection = state);
+            }
+        };
+        tokio::select! {
+            result = self.watch_snapshot(updates.clone(), stop.clone()) => result,
+            _ = async { tokio::join!(telemetry, merge); } => Ok(()),
+        }
+    }
+
+    async fn watch_snapshot(
         &self,
         updates: watch::Sender<View>,
         stop: CancellationToken,
@@ -90,10 +113,12 @@ impl Client {
                             if let Some(snapshot) = projection.snapshot() {
                                 activity.observe(snapshot);
                             }
+                            let connection = updates.borrow().connection;
                             updates.send_replace(View {
                                 snapshot: projection.snapshot().cloned(),
                                 notifications: activity.notices.clone(),
                                 connected: true,
+                                connection,
                                 error: None,
                             });
                         }
@@ -102,12 +127,18 @@ impl Client {
                 Err(error) => error,
             };
             let connected = outcome.code == ErrorCode::Busy && updates.borrow().connected;
+            let connection = if connected {
+                updates.borrow().connection
+            } else {
+                Default::default()
+            };
             updates.send_replace(View {
                 snapshot: projection.snapshot().cloned(),
                 notifications: activity.notices.clone(),
                 // Backpressure is not evidence that the authenticated transport
                 // or an already-valid projection became unavailable.
                 connected,
+                connection,
                 error: Some(outcome.clone()),
             });
             if !matches!(outcome.code, ErrorCode::Unavailable | ErrorCode::Busy) {

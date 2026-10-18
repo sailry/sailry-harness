@@ -311,6 +311,7 @@ class HostConnection extends ChangeNotifier {
   Map<String, dynamic> info = {};
   List<Map<String, dynamic>> notifications = [];
   bool connected = false;
+  Map<String, dynamic> transport = {};
   Object? error;
   Updates? _updates;
   bool _closed = false;
@@ -337,6 +338,7 @@ class HostConnection extends ChangeNotifier {
         if (_closed) break;
         snapshot = object(view['snapshot']);
         connected = view['connected'] == true;
+        transport = connected ? object(view['connection']) : {};
         error = view['error'];
         notifications = objects(view['notifications']);
         notifyListeners();
@@ -345,6 +347,7 @@ class HostConnection extends ChangeNotifier {
     } catch (failure) {
       if (!_closed) {
         connected = false;
+        transport = {};
         error = failure;
         notifyListeners();
       }
@@ -416,6 +419,8 @@ class HostConnection extends ChangeNotifier {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    connected = false;
+    transport = {};
     final updates = _updates;
     _updates = null;
     try {

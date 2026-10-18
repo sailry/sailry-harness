@@ -2141,6 +2141,15 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
+  String get connectionRouteP2p => 'P2P';
+
+  @override
+  String get connectionRouteRelay => 'Relay';
+
+  @override
+  String get connectionRouteUnknown => '—';
+
+  @override
   String get backgroundNoticeTitle => 'Resultados en segundo plano';
 
   @override

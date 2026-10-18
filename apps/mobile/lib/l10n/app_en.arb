@@ -828,6 +828,9 @@
       }
     }
   },
+  "connectionRouteP2p": "P2P",
+  "connectionRouteRelay": "Relay",
+  "connectionRouteUnknown": "—",
   "backgroundNoticeTitle": "Background results",
   "backgroundCompleted": "Completed",
   "backgroundFailed": "Failed",

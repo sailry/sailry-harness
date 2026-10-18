@@ -2088,6 +2088,15 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String get connectionRouteP2p => 'P2P';
+
+  @override
+  String get connectionRouteRelay => 'Relay';
+
+  @override
+  String get connectionRouteUnknown => '—';
+
+  @override
   String get backgroundNoticeTitle => '后台结果';
 
   @override
@@ -4197,6 +4206,15 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String artifactReply(String id, String revision, String title, String form) {
     return '關於「$title」v$revision（$id/$form）的回覆';
   }
+
+  @override
+  String get connectionRouteP2p => 'P2P';
+
+  @override
+  String get connectionRouteRelay => 'Relay';
+
+  @override
+  String get connectionRouteUnknown => '—';
 
   @override
   String get backgroundNoticeTitle => '背景結果';

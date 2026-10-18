@@ -1,3 +1,4 @@
+mod connection;
 mod frame;
 mod pairing;
 mod relays;
@@ -82,6 +83,14 @@ struct CachedConnection {
     address: EndpointAddr,
     connection: Connection,
     software_version: Option<String>,
+    telemetry: watch::Receiver<crate::ConnectionInfo>,
+    sampler: JoinHandle<()>,
+}
+
+impl Drop for CachedConnection {
+    fn drop(&mut self) {
+        self.sampler.abort();
+    }
 }
 
 pub struct Link {
@@ -407,12 +416,20 @@ impl Core {
                 info.software_version.as_deref(),
             )?;
         }
+        let (updates, telemetry) = watch::channel(connection::snapshot(&connection));
+        let sampler = tokio::spawn(connection::monitor(
+            connection.clone(),
+            updates,
+            self.stop.clone(),
+        ));
         outgoing.insert(
             id,
             CachedConnection {
                 address: target.clone(),
                 connection: connection.clone(),
                 software_version: info.software_version,
+                telemetry,
+                sampler,
             },
         );
         Ok(connection)

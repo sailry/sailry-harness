@@ -97,14 +97,22 @@ impl RelayFixture {
     }
 
     async fn link(&self, handler: Arc<dyn Handler>) -> Link {
-        let endpoint = Endpoint::builder(presets::Minimal)
+        self.link_with_ip(handler, false).await
+    }
+
+    async fn link_with_ip(&self, handler: Arc<dyn Handler>, direct: bool) -> Link {
+        let builder = Endpoint::builder(presets::Minimal)
             .relay_mode(RelayMode::Custom(self.selection.map().unwrap()))
             .ca_tls_config(self.tls.clone())
-            .alpns(vec![ALPN.to_vec(), pairing::ALPN.to_vec()])
-            .clear_ip_transports()
-            .bind()
-            .await
-            .unwrap();
+            .alpns(vec![ALPN.to_vec(), pairing::ALPN.to_vec()]);
+        let endpoint = if direct {
+            builder
+        } else {
+            builder.clear_ip_transports()
+        }
+        .bind()
+        .await
+        .unwrap();
         Link::from_endpoint(
             endpoint,
             Some(self.selection.clone()),
@@ -283,4 +291,79 @@ async fn rejects_untrusted_tls_without_committing() {
     );
     link.handle().online().await.unwrap();
     link.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn observes_selected_relay_and_ip_paths() {
+    use crate::{ConnectionInfo, Route};
+    for direct in [false, true] {
+        let relay = RelayFixture::start().await;
+        let handler = Arc::new(Echo(StreamId::new()));
+        let first = relay.link_with_ip(handler.clone(), direct).await;
+        let second = relay.link_with_ip(handler, direct).await;
+        first.handle().online().await.unwrap();
+        second.handle().online().await.unwrap();
+        // The authenticated handshake is seeded only with the real local relay.
+        let mut invitation = first.handle().invite().unwrap();
+        second.handle().pair(invitation.ticket()).await.unwrap();
+        invitation.paired().await.unwrap();
+        let mut address = first.handle().address();
+        address.addrs.retain(|address| address.is_relay());
+        let connection = second
+            .handle
+            .core
+            .connection(&address, false)
+            .await
+            .unwrap();
+        let updates = second
+            .handle
+            .core
+            .outgoing
+            .lock()
+            .await
+            .get(&NodeId(*address.id.as_bytes()))
+            .unwrap()
+            .telemetry
+            .clone();
+        let (sender, mut observed) = watch::channel(ConnectionInfo::default());
+        let remote = second.handle().remote(address.clone());
+        let stop = CancellationToken::new();
+        let cancellation = stop.clone();
+        let task = tokio::spawn(async move {
+            remote.watch_connection(sender, cancellation).await;
+        });
+        let expected = if direct { Route::P2p } else { Route::Relay };
+        tokio::time::timeout(Duration::from_secs(20), async {
+            loop {
+                if observed.borrow_and_update().route == Some(expected) {
+                    break;
+                }
+                observed.changed().await.unwrap();
+            }
+        })
+        .await
+        .unwrap();
+        let paths = connection.paths();
+        let selected = paths.iter().find(|path| path.is_selected()).unwrap();
+        assert_eq!(selected.is_ip(), direct);
+        assert_eq!(selected.is_relay(), !direct);
+        assert!(observed.borrow().rtt_ms.is_some());
+        // Reading or observing again reuses this connection's one telemetry owner.
+        second.handle().inspect(&address).await.unwrap();
+        let cached = second.handle.core.outgoing.lock().await;
+        assert!(
+            updates.same_channel(
+                &cached
+                    .get(&NodeId(*address.id.as_bytes()))
+                    .unwrap()
+                    .telemetry
+            )
+        );
+        drop(cached);
+        stop.cancel();
+        task.await.unwrap();
+        assert_eq!(*observed.borrow(), ConnectionInfo::default());
+        first.close().await.unwrap();
+        second.close().await.unwrap();
+    }
 }

@@ -1,6 +1,7 @@
 pub mod activity;
 mod artifacts;
 pub mod commands;
+pub mod connection;
 pub mod conversation;
 mod directory;
 mod document;

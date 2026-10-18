@@ -1,4 +1,5 @@
 mod compatibility;
+mod connection;
 mod controller;
 mod identity;
 mod network;
@@ -11,6 +12,7 @@ use sailry_protocol::{Fault, NodeId, Output, Receipt, Request, Topic, Update};
 use tokio::sync::oneshot;
 
 pub use compatibility::{PRODUCT_VERSION, check_host};
+pub use connection::{ConnectionInfo, Route};
 pub use identity::Identity;
 pub use iroh::EndpointAddr;
 pub use network::{
@@ -63,6 +65,15 @@ pub trait Handler: Send + Sync {
 }
 
 pub trait Transport: Send + Sync {
+    /// Observe this controller's transport without publishing addresses or business events.
+    fn watch_connection(
+        &self,
+        updates: tokio::sync::watch::Sender<ConnectionInfo>,
+        stop: CancellationToken,
+    ) -> Pending<'_, ()> {
+        Box::pin(connection::hold(updates, stop, ConnectionInfo::default()))
+    }
+
     fn open(&self, _resource: sailry_protocol::StreamId) -> Pending<'_, Result<Stream, Fault>> {
         Box::pin(async {
             Err(Fault::new(
@@ -94,6 +105,21 @@ impl Local {
 }
 
 impl Transport for Local {
+    fn watch_connection(
+        &self,
+        updates: tokio::sync::watch::Sender<ConnectionInfo>,
+        stop: CancellationToken,
+    ) -> Pending<'_, ()> {
+        Box::pin(connection::hold(
+            updates,
+            stop,
+            ConnectionInfo {
+                route: Some(Route::Local),
+                rtt_ms: None,
+            },
+        ))
+    }
+
     fn open(&self, resource: sailry_protocol::StreamId) -> Pending<'_, Result<Stream, Fault>> {
         Box::pin(async move {
             compatibility::check(Some(PRODUCT_VERSION), self.handler.product_version())?;
