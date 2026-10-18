@@ -9,6 +9,7 @@ task_root="$(cd "$(dirname "$0")/../.." && pwd)"
 test ! -e "$task_output"
 mkdir -p "$task_output"
 task_scratch="$(mktemp -d "$task_root/target/licenses-XXXXXX")"
+trap 'rm -rf -- "$task_scratch"' EXIT
 cargo metadata --locked --format-version 1 --filter-platform "$task_target" \
   --manifest-path "$task_root/Cargo.toml" > "$task_scratch/metadata.json"
 jq --arg package "$task_package" -f "$task_root/scripts/package/dependencies.jq" \
