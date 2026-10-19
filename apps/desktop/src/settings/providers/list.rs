@@ -121,13 +121,9 @@ impl Workspace {
                 .into_any_element(),
         };
         let row = h_flex()
-            .id(("provider-row", id))
-            .mx(px(-16.))
-            .px_4()
             .py_3()
             .gap(px(GAP))
             .items_center()
-            .hover(|style| style.bg(cx.theme().list_hover))
             .child(Self::provider_tile(channel))
             .child(details)
             .when_some(
