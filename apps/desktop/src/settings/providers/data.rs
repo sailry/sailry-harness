@@ -430,6 +430,7 @@ pub enum Selection {
 
 pub struct Store {
     pub category: Selection,
+    pub scroll: gpui_kit::ScrollHandle,
     pub channels: Vec<Channel>,
     pub catalog_revision: usize,
     next_id: usize,
@@ -439,6 +440,7 @@ impl Default for Store {
     fn default() -> Self {
         Self {
             category: Selection::All,
+            scroll: gpui_kit::ScrollHandle::new(),
             channels: vec![Channel {
                 directory: None,
                 options: None,
