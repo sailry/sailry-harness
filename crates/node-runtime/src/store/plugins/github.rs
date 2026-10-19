@@ -68,6 +68,11 @@ pub(in crate::store) fn save(
     prepare(db, host, package)?;
     let mut info = required(db, &package.name)?;
     let mut saved = settings::stored(db, &info)?;
+    let configuration = match &saved.mcp {
+        Some(configuration) => configuration.clone(),
+        None => host.mcp_configuration(package, sailry_link::CancellationToken::new())?,
+    };
+    saved.mcp_targets = settings::targets::current(db, &info, Some(&configuration))?;
     saved.schema = info.settings.clone();
     saved.slots.remove("token");
     saved.github = Some(identity);

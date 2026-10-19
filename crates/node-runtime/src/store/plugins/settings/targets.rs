@@ -1,7 +1,7 @@
 //! Protected MCP slots bind to a concrete immutable server declaration.
 use super::*;
 
-pub(super) fn current(
+pub(in crate::store::plugins) fn current(
     db: &Connection,
     info: &Info,
     configured: Option<&plugin::mcp::Configuration>,

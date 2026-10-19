@@ -175,6 +175,8 @@ fn validates_all_shipped_manifests_offline() {
             .map(|error| error.to_string())
             .collect();
         assert!(errors.is_empty(), "{name}: {errors:?}");
+        let parsed = parse(bytes).unwrap();
+        assert!(parsed.issues.is_empty(), "{name}: {:?}", parsed.issues);
     }
     for bytes in [
         include_bytes!("../../../../../plugins/examples/project-summary/plugin.json").as_slice(),

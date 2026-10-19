@@ -1,6 +1,6 @@
 //! Immutable configuration revisions share plugin inventory transactions and receipts.
 use super::*;
-mod targets;
+pub(super) mod targets;
 use crate::plugins::settings::Resolved;
 use sailry_protocol::{Secret, plugin::settings::*};
 use serde::{Deserialize, Serialize};
@@ -127,6 +127,39 @@ fn same_binding(
             && (current.server.is_none() || destination.is_some() && destination == targets.get(name)))
 }
 
+fn can_keep(
+    stored: &Stored,
+    schema: &Schema,
+    name: &str,
+    targets: &BTreeMap<String, String>,
+) -> bool {
+    if same_binding(stored, schema, name, targets) {
+        return true;
+    }
+    let authorized = [stored.schema.as_ref(), Some(schema)]
+        .into_iter()
+        .flatten()
+        .filter_map(|schema| schema.properties.get(name))
+        .filter_map(|field| field.secret.as_ref()?.server.as_ref())
+        .filter_map(|server| stored.authorizations.get(server))
+        .any(|grant| grant.credentials.is_some());
+    let oauth = stored
+        .oauth
+        .as_ref()
+        .and_then(|saved| saved.grant.as_ref())
+        .is_some_and(|grant| {
+            grant
+                .declaration
+                .credentials
+                .iter()
+                .any(|field| field == name)
+        });
+    !stored.slots.get(name).is_some_and(Option::is_some)
+        && !(name == "token" && stored.github.is_some())
+        && !authorized
+        && !oauth
+}
+
 fn project(db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault> {
     // Missing legacy targets remain stored but cannot authorize a new destination.
     let resolved = targets::current(db, info, stored.mcp.as_ref());
@@ -180,7 +213,7 @@ fn project(db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault
             .properties
             .iter()
             .filter(|(name, field)| {
-                field.secret.is_some() && same_binding(stored, schema, name, &targets)
+                field.secret.is_some() && can_keep(stored, schema, name, &targets)
             })
             .map(|(name, _)| name.clone())
             .collect(),
@@ -326,7 +359,7 @@ pub(in crate::store) fn save(
                     })?;
                 }
             }
-            SecretUpdate::Keep if !same_binding(&previous, schema, name, &targets) => {
+            SecretUpdate::Keep if !can_keep(&previous, schema, name, &targets) => {
                 return Err(sailry_protocol::Fault::invalid(
                     "changed secret bindings require replacement or clearing",
                 ));

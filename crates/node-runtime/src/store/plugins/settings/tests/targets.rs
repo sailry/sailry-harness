@@ -218,3 +218,96 @@ fn hashes_stdio_command_arguments_environment_and_directory() {
         expected
     );
 }
+
+#[test]
+fn keeps_empty_slots_without_binding_credentials() {
+    for cleared in [false, true] {
+        let (_directory, db, info, mut saved) = fixture();
+        saved.slots.clear();
+        if cleared {
+            saved.slots.insert("token".into(), None);
+        }
+        replace(&db, &info, &saved);
+        let state = read(&db, &info.summary.reference()).unwrap();
+        assert!(state.configured.is_empty());
+        assert_eq!(state.keepable, ["token"]);
+        let state = save(
+            &db,
+            &info.summary.reference(),
+            &BTreeMap::new(),
+            &BTreeMap::from([("token".into(), SecretUpdate::Keep)]),
+        )
+        .unwrap();
+        assert!(!state.ready);
+        assert!(state.configured.is_empty());
+        let current = super::super::super::required(&db, &info.summary.name).unwrap();
+        let stored = stored(&db, &current).unwrap();
+        assert!(!stored.slots.get("token").is_some_and(Option::is_some));
+        assert_eq!(
+            stored.mcp_targets,
+            super::super::targets::current(&db, &current, stored.mcp.as_ref()).unwrap()
+        );
+    }
+}
+
+#[test]
+fn requires_rebinding_linked_credentials() {
+    for linked in ["github", "authorization", "oauth"] {
+        let (_directory, db, info, mut saved) = fixture();
+        saved.slots.clear();
+        if linked == "github" {
+            saved.github = Some(crate::plugins::github::login::Identity {
+                login: "fixture-user".into(),
+                source: "keyring".into(),
+            });
+        } else if linked == "authorization" {
+            saved.authorizations.insert(
+                "service".into(),
+                super::super::super::grants::Grant {
+                    id: sailry_protocol::CredentialId::new(),
+                    endpoint: "https://original.test/mcp".into(),
+                    revision: 1,
+                    credentials: Some(Secret::new("private-authorization".into())),
+                },
+            );
+        } else {
+            saved.oauth = Some(super::super::super::oauth::Authorized {
+                id: sailry_protocol::CredentialId::new(),
+                revision: 1,
+                grant: Some(crate::plugins::oauth::Grant {
+                    declaration: plugin::oauth::Declaration {
+                        provider: plugin::oauth::Provider::Google,
+                        scopes: vec!["https://www.googleapis.com/auth/drive.readonly".into()],
+                        credentials: vec!["token".into()],
+                    },
+                    configuration: plugin::oauth::Configuration {
+                        client_id: "fixture-client".into(),
+                        client_secret: None,
+                        tenant: None,
+                    },
+                    access_token: Secret::new("private-access".into()),
+                    refresh_token: Some(Secret::new("private-refresh".into())),
+                    expires_at_ms: 1,
+                }),
+            });
+        }
+        replace(&db, &info, &saved);
+        let before = encode(&saved).unwrap();
+        assert!(
+            read(&db, &info.summary.reference())
+                .unwrap()
+                .keepable
+                .is_empty()
+        );
+        assert!(
+            save(
+                &db,
+                &info.summary.reference(),
+                &BTreeMap::new(),
+                &BTreeMap::from([("token".into(), SecretUpdate::Keep)]),
+            )
+            .is_err()
+        );
+        assert_eq!(encode(&stored(&db, &info).unwrap()).unwrap(), before);
+    }
+}

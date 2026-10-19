@@ -92,37 +92,22 @@ async fn inventory(client: &Client) -> Vec<Summary> {
     assert!(default.enabled && default.digest.len() == 64);
     // These fixtures compare explicitly installed test packages. Distribution
     // and removal of defaults have their own local and remote acceptance test.
-    plugins
-        .into_iter()
-        .filter(|entry| {
-            ![
-                "brief",
-                "reminders",
-                "scheduled-tasks",
-                "web-search",
-                "goals",
-                "commands",
-                "external-browser",
-                "browser",
-                "computer",
-                "media",
-                "memory",
-                "files",
-                "code",
-                "delegation",
-                "statistics",
-                "databases",
-                "ssh",
-                "worktrees",
-                "git",
-                "context7",
-                "github",
-                "code-review",
-                "office",
-            ]
-            .contains(&entry.name.as_str())
-        })
-        .collect()
+    let mut installed = Vec::new();
+    for summary in plugins {
+        let package = info(
+            execute(
+                client,
+                Command::ReadPlugin {
+                    name: summary.name.clone(),
+                },
+            )
+            .await,
+        );
+        if package.origin != Some(plugin::Origin::Bundled) {
+            installed.push(summary);
+        }
+    }
+    installed
 }
 
 #[tokio::test]

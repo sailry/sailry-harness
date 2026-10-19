@@ -11,7 +11,15 @@ fn fixture() -> (tempfile::TempDir, crate::plugins::Host, Connection, Info) {
     let directory = tempfile::tempdir().unwrap();
     let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
     let info = host.install_bundled("github").unwrap();
-    let db = Connection::open_in_memory().unwrap();
+    std::fs::create_dir_all(directory.path().join("storage")).unwrap();
+    let db = Connection::open(
+        directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("storage/node.sqlite3"),
+    )
+    .unwrap();
     db.execute_batch(include_str!("../../schema.sql")).unwrap();
     super::super::save(&db, &info, true).unwrap();
     (directory, host, db, info)

@@ -131,7 +131,9 @@ fn update(args: Update, previous: &Server) -> Result<Command, Fault> {
 fn summary(info: &plugin::Info) -> Value {
     json!({"name":info.summary.name,"revision":info.summary.revision,
         "enabled":info.summary.enabled,"standalone":info.mcp_source.is_some(),
-        "servers":info.mcp,
+        "servers":info.mcp.iter().map(|server| json!({
+            "name":server.name,"transport":server.transport
+        })).collect::<Vec<_>>(),
         "credential_slots":info.mcp_source.as_ref().map(Server::slots).unwrap_or_default()})
 }
 

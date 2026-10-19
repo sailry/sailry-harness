@@ -258,17 +258,29 @@ mod tests {
         .unwrap()
     }
 
-    fn database(info: &Info) -> Connection {
+    fn database(info: &mut Info) -> Connection {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch(include_str!("../schema.sql")).unwrap();
         super::super::save(&db, info, true).unwrap();
+        let mut stored = super::super::settings::stored(&db, info).unwrap();
+        stored.mcp = Some(plugin::mcp::Configuration {
+            schema: plugin::mcp::SCHEMA.into(),
+            servers: BTreeMap::from([(
+                "input".into(),
+                plugin::mcp::Server::Http {
+                    url: "https://example.test/mcp".into(),
+                    headers: BTreeMap::new(),
+                },
+            )]),
+        });
+        super::super::settings::persist(&db, info, &stored).unwrap();
         db
     }
 
     #[test]
     fn classifies_declared_authorization_presence() {
-        let info = info(None, true);
-        let db = database(&info);
+        let mut info = info(None, true);
+        let db = database(&mut info);
         let missing = read(&db, &info.summary.reference(), "connection").unwrap();
         assert_eq!(missing.configuration, Configuration::Ready);
         assert_eq!(missing.authorization, Authorization::Missing);
@@ -290,8 +302,8 @@ mod tests {
 
     #[test]
     fn keeps_optional_credentials_ready() {
-        let info = info(Some(schema(false, false)), false);
-        let db = database(&info);
+        let mut info = info(Some(schema(false, false)), false);
+        let db = database(&mut info);
         let absent = read(&db, &info.summary.reference(), "connection").unwrap();
         assert_eq!(absent.configuration, Configuration::Ready);
         assert_eq!(absent.authorization, Authorization::NotDeclared);
@@ -319,8 +331,8 @@ mod tests {
     #[test]
     fn requires_declared_binding_inputs() {
         for schema in [schema(true, false), schema(false, true)] {
-            let info = info(Some(schema), false);
-            let db = database(&info);
+            let mut info = info(Some(schema), false);
+            let db = database(&mut info);
             let status = read(&db, &info.summary.reference(), "connection").unwrap();
             assert_eq!(status.configuration, Configuration::Missing);
             assert_eq!(status.credential, Credential::Absent);
@@ -330,7 +342,7 @@ mod tests {
     #[test]
     fn distinguishes_changed_and_unsupported_schemas() {
         let mut info = info(Some(schema(false, false)), false);
-        let db = database(&info);
+        let db = database(&mut info);
         let saved = super::super::settings::save(
             &db,
             &info.summary.reference(),
