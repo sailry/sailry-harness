@@ -473,3 +473,173 @@ async fn reconnects_existing_handles_after_host_switch() {
     controller.close().await.unwrap();
     host.close().await.unwrap();
 }
+
+mod routes {
+    use super::*;
+
+    struct Commands {
+        calls: StdMutex<Vec<sailry_protocol::RequestId>>,
+        release: Option<Arc<tokio::sync::Notify>>,
+    }
+
+    impl Handler for Commands {
+        fn dispatch(&self, _: NodeId, request: Request) -> Pending<'_, Result<Admission, Fault>> {
+            Box::pin(async move {
+                let release = {
+                    let mut calls = self.calls.lock().unwrap();
+                    calls.push(request.id);
+                    if calls.len() == 1 {
+                        self.release.clone()
+                    } else {
+                        None
+                    }
+                };
+                let (reply, completion) = tokio::sync::oneshot::channel();
+                tokio::spawn(async move {
+                    if let Some(release) = release {
+                        release.notified().await;
+                    }
+                    let _ = reply.send(Ok(sailry_protocol::Output::Plugins(vec![])));
+                });
+                Ok(Admission {
+                    receipt: sailry_protocol::Receipt {
+                        id: request.id,
+                        durable: true,
+                    },
+                    completion,
+                })
+            })
+        }
+
+        fn subscribe(
+            &self,
+            _: NodeId,
+            _: Topic,
+        ) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
+            Box::pin(async { Err(frame::invalid("fixture has no event service")) })
+        }
+    }
+
+    #[tokio::test]
+    async fn refreshes_cached_routes_without_replaying_admitted_commands() {
+        let directory = tempfile::tempdir().unwrap();
+        let identity = Identity::open(directory.path()).unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let previous_handler = Arc::new(Commands {
+            calls: StdMutex::new(vec![]),
+            release: Some(release.clone()),
+        });
+        let next_handler = Arc::new(Commands {
+            calls: StdMutex::new(vec![]),
+            release: None,
+        });
+        let previous = Link::bind(
+            &identity,
+            NetworkScope::default(),
+            previous_handler.clone(),
+            Arc::new(Peers::default()),
+        )
+        .await
+        .unwrap();
+        let next = Link::bind(
+            &identity,
+            NetworkScope::default(),
+            next_handler.clone(),
+            Arc::new(Peers::default()),
+        )
+        .await
+        .unwrap();
+        let control = controller.handle();
+        let peer = identity.id();
+        control.set_trust(peer, true).await.unwrap();
+        previous
+            .handle()
+            .set_trust(NodeId(*control.address().id.as_bytes()), true)
+            .await
+            .unwrap();
+        next.handle()
+            .set_trust(NodeId(*control.address().id.as_bytes()), true)
+            .await
+            .unwrap();
+        let previous_address = previous.handle().address();
+        let next_address = next.handle().address();
+        assert_ne!(previous_address.addrs, next_address.addrs);
+        let original = Request::new(
+            peer,
+            sailry_protocol::Command::RegisterProject {
+                name: "Previous route".into(),
+                path: "/fixture".into(),
+            },
+        );
+        let admitted = control
+            .remote(previous_address.clone())
+            .dispatch(original.clone())
+            .await
+            .unwrap();
+        assert!(admitted.receipt.durable);
+        assert_eq!(admitted.receipt.id, original.id);
+        let connection = control
+            .core
+            .connection(&previous_address, true)
+            .await
+            .unwrap();
+        assert!(connection.close_reason().is_none());
+        let unaddressed = control
+            .core
+            .connection(&EndpointAddr::new(previous_address.id), true)
+            .await
+            .unwrap();
+        assert_eq!(unaddressed.stable_id(), connection.stable_id());
+        let request = Request::new(
+            peer,
+            sailry_protocol::Command::RegisterProject {
+                name: "Current route".into(),
+                path: "/fixture".into(),
+            },
+        );
+        let current = control
+            .remote(next_address.clone())
+            .dispatch(request.clone())
+            .await
+            .unwrap();
+        let slot = control
+            .core
+            .outgoing
+            .lock()
+            .await
+            .get(&peer)
+            .unwrap()
+            .clone();
+        {
+            let cached = slot.cached.lock().unwrap();
+            let cached = cached.as_ref().unwrap();
+            assert_ne!(cached.connection.stable_id(), connection.stable_id());
+            assert_eq!(cached.address, next_address);
+        }
+        // Transport addresses are hints for one identity, not endpoint incarnations.
+        let recorded = || {
+            let mut calls = previous_handler.calls.lock().unwrap().clone();
+            calls.extend(next_handler.calls.lock().unwrap().iter().copied());
+            calls
+        };
+        assert_eq!(recorded(), [original.id, request.id]);
+        assert!(
+            matches!(current.completion.await.unwrap().unwrap(), sailry_protocol::Output::Plugins(items) if items.is_empty())
+        );
+        let error = tokio::time::timeout(Duration::from_secs(3), admitted.completion)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::OutcomeUnknown);
+        release.notify_one();
+        assert_eq!(recorded(), [original.id, request.id]);
+        previous.close().await.unwrap();
+        next.close().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

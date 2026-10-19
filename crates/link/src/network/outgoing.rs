@@ -142,10 +142,10 @@ impl Core {
         let target = self.current_address(address)?;
         {
             let cached = slot.cached.lock().map_err(network)?;
-            if let Some(cached) = cached
-                .as_ref()
-                .filter(|cached| cached.connection.close_reason().is_none())
-            {
+            if let Some(cached) = cached.as_ref().filter(|cached| {
+                cached.connection.close_reason().is_none()
+                    && target.addrs.is_subset(&cached.address.addrs)
+            }) {
                 if execution {
                     crate::compatibility::check(
                         self.handler.product_version(),
