@@ -180,7 +180,11 @@ pub(in crate::store) fn import(
                 model.provider = provider.id;
             }
         }
-        crate::store::providers::configuration::retain(db, provider)?;
+        let mut configured = provider.clone();
+        if !crate::store::providers::presets::partner_policy(&configured)? {
+            configured.binding = None;
+        }
+        crate::store::providers::configuration::retain(db, &configured)?;
     }
     validate(db, node, &snapshot)?;
     Ok(snapshot)

@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::{Value, json};
 
-const PRIVATE: &str = "private echoed provider credential";
+const ECHO: &str = "private echoed provider credential";
 const MESSAGE: &str = "The model rejected the current input";
 
 #[tokio::test]
@@ -13,7 +13,8 @@ async fn retains_status_for_nonstandard_error_bodies() {
             (429, "rate_limited", 6),
         ] {
             let raw = format!(
-                "HTTP/1.1 {status} Fixture error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{{\"message\":\"{PRIVATE}\"}}"
+                "HTTP/1.1 {status} Fixture error\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{{\"message\":\"{ECHO}; authorization {}\"}}",
+                server::KEY
             );
             let server =
                 Server::start(ModelApi::Responses, Reply::Raw(Arc::new(raw.into_bytes()))).await;
@@ -34,7 +35,8 @@ async fn retains_status_for_nonstandard_error_bodies() {
                 "{error:?}"
             );
             let serialized = serde_json::to_string(&page).unwrap();
-            assert!(!serialized.contains(PRIVATE));
+            assert!(serialized.contains(ECHO));
+            assert!(serialized.contains("[redacted]"));
             assert!(!serialized.contains(server::KEY));
             // Node retries a rate-limited opening five times before any output.
             // The Responses transport and client have no additional retry layer.

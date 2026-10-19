@@ -1,71 +1,63 @@
 use super::*;
 
-async fn advance_backoffs(client: &Client, turn: &QueuedTurn, server: &Server, before: usize) {
+async fn advance_backoff(client: &Client, turn: &QueuedTurn, server: &Server, before: usize) {
     let policy = adk_model::retry::RetryConfig::default().with_max_retries(5);
-    let mut delay = policy.initial_delay;
     let mut updates = client.subscribe_conversation(turn.session).await.unwrap();
     let mut projection =
         sailry_client::conversation::Projection::new(client.target(), turn.session, 0);
     tokio::time::timeout(crate::retry_fixture::budget(), async {
-        for attempt in 1..=policy.max_retries {
-            loop {
-                if projection.snapshot().is_some_and(|snapshot| {
-                    snapshot
-                        .page
-                        .entries
-                        .iter()
-                        .filter(|entry| entry.turn == turn.id)
-                        .flat_map(|entry| &entry.parts)
-                        .any(|part| {
-                            matches!(part, Part::Resource(value)
+        let attempt = 1_u32;
+        loop {
+            if projection.snapshot().is_some_and(|snapshot| {
+                snapshot
+                    .page
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.turn == turn.id)
+                    .flat_map(|entry| &entry.parts)
+                    .any(|part| {
+                        matches!(part, Part::Resource(value)
                             if value["type"] == "model_retry"
                                 && value["attempt"].as_u64() == Some(u64::from(attempt)))
-                        })
-                }) {
-                    break;
-                }
-                if projection.apply(0, updates.next().await.unwrap()).unwrap()
-                    == sailry_client::Apply::Recover
-                {
-                    updates = client.subscribe_conversation(turn.session).await.unwrap();
-                    projection = sailry_client::conversation::Projection::new(
-                        client.target(),
-                        turn.session,
-                        0,
-                    );
-                }
+                    })
+            }) {
+                break;
             }
-            // Finish a real owner round trip after the observer's durable event.
-            // A missed timer registration leaves its real backoff in place.
-            let Output::Conversation(_) = client
-                .execute(client.prepare(Command::ReadConversation {
-                    session: turn.session,
-                    before: None,
-                    limit: 10,
-                }))
-                .await
-                .unwrap()
-            else {
-                panic!("history expected")
-            };
-            tokio::task::yield_now().await;
-            let requests = server
-                .requests
-                .lock()
-                .unwrap()
-                .iter()
-                .skip(before)
-                .filter(|request| request.path == "/responses")
-                .count();
-            // A real elapsed backoff may already have opened the next HTTP attempt.
-            if requests == attempt as usize {
-                tokio::time::pause();
-                tokio::time::advance(delay).await;
-                tokio::time::resume();
+            if projection.apply(0, updates.next().await.unwrap()).unwrap()
+                == sailry_client::Apply::Recover
+            {
+                updates = client.subscribe_conversation(turn.session).await.unwrap();
+                projection =
+                    sailry_client::conversation::Projection::new(client.target(), turn.session, 0);
             }
-            delay = delay
-                .mul_f64(f64::from(policy.backoff_multiplier.max(1.0)))
-                .min(policy.max_delay);
+        }
+        // Finish a real owner round trip after the observer's durable event.
+        // A missed timer registration leaves its real backoff in place.
+        let Output::Conversation(_) = client
+            .execute(client.prepare(Command::ReadConversation {
+                session: turn.session,
+                before: None,
+                limit: 10,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("history expected")
+        };
+        tokio::task::yield_now().await;
+        let requests = server
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .skip(before)
+            .filter(|request| request.path == "/responses")
+            .count();
+        // A real elapsed backoff may already have opened the next HTTP attempt.
+        if requests == attempt as usize {
+            tokio::time::pause();
+            tokio::time::advance(policy.initial_delay).await;
+            tokio::time::resume();
         }
     })
     .await
@@ -144,7 +136,7 @@ async fn requires_a_completed_answer() {
             };
             let page = if matches!(outcome, "eof" | "done") {
                 let (_, page) = tokio::join!(
-                    advance_backoffs(&fixture.client, &turn, &server, before),
+                    advance_backoff(&fixture.client, &turn, &server, before),
                     super::super::execution::finished_within(
                         &fixture.client,
                         &turn,
@@ -196,7 +188,7 @@ async fn requires_a_completed_answer() {
                 .filter(|request| request.path == "/responses")
                 .count();
             if matches!(outcome, "eof" | "done") {
-                assert_eq!(retries, [1, 2, 3, 4, 5], "{outcome}");
+                assert_eq!(retries, [1], "{outcome}");
                 assert_eq!(requests, retries.len() + 1, "{outcome}");
             } else {
                 assert!(retries.is_empty(), "{outcome}");

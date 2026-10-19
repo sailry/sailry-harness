@@ -166,7 +166,16 @@ async fn preserves_frozen_revisions() {
         let inherited = put(&client, profile("analysis"), 0).await.unwrap();
         let mut session = create(&client, directory.path(), &provider).await;
         assert_eq!(session.roles.profiles, [inherited.clone(), first.clone()]);
-        assert_eq!(session.roles.providers, std::slice::from_ref(&provider));
+        let catalog: presets::Catalog = serde_json::from_slice(include_bytes!(
+            "../../../../assets/catalogs/model-presets.json"
+        ))
+        .unwrap();
+        let mut captured = provider.clone();
+        captured.binding = Some(Box::new(presets::Binding {
+            policies: catalog.policies,
+            ..Default::default()
+        }));
+        assert_eq!(session.roles.providers, [captured]);
         let turn = queue(&client, &session).await;
         session.activity = queued_activity(&session, &turn);
         assert_eq!(turn.roles, session.roles);

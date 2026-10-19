@@ -45,7 +45,10 @@ pub(super) async fn respond(
             .write_all(format!("data: {event}\n\n").as_bytes())
             .await?;
     }
-    // No [DONE] or EOF: the caller must stop at the terminal model event.
+    if !responses {
+        stream.write_all(b"data: [DONE]\n\n").await?;
+    }
+    // Keep the socket open after the protocol terminal, including its usage trailer.
     let mut byte = [0];
     let _ = stream.read(&mut byte).await?;
     Ok(())

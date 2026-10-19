@@ -69,21 +69,18 @@ async fn envelope(request: LlmRequest, streaming: bool) -> Value {
     requests[0].body.clone()
 }
 
-fn instruction(body: &Value) {
-    assert_eq!(
-        body["systemInstruction"],
-        json!({"parts": [{"text": format!("{POLICY}\n{DETAILS}\n{CONTEXT}")}]}),
-    );
-}
-
 #[tokio::test]
-async fn separates_first_turn_instructions() {
+async fn preserves_first_turn_instructions() {
     for streaming in [false, true] {
         let body = envelope(request(), streaming).await;
-        instruction(&body);
+        assert!(body.get("systemInstruction").is_none());
         assert_eq!(
             body["contents"],
-            json!([{"role": "user", "parts": [{"text": TASK}]}]),
+            json!([
+                {"role": "user", "parts": [{"text": POLICY}, {"text": DETAILS}]},
+                {"role": "user", "parts": [{"text": TASK}]},
+                {"role": "user", "parts": [{"text": CONTEXT}]},
+            ]),
         );
         assert!(body.get("generationConfig").is_none());
     }
@@ -133,11 +130,13 @@ async fn preserves_continuation_and_options() {
             }}),
         );
         let body = envelope(request, streaming).await;
-        instruction(&body);
+        assert!(body.get("systemInstruction").is_none());
         assert_eq!(
             body["contents"],
             json!([
+                {"role": "user", "parts": [{"text": POLICY}, {"text": DETAILS}]},
                 {"role": "user", "parts": [{"text": TASK}]},
+                {"role": "user", "parts": [{"text": CONTEXT}]},
                 {"role": "model", "parts": [{"text": "First answer"}]},
                 {"role": "user", "parts": [{"text": "Continue the task"}]},
                 {"role": "model", "parts": [{

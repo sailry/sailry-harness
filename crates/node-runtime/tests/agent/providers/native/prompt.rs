@@ -135,7 +135,11 @@ fn content(value: &Value) -> String {
 fn instruction(api: ModelApi, body: &Value) -> String {
     match api {
         ModelApi::Anthropic => content(&body["system"]),
-        ModelApi::Gemini => content(&body["systemInstruction"]["parts"]),
+        ModelApi::Gemini => {
+            assert!(body.get("systemInstruction").is_none());
+            assert_eq!(body["contents"][0]["role"], "user");
+            content(&body["contents"][0]["parts"])
+        }
         ModelApi::Responses => content(&body["instructions"]),
         ModelApi::ChatCompletions | ModelApi::DeepSeek => body["messages"]
             .as_array()
@@ -159,6 +163,7 @@ fn users(api: ModelApi, body: &Value) -> Vec<String> {
         .as_array()
         .unwrap()
         .iter()
+        .skip(usize::from(api == ModelApi::Gemini))
         .filter(|message| message["role"] == "user")
         .map(|message| content(&message[parts]))
         .collect()
@@ -266,7 +271,7 @@ async fn preserves_gemini_summary_instructions() {
             "{}\n{}",
             server::ANSWER,
             "Verified project/src/module.rs and its callers; the public contract remains unchanged.\n"
-                .repeat(80)
+                .repeat(24)
         );
         let server = Server::start(ModelApi::Gemini, Reply::Compaction(evidence.clone())).await;
         let fixture = Fixture::empty(remote, ModelApi::Gemini, &server.endpoint).await;
@@ -337,8 +342,8 @@ async fn preserves_gemini_summary_instructions() {
             );
             let policy = instruction(ModelApi::Gemini, &summary.body);
             assert_eq!(
-                summary.body["systemInstruction"],
-                json!({"parts": [{"text": policy}]}),
+                summary.body["contents"][0],
+                json!({"role": "user", "parts": [{"text": policy}]}),
             );
             for constraint in [
                 "Summarize this conversation for the assistant that will continue it",
@@ -377,9 +382,9 @@ async fn preserves_gemini_summary_instructions() {
                     || summary.body["tools"].as_array().is_some_and(Vec::is_empty)
             );
             let contents = summary.body["contents"].as_array().unwrap();
-            assert_eq!(contents.len(), 1);
-            assert_eq!(contents[0]["role"], "user");
-            let transcript = content(&contents[0]["parts"]);
+            assert_eq!(contents.len(), 2);
+            assert_eq!(contents[1]["role"], "user");
+            let transcript = content(&contents[1]["parts"]);
             assert!(!transcript.contains(&policy));
             assert!(retained.len() * 2 < transcript.len());
             let transcript: Value = serde_json::from_str(&transcript).unwrap();

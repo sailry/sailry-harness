@@ -150,7 +150,7 @@ async fn respond(
     let search = body["tools"]
         .as_array()
         .is_some_and(|tools| tools.iter().any(|tool| tool["google_search"].is_object()));
-    let summary = body["systemInstruction"]["parts"]
+    let summary = body["contents"][0]["parts"]
         .as_array()
         .is_some_and(|parts| {
             parts.iter().any(|part| {

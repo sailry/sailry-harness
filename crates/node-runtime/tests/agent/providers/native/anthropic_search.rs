@@ -324,7 +324,34 @@ async fn reports_incomplete_search() {
                         && result.get("error").is_some())
                 }));
             }
-            assert_eq!(server.requests.lock().unwrap().len(), 1);
+            let retries: Vec<_> = page
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter_map(|part| match part {
+                    Part::Resource(value) if value["type"] == "model_retry" => {
+                        assert_eq!(value["limit"], 5);
+                        Some(value["attempt"].as_u64().unwrap())
+                    }
+                    _ => None,
+                })
+                .collect();
+            let requests = server.requests.lock().unwrap().clone();
+            if matches!(reply, anthropic::Reply::Truncated) {
+                assert_eq!(retries, [1]);
+                assert_eq!(requests.len(), 2);
+                assert_eq!(requests[0], requests[1]);
+                assert_eq!(
+                    completion::response(&page),
+                    format!("{}{}", source::FIRST, source::SECOND)
+                );
+                assert!(page.entries.iter().flat_map(|entry| &entry.parts)
+                    .filter(|part| matches!(part, Part::ToolCall { name, .. } if name == "web_search"))
+                    .count() <= 1);
+            } else {
+                assert!(retries.is_empty());
+                assert_eq!(requests.len(), 1);
+            }
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
         }

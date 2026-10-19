@@ -110,7 +110,7 @@ dependencies = [
 [[package]]
 name = "adk-acp"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "agent-client-protocol",
@@ -127,7 +127,7 @@ dependencies = [
 [[package]]
 name = "adk-agent"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "adk-telemetry",
@@ -148,7 +148,7 @@ dependencies = [
 [[package]]
 name = "adk-anthropic"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -169,7 +169,7 @@ dependencies = [
 [[package]]
 name = "adk-browser"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -185,7 +185,7 @@ dependencies = [
 [[package]]
 name = "adk-core"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "async-trait",
  "chrono",
@@ -203,7 +203,7 @@ dependencies = [
 [[package]]
 name = "adk-eval"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "adk-model",
@@ -222,7 +222,7 @@ dependencies = [
 [[package]]
 name = "adk-gemini"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "async-stream",
@@ -249,7 +249,7 @@ dependencies = [
 [[package]]
 name = "adk-model"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-anthropic",
  "adk-core",
@@ -276,7 +276,7 @@ dependencies = [
 [[package]]
 name = "adk-runner"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "adk-session",
@@ -295,7 +295,7 @@ dependencies = [
 [[package]]
 name = "adk-rust-macros"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -305,7 +305,7 @@ dependencies = [
 [[package]]
 name = "adk-sandbox"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -322,7 +322,7 @@ dependencies = [
 [[package]]
 name = "adk-session"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -336,7 +336,7 @@ dependencies = [
 [[package]]
 name = "adk-telemetry"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "thiserror 2.0.20",
  "tracing",
@@ -346,7 +346,7 @@ dependencies = [
 [[package]]
 name = "adk-tool"
 version = "3.0.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=9af8bbe9508fca98a657c7b4f8c548e932b7418a#9af8bbe9508fca98a657c7b4f8c548e932b7418a"
 dependencies = [
  "adk-core",
  "adk-rust-macros",

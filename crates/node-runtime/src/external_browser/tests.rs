@@ -26,9 +26,11 @@ fn package_preserves_actions_and_schemas() {
             })
         );
     }
+    let uploads = tempfile::tempdir().unwrap();
     let native =
         adk_browser::BrowserToolset::new(Arc::new(BrowserSession::new(BrowserConfig::default())))
             .with_evaluate_js(true)
+            .with_file_upload([uploads.path()])
             .all_tools();
     let local = [
         "browser_close_session",

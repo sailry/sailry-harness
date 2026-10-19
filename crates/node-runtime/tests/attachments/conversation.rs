@@ -72,7 +72,10 @@ async fn session(
             default_effort: sailry_protocol::Effort::Default,
         }],
     };
-    let command = if matches!(api, ModelApi::AzureOpenAi | ModelApi::AzureAi) {
+    let command = if matches!(
+        api,
+        ModelApi::Gemini | ModelApi::AzureOpenAi | ModelApi::AzureAi
+    ) {
         Command::SaveProvider {
             provider,
             expected_revision: 0,
