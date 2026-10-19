@@ -7,12 +7,19 @@ use gpui_kit::component::{
     popover::Popover,
     slider::{SliderEvent, SliderState},
     tag::Tag,
+    tooltip::Tooltip,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 
+mod badge;
+mod fit;
 #[cfg(test)]
 mod tests;
 mod track;
+
+/// Width caps for the composer model chip.
+const CHIP_WIDTH: f32 = 260.;
+const SIDEBAR_CHIP_WIDTH: f32 = 220.;
 
 impl View {
     fn model_label(&self) -> SharedString {
@@ -142,11 +149,26 @@ impl View {
         let available = self.sync_model_controls(cx);
         let model = self.model_label();
         let provider = self.config.as_ref().and_then(|config| {
-            self.providers()
-                .find(|provider| provider.id == config.provider)
-                .map(|provider| provider.name.clone())
-                .filter(|name| !name.trim().is_empty())
+            let name = self
+                .providers()
+                .find(|provider| provider.id == config.provider)?
+                .name
+                .clone();
+            let badge = badge::resolve(
+                &name,
+                self.model_sources()
+                    .map(|(_, provider)| provider.name.as_str()),
+            );
+            (!badge.is_empty()).then(|| (SharedString::from(badge), SharedString::from(name)))
         });
+        let fit = self.model_controls.read(cx).fit.clone();
+        let view = cx.entity_id();
+        let cap = px(if self.sidebar {
+            SIDEBAR_CHIP_WIDTH
+        } else {
+            CHIP_WIDTH
+        });
+        let compact = fit.compact(cap);
         let effort = self
             .config
             .as_ref()
@@ -162,61 +184,92 @@ impl View {
         let button = Button::new("live-chat-model")
             .custom(crate::theme::subtle_button(cx))
             .rounded_full()
-            .max_w(px(260.))
-            .when(self.sidebar, |button| button.max_w(px(220.)).min_w_0())
+            .max_w(cap)
+            .when(self.sidebar, |button| button.min_w_0())
             .debug_selector(|| "live-chat-model".into())
             .accessibility_label(tr("composer_model_settings"))
             .child(
                 h_flex()
                     .min_w_0()
                     .gap_2()
-                    .when_some(provider, |row, provider| {
+                    .when_some(provider, |row, (badge, name)| {
                         row.child(
-                            Tag::primary()
-                                .small()
-                                .text_xs()
-                                .rounded_full()
-                                .border_0()
-                                .bg(cx.theme().primary.opacity(0.12))
-                                .text_color(cx.theme().primary)
-                                .min_w_0()
-                                .max_w(relative(0.4))
+                            div()
+                                .id("live-chat-channel")
                                 .flex_shrink_0()
-                                .child(div().min_w_0().truncate().child(provider)),
+                                .tooltip(move |window, cx| {
+                                    Tooltip::new(name.clone()).build(window, cx)
+                                })
+                                .child(
+                                    Tag::primary()
+                                        .small()
+                                        .text_xs()
+                                        .rounded_full()
+                                        .border_0()
+                                        .bg(cx.theme().primary.opacity(0.12))
+                                        .text_color(cx.theme().primary)
+                                        .child(badge),
+                                ),
                         )
                     })
                     .child(
                         div()
+                            .relative()
                             .min_w_0()
-                            .truncate()
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis_middle()
                             .text_sm()
                             .line_height(px(20.))
-                            .child(model.clone()),
+                            .child(model.clone())
+                            .child(fit.probe(fit::Part::Model, Some(model.clone()), view)),
                     )
                     .when(!choices.is_empty(), |row| {
+                        let label = crate::reasoning::label(effort);
+                        let tip = label.clone();
                         row.child(
                             div()
+                                .id("live-chat-effort")
                                 .debug_selector(|| "live-chat-effort".into())
+                                .relative()
                                 .flex_shrink_0()
                                 .text_sm()
                                 .line_height(px(20.))
                                 .text_color(cx.theme().muted_foreground)
-                                .child(crate::reasoning::label(effort)),
+                                .map(|effort| {
+                                    if compact {
+                                        effort
+                                            .child(
+                                                Icon::new(gpui_kit::assets::IconName::Brain)
+                                                    .size_4(),
+                                            )
+                                            .tooltip(move |window, cx| {
+                                                Tooltip::new(tip.clone()).build(window, cx)
+                                            })
+                                    } else {
+                                        effort.child(label.clone())
+                                    }
+                                })
+                                .child(fit.probe(fit::Part::Effort, Some(label), view)),
                         )
                     })
                     .children(segments),
             )
             .disabled(self.configuration_blocked() || !self.can_pick_model());
+        let chip = div()
+            .relative()
+            .min_w_0()
+            .child(fit.probe(fit::Part::Chip, None, view));
         if !available {
-            return button
-                .on_click(
+            return chip
+                .child(button.on_click(
                     cx.listener(|view, _, _, cx| cx.emit(Event::Settings(view.settings_node()))),
-                )
+                ))
                 .into_any_element();
         }
         let panel = self.model_controls.clone();
         let opening = panel.clone();
-        Popover::new("live-model-popover")
+        let popover = Popover::new("live-model-popover")
             .anchor(Anchor::BottomRight)
             .bottom_2()
             .p_3()
@@ -231,7 +284,17 @@ impl View {
                     cx.notify();
                 });
             })
-            .content(move |_, _, _| panel.clone())
+            .content(move |_, _, _| panel.clone());
+        chip.child(popover).into_any_element()
+    }
+
+    /// Toolbar spacer that reports free room the model chip may grow into.
+    pub(super) fn model_spacer(&self, cx: &mut Context<Self>) -> AnyElement {
+        let fit = self.model_controls.read(cx).fit.clone();
+        div()
+            .relative()
+            .flex_1()
+            .child(fit.probe(fit::Part::Spare, None, cx.entity_id()))
             .into_any_element()
     }
 }
@@ -256,6 +319,7 @@ pub(super) struct Panel {
     settings: Option<Settings>,
     models: bool,
     dragging: bool,
+    fit: std::rc::Rc<fit::Fit>,
 }
 
 impl Panel {
@@ -303,6 +367,7 @@ impl Panel {
             settings: None,
             models: false,
             dragging: false,
+            fit: Default::default(),
         }
     }
 

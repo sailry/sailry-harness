@@ -97,7 +97,7 @@ impl View {
                             cx,
                         ))
                     })
-                    .when(self.sidebar, |bar| bar.child(div().flex_1()))
+                    .when(self.sidebar, |bar| bar.child(self.model_spacer(cx)))
                     .child(self.dictation_controls(cx))
                     // An executing turn keeps its Stop action during dictation.
                     .when(active || !dictating, |bar| {
