@@ -93,7 +93,7 @@ impl View {
                 return;
             }
             Err(error) => {
-                crate::feedback::info("", tr(error).as_ref(), window, cx);
+                crate::feedback::error("", tr(error).as_ref(), window, cx);
                 return;
             }
         };
@@ -256,7 +256,7 @@ impl View {
                     }
                     Ok(_) => crate::feedback::info("", tr("dictation_empty").as_ref(), window, cx),
                     Err("dictation_model_missing") => cx.emit(Event::DictationSettings),
-                    Err(error) => crate::feedback::info("", tr(error).as_ref(), window, cx),
+                    Err(error) => crate::feedback::error("", tr(error).as_ref(), window, cx),
                 }
                 self.dictation.partial = None;
                 self.dictation.speech = None;

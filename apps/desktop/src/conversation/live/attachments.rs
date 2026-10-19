@@ -420,14 +420,14 @@ impl View {
             return;
         }
         if sources.len() > 8usize.saturating_sub(self.attachments.items.len()) {
-            self.attachments.error = Some("chat_attachment_limit");
-            cx.notify();
+            crate::feedback::error("", &tr("chat_attachment_limit"), window, cx);
             return;
         }
         self.attachments.error = None;
+        let mut invalid_name = false;
         for source in sources {
             let Some(name) = source.name() else {
-                self.attachments.error = Some("files_upload_name");
+                invalid_name = true;
                 continue;
             };
             let key = self.attachments.next;
@@ -448,6 +448,9 @@ impl View {
             if self.session.is_some() {
                 self.upload_attachment(key, window, cx);
             }
+        }
+        if invalid_name {
+            crate::feedback::error("", &tr("files_upload_name"), window, cx);
         }
         cx.notify();
     }

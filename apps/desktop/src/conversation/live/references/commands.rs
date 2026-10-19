@@ -181,14 +181,14 @@ impl View {
                 .iter()
                 .any(|current| current.key == entry.key && current.state.enabled)
         {
-            self.error = Some("reference_stale");
+            crate::feedback::error("", &tr("reference_stale"), window, cx);
             self.reference_page(Page::Commands, window, cx);
             return;
         }
         if let Choice::Skill(package, _) = &choice
             && !self.skill_packages().contains(package)
         {
-            self.error = Some("reference_stale");
+            crate::feedback::error("", &tr("reference_stale"), window, cx);
             self.reference_page(Page::Commands, window, cx);
             return;
         }

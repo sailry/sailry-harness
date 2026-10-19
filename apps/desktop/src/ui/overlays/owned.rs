@@ -7,6 +7,7 @@ pub(crate) struct Owned {
     focus: Option<FocusHandle>,
     window: Option<WindowId>,
     closing: bool,
+    listener: Option<Subscription>,
 }
 
 impl Owned {
@@ -21,14 +22,15 @@ impl Owned {
         owned.focus = focus.clone();
         owned.window = Some(window.window_handle().window_id());
         owned.closing = false;
-        if let Some(focus) = focus {
+        owned.listener.take();
+        let listener = focus.map(|focus| {
             cx.on_focus_in(&focus, window, move |_, window, cx| {
                 cx.defer_in(window, move |state, window, cx| {
                     get(state).flush(window, cx)
                 });
             })
-            .detach();
-        }
+        });
+        get(state).listener = listener;
     }
 
     pub(crate) fn presented(&self, cx: &App) -> bool {
@@ -38,6 +40,7 @@ impl Owned {
     }
 
     pub(crate) fn dismissed(&mut self) {
+        self.listener.take();
         self.focus = None;
         self.window = None;
         self.closing = false;
@@ -61,5 +64,41 @@ impl Owned {
             self.dismissed();
             window.close_dialog(cx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use std::{cell::Cell, rc::Rc};
+
+    #[test]
+    fn dismissal_releases_listener() {
+        let released = Rc::new(Cell::new(0));
+        let observed = released.clone();
+        let mut owner = Owned {
+            listener: Some(Subscription::new(move || observed.set(observed.get() + 1))),
+            ..Default::default()
+        };
+        owner.dismissed();
+        assert_eq!(released.get(), 1);
+        assert!(owner.listener.is_none());
+        owner.dismissed();
+        drop(owner);
+        assert_eq!(released.get(), 1);
+    }
+
+    #[test]
+    fn owner_releases_listener() {
+        let released = Rc::new(Cell::new(false));
+        let observed = released.clone();
+        let owner = Owned {
+            listener: Some(Subscription::new(move || observed.set(true))),
+            ..Default::default()
+        };
+        assert!(!released.get());
+        drop(owner);
+        assert!(released.get());
     }
 }

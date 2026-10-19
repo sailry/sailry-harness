@@ -175,7 +175,7 @@ impl View {
             .find(|plugin| plugin.name == name)
             .cloned()
         else {
-            self.error = Some("reference_stale");
+            crate::feedback::error("", &tr("reference_stale"), window, cx);
             cx.notify();
             return;
         };
@@ -212,7 +212,7 @@ impl View {
             .into_iter()
             .find(|package| package.name == name)
         else {
-            self.error = Some("reference_stale");
+            crate::feedback::error("", &tr("reference_stale"), window, cx);
             cx.notify();
             return;
         };
