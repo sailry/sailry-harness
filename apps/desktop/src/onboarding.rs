@@ -86,6 +86,8 @@ impl Shell {
 
 const BRAND_TILE: Pixels = px(44.);
 const BRAND_GAP: Pixels = px(4.);
+/// Brand glyphs stay compact inside the ghost tiles.
+const BRAND_ICON: Rems = rems(1.375);
 
 fn launch(shell: &WeakEntity<Shell>, brand: Option<String>, window: &mut Window, cx: &mut App) {
     preferences::mark_welcome_seen(cx);
@@ -103,7 +105,7 @@ fn body(
     let width = (window.viewport_size().width - px(48.)).min(px(520.));
     let hero_height = px(280.).min(window.viewport_size().height * 0.4);
     let logo_size = px(96.).min(hero_height * 0.55);
-    let brands = Workspace::provider_brands(entries);
+    let brands = Workspace::provider_brands(entries, BRAND_ICON);
     // Balance brand tiles across the fewest rows the content width allows.
     let fit = (((width - px(48.) + BRAND_GAP) / (BRAND_TILE + BRAND_GAP)).floor() as usize).max(1);
     let per_row = brands

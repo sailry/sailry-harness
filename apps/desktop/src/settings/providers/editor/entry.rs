@@ -5,17 +5,14 @@ use super::*;
 impl Editor {
     pub(in crate::settings::providers) fn brands(
         entries: Option<&[sailry_protocol::conversation::presets::Entry]>,
+        icon: Rems,
     ) -> Vec<(String, SharedString, AnyElement)> {
         let entries = entries.map(<[_]>::to_vec).unwrap_or_else(presets::bundled);
         presets::groups(&entries)
             .into_iter()
             .map(|(key, entries)| {
                 let first = &entries[0];
-                (
-                    key,
-                    brand_label(first),
-                    presets::brand_icon(first, rems(2.)),
-                )
+                (key, brand_label(first), presets::brand_icon(first, icon))
             })
             .collect()
     }

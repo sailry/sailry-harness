@@ -35,8 +35,9 @@ use gpui_kit::*;
 impl Workspace {
     pub(crate) fn provider_brands(
         entries: Option<&[sailry_protocol::conversation::presets::Entry]>,
+        icon: Rems,
     ) -> Vec<(String, SharedString, AnyElement)> {
-        editor::Editor::brands(entries)
+        editor::Editor::brands(entries, icon)
     }
 
     pub(crate) fn add_provider(
