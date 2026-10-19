@@ -294,8 +294,8 @@ impl Pending {
     ) -> Result<Self, Fault> {
         let mut url = Url::parse(&authorize).map_err(|_| invalid())?;
         let client = fields.get("client_id").ok_or_else(invalid)?;
-        let verifier = super::super::chatgpt::flow::random();
-        let state = super::super::chatgpt::flow::random();
+        let verifier = super::super::random();
+        let state = super::super::random();
         let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.expose().as_bytes()));
         let reserved = [
             "client_id",

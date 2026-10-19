@@ -194,12 +194,5 @@ pub(in crate::providers::login) fn loopback(value: &str) -> Result<(), Fault> {
     Ok(())
 }
 
-pub(in crate::providers::login) fn random() -> Secret {
-    let mut bytes = [0; 32];
-    bytes[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-    bytes[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
-    Secret::new(URL_SAFE_NO_PAD.encode(bytes))
-}
-
 #[cfg(test)]
 mod tests;

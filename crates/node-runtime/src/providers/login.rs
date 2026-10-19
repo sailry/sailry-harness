@@ -12,6 +12,7 @@ pub(crate) use grant::Grant;
 pub(crate) use options::capture;
 pub(crate) use options::effective;
 
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::{Client, RequestBuilder, StatusCode};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
@@ -31,6 +32,13 @@ pub(crate) const CHATGPT_ENDPOINT: &str = "https://api.openai.com/v1";
 pub(crate) const CODEX_ENDPOINT: &str = "https://chatgpt.com/backend-api/codex";
 pub(crate) const COPILOT_ENDPOINT: &str = "https://api.githubcopilot.com";
 pub(crate) const CLAUDE_ENDPOINT: &str = "https://api.anthropic.com";
+
+fn random() -> Secret {
+    let mut bytes = [0; 32];
+    bytes[..16].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+    bytes[16..].copy_from_slice(uuid::Uuid::new_v4().as_bytes());
+    Secret::new(URL_SAFE_NO_PAD.encode(bytes))
+}
 
 #[derive(Clone)]
 pub(crate) struct Service {
