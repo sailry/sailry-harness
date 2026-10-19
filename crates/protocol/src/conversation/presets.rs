@@ -207,7 +207,8 @@ pub struct PresetRef {
     pub route: Option<RouteKey>,
 }
 
-/// Resolved by Node at admission; never accepted as controller-authored configuration.
+/// Resolved by Node at admission. Partner-only policies are also saved with
+/// configured channels; executable package bindings cannot be controller-authored.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Binding {

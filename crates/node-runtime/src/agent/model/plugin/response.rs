@@ -227,6 +227,17 @@ impl Accumulator {
     }
 }
 
+pub(super) fn http_class(status: u16) -> Class {
+    match status {
+        401 => Class::Authentication,
+        403 => Class::Permission,
+        429 => Class::RateLimited,
+        408 | 500..=599 => Class::Unavailable,
+        400..=499 => Class::InvalidRequest,
+        _ => Class::Unknown,
+    }
+}
+
 pub(super) fn classified(
     class: Class,
     message: &str,
@@ -308,8 +319,16 @@ pub(super) fn invalid(message: &'static str) -> AdkError {
 }
 
 fn failure(category: ErrorCategory, code: &'static str, message: &str) -> AdkError {
+    let source = match category {
+        ErrorCategory::Unauthorized | ErrorCategory::Forbidden => ErrorCode::PermissionDenied,
+        ErrorCategory::InvalidInput => ErrorCode::InvalidRequest,
+        ErrorCategory::Unsupported => ErrorCode::NotConfigured,
+        ErrorCategory::Cancelled => ErrorCode::Cancelled,
+        ErrorCategory::RateLimited | ErrorCategory::Unavailable => ErrorCode::Unavailable,
+        _ => ErrorCode::Internal,
+    };
     AdkError::new(ErrorComponent::Model, category, code, message)
-        .with_source(Fault::new(ErrorCode::Unavailable, message))
+        .with_source(Fault::new(source, message))
 }
 
 fn count(value: u64) -> Result<i32, AdkError> {

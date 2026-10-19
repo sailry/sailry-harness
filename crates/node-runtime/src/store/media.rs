@@ -45,6 +45,9 @@ pub(super) fn catalog(db: &Connection) -> Result<Vec<media::Candidate>, Fault> {
     let mut providers = super::agent::providers::list(db)?;
     for provider in &mut providers {
         super::providers::completion::fill(db, provider)?;
+        if super::providers::presets::capture_read(db, provider).is_err() {
+            provider.enabled = false;
+        }
     }
     Ok(providers
         .into_iter()
@@ -82,6 +85,7 @@ fn resolve(db: &Connection, settings: &media::Settings) -> Result<Snapshot, Faul
                     Fault::new(ErrorCode::NotConfigured, "media provider is unavailable")
                 })?;
             super::providers::completion::fill(db, &mut provider)?;
+            super::providers::presets::capture_read(db, &mut provider)?;
             let model = provider
                 .models
                 .iter()

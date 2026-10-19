@@ -12,7 +12,7 @@ fn package(digest: char) -> plugin::Reference {
 #[test]
 fn preserves_scope_across_same_origin_patches() {
     let origin = Origin::Git {
-        repository: "https://example.invalid/plugin".into(),
+        repository: "https://github.com/sailry/sailry-plugins".into(),
         path: "example".into(),
     };
     let approval = Approval {
@@ -227,4 +227,45 @@ fn stamps_only_the_displayed_current_installation() {
             digest: "b".repeat(64)
         })
     );
+}
+
+#[test]
+fn requires_approval_for_changed_third_party_code() {
+    let origin = Origin::Git {
+        repository: "https://example.invalid/plugin".into(),
+        path: "example".into(),
+    };
+    let approval = Approval {
+        package: package('a'),
+        origin: Some(origin.clone()),
+        scopes: Scopes {
+            messages: true,
+            credentials: true,
+        },
+    };
+    for scope in [Scope::Messages, Scope::Credentials] {
+        captured(Some(&approval), &package('a'), Some(&origin), scope).unwrap();
+        assert_eq!(
+            captured(Some(&approval), &package('b'), Some(&origin), scope)
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+    }
+    let mut current = approval.clone();
+    current.package = package('b');
+    captured(
+        Some(&current),
+        &package('b'),
+        Some(&origin),
+        Scope::Messages,
+    )
+    .unwrap();
+    captured(
+        Some(&approval),
+        &package('a'),
+        Some(&origin),
+        Scope::Messages,
+    )
+    .unwrap();
 }

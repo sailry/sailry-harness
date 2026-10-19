@@ -202,6 +202,7 @@ fn retains_accounts_only_for_the_same_contract() {
         body: None,
     };
     let target = Target {
+        digest: Some("a".repeat(64)),
         provider: ProviderId::new(),
         package: "example".into(),
         origin: sailry_protocol::conversation::consent::Origin::Bundled,
@@ -225,6 +226,14 @@ fn retains_accounts_only_for_the_same_contract() {
     record.validate().unwrap();
     record.matches(&target).unwrap();
     for changed in [
+        Target {
+            digest: None,
+            ..target.clone()
+        },
+        Target {
+            digest: Some("changed-code".into()),
+            ..target.clone()
+        },
         Target {
             provider: ProviderId::new(),
             ..target.clone()
@@ -322,4 +331,29 @@ fn refuses_invalid_headers_without_value_echo() {
         )
         .is_err()
     );
+}
+
+#[tokio::test]
+async fn distinguishes_an_undelivered_refresh() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let request = model_auth::Endpoint {
+        url: "https://auth.example.test/refresh".into(),
+        method: model_auth::Method::Post,
+        headers: BTreeMap::new(),
+        query: BTreeMap::new(),
+        body: None,
+    };
+    let error = refresh_request(
+        &super::super::Service::fixture(&endpoint),
+        &request,
+        &BTreeMap::new(),
+        &CancellationToken::new(),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Unavailable);
+    assert!(!error.message.contains(&endpoint));
 }

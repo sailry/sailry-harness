@@ -20,6 +20,7 @@ pub(crate) struct Authorization {
 
 struct PendingGrant {
     expected: Credential,
+    previous: Grant,
     waiting: Vec<oneshot::Sender<Result<Authorization, Fault>>>,
 }
 
@@ -102,11 +103,14 @@ impl Worker {
                         stop.clone(),
                     )
                     .await
-                    .map_err(|_| {
-                        Fault::new(
+                    .map_err(|error| match error.code {
+                        ErrorCode::Unavailable
+                        | ErrorCode::PermissionDenied
+                        | ErrorCode::OutcomeUnknown => error,
+                        _ => Fault::new(
                             ErrorCode::OutcomeUnknown,
                             "authorization refresh did not complete; sign in again",
-                        )
+                        ),
                     })?;
                     let grant = Grant::Plugin {
                         record: Box::new(crate::providers::login::plugin::Record {
@@ -114,6 +118,7 @@ impl Worker {
                             issued,
                         }),
                         renewal_pending: false,
+                        renewal_rejected: false,
                     };
                     grant.validate(Authentication::Plugin)?;
                     Ok(grant)
@@ -167,6 +172,19 @@ impl Renewals {
             }
             return None;
         }
+        if matches!(
+            &grant,
+            Grant::Plugin {
+                renewal_rejected: true,
+                ..
+            }
+        ) {
+            let _ = reply.send(Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "authorization refresh was rejected; sign in again",
+            )));
+            return None;
+        }
         if grant.renewal_pending() {
             let _ = reply.send(Err(Fault::new(
                 ErrorCode::OutcomeUnknown,
@@ -199,6 +217,7 @@ impl Renewals {
         }
         // A lost token-exchange result may consume a rotating grant. Mark the
         // existing credential before HTTP, so restart cannot replay that exchange.
+        let previous = grant.clone();
         grant.begin_renewal();
         // Copilot's GET exchange does not rotate the GitHub grant; a later
         // generation may request it again after a failed read.
@@ -221,6 +240,7 @@ impl Renewals {
             id,
             PendingGrant {
                 expected,
+                previous,
                 waiting: vec![reply],
             },
         );
@@ -236,6 +256,44 @@ impl Renewals {
     ) -> bool {
         let Some(pending) = self.pending.remove(&id) else {
             return false;
+        };
+        // A connection setup failure proves no exchange was delivered. A definite
+        // rejection is retained without deleting the old token. Other failures
+        // keep the persisted uncertain marker and cannot replay a rotating grant.
+        let result = match result {
+            Err(error)
+                if matches!(
+                    error.code,
+                    ErrorCode::Unavailable | ErrorCode::PermissionDenied
+                ) && matches!(&pending.previous, Grant::Plugin { .. }) =>
+            {
+                let mut previous = pending.previous.clone();
+                if let Grant::Plugin {
+                    renewal_pending,
+                    renewal_rejected,
+                    ..
+                } = &mut previous
+                {
+                    *renewal_pending = false;
+                    *renewal_rejected = error.code == ErrorCode::PermissionDenied;
+                }
+                if authentication::get(&database.connection, id)
+                    .ok()
+                    .flatten()
+                    .as_ref()
+                    == Some(&pending.expected)
+                {
+                    match previous.encode().and_then(|secret| {
+                        save(database, pending.expected.clone(), &secret, events)
+                    }) {
+                        Ok(_) => Err(error),
+                        Err(storage) => Err(storage),
+                    }
+                } else {
+                    Err(changed())
+                }
+            }
+            result => result,
         };
         let result = result.and_then(|grant| {
             if authentication::get(&database.connection, id)?.as_ref() != Some(&pending.expected) {

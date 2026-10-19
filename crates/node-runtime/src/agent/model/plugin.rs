@@ -226,13 +226,21 @@ async fn produce(
                     #[serde(default)]
                     retry_after_ms: Option<u64>,
                 }
-                let classified: Classified = worker
-                    .call(
-                        "classify",
-                        &serde_json::json!({"status":status,"headers":headers,"body":body}),
-                    )
-                    .await
-                    .map_err(response::translation)?;
+                let classified: Classified = if worker.classifies {
+                    worker
+                        .call(
+                            "classify",
+                            &serde_json::json!({"status":status,"headers":headers,"body":body}),
+                        )
+                        .await
+                        .map_err(response::translation)?
+                } else {
+                    Classified {
+                        class: response::http_class(status),
+                        message: format!("model endpoint returned HTTP {status}"),
+                        retry_after_ms: None,
+                    }
+                };
                 return Err(response::classified(
                     classified.class,
                     &classified.message,
@@ -330,19 +338,27 @@ async fn load(
                 "captured model package is unavailable",
             )
         })?;
-    let host = ingress.plugins.clone();
+    let bundle = read_bundle(&ingress.plugins, package, &declaration, stop).await?;
+    Ok((declaration, bundle))
+}
+
+async fn read_bundle(
+    host: &crate::plugins::Host,
+    package: sailry_protocol::plugin::Reference,
+    declaration: &Declaration,
+    stop: &CancellationToken,
+) -> Result<crate::plugins::script::Bundle, Fault> {
+    let host = host.clone();
     let script = declaration.script.clone();
     let stop = stop.clone();
-    let bundle =
-        tokio::task::spawn_blocking(move || host.read_translation(&package, &script, stop))
-            .await
-            .map_err(|_| {
-                Fault::new(
-                    ErrorCode::Unavailable,
-                    "model translation resource worker failed",
-                )
-            })??;
-    Ok((declaration, bundle))
+    tokio::task::spawn_blocking(move || host.read_translation(&package, &script, stop))
+        .await
+        .map_err(|_| {
+            Fault::new(
+                ErrorCode::Unavailable,
+                "model translation resource worker failed",
+            )
+        })?
 }
 
 fn clone_bundle(bundle: &crate::plugins::script::Bundle) -> crate::plugins::script::Bundle {
@@ -452,9 +468,65 @@ async fn discover_inner(
             "channel plugin does not declare model discovery",
         ));
     }
-    const DISCOVERY_BYTES: usize = 8 * 1024 * 1024;
     let credentials =
         credentials(ingress, provider, provider.credential.as_ref(), key, stop).await?;
+    read_catalog(provider, &declaration, bundle, credentials, stop).await
+}
+
+/// Login already owns the newly issued grant; discovery must use the same
+/// captured adapter before credential persistence, without resolving another grant.
+pub(crate) async fn discover_authorized(
+    host: &crate::plugins::Host,
+    provider: &Provider,
+    declaration: &Declaration,
+    grant: &crate::providers::login::Grant,
+    options: &sailry_protocol::conversation::oauth::Options,
+    stop: &CancellationToken,
+) -> Result<sailry_protocol::conversation::discovery::Catalog, Fault> {
+    let stop = stop.child_token();
+    let _guard = stop.clone().drop_guard();
+    let operation = async {
+        if !declaration.discovery {
+            return Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "channel plugin does not declare model discovery",
+            ));
+        }
+        let package = provider
+            .binding
+            .as_ref()
+            .and_then(|binding| binding.package.clone())
+            .ok_or_else(|| {
+                Fault::new(
+                    ErrorCode::NotConfigured,
+                    "captured model package is unavailable",
+                )
+            })?;
+        let bundle = read_bundle(host, package, declaration, &stop).await?;
+        let headers = grant.headers(options)?;
+        let secrets = super::authorization::credentials(grant, &headers);
+        let credentials = Credentials {
+            headers,
+            access: Some(grant.access().clone()),
+            key: None,
+            secrets,
+        };
+        read_catalog(provider, declaration, bundle, credentials, &stop).await
+    };
+    tokio::select! {
+        _ = stop.cancelled()=>Err(transport::cancelled()),
+        result = tokio::time::timeout(std::time::Duration::from_secs(30),operation)=>result.map_err(|_|Fault::new(ErrorCode::Unavailable,"model discovery deadline exceeded"))?,
+    }
+}
+
+async fn read_catalog(
+    provider: &Provider,
+    declaration: &Declaration,
+    bundle: crate::plugins::script::Bundle,
+    credentials: Credentials,
+    stop: &CancellationToken,
+) -> Result<sailry_protocol::conversation::discovery::Catalog, Fault> {
+    const DISCOVERY_BYTES: usize = 8 * 1024 * 1024;
     let worker = worker::Worker::new(bundle, stop, DISCOVERY_BYTES).await?;
     let prepared: wire::Prepared = worker
         .call(
@@ -466,7 +538,7 @@ async fn discover_inner(
         &transport::client()?,
         prepared,
         &provider.endpoint,
-        &declaration,
+        declaration,
         &credentials,
         stop,
         DISCOVERY_BYTES,
@@ -494,17 +566,16 @@ async fn discover_inner(
         }
         body.extend_from_slice(&chunk);
     }
-    let body = String::from_utf8(body)
-        .map_err(|_| Fault::invalid("model discovery response is not UTF-8"))?;
-    transport::public(&body, &credentials)?;
     if !(200..300).contains(&status) {
-        // A decoder may classify failures, but unchecked HTTP bodies and headers
-        // must never become discovery diagnostics or public model metadata.
+        // Failed discovery bodies are never sent to the VM or diagnostics.
         return Err(Fault::new(
             ErrorCode::Unavailable,
             format!("model discovery failed with HTTP {status}"),
         ));
     }
+    let body = String::from_utf8(body)
+        .map_err(|_| Fault::invalid("model discovery response is not UTF-8"))?;
+    transport::public(&body, &credentials)?;
     let mut catalog:sailry_protocol::conversation::discovery::Catalog = worker.call("decode_discovery",&serde_json::json!({"endpoint":provider.endpoint,"status":status,"headers":headers,"body":body})).await?;
     if catalog.endpoint.trim_end_matches('/') != provider.endpoint.trim_end_matches('/') {
         return Err(Fault::invalid(

@@ -45,6 +45,19 @@ pub enum Origin {
     },
 }
 
+impl Origin {
+    /// Public source coordinates alone do not approve changed third-party code.
+    pub fn requires_digest(&self) -> bool {
+        match self {
+            Self::Bundled => false,
+            Self::Git { repository, .. } => {
+                repository.trim_end_matches(".git") != "https://github.com/sailry/sailry-plugins"
+            }
+            _ => true,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Scope {
     Messages,

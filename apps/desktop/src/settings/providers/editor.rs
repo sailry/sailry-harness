@@ -492,6 +492,7 @@ impl Editor {
             return Err("provider_model_duplicate");
         }
         Ok(Channel {
+            directory: self.selected.clone(),
             options: if let Some(product) = self.selected_route().and_then(|route| route.product) {
                 Some(sailry_protocol::conversation::connection::Options::Hosted { product })
             } else if matches!(self.preset, Preset::Hosted(_)) {

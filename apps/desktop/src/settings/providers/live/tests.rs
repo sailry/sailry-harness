@@ -68,3 +68,17 @@ fn stable_preset_outweighs_endpoint_guessing() {
     provider.preset = None;
     assert_eq!(preset(&provider), Preset::CompatibleChat);
 }
+
+#[test]
+fn distinguishes_configuration_and_access() {
+    for (code, expected) in [
+        (ErrorCode::PermissionDenied, "provider_access_denied"),
+        (ErrorCode::NotConfigured, "provider_not_configured"),
+        (ErrorCode::RevisionConflict, "provider_revision_changed"),
+    ] {
+        assert_eq!(
+            error_key(&Fault::new(code, "Synthetic discovery failure")),
+            expected
+        );
+    }
+}

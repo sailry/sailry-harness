@@ -11,6 +11,8 @@ use sailry_protocol::{
 use std::collections::BTreeMap;
 use url::Url;
 
+pub(super) const REQUEST_BYTES: usize = 32 * 1024 * 1024;
+
 pub(super) struct Credentials {
     pub(super) headers: HeaderMap,
     pub(super) access: Option<Secret>,
@@ -49,6 +51,7 @@ pub(super) async fn send(
     stop: &CancellationToken,
     budget: usize,
 ) -> Result<Response, Fault> {
+    let budget = budget.min(REQUEST_BYTES);
     let endpoint = address(endpoint)?;
     let url = address(&prepared.url)?;
     let same_origin = url.origin() == endpoint.origin();

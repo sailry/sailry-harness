@@ -6,6 +6,7 @@ use sailry_protocol::{
 };
 use serde_json::{Map, Value};
 mod cards;
+mod providers;
 
 pub(super) const SCHEMA: &str = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
 const FIELDS: &[&str] = &[
@@ -85,8 +86,8 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                 kind: IssueKind::InvalidExtensions,
             }),
             Some(extensions) if extensions.contains_key("dev.sailry.platform") => {
-                let value = &extensions["dev.sailry.platform"];
-                match serde_json::from_value::<Extension>(value.clone()) {
+                let value = providers::normalize(&extensions["dev.sailry.platform"], &mut issues);
+                match serde_json::from_value::<Extension>(value) {
                     Ok(parsed) if parsed.api_version != sailry_protocol::plugin::API_VERSION => {
                         issues.push(Issue {
                             path: "plugin.json.extensions.dev.sailry.platform".into(),

@@ -71,6 +71,9 @@ pub(crate) struct Issued {
 pub(crate) struct Target {
     pub provider: ProviderId,
     pub package: String,
+    /// Historical grants without this proof remain stored and require renewed consent.
+    #[serde(default)]
+    pub digest: Option<String>,
     pub origin: sailry_protocol::conversation::consent::Origin,
     pub flow: String,
     pub endpoint: String,
@@ -90,6 +93,9 @@ pub(crate) struct Record {
 impl Record {
     pub(crate) fn validate(&self) -> Result<(), Fault> {
         if self.target.package.is_empty()
+            || self.target.digest.as_ref().is_some_and(|digest| {
+                digest.len() != 64 || !digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+            })
             || self.target.flow.is_empty()
             || self.issued.access.expose().is_empty()
             || self
@@ -217,11 +223,49 @@ pub(crate) async fn request(
     Ok(document)
 }
 
+async fn refresh_request(
+    service: &super::Service,
+    endpoint: &model_auth::Endpoint,
+    fields: &BTreeMap<String, Secret>,
+    stop: &CancellationToken,
+) -> Result<Value, Fault> {
+    let (status, document) = response_with(service, endpoint, fields, stop, true).await?;
+    if matches!(status.as_u16(), 401 | 403)
+        || document.get("error").and_then(Value::as_str) == Some("invalid_grant")
+    {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "authorization refresh was rejected; sign in again",
+        ));
+    }
+    if !status.is_success() {
+        return Err(uncertain());
+    }
+    Ok(document)
+}
+
+fn uncertain() -> Fault {
+    Fault::new(
+        ErrorCode::OutcomeUnknown,
+        "authorization refresh did not complete; sign in again",
+    )
+}
+
 async fn response(
     service: &super::Service,
     endpoint: &model_auth::Endpoint,
     fields: &BTreeMap<String, Secret>,
     stop: &CancellationToken,
+) -> Result<(reqwest::StatusCode, Value), Fault> {
+    response_with(service, endpoint, fields, stop, false).await
+}
+
+async fn response_with(
+    service: &super::Service,
+    endpoint: &model_auth::Endpoint,
+    fields: &BTreeMap<String, Secret>,
+    stop: &CancellationToken,
+    renewal: bool,
 ) -> Result<(reqwest::StatusCode, Value), Fault> {
     if !endpoint.valid() {
         return Err(invalid());
@@ -251,8 +295,21 @@ async fn response(
     tokio::select! {
         biased;
         _ = stop.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "model authorization cancelled")),
-        result = super::response(request) => {
+        result = async {
+            if !renewal {return super::response(request).await}
+            let mut response=request.send().await.map_err(|error| if error.is_connect() {
+                Fault::new(ErrorCode::Unavailable,"authorization endpoint could not be reached")
+            } else {uncertain()})?;
+            let status=response.status();
+            let mut body=zeroize::Zeroizing::new(Vec::new());
+            while let Some(chunk)=response.chunk().await.map_err(|_|uncertain())? {
+                if chunk.len()>super::BODY_LIMIT.saturating_sub(body.len()) {return Err(uncertain())}
+                body.extend_from_slice(&chunk);
+            }
+            Ok((status,body))
+        } => {
             let (status, body) = result?;
+            if renewal && matches!(status.as_u16(),401|403) {return Ok((status,Value::Null))}
             serde_json::from_slice(&body).map(|document| (status, document)).map_err(|_| invalid())
         }
     }

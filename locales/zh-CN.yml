@@ -890,7 +890,6 @@ provider_login_cancel_unknown: 尚未确认取消，请重试
 provider_login_cancel: 取消
 provider_login_retry: 重试
 provider_login_required: 请先连接账号
-provider_account_unavailable: 账号不可用，请重新登录
 provider_account_uncertain: 授权状态未确认，请重新登录
 provider_login_changed: 配置已变更，请重新打开
 provider_login_busy: 已有登录任务，请稍后重试
@@ -2682,3 +2681,5 @@ directory_image_kind: "图像"
 directory_extension_kind: "%{extension} 文件"
 directory_files_title: "选择文件"
 directory_save_title: "保存文件"
+provider_access_denied: "渠道访问被拒绝"
+provider_not_configured: "渠道配置尚未完成"

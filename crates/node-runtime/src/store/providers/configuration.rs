@@ -37,6 +37,12 @@ impl Stored {
         {
             return Err(invalid());
         }
+        if let Some(provider) = &self.provider
+            && provider.binding.is_some()
+            && !super::presets::partner_policy(provider)?
+        {
+            return Err(invalid());
+        }
         for value in self.authorizations.values() {
             value.validate()?;
         }

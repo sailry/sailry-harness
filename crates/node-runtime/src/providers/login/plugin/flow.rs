@@ -222,7 +222,7 @@ pub(crate) async fn refresh(
         // A fixed polling or exchange contract does not imply OAuth form fields.
         _ => refresh.request.clone(),
     };
-    let document = request(service, &endpoint, &fields, &stop).await?;
+    let document = refresh_request(service, &endpoint, &fields, &stop).await?;
     let mut declaration = declaration.clone();
     declaration.token = refresh.token.clone();
     decode(document, &declaration, exchange, Some(previous), stop).await

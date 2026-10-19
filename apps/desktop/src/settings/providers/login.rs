@@ -19,6 +19,7 @@ mod declaration;
 #[cfg(test)]
 mod tests;
 mod view;
+mod waiting;
 
 fn binding(owner: &Entity<Workspace>, id: usize, cx: &App) -> Option<(Binding, Provider)> {
     let live = owner.read(cx).provider_link.as_ref()?;
@@ -69,10 +70,7 @@ pub(super) fn open_for(
                 })
             })
             .child(login.clone())
-            .when(
-                login.read(cx).provider.authentication != sailry_protocol::Authentication::ChatGpt,
-                |dialog| dialog.footer(login.read(cx).footer(&login, cx)),
-            )
+            .footer(login.read(cx).footer(&login, cx))
     });
     result
 }

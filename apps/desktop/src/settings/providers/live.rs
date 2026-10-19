@@ -34,6 +34,7 @@ pub(in crate::settings) struct Live {
     pub pending: bool,
     pub error: Option<&'static str>,
     pub catalog: super::catalog::State,
+    pub(super) directory: super::directory::State,
     stop: CancellationToken,
     _task: Task<()>,
     _python: Task<()>,
@@ -135,6 +136,7 @@ impl Workspace {
             pending: false,
             error: None,
             catalog: Default::default(),
+            directory: Default::default(),
             stop,
             _task: task,
             _python: python,
@@ -164,6 +166,10 @@ impl Workspace {
         if !view.connected {
             self.extensions.clear_resources();
         }
+        let directory_plugins = view
+            .snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.plugins.clone());
         if let Some(snapshot) = view.snapshot.as_ref() {
             self.extensions.retain(&snapshot.plugins, cx);
             live.terminal_revision = snapshot.terminal_settings_revision;
@@ -186,6 +192,10 @@ impl Workspace {
                 .iter()
                 .map(|(&id, provider)| {
                     let mut channel = channel(id, provider);
+                    channel.directory = super::directory::selected(
+                        provider.preset.as_ref(),
+                        &live.directory.entries,
+                    );
                     channel.quota = snapshot
                         .provider_quotas
                         .iter()
@@ -203,6 +213,9 @@ impl Workspace {
                 .sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
             self.roles = self.role_catalog.accept(&snapshot.roles, &live.providers);
             self.plugin_catalog.accept(snapshot, cx);
+        }
+        if let Some(plugins) = directory_plugins {
+            self.read_channel_directory(plugins, cx);
         }
         if refresh {
             self.refresh_catalog(cx);
@@ -361,6 +374,7 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
         options: provider.options.clone(),
         oauth: provider.oauth.clone(),
         quota: None,
+        directory: super::directory::selected(provider.preset.as_ref(), &[]),
         id,
         name: provider.name.clone(),
         preset: preset(provider),
@@ -413,7 +427,8 @@ pub(super) fn error_key(error: &Fault) -> &'static str {
     match error.code {
         ErrorCode::RevisionConflict | ErrorCode::Conflict => "provider_revision_changed",
         ErrorCode::OutcomeUnknown => "provider_save_unknown",
-        ErrorCode::PermissionDenied => "provider_credential_unavailable",
+        ErrorCode::PermissionDenied => "provider_access_denied",
+        ErrorCode::NotConfigured => "provider_not_configured",
         ErrorCode::InvalidRequest => "provider_configuration_invalid",
         _ => "provider_save_failed",
     }

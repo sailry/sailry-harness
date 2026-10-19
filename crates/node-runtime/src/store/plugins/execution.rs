@@ -77,7 +77,9 @@ pub(in crate::store) fn prepare(
     if prompt.trim().is_empty() || prompt.len() > 64 * 1024 {
         return Err(Fault::invalid("plugin prompt must contain 1–65536 bytes"));
     }
-    let (provider, mut config) = super::models::resolve(&db.connection, model)?;
+    let (mut provider, mut config) = super::models::resolve(&db.connection, model)?;
+    super::super::providers::presets::capture(&db.connection, &mut provider)?;
+    crate::providers::login::capture(&mut provider)?;
     if let Some(effort) = effort {
         config.effort = *effort;
     }

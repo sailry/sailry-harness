@@ -75,7 +75,8 @@ pub(in crate::store) fn stamp(
     }
     let origin = origin(&info);
     let retained = previous.and_then(|provider| provider.consent.as_ref()) == Some(&approval)
-        && approval.origin.as_ref() == Some(&origin);
+        && approval.origin.as_ref() == Some(&origin)
+        && (!origin.requires_digest() || approval.package.digest == reference.digest);
     if !retained && approval.package != reference {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -110,6 +111,9 @@ pub(crate) fn captured(
     if approval.package.name != package.name
         || approval.origin.as_ref() != origin
         || origin.is_none()
+        || origin.is_some_and(|origin| {
+            origin.requires_digest() && approval.package.digest != package.digest
+        })
         || !approval.scopes.allows(scope)
     {
         return Err(denied());

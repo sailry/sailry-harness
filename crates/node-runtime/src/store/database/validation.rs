@@ -259,9 +259,6 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
             "incompatible stored provider configuration; existing data was not changed".into(),
         )
     })?;
-    super::super::providers::presets::validate_cache(db).map_err(|_| {
-        Error::Worker("invalid stored channel catalog; existing data was not changed".into())
-    })?;
     records::<SessionConfig>(db, "defaults.config", "SELECT config FROM defaults")?;
     records::<SessionConfig>(
         db,

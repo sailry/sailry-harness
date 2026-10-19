@@ -37,12 +37,21 @@ impl Login {
                             })
                         })
                         .and_then(|entry| entry.login),
-                    _ => None,
+                    Ok(Err(error)) => {
+                        login.error = Some(super::super::live::error_key(&error));
+                        cx.notify();
+                        return;
+                    }
+                    _ => {
+                        login.error = Some("provider_query_failed");
+                        cx.notify();
+                        return;
+                    }
                 };
                 if login.presentation.is_some() {
                     login.begin(window, cx);
                 } else {
-                    login.error = Some("provider_account_unavailable");
+                    login.error = Some("provider_not_configured");
                 }
                 cx.notify();
             });

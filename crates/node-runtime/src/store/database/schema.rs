@@ -32,13 +32,20 @@ impl Schema {
                 connection.execute_batch(DDL)?;
                 crate::store::roles::initialize(connection)?;
             }
-            State::Current => {}
+            State::Current => {
+                crate::store::providers::presets::discard_invalid_cache(connection).map_err(
+                    |_| Error::Worker("channel catalog cache could not be discarded".into()),
+                )?;
+            }
             State::Upgrade { plan, path } => {
                 plan.apply(connection)?;
                 verify_owned(connection, path, DDL)?;
                 upgrades::reconcile(connection, plan.instructions)?;
                 verify(connection, path, DDL)?;
                 super::validation::stored(connection)?;
+                crate::store::providers::presets::discard_invalid_cache(connection).map_err(
+                    |_| Error::Worker("channel catalog cache could not be discarded".into()),
+                )?;
             }
         }
         Ok(())

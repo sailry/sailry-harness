@@ -48,7 +48,7 @@ impl Discovery {
         &self,
         api: ModelApi,
         endpoint: &str,
-        key: Option<&Secret>,
+        headers: HeaderMap,
         closed: CancellationToken,
     ) -> Result<discovery::Catalog, Fault> {
         if api == ModelApi::Plugin {
@@ -63,7 +63,7 @@ impl Discovery {
             ));
         }
         let candidates = endpoint::candidates(api, endpoint)?;
-        self.query(probe(api, candidates, key), closed).await
+        self.query(probe(api, candidates, headers), closed).await
     }
 
     async fn query<T>(
@@ -83,10 +83,52 @@ impl Discovery {
     }
 }
 
+pub(crate) fn headers(
+    api: ModelApi,
+    key: Option<&Secret>,
+    injection: Option<&sailry_protocol::plugin::model_auth::Injection>,
+) -> Result<HeaderMap, Fault> {
+    if let Some(injection) = injection {
+        presets::validate_injection(injection)?;
+        if !matches!(
+            api,
+            ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::Anthropic
+        ) {
+            return Err(Fault::invalid(
+                "channel protocol does not support custom key headers",
+            ));
+        }
+    }
+    let mut headers = HeaderMap::new();
+    if let Some(key) = key {
+        let (name, value) = match injection {
+            Some(injection) => (
+                injection.header.as_str(),
+                injection.template.replace("{key}", key.expose()),
+            ),
+            None => match api {
+                ModelApi::Anthropic => ("x-api-key", key.expose().to_owned()),
+                ModelApi::Gemini => ("x-goog-api-key", key.expose().to_owned()),
+                _ => ("authorization", format!("Bearer {}", key.expose())),
+            },
+        };
+        let mut value = HeaderValue::from_str(&value)
+            .map_err(|_| sailry_protocol::Fault::invalid("provider credential is invalid"))?;
+        value.set_sensitive(true);
+        let name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|_| Fault::invalid("provider credential header is invalid"))?;
+        headers.insert(name, value);
+    }
+    if api == ModelApi::Anthropic {
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
+    }
+    Ok(headers)
+}
+
 async fn probe(
     api: ModelApi,
     candidates: Vec<Url>,
-    key: Option<&Secret>,
+    headers: HeaderMap,
 ) -> Result<discovery::Catalog, Fault> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -96,7 +138,7 @@ async fn probe(
     let mut remaining = TOTAL_BYTES;
     for url in candidates {
         let endpoint = url.as_str().trim_end_matches('/').to_owned();
-        if let Some(models) = fetch(api, url, key, &client, &mut remaining).await? {
+        if let Some(models) = fetch(api, url, headers.clone(), &client, &mut remaining).await? {
             return Ok(discovery::Catalog { endpoint, models });
         }
     }
@@ -106,7 +148,7 @@ async fn probe(
 async fn fetch(
     api: ModelApi,
     mut url: Url,
-    key: Option<&Secret>,
+    headers: HeaderMap,
     client: &reqwest::Client,
     remaining: &mut usize,
 ) -> Result<Option<Vec<discovery::Model>>, Fault> {
@@ -116,21 +158,6 @@ async fn fetch(
         "/models"
     };
     url.set_path(&format!("{}{suffix}", url.path().trim_end_matches('/')));
-    let mut headers = HeaderMap::new();
-    if let Some(key) = key {
-        let (name, value) = match api {
-            ModelApi::Anthropic => ("x-api-key", key.expose().to_owned()),
-            ModelApi::Gemini => ("x-goog-api-key", key.expose().to_owned()),
-            _ => ("authorization", format!("Bearer {}", key.expose())),
-        };
-        let mut value = HeaderValue::from_str(&value)
-            .map_err(|_| sailry_protocol::Fault::invalid("provider credential is invalid"))?;
-        value.set_sensitive(true);
-        headers.insert(HeaderName::from_static(name), value);
-    }
-    if api == ModelApi::Anthropic {
-        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-    }
     pages(api, url, headers, client, remaining).await
 }
 

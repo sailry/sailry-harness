@@ -69,7 +69,19 @@ impl Editor {
         self.probe = None;
         let provider = Provider {
             preset: self.preset_ref(),
-            binding: None,
+            binding: self
+                .provider
+                .as_ref()
+                .filter(|provider| provider.preset.as_ref() == self.preset_ref().as_ref())
+                .filter(|provider| {
+                    provider.preset.as_ref().is_some_and(|reference| {
+                        matches!(
+                            &reference.source,
+                            sailry_protocol::conversation::presets::Source::Partner
+                        )
+                    })
+                })
+                .and_then(|provider| provider.binding.clone()),
             consent: self.consent().map(Box::new),
             options: channel.options,
             oauth: channel.oauth,
@@ -144,16 +156,7 @@ impl Editor {
                         }
                     }
                     Ok(Err(error)) => {
-                        let key = if editor.uses_login()
-                            && matches!(
-                                error.code,
-                                sailry_protocol::ErrorCode::PermissionDenied
-                                    | sailry_protocol::ErrorCode::NotConfigured
-                            ) {
-                            "provider_account_unavailable"
-                        } else {
-                            super::super::live::error_key(&error)
-                        };
+                        let key = super::super::live::error_key(&error);
                         editor.report_error(key, window, cx)
                     }
                     _ => editor.report_error("provider_save_unknown", window, cx),

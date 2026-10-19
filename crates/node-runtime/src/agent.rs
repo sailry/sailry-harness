@@ -12,7 +12,9 @@ mod guidance;
 mod mcp;
 pub(crate) mod media;
 mod model;
-pub(crate) use model::plugin::discover as discover_plugin_models;
+pub(crate) use model::plugin::{
+    discover as discover_plugin_models, discover_authorized as discover_authorized_models,
+};
 mod plugins;
 mod prompt;
 mod question;

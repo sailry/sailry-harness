@@ -1,6 +1,6 @@
 //! Approval belongs to a provider and the package shown in this draft.
 use super::*;
-use gpui_kit::component::checkbox::Checkbox;
+use gpui_kit::component::{alert::Alert, checkbox::Checkbox, tooltip::Tooltip};
 use sailry_protocol::conversation::{
     consent::{Approval, Scopes},
     presets::Entry,
@@ -59,21 +59,23 @@ impl Editor {
     pub(super) fn consent_form(&self, cx: &Context<Self>) -> Option<Div> {
         let entry = self.selected.as_ref()?;
         let package = entry.package.as_ref()?;
-        let body = v_flex().w_full().gap_2();
-        let body = body.child(
-            Field::new().label(tr("provider_package")).child(
-                Button::new("provider-package-reference")
-                    .ghost()
-                    .small()
-                    .label(package.name.clone())
-                    .tooltip(format!(
-                        "{}\n{}\n{}\n{}",
-                        package.name,
-                        package.digest,
-                        package.settings_revision,
-                        serde_json::to_string(&entry.origin).expect("package origins serialize")
-                    )),
-            ),
+        let reference = format!(
+            "{}\n{}\n{}\n{}",
+            package.name,
+            package.digest,
+            package.settings_revision,
+            serde_json::to_string(&entry.origin).expect("package origins serialize")
+        );
+        let body = v_flex().w_full().items_start().gap_2().child(
+            div()
+                .id("provider-package-reference")
+                .w_full()
+                .tooltip(move |window, cx| Tooltip::new(reference.clone()).build(window, cx))
+                .child(
+                    Alert::info("provider-package", package.name.clone())
+                        .title(tr("provider_package"))
+                        .small(),
+                ),
         );
         Some(
             body.when(entry.requested.messages, |body| {
@@ -122,11 +124,11 @@ fn same_preset(
 }
 
 fn same_origin(approval: &Approval, entry: &Entry) -> bool {
-    entry
-        .package
-        .as_ref()
-        .is_some_and(|package| package.name == approval.package.name)
-        && approval.origin.is_some()
+    entry.package.as_ref().is_some_and(|package| {
+        package.name == approval.package.name
+            && (entry.provenance != sailry_protocol::conversation::presets::Provenance::ThirdParty
+                || package.digest == approval.package.digest)
+    }) && approval.origin.is_some()
         && approval.origin == entry.origin
 }
 
@@ -195,6 +197,10 @@ mod tests {
         };
         assert!(same_origin(&approval, &entry));
         assert!(!approval.scopes.credentials);
+        entry.provenance = sailry_protocol::conversation::presets::Provenance::ThirdParty;
+        assert!(!same_origin(&approval, &entry));
+        approval.package.digest = entry.package.as_ref().unwrap().digest.clone();
+        assert!(same_origin(&approval, &entry));
         approval.origin = Some(Origin::Git {
             repository: "https://other.example/models.git".into(),
             path: "provider".into(),

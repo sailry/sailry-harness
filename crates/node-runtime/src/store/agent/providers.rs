@@ -23,7 +23,7 @@ pub(in crate::store) fn put(
     provider: &Provider,
     expected: u64,
 ) -> Result<Provider, Fault> {
-    if provider.binding.is_some() {
+    if provider.binding.is_some() && !super::super::providers::presets::partner_policy(provider)? {
         return Err(Fault::invalid(
             "captured channel bindings cannot be saved as configuration",
         ));
@@ -38,6 +38,7 @@ pub(in crate::store) fn put(
         ));
     }
     let mut provider = provider.clone();
+    super::super::providers::presets::save_policy(db, &mut provider, previous.as_ref())?;
     super::super::providers::consent::stamp(db, &mut provider, previous.as_ref())?;
     super::super::providers::completion::fill(db, &mut provider)?;
     validate(db, node, &provider)?;

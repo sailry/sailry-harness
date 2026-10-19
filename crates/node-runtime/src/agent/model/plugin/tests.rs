@@ -394,3 +394,128 @@ export function decode(input) {
         );
     }
 }
+
+#[tokio::test]
+async fn bounds_requests_before_network_io() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let credentials = transport::Credentials {
+        headers: Default::default(),
+        access: None,
+        key: None,
+        secrets: vec![],
+    };
+    let declaration=serde_json::from_value(json!({"id":"example","script":{"entry":"dev.sailry.platform/adapter.js"},"origins":[],"framing":"json"})).unwrap();
+    let prepared=serde_json::from_value(json!({"method":"POST","url":"http://127.0.0.1:9/","headers":{},"body":"x".repeat(transport::REQUEST_BYTES+1),"framing":"json"})).unwrap();
+    let error = transport::send(
+        &transport::client().unwrap(),
+        prepared,
+        "http://127.0.0.1:9/",
+        &declaration,
+        &credentials,
+        &CancellationToken::new(),
+        usize::MAX,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.code, sailry_protocol::ErrorCode::Internal);
+    for (status, category) in [
+        (401, adk_core::ErrorCategory::Unauthorized),
+        (403, adk_core::ErrorCategory::Forbidden),
+        (429, adk_core::ErrorCategory::RateLimited),
+        (503, adk_core::ErrorCategory::Unavailable),
+    ] {
+        let error = response::classified(
+            response::http_class(status),
+            "Synthetic HTTP failure",
+            None,
+            Some(status),
+            false,
+            &[],
+        );
+        assert_eq!(error.category, category);
+        assert_eq!(error.details.upstream_status_code, Some(status));
+        assert_eq!(error.retry.should_retry, matches!(status, 429 | 503));
+        let committed = response::classified(
+            response::http_class(status),
+            "Synthetic HTTP failure",
+            None,
+            Some(status),
+            true,
+            &[],
+        );
+        assert!(!committed.retry.should_retry);
+    }
+}
+
+#[tokio::test]
+async fn defaults_when_classify_is_not_exported() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+        sync::mpsc,
+    };
+    for status in [401, 429, 503] {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 1024];
+            let _ = socket.read(&mut bytes).await.unwrap();
+            socket.write_all(format!("HTTP/1.1 {status} Synthetic\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
+        });
+        let received = reqwest::Client::new()
+            .get(format!("http://{address}/"))
+            .send()
+            .await
+            .unwrap();
+        let entry = "dev.sailry.platform/adapter.js".to_owned();
+        let bundle = crate::plugins::script::Bundle {
+            entry: entry.clone(),
+            files: [(
+                entry,
+                "export function decode(){throw Error('Should not decode HTTP failure')}".into(),
+            )]
+            .into(),
+        };
+        let stop = CancellationToken::new();
+        let worker = worker::Worker::new(bundle, &stop, 4096).await.unwrap();
+        assert!(!worker.classifies);
+        let credentials = transport::Credentials {
+            headers: Default::default(),
+            access: None,
+            key: None,
+            secrets: vec![],
+        };
+        let (sender, _) = mpsc::channel(1);
+        let mut accumulator = response::Accumulator::default();
+        let error = super::produce(
+            received,
+            worker,
+            Framing::Json,
+            status,
+            Default::default(),
+            super::StreamContext {
+                credentials: &credentials,
+                stop: &stop,
+                streaming: true,
+                sender: &sender,
+            },
+            &mut accumulator,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.details.upstream_status_code, Some(status));
+        assert_eq!(
+            error.category,
+            if status == 401 {
+                adk_core::ErrorCategory::Unauthorized
+            } else if status == 429 {
+                adk_core::ErrorCategory::RateLimited
+            } else {
+                adk_core::ErrorCategory::Unavailable
+            }
+        );
+        server.await.unwrap();
+    }
+}

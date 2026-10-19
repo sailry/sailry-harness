@@ -16,10 +16,9 @@ fn cached(db: &Connection) -> Result<Vec<Preset>, Fault> {
         )
         .optional()
         .map_err(storage_error)?;
-    let catalog = body
-        .map(|body| crate::providers::presets::parse(&body))
-        .transpose()?;
-    Ok(catalog.map_or_else(Vec::new, |catalog| catalog.partners))
+    Ok(body
+        .and_then(|body| crate::providers::presets::parse(&body).ok())
+        .map_or_else(Vec::new, |catalog| catalog.partners))
 }
 
 pub(in crate::store) fn list(
@@ -76,7 +75,9 @@ pub(in crate::store) fn list(
         let origin = super::consent::origin(&info);
         if let Some(extension) = info.extension.as_ref() {
             for preset in &extension.model_providers {
-                crate::providers::presets::validate(preset, false, true)?;
+                if crate::providers::presets::validate(preset, false, true).is_err() {
+                    continue;
+                }
                 let login = match &preset.auth {
                     Auth::Plugin { flow } => extension
                         .model_auth
@@ -100,6 +101,21 @@ pub(in crate::store) fn list(
             }
         }
     }
+    entries.sort_by(|left, right| {
+        fn order(source: &Source) -> (u8, &str) {
+            match source {
+                Source::Builtin => (0, ""),
+                Source::Partner => (1, ""),
+                Source::Package { name } => (2, name),
+            }
+        }
+        order(&left.source)
+            .0
+            .cmp(&order(&right.source).0)
+            .then_with(|| left.preset.name.cmp(&right.preset.name))
+            .then_with(|| order(&left.source).1.cmp(order(&right.source).1))
+            .then_with(|| left.preset.id.cmp(&right.preset.id))
+    });
     Ok(Listing {
         entries,
         partners_unavailable: unavailable,
@@ -120,7 +136,7 @@ pub(in crate::store) fn resolve(db: &Connection, reference: &PresetRef) -> Resul
 }
 
 pub(in crate::store) fn validate(db: &Connection, provider: &Provider) -> Result<(), Fault> {
-    if provider.binding.is_some() {
+    if provider.binding.is_some() && !partner_policy(provider)? {
         return Err(Fault::invalid(
             "captured channel bindings cannot be saved as configuration",
         ));
@@ -133,6 +149,16 @@ pub(in crate::store) fn validate(db: &Connection, provider: &Provider) -> Result
         }
         return Ok(());
     };
+    if matches!(reference.source, Source::Partner) {
+        if provider.authentication != sailry_protocol::Authentication::ApiKey
+            || provider.api == sailry_protocol::conversation::ModelApi::Plugin
+        {
+            return Err(Fault::invalid(
+                "partner channels require a native key-based protocol",
+            ));
+        }
+        return Ok(());
+    }
     let entry = resolve(db, reference)?;
     let route = entry
         .preset
@@ -162,6 +188,125 @@ pub(in crate::store) fn validate(db: &Connection, provider: &Provider) -> Result
     Ok(())
 }
 
+/// Public partner entries are suggestions. Their selected request policy is
+/// saved with the channel, rather than resolved from a changing public feed.
+pub(in crate::store) fn save_policy(
+    db: &Connection,
+    provider: &mut Provider,
+    previous: Option<&Provider>,
+) -> Result<(), Fault> {
+    if !matches!(
+        provider.preset.as_ref().map(|reference| &reference.source),
+        Some(Source::Partner)
+    ) {
+        return Ok(());
+    }
+    partner_policy(provider)?;
+    let reference = provider.preset.as_ref().expect("partner reference checked");
+    let entry = match resolve(db, reference) {
+        Ok(entry) => Some(entry),
+        Err(error) if error.code == ErrorCode::NotConfigured => None,
+        Err(error) => return Err(error),
+    };
+    if let Some(entry) = entry {
+        if !entry.preset.routes.iter().any(|route| {
+            route.protocol.api() == provider.api
+                && reference
+                    .route
+                    .as_ref()
+                    .is_none_or(|key| route.key() == *key)
+        }) {
+            return Err(Fault::invalid(
+                "channel preset route does not match the selected protocol",
+            ));
+        }
+        let key_injection = match entry.preset.auth {
+            Auth::ApiKey { header, prefix } if header.is_some() || prefix.is_some() => {
+                Some(plugin::model_auth::Injection {
+                    header: header.unwrap_or_else(|| "authorization".into()),
+                    template: format!("{}{{key}}", prefix.as_deref().unwrap_or("")),
+                })
+            }
+            _ => None,
+        };
+        let mut policies = if provider.authentication == sailry_protocol::Authentication::ApiKey
+            && provider.api == sailry_protocol::conversation::ModelApi::ChatCompletions
+        {
+            crate::providers::presets::bundled().policies
+        } else {
+            Vec::new()
+        };
+        policies.extend(entry.preset.policies);
+        provider.binding = Some(Box::new(Binding {
+            policies,
+            key_injection,
+            ..Default::default()
+        }));
+    } else if let Some(previous) = previous.filter(|previous| previous.preset == provider.preset) {
+        provider.binding = previous.binding.clone();
+    } else {
+        return Err(Fault::new(
+            ErrorCode::NotConfigured,
+            "channel preset is unavailable on this Node",
+        ));
+    }
+    Ok(())
+}
+
+pub(in crate::store) fn partner_policy(provider: &Provider) -> Result<bool, Fault> {
+    if !matches!(
+        provider.preset.as_ref().map(|reference| &reference.source),
+        Some(Source::Partner)
+    ) {
+        return Ok(false);
+    }
+    if let Some(binding) = &provider.binding {
+        if binding.package.is_some()
+            || binding.origin.is_some()
+            || binding.auth.is_some()
+            || binding.adapter.is_some()
+            || binding.capabilities != Default::default()
+        {
+            return Err(Fault::invalid(
+                "partner policy cannot bind executable package resources",
+            ));
+        }
+        for policy in &binding.policies {
+            crate::providers::presets::validate_policy(policy)?;
+        }
+        if let Some(injection) = &binding.key_injection {
+            crate::providers::presets::validate_injection(injection)?;
+            if !matches!(
+                provider.api,
+                sailry_protocol::conversation::ModelApi::ChatCompletions
+                    | sailry_protocol::conversation::ModelApi::Responses
+                    | sailry_protocol::conversation::ModelApi::Anthropic
+            ) {
+                return Err(Fault::invalid(
+                    "channel protocol does not support custom key headers",
+                ));
+            }
+        }
+    }
+    Ok(true)
+}
+
+pub(in crate::store) fn discard_invalid_cache(db: &Connection) -> Result<(), Fault> {
+    let body: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT body FROM channel_presets WHERE singleton=1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    if body.is_some_and(|body| crate::providers::presets::parse(&body).is_err()) {
+        db.execute("DELETE FROM channel_presets WHERE singleton=1", [])
+            .map_err(storage_error)?;
+    }
+    Ok(())
+}
+
 pub(in crate::store) fn capture(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
     bind(db, provider, true)
 }
@@ -176,7 +321,9 @@ pub(in crate::store) fn capture_read(
 /// Only fresh root admission refreshes approval. Inherited turns retain their
 /// original approval and package even if configuration changes during execution.
 pub(in crate::store) fn refresh(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
-    provider.binding = None;
+    if !partner_policy(provider)? {
+        provider.binding = None;
+    }
     provider.consent =
         super::configuration::get(db, provider.id)?.and_then(|current| current.consent);
     capture(db, provider)
@@ -208,6 +355,10 @@ fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Result<(), 
         binding.policies = crate::providers::presets::bundled().policies;
     }
     if let Some(reference) = &provider.preset {
+        if matches!(reference.source, Source::Partner) {
+            provider.binding = Some(Box::new(binding));
+            return Ok(());
+        }
         let entry = resolve(db, reference)?;
         binding.package = entry.package;
         binding.origin = entry.origin;
@@ -269,6 +420,7 @@ fn bind(db: &Connection, provider: &mut Provider, messages: bool) -> Result<(), 
 }
 
 pub(in crate::store) fn verify(db: &Connection, provider: &Provider) -> Result<(), Fault> {
+    partner_policy(provider)?;
     if (provider.api == sailry_protocol::conversation::ModelApi::Plugin)
         != provider
             .binding
@@ -306,10 +458,6 @@ pub(in crate::store) fn verify(db: &Connection, provider: &Provider) -> Result<(
         }
     }
     Ok(())
-}
-
-pub(in crate::store) fn validate_cache(db: &Connection) -> Result<(), Fault> {
-    cached(db).map(|_| ())
 }
 
 #[cfg(test)]

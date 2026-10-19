@@ -139,3 +139,28 @@ fn preserves_values_within_caller_budget() {
     .unwrap();
     assert!(session.call("decode", &json!(null), 4096).is_err());
 }
+
+#[test]
+fn separates_model_callbacks_from_authentication() {
+    let mut model = Session::model(
+        bundle("export function decode(){while(true){}}"),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(model.timeout, Duration::from_millis(50));
+    let error = model.call("decode", &json!(null), 4096).unwrap_err();
+    assert_eq!(error.code, ErrorCode::Internal);
+    let mut auth = Session::new(
+        bundle("export function exchange(input){return input}"),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(auth.timeout, CALL_TIMEOUT);
+    assert_eq!(
+        auth.call("exchange", &json!({"access":"private"}), 4096)
+            .unwrap(),
+        json!({"access":"private"})
+    );
+    assert!(!auth.has_export("classify").unwrap());
+    assert!(auth.has_export("exchange").unwrap());
+}

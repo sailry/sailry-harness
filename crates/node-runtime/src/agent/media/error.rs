@@ -35,6 +35,9 @@ impl Failure {
     }
 
     pub(super) fn model(error: adk_core::AdkError, initial: bool) -> Self {
+        if initial && error.category == adk_core::ErrorCategory::Unsupported {
+            return Self::unsupported();
+        }
         let code = error
             .details
             .metadata

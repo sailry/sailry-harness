@@ -15,6 +15,7 @@ struct Call {
 pub(super) struct Worker {
     sender: mpsc::Sender<Call>,
     stop: CancellationToken,
+    pub(super) classifies: bool,
 }
 
 impl Worker {
@@ -28,9 +29,17 @@ impl Worker {
         let stop = stop.child_token();
         let interrupted = stop.clone();
         tokio::task::spawn_blocking(move || {
-            let mut session = match Session::new(bundle, interrupted.clone()) {
+            let mut session = match Session::model(bundle, interrupted.clone()) {
                 Ok(session) => {
-                    let _ = ready.send(Ok(()));
+                    match session.has_export("classify") {
+                        Ok(classifies) => {
+                            let _ = ready.send(Ok(classifies));
+                        }
+                        Err(error) => {
+                            let _ = ready.send(Err(error));
+                            return;
+                        }
+                    }
                     session
                 }
                 Err(error) => {
@@ -42,6 +51,11 @@ impl Worker {
                 if interrupted.is_cancelled() {
                     break;
                 }
+                let budget = if call.handler == "prepare" {
+                    budget.min(super::transport::REQUEST_BYTES)
+                } else {
+                    budget
+                };
                 let result = session.call(call.handler, &call.input, budget);
                 let failed = result.is_err();
                 let _ = call.reply.send(result);
@@ -52,7 +66,7 @@ impl Worker {
         });
         tokio::select! {
             _ = stop.cancelled() => Err(cancelled()),
-            result = started => { result.map_err(|_|unavailable())??; Ok(Self { sender, stop }) }
+            result = started => { let classifies=result.map_err(|_|unavailable())??; Ok(Self { sender, stop, classifies }) }
         }
     }
 

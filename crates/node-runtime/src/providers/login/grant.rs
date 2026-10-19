@@ -9,6 +9,8 @@ pub(crate) enum Grant {
         record: Box<plugin::Record>,
         #[serde(default)]
         renewal_pending: bool,
+        #[serde(default)]
+        renewal_rejected: bool,
     },
     ChatGpt {
         access: Secret,

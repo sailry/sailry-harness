@@ -1,6 +1,7 @@
 use super::entry::Entry;
 mod catalog;
 mod data;
+mod directory;
 mod editor;
 mod families;
 mod list;

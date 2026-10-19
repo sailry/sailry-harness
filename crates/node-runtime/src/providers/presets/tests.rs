@@ -48,6 +48,9 @@ fn rejects_invalid_documents() {
         invalid[key] = value;
         cases.push(invalid);
     }
+    for invalid in cases.drain(..) {
+        assert!(parse(&serde_json::to_vec(&invalid).unwrap()).is_err());
+    }
     for (key, value) in [
         ("id", json!(" ")),
         ("name", json!("")),
@@ -70,7 +73,13 @@ fn rejects_invalid_documents() {
         .as_array_mut()
         .unwrap()
         .push(original["partners"][0].clone());
-    cases.push(duplicate);
+    assert_eq!(
+        parse(&serde_json::to_vec(&duplicate).unwrap())
+            .unwrap()
+            .partners
+            .len(),
+        1
+    );
     let mut duplicate = original.clone();
     duplicate["partners"][0]["routes"][1] = original["partners"][0]["routes"][0].clone();
     cases.push(duplicate);
@@ -83,14 +92,29 @@ fn rejects_invalid_documents() {
         cases.push(invalid);
     }
     for invalid in cases {
-        assert_eq!(
+        assert!(
             parse(&serde_json::to_vec(&invalid).unwrap())
-                .unwrap_err()
-                .code,
-            ErrorCode::InvalidRequest
+                .unwrap()
+                .partners
+                .is_empty()
         );
+        invalid_sibling(&original, &invalid);
     }
     assert!(parse(&vec![b' '; BYTE_LIMIT + 1]).is_err());
+}
+
+fn invalid_sibling(original: &Value, invalid: &Value) {
+    let mut mixed = original.clone();
+    mixed["partners"]
+        .as_array_mut()
+        .unwrap()
+        .insert(0, invalid["partners"][0].clone());
+    assert_eq!(
+        parse(&serde_json::to_vec(&mixed).unwrap())
+            .unwrap()
+            .partners,
+        parse(FIXTURE).unwrap().partners
+    );
 }
 
 #[tokio::test]
@@ -261,4 +285,31 @@ fn preserves_vendor_routes_and_products() {
         assert!(preset.routes.iter().any(|route| route.product
             == Some(sailry_protocol::conversation::connection::Product::Coding)));
     }
+}
+
+#[test]
+fn protects_core_request_semantics() {
+    for key in [
+        "model",
+        "messages",
+        "input",
+        "tools",
+        "stream",
+        "instructions",
+        "system",
+        "tool_choice",
+        "parallel_tool_calls",
+        "functions",
+        "function_call",
+        "response_format",
+    ] {
+        let policy =
+            serde_json::from_value(json!({"models":["fixture"],"body":{key:true}})).unwrap();
+        assert!(validate_policy(&policy).is_err(), "{key}");
+    }
+    let policy = serde_json::from_value(
+        json!({"models":["fixture"],"body":{"thinking":{"clear_thinking":false}}}),
+    )
+    .unwrap();
+    validate_policy(&policy).unwrap();
 }

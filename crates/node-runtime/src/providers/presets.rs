@@ -143,7 +143,22 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Catalog, Fault> {
     if bytes.len() > BYTE_LIMIT {
         return Err(invalid());
     }
-    let mut catalog: Catalog = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+    let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid())?;
+    if let Some(object) = value.as_object_mut() {
+        object
+            .entry("partners")
+            .or_insert_with(|| serde_json::json!([]));
+    }
+    let partners = value
+        .get_mut("partners")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or_else(invalid)?;
+    let mut ids = BTreeSet::new();
+    partners.retain(|value| {
+        serde_json::from_value::<sailry_protocol::conversation::presets::Preset>(value.clone())
+            .is_ok_and(|preset| validate(&preset, false, false).is_ok() && ids.insert(preset.id))
+    });
+    let mut catalog: Catalog = serde_json::from_value(value).map_err(|_| invalid())?;
     if catalog.version != 1 {
         return Err(invalid());
     }
@@ -273,12 +288,46 @@ pub(crate) fn validate_policy(
         || policy.body.keys().any(|key| {
             matches!(
                 key.as_str(),
-                "model" | "messages" | "input" | "tools" | "stream"
+                "model"
+                    | "messages"
+                    | "input"
+                    | "tools"
+                    | "stream"
+                    | "instructions"
+                    | "system"
+                    | "tool_choice"
+                    | "parallel_tool_calls"
+                    | "functions"
+                    | "function_call"
+                    | "response_format"
             )
         })
     {
         return Err(invalid());
     }
+    Ok(())
+}
+
+pub(crate) fn validate_injection(
+    injection: &sailry_protocol::plugin::model_auth::Injection,
+) -> Result<(), Fault> {
+    let name = reqwest::header::HeaderName::from_bytes(injection.header.as_bytes())
+        .map_err(|_| invalid())?;
+    let template = injection.template.replace("{key}", "fixture");
+    if template.contains(['{', '}'])
+        || matches!(
+            name.as_str(),
+            "host"
+                | "connection"
+                | "content-length"
+                | "transfer-encoding"
+                | "proxy-authorization"
+                | "upgrade"
+        )
+    {
+        return Err(invalid());
+    }
+    reqwest::header::HeaderValue::from_str(&template).map_err(|_| invalid())?;
     Ok(())
 }
 

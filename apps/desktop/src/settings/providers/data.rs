@@ -371,6 +371,7 @@ impl Model {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Channel {
+    pub directory: Option<sailry_protocol::conversation::presets::Entry>,
     pub options: Option<sailry_protocol::conversation::connection::Options>,
     pub oauth: Option<sailry_protocol::conversation::oauth::Options>,
     pub quota: Option<sailry_protocol::conversation::quota::Snapshot>,
@@ -426,6 +427,7 @@ impl Default for Store {
         Self {
             category: Category::OpenAi,
             channels: vec![Channel {
+                directory: None,
                 options: None,
                 oauth: None,
                 quota: None,

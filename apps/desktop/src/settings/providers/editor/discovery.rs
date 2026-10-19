@@ -222,17 +222,11 @@ impl Editor {
                         Ok(Some(Err(error))) => editor.report_error(
                             match error.code {
                                 ErrorCode::RevisionConflict => "provider_revision_changed",
-                                ErrorCode::PermissionDenied | ErrorCode::NotConfigured
-                                    if editor.uses_login() =>
-                                {
-                                    "provider_account_unavailable"
-                                }
                                 ErrorCode::OutcomeUnknown if editor.uses_login() => {
                                     "provider_account_uncertain"
                                 }
-                                ErrorCode::PermissionDenied | ErrorCode::NotConfigured => {
-                                    "provider_credential_unavailable"
-                                }
+                                ErrorCode::PermissionDenied => "provider_access_denied",
+                                ErrorCode::NotConfigured => "provider_not_configured",
                                 ErrorCode::InvalidRequest => "provider_configuration_invalid",
                                 ErrorCode::Busy => "provider_query_busy",
                                 _ => "provider_query_failed",

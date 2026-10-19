@@ -228,9 +228,18 @@ impl Worker {
                     redirect.as_deref(),
                 )?
             };
-            Ok((provider, credential, options, context, plugin))
+            let adapter = if provider.api == sailry_protocol::conversation::ModelApi::Plugin {
+                let mut captured = provider.clone();
+                super::providers::presets::capture_read(&database.connection, &mut captured)?;
+                let declaration =
+                    super::providers::adapters::read(&database.connection, &captured, false)?;
+                Some((captured, declaration))
+            } else {
+                None
+            };
+            Ok((provider, credential, options, context, plugin, adapter))
         })();
-        let (provider, credential, options, context, mut plugin) = match prepared {
+        let (provider, credential, options, context, mut plugin, adapter) = match prepared {
             Ok(value) => value,
             Err(error) => return database.finish_external(caller, request, Err(error), events),
         };
@@ -348,12 +357,25 @@ impl Worker {
                         )
                         .await?
                 };
-                let endpoint = grant.endpoint();
-                #[cfg(any(test, feature = "test-support"))]
-                let endpoint = service.model_endpoint.as_deref().unwrap_or(endpoint);
-                let models = discovery
-                    .authorized(api, endpoint, &grant, &options, stop.clone())
-                    .await;
+                let models = if let Some((captured, declaration)) = adapter {
+                    crate::agent::discover_authorized_models(
+                        &plugins,
+                        &captured,
+                        &declaration,
+                        &grant,
+                        &options,
+                        &stop,
+                    )
+                    .await
+                    .map(|catalog| catalog.models)
+                } else {
+                    let endpoint = grant.endpoint();
+                    #[cfg(any(test, feature = "test-support"))]
+                    let endpoint = service.model_endpoint.as_deref().unwrap_or(endpoint);
+                    discovery
+                        .authorized(api, endpoint, &grant, &options, stop.clone())
+                        .await
+                };
                 Ok(Authorized { grant, models })
             };
             let result = AssertUnwindSafe(operation)

@@ -33,8 +33,19 @@ impl Login {
             .w_full()
             .justify_end()
             .gap_2()
+            .child(
+                Button::new("provider-login-cancel")
+                    .debug_selector(|| "provider-login-cancel".into())
+                    .loading(self.cancelling && self.pending)
+                    .disabled(self.cancelling && self.pending)
+                    .label(tr("provider_login_cancel"))
+                    .on_click(move |_, window, cx| {
+                        window.dispatch_action(Box::new(dialog::Cancel), cx);
+                    }),
+            )
             .when_some(
-                self.state().filter(|_| !self.closed && !self.cancelling),
+                self.state()
+                    .filter(|_| !self.closed && !self.cancelling && self.error.is_none()),
                 |row, state| {
                     let url = match state {
                         State::Pending {
@@ -70,6 +81,7 @@ impl Login {
                 |row| {
                     row.child(
                         Button::new("provider-login-retry")
+                            .primary()
                             .debug_selector(|| "provider-login-retry".into())
                             .disabled(self.pending)
                             .label(tr("provider_login_retry"))
@@ -78,16 +90,6 @@ impl Login {
                             }),
                     )
                 },
-            )
-            .child(
-                Button::new("provider-login-cancel")
-                    .debug_selector(|| "provider-login-cancel".into())
-                    .loading(self.cancelling && self.pending)
-                    .disabled(self.cancelling && self.pending)
-                    .label(tr("provider_login_cancel"))
-                    .on_click(move |_, window, cx| {
-                        window.dispatch_action(Box::new(dialog::Cancel), cx);
-                    }),
             );
         div()
             .debug_selector(|| "provider-login-footer".into())
@@ -99,60 +101,41 @@ impl Login {
 
 impl Render for Login {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.provider.authentication == sailry_protocol::Authentication::ChatGpt {
-            return self.browser_body(cx);
-        }
-        let active = !self.closed && !self.cancelling && !self.expired();
+        let active = !self.closed && !self.cancelling && !self.expired() && self.error.is_none();
         v_flex()
             .id("provider-login")
             .debug_selector(|| "provider-login".into())
             .w_full()
             .gap_4()
-            .when(self.expired(), |body| {
-                body.child(
-                    Button::new("provider-login-code-expired")
-                        .debug_selector(|| "provider-login-code-expired".into())
-                        .custom(ButtonCustomVariant::new(cx))
-                        .disabled(true)
-                        .w_full()
-                        .h(rems(6.))
-                        .bg(cx.theme().group_box)
-                        .border_1()
-                        .border_color(cx.theme().border)
-                        .rounded(cx.theme().radius_lg)
-                        .label(tr("provider_login_code_expired")),
-                )
-            })
             .when(
-                active
-                    && (self.pending
-                        || matches!(self.state(), Some(State::Starting | State::Exchanging))),
+                self.provider.authentication == sailry_protocol::Authentication::ChatGpt,
                 |body| {
-                    body.child(
-                        h_flex()
-                            .debug_selector(|| "provider-login-loading".into())
-                            .w_full()
-                            .gap_2()
-                            .py_2()
-                            .child(spinner::Spinner::new().small())
-                            .child(tr("provider_login_starting")),
-                    )
+                    body.on_action(cx.listener(|login, _: &dialog::Confirm, window, cx| {
+                        cx.stop_propagation();
+                        login.authorize(window, cx);
+                    }))
                 },
             )
-            .when(
-                active && !self.pending && matches!(self.state(), Some(State::Browser { .. })),
-                |body| {
-                    body.child(
-                        h_flex()
-                            .debug_selector(|| "provider-login-waiting".into())
-                            .items_center()
-                            .gap_2()
-                            .py_2()
-                            .child(spinner::Spinner::new().small())
-                            .child(tr("provider_login_waiting")),
-                    )
+            .child(waiting::surface(
+                &self.provider.name,
+                if self.expired() {
+                    Some(tr("provider_login_code_expired"))
+                } else if active {
+                    Some(tr(
+                        if self.pending
+                            || matches!(self.state(), Some(State::Starting | State::Exchanging))
+                        {
+                            "provider_login_starting"
+                        } else {
+                            "provider_login_waiting"
+                        },
+                    ))
+                } else {
+                    None
                 },
-            )
+                active,
+                cx,
+            ))
             .when(
                 active
                     && !self.pending
@@ -229,89 +212,6 @@ impl Render for Login {
 }
 
 impl Login {
-    fn browser_body(&self, cx: &mut Context<Self>) -> AnyElement {
-        let loading = self.pending
-            || self.cancelling
-            || matches!(self.state(), Some(State::Starting | State::Exchanging));
-        let retry = self.error.is_some() && self.error != Some("provider_login_changed");
-        let url = match self.state() {
-            Some(State::Browser {
-                authorization_url, ..
-            }) => Some(authorization_url.clone()),
-            _ => None,
-        };
-        let interactive = !loading
-            && !self.closed
-            && self.error != Some("provider_login_changed")
-            && (retry || url.is_some());
-        let body = v_flex()
-            .id("provider-login")
-            .debug_selector(|| "provider-login".into())
-            .w_full()
-            .items_center()
-            .text_center()
-            .py_6()
-            .gap_4()
-            .child(
-                img("branding/sailry-mark.svg")
-                    .debug_selector(|| "provider-login-logo".into())
-                    .size_16(),
-            )
-            .child(if loading {
-                h_flex()
-                    .debug_selector(|| "provider-login-loading".into())
-                    .justify_center()
-                    .gap_2()
-                    .py_2()
-                    .child(spinner::Spinner::new().small())
-                    .child(tr("provider_login_starting"))
-                    .into_any_element()
-            } else {
-                h_flex()
-                    .when(!retry, |row| {
-                        row.debug_selector(|| "provider-login-waiting".into())
-                    })
-                    .justify_center()
-                    .py_2()
-                    .child(tr(if retry {
-                        "provider_login_retry"
-                    } else {
-                        "provider_login_waiting"
-                    }))
-                    .into_any_element()
-            });
-        if !interactive {
-            return body.into_any_element();
-        }
-        let id = if retry {
-            "provider-login-retry"
-        } else {
-            "provider-login-open"
-        };
-        Button::new(id)
-            .debug_selector(move || id.into())
-            .ghost()
-            .w_full()
-            .h_auto()
-            .p_0()
-            .when(!retry, |button| button.cursor_pointer())
-            .accessibility_label(tr(if retry {
-                "provider_login_retry"
-            } else {
-                "provider_login_authorize"
-            }))
-            .child(body)
-            // Dialog binds Enter to Confirm before the native button's key-up.
-            .on_action(cx.listener(|login, _: &dialog::Confirm, window, cx| {
-                cx.stop_propagation();
-                login.authorize(window, cx);
-            }))
-            .on_click(cx.listener(|login, _, window, cx| {
-                login.authorize(window, cx);
-            }))
-            .into_any_element()
-    }
-
     fn authorize(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.pending
             || self.cancelling

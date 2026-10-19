@@ -93,6 +93,10 @@ pub(super) fn configuration(
     let target = Target {
         provider: provider.id,
         package: package.name.clone(),
+        digest: origin
+            .as_ref()
+            .filter(|origin| origin.requires_digest())
+            .map(|_| package.digest.clone()),
         origin: origin.clone().ok_or_else(missing)?,
         flow: flow.clone(),
         endpoint: endpoint.clone(),
@@ -221,6 +225,7 @@ where
             issued,
         }),
         renewal_pending: false,
+        renewal_rejected: false,
     };
     grant.validate(Authentication::Plugin)?;
     Ok(grant)

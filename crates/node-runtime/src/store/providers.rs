@@ -154,15 +154,39 @@ impl Ingress {
             ));
         }
         let models = if provider.authentication == Authentication::ApiKey {
-            self.draft_models(&discovery::Draft {
-                preset: provider.preset.clone(),
-                provider: provider.id,
-                api: provider.api,
-                endpoint: provider.endpoint.clone(),
-                credential: provider.credential.clone(),
-                secret: None,
-            })
-            .await?
+            let captured = self.capture_channel(provider).await?;
+            let key = match &provider.credential {
+                Some(reference) => Some(
+                    self.resolve_credential(reference.clone(), provider.id)
+                        .await?,
+                ),
+                None => None,
+            };
+            let injection = captured
+                .binding
+                .as_ref()
+                .and_then(|binding| binding.key_injection.as_ref());
+            let headers = crate::providers::headers(provider.api, key.as_ref(), injection)?;
+            let models = self
+                .discovery
+                .read(
+                    provider.api,
+                    &provider.endpoint,
+                    headers,
+                    self.closed.clone(),
+                )
+                .await?;
+            if let Some(reference) = &provider.credential {
+                self.resolve_credential(reference.clone(), provider.id)
+                    .await?;
+            }
+            if self.capture_channel(provider).await?.binding != captured.binding {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "channel declaration changed during model discovery",
+                ));
+            }
+            models
         } else {
             let captured = if provider.authentication == Authentication::Plugin {
                 Some(self.capture_channel(provider).await?)
@@ -271,14 +295,21 @@ impl Ingress {
             }
             return Ok(models);
         }
+        let injection = entry.as_ref().and_then(|entry| match &entry.preset.auth {
+            sailry_protocol::conversation::presets::Auth::ApiKey { header, prefix }
+                if header.is_some() || prefix.is_some() =>
+            {
+                Some(plugin::model_auth::Injection {
+                    header: header.clone().unwrap_or_else(|| "authorization".into()),
+                    template: format!("{}{{key}}", prefix.as_deref().unwrap_or("")),
+                })
+            }
+            _ => None,
+        });
+        let headers = crate::providers::headers(source.api, key.as_ref(), injection.as_ref())?;
         let models = self
             .discovery
-            .read(
-                source.api,
-                &source.endpoint,
-                key.as_ref(),
-                self.closed.clone(),
-            )
+            .read(source.api, &source.endpoint, headers, self.closed.clone())
             .await?;
         self.discovery_key(source).await?;
         if self.draft_preset(source).await? != entry {

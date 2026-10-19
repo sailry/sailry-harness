@@ -249,3 +249,126 @@ fn refreshes_roles_without_elevating_inherited_scopes() {
     );
     assert!(!original.consent.as_ref().unwrap().scopes.credentials);
 }
+
+#[test]
+fn retains_saved_policy_after_partner_removal() {
+    let (_directory, database) = database();
+    let db = &database.connection;
+    let mut catalog = crate::providers::presets::parse(include_bytes!(
+        "../../../../tests/fixtures/model-presets.json"
+    ))
+    .unwrap();
+    catalog.partners[0].auth = Auth::ApiKey {
+        header: Some("X-Example-Key".into()),
+        prefix: Some("Token ".into()),
+    };
+    let gemini = catalog.partners[0].routes.pop().unwrap();
+    assert_eq!(gemini.protocol, Protocol::Gemini);
+    assert_eq!(
+        catalog.partners[0]
+            .routes
+            .iter()
+            .map(|route| route.protocol)
+            .collect::<Vec<_>>(),
+        [
+            Protocol::OpenAiResponses,
+            Protocol::OpenAiChatCompletions,
+            Protocol::Anthropic
+        ]
+    );
+    crate::providers::presets::validate(&catalog.partners[0], false, false).unwrap();
+    let mut unsupported = catalog.partners[0].clone();
+    unsupported.routes.push(gemini);
+    assert_eq!(
+        crate::providers::presets::validate(&unsupported, false, false)
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+    catalog.partners[0].policies = vec![
+        serde_json::from_value(json!({"models":["fixture"],"body":{"thinking":{"enabled":true}}}))
+            .unwrap(),
+    ];
+    list(db, Some(&catalog), false).unwrap();
+    let mut selected = provider();
+    selected.preset.as_mut().unwrap().source = Source::Partner;
+    save_policy(db, &mut selected, None).unwrap();
+    let original = selected.clone();
+    assert_eq!(
+        selected
+            .binding
+            .as_ref()
+            .unwrap()
+            .key_injection
+            .as_ref()
+            .unwrap()
+            .header,
+        "X-Example-Key"
+    );
+    catalog.partners.clear();
+    list(db, Some(&catalog), false).unwrap();
+    capture(db, &mut selected).unwrap();
+    assert_eq!(selected, original);
+    selected.name = "Renamed saved channel".into();
+    save_policy(db, &mut selected, Some(&original)).unwrap();
+    assert_eq!(selected.binding, original.binding);
+    selected.binding.as_mut().unwrap().package = Some(plugin::Reference {
+        name: "other".into(),
+        digest: "a".repeat(64),
+        settings_revision: 0,
+    });
+    assert!(partner_policy(&selected).is_err());
+    let mut legacy = original;
+    legacy.binding = None;
+    capture(db, &mut legacy).unwrap();
+    assert!(legacy.binding.unwrap().key_injection.is_none());
+}
+
+#[test]
+fn discards_only_a_corrupt_suggestion_cache() {
+    let (directory, database) = database();
+    database
+        .connection
+        .execute(
+            "INSERT INTO channel_presets(singleton,body) VALUES(1,?1)",
+            [b"not JSON".as_slice()],
+        )
+        .unwrap();
+    let before: i64 = database
+        .connection
+        .query_row("SELECT count(*) FROM providers", [], |row| row.get(0))
+        .unwrap();
+    drop(database);
+    let database = Database::open(
+        &directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("node.sqlite3"),
+        NodeId([17; 32]),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        database
+            .connection
+            .query_row("SELECT count(*) FROM channel_presets", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        database
+            .connection
+            .query_row("SELECT count(*) FROM providers", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        before
+    );
+    assert!(
+        !list(&database.connection, None, true)
+            .unwrap()
+            .entries
+            .is_empty()
+    );
+}

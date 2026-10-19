@@ -185,6 +185,30 @@ async fn runs_captured_translations_with_scoped_approval() {
         }
         declare_adapter(&source, 2);
         let updated = info(execute(&client, install(worktree, installed.summary.revision)).await);
+        let count = server.requests.lock().unwrap().len();
+        assert_eq!(
+            client
+                .execute(client.prepare(queue()))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), count);
+        provider.consent.as_mut().unwrap().package = updated.summary.reference();
+        provider.consent.as_mut().unwrap().origin = None;
+        let Output::Provider(saved) = execute(
+            &client,
+            Command::PutProvider {
+                provider: provider.clone(),
+                expected_revision: provider.revision,
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        provider = saved;
         let Output::QueuedTurn(second) = execute(&client, queue()).await else {
             panic!("turn expected")
         };
