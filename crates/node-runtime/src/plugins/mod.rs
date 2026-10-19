@@ -66,6 +66,19 @@ pub(crate) struct Host {
 }
 
 impl Host {
+    async fn read_permit(
+        &self,
+        stop: &sailry_link::CancellationToken,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, Fault> {
+        tokio::select! {
+            biased;
+            _ = stop.cancelled() => Err(github::cancelled()),
+            permit = self.reads.clone().acquire_owned() => {
+                permit.map_err(|_| Fault::new(ErrorCode::Unavailable, "skill reader is closed"))
+            }
+        }
+    }
+
     pub(crate) async fn display_python(&self, commands: &[&str]) -> Option<PathBuf> {
         if commands.is_empty() {
             return None;

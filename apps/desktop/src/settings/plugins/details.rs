@@ -55,6 +55,7 @@ impl Drop for Details {
 pub(in crate::settings) fn open(
     owner: Entity<Workspace>,
     expected: Summary,
+    stop: CancellationToken,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -64,6 +65,7 @@ pub(in crate::settings) fn open(
     mount(
         live.binding.clone(),
         Target::Installed(expected),
+        stop,
         window,
         cx,
     );
@@ -84,6 +86,7 @@ pub(crate) fn open_bound(
             label,
         },
         Target::Installed(expected),
+        CancellationToken::new(),
         window,
         cx,
     );
@@ -94,6 +97,7 @@ pub(in crate::settings) fn open_catalog(
     binding: Binding,
     source: Source,
     entry: sailry_protocol::plugin::catalog::Entry,
+    stop: CancellationToken,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Details> {
@@ -104,12 +108,19 @@ pub(in crate::settings) fn open_catalog(
             entry: Box::new(entry),
             source,
         },
+        stop,
         window,
         cx,
     )
 }
 
-fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) -> Entity<Details> {
+fn mount(
+    binding: Binding,
+    target: Target,
+    stop: CancellationToken,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Details> {
     let capabilities = cx.new(|_| authorization::Capabilities::new(binding.clone()));
     let update_state = updates::bind(binding.clone(), cx);
     let details = cx.new(|cx| {
@@ -125,7 +136,7 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
             info: None,
             external: None,
             error: None,
-            stop: CancellationToken::new(),
+            stop,
             task: None,
             removal: None,
         }

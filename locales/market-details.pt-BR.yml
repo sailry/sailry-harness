@@ -92,3 +92,5 @@ market_permission_knowledge_write: "Alterar conhecimento"
 market_details_formats: "Outros formatos"
 market_details_unsupported: "Não compatível"
 market_page_filter: "O filtro se aplica aos resultados carregados"
+
+market_details_visit_link: "Abrir link"

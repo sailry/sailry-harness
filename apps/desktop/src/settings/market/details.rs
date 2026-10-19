@@ -10,6 +10,7 @@ pub(super) mod themes;
 
 pub(in crate::settings) fn panel(
     summary: AnyElement,
+    information: AnyElement,
     content: AnyElement,
     scroll: &ScrollHandle,
     cx: &App,
@@ -36,7 +37,15 @@ pub(in crate::settings) fn panel(
                         }),
                 ),
         )
-        .child(div().flex_shrink_0().min_w_0().pt_5().child(summary))
+        .child(
+            v_flex()
+                .flex_shrink_0()
+                .min_w_0()
+                .pt_5()
+                .gap_4()
+                .child(summary)
+                .child(div().px_7().child(information)),
+        )
         .child(
             div()
                 .id("extension-details-body")

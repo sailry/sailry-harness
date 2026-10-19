@@ -92,3 +92,5 @@ market_permission_knowledge_write: "Change knowledge"
 market_details_formats: "Other formats"
 market_details_unsupported: "Unsupported"
 market_page_filter: "Filter applies to loaded results"
+
+market_details_visit_link: "Visit link"

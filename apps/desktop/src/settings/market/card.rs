@@ -22,37 +22,29 @@ pub(super) fn content(
                 .items_start()
                 .gap_1()
                 .child(
-                    h_flex()
+                    div()
                         .w_full()
                         .min_w_0()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .min_w_0()
-                                .text_left()
-                                .truncate()
-                                .font_medium()
-                                .child(title),
-                        )
-                        .when_some(source, |row, source| {
-                            row.child(
-                                div()
-                                    .flex_shrink_0()
-                                    .text_xs()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(source),
-                            )
-                        }),
+                        .text_left()
+                        .truncate()
+                        .font_medium()
+                        .child(title),
                 )
                 .child(
                     div()
                         .w_full()
+                        .min_w_0()
                         .text_left()
                         .truncate()
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
-                        .child(description),
+                        .child(match source {
+                            Some(source) if !description.is_empty() => {
+                                format!("{source} · {description}")
+                            }
+                            Some(source) => source.to_string(),
+                            None => description,
+                        }),
                 ),
         )
         .into_any_element()
@@ -141,13 +133,13 @@ pub(super) fn skeleton(cx: &App) -> AnyElement {
                 .border_1()
                 .border_color(cx.theme().border)
                 .rounded(cx.theme().radius_lg)
-                .child(Skeleton::new().size_10().rounded_lg())
+                .child(Skeleton::new().size_10().rounded(cx.theme().radius_lg))
                 .child(
                     v_flex()
                         .flex_1()
                         .gap_2()
-                        .child(Skeleton::new().w_1_2().h_4())
-                        .child(Skeleton::new().w_full().h_3()),
+                        .child(Skeleton::new().w_1_2().h_4().rounded(cx.theme().radius))
+                        .child(Skeleton::new().w_full().h_3().rounded(cx.theme().radius)),
                 )
         }))
         .into_any_element()

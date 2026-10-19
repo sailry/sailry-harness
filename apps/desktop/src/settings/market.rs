@@ -57,6 +57,7 @@ pub(in crate::settings) struct Market {
     themes: themes::State,
     pending: Option<Loading>,
     stop: CancellationToken,
+    detail_stop: CancellationToken,
     error: Option<&'static str>,
     task: Option<Task<()>>,
 }
@@ -71,6 +72,7 @@ enum Loading {
 impl Drop for Market {
     fn drop(&mut self) {
         self.stop.cancel();
+        self.detail_stop.cancel();
     }
 }
 
@@ -107,6 +109,7 @@ pub(super) fn create(
             scroll: ScrollHandle::new(),
             pending: None,
             stop: CancellationToken::new(),
+            detail_stop: CancellationToken::new(),
             error: None,
             task: None,
         }
@@ -116,6 +119,12 @@ pub(super) fn create(
 }
 
 impl Market {
+    pub(in crate::settings) fn begin_details(&mut self) -> CancellationToken {
+        self.detail_stop.cancel();
+        self.detail_stop = CancellationToken::new();
+        self.detail_stop.child_token()
+    }
+
     fn begin(&mut self, loading: Loading) -> CancellationToken {
         self.stop.cancel();
         self.task = None;

@@ -127,11 +127,7 @@ impl Host {
         source: &RegistrySource,
         stop: CancellationToken,
     ) -> Result<RegistryDiscovery, Fault> {
-        let _permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "skill discovery is busy"))?;
+        let _permit = self.read_permit(&stop).await?;
         let (file, source) = self.registry.acquire(source, None, &stop).await?;
         let resolved = source.clone();
         let candidate = tokio::task::spawn_blocking(move || {
@@ -200,11 +196,7 @@ impl Host {
         selected_name: &str,
         stop: CancellationToken,
     ) -> Result<Option<Info>, Fault> {
-        let _permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "skill inspection is busy"))?;
+        let _permit = self.read_permit(&stop).await?;
         let (file, resolved) = self
             .registry
             .acquire(

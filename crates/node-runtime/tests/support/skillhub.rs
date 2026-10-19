@@ -14,6 +14,7 @@ use tokio::{
 pub struct Registry {
     pub endpoint: String,
     pub state: Arc<Mutex<State>>,
+    pub arrivals: Arc<tokio::sync::Semaphore>,
     worker: tokio::task::JoinHandle<()>,
 }
 #[derive(Default)]
@@ -22,6 +23,7 @@ pub struct State {
     pub corrupt_archive: bool,
     pub unsigned: bool,
     pub requests: Vec<String>,
+    pub hold: Option<Arc<tokio::sync::Semaphore>>,
 }
 
 pub fn package(version: &str) -> (Vec<u8>, String, usize) {
@@ -81,10 +83,13 @@ impl Registry {
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let state = Arc::new(Mutex::new(State::default()));
         let current = state.clone();
+        let arrivals = Arc::new(tokio::sync::Semaphore::new(0));
+        let observed = arrivals.clone();
         let worker = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let current = current.clone();
+                let observed = observed.clone();
                 tokio::spawn(async move {
                     let mut request = Vec::new();
                     let mut buffer = [0; 1024];
@@ -145,6 +150,17 @@ impl Registry {
                             _ => ("404 Not Found", String::new(), Vec::new()),
                         }
                     };
+                    if url.path() == "/api/v1/skills/analysis" {
+                        let hold = current.lock().unwrap().hold.clone();
+                        observed.add_permits(1);
+                        if let Some(hold) = hold {
+                            let mut closed = [0; 1];
+                            tokio::select! {
+                                _ = socket.read(&mut closed) => return,
+                                permit = hold.acquire() => permit.unwrap().forget(),
+                            }
+                        }
+                    }
                     let header = format!(
                         "HTTP/1.1 {status}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n",
                         body.len()
@@ -157,6 +173,7 @@ impl Registry {
         Self {
             endpoint,
             state,
+            arrivals,
             worker,
         }
     }

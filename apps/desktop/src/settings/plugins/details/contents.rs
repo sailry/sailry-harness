@@ -5,7 +5,7 @@ impl Details {
     pub(super) fn external_contents(&self, cx: &App) -> AnyElement {
         use sailry_protocol::plugin::catalog::{Details as CatalogDetails, Format};
         let mut view = v_flex().gap_5();
-        let (source, formats) = match self.external.as_ref() {
+        let formats = match self.external.as_ref() {
             Some(CatalogDetails::Skills(collection)) => {
                 let skills = collection
                     .skills
@@ -31,11 +31,9 @@ impl Details {
                     skills,
                     cx,
                 ));
-                (&collection.source, collection.unsupported.as_slice())
+                collection.unsupported.as_slice()
             }
-            Some(CatalogDetails::Unsupported(external)) => {
-                (&external.source, external.formats.as_slice())
-            }
+            Some(CatalogDetails::Unsupported(external)) => external.formats.as_slice(),
             _ => return div().into_any_element(),
         };
         if !formats.is_empty() {
@@ -58,39 +56,6 @@ impl Details {
                 })
                 .collect();
             view = view.child(rows::section("market_details_formats", None, formats, cx));
-        }
-        if self.tab == Tab::Overview {
-            let metadata = self.external_metadata();
-            let mut details = vec![
-                rows::row(
-                    "catalog-source".into(),
-                    IconName::Globe,
-                    tr("market_details_source"),
-                    None,
-                    source.repository.clone(),
-                    cx,
-                )
-                .into_any_element(),
-            ];
-            if let Some(version) = metadata.and_then(|metadata| metadata.version.as_ref()) {
-                details.push(
-                    rows::row(
-                        "catalog-version".into(),
-                        IconName::Tag,
-                        tr("market_details_version"),
-                        None,
-                        version.clone(),
-                        cx,
-                    )
-                    .into_any_element(),
-                );
-            }
-            view = view.child(rows::section(
-                "market_details_information",
-                None,
-                details,
-                cx,
-            ));
         }
         view.into_any_element()
     }

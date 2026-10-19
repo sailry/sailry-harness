@@ -92,3 +92,5 @@ market_permission_knowledge_write: "ナレッジの変更"
 market_details_formats: "その他の形式"
 market_details_unsupported: "未対応"
 market_page_filter: "読み込み済みの結果のみ絞り込み"
+
+market_details_visit_link: "リンクを開く"

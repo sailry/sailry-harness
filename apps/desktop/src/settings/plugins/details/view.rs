@@ -224,6 +224,87 @@ impl Details {
             .update(cx, |state, cx| state.apply(Some(&name), window, cx));
     }
 
+    fn information(&self, cx: &App) -> AnyElement {
+        let source = match self.info.as_ref().and_then(|info| info.origin.as_ref()) {
+            Some(Origin::Bundled) => "market_details_source_builtin",
+            Some(Origin::Online { source, .. })
+                if repository_owner(&source.repository).as_deref() == Some("Sailry") =>
+            {
+                "market_details_source_official"
+            }
+            Some(Origin::Online { .. } | Origin::Registry { .. }) => {
+                "market_details_source_community"
+            }
+            _ => match &self.target {
+                Target::Catalog { entry, .. } if entry.bundled => "market_details_source_builtin",
+                Target::Catalog {
+                    source: Source::Official,
+                    ..
+                } => "market_details_source_official",
+                Target::Catalog {
+                    source: Source::ThirdParty,
+                    ..
+                } => "market_details_source_community",
+                Target::Installed(_) => "market_details_source_local",
+            },
+        };
+        let mut information = vec![
+            rows::row(
+                "plugin-version".into(),
+                IconName::Tag,
+                tr("market_details_version"),
+                None,
+                self.version()
+                    .or_else(|| {
+                        self.external_metadata()
+                            .and_then(|metadata| metadata.version.clone())
+                    })
+                    .unwrap_or_else(|| "—".into()),
+                cx,
+            )
+            .into_any_element(),
+            rows::row(
+                "plugin-source".into(),
+                IconName::Globe,
+                tr("market_details_source"),
+                None,
+                tr(source),
+                cx,
+            )
+            .into_any_element(),
+            rows::row(
+                "plugin-host".into(),
+                IconName::Server,
+                tr("market_details_host"),
+                None,
+                self.binding.label.clone(),
+                cx,
+            )
+            .into_any_element(),
+        ];
+        if let Target::Catalog { entry, .. } = &self.target
+            && let Some(repository) = &entry.repository
+            && self.external.is_some()
+        {
+            information[1] = rows::row(
+                "plugin-source".into(),
+                IconName::Globe,
+                tr("market_details_source"),
+                None,
+                repository.clone(),
+                cx,
+            )
+            .into_any_element();
+        }
+        if let Some(homepage) = self
+            .external_metadata()
+            .and_then(|metadata| metadata.homepage.as_deref())
+        {
+            information.push(rows::homepage("plugin-homepage", homepage, cx));
+        }
+        rows::information(information, cx)
+    }
+
     fn overview(&self, info: &Info, cx: &mut Context<Self>) -> AnyElement {
         let mut includes = Vec::new();
         let tools = info
@@ -268,58 +349,11 @@ impl Details {
                     .into_any_element(),
             );
         }
-        let source = match info.origin.as_ref() {
-            Some(Origin::Bundled) => "market_details_source_builtin",
-            Some(Origin::Online { source, .. })
-                if repository_owner(&source.repository).as_deref() == Some("Sailry") =>
-            {
-                "market_details_source_official"
-            }
-            Some(Origin::Online { .. } | Origin::Registry { .. }) => {
-                "market_details_source_community"
-            }
-            _ => "market_details_source_local",
-        };
-        let information = vec![
-            rows::row(
-                "plugin-version".into(),
-                IconName::Tag,
-                tr("market_details_version"),
-                None,
-                self.version().unwrap_or_else(|| "—".into()),
-                cx,
-            )
-            .into_any_element(),
-            rows::row(
-                "plugin-source".into(),
-                IconName::Globe,
-                tr("market_details_source"),
-                None,
-                tr(source),
-                cx,
-            )
-            .into_any_element(),
-            rows::row(
-                "plugin-host".into(),
-                IconName::Server,
-                tr("market_details_host"),
-                None,
-                self.binding.label.clone(),
-                cx,
-            )
-            .into_any_element(),
-        ];
         v_flex()
             .gap_5()
             .when(!includes.is_empty(), |view| {
                 view.child(rows::section("market_details_includes", None, includes, cx))
             })
-            .child(rows::section(
-                "market_details_information",
-                None,
-                information,
-                cx,
-            ))
             .into_any_element()
     }
 }
@@ -343,10 +377,21 @@ impl Render for Details {
             v_flex()
                 .w_full()
                 .gap_3()
-                .children((0..3).map(|_| Skeleton::new().h_10().w_full()))
+                .children((0..3).map(|_| {
+                    Skeleton::new()
+                        .h_10()
+                        .w_full()
+                        .rounded(cx.theme().radius_lg)
+                }))
                 .into_any_element()
         };
-        crate::settings::market::details::panel(header(self, cx), content, &self.scroll, cx)
+        crate::settings::market::details::panel(
+            header(self, cx),
+            self.information(cx),
+            content,
+            &self.scroll,
+            cx,
+        )
     }
 }
 

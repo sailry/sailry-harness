@@ -92,3 +92,5 @@ market_permission_knowledge_write: "Изменение базы знаний"
 market_details_formats: "Другие форматы"
 market_details_unsupported: "Не поддерживается"
 market_page_filter: "Фильтр применяется к загруженным результатам"
+
+market_details_visit_link: "Открыть ссылку"

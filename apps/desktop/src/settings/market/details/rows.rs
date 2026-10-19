@@ -58,6 +58,19 @@ pub(in crate::settings) fn section(
     rows: Vec<AnyElement>,
     cx: &App,
 ) -> AnyElement {
+    group(key, Some((key, count)), rows, cx)
+}
+
+pub(in crate::settings) fn information(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
+    group("extension-information", None, rows, cx)
+}
+
+fn group(
+    id: &'static str,
+    title: Option<(&'static str, Option<usize>)>,
+    rows: Vec<AnyElement>,
+    cx: &App,
+) -> AnyElement {
     let mut content = v_flex().w_full().min_w_0().gap_0();
     for (index, row) in rows.into_iter().enumerate() {
         if index > 0 {
@@ -66,23 +79,42 @@ pub(in crate::settings) fn section(
         content = content.child(row);
     }
     GroupBox::new()
-        .id(key)
+        .id(id)
         .min_w_0()
         .flex_shrink_0()
         .outline()
         .gap_2()
-        .title(
-            h_flex()
-                .gap_2()
-                .text_xs()
-                .font_normal()
-                .text_color(cx.theme().muted_foreground)
-                .child(tr(key))
-                .when_some(count, |view, count| view.child(count.to_string())),
-        )
+        .when_some(title, |group, (key, count)| {
+            group.title(
+                h_flex()
+                    .gap_2()
+                    .text_xs()
+                    .font_normal()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(tr(key))
+                    .when_some(count, |view, count| view.child(count.to_string())),
+            )
+        })
         .content_style(StyleRefinement::default().p_0().gap_0())
         .child(content)
         .into_any_element()
+}
+
+pub(in crate::settings) fn homepage(id: &str, url: &str, cx: &App) -> AnyElement {
+    let link = url.to_owned();
+    row(
+        id.to_owned(),
+        IconName::Globe,
+        tr("appearance_homepage"),
+        None,
+        Button::new(SharedString::from(format!("{id}-visit")))
+            .ghost()
+            .small()
+            .label(tr("market_details_visit_link"))
+            .on_click(move |_, _, cx| cx.open_url(&link)),
+        cx,
+    )
+    .into_any_element()
 }
 
 pub(in crate::settings) fn tag(label: impl Into<SharedString>) -> AnyElement {

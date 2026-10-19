@@ -200,7 +200,7 @@ impl Market {
         cx.notify();
     }
 
-    pub(super) fn details(&self, entry: Listing, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn details(&mut self, entry: Listing, window: &mut Window, cx: &mut Context<Self>) {
         let Some(owner) = self.owner.upgrade() else {
             return;
         };
@@ -216,18 +216,20 @@ impl Market {
             .iter()
             .find(|package| package.name == entry.name)
             .cloned();
-        if let Some(installed) = installed {
-            plugin_details::open(owner, installed, window, cx);
-        } else {
-            plugin_details::open_catalog(
-                cx.entity(),
-                self.binding.clone(),
-                self.source,
-                entry,
-                window,
-                cx,
-            );
-        }
+        let market = cx.entity();
+        let binding = self.binding.clone();
+        let source = self.source;
+        let selection = self.begin_details();
+        window.defer(cx, move |window, cx| {
+            if selection.is_cancelled() {
+                return;
+            }
+            if let Some(installed) = installed {
+                plugin_details::open(owner, installed, selection, window, cx);
+            } else {
+                plugin_details::open_catalog(market, binding, source, entry, selection, window, cx);
+            }
+        });
     }
 }
 

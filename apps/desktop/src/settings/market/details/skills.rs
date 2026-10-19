@@ -13,6 +13,7 @@ pub(super) struct Details {
     document: Option<protocol::Document>,
     loading: bool,
     error: Option<&'static str>,
+    selection: CancellationToken,
     stop: CancellationToken,
     task: Option<Task<()>>,
     scroll: ScrollHandle,
@@ -32,9 +33,13 @@ impl Drop for Details {
 pub(in crate::settings) fn open(
     market: Entity<Market>,
     entry: skillcatalog::Entry,
+    selection_stop: CancellationToken,
     window: &mut Window,
     cx: &mut App,
 ) {
+    if selection_stop.is_cancelled() {
+        return;
+    }
     let binding = market.read(cx).binding.clone();
     let details = cx.new(|cx| {
         crate::feedback::observe(window, cx, |state: &Details, _| {
@@ -49,6 +54,7 @@ pub(in crate::settings) fn open(
             document: None,
             loading: false,
             error: None,
+            selection: selection_stop,
             stop: CancellationToken::new(),
             task: None,
             scroll: ScrollHandle::new(),
@@ -77,7 +83,7 @@ fn candidate<'a>(
     matching.next().is_none().then_some(selected)
 }
 
-async fn read(
+async fn resolve(
     binding: &Binding,
     entry: &skillcatalog::Entry,
 ) -> Result<(Option<Resolved>, Option<protocol::Document>), Fault> {
@@ -157,10 +163,25 @@ async fn read(
     Ok((resolved, document))
 }
 
+async fn read(
+    binding: &Binding,
+    entry: &skillcatalog::Entry,
+    stop: &CancellationToken,
+) -> Option<Result<(Option<Resolved>, Option<protocol::Document>), Fault>> {
+    tokio::select! {
+        biased;
+        _ = stop.cancelled() => None,
+        result = resolve(binding, entry) => Some(result),
+    }
+}
+
 impl Details {
     fn load(&mut self, cx: &mut Context<Self>) {
+        if self.selection.is_cancelled() {
+            return;
+        }
         self.stop.cancel();
-        self.stop = CancellationToken::new();
+        self.stop = self.selection.child_token();
         self.loading = true;
         self.error = None;
         let stop = self.stop.clone();
@@ -168,7 +189,7 @@ impl Details {
         let binding = self.binding.clone();
         let entry = self.entry.clone();
         let runtime = binding.runtime.clone();
-        let job = runtime.spawn(async move {tokio::select! {biased; _ = cancelled.cancelled() => None, result = read(&binding, &entry) => Some(result)}});
+        let job = runtime.spawn(async move { read(&binding, &entry, &cancelled).await });
         self.task = Some(cx.spawn(async move |state, cx| {
             let result = job.await;
             _ = state.update(cx, |state, cx| {
@@ -180,6 +201,9 @@ impl Details {
                     Ok(Some(Ok((resolved, document)))) => {
                         state.resolved = resolved;
                         state.document = document;
+                    }
+                    Ok(None) => {}
+                    Ok(Some(Err(error))) if error.code == sailry_protocol::ErrorCode::Cancelled => {
                     }
                     _ => state.error = Some("skills_failed"),
                 }
@@ -300,22 +324,10 @@ impl Render for Details {
             );
         }
         if let Some(url) = &self.entry.url {
-            let link = url.clone();
-            information.push(
-                Button::new("skill-webpage")
-                    .ghost()
-                    .small()
-                    .label(tr("appearance_homepage"))
-                    .on_click(move |_, _, cx| cx.open_url(&link))
-                    .into_any_element(),
-            );
+            information.push(rows::homepage("skill-homepage", url, cx));
         }
-        content = content.child(rows::section(
-            "market_details_information",
-            None,
-            information,
-            cx,
-        ));
+        let information = rows::information(information, cx);
+
         if let Some(document) = &self.document {
             content = content.child(crate::content::markdown::View::markdown(
                 "skill-document",
@@ -352,47 +364,22 @@ impl Render for Details {
                     .on_click(cx.listener(|state, _, _, cx| state.load(cx))),
             );
         } else if self.loading {
-            content = content.child(Skeleton::new().h_24().w_full());
+            content = content.child(
+                Skeleton::new()
+                    .h_24()
+                    .w_full()
+                    .rounded(cx.theme().radius_lg),
+            );
         }
-        super::panel(summary, content.into_any_element(), &self.scroll, cx)
+        super::panel(
+            summary,
+            information,
+            content.into_any_element(),
+            &self.scroll,
+            cx,
+        )
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use core::prelude::v1::test;
-    fn entry(name: &str, path: &str) -> protocol::Candidate {
-        protocol::Candidate {
-            name: name.into(),
-            path: path.into(),
-            skill: sailry_protocol::plugin::Skill {
-                name: name.into(),
-                path: path.into(),
-                description: String::new(),
-                display_name: None,
-                display_locales: Default::default(),
-                license: None,
-                compatibility: None,
-            },
-        }
-    }
-    #[test]
-    fn selects_actual_documents() {
-        let entries = [
-            entry("design", "skills/design"),
-            entry("review", "other/review"),
-        ];
-        assert_eq!(candidate(&entries, "review").unwrap().path, "other/review");
-        assert!(candidate(&entries, "unknown").is_none());
-        let ambiguous = [
-            entry("review", "first/review"),
-            entry("review", "second/review"),
-        ];
-        assert!(candidate(&ambiguous, "review").is_none());
-        assert_eq!(
-            candidate(&entries[..1], "directory-id").unwrap().path,
-            "skills/design"
-        );
-    }
-}
+mod tests;

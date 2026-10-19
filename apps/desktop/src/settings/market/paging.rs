@@ -164,9 +164,10 @@ impl Market {
                         })),
                 )
             })
-            .when(self.pending == Some(Loading::Catalog), |view| {
-                view.child(spinner::Spinner::new().small())
-            })
+            .when(
+                self.pending == Some(Loading::Catalog) && self.paging.previous.is_some(),
+                |view| view.child(spinner::Spinner::new().small()),
+            )
             .child(div().h(px(1.)).w_full().on_prepaint(move |bounds, _, cx| {
                 let viewport = scroll.bounds();
                 if viewport.size.height > px(0.) && bounds.top() <= viewport.bottom() + px(96.) {

@@ -207,7 +207,15 @@ impl Workspace {
                 .as_ref()
                 .is_some_and(|live| live.connected),
         )
-        .on_click(move |_, window, cx| details::open(owner.clone(), details.clone(), window, cx));
+        .on_click(move |_, window, cx| {
+            details::open(
+                owner.clone(),
+                details.clone(),
+                sailry_link::CancellationToken::new(),
+                window,
+                cx,
+            )
+        });
         let actions = h_flex()
             .flex_shrink_0()
             .gap_2()

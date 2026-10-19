@@ -337,7 +337,10 @@ impl Market {
                     .object_fit(ObjectFit::Cover)
                     .into_any_element()
             } else {
-                Skeleton::new().size_full().into_any_element()
+                Skeleton::new()
+                    .size_full()
+                    .rounded(cx.theme().radius_lg)
+                    .into_any_element()
             };
             let id = entry.id.clone();
             let key = if update {
@@ -385,6 +388,7 @@ impl Market {
         let owner = cx.weak_entity();
         div()
             .w_full()
+            .when(cards.is_empty(), |view| view.child(self.empty(cx)))
             .on_children_prepainted(move |bounds, window, cx| {
                 let Some(bounds) = bounds.first() else {
                     return;
@@ -410,7 +414,6 @@ impl Market {
                     .items_start()
                     .content_start()
                     .gap_4()
-                    .when(cards.is_empty(), |view| view.child(self.empty(cx)))
                     .children(cards.into_iter().take(self.paging.limit)),
             )
             .into_any_element()
@@ -477,11 +480,12 @@ impl Market {
                             .child(action.flex_shrink_0()),
                     ),
             )
-            .on_click(cx.listener(move |_, _, window, cx| {
+            .on_click(cx.listener(move |state, _, window, cx| {
+                let selection = state.begin_details();
                 let market = cx.entity();
                 let target = target.clone();
                 window.defer(cx, move |window, cx| {
-                    details::themes::open(market, target, window, cx)
+                    details::themes::open(market, target, selection, window, cx)
                 });
             }))
             .into_any_element()

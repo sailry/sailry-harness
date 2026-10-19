@@ -92,3 +92,5 @@ market_permission_knowledge_write: "修改知识库"
 market_details_formats: "其他格式"
 market_details_unsupported: "暂不支持"
 market_page_filter: "仅筛选已加载内容"
+
+market_details_visit_link: "访问链接"

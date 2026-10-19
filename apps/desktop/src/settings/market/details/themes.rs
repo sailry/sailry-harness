@@ -11,6 +11,7 @@ struct Details {
     preview: Option<theme::Package>,
     loading: bool,
     error: Option<&'static str>,
+    selection_stop: CancellationToken,
     stop: CancellationToken,
     task: Option<Task<()>>,
     scroll: ScrollHandle,
@@ -25,9 +26,13 @@ impl Drop for Details {
 pub(in crate::settings) fn open(
     market: Entity<Market>,
     id: String,
+    selection_stop: CancellationToken,
     window: &mut Window,
     cx: &mut App,
 ) {
+    if selection_stop.is_cancelled() {
+        return;
+    }
     let state = market.read(cx);
     let entry = state
         .themes
@@ -62,6 +67,7 @@ pub(in crate::settings) fn open(
             preview,
             loading: false,
             error: None,
+            selection_stop,
             stop: CancellationToken::new(),
             task: None,
             scroll: ScrollHandle::new(),
@@ -76,6 +82,9 @@ pub(in crate::settings) fn open(
 
 impl Details {
     fn load(&mut self, cx: &mut Context<Self>) {
+        if self.selection_stop.is_cancelled() {
+            return;
+        }
         if self.preview.is_some() {
             return;
         }
@@ -87,7 +96,7 @@ impl Details {
             return;
         };
         self.stop.cancel();
-        self.stop = CancellationToken::new();
+        self.stop = self.selection_stop.child_token();
         self.loading = true;
         self.error = None;
         let stop = self.stop.clone();
@@ -213,7 +222,12 @@ impl Render for Details {
                     .on_click(cx.listener(|state, _, _, cx| state.load(cx))),
             );
         } else if self.loading {
-            content = content.child(Skeleton::new().w_full().h_48());
+            content = content.child(
+                Skeleton::new()
+                    .w_full()
+                    .h_48()
+                    .rounded(cx.theme().radius_lg),
+            );
         }
         let mut information = vec![
             rows::row(
@@ -269,22 +283,10 @@ impl Render for Details {
             .and_then(|entry| entry.homepage.as_ref())
             .or_else(|| manifest.and_then(|manifest| manifest.homepage.as_ref()));
         if let Some(link) = homepage {
-            let link = link.clone();
-            information.push(
-                Button::new("theme-homepage")
-                    .ghost()
-                    .small()
-                    .label(tr("appearance_homepage"))
-                    .on_click(move |_, _, cx| cx.open_url(&link))
-                    .into_any_element(),
-            );
+            information.push(rows::homepage("theme-homepage", link, cx));
         }
-        content = content.child(rows::section(
-            "market_details_information",
-            None,
-            information,
-            cx,
-        ));
+        let information = rows::information(information, cx);
+
         if let Some(package) = package
             && !package.images.is_empty()
         {
@@ -310,6 +312,12 @@ impl Render for Details {
                 cx,
             ));
         }
-        super::panel(summary, content.into_any_element(), &self.scroll, cx)
+        super::panel(
+            summary,
+            information,
+            content.into_any_element(),
+            &self.scroll,
+            cx,
+        )
     }
 }

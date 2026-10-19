@@ -160,12 +160,13 @@ impl Market {
                         .child(tr("market_page_filter")),
                 )
             })
+            .when(visible.is_empty(), |view| view.child(self.empty(cx)))
             .child(
                 div()
+                    .w_full()
                     .grid()
                     .grid_cols(2)
                     .gap_3()
-                    .when(visible.is_empty(), |view| view.child(self.empty(cx)))
                     .children(visible.into_iter().map(|(entry, installed)| {
                         let title = entry.title(&rust_i18n::locale()).to_owned();
                         let summary = card::content(
@@ -174,18 +175,7 @@ impl Market {
                                 .description(&rust_i18n::locale())
                                 .unwrap_or_default()
                                 .to_owned(),
-                            Some(
-                                Avatar::new()
-                                    .with_size(px(40.))
-                                    .rounded(px(11.))
-                                    .placeholder(
-                                        Icon::new(Glyph::Box)
-                                            .size(px(22.))
-                                            .text_color(cx.theme().muted_foreground),
-                                    )
-                                    .when_some(entry.icon.clone(), |avatar, icon| avatar.src(icon))
-                                    .into_any_element(),
-                            ),
+                            Some(icon(&entry.id, entry.icon.clone(), cx)),
                             Some(entry.origin.clone().into()),
                             cx,
                         );
@@ -219,17 +209,42 @@ impl Market {
                         .accessibility_label(entry.title(&rust_i18n::locale()).to_owned())
                         .on_click(cx.listener({
                             let entry = entry.clone();
-                            move |_, _, window, cx| {
+                            move |state, _, window, cx| {
+                                let selection = state.begin_details();
                                 let market = cx.entity();
                                 let entry = entry.clone();
                                 window.defer(cx, move |window, cx| {
-                                    details::skills::open(market, entry, window, cx)
+                                    details::skills::open(market, entry, selection, window, cx)
                                 });
                             }
                         }))
                     })),
             )
             .into_any_element()
+    }
+}
+
+fn icon(id: &str, source: Option<String>, cx: &App) -> AnyElement {
+    let foreground = cx.theme().muted_foreground;
+    let placeholder = move || {
+        Avatar::new()
+            .with_size(px(40.))
+            .rounded(px(11.))
+            .placeholder(Icon::new(Glyph::Box).size(px(22.)).text_color(foreground))
+            .into_any_element()
+    };
+    match source {
+        // Kit Avatar's image slot does not fall back after loading fails.
+        // GPUI's image loader retains the same Kit placeholder in both states.
+        Some(source) => img(source)
+            .id(SharedString::from(format!("market-skill-icon-{id}")))
+            .size(px(40.))
+            .flex_shrink_0()
+            .rounded(px(11.))
+            .with_loading(placeholder)
+            .with_fallback(placeholder)
+            .into_any_element(),
+        None => placeholder(),
     }
 }
 

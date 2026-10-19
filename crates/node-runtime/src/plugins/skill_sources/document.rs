@@ -8,11 +8,7 @@ impl Host {
         source: &DocumentSource,
         stop: CancellationToken,
     ) -> Result<Document, Fault> {
-        let _permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "skill inspection is busy"))?;
+        let _permit = self.read_permit(&stop).await?;
         match source {
             DocumentSource::Bundled { package, skill } => {
                 if stop.is_cancelled() {
