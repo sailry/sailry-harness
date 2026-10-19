@@ -140,7 +140,7 @@ impl Host {
                             _ = owner.stop.cancelled() => return Err(HostError::new("plugin view is closed")),
                             result = owner.client.execute(request) => result,
                         };
-                        owner.finish_settings(id, &result).await?;
+                        owner.finish_settings(id, &result)?;
                         let value = match result {
                             Ok(output) => serde_json::json!({"Ok":sdk::public_output(output)?}),
                             Err(fault) => serde_json::json!({"Err":fault}),
@@ -174,7 +174,7 @@ impl Host {
                             result = owner.client.outcome(&request) => result,
                         };
                         if let Ok(sailry_protocol::RequestOutcome::Completed(completed)) = &result {
-                            owner.finish_settings(id, completed).await?;
+                            owner.finish_settings(id, completed)?;
                         }
                         let value = match result {
                             Ok(sailry_protocol::RequestOutcome::Completed(completed)) => {

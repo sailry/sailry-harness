@@ -374,7 +374,7 @@ impl Host {
                                 };
                             let _ = feedback.send(outcome);
                         }
-                        owner.finish_settings(id, &result).await?;
+                        owner.finish_settings(id, &result)?;
                         match result {
                             Ok(output) => encode(json!({"Ok":public_output(output)?})),
                             Err(fault) => encode(json!({"Err":fault})),

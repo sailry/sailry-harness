@@ -35,7 +35,7 @@ fn adopts_only_the_matching_confirmed_receipt() {
     settings.observe(&[summary(4)], true);
     assert!(!settings.invalid);
     assert_eq!(settings.reference().settings_revision, 3);
-    assert!(settings.finish(id, &summary(4).reference(), &summary(4)));
+    assert!(settings.finish(id, &summary(4).reference()));
     assert_eq!(settings.reference().settings_revision, 4);
     assert!(settings.pending.is_none());
 }
@@ -80,13 +80,13 @@ fn ignores_stale_metadata() {
     let mut settings = settings();
     let id = RequestId::new();
     settings.begin(id, &settings.reference()).unwrap();
-    assert!(settings.finish(id, &summary(4).reference(), &summary(4)));
+    assert!(settings.finish(id, &summary(4).reference()));
     settings.observe(&[summary(3)], true);
     let next = RequestId::new();
     settings.begin(next, &settings.reference()).unwrap();
     settings.failed(next);
     assert!(!settings.invalid);
-    assert_eq!(settings.live.as_ref().unwrap().settings_revision, 4);
+    assert_eq!(settings.live.as_ref().unwrap().settings_revision, 3);
     assert_eq!(settings.reference().settings_revision, 4);
 }
 
@@ -108,7 +108,7 @@ fn excludes_other_receipts_and_enablement_changes() {
     settings
         .begin(RequestId::new(), &settings.reference())
         .unwrap();
-    assert!(!settings.finish(RequestId::new(), &summary(4).reference(), &summary(4)));
+    assert!(!settings.finish(RequestId::new(), &summary(4).reference()));
     assert!(settings.invalid);
 
     let mut settings = self::settings();
@@ -131,4 +131,49 @@ fn rejects_arbitrary_provenance_and_disconnects() {
     );
     settings.observe(&[summary(3)], false);
     assert!(settings.invalid);
+}
+
+#[test]
+fn confirmed_receipts_survive_later_observations() {
+    let mut settings = settings();
+    let id = RequestId::new();
+    settings.begin(id, &settings.reference()).unwrap();
+    settings.observe(&[summary(5)], true);
+    assert!(settings.invalid);
+    assert!(settings.finish(id, &summary(4).reference()));
+    assert_eq!(settings.reference().settings_revision, 4);
+    assert!(settings.pending.is_none());
+    assert!(settings.invalid);
+}
+
+#[test]
+fn confirms_without_an_inventory_round_trip() {
+    let mut settings = settings();
+    let id = RequestId::new();
+    settings.begin(id, &settings.reference()).unwrap();
+    assert!(settings.finish(id, &summary(4).reference()));
+    assert_eq!(settings.reference(), summary(4).reference());
+    assert!(!settings.invalid);
+    settings.observe(&[summary(4)], true);
+    let next = RequestId::new();
+    settings.begin(next, &settings.reference()).unwrap();
+    assert!(settings.finish(next, &summary(5).reference()));
+    assert_eq!(settings.reference(), summary(5).reference());
+}
+
+#[test]
+fn confirms_serial_saves_before_inventory_updates() {
+    let mut settings = settings();
+    for revision in [4, 5] {
+        let id = RequestId::new();
+        settings.begin(id, &settings.reference()).unwrap();
+        assert!(settings.finish(id, &summary(revision).reference()));
+        assert!(settings.pending.is_none());
+    }
+    settings.observe(&[summary(4)], true);
+    assert_eq!(settings.reference(), summary(5).reference());
+    assert!(!settings.invalid);
+    let pending = RequestId::new();
+    settings.begin(pending, &settings.reference()).unwrap();
+    assert_eq!(settings.pending.as_ref().unwrap().id, pending);
 }

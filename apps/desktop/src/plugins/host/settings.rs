@@ -92,27 +92,19 @@ impl Settings {
         Ok(())
     }
 
-    fn finish(&mut self, id: RequestId, saved: &plugin::Reference, live: &plugin::Summary) -> bool {
+    fn finish(&mut self, id: RequestId, saved: &plugin::Reference) -> bool {
         let Some(pending) = &self.pending else {
             return false;
         };
         if pending.id != id
-            || self.invalid
-            || !self.connected
             || pending.source.name != saved.name
             || pending.source.digest != saved.digest
             || pending.source.settings_revision.checked_add(1) != Some(saved.settings_revision)
-            || live.reference() != *saved
-            || self
-                .live
-                .as_ref()
-                .is_some_and(|previous| previous.enabled != live.enabled)
         {
             self.invalid = true;
             return false;
         }
         self.current = saved.clone();
-        self.live = Some(live.clone());
         self.pending = None;
         true
     }
@@ -127,7 +119,7 @@ impl Settings {
             if self
                 .live
                 .as_ref()
-                .is_some_and(|live| live.reference() != self.current)
+                .is_some_and(|live| live.settings_revision > self.current.settings_revision)
             {
                 self.invalid = true;
             }
@@ -201,7 +193,7 @@ impl Host {
         }
     }
 
-    pub(super) async fn finish_settings(
+    pub(super) fn finish_settings(
         &self,
         id: RequestId,
         result: &Result<Output, sailry_protocol::Fault>,
@@ -218,21 +210,12 @@ impl Host {
         }
         match result {
             Ok(Output::PluginSettings(saved)) => {
-                let Output::Plugin(live) = self
-                    .client
-                    .execute(self.client.prepare(Command::ReadPlugin {
-                        name: saved.package.name.clone(),
-                    }))
-                    .await
-                    .map_err(|_| HostError::new("unconfirmed"))?
-                else {
-                    return Err(HostError::new("unconfirmed"));
-                };
-                if !self.settings.lock().map_err(lock_error)?.finish(
-                    id,
-                    &saved.package,
-                    &live.summary,
-                ) {
+                if !self
+                    .settings
+                    .lock()
+                    .map_err(lock_error)?
+                    .finish(id, &saved.package)
+                {
                     self.close();
                     return Err(HostError::new(
                         "plugin configuration changed after the settings save",
