@@ -1,8 +1,13 @@
 use super::*;
 use sailry_client::{Client, View};
 use sailry_link::Transport;
+use sailry_protocol::{ErrorCode, Fault};
+
 use std::sync::Arc;
 use tokio::{sync::watch, task::JoinHandle};
+
+#[cfg(test)]
+mod tests;
 
 #[frb(opaque)]
 pub struct Connection {
@@ -30,16 +35,20 @@ impl Connection {
     }
 
     pub async fn execute(&self, request: String) -> Result<String, String> {
-        if self.stop.is_cancelled() {
-            return Err("connection is closed".into());
+        let result = async {
+            if self.stop.is_cancelled() {
+                return Err(Fault::new(ErrorCode::Unavailable, "connection is closed"));
+            }
+            let request = serde_json::from_str(&request)
+                .map_err(|_| Fault::invalid("invalid command request"))?;
+            // Cancellation stops observation, not the Node's admitted operation.
+            tokio::select! {
+                result = self.client.execute(request) => result,
+                _ = self.stop.cancelled() => Err(Fault::new(
+                    ErrorCode::OutcomeUnknown, "connection closed; retain the request identifier")),
+            }
         }
-        let request = serde_json::from_str(&request).map_err(error)?;
-        // Cancellation stops observation, not the Node's admitted operation.
-        let result = tokio::select! {
-            result = self.client.execute(request) => result,
-            _ = self.stop.cancelled() => Err(sailry_protocol::Fault::new(
-                sailry_protocol::ErrorCode::OutcomeUnknown, "connection closed; retain the request identifier")),
-        };
+        .await;
         serde_json::to_string(&result).map_err(error)
     }
 

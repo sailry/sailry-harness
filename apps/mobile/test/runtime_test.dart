@@ -126,6 +126,7 @@ class Channel extends Fake implements Connection {
   Future<Updates>? pendingWatch;
   final requests = <String>[];
   bool uncertain = false;
+  String? response;
   @override
   Future<Updates> watch() async => pendingWatch ?? subscription;
   @override
@@ -134,6 +135,7 @@ class Channel extends Fake implements Connection {
   Future<String> execute({required String request}) async {
     requests.add(request);
     if (uncertain) throw StateError('response was lost');
+    if (response != null) return response!;
     final kind = (jsonDecode(request) as Map)['kind'];
     return jsonEncode({
       'Ok': {
@@ -351,6 +353,32 @@ void main() {
     expect(channel.requests.length, 1);
     await host.close();
     host.dispose();
+  });
+
+  test('known pre-admission faults retain their code', () async {
+    for (final code in ['unavailable', 'invalid_request']) {
+      final channel = Channel()
+        ..response = jsonEncode({
+          'Err': {'code': code, 'message': 'Not sent'},
+        });
+      final host = HostConnection.test(
+        id: 'node',
+        label: 'Node',
+        connection: channel,
+        command: (_, _) async => {},
+      );
+      await expectLater(
+        host.execute('stable-request'),
+        throwsA(
+          isA<CommandFailure>()
+              .having((error) => error.code, 'code', code)
+              .having((error) => error.request, 'request', 'stable-request'),
+        ),
+      );
+      expect(channel.requests, ['stable-request']);
+      await host.close();
+      host.dispose();
+    }
   });
 
   test('shared speech initialization and late disposal', () async {
