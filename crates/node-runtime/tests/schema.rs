@@ -184,42 +184,51 @@ async fn rejects_changes_without_rewriting_profile() {
             "foreign_records",
         ),
         ("PRAGMA user_version=2", "user_version"),
-        (
-            "INSERT INTO events(body) VALUES(CAST('{\"kind\":\"foreign_fixture\",\"data\":null}' AS BLOB))",
-            "events.body",
-        ),
     ] {
-        let directory = tempfile::tempdir().unwrap();
-        let profile = directory.path().join("node");
-        let node = Node::start(&profile).await.unwrap();
-        node.shutdown().await.unwrap();
-        let path = profile.join("storage/node.sqlite3");
-        let database = rusqlite::Connection::open(&path).unwrap();
-        database.execute_batch(sql).unwrap();
-        database
-            .pragma_update(None, "journal_mode", "DELETE")
-            .unwrap();
-        database.close().unwrap();
-        let before = std::fs::read(&path).unwrap();
-        let files = entries(&profile.join("storage"));
-        let error = Node::start(&profile)
-            .await
-            .err()
-            .expect("incompatible profile must be rejected");
-        let message = error.to_string();
-        assert!(
-            message.contains("incompatible development database")
-                || message.contains("invalid stored JSON"),
-            "{message}"
-        );
-        assert!(message.contains(detail), "{message}");
-        assert!(
-            message.contains("existing data was not changed"),
-            "{message}"
-        );
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        assert_eq!(entries(&profile.join("storage")), files);
+        assert_rejected(sql, detail).await;
     }
+}
+
+#[tokio::test]
+async fn rejects_invalid_archives_during_upgrade() {
+    assert_rejected(
+        "DROP INDEX events_kind; INSERT INTO events(body) VALUES(CAST('{\"kind\":\"foreign_fixture\",\"data\":null}' AS BLOB))",
+        "events.body",
+    )
+    .await;
+}
+
+async fn assert_rejected(sql: &str, detail: &str) {
+    let directory = tempfile::tempdir().unwrap();
+    let profile = directory.path().join("node");
+    let node = Node::start(&profile).await.unwrap();
+    node.shutdown().await.unwrap();
+    let path = profile.join("storage/node.sqlite3");
+    let database = rusqlite::Connection::open(&path).unwrap();
+    database.execute_batch(sql).unwrap();
+    database
+        .pragma_update(None, "journal_mode", "DELETE")
+        .unwrap();
+    database.close().unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let files = entries(&profile.join("storage"));
+    let error = Node::start(&profile)
+        .await
+        .err()
+        .expect("incompatible profile must be rejected");
+    let message = error.to_string();
+    assert!(
+        message.contains("incompatible development database")
+            || message.contains("invalid stored JSON"),
+        "{message}"
+    );
+    assert!(message.contains(detail), "{message}");
+    assert!(
+        message.contains("existing data was not changed"),
+        "{message}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(entries(&profile.join("storage")), files);
 }
 
 #[tokio::test]

@@ -28,6 +28,9 @@ const LIVE_TURNS: &str = "SELECT turn FROM agent_pending
     UNION SELECT delivery FROM agent_background WHERE state IN ('running','pending') AND delivery IS NOT NULL";
 
 fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
+    if db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('database_profiles') WHERE name='password_target')", [], |row|row.get::<_,bool>(0))? {
+        crate::store::databases::credentials::validate(db).map_err(|error|Error::Worker(error.message))?;
+    }
     let live = if archives {
         String::new()
     } else {

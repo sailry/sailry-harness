@@ -142,6 +142,23 @@ impl Script {
                         self.ingress
                             .check_plugin(self.caller, request.clone())
                             .await?;
+                        if !call.call.operation.read_only()
+                            && operations::connections::handles(call.call.operation)
+                        {
+                            self.ingress
+                                .approved_connection(
+                                    self.context.turn.ok_or_else(|| {
+                                        Fault::invalid("connection flow requires a turn")
+                                    })?,
+                                    adk_core::ToolConfirmationRequest {
+                                        tool_name: self.name.clone(),
+                                        function_call_id: Some(context.function_call_id().into()),
+                                        args: arguments.clone(),
+                                    },
+                                    request.command.clone(),
+                                )
+                                .await?;
+                        }
                         if !approved && !self.is_read_only() {
                             request.id = operation
                                 .authorize(

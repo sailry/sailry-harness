@@ -9,6 +9,8 @@ use std::time::Duration;
 
 #[path = "databases/checks.rs"]
 mod checks;
+#[path = "databases/credentials.rs"]
+mod credentials;
 #[path = "databases/fixture.rs"]
 mod fixture;
 #[path = "databases/servers.rs"]

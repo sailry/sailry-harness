@@ -89,13 +89,45 @@ async fn manages_without_projects() {
             ErrorCode::Conflict
         );
 
-        let updated = info(
+        assert_eq!(
+            client
+                .execute(client.prepare(command(
+                    first.summary.revision,
+                    "https://example.com/updated",
+                    SecretUpdate::Keep,
+                )))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidRequest
+        );
+        assert_eq!(
+            inventory(&client).await.as_slice(),
+            std::slice::from_ref(&first.summary)
+        );
+        assert_eq!(settings(&client, &first).await, configured);
+        let kept = info(
             execute(
                 &client,
                 command(
                     first.summary.revision,
-                    "https://example.com/updated",
+                    "https://example.com/mcp",
                     SecretUpdate::Keep,
+                ),
+            )
+            .await,
+        );
+        assert_eq!(
+            settings(&client, &kept).await.configured,
+            configured.configured
+        );
+        let updated = info(
+            execute(
+                &client,
+                command(
+                    kept.summary.revision,
+                    "https://example.com/updated",
+                    SecretUpdate::Replace(Secret::new(secret.into())),
                 ),
             )
             .await,

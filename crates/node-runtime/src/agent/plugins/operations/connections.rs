@@ -39,7 +39,7 @@ pub(in crate::agent::plugins) fn display(
 #[cfg(test)]
 mod tests;
 
-pub(super) fn handles(operation: Operation) -> bool {
+pub(in crate::agent::plugins) fn handles(operation: Operation) -> bool {
     matches!(
         operation,
         Operation::ListDatabaseConnections
@@ -52,6 +52,10 @@ pub(super) fn handles(operation: Operation) -> bool {
             | Operation::RunSsh
             | Operation::TransferSsh
     )
+}
+
+pub(super) fn supports_mode(operation: Operation, mode: sailry_protocol::WorkMode) -> bool {
+    mode != sailry_protocol::WorkMode::Plan || operation.read_only() || ssh(operation)
 }
 
 pub(super) fn description(operation: Operation) -> &'static str {
@@ -345,7 +349,7 @@ pub(super) async fn preflight(
 pub(super) async fn trust(
     owner: &HostOperation,
     trust: &sailry_protocol::ssh::Trust,
-) -> Result<(), Fault> {
+) -> Result<u64, Fault> {
     let request = Request::new(
         owner.transport.target(),
         Command::TrustSsh {
@@ -360,13 +364,34 @@ pub(super) async fn trust(
         .check_plugin(owner.caller, request.clone())
         .await?;
     let admission = owner.transport.dispatch(request).await?;
-    admission.completion.await.map_err(|_| {
+    let output = admission.completion.await.map_err(|_| {
         Fault::new(
             ErrorCode::OutcomeUnknown,
             "SSH host key save outcome is unavailable",
         )
     })??;
-    Ok(())
+    let sailry_protocol::Output::SshProfile(profile) = output else {
+        return Err(Fault::new(
+            ErrorCode::Internal,
+            "SSH host key save returned an unexpected result",
+        ));
+    };
+    if profile.id != trust.profile
+        || profile.revision
+            != trust
+                .expected_revision
+                .checked_add(1)
+                .ok_or_else(|| Fault::invalid("SSH revision exhausted"))?
+        || profile.host != trust.host
+        || profile.port != trust.port
+        || profile.host_key.as_ref() != Some(&trust.key)
+    {
+        return Err(Fault::new(
+            ErrorCode::Conflict,
+            "SSH host key save differs from approval",
+        ));
+    }
+    Ok(profile.revision)
 }
 
 pub(super) async fn annotate(

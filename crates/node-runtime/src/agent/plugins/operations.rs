@@ -83,14 +83,10 @@ pub(super) fn bind(
                     stop: stop.clone(),
                 })
             } else {
-                Arc::new(HostOperation::new(
-                    ingress,
-                    invocation,
-                    package,
-                    declaration,
-                    operation,
-                    stop,
-                ))
+                let mut tool =
+                    HostOperation::new(ingress, invocation, package, declaration, operation, stop);
+                tool.managed = true;
+                Arc::new(tool)
             };
             let mut registration = if matches!(
                 operation,
@@ -100,6 +96,9 @@ pub(super) fn bind(
                     | Operation::WriteArtifact
                     | Operation::RunSsh
                     | Operation::TransferSsh
+                    | Operation::ExecuteDatabase
+                    | Operation::SaveDatabaseConnection
+                    | Operation::SaveSshConnection
             ) {
                 ToolRegistration::managed(tool)
             } else {
@@ -123,6 +122,9 @@ pub(super) fn bind(
 pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: Operation) -> bool {
     match operation {
         Operation::WriteArtifact => invocation.child.is_none(),
+        operation if connections::handles(operation) => {
+            connections::supports_mode(operation, invocation.turn.config.mode)
+        }
         operation
             if crate::code::handles(operation) || crate::code::management::handles(operation) =>
         {
@@ -165,6 +167,7 @@ pub(super) struct HostOperation {
     settings: Option<Result<Value, Fault>>,
     connections: Vec<sailry_protocol::connection::Resource>,
     stop: CancellationToken,
+    managed: bool,
 }
 
 #[async_trait]
@@ -264,6 +267,7 @@ impl HostOperation {
                 }),
             connections: invocation.connections.resources(),
             stop: stop.clone(),
+            managed: false,
         }
     }
 
@@ -512,14 +516,20 @@ impl HostOperation {
                     )
                 })??;
             }
-            let ssh_trust = if connections::ssh(self.operation) {
-                let trust = connections::preflight(self, &request).await?;
+            let ssh_trust = if connections::ssh(self.operation)
+                || (connections::handles(self.operation) && !self.is_read_only() && self.managed)
+            {
+                let trust = if connections::ssh(self.operation) {
+                    connections::preflight(self, &request).await?
+                } else {
+                    None
+                };
                 let decision = tokio::select! {
                     biased;
-                    _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled,"SSH approval was cancelled")),
-                    decision = self.ingress.confirm_ssh(self.turn, adk_core::ToolConfirmationRequest {
+                    _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled,"connection approval was cancelled")),
+                    decision = self.ingress.confirm_connection(self.turn, adk_core::ToolConfirmationRequest {
                         tool_name: self.name.clone(), function_call_id: Some(context.function_call_id().into()), args: authorized_arguments.clone(),
-                    }, crate::store::agent::ApprovalBinding { owner: self.context.package.clone(), tool: self.name.clone(), operation: Some(self.operation) }, trust.clone()) => decision?,
+                    }, crate::store::agent::ApprovalBinding { owner: self.context.package.clone(), tool: self.name.clone(), operation: Some(self.operation) }, request.command.clone(), trust.clone()) => decision?,
                 };
                 if !matches!(
                     decision,
@@ -529,7 +539,7 @@ impl HostOperation {
                 ) {
                     return Err(Fault::new(
                         ErrorCode::PermissionDenied,
-                        "SSH operation was denied",
+                        "connection operation was denied",
                     ));
                 }
                 trust
@@ -562,11 +572,20 @@ impl HostOperation {
                     )
                     .await?;
                 if let Some(trust) = ssh_trust {
-                    connections::trust(self, &trust).await?;
-                }
-                if connections::handles(self.operation) && !connections::management(self.operation)
-                {
-                    request = self.prepare(arguments).await?;
+                    let revision = connections::trust(self, &trust).await?;
+                    match &mut request.command {
+                        Command::RunSsh {
+                            expected_revision, ..
+                        }
+                        | Command::TransferSsh {
+                            expected_revision, ..
+                        } => *expected_revision = revision,
+                        _ => {
+                            return Err(Fault::invalid(
+                                "host key approval requires an SSH command",
+                            ));
+                        }
+                    }
                 }
                 request.id = id;
                 if matches!(

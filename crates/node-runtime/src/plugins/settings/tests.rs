@@ -275,15 +275,17 @@ fn rejects_ambiguous_or_embedded_secrets() {
 #[test]
 fn confines_prefixed_header_slots() {
     for server in ["remote", "legacy"] {
-        let value = schema(json!({"token": {
-            "type":"string",
-            "x-sailry-secret":{"server":server,"header":"Authorization","prefix":"Bearer "}
-        }}));
-        let parsed = parse(value).unwrap();
-        let binding = parsed.properties["token"].secret.as_ref().unwrap();
-        assert_eq!(binding.server.as_deref(), Some(server));
-        assert_eq!(binding.prefix.as_deref(), Some("Bearer "));
-        assert!(binding.origin.is_none());
+        for prefix in ["Bearer ".to_owned(), "x".repeat(129)] {
+            let value = schema(json!({"token": {
+                "type":"string",
+                "x-sailry-secret":{"server":server,"header":"Authorization","prefix":prefix}
+            }}));
+            let parsed = parse(value).unwrap();
+            let binding = parsed.properties["token"].secret.as_ref().unwrap();
+            assert_eq!(binding.server.as_deref(), Some(server));
+            assert_eq!(binding.prefix.as_deref(), Some(prefix.as_str()));
+            assert!(binding.origin.is_none());
+        }
     }
     for binding in [
         json!({"prefix":"Bearer "}),
@@ -291,7 +293,6 @@ fn confines_prefixed_header_slots() {
         json!({"server":"local","env":"TOKEN","prefix":"Bearer "}),
         json!({"server":"remote","header":"Authorization","env":"TOKEN","prefix":"Bearer "}),
         json!({"server":"remote","header":"Absent","prefix":"Bearer "}),
-        json!({"server":"remote","header":"Authorization","prefix":"x".repeat(129)}),
         json!({"server":"remote","header":"Authorization","prefix":"Bearer\r\nInjected: "}),
         json!({"server":"remote","header":"Authorization","origin":"https://example.com","prefix":"Bearer "}),
     ] {

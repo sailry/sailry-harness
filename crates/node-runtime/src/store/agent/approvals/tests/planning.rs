@@ -88,60 +88,75 @@ fn preserves_admitted_authority() {
 
 #[test]
 fn rejects_incompatible_modes() {
-    for owner in ["defaults", "revision", "event", "receipt"] {
-        let fixture = Fixture::with_mode(Permission::Full, WorkMode::Code);
-        let db = &fixture.database.connection;
-        let body: Vec<u8> = db
-            .query_row(
-                "SELECT config FROM session_revisions WHERE session=?1 AND revision=1",
-                [fixture.session.to_string()],
-                |row| row.get(0),
+    for owner in ["defaults", "revision"] {
+        assert_rejected(owner);
+    }
+}
+
+#[test]
+fn rejects_incompatible_archives_during_upgrade() {
+    for owner in ["event", "receipt"] {
+        assert_rejected(owner);
+    }
+}
+
+fn assert_rejected(owner: &str) {
+    let fixture = Fixture::with_mode(Permission::Full, WorkMode::Code);
+    let db = &fixture.database.connection;
+    let body: Vec<u8> = db
+        .query_row(
+            "SELECT config FROM session_revisions WHERE session=?1 AND revision=1",
+            [fixture.session.to_string()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut config: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    config.as_object_mut().unwrap().remove("mode");
+    let defaults = json!({"revision": 1, "config": config});
+    match owner {
+        "defaults" => {
+            db.execute(
+                "INSERT INTO defaults(singleton,revision,config) VALUES(1,1,?1)",
+                [serde_json::to_vec(&config).unwrap()],
             )
             .unwrap();
-        let mut config: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        config.as_object_mut().unwrap().remove("mode");
-        let defaults = json!({"revision": 1, "config": config});
-        match owner {
-            "defaults" => {
-                db.execute(
-                    "INSERT INTO defaults(singleton,revision,config) VALUES(1,1,?1)",
-                    [serde_json::to_vec(&config).unwrap()],
-                )
-                .unwrap();
-            }
-            "revision" => {
-                db.execute(
-                    "UPDATE session_revisions SET config=?1 WHERE session=?2",
-                    params![
-                        serde_json::to_vec(&config).unwrap(),
-                        fixture.session.to_string()
-                    ],
-                )
-                .unwrap();
-            }
-            "event" => {
-                db.execute(
-                    "INSERT INTO events(body) VALUES(?1)",
-                    [
-                        serde_json::to_vec(&json!({"kind": "defaults_changed", "data": defaults}))
-                            .unwrap(),
-                    ],
-                )
-                .unwrap();
-            }
-            "receipt" => {
-                db.execute(
-                "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)",
-                params![&fixture.database.node.0[..], RequestId::new().to_string(), b"fixture".as_slice(),
-                    json!({"Ok": {"kind": "defaults", "data": defaults}}).to_string()],
-            ).unwrap();
-            }
-            _ => unreachable!(),
         }
-        let node = fixture.database.node;
-        fixture.database.close().unwrap();
-        let before = std::fs::read(&fixture.path).unwrap();
-        assert!(Database::open(&fixture.path, node, None).is_err());
-        assert_eq!(std::fs::read(&fixture.path).unwrap(), before);
+        "revision" => {
+            db.execute(
+                "UPDATE session_revisions SET config=?1 WHERE session=?2",
+                params![
+                    serde_json::to_vec(&config).unwrap(),
+                    fixture.session.to_string()
+                ],
+            )
+            .unwrap();
+        }
+        "event" => {
+            db.execute(
+                "INSERT INTO events(body) VALUES(?1)",
+                [
+                    serde_json::to_vec(&json!({"kind": "defaults_changed", "data": defaults}))
+                        .unwrap(),
+                ],
+            )
+            .unwrap();
+        }
+        "receipt" => {
+            db.execute(
+            "INSERT INTO requests(caller,id,body,status,result) VALUES(?1,?2,?3,'completed',?4)",
+            params![&fixture.database.node.0[..], RequestId::new().to_string(), b"fixture".as_slice(),
+                json!({"Ok": {"kind": "defaults", "data": defaults}}).to_string()],
+        ).unwrap();
+        }
+        _ => unreachable!(),
     }
+    if matches!(owner, "event" | "receipt") {
+        // An actual pending upgrade requires complete archive validation.
+        db.execute_batch("DROP INDEX events_kind").unwrap();
+    }
+    let node = fixture.database.node;
+    fixture.database.close().unwrap();
+    let before = std::fs::read(&fixture.path).unwrap();
+    assert!(Database::open(&fixture.path, node, None).is_err());
+    assert_eq!(std::fs::read(&fixture.path).unwrap(), before);
 }

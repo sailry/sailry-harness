@@ -6,6 +6,7 @@ use sailry_protocol::{
     *,
 };
 
+pub(in crate::store) mod credentials;
 pub(super) mod worker;
 
 pub(super) fn list(db: &Connection) -> Result<Vec<Profile>, Fault> {
@@ -75,6 +76,13 @@ pub(super) fn execute(
                 .ok_or_else(|| {
                     sailry_protocol::Fault::invalid("database profile revision exhausted")
                 })?;
+            if previous.is_some()
+                && password.is_none()
+                && !matches!(profile.connection, Target::Sqlite { .. })
+            {
+                credentials::check(db, profile.id, &profile.connection)?;
+            }
+            let target = credentials::capture(db, &profile.connection)?;
             let password = if matches!(profile.connection, Target::Sqlite { .. }) {
                 Some("")
             } else {
@@ -88,16 +96,17 @@ pub(super) fn execute(
                     ));
                 }
                 db.execute(
-                    "INSERT INTO database_profiles(id,body,password) VALUES(?1,?2,?3)",
+                    "INSERT INTO database_profiles(id,body,password,password_target) VALUES(?1,?2,?3,?4)",
                     params![
                         profile.id.to_string(),
                         encode(&profile)?,
-                        password.unwrap_or("")
+                        password.unwrap_or(""),
+                        target
                     ],
                 )
                 .map_err(storage_error)?;
             } else {
-                db.execute("UPDATE database_profiles SET body=?2,password=COALESCE(?3,password) WHERE id=?1", params![profile.id.to_string(), encode(&profile)?, password]).map_err(storage_error)?;
+                db.execute("UPDATE database_profiles SET body=?2,password=COALESCE(?3,password),password_target=?4 WHERE id=?1", params![profile.id.to_string(), encode(&profile)?, password, target]).map_err(storage_error)?;
             }
             Ok((
                 Output::DatabaseProfile(profile.clone()),
@@ -144,6 +153,7 @@ pub(super) fn prepare(
         let password = if let Some(password) = password {
             password.clone()
         } else if previous.is_some() && !matches!(profile.connection, Target::Sqlite { .. }) {
+            credentials::check(&database.connection, profile.id, &profile.connection)?;
             Secret::new(
                 database
                     .connection
@@ -218,6 +228,9 @@ pub(super) fn prepare(
         }
     ) {
         profile.read_only = true;
+    }
+    if !matches!(profile.connection, Target::Sqlite { .. }) {
+        credentials::check(&database.connection, id, &profile.connection)?;
     }
     let selected = match command {
         Command::QueryDatabase { database, .. } | Command::BrowseDatabase { database, .. } => {

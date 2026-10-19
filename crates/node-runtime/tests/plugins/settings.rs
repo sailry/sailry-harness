@@ -6,6 +6,8 @@ mod actions;
 mod collection;
 #[path = "settings/persistence.rs"]
 mod persistence;
+#[path = "settings/targets.rs"]
+mod targets;
 #[path = "settings/versions.rs"]
 mod versions;
 

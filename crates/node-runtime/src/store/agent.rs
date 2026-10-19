@@ -184,6 +184,7 @@ pub(super) enum Operation {
         binding: Option<ApprovalBinding>,
         startup: Option<sailry_protocol::code::Startup>,
         ssh: Option<sailry_protocol::ssh::Trust>,
+        prepared: Option<Command>,
         reply: oneshot::Sender<Result<Decision, Fault>>,
     },
     Authorize {
@@ -195,6 +196,12 @@ pub(super) enum Operation {
     Denials {
         turn: TurnId,
         reply: oneshot::Sender<Result<Vec<Denial>, Fault>>,
+    },
+    ConnectionAccess {
+        turn: TurnId,
+        request: adk_core::ToolConfirmationRequest,
+        prepared: Command,
+        reply: oneshot::Sender<Result<(), Fault>>,
     },
     CommandAccess {
         turn: TurnId,
@@ -784,14 +791,18 @@ pub(super) fn execute(
             binding,
             startup,
             ssh,
+            prepared,
             reply,
         } => match approvals::begin_for(
             database,
             turn,
             &request,
             binding.as_ref(),
-            startup.as_ref(),
-            ssh.as_ref(),
+            approvals::Capture {
+                startup: startup.as_ref(),
+                ssh: ssh.as_ref(),
+                prepared: prepared.as_ref(),
+            },
             events,
         ) {
             Ok(approval) if approval.state == ApprovalState::Approved => {
@@ -819,6 +830,19 @@ pub(super) fn execute(
         }
         Operation::Denials { turn, reply } => {
             let _ = reply.send(approvals::results::read(&database.connection, turn));
+        }
+        Operation::ConnectionAccess {
+            turn,
+            request,
+            prepared,
+            reply,
+        } => {
+            let _ = reply.send(approvals::connection_access(
+                &database.connection,
+                turn,
+                &request,
+                &prepared,
+            ));
         }
         Operation::CommandAccess {
             turn,

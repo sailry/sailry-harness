@@ -220,7 +220,7 @@ pub(in crate::store) fn created(
         let prepared: Option<Prepared> =
             serde_json::from_slice(&prepared_body).map_err(storage_error)?;
         let result = super::super::outcomes::decode(&result_body)?;
-        let matched = match (target, prepared.map(|p| p.command), result) {
+        let matched = match (target, prepared.and_then(|p| p.command), result) {
             (
                 Resource::Database(id),
                 Some(Command::SaveDatabase {

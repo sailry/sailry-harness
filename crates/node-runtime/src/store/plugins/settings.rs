@@ -1,5 +1,6 @@
 //! Immutable configuration revisions share plugin inventory transactions and receipts.
 use super::*;
+mod targets;
 use crate::plugins::settings::Resolved;
 use sailry_protocol::{Secret, plugin::settings::*};
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,8 @@ pub(in crate::store) struct Stored {
     pub(super) values: BTreeMap<String, Value>,
     #[serde(default)]
     pub(super) slots: BTreeMap<String, Option<Secret>>,
+    #[serde(default)]
+    pub(super) mcp_targets: BTreeMap<String, String>,
     #[serde(default)]
     pub(super) authorizations: BTreeMap<String, super::grants::Grant>,
     #[serde(default)]
@@ -41,6 +44,7 @@ pub(super) fn stored(db: &Connection, info: &Info) -> Result<Stored, Fault> {
             schema: info.settings.clone(),
             values: defaults(info.settings.as_ref()),
             slots: BTreeMap::new(),
+            mcp_targets: BTreeMap::new(),
             authorizations: BTreeMap::new(),
             mcp: None,
             github: None,
@@ -102,7 +106,13 @@ fn defaults(schema: Option<&Schema>) -> BTreeMap<String, Value> {
         .collect()
 }
 
-fn same_binding(previous: &Stored, schema: &Schema, name: &str) -> bool {
+fn same_binding(
+    previous: &Stored,
+    schema: &Schema,
+    name: &str,
+    targets: &BTreeMap<String, String>,
+) -> bool {
+    let destination = previous.mcp_targets.get(name);
     let previous = previous
         .schema
         .as_ref()
@@ -113,10 +123,15 @@ fn same_binding(previous: &Stored, schema: &Schema, name: &str) -> bool {
         .get(name)
         .and_then(|field| field.secret.as_ref());
     matches!((previous, current), (Some(previous), Some(current))
-        if !previous.unsupported && !current.unsupported && previous == current)
+        if !previous.unsupported && !current.unsupported && previous == current
+            && (current.server.is_none() || destination.is_some() && destination == targets.get(name)))
 }
 
-fn project(_db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault> {
+fn project(db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault> {
+    // Missing legacy targets remain stored but cannot authorize a new destination.
+    let resolved = targets::current(db, info, stored.mcp.as_ref());
+    let targets_available = resolved.is_ok();
+    let targets = resolved.unwrap_or_default();
     let schema = info.settings.as_ref().ok_or_else(|| {
         Fault::new(
             ErrorCode::NotConfigured,
@@ -139,18 +154,19 @@ fn project(_db: &Connection, info: &Info, stored: &Stored) -> Result<State, Faul
     }
     let mut configured = Vec::new();
     for (name, value) in &stored.slots {
-        if same_binding(stored, schema, name) && value.is_some() {
+        if same_binding(stored, schema, name, &targets) && value.is_some() {
             configured.push(name.clone());
         }
     }
     if super::github::declared(info)
         && stored.github.is_some()
-        && same_binding(stored, schema, "token")
+        && same_binding(stored, schema, "token", &targets)
         && !configured.iter().any(|name| name == "token")
     {
         configured.push("token".into());
     }
-    let ready = stored.schema.as_ref() == Some(schema)
+    let ready = targets_available
+        && stored.schema.as_ref() == Some(schema)
         && validate_values(schema, &values).is_ok()
         && schema
             .required
@@ -163,7 +179,9 @@ fn project(_db: &Connection, info: &Info, stored: &Stored) -> Result<State, Faul
         keepable: schema
             .properties
             .iter()
-            .filter(|(name, field)| field.secret.is_some() && same_binding(stored, schema, name))
+            .filter(|(name, field)| {
+                field.secret.is_some() && same_binding(stored, schema, name, &targets)
+            })
             .map(|(name, _)| name.clone())
             .collect(),
         ready,
@@ -195,7 +213,8 @@ pub(in crate::store) fn read_secret(
             "setting is not a declared secret slot",
         ));
     }
-    if !same_binding(&saved, schema, field) {
+    let targets = targets::current(db, &info, saved.mcp.as_ref())?;
+    if !same_binding(&saved, schema, field, &targets) {
         return Err(sailry_protocol::Fault::invalid("setting binding changed"));
     }
     Ok(saved.slots.get(field).cloned().flatten())
@@ -219,6 +238,17 @@ pub(in crate::store) fn save(
         )
     })?;
     let previous = stored(db, &info)?;
+    let targets = match targets::current(db, &info, previous.mcp.as_ref()) {
+        Ok(targets) => targets,
+        Err(_)
+            if updates
+                .values()
+                .all(|update| matches!(update, SecretUpdate::Clear)) =>
+        {
+            BTreeMap::new()
+        }
+        Err(error) => return Err(error),
+    };
     validate_values(schema, values)?;
     let models = if schema.properties.values().any(|field| field.model) {
         super::models::catalog(db)?.models
@@ -296,7 +326,7 @@ pub(in crate::store) fn save(
                     })?;
                 }
             }
-            SecretUpdate::Keep if !same_binding(&previous, schema, name) => {
+            SecretUpdate::Keep if !same_binding(&previous, schema, name, &targets) => {
                 return Err(sailry_protocol::Fault::invalid(
                     "changed secret bindings require replacement or clearing",
                 ));
@@ -317,7 +347,7 @@ pub(in crate::store) fn save(
                 .and_then(|extension| extension.oauth.as_ref())
                 != Some(&grant.declaration)
                 || grant.declaration.credentials.iter().any(|name| {
-                    !same_binding(&previous, schema, name)
+                    !same_binding(&previous, schema, name, &targets)
                         || !matches!(updates.get(name), Some(SecretUpdate::Keep))
                 })
         })
@@ -363,6 +393,7 @@ pub(in crate::store) fn save(
         schema: Some(schema.clone()),
         values: values.clone(),
         slots,
+        mcp_targets: targets,
         authorizations: previous.authorizations,
         mcp: previous.mcp,
         github,

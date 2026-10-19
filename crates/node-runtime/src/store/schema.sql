@@ -212,7 +212,8 @@ CREATE TABLE IF NOT EXISTS ssh_profiles (
 CREATE TABLE IF NOT EXISTS database_profiles (
     id TEXT PRIMARY KEY,
     body BLOB NOT NULL,
-    password TEXT NOT NULL
+    password TEXT NOT NULL,
+    password_target BLOB
 );
 CREATE TABLE IF NOT EXISTS agent_runs (
     turn TEXT PRIMARY KEY REFERENCES turns(id),

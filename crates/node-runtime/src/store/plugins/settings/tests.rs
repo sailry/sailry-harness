@@ -2,6 +2,9 @@ use super::*;
 use sailry_protocol::Secret;
 use serde_json::json;
 
+#[path = "tests/targets.rs"]
+mod targets;
+
 #[test]
 fn unsupported_bindings_never_reuse_credentials() {
     for required in [false, true] {
@@ -24,6 +27,7 @@ fn unsupported_bindings_never_reuse_credentials() {
         let stored = Stored {
             schema: Some(schema),
             values: BTreeMap::new(),
+            mcp_targets: Default::default(),
             slots: BTreeMap::from([("token".into(), Some(Secret::new("fixture-secret".into())))]),
             authorizations: BTreeMap::new(),
             mcp: None,

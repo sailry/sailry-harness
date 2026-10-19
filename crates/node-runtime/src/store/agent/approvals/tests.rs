@@ -4,6 +4,7 @@ use serde_json::json;
 
 mod access;
 mod code;
+mod connections;
 mod management;
 mod models;
 mod permissions;

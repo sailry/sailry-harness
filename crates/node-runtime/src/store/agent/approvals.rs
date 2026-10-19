@@ -15,6 +15,13 @@ pub(crate) use rules::Binding;
 #[cfg(test)]
 mod tests;
 
+#[derive(Default)]
+pub(super) struct Capture<'a> {
+    pub(super) startup: Option<&'a sailry_protocol::code::Startup>,
+    pub(super) ssh: Option<&'a sailry_protocol::ssh::Trust>,
+    pub(super) prepared: Option<&'a Command>,
+}
+
 pub(in crate::store) type Waiting =
     BTreeMap<ApprovalId, (TurnId, oneshot::Sender<Result<Decision, Fault>>)>;
 
@@ -50,6 +57,7 @@ impl Ingress {
                 binding,
                 startup: None,
                 ssh: None,
+                prepared: None,
                 reply,
             })))
             .await
@@ -74,6 +82,7 @@ impl Ingress {
                 binding: Some(binding),
                 startup: Some(startup),
                 ssh: None,
+                prepared: None,
                 reply,
             })))
             .await
@@ -81,11 +90,12 @@ impl Ingress {
         response.await.map_err(|_| super::super::unavailable())?
     }
 
-    pub(crate) async fn confirm_ssh(
+    pub(crate) async fn confirm_connection(
         &self,
         turn: TurnId,
         request: ToolConfirmationRequest,
         binding: Binding,
+        prepared: Command,
         ssh: Option<sailry_protocol::ssh::Trust>,
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
@@ -96,6 +106,7 @@ impl Ingress {
                 binding: Some(binding),
                 startup: None,
                 ssh,
+                prepared: Some(prepared),
                 reply,
             })))
             .await
@@ -112,6 +123,25 @@ impl Ingress {
         let (reply, response) = oneshot::channel();
         self.sender
             .send(Job::Agent(Box::new(Operation::Authorize {
+                turn,
+                request,
+                prepared,
+                reply,
+            })))
+            .await
+            .map_err(|_| super::super::unavailable())?;
+        response.await.map_err(|_| super::super::unavailable())?
+    }
+
+    pub(crate) async fn approved_connection(
+        &self,
+        turn: TurnId,
+        request: ToolConfirmationRequest,
+        prepared: Command,
+    ) -> Result<(), Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::ConnectionAccess {
                 turn,
                 request,
                 prepared,
@@ -185,7 +215,17 @@ pub(super) fn begin_with(
     startup: Option<&sailry_protocol::code::Startup>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
-    begin_for(database, turn, request, binding, startup, None, events)
+    begin_for(
+        database,
+        turn,
+        request,
+        binding,
+        Capture {
+            startup,
+            ..Default::default()
+        },
+        events,
+    )
 }
 
 pub(super) fn begin_for(
@@ -193,10 +233,14 @@ pub(super) fn begin_for(
     turn: TurnId,
     request: &ToolConfirmationRequest,
     binding: Option<&Binding>,
-    startup: Option<&sailry_protocol::code::Startup>,
-    ssh: Option<&sailry_protocol::ssh::Trust>,
+    capture: Capture<'_>,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<Approval, Fault> {
+    let Capture {
+        startup,
+        ssh,
+        prepared,
+    } = capture;
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let run = active(&transaction, turn)?;
     let call = call_id(request)?;
@@ -218,6 +262,10 @@ pub(super) fn begin_for(
     if let Some(binding) = binding {
         rules::validate(&transaction, turn, request, binding)?;
     }
+    let prepared = match prepared {
+        Some(command) => Prepared::new(command)?,
+        None => prepared::baseline(&transaction, turn, binding)?,
+    };
     let access = access::requested(&transaction, turn, request, binding)?;
     let escape = crate::process::sandbox::SUPPORTED
         && access == Some(sailry_protocol::process::Access::Unrestricted);
@@ -274,8 +322,8 @@ pub(super) fn begin_for(
             "tool call already requested approval",
         ));
     }
-    transaction.execute("INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed) VALUES(?1,?2,?3,?4,?5,?6,0)",
-        params![approval.id.to_string(), turn.to_string(), call, encode(&approval)?, encode(&binding)?, RequestId::new().to_string()]).map_err(storage_error)?;
+    transaction.execute("INSERT INTO agent_approvals(id,turn,call,body,binding,request,claimed,prepared) VALUES(?1,?2,?3,?4,?5,?6,0,?7)",
+        params![approval.id.to_string(), turn.to_string(), call, encode(&approval)?, encode(&binding)?, RequestId::new().to_string(), encode(&prepared)?]).map_err(storage_error)?;
     let envelope = changed(&transaction, database.node, run.session)?;
     transaction.commit().map_err(storage_error)?;
     let _ = events.send(envelope);
@@ -371,6 +419,38 @@ fn matches_decision(approval: &Approval, decision: &Decision) -> bool {
     approval.state == state && approval.choice == choice && approval.reason.as_deref() == reason
 }
 
+pub(super) fn connection_access(
+    db: &Connection,
+    turn: TurnId,
+    request: &ToolConfirmationRequest,
+    prepared: &Command,
+) -> Result<(), Fault> {
+    active(db, turn)?;
+    let (entry, index) = super::calls::locate(db, turn, request)?;
+    let body: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT body FROM agent_approvals WHERE turn=?1 AND call=?2",
+            params![turn.to_string(), call_id(request)?],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    let approval: Approval = body
+        .map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()?
+        .ok_or_else(|| Fault::new(ErrorCode::PermissionDenied, "connection has no approval"))?;
+    if approval.state != ApprovalState::Approved
+        || approval.entry != entry
+        || approval.index != index
+    {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "connection approval is unavailable",
+        ));
+    }
+    prepared::check_connection(db, &approval, Some(prepared))
+}
+
 pub(super) fn authorize(
     db: &mut Connection,
     turn: TurnId,
@@ -418,6 +498,7 @@ pub(super) fn authorize(
             "tool arguments differ from the approved call",
         ));
     }
+    prepared::check_connection(&transaction, &approval, prepared)?;
     access::check(&approval, prepared)?;
     if let Some(startup) = &approval.startup {
         if !matches!(prepared, Some(Command::StartCodeServer { startup: actual }) if actual == startup)
@@ -438,13 +519,22 @@ pub(super) fn authorize(
         ));
     }
     rules::check_prepared(&approval, prepared)?;
+    let previous: Vec<u8> = transaction
+        .query_row(
+            "SELECT prepared FROM agent_approvals WHERE id=?1",
+            [approval.id.to_string()],
+            |row| row.get(0),
+        )
+        .map_err(storage_error)?;
+    let baseline: Option<Prepared> = serde_json::from_slice(&previous).map_err(storage_error)?;
+    let mut captured = prepared.map(Prepared::new).transpose()?.flatten();
+    if let (Some(captured), Some(baseline)) = (&mut captured, baseline) {
+        captured.targets = baseline.targets;
+    }
     transaction
         .execute(
             "UPDATE agent_approvals SET claimed=1,prepared=?2 WHERE id=?1",
-            params![
-                approval.id.to_string(),
-                encode(&prepared.map(Prepared::new).transpose()?.flatten())?
-            ],
+            params![approval.id.to_string(), encode(&captured)?],
         )
         .map_err(storage_error)?;
     transaction.commit().map_err(storage_error)?;

@@ -550,3 +550,6 @@ mod ownership;
 #[cfg(unix)]
 #[path = "connections/management.rs"]
 mod management;
+
+#[path = "connections/targets.rs"]
+mod targets;
