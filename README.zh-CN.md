@@ -8,6 +8,9 @@
 
 <p align="center"><strong>把 AI 智能体、文件和工具放在同一个原生工作区。</strong></p>
 
+> [!NOTE]
+> **早期预览版。** Sailry 仍在快速开发中，可能存在 bug，版本之间也会有较大变化。让智能体修改重要文件前请先备份。遇到问题欢迎[提交反馈](https://github.com/sailry/sailry-harness/issues)，你的反馈会直接影响后续开发。
+
 ![Sailry 暗色模式下的新会话与示例项目](assets/readme/workspace-dark.png)
 
 使用自己的模型，在对话旁处理文件、Git、终端、浏览器、SSH 和数据库。
@@ -22,7 +25,7 @@
 
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple 芯片 / Intel | 支持 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple 芯片 / Intel | 支持 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | x64 / ARM64 | 计划中 | — |
 | Linux | x64 / ARM64 | 计划中 | — |
 
@@ -30,8 +33,8 @@
 
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple 芯片 / Intel | 待发布 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
-| Linux · glibc 2.28+ | x64 / ARM64 | 待发布 | [正式版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple 芯片 / Intel | 待发布 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Linux · glibc 2.28+ | x64 / ARM64 | 待发布 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | — | 计划中 | — |
 
 ### 移动端

@@ -8,6 +8,9 @@
 
 <p align="center"><strong>AI agents, files and tools in one native workspace.</strong></p>
 
+> [!NOTE]
+> **Early preview.** Sailry is under active development, so expect bugs and changes between releases. Back up important work before letting agents edit it, and please [report issues](https://github.com/sailry/sailry-harness/issues) — your feedback shapes what comes next.
+
 ![Sailry in dark mode with a new conversation and example projects](assets/readme/workspace-dark.png)
 
 Use your own models to work with files, Git, terminals, browsers, SSH and databases
@@ -22,7 +25,7 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple silicon / Intel | Supported | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple silicon / Intel | Supported | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | x64 / ARM64 | Planned | — |
 | Linux | x64 / ARM64 | Planned | — |
 
@@ -30,8 +33,8 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
-| macOS 13+ | Apple silicon / Intel | Awaiting release | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
-| Linux · glibc 2.28+ | x64 / ARM64 | Awaiting release | [Stable releases](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Afalse) · [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| macOS 13+ | Apple silicon / Intel | Awaiting release | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Linux · glibc 2.28+ | x64 / ARM64 | Awaiting release | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | — | Planned | — |
 
 ### Mobile
