@@ -1014,6 +1014,14 @@
           ],
           "default": null
         },
+        "requests": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Endpoint"
+          },
+          "default": {},
+          "description": "Named read-only resources. Grant headers are injected only by the Node.",
+          "type": "object"
+        },
         "scopes": {
           "default": [],
           "items": {
@@ -2657,6 +2665,7 @@
         "model",
         "context",
         "statistics",
+        "footer",
         "status",
         "project",
         "project_menu",

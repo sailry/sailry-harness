@@ -17,6 +17,7 @@ pub enum Slot {
     Model,
     Context,
     Statistics,
+    Footer,
     Status,
     Project,
     ProjectMenu,
@@ -144,6 +145,9 @@ pub struct Choice {
 pub struct Detail {
     pub label: Navigation,
     pub value: String,
+    /// Optional finite percentage rendered by the shared metric popover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<serde_json::Number>,
 }
 
 /// One state serves the toolbar, the compact menu and standard search overlays.
@@ -246,11 +250,13 @@ impl Contribution {
             })
             && (self.slot != Slot::ProjectMenu || matches!(self.kind, Kind::Button | Kind::Menu))
             && if self.kind == Kind::Metric {
-                self.slot == Slot::Statistics && self.handler.is_none() && self.choices.is_empty()
+                matches!(self.slot, Slot::Statistics | Slot::Footer)
+                    && self.handler.is_none()
+                    && self.choices.is_empty()
             } else if self.kind == Kind::Indicator {
                 self.slot == Slot::Composer && self.handler.is_none() && self.choices.is_empty()
             } else {
-                self.slot != Slot::Statistics
+                !matches!(self.slot, Slot::Statistics | Slot::Footer)
                     && self.handler.as_ref().is_some_and(|name| identifier(name))
                     && choices(&self.choices)
                     && (matches!(self.kind, Kind::Select | Kind::Picker | Kind::Menu)
@@ -321,10 +327,15 @@ impl State {
             && (self.segments.is_empty() || matches!(entry.slot, Slot::Status | Slot::Model))
             && self.segments.iter().all(|segment| segment.label.valid())
             && self.details.len() <= MAX_ENTRIES
-            && self
-                .details
-                .iter()
-                .all(|row| row.label.valid() && row.value.len() <= 4096)
+            && self.details.iter().all(|row| {
+                row.label.valid()
+                    && row.value.len() <= 4096
+                    && row.progress.as_ref().is_none_or(|value| {
+                        value.as_f64().is_some_and(|value| {
+                            value.is_finite() && (0.0..=100.0).contains(&value)
+                        })
+                    })
+            })
             && !self.value.is_array()
             && (if entry.kind == Kind::Indicator {
                 self.value.is_null()

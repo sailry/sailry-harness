@@ -102,15 +102,37 @@ async fn preserves_legacy_grants_during_rehearsal() {
         let current = saved(&client, provider.id).await;
         assert_eq!(current.credential, provider.credential);
         let requests = server.requests.lock().unwrap().len();
+        let Output::DiscoveredModels(catalog) = client
+            .execute(client.prepare(models(&current)))
+            .await
+            .unwrap()
+        else {
+            panic!("model catalog expected")
+        };
+        private(&catalog);
+        assert_eq!(catalog.endpoint, server.endpoint);
         assert_eq!(
-            client
-                .execute(client.prepare(models(&current)))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
+            catalog
+                .models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["fixture", "unknown"]
         );
-        assert_eq!(server.requests.lock().unwrap().len(), requests);
+        assert_eq!(catalog.models[0].context, Some(16384));
+        assert_eq!(catalog.models[0].output, Some(1024));
+        {
+            let recorded = server.requests.lock().unwrap();
+            assert_eq!(recorded.len(), requests + 1);
+            assert_eq!(recorded.last().unwrap().path, "/models");
+            assert_eq!(
+                recorded
+                    .iter()
+                    .filter(|request| request.path == "/token")
+                    .count(),
+                1
+            );
+        }
         drop(client);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();

@@ -64,6 +64,22 @@ impl View {
             "compacting":compacting,"sidebar":self.sidebar,"has_messages":!self.rows.is_empty()})
     }
 
+    pub(crate) fn model_context(&self, owner: &sailry_protocol::plugin::Reference) -> Value {
+        let connected = self.connected() && self.config_owner == self.binding.client.target();
+        let selected = self.config.as_ref().and_then(|config| {
+            self.node
+                .snapshot
+                .as_ref()?
+                .providers
+                .iter()
+                .find(|provider| provider.id == config.provider)
+                .map(|provider| (provider, config.model.as_str()))
+        });
+        json!({"connected":connected,"provider":if connected {
+            selected.and_then(|(provider,model)| provider_context(provider,model,&owner.name))
+        } else {None}})
+    }
+
     pub(crate) fn package_options(
         &self,
         owner: &sailry_protocol::plugin::Reference,
@@ -188,5 +204,49 @@ impl View {
             }
             _ => Err("unknown composer option".into()),
         }
+    }
+}
+
+fn provider_context(
+    provider: &sailry_protocol::conversation::Provider,
+    model: &str,
+    package: &str,
+) -> Option<Value> {
+    use sailry_protocol::conversation::presets::Source;
+    let preset = provider.preset.as_ref()?;
+    if !provider.enabled || !matches!(&preset.source, Source::Package {name} if name==package) {
+        return None;
+    }
+    Some(
+        json!({"id":provider.id,"revision":provider.revision.to_string(),"model":model,"preset":preset}),
+    )
+}
+
+#[cfg(test)]
+mod model_tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn projects_only_current_package_identity() {
+        let mut provider:sailry_protocol::conversation::Provider=serde_json::from_value(json!({
+            "id":sailry_protocol::ProviderId::new(),"revision":9007199254740993_u64,
+            "name":"Private channel","api":"plugin","authentication":"api_key",
+            "endpoint":"https://private.example.test",
+            "enabled":true,"models":[],"default_model":"old-model",
+            "preset":{"source":{"kind":"package","data":{"name":"sample"}},"id":"regional","route":null}
+        })).unwrap();
+        let context = provider_context(&provider, "selected-model", "sample").unwrap();
+        assert_eq!(context["revision"], "9007199254740993");
+        assert_eq!(context["model"], "selected-model");
+        assert_eq!(context["preset"]["id"], "regional");
+        assert_eq!(context.as_object().unwrap().len(), 4);
+        assert!(!context.to_string().contains("private.example"));
+        assert!(provider_context(&provider, "selected-model", "other").is_none());
+        provider.enabled = false;
+        assert!(provider_context(&provider, "selected-model", "sample").is_none());
+        provider.enabled = true;
+        provider.preset = None;
+        assert!(provider_context(&provider, "selected-model", "sample").is_none());
     }
 }

@@ -39,7 +39,6 @@ pub(in crate::store) fn put(
     }
     let mut provider = provider.clone();
     super::super::providers::presets::save_policy(db, &mut provider, previous.as_ref())?;
-    super::super::providers::consent::stamp(db, &mut provider, previous.as_ref())?;
     super::super::providers::completion::fill(db, &mut provider)?;
     validate(db, node, &provider)?;
     provider.revision = revision

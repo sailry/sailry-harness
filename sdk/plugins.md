@@ -209,23 +209,33 @@ references stay independent of that group label.
 
 Use `models.provide` for model adapters and `models.authenticate` for login
 declarations. A private token-response transformation also requires
-`credentials.inspect`. Installation alone does not approve access: the channel
-editor asks separately for model-message and login-credential access. Approval
-belongs to that configured channel and its package source. A newly requested
-scope needs explicit approval; public catalog permission summaries do not grant
-it. Third-party access is bound to the exact package digest, including its code,
-declarations and network origins. Changed third-party code needs renewed approval;
-already admitted work retains its original package and approval.
+`credentials.inspect`. Installing and enabling a model package authorizes its
+model-message and credential transformations. Operations still require the exact
+provider/package binding and declared actions. Package updates preserve accounts
+when their provider, package and authentication contract are unchanged; changing
+an issuer, client, flow, injection or account scope requires sign-in again.
+Historical captures and stored approval metadata remain intact.
 
 `model_auth` owns declarative PKCE, device-code, token-exchange or start-and-poll
 flows. The Node owns HTTP, callback state, deadlines, credentials, refresh and
 uncertain outcomes. The public login presentation selects the existing common
 controller interaction. An optional `exchange` pure transformation may normalize
-a private token response only after credential approval. Do not implement login
+a private token response inside its dedicated authentication sandbox. Do not implement login
 through an ordinary host callback, import another application's profile or retry
 an uncertain token rotation. A failed connection before delivery can be retried;
 a rejected refresh requires sign-in, while a possibly delivered rotation remains
 uncertain and is never replayed automatically.
+
+An authentication declaration may add named read-only `requests`, using the
+existing endpoint format. `requestProviderHttp(provider, revision, name, input)`
+resolves that name for the current channel and exact calling package. It uses only that installed package’s own provider authorization. Endpoint URLs
+and headers are fixed declarations; public query and body values may reference
+`{input.field}`. They cannot name grant fields or override credential headers.
+The Node obtains and injects the grant through its authorization owner, applies
+the existing HTTP time/size budgets, refuses redirects and rejects responses that
+expose its protected credential values. This does not impose a public-IP-only
+policy on explicitly configured self-hosted endpoints. These reads do not retain
+durable request receipts and must not be used for state-changing operations.
 
 `model_adapters` declares a script, allowed HTTPS origins, response framing
 (`sse`, `ndjson` or `json`), schema dialect and explicit capabilities. A preset
@@ -382,7 +392,26 @@ Conversation components are available in workspace and resource panels, includin
 
 ## Contributions and operations
 
-Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `statistics`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics popover.
+Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `statistics`, `footer`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics popover.
+
+The `footer` slot accepts passive `metric` contributions immediately before the
+conversation usage controls, independently of Sailry session statistics. Supply
+`value` and localized `details: [{label, value, progress?}]`; optional `progress`
+is a finite percentage from 0 through 100, including decimals. The shared metric
+popover renders the same label/value rows and native Kit progress bars for every
+package. Packages do not supply popup views, positioning or styles.
+
+A package declaring `models.provide` can use `readModelContext()` and
+`nextModelContext(cursor)` without `conversation.read`. This projection contains
+only `cursor`, `connected` and the selected current channel's
+`provider: {id, revision, model, preset}`, or `null` when the selection belongs to
+another package or is unavailable. Revisions and cursors are decimal strings.
+It exposes neither credentials nor conversation content. Clear displayed data
+when the context changes and discard HTTP replies for an older selection.
+`requestProviderHttp(id, revision, request, input)` invokes a named authentication
+request through the execution Node; the package receives the public HTTP response
+without receiving its private authorization headers. It does not admit a durable
+command or create a session usage record.
 
 The `model` slot places ordinary contribution controls in the model popover.
 Its state segments also appear beside the model label; `accent` uses the semantic

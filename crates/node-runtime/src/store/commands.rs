@@ -705,6 +705,7 @@ pub(super) fn execute(
         Command::PluginTransaction { .. }
         | Command::GeneratePluginText { .. }
         | Command::RequestPluginHttp(_)
+        | Command::RequestProviderHttp { .. }
         | Command::FetchWeb(_)
         | Command::CancelWebFetch { .. }
         | Command::CallPlugin { .. }

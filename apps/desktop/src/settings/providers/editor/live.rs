@@ -82,7 +82,11 @@ impl Editor {
                     })
                 })
                 .and_then(|provider| provider.binding.clone()),
-            consent: self.consent().map(Box::new),
+            consent: self
+                .provider
+                .as_ref()
+                .filter(|provider| provider.preset.as_ref() == self.preset_ref().as_ref())
+                .and_then(|provider| provider.consent.clone()),
             options: channel.options,
             oauth: channel.oauth,
             id: self.provider_id,
@@ -125,7 +129,7 @@ impl Editor {
         self.pending = true;
         self.error = None;
         let login_binding = binding.clone();
-        let login = self.editing.is_none() && self.can_login() && !self.configured;
+        let login = self.editing.is_none() && self.uses_login() && !self.configured;
         let job = binding
             .runtime
             .spawn(async move { binding.client.execute(request).await });

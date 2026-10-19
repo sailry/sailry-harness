@@ -114,7 +114,6 @@ impl Editor {
                                     })
                                     .cloned()
                             });
-                            editor.restore_consent();
                         }
                         if let Some(brand) = editor.flow.requested.take() {
                             if presets::groups(&editor.directory)
@@ -206,17 +205,8 @@ impl Editor {
         }
         self.flow.brand = Some(presets::brand(&entry));
         self.partner_key_url = entry.preset.key_url.clone();
-        let preserve_consent = self.selected.as_ref().is_some_and(|previous| {
-            previous.source == entry.source
-                && previous.preset.id == entry.preset.id
-                && previous.package == entry.package
-                && previous.origin == entry.origin
-        });
         self.selected_ref = Some(reference);
         self.selected = Some(entry);
-        if !preserve_consent {
-            self.restore_consent();
-        }
         self.seed_directory(window, cx);
         self.flow.step = flow::Step::Configure;
         self.load_directory(true, window, cx);

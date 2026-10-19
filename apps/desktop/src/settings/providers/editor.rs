@@ -18,7 +18,6 @@ use gpui_kit::*;
 use std::collections::HashSet;
 mod catalog;
 mod cloud;
-mod consent;
 mod credential;
 mod directory;
 mod discovery;
@@ -37,9 +36,6 @@ pub(super) struct Editor {
     directory: Vec<sailry_protocol::conversation::presets::Entry>,
     selected: Option<sailry_protocol::conversation::presets::Entry>,
     selected_ref: Option<sailry_protocol::conversation::presets::PresetRef>,
-    saved_consent: Option<sailry_protocol::conversation::consent::Approval>,
-    consent_scopes: sailry_protocol::conversation::consent::Scopes,
-    consent_changed: bool,
     partner_key_url: Option<String>,
     directory_task: Option<Task<()>>,
     partner_task: Option<Task<()>>,
@@ -122,7 +118,7 @@ pub(super) fn open(
                                     .label(tr(
                                         if real
                                             && editor.read(cx).editing.is_none()
-                                            && editor.read(cx).can_login()
+                                            && editor.read(cx).uses_login()
                                             && !editor.read(cx).configured
                                         {
                                             "provider_save_login"
@@ -225,11 +221,6 @@ impl Editor {
             search,
             directory: super::presets::bundled(),
             selected: None,
-            saved_consent: provider
-                .as_ref()
-                .and_then(|provider| provider.consent.as_deref().cloned()),
-            consent_scopes: Default::default(),
-            consent_changed: false,
             selected_ref: provider
                 .as_ref()
                 .and_then(|provider| provider.preset.clone()),
@@ -282,7 +273,6 @@ impl Editor {
                 .find(|entry| entry.source == reference.source && entry.preset.id == reference.id)
                 .cloned()
         });
-        editor.restore_consent();
         editor.load_key(window, cx);
         editor.load_directory(false, window, cx);
         editor
@@ -609,7 +599,6 @@ impl Render for Editor {
             })
             .child(self.selection(cx))
             .children(self.source_label())
-            .children(self.consent_form(cx))
             .children(self.suggestions(cx))
             .child(form)
             .when_some(self.partner_key_url.clone(), |body, url| {

@@ -12,6 +12,7 @@ use std::{cell::RefCell, sync::Arc};
 pub(super) struct Scope {
     pub source: Option<WeakEntity<View>>,
     pub read: bool,
+    pub model: bool,
     pub control: bool,
 }
 
@@ -21,6 +22,10 @@ pub(super) struct State {
     package: sailry_protocol::plugin::Reference,
     changes: tokio::sync::watch::Sender<Value>,
     cursor: u64,
+    model_changes: tokio::sync::watch::Sender<Value>,
+    model_cursor: u64,
+    session: Option<sailry_protocol::SessionId>,
+    worktree: Option<sailry_protocol::WorktreeId>,
     _observer: Subscription,
 }
 
@@ -40,12 +45,16 @@ impl State {
         };
         let mut next = source.read(cx).composer_options(cx);
         next["options"] = source.read(cx).package_options(&self.package, cx);
-        next["cursor"] = self.cursor.to_string().into();
-        if *self.changes.borrow() != next {
-            self.cursor += 1;
-            next["cursor"] = self.cursor.to_string().into();
-            self.changes.send_replace(next);
+        publish(&self.changes, &mut self.cursor, next);
+        let source = source.read(cx);
+        let mut model = source.model_context(&self.package);
+        if self.node != source.binding().client.target()
+            || self.session != source.session()
+            || self.worktree != source.binding().worktree
+        {
+            model = serde_json::json!({"connected":false,"provider":null});
         }
+        publish(&self.model_changes, &mut self.model_cursor, model);
     }
 
     fn matches(&self, host: &Host, cx: &App) -> bool {
@@ -109,7 +118,13 @@ pub(super) fn extend(
                 let mut snapshot = source.read(cx).composer_options(cx);
                 snapshot["cursor"] = "0".into();
                 snapshot["options"] = source.read(cx).package_options(&host.context().package, cx);
+                let mut model = source.read(cx).model_context(&host.context().package);
+                model["cursor"] = "0".into();
                 State {
+                    model_changes: tokio::sync::watch::channel(model).0,
+                    model_cursor: 0,
+                    session: host.context().session,
+                    worktree: host.context().worktree,
                     node: source.read(cx).binding().client.target(),
                     package: host.context().package.clone(),
                     source: source.downgrade(),
@@ -119,19 +134,34 @@ pub(super) fn extend(
                 }
             })
         });
+    let model_read = state.clone().filter(|_| scope.model);
+    let model_change = model_read.clone();
     let read = state.clone().filter(|_| scope.read);
     let change = read.clone();
     let write = state.clone().filter(|_| scope.control);
     let read_host = host.clone();
     let change_host = host.clone();
+    let model_host = host.clone();
+    let model_change_host = host.clone();
     let declarations = format!(
         "{}\nexport interface ComposerState {{cursor:string;command:{{name:string;arguments:string;package:import('sailry/sdk').Json}}|null;mode:'plan'|'code';session:string|null;connected:boolean;busy:boolean;configuring:boolean;model_tools:boolean;operations:string[];options:Record<string,unknown>;readonly:boolean;statistics:Record<string,unknown>|null;context_limit:number|null;compacting:boolean;has_messages:boolean;sidebar:boolean}}\nexport function readComposer():ComposerState;\nexport function nextComposerChange(cursor:string):Promise<ComposerState>;\nexport function setComposerOption(cursor:string,key:'command'|'mode'|'plugin',value:unknown):Promise<ComposerState>;",
         module.declared().unwrap_or_default()
     );
+    let declarations = format!(
+        "{declarations}\nexport interface ModelContext {{cursor:string;connected:boolean;provider:{{id:string;revision:string;model:string;preset:{{source:import('sailry/sdk').Json;id:string;route:import('sailry/sdk').Json|null}}}}|null}}\nexport function readModelContext():ModelContext;\nexport function nextModelContext(cursor:string):Promise<ModelContext>;"
+    );
     let module = module
-        .function("readComposer", move |_| read_state(&read_host, &read))
+        .function("readModelContext", move |_| {
+            read_state(&model_host, &model_read, Projection::Model)
+        })
+        .async_function("nextModelContext", move |args| {
+            changes(args, &model_change_host, &model_change, Projection::Model)
+        })
+        .function("readComposer", move |_| {
+            read_state(&read_host, &read, Projection::Composer)
+        })
         .async_function("nextComposerChange", move |args| {
-            changes(args, &change_host, &change)
+            changes(args, &change_host, &change, Projection::Composer)
         })
         .async_function("setComposerOption", move |args| {
             set_option(args, &host, &write)
@@ -140,7 +170,35 @@ pub(super) fn extend(
     (module, state)
 }
 
-fn read_state(read_host: &Arc<Host>, read: &Option<Entity<State>>) -> HostResult {
+#[derive(Clone, Copy)]
+enum Projection {
+    Composer,
+    Model,
+}
+
+impl Projection {
+    fn changes(self, state: &State) -> &tokio::sync::watch::Sender<Value> {
+        match self {
+            Self::Composer => &state.changes,
+            Self::Model => &state.model_changes,
+        }
+    }
+}
+
+fn publish(changes: &tokio::sync::watch::Sender<Value>, cursor: &mut u64, mut next: Value) {
+    next["cursor"] = cursor.to_string().into();
+    if *changes.borrow() != next {
+        *cursor += 1;
+        next["cursor"] = cursor.to_string().into();
+        changes.send_replace(next);
+    }
+}
+
+fn read_state(
+    read_host: &Arc<Host>,
+    read: &Option<Entity<State>>,
+    projection: Projection,
+) -> HostResult {
     read_host.check()?;
     let state = read
         .as_ref()
@@ -151,7 +209,7 @@ fn read_state(read_host: &Arc<Host>, read: &Option<Entity<State>>) -> HostResult
                 return Err(HostError::new("composer scope is unavailable"));
             }
             state.refresh(cx);
-            encode(state.changes.borrow().clone())
+            encode(projection.changes(state).borrow().clone())
         })
     })
     .ok_or_else(|| HostError::new("composer requires an active view"))?
@@ -161,14 +219,16 @@ fn changes(
     args: &HostArguments,
     change_host: &Arc<Host>,
     change: &Option<Entity<State>>,
+    projection: Projection,
 ) -> Result<impl std::future::Future<Output = HostResult> + Send + 'static + use<>, HostError> {
     change_host.check()?;
     let seen = args.string(0)?.to_owned();
     let state = change
         .as_ref()
         .ok_or_else(|| HostError::new("composer read is unavailable"))?;
-    let mut changes = gpui_shell::with_current_app(|cx| state.read(cx).changes.subscribe())
-        .ok_or_else(|| HostError::new("composer requires an active view"))?;
+    let mut changes =
+        gpui_shell::with_current_app(|cx| projection.changes(state.read(cx)).subscribe())
+            .ok_or_else(|| HostError::new("composer requires an active view"))?;
     let stop = change_host.stop_token();
     Ok(async move {
         loop {
@@ -220,4 +280,42 @@ fn set_option(
             .map_err(HostError::new)
             .and_then(encode)
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    use serde_json::json;
+
+    #[test]
+    fn model_changes_ignore_unrelated_composer_updates() {
+        let initial = json!({"cursor":"0","connected":true,"provider":null});
+        let model = tokio::sync::watch::channel(initial.clone()).0;
+        let composer = tokio::sync::watch::channel(json!({"cursor":"0","busy":false})).0;
+        let (mut model_cursor, mut composer_cursor) = (0, 0);
+        publish(&composer, &mut composer_cursor, json!({"busy":true}));
+        publish(
+            &model,
+            &mut model_cursor,
+            json!({"connected":true,"provider":null}),
+        );
+        assert_eq!(model_cursor, 0);
+        assert_eq!(*model.borrow(), initial);
+        publish(
+            &model,
+            &mut model_cursor,
+            json!({"connected":true,"provider":{"id":"channel","revision":"2","model":"selected","preset":null}}),
+        );
+        assert_eq!(model_cursor, 1);
+        assert!(model.borrow().get("busy").is_none());
+        publish(
+            &model,
+            &mut model_cursor,
+            json!({"connected":false,"provider":null}),
+        );
+        assert_eq!(model_cursor, 2);
+        assert!(model.borrow()["provider"].is_null());
+        assert_eq!(composer_cursor, 1);
+    }
 }

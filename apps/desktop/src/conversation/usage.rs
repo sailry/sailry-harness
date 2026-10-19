@@ -30,16 +30,17 @@ impl Shell {
             &[preview::group(
                 self.conversations[&(self.host, self.session)].turns.len(),
             )],
+            "composer-stats",
             cx,
         )
     }
 }
 
-pub(super) fn render_groups(groups: &[Group], cx: &App) -> AnyElement {
+pub(super) fn render_groups(groups: &[Group], selector: &'static str, cx: &App) -> AnyElement {
     let mut metrics: Vec<_> = groups.iter().flat_map(|group| &group.metrics).collect();
     metrics.sort_by_key(|metric| metric.order);
     h_flex()
-        .debug_selector(|| "composer-stats".into())
+        .debug_selector(move || selector.into())
         .ml_auto()
         .gap_3()
         .max_w_full()

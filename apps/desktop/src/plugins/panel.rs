@@ -790,6 +790,8 @@ impl Panel {
                                     read: actions.contains(
                                         &sailry_protocol::plugin::Action::ReadConversation,
                                     ),
+                                    model: actions
+                                        .contains(&sailry_protocol::plugin::Action::ProvideModels),
                                     control: actions.contains(
                                         &sailry_protocol::plugin::Action::ControlConversation,
                                     ),

@@ -116,7 +116,7 @@ async fn discovers_with_private_authorization() {
 
 async fn exercise_model_services(
     fixture: &Fixture,
-    mut provider: Provider,
+    provider: Provider,
     server: &Server,
 ) -> Provider {
     use support::execute;
@@ -137,32 +137,6 @@ async fn exercise_model_services(
         package: info.summary.reference(),
         worktree: None,
         session: None,
-    };
-    let text = || Command::GeneratePluginText {
-        prompt: "Translate this request".into(),
-        model: format!("{}/translated", provider.id),
-        effort: None,
-    };
-    assert_eq!(
-        fixture
-            .client
-            .execute(fixture.client.prepare(text()).with_plugin(context.clone()))
-            .await
-            .unwrap_err()
-            .code,
-        ErrorCode::PermissionDenied
-    );
-    provider.consent.as_mut().unwrap().scopes.messages = true;
-    let Output::Provider(provider) = execute(
-        &fixture.client,
-        Command::PutProvider {
-            expected_revision: provider.revision,
-            provider,
-        },
-    )
-    .await
-    else {
-        panic!("provider expected")
     };
     let Output::PluginText(output) = fixture
         .client

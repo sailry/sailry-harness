@@ -318,8 +318,8 @@ pub(in crate::store) fn capture_read(
     bind(db, provider, false)
 }
 
-/// Only fresh root admission refreshes approval. Inherited turns retain their
-/// original approval and package even if configuration changes during execution.
+/// Fresh roots resolve current package declarations. Inherited turns retain
+/// their original package and configuration during execution.
 pub(in crate::store) fn refresh(db: &Connection, provider: &mut Provider) -> Result<(), Fault> {
     if !partner_policy(provider)? {
         provider.binding = None;

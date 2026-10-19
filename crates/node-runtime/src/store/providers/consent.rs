@@ -1,5 +1,4 @@
-//! Approval is owned by a configured provider, never a global permission registry.
-use rusqlite::Connection;
+//! Installed model packages use provider-bound execution, not per-version approval.
 use sailry_protocol::{
     ErrorCode, Fault,
     conversation::{
@@ -52,69 +51,14 @@ pub(in crate::store) fn requested(
     }
 }
 
-/// An unchanged approval can survive an implementation update at the same
-/// installation origin. New approvals must name the exact displayed package.
-pub(in crate::store) fn stamp(
-    db: &Connection,
-    provider: &mut Provider,
-    previous: Option<&Provider>,
-) -> Result<(), Fault> {
-    let Some(mut approval) = provider.consent.take() else {
-        return Ok(());
-    };
-    let Some(Source::Package { name }) = provider.preset.as_ref().map(|preset| &preset.source)
-    else {
-        return Err(Fault::invalid("only plugin channels use package approval"));
-    };
-    let info = crate::store::plugins::get(db, name)?
-        .filter(|info| info.summary.enabled)
-        .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "channel plugin is unavailable"))?;
-    let reference = info.summary.reference();
-    if approval.package.name != reference.name {
-        return Err(denied());
-    }
-    let origin = origin(&info);
-    let retained = previous.and_then(|provider| provider.consent.as_ref()) == Some(&approval)
-        && approval.origin.as_ref() == Some(&origin)
-        && (!origin.requires_digest() || approval.package.digest == reference.digest);
-    if !retained && approval.package != reference {
-        return Err(Fault::new(
-            ErrorCode::RevisionConflict,
-            "channel plugin changed before approval",
-        ));
-    }
-    approval.origin = Some(origin);
-    provider.consent = Some(approval);
-    Ok(())
-}
-
-pub(crate) fn check(provider: &Provider, scope: Scope) -> Result<(), Fault> {
+/// Captured package ownership remains mandatory. Legacy approval records are
+/// retained as data; installation now authorizes declared model operations.
+pub(crate) fn check(provider: &Provider, _scope: Scope) -> Result<(), Fault> {
     let binding = provider.binding.as_ref().ok_or_else(denied)?;
     let package = binding.package.as_ref().ok_or_else(denied)?;
-    captured(
-        provider.consent.as_deref(),
-        package,
-        binding.origin.as_ref(),
-        scope,
-    )
-}
-
-/// Only values frozen into the admitted provider are used here. A later grant
-/// cannot elevate an old turn, and later revocation applies to new admission.
-pub(crate) fn captured(
-    approval: Option<&sailry_protocol::conversation::consent::Approval>,
-    package: &plugin::Reference,
-    origin: Option<&Origin>,
-    scope: Scope,
-) -> Result<(), Fault> {
-    let approval = approval.ok_or_else(denied)?;
-    if approval.package.name != package.name
-        || approval.origin.as_ref() != origin
-        || origin.is_none()
-        || origin.is_some_and(|origin| {
-            origin.requires_digest() && approval.package.digest != package.digest
-        })
-        || !approval.scopes.allows(scope)
+    if binding.origin.is_none()
+        || !matches!(provider.preset.as_ref().map(|preset| &preset.source),
+            Some(Source::Package { name }) if name == &package.name)
     {
         return Err(denied());
     }
@@ -124,7 +68,7 @@ pub(crate) fn captured(
 fn denied() -> Fault {
     Fault::new(
         ErrorCode::PermissionDenied,
-        "channel plugin access has not been approved",
+        "channel plugin does not match its captured provider",
     )
 }
 

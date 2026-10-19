@@ -68,6 +68,7 @@ impl View {
                 cx,
             ));
         let statistics = self.registered_statistics(cx);
+        let footer = self.registered_footer(cx);
         h_flex()
             .debug_selector(|| "composer-context-bar".into())
             .relative()
@@ -87,11 +88,18 @@ impl View {
                 form,
                 cx,
             ))
+            .when(!footer.is_empty(), |bar| {
+                bar.child(super::super::usage::render_groups(
+                    &footer,
+                    "composer-footer-metrics",
+                    cx,
+                ))
+            })
             .when(!statistics.is_empty(), |bar| {
                 bar.child(if self.compact_composer {
                     super::super::usage::compact(statistics, cx)
                 } else {
-                    super::super::usage::render_groups(&statistics, cx)
+                    super::super::usage::render_groups(&statistics, "composer-stats", cx)
                 })
             })
             .into_any_element()

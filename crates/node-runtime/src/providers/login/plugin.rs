@@ -71,7 +71,7 @@ pub(crate) struct Issued {
 pub(crate) struct Target {
     pub provider: ProviderId,
     pub package: String,
-    /// Historical grants without this proof remain stored and require renewed consent.
+    /// Retained integrity metadata; it does not approve or invalidate an account.
     #[serde(default)]
     pub digest: Option<String>,
     pub origin: sailry_protocol::conversation::consent::Origin,
@@ -115,7 +115,17 @@ impl Record {
     }
 
     pub(crate) fn matches(&self, target: &Target) -> Result<(), Fault> {
-        if &self.target != target {
+        let previous = &self.target;
+        if previous.provider != target.provider
+            || previous.package != target.package
+            || previous.flow != target.flow
+            || previous.endpoint != target.endpoint
+            || previous.authorization != target.authorization
+            || previous.refresh != target.refresh
+            || previous.inject != target.inject
+            || previous.fields != target.fields
+            || previous.scopes != target.scopes
+        {
             return Err(Fault::new(
                 ErrorCode::NotConfigured,
                 "model authentication changed; sign in again",
@@ -315,7 +325,7 @@ async fn response_with(
     }
 }
 
-fn prepare(
+pub(crate) fn prepare(
     client: &reqwest::Client,
     endpoint: &model_auth::Endpoint,
     fields: &BTreeMap<String, Secret>,

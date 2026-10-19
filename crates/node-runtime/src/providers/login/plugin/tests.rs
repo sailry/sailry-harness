@@ -231,21 +231,25 @@ fn retains_accounts_only_for_the_same_contract() {
             ..target.clone()
         },
         Target {
-            digest: Some("changed-code".into()),
+            digest: Some("b".repeat(64)),
             ..target.clone()
         },
+        Target {
+            origin: sailry_protocol::conversation::consent::Origin::Imported {
+                digest: "b".repeat(64),
+            },
+            ..target.clone()
+        },
+    ] {
+        record.matches(&changed).unwrap();
+    }
+    for changed in [
         Target {
             provider: ProviderId::new(),
             ..target.clone()
         },
         Target {
             package: "other".into(),
-            ..target.clone()
-        },
-        Target {
-            origin: sailry_protocol::conversation::consent::Origin::Imported {
-                digest: "a".repeat(64),
-            },
             ..target.clone()
         },
         Target {
@@ -262,6 +266,22 @@ fn retains_accounts_only_for_the_same_contract() {
         },
         Target {
             fields: BTreeMap::from([("client_id".into(), Secret::new("changed-client".into()))]),
+            ..target.clone()
+        },
+        Target {
+            authorization: model_auth::Flow::TokenExchange {
+                token: model_auth::Endpoint {
+                    url: "https://other.example.test/token".into(),
+                    ..target.refresh.clone().unwrap()
+                },
+            },
+            ..target.clone()
+        },
+        Target {
+            inject: vec![model_auth::Injection {
+                header: "X-Key".into(),
+                template: "{access}".into(),
+            }],
             ..target.clone()
         },
     ] {

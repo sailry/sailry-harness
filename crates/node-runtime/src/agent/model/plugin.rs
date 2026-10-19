@@ -429,7 +429,7 @@ async fn credentials(
             .await?
             .grant;
         let headers = grant.headers(&options)?;
-        let secrets = super::authorization::credentials(&grant, &headers);
+        let secrets = grant.secrets(&headers);
         Ok(Credentials {
             headers,
             access: Some(grant.access().clone()),
@@ -504,7 +504,7 @@ pub(crate) async fn discover_authorized(
             })?;
         let bundle = read_bundle(host, package, declaration, &stop).await?;
         let headers = grant.headers(options)?;
-        let secrets = super::authorization::credentials(grant, &headers);
+        let secrets = grant.secrets(&headers);
         let credentials = Credentials {
             headers,
             access: Some(grant.access().clone()),

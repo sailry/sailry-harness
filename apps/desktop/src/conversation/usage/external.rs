@@ -1,6 +1,7 @@
 //! Declared metrics use the same typography and flat details as native statistics.
 use super::*;
 use crate::plugins::contributions::Entry;
+use gpui_kit::component::progress::Progress;
 
 pub(in crate::conversation) fn group(entries: Vec<Entry>) -> Group {
     let metrics = entries
@@ -44,6 +45,7 @@ fn rows(entry: &Entry) -> Vec<Div> {
         ),
         label(&entry.declaration.label),
         entry.value(),
+        None,
     )];
     rows.extend(
         entry
@@ -59,20 +61,35 @@ fn rows(entry: &Entry) -> Vec<Div> {
                     ),
                     label(&detail.label),
                     detail.value.clone().into(),
+                    detail
+                        .progress
+                        .as_ref()
+                        .and_then(serde_json::Number::as_f64)
+                        .map(|value| value as f32),
                 )
             }),
     );
     rows
 }
 
-fn row(id: String, label: SharedString, value: SharedString) -> Div {
-    h_flex()
+fn row(id: String, label: SharedString, value: SharedString, progress: Option<f32>) -> Div {
+    let indicator = progress.map(|value| {
+        Progress::new(SharedString::from(format!("{id}-progress")))
+            .value(value)
+            .xsmall()
+            .accessibility_label(label.clone())
+    });
+    let line = h_flex()
         .w_full()
         .gap_4()
         .justify_between()
         .debug_selector(move || id.clone())
         .child(label)
-        .child(div().flex_shrink_0().child(value))
+        .child(div().flex_shrink_0().child(value));
+    match indicator {
+        Some(indicator) => v_flex().w_full().gap_1().child(line).child(indicator),
+        None => line,
+    }
 }
 
 fn details(entry: &Entry, cx: &App) -> AnyElement {

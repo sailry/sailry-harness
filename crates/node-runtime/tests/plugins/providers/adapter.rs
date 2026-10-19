@@ -56,7 +56,7 @@ export function classify(){return {class:'unavailable',message:'Synthetic failur
 }
 
 #[tokio::test]
-async fn runs_captured_translations_with_scoped_approval() {
+async fn runs_captured_translations_without_manual_approval() {
     for remote in [false, true] {
         let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let source = directory.path().join("source/package");
@@ -116,35 +116,7 @@ async fn runs_captured_translations_with_scoped_approval() {
             expected_revision: session.revision,
             message: "Translate using captured resources".into(),
         };
-        assert_eq!(
-            client
-                .execute(client.prepare(queue()))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        assert!(server.requests.lock().unwrap().is_empty());
-        provider.consent = Some(Box::new(sailry_protocol::conversation::consent::Approval {
-            package: installed.summary.reference(),
-            origin: None,
-            scopes: sailry_protocol::conversation::consent::Scopes {
-                messages: true,
-                credentials: false,
-            },
-        }));
-        let Output::Provider(saved) = execute(
-            &client,
-            Command::PutProvider {
-                provider: provider.clone(),
-                expected_revision: provider.revision,
-            },
-        )
-        .await
-        else {
-            panic!("provider expected")
-        };
-        provider = saved;
+        assert!(provider.consent.is_none());
         let Output::QueuedTurn(first) = execute(&client, queue()).await else {
             panic!("turn expected")
         };
@@ -185,30 +157,7 @@ async fn runs_captured_translations_with_scoped_approval() {
         }
         declare_adapter(&source, 2);
         let updated = info(execute(&client, install(worktree, installed.summary.revision)).await);
-        let count = server.requests.lock().unwrap().len();
-        assert_eq!(
-            client
-                .execute(client.prepare(queue()))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), count);
-        provider.consent.as_mut().unwrap().package = updated.summary.reference();
-        provider.consent.as_mut().unwrap().origin = None;
-        let Output::Provider(saved) = execute(
-            &client,
-            Command::PutProvider {
-                provider: provider.clone(),
-                expected_revision: provider.revision,
-            },
-        )
-        .await
-        else {
-            panic!("provider expected")
-        };
-        provider = saved;
+        // Updating code does not add a per-version approval step.
         let Output::QueuedTurn(second) = execute(&client, queue()).await else {
             panic!("turn expected")
         };
@@ -232,15 +181,12 @@ async fn runs_captured_translations_with_scoped_approval() {
         )
         .await;
         let count = server.requests.lock().unwrap().len();
-        assert_eq!(
-            client
-                .execute(client.prepare(queue()))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        assert_eq!(server.requests.lock().unwrap().len(), count);
+        let Output::QueuedTurn(third) = execute(&client, queue()).await else {
+            panic!("turn expected")
+        };
+        finish(&client, session.id, third.id).await;
+        assert!(server.requests.lock().unwrap().len() > count);
+        assert!(captured(node.profile(), third.id).consent.is_none());
         assert_eq!(captured(node.profile(), first.id), original);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

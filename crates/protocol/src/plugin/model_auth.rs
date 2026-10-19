@@ -25,6 +25,9 @@ pub struct Declaration {
     pub refresh: Option<Refresh>,
     #[serde(default)]
     pub exchange: Option<Transformation>,
+    /// Named read-only resources. Grant headers are injected only by the Node.
+    #[serde(default)]
+    pub requests: BTreeMap<String, Endpoint>,
 }
 
 impl Declaration {
@@ -43,6 +46,16 @@ impl Declaration {
                 .refresh
                 .as_ref()
                 .is_none_or(|refresh| refresh.request.valid() && refresh.token.valid())
+            && self.requests.iter().all(|(name, endpoint)| {
+                super::host::valid_handler(name)
+                    && endpoint.valid()
+                    && !endpoint.url.contains('{')
+                    && !endpoint.url.contains('}')
+                    && endpoint
+                        .headers
+                        .values()
+                        .all(|value| !value.contains('{') && !value.contains('}'))
+            })
             && self.exchange.as_ref().is_none_or(|exchange| {
                 exchange.script.valid() && super::host::valid_handler(&exchange.handler)
             })
@@ -267,4 +280,39 @@ fn pointer(value: &str) -> bool {
             .split('~')
             .skip(1)
             .all(|part| part.starts_with('0') || part.starts_with('1'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn keeps_resource_urls_and_headers_fixed() {
+        let mut declaration:Declaration=serde_json::from_value(json!({"id":"example","display":{"label":"Example"},"flow":{"kind":"token_exchange","token":{"url":"https://example.invalid/token"}},"token":{"access":"/access","refresh":null,"expires_in":null},"inject":[{"header":"Authorization","template":"Bearer {access}"}],"requests":{"status":{"url":"https://example.invalid/status","query":{"after":"{input.after}"}}}})).unwrap();
+        assert!(declaration.valid());
+        declaration
+            .requests
+            .get_mut("status")
+            .unwrap()
+            .headers
+            .insert("X-Input".into(), "{input.header}".into());
+        assert!(!declaration.valid());
+        declaration
+            .requests
+            .get_mut("status")
+            .unwrap()
+            .headers
+            .clear();
+        declaration.requests.get_mut("status").unwrap().url = "https://{input.host}/status".into();
+        assert!(!declaration.valid());
+        declaration.requests.clear();
+        if let Flow::TokenExchange { token } = &mut declaration.flow {
+            token.headers.insert("X-Refresh".into(), "{refresh}".into());
+        }
+        assert!(
+            declaration.valid(),
+            "authentication retains its private template contract"
+        );
+    }
 }

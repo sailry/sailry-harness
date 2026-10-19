@@ -371,7 +371,9 @@ impl Database {
                     // Exact captured request/category visibility is checked by the Registry.
                     (None, None, None)
                 }
-                Command::RequestPluginHttp(_) => (Some(Action::Http), None, None),
+                Command::RequestPluginHttp(_) | Command::RequestProviderHttp { .. } => {
+                    (Some(Action::Http), None, None)
+                }
                 Command::FetchWeb(_)
                 | Command::CancelWebFetch { .. }
                 | Command::SearchWeb(_)

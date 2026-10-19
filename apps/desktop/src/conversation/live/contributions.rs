@@ -57,6 +57,23 @@ impl View {
         groups
     }
 
+    pub(super) fn registered_footer(&self, cx: &App) -> Vec<super::super::usage::Group> {
+        let entries = self
+            .contributions
+            .read(cx)
+            .entries(Slot::Footer, cx)
+            .into_iter()
+            .filter(|entry| {
+                entry.state.enabled && !self.model_context(&entry.key.package)["provider"].is_null()
+            })
+            .collect::<Vec<_>>();
+        if entries.is_empty() {
+            Vec::new()
+        } else {
+            vec![super::super::usage::external(entries)]
+        }
+    }
+
     pub(crate) fn contribution_intent(
         &self,
         intent: impl AsRef<str>,

@@ -204,9 +204,11 @@ rebuildable derivatives, not additional history writers or runners. Usage report
 cover Sailry's own canonical events; Client aggregates reports across Nodes while
 keeping source identity and completeness explicit. Provider settings may separately
 display quota observations returned by Sailry's own authenticated model requests;
-missing or expired observations remain unknown. These observations are not session
-usage statistics. External tool histories, separate account-quota queries and
-third-party billing are outside that boundary.
+missing or expired observations remain unknown. An installed, enabled model
+plugin may also read its current provider's account status through declared
+scoped requests using that provider's authorization and display it independently.
+Neither source contributes to session usage statistics. External tool histories
+and third-party billing analysis remain outside that boundary.
 Context observations pair provider-reported input and output tokens with the
 admitted model's frozen context limit; a later model change does not relabel an
 old observation. Pending-content estimates can trigger early compaction but are
@@ -567,6 +569,12 @@ Packages use the Agent Plugins manifest and Sailry's v1 extension contract.
 Node owns validation, immutable resources, grants, private KV, callbacks,
 tools and dispatch. Updates affect new admission; admitted work retains its
 captured package and settings revision.
+Installed, enabled model plugins are trusted to access their configured providers'
+messages and login credentials without separate permission checkboxes. Ordinary
+code updates retain that trust and existing accounts. Changes to the actual OAuth
+issuer, client, scopes or flow require the corresponding authorization; package,
+provider, preset and revision ownership and protected credential injection remain
+enforced. Historical approval records are retained as data.
 All packages own their pages, panels, dialogs, view state, workflows and model
 prompts. Search and language-service settings are packaged Kit scripts using the
 same captured Client commands for local and remote Nodes. Schema-only plugins

@@ -1,4 +1,5 @@
 use super::*;
+use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 
 /// Inline provider authorization fields. Public projections never include this representation.
@@ -52,6 +53,65 @@ pub(crate) enum Grant {
 }
 
 impl Grant {
+    pub(crate) fn secrets(&self, headers: &HeaderMap) -> Vec<Secret> {
+        // Only exact endpoint metadata already exposed to this captured model can
+        // be public. Access, refresh and private client fields remain protected even
+        // when their bytes happen to equal the same host or origin.
+        let public = match self {
+            Grant::Plugin { record, .. } => crate::providers::endpoint_url(&record.target.endpoint)
+                .ok()
+                .map(|endpoint| {
+                    let origin = endpoint.origin().ascii_serialization();
+                    record
+                        .issued
+                        .extra
+                        .values()
+                        .filter(|value| {
+                            endpoint.host_str() == Some(value.expose()) || value.expose() == origin
+                        })
+                        .map(|value| value.expose())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        };
+        let mut values: Vec<_> = headers
+            .iter()
+            .filter(|(name, value)| value.is_sensitive() || name.as_str() == "chatgpt-account-id")
+            .filter_map(|(_, value)| value.to_str().ok())
+            .filter(|value| !public.contains(value))
+            .map(|value| sailry_protocol::Secret::new(value.to_owned()))
+            .collect();
+        values.push(self.access().clone());
+        // A generation error can echo any private field of its freshly resolved grant,
+        // including a rotated refresh token that was not sent as an HTTP header.
+        match self {
+            Grant::Plugin { record, .. } => {
+                values.extend(record.issued.refresh.iter().cloned());
+                values.extend(
+                    record
+                        .issued
+                        .extra
+                        .values()
+                        .filter(|value| !public.contains(&value.expose()))
+                        .cloned(),
+                );
+                values.extend(record.target.fields.values().cloned());
+            }
+            Grant::ChatGpt {
+                refresh, id_token, ..
+            }
+            | Grant::ChatGptOAuth {
+                refresh, id_token, ..
+            } => {
+                values.extend([refresh.clone(), id_token.clone()]);
+            }
+            Grant::ClaudeOAuth { refresh, .. } => values.push(refresh.clone()),
+            Grant::Copilot { github, .. } => values.push(github.clone()),
+        }
+        values
+    }
+
     pub(crate) fn plan_enabled(&self) -> bool {
         matches!(self, Self::ChatGpt { scopes, .. }
             if ["resource.invoke", "chatgpt.tokens.use.direct"].iter()

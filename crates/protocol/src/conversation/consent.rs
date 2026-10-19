@@ -1,4 +1,4 @@
-//! Provider-scoped approval for package access, distinct from package enablement.
+//! Retained channel metadata and captured installation coordinates.
 use crate::{WorktreeId, plugin::Reference};
 use serde::{Deserialize, Serialize};
 
@@ -14,7 +14,7 @@ pub struct Scopes {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Approval {
-    /// The exact package displayed when these scopes were approved.
+    /// Historical package and scope selection, retained without gating installed models.
     pub package: Reference,
     pub scopes: Scopes,
     /// Stamped by the execution Node after resolving the current installation.
@@ -39,14 +39,14 @@ pub enum Origin {
         worktree: WorktreeId,
         path: String,
     },
-    /// Imports without a stable authenticated source need explicit reapproval.
+    /// Content identity for imports without stable source coordinates.
     Imported {
         digest: String,
     },
 }
 
 impl Origin {
-    /// Public source coordinates alone do not approve changed third-party code.
+    /// Whether integrity metadata must retain the exact imported content digest.
     pub fn requires_digest(&self) -> bool {
         match self {
             Self::Bundled => false,

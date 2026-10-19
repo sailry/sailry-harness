@@ -12,6 +12,8 @@ use sailry_protocol::{
     },
 };
 use std::{collections::BTreeMap, time::Duration};
+mod provider;
+pub(crate) use provider::prepare as prepare_provider;
 
 pub(crate) struct Input {
     url: Url,
@@ -21,6 +23,7 @@ pub(crate) struct Input {
     timeout: Duration,
     pub(crate) oauth: Option<super::oauth::Target>,
     application: Option<super::applications::Target>,
+    provider: Option<Box<sailry_protocol::conversation::Provider>>,
 }
 
 fn unknown(message: &str) -> Fault {
@@ -202,6 +205,7 @@ pub(crate) fn prepare(
         timeout: Duration::from_millis(request.timeout_ms.into()),
         oauth: None,
         application,
+        provider: None,
     })
 }
 
@@ -210,6 +214,7 @@ pub(crate) async fn run(
     ingress: &crate::store::Ingress,
     stop: CancellationToken,
 ) -> Result<http::Response, Fault> {
+    let protection = provider::authorize(&mut input, ingress, &stop).await?;
     if let Some(target) = &input.application {
         let value = tokio::select! {
             biased;
@@ -286,11 +291,14 @@ pub(crate) async fn run(
         }
         let body =
             String::from_utf8(body).map_err(|_| unknown("plugin HTTP response is not UTF-8"))?;
-        let result = http::Response {
+        let mut result = http::Response {
             status,
             headers,
             body,
         };
+        if let Some(secrets) = &protection {
+            provider::protect(&mut result, secrets)?;
+        }
         if serde_json::to_vec(&result)
             .map_err(|_| unknown("invalid plugin HTTP response"))?
             .len()

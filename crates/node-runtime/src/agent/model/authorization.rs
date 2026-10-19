@@ -57,7 +57,7 @@ impl Llm for Model {
         let mut provider = self.provider.clone();
         provider.endpoint = grant.endpoint().to_owned();
         let base = grant.headers(&options).map_err(failure)?;
-        let secrets = credentials(&grant, &base);
+        let secrets = grant.secrets(&base);
         let (access, adapter, stream) = match grant {
             Grant::Plugin { record, .. } => {
                 let adapter: RequestAdapter = Arc::new(move |_, headers| {
@@ -130,68 +130,6 @@ impl Llm for Model {
             None => responses,
         })
     }
-}
-
-pub(in crate::agent::model) fn credentials(
-    grant: &Grant,
-    headers: &HeaderMap,
-) -> Vec<sailry_protocol::Secret> {
-    // Only exact endpoint metadata already exposed to this captured model can
-    // be public. Access, refresh and private client fields remain protected even
-    // when their bytes happen to equal the same host or origin.
-    let public = match grant {
-        Grant::Plugin { record, .. } => crate::providers::endpoint_url(&record.target.endpoint)
-            .ok()
-            .map(|endpoint| {
-                let origin = endpoint.origin().ascii_serialization();
-                record
-                    .issued
-                    .extra
-                    .values()
-                    .filter(|value| {
-                        endpoint.host_str() == Some(value.expose()) || value.expose() == origin
-                    })
-                    .map(|value| value.expose())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default(),
-        _ => Vec::new(),
-    };
-    let mut values: Vec<_> = headers
-        .iter()
-        .filter(|(name, value)| value.is_sensitive() || name.as_str() == "chatgpt-account-id")
-        .filter_map(|(_, value)| value.to_str().ok())
-        .filter(|value| !public.contains(value))
-        .map(|value| sailry_protocol::Secret::new(value.to_owned()))
-        .collect();
-    values.push(grant.access().clone());
-    // A generation error can echo any private field of its freshly resolved grant,
-    // including a rotated refresh token that was not sent as an HTTP header.
-    match grant {
-        Grant::Plugin { record, .. } => {
-            values.extend(record.issued.refresh.iter().cloned());
-            values.extend(
-                record
-                    .issued
-                    .extra
-                    .values()
-                    .filter(|value| !public.contains(&value.expose()))
-                    .cloned(),
-            );
-            values.extend(record.target.fields.values().cloned());
-        }
-        Grant::ChatGpt {
-            refresh, id_token, ..
-        }
-        | Grant::ChatGptOAuth {
-            refresh, id_token, ..
-        } => {
-            values.extend([refresh.clone(), id_token.clone()]);
-        }
-        Grant::ClaudeOAuth { refresh, .. } => values.push(refresh.clone()),
-        Grant::Copilot { github, .. } => values.push(github.clone()),
-    }
-    values
 }
 
 fn chatgpt(body: &mut Value) -> Result<(), AdkError> {

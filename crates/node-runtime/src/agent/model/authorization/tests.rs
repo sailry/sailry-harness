@@ -83,7 +83,7 @@ async fn captures_private_grant_fields_for_redaction() {
             "renewal_pending":false, "endpoint":"https://example.invalid"
         }))
         .unwrap();
-        let secrets = credentials(&grant, &headers);
+        let secrets = grant.secrets(&headers);
         let actual: std::collections::BTreeSet<_> = secrets
             .iter()
             .map(Secret::expose)

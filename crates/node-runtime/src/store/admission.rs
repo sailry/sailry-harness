@@ -372,6 +372,12 @@ impl Ingress {
             }
             if matches!(
                 request.command,
+                sailry_protocol::Command::RequestProviderHttp { .. }
+            ) {
+                return self.request_provider_http(caller, request).await;
+            }
+            if matches!(
+                request.command,
                 sailry_protocol::Command::DiscoverModels(_)
                     | sailry_protocol::Command::ValidateProvider { .. }
             ) {

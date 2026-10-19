@@ -288,6 +288,11 @@ enum Job {
         revision: u64,
         reply: oneshot::Sender<Result<sailry_protocol::conversation::Provider, Fault>>,
     },
+    ProviderHttp {
+        caller: NodeId,
+        request: Box<Request>,
+        reply: oneshot::Sender<Result<Box<crate::plugins::http::Input>, Fault>>,
+    },
     ModelAdapter {
         provider: Box<sailry_protocol::conversation::Provider>,
         messages: bool,
@@ -1071,6 +1076,9 @@ impl Store {
                                 &name,
                                 revision,
                             ));
+                        }
+                        Job::ProviderHttp { caller, request, reply } => {
+                            let _ = reply.send(providers::resources::prepare(&database, caller, &request).map(Box::new));
                         }
                         Job::ModelAdapter { provider, messages, reply } => {
                             let _ = reply.send(providers::adapters::read(&database.connection, &provider, messages));

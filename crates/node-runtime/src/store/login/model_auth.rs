@@ -36,7 +36,7 @@ pub(super) fn configuration(
         ref package,
         ref flow,
         ref endpoint,
-        ref consent,
+        consent: _,
         ref origin,
     } = options
     else {
@@ -58,14 +58,6 @@ pub(super) fn configuration(
         .ok_or_else(missing)?;
     if declaration.exchange.is_some() && !extension.actions.contains(&Action::InspectCredentials) {
         return Err(missing());
-    }
-    if declaration.exchange.is_some() {
-        crate::store::providers::consent::captured(
-            consent.as_deref(),
-            package,
-            origin.as_ref(),
-            sailry_protocol::conversation::consent::Scope::Credentials,
-        )?;
     }
     let resolved = crate::store::plugins::settings::resolve(db, &info)?;
     let mut fields = BTreeMap::new();

@@ -18,6 +18,8 @@ export type ComputerPermissions = {
 export function readComputerPermissions(): Promise<ComputerPermissions>;
 /** Explicit permission guidance is allowed only on the execution device's local client. */
 export function requestComputerPermission(permission: "screen_capture" | "accessibility"): Promise<ComputerPermissions | null>;
+/** Execute a declared authenticated request for this package's current provider. Credentials stay on Node. */
+export function requestProviderHttp(provider:string,revision:string,request:string,input:Record<string,string>):Promise<{status:number;headers:Record<string,string[]>;body:string}>;
 export function listModels(): Promise<{ models: Json[] }>;
 /** Read-only resolution on the captured execution Node; credentials remain opaque references. */
 export function resolveSessionModel(model:string, effort?:Json|null, config?:Json|null):Promise<Json>;
@@ -94,7 +96,9 @@ export type ContributionChoice = {
 };
 export type ContributionState = {
   id: string; enabled?: boolean; visible?: boolean; label?: LocalizedLabel; icon?: string; dropdown?: boolean; value?: string | number | boolean | null;
-  choices?: ContributionChoice[]; details?: { label: LocalizedLabel; value: string }[];
+  choices?: ContributionChoice[];
+  /** Shared metric rows; progress is an optional finite percentage from 0 through 100. */
+  details?: { label: LocalizedLabel; value: string; progress?: number }[];
   segments?: {label:LocalizedLabel;tone:"muted"|"success"|"danger"|"warning"|"accent"}[];
   reply_to?: number;
 };

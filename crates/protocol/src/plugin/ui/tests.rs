@@ -148,3 +148,57 @@ fn model_controls_share_labeled_segments() {
     assert!(!state.valid(&entry));
     assert_eq!(serde_json::to_value(Slot::Model).unwrap(), "model");
 }
+
+#[test]
+fn metrics_use_passive_footer_slots() {
+    let mut entry = contribution(Slot::Footer, Kind::Metric);
+    assert!(!entry.valid());
+    entry.handler = None;
+    for slot in [Slot::Footer, Slot::Statistics] {
+        entry.slot = slot;
+        assert!(entry.valid());
+    }
+    entry.slot = Slot::Composer;
+    assert!(!entry.valid());
+    entry.slot = Slot::Footer;
+    entry.kind = Kind::Button;
+    entry.handler = Some("action".into());
+    assert!(!entry.valid());
+    assert_eq!(serde_json::to_value(Slot::Footer).unwrap(), "footer");
+}
+
+#[test]
+fn details_accept_bounded_optional_progress() {
+    let mut entry = contribution(Slot::Footer, Kind::Metric);
+    entry.handler = None;
+    let mut state = State::pending(&entry);
+    state.value = json!("12");
+    state.details = serde_json::from_value(json!([
+        {"label":{"label":"Balance"},"value":"12"},
+        {"label":{"label":"Short window"},"value":"50.5%","progress":50.5},
+        {"label":{"label":"Long window"},"value":"100%","progress":100}
+    ]))
+    .unwrap();
+    assert!(state.valid(&entry));
+    let encoded = serde_json::to_value(&state.details).unwrap();
+    assert!(encoded[0].get("progress").is_none());
+    assert_eq!(encoded[1]["progress"], 50.5);
+    for value in [json!(0), json!(12.5), json!(100)] {
+        state.details[1].progress = Some(serde_json::from_value(value).unwrap());
+        assert!(state.valid(&entry));
+    }
+    for value in [json!(-1), json!(100.01)] {
+        state.details[1].progress = Some(serde_json::from_value(value).unwrap());
+        assert!(!state.valid(&entry));
+    }
+    for value in [json!("50"), json!(true)] {
+        assert!(
+            serde_json::from_value::<Detail>(
+                json!({"label":{"label":"Window"},"value":"50%","progress":value})
+            )
+            .is_err()
+        );
+    }
+    entry.kind = Kind::Button;
+    assert!(!state.valid(&entry));
+}

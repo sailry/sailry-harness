@@ -152,7 +152,7 @@ fn retains_partner_declarations_across_reopen() {
 }
 
 #[test]
-fn refreshes_roles_without_elevating_inherited_scopes() {
+fn refreshes_roles_without_changing_captured_configuration() {
     use sailry_protocol::{
         RoleId,
         conversation::consent::{Approval, Origin, Scope, Scopes},
@@ -218,22 +218,13 @@ fn refreshes_roles_without_elevating_inherited_scopes() {
     };
     configured.endpoint = "https://changed.invalid".into();
     crate::store::providers::configuration::publish(db, &configured).unwrap();
-    assert_eq!(
-        crate::store::sessions::roles::refresh(db, &mut roster)
-            .unwrap_err()
-            .code,
-        ErrorCode::PermissionDenied
-    );
+    crate::store::sessions::roles::refresh(db, &mut roster).unwrap();
+    assert_eq!(roster.providers[0].endpoint, admitted.endpoint);
     let original = admitted.clone();
     capture(db, &mut admitted).unwrap();
     assert_eq!(admitted, original);
     assert!(crate::store::providers::consent::check(&admitted, Scope::Messages).is_ok());
-    assert_eq!(
-        crate::store::providers::consent::check(&admitted, Scope::Credentials)
-            .unwrap_err()
-            .code,
-        ErrorCode::PermissionDenied
-    );
+    crate::store::providers::consent::check(&admitted, Scope::Credentials).unwrap();
     configured.consent.as_mut().unwrap().scopes.messages = true;
     crate::store::providers::configuration::publish(db, &configured).unwrap();
     roster.providers[0] = original.clone();

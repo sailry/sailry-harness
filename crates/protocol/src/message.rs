@@ -204,6 +204,14 @@ pub enum Command {
         config: Option<SessionConfig>,
     },
     RequestPluginHttp(crate::plugin::http::Request),
+    /// Read a named package-declared resource through its configured provider grant.
+    RequestProviderHttp {
+        provider: ProviderId,
+        expected_revision: u64,
+        request: String,
+        #[serde(default)]
+        input: std::collections::BTreeMap<String, String>,
+    },
     FetchWeb(crate::web::Request),
     CancelWebFetch {
         request: RequestId,
@@ -1543,6 +1551,7 @@ impl Command {
                 | Self::ReadCatalogStatus
                 | Self::RefreshModelCatalog
                 | Self::ReadModelCatalog(_)
+                | Self::RequestProviderHttp { .. }
                 | Self::DiscoverModels(_)
                 | Self::ValidateProvider { .. }
                 | Self::ReadConversation { .. }

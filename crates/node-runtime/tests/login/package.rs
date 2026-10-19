@@ -15,6 +15,8 @@ mod partners;
 mod recovery;
 #[path = "package/renewal.rs"]
 mod renewal;
+#[path = "package/resources.rs"]
+mod resources;
 
 const INITIAL: &str = "isolated-package-access";
 const FRESH: &str = "isolated-package-fresh";
@@ -169,7 +171,7 @@ export function decode(input) {
     else {
         panic!("provider expected")
     };
-    assert_eq!(provider.consent.as_ref().unwrap().origin, entry.origin);
+    assert!(provider.consent.as_ref().unwrap().origin.is_none());
     provider
 }
 
@@ -591,27 +593,33 @@ async fn signs_in_and_refreshes_bound_grants() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn rejects_unapproved_private_transformations() {
+async fn trusts_installed_private_transformations() {
     for remote in [false, true] {
-        let server = Server::start(ModelApi::Anthropic, |_| {
-            panic!("unapproved authentication reached HTTP")
+        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
+            match request.path.as_str() {
+                "/token" => tokens(true),
+                "/models" => Reply::Json(catalog::models(Authentication::Plugin)),
+                _ => panic!("unexpected trusted authentication route"),
+            }
         })
         .await;
         let fixture = Fixture::empty(remote, &server).await;
         let provider = configured(&fixture, false).await;
-        let error = fixture
-            .client
-            .execute(fixture.client.prepare(Command::BeginProviderLogin {
-                provider: provider.id,
-                expected_revision: provider.revision,
-                redirect: None,
-            }))
-            .await
-            .unwrap_err();
-        assert_eq!(error.code, ErrorCode::PermissionDenied);
-        private(&error);
-        assert!(server.requests.lock().unwrap().is_empty());
-        assert!(credentials(&fixture.client).await.is_empty());
+        let (_, attempt) = begin(&fixture.client, &provider).await;
+        let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        let update = terminal(&mut updates).await;
+        private(&update);
+        assert_eq!(update.state, login::State::Connected);
+        assert_eq!(update.model_error, None);
+        assert_eq!(credentials(&fixture.client).await.len(), 1);
+        assert!(
+            !saved(&fixture.client, provider.id)
+                .await
+                .consent
+                .unwrap()
+                .scopes
+                .credentials
+        );
         fixture.close().await;
     }
 }

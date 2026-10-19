@@ -52,6 +52,7 @@ impl Host {
         let publish = self.clone();
         let events = self.clone();
         let http = self.clone();
+        let provider_http = self.clone();
         let notify = self.clone();
         let transaction = self.clone();
         let projects = self.clone();
@@ -87,6 +88,15 @@ impl Host {
                 notify.prepare_public(Command::PublishNotification {
                     package: notify.context().package, content,
                 })
+            })
+            .async_function("requestProviderHttp",move |args| {
+                let input=serde_json::from_value(decode(args.value(3)?)?)
+                    .map_err(|_|HostError::new("invalid provider HTTP input"))?;
+                provider_http.read_scoped(Command::RequestProviderHttp {
+                    provider:args.string(0)?.parse().map_err(HostError::new)?,
+                    expected_revision:revision(args.string(1)?)?,
+                    request:args.string(2)?.into(),input,
+                },true)
             })
             .function("requestHttp", move |args| {
                 let request = serde_json::from_value(decode(args.value(0)?)?)
