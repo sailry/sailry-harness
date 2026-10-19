@@ -110,11 +110,26 @@ impl Picker {
         // Keyed state invalidates its rendering owner; unchanged snapshots must not echo it.
         if rows
             .iter()
-            .map(|row| (row.key, row.parent, &row.name, row.status, row.order))
-            .eq(self
-                .rows
-                .iter()
-                .map(|row| (row.key, row.parent, &row.name, row.status, row.order)))
+            .map(|row| {
+                (
+                    row.key,
+                    row.parent,
+                    &row.name,
+                    row.status,
+                    row.order,
+                    &row.elapsed,
+                )
+            })
+            .eq(self.rows.iter().map(|row| {
+                (
+                    row.key,
+                    row.parent,
+                    &row.name,
+                    row.status,
+                    row.order,
+                    &row.elapsed,
+                )
+            }))
         {
             return;
         }
@@ -240,6 +255,18 @@ impl Render for Picker {
                                             })
                                             .child(row.name.clone()),
                                     )
+                                    .when_some(row.elapsed.clone(), |this, elapsed| {
+                                        this.child(
+                                            div()
+                                                .debug_selector(move || {
+                                                    format!("subagent-elapsed-{}", key.debug_id())
+                                                })
+                                                .flex_shrink_0()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .child(elapsed),
+                                        )
+                                    })
                                     .when(!row.running, |this| {
                                         this.child(
                                             div()
@@ -317,6 +344,7 @@ mod tests {
             running: false,
             icon: IconName::CircleUser,
             order,
+            elapsed: None,
         }
     }
 

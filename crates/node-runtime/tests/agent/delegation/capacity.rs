@@ -3,6 +3,7 @@ use super::*;
 use sailry_link::CancellationToken;
 
 mod fixture;
+mod observation;
 use fixture::Fixture;
 
 fn status(page: &Page, turn: TurnId) -> Status {

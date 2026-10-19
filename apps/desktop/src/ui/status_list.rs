@@ -32,7 +32,22 @@ pub(crate) struct Row {
     pub details: bool,
     #[serde(default)]
     pub highlight: bool,
+    #[serde(default = "animated")]
+    pub animated: bool,
 }
+
+fn animated() -> bool {
+    true
+}
+
+impl Row {
+    fn spinning(&self) -> bool {
+        self.animated && self.state == State::InProgress
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 #[derive(IntoElement)]
 pub(crate) struct Rows {
@@ -117,7 +132,7 @@ impl RenderOnce for Rows {
                         div()
                             .debug_selector(move || icon_key.clone())
                             .flex_shrink_0()
-                            .child(if row.state == State::InProgress {
+                            .child(if row.spinning() {
                                 Spinner::new()
                                     .ease(linear)
                                     .icon(icon)
@@ -143,7 +158,7 @@ impl RenderOnce for Rows {
                                 })
                             })
                             .debug_selector(move || label_key.clone())
-                            .child(if row.highlight {
+                            .child(if row.highlight && row.animated {
                                 shimmer::ShimmerText::new(row.text.clone())
                                     .id(shimmer_key)
                                     .into_any_element()

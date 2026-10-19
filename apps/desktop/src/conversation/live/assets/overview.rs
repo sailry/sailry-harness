@@ -9,6 +9,7 @@ pub(super) struct Overview {
     pub turn: Option<TurnId>,
     pub children: Vec<Row>,
     pub progress: Option<Progress>,
+    pub active: bool,
     pub sources: Vec<Citation>,
 }
 
@@ -44,6 +45,7 @@ impl Overview {
             turn: Some(turn),
             children: view.activity_rows(),
             progress,
+            active: view.history.connected && tools::progress::active(&snapshot.page, turn),
             sources,
         }
     }

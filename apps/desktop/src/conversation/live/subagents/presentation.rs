@@ -31,13 +31,22 @@ impl View {
                 Status::Running | Status::Stopping => IconName::LoaderCircle,
             },
             order: child.run.sequence,
+            elapsed: None,
         }
     }
 
     pub(in crate::conversation) fn activity_rows(&self) -> Vec<Row> {
         self.activity_children()
             .into_iter()
-            .map(|child| self.row(child))
+            .map(|child| {
+                let mut row = self.row(child);
+                row.elapsed = super::super::messages::elapsed(
+                    &child.run,
+                    chrono::Utc::now().timestamp_millis(),
+                )
+                .map(Into::into);
+                row
+            })
             .collect()
     }
 

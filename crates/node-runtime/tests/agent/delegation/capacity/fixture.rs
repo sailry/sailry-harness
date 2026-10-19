@@ -77,7 +77,7 @@ impl Fixture {
                             "task":{"type":"string"},"role":{"type":["string","null"]},"background":{"type":"boolean"}
                         }
                     }}
-                }]
+                }, {"name":"wait","description":"Observe an admitted fixture child","operation":"agents.wait","contexts":["workspace"]}]
             }}
         }).to_string()).unwrap();
         let Output::Plugin(info) = client
@@ -174,6 +174,39 @@ impl Fixture {
             child,
             remote,
         }
+    }
+
+    pub fn observation(&self, window: Duration) {
+        self.node.set_child_observation_fixture(window);
+    }
+
+    pub async fn waiter(&self, child: &Run) -> Server {
+        let server = Server::turn_tools(vec![(
+            plugin_tool("example", "wait"),
+            json!({"session":child.session,"turn":child.turn}),
+        )])
+        .await;
+        let Output::Providers(providers) = self
+            .client
+            .execute(self.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        let mut provider = providers
+            .into_iter()
+            .find(|provider| provider.id == self.parents[0].config.provider)
+            .unwrap();
+        provider.endpoint = server.endpoint.clone();
+        self.client
+            .execute(self.client.prepare(Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            }))
+            .await
+            .unwrap();
+        server
     }
 
     pub async fn capacity(&self, count: u64) {

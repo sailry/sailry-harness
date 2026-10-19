@@ -15,7 +15,7 @@ pub(super) fn status(run: &Run, connected: bool) -> &'static str {
     }
 }
 
-pub(super) fn elapsed(run: &Run, now_ms: i64) -> Option<String> {
+pub(in crate::conversation::live) fn elapsed(run: &Run, now_ms: i64) -> Option<String> {
     let started = run.started_ms?;
     let end = if active(run.status) {
         now_ms

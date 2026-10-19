@@ -33,6 +33,8 @@ pub(crate) struct Controls {
     active: Mutex<BTreeMap<TurnId, Active>>,
     children: Mutex<BTreeMap<(SessionId, SessionId), Child>>,
     changed: Notify,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) child_observation: Mutex<Option<std::time::Duration>>,
 }
 
 impl Controls {

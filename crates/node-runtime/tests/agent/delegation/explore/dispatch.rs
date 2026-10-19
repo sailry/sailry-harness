@@ -300,7 +300,9 @@ async fn rejects_captured_mutating_requests() {
             "{parent:?}"
         );
         let delegated = &results(&parent)[0];
-        assert_eq!(delegated["status"], "running");
+        assert_eq!(delegated["admitted"], true);
+        assert_eq!(delegated["pending"], true);
+        assert_eq!(delegated["status"], "queued");
         assert_eq!(delegated["session"], json!(child.id));
         assert_eq!(delegated["turn"], json!(run.turn));
         fixture.node.shutdown().await.unwrap();

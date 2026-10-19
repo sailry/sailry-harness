@@ -50,6 +50,12 @@ fn elapsed_execution_time() {
     ] {
         assert_eq!(elapsed(&run, now).as_deref(), Some(expected));
     }
+    run.status = Status::Queued;
+    run.started_ms = None;
+    assert_eq!(elapsed(&run, 900000), None);
+    run.status = Status::Running;
+    assert_eq!(elapsed(&run, 900000), None);
+    run.started_ms = Some(1000);
     run.status = Status::Completed;
     run.finished_ms = Some(71000);
     assert_eq!(elapsed(&run, 900000).as_deref(), Some("1m10s"));

@@ -33,11 +33,13 @@ pub(super) fn extend(module: HostModule) -> HostModule {
             /** List and card share content; fill_height controls either variant independently. */
             export const EmptyState: { new(id: string, props: { icon: string; label: string; variant?: "panel" | "list" | "card"; fill_height?: boolean; vertical_align?: "start" | "center" }): import("gpui-kit").Element };
             /** Optional plain body precedes rows in the same scroll region. Body and row text are bounded to 32768 UTF-8 bytes. Children form a fixed, right-aligned footer. */
-            export const StatusList: { new(id: string, props: { items: {id:string;text:string;state:"pending"|"in_progress"|"completed"|"skipped"|"paused"|"blocked"|"failed";details?:boolean}[]; body?: string; empty: string }): import("gpui-kit").Element };
+            export const StatusList: { new(id: string, props: { items: {id:string;text:string;state:"pending"|"in_progress"|"completed"|"skipped"|"paused"|"blocked"|"failed";details?:boolean;animated?:boolean}[]; body?: string; empty: string }): import("gpui-kit").Element };
             export const Loading: { new(id: string): import("gpui-kit").Element };
             export const InputSurface: { new(id: string): import("gpui-kit").Element };
             /** With header_action, the first child is the trailing header control. */
             export const SettingsGroup: { new(id: string, props: { title?: string; heading?: boolean; header_action?: boolean; variant?: "fill" | "outline" }): import("gpui-kit").Element };
+            /** Native application settings row; label is already localized and children form its trailing control. */
+            export const SettingsRow: { new(id: string, props: { label: string }): import("gpui-kit").Element };
             /** The shared centered 800px page, with a scrolling body and arbitrary children. */
             export const SettingsPage: { new(id: string, props: { title: string; description?: string }): import("gpui-kit").Element };
         "#
@@ -180,6 +182,22 @@ pub(super) fn extend(module: HostModule) -> HostModule {
                 .when(content, |header| header.bg(cx.theme().background))
                 .children(args.take_children())
                 .into_any_element()
+        })
+        // Kit 98a's SettingItem is a typed carrier consumed only by the full
+        // Settings hierarchy. Reuse the application row on standalone plugin pages.
+        .component("SettingsRow", |mut args, _, _| {
+            let label = args
+                .props()
+                .get("label")
+                .and_then(HostValue::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            crate::settings::group::Row::with_label(
+                args.id().to_owned(),
+                label,
+                div().children(args.take_children()),
+            )
+            .into_any_element()
         })
         .component("SettingsGroup", |mut args, _, cx| {
             let outline =

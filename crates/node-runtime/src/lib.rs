@@ -261,6 +261,12 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))?
     }
 
+    /// Shortens observation only in isolated lifecycle fixtures, never child execution.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_child_observation_fixture(&self, window: std::time::Duration) {
+        *self.ingress.agents.child_observation.lock().unwrap() = Some(window);
+    }
+
     /// Routes skill repository reads to an isolated HTTP fixture.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn start_with_skill_source(

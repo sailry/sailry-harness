@@ -33,6 +33,7 @@ pub(in crate::conversation) struct Row {
     pub running: bool,
     pub icon: IconName,
     pub order: u64,
+    pub elapsed: Option<SharedString>,
 }
 
 #[derive(Clone)]

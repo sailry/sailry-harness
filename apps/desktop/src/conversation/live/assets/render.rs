@@ -156,6 +156,7 @@ impl Assets {
                     &format!("overview-{}", overview.turn.unwrap()),
                     &plan,
                     false,
+                    overview.active,
                     cx,
                 ));
         } else {

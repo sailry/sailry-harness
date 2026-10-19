@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use sailry_protocol::conversation::Input;
 use serde_json::{Value, json};
 mod control;
+mod observation;
 mod scheduler;
 pub(super) mod selected;
 pub(in crate::agent) use control::Control;
@@ -97,14 +98,14 @@ struct Active {
     turn: TurnId,
 }
 
-struct Background {
+struct Child {
     ingress: Arc<Ingress>,
     parent: sailry_protocol::SessionId,
     child: sailry_protocol::SessionId,
     turn: TurnId,
 }
 
-impl Drop for Background {
+impl Drop for Child {
     fn drop(&mut self) {
         self.ingress
             .agents
@@ -149,6 +150,7 @@ impl Delegate {
         arguments: Value,
         original: Value,
     ) -> adk_core::Result<Value> {
+        let deadline = tokio::time::Instant::now() + observation::window(&self.ingress.agents);
         if context.session_id() != self.session
             || context.is_cancelled()
             || self.stop.is_cancelled()
@@ -164,17 +166,13 @@ impl Delegate {
             .get("background")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let stop = if background {
-            self.ingress.agents.stopped.child_token()
-        } else {
-            parent_stop.child_token()
-        };
+        // The session owns admitted work; an attached observer still cancels it on drop.
+        let stop = self.ingress.agents.stopped.child_token();
         let active = Active {
             ingress: self.ingress.clone(),
             turn: self.turn,
         };
-        // ADK timeout/drop cancels the child, while the supervisor retains cleanup ownership.
-        let _cancel = (!background).then(|| stop.clone().drop_guard());
+        let mut observer = observation::Observer::new(stop.clone(), background);
         let ingress = self.ingress.clone();
         let tasks = self.tasks.clone();
         let turn = self.turn;
@@ -189,28 +187,35 @@ impl Delegate {
         };
         let (admitted, admission) = tokio::sync::oneshot::channel();
         let task_stop = stop.clone();
+        let (deferred, mut defer) = tokio::sync::oneshot::channel();
         let result = self.tasks.spawn_child(&self.ingress.agents.stopped, async move {
             let stop = task_stop;
             let _cancel = stop.clone().drop_guard();
             let mut active = Some(active);
+            let mut observing = true;
             // A boundary handoff cancels one Runner, never the parent-owned operation.
             let mut token = stop.child_token();
             let mut invocation = ingress.delegate(turn, request, arguments, message, token.clone()).await?;
-            let _background = if background {
-                if parent_stop.is_cancelled() {
-                    stop.cancel();
-                }
-                ingress.agents.register_child(parent, invocation.turn.session, invocation.turn.id, stop.clone());
-                active.take();
-                Some(Background { ingress: ingress.clone(), parent, child: invocation.turn.session, turn: invocation.turn.id })
-            } else {
-                None
-            };
-            let _ = admitted.send(json!({"session":invocation.turn.session,"turn":invocation.turn.id,"status":"queued"}));
+            ingress.agents.register_child(parent, invocation.turn.session, invocation.turn.id, stop.clone());
+            let _child = Child { ingress: ingress.clone(), parent, child: invocation.turn.session, turn: invocation.turn.id };
+            if parent_stop.is_cancelled() { stop.cancel(); }
+            if background { active.take(); }
+            let _ = admitted.send((invocation.turn.session, invocation.turn.id));
             loop {
                 let session = invocation.turn.session;
                 let turn = invocation.turn.id;
-                let mut result = scheduler::run(&ingress, &tasks, invocation, token, stop.clone()).await;
+                let execution = scheduler::run(&ingress, &tasks, invocation, token, stop.clone());
+                tokio::pin!(execution);
+                let mut result = if active.is_some() && observing {
+                    tokio::select! {
+                        result = &mut execution => result,
+                        detached = &mut defer => {
+                            observing = false;
+                            if detached.is_ok() { active.take(); }
+                            execution.await
+                        }
+                    }
+                } else { execution.await };
                 let next_token = stop.child_token();
                 let next = if result.is_err() || stop.is_cancelled() || ingress.agents.stopped.is_cancelled() {
                     ingress.retain_guidance(turn).await?;
@@ -236,18 +241,59 @@ impl Delegate {
                 });
             }
         }).await.map_err(|_| AdkError::tool("child supervisor is unavailable"))?;
-        if background {
-            return match admission.await {
-                Ok(value) => Ok(value),
-                // Admission failures are returned by the supervised task, not
-                // represented as a successfully spawned child.
-                Err(_) => match result.await {
+        let (session, turn) = match admission.await {
+            Ok(ids) => ids,
+            Err(_) => {
+                return match result.await {
                     Ok(Err(error)) => Ok(json!({"isError":true,"error":error})),
                     _ => Err(AdkError::tool("child admission outcome is unknown")),
-                },
-            };
+                };
+            }
+        };
+        if background {
+            return Ok(
+                json!({"admitted":true,"pending":true,"session":session,"turn":turn,"status":"queued"}),
+            );
         }
-        match result.await {
+        let observed = observation::wait(
+            result,
+            &self.stop,
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+        )
+        .await
+        .map_err(|error| AdkError::tool(error.message))?;
+        let Some(result) = observed else {
+            // Releasing observation is not cancellation or a new execution admission.
+            observer.detach();
+            let state = self
+                .ingress
+                .child_state_at(self.turn, session, Some(turn))
+                .await;
+            let _ = deferred.send(());
+            return match state {
+                Ok(state)
+                    if matches!(
+                        state.run.status,
+                        Status::Queued | Status::Running | Status::Stopping
+                    ) =>
+                {
+                    Ok(observation::pending(&state.run))
+                }
+                Ok(state) => {
+                    self.ingress
+                        .collect_child(self.turn, session, turn)
+                        .await
+                        .map_err(|error| AdkError::tool(error.message))?;
+                    Ok(
+                        json!({"session":session,"turn":turn,"status":state.run.status,"response":state.response,"error":state.run.error}),
+                    )
+                }
+                Err(error) => Ok(
+                    json!({"admitted":true,"pending":true,"session":session,"turn":turn,"state_unavailable":true,"error":error}),
+                ),
+            };
+        };
+        match result {
             Ok(Ok(value)) => {
                 if let (Some(session), Some(turn)) = (value.get("session"), value.get("turn")) {
                     let session = serde_json::from_value(session.clone())

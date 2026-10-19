@@ -28,6 +28,7 @@ impl View {
                 let (completed, total) = tools::progress::counts(progress);
                 completed < total
             });
+        let animated = self.history.connected && self.active().is_some();
         let children = (!self.readonly())
             .then(|| self.child_activity(cx))
             .flatten();
@@ -84,7 +85,13 @@ impl View {
                             div()
                                 .debug_selector(|| "composer-todo-content".into())
                                 .w(px(320.).min(window.viewport_size().width - px(48.)))
-                                .child(tools::progress::list("composer-todo", &progress, false, cx))
+                                .child(tools::progress::list(
+                                    "composer-todo",
+                                    &progress,
+                                    false,
+                                    animated,
+                                    cx,
+                                ))
                         }),
                 )
             })

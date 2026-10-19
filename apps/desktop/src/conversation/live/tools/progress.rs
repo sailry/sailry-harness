@@ -17,6 +17,7 @@ pub(in crate::conversation::live) fn render(
     key: &str,
     progress: &Progress,
     continuing: bool,
+    animated: bool,
     cx: &App,
 ) -> AnyElement {
     div()
@@ -26,7 +27,10 @@ pub(in crate::conversation::live) fn render(
             let key = key.to_owned();
             move || format!("live-progress-card-{key}")
         })
-        .child(disclosure::body(rows(key, progress, continuing, true), cx))
+        .child(disclosure::body(
+            rows(key, progress, continuing, animated, true),
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -35,13 +39,29 @@ pub(in crate::conversation::live) fn list(
     key: &str,
     progress: &Progress,
     continuing: bool,
+    animated: bool,
     _cx: &App,
 ) -> AnyElement {
-    rows(key, progress, continuing, false)
+    rows(key, progress, continuing, animated, false)
 }
 
-fn rows(key: &str, progress: &Progress, continuing: bool, frame: bool) -> AnyElement {
-    let active = continuing
+pub(in crate::conversation::live) fn active(page: &Page, turn: TurnId) -> bool {
+    page.runs
+        .iter()
+        .any(|run| run.turn == turn && matches!(run.status, Status::Running | Status::Stopping))
+}
+
+#[cfg(test)]
+mod tests;
+
+fn rows(
+    key: &str,
+    progress: &Progress,
+    continuing: bool,
+    animated: bool,
+    frame: bool,
+) -> AnyElement {
+    let active = (continuing && animated)
         .then(|| {
             progress
                 .steps
@@ -75,6 +95,7 @@ fn rows(key: &str, progress: &Progress, continuing: bool, frame: bool) -> AnyEle
                             State::Skipped => crate::ui::status_list::State::Skipped,
                         },
                         details: false,
+                        animated,
                         highlight: active == Some(index),
                     })
                     .collect(),

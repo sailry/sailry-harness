@@ -280,6 +280,7 @@ impl View {
                     &key,
                     progress,
                     continuing || call.state == State::Running,
+                    self.history.connected && progress::active(page, call.turn),
                     cx,
                 )
             } else {

@@ -126,6 +126,7 @@ impl Tool for Control {
             if args.message.is_some() {
                 return Err(Fault::invalid("waiting does not accept a message"));
             }
+            let deadline = tokio::time::Instant::now() + observation::window(&self.ingress.agents);
             loop {
                 let state = self
                     .ingress
@@ -159,6 +160,7 @@ impl Tool for Control {
                 }
                 tokio::select! {
                     _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "child wait was cancelled")),
+                    _ = tokio::time::sleep_until(deadline) => return Ok(observation::pending(&state.run)),
                     _ = tokio::time::sleep(Duration::from_millis(25)) => {},
                 }
             }

@@ -191,7 +191,8 @@ impl RenderOnce for Group {
 
 #[derive(IntoElement)]
 pub struct Row {
-    key: &'static str,
+    key: SharedString,
+    label: SharedString,
     description: Option<SharedString>,
     control: AnyElement,
     wide: bool,
@@ -199,8 +200,17 @@ pub struct Row {
 
 impl Row {
     pub fn new(key: &'static str, control: impl IntoElement) -> Self {
+        Self::with_label(key, tr(key), control)
+    }
+
+    pub fn with_label(
+        key: impl Into<SharedString>,
+        label: impl Into<SharedString>,
+        control: impl IntoElement,
+    ) -> Self {
         Self {
-            key,
+            key: key.into(),
+            label: label.into(),
             description: None,
             control: control.into_any_element(),
             wide: false,
@@ -221,6 +231,9 @@ impl Row {
 impl RenderOnce for Row {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let key = self.key;
+        let label_key = key.clone();
+        let description_key = key.clone();
+        let control_key = key.clone();
         // Field places descriptions beneath its input column. Settings needs them
         // beneath the label, with a trailing control and wrapping wide inputs.
         let label = v_flex()
@@ -230,15 +243,15 @@ impl RenderOnce for Row {
             .when(self.wide, |label| label.min_w(px(160.)))
             .child(
                 h_flex()
-                    .debug_selector(move || format!("settings-label-{key}"))
+                    .debug_selector(move || format!("settings-label-{label_key}"))
                     .gap_2()
                     .text_color(cx.theme().group_box_foreground)
-                    .child(tr(key)),
+                    .child(self.label),
             )
             .when_some(self.description, |label, description| {
                 label.child(
                     div()
-                        .debug_selector(move || format!("settings-description-{key}"))
+                        .debug_selector(move || format!("settings-description-{description_key}"))
                         .text_color(cx.theme().muted_foreground)
                         .child(description),
                 )
@@ -253,7 +266,7 @@ impl RenderOnce for Row {
             .child(label)
             .child(
                 h_flex()
-                    .debug_selector(move || format!("settings-control-{key}"))
+                    .debug_selector(move || format!("settings-control-{control_key}"))
                     .flex_shrink_0()
                     .min_w_0()
                     .max_w_full()

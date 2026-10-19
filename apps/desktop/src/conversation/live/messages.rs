@@ -20,6 +20,7 @@ mod compaction;
 mod document;
 mod files;
 mod frame;
+pub(super) use frame::elapsed;
 mod grounding;
 mod user;
 mod work;

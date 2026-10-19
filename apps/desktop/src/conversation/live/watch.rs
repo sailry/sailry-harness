@@ -38,10 +38,15 @@ impl View {
     pub(super) fn refresh_clock(&mut self, cx: &mut Context<Self>) {
         let active = self.history.connected
             && self.history.snapshot.as_ref().is_some_and(|snapshot| {
-                snapshot.page.runs.iter().any(|run| {
-                    run.started_ms.is_some()
-                        && matches!(run.status, Status::Running | Status::Stopping)
-                })
+                snapshot
+                    .page
+                    .runs
+                    .iter()
+                    .chain(snapshot.page.children.iter().map(|child| &child.run))
+                    .any(|run| {
+                        run.started_ms.is_some()
+                            && matches!(run.status, Status::Running | Status::Stopping)
+                    })
             });
         if !active {
             self.clock = None;
