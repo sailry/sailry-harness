@@ -97,6 +97,7 @@ async fn restores_branch_history() {
         let (_, first, before) =
             submit(&fixture.client, fixture.session.id, original.clone()).await;
         assert_eq!(summaries(&before), 0);
+        let measured = super::budget::statistics(&fixture).await;
         let (request, turn) = compact(&fixture.client, fixture.session.id, 1).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(summaries(&page), 1);
@@ -124,6 +125,28 @@ async fn restores_branch_history() {
         };
         assert_eq!(snapshot.statistics.turns, 1);
         assert_eq!(snapshot.statistics.responses, 3);
+        assert_eq!(snapshot.statistics.context_tokens, None);
+        assert!(
+            snapshot
+                .statistics
+                .context_estimate
+                .is_some_and(|tokens| tokens > 0)
+        );
+        assert!(
+            snapshot
+                .statistics
+                .context_limit
+                .is_some_and(|limit| limit > 0)
+        );
+        assert!(
+            snapshot.statistics.usage.as_ref().unwrap().input
+                >= measured.usage.as_ref().unwrap().input
+        );
+        assert!(
+            snapshot.statistics.usage.as_ref().unwrap().output
+                >= measured.usage.as_ref().unwrap().output
+        );
+        let estimated = snapshot.statistics.clone();
         drop(stream);
         let (_, noop) = compact(&fixture.client, fixture.session.id, 1).await;
         let unchanged = finished(&fixture.client, fixture.session.id, noop.id).await;
@@ -161,6 +184,15 @@ async fn restores_branch_history() {
         );
         assert_eq!(server.requests.lock().unwrap().len(), 3);
         usage(&client, 3).await;
+        let mut updates = client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        let Update::ConversationSnapshot(reopened) = updates.next().await.unwrap() else {
+            panic!("snapshot expected")
+        };
+        assert_eq!(reopened.statistics, estimated);
+        drop(updates);
         // A new summary on an early branch belongs to that branch's maintenance turn.
         let (_, branch_turn) = compact(&client, branches[0].id, 1).await;
         let branch_page = finished(&client, branches[0].id, branch_turn.id).await;

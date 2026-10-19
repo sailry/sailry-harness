@@ -102,6 +102,7 @@ fn rejects_changed_capture_and_private_runs() {
     );
     let mut invalid = snapshot.clone();
     Arc::make_mut(&mut invalid.page).runs[0].status = Status::Queued;
+    Arc::make_mut(&mut invalid.page).runs[0].notice = true;
     let mut fresh = Projection::new(snapshot.node, snapshot.page.session, 1);
     assert!(
         fresh
@@ -164,5 +165,44 @@ fn reconnect_restores_capture_with_same_turn() {
     assert_eq!(
         super::super::super::turns::input(&current.page, run.turn),
         run.input
+    );
+}
+
+#[test]
+fn preserves_queued_child_input_through_claim() {
+    let (mut projection, mut snapshot, mut run, _) = fixture();
+    run.status = Status::Queued;
+    run.input = Some(SentInput {
+        message: "Independent child task 中文 🙂".into(),
+        attachments: Vec::new(),
+    });
+    Arc::make_mut(&mut snapshot.page).runs[0] = run.clone();
+    projection
+        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .unwrap();
+    let original =
+        super::super::super::turns::input(&projection.snapshot().unwrap().page, run.turn).unwrap();
+    run.status = Status::Running;
+    projection
+        .apply(1, frame(&snapshot, 11, Change::Run(run.clone())))
+        .unwrap();
+    assert_eq!(
+        super::super::super::turns::input(&projection.snapshot().unwrap().page, run.turn),
+        Some(original.clone())
+    );
+    let mut changed = run;
+    changed.input.as_mut().unwrap().message.text =
+        "Parent prompt must not replace child input".into();
+    assert!(
+        projection
+            .apply(1, frame(&snapshot, 12, Change::Run(changed)))
+            .is_err()
+    );
+    assert_eq!(
+        super::super::super::turns::input(
+            &projection.snapshot().unwrap().page,
+            snapshot.page.runs[0].turn
+        ),
+        Some(original)
     );
 }

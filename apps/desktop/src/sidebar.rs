@@ -214,7 +214,7 @@ impl Shell {
                                         .px_2()
                                         .gap_1()
                                         .text_sm()
-                                        .text_color(cx.theme().sidebar_foreground.opacity(0.5))
+                                        .text_color(cx.theme().muted_foreground.opacity(0.7))
                                         .on_hover(cx.listener(|shell, hovered, _, cx| {
                                             if *hovered {
                                                 shell.sidebar.hovered = Some(Row::Hosts);
@@ -329,7 +329,7 @@ impl Shell {
                                         .px_2()
                                         .gap_1()
                                         .text_sm()
-                                        .text_color(cx.theme().sidebar_foreground.opacity(0.5))
+                                        .text_color(cx.theme().muted_foreground.opacity(0.7))
                                         .on_hover(cx.listener(|shell, hovered, _, cx| {
                                             if *hovered {
                                                 shell.sidebar.hovered = Some(Row::Projects);
@@ -520,7 +520,7 @@ impl Shell {
             .px_2()
             .flex_shrink_0()
             .text_sm()
-            .text_color(cx.theme().sidebar_foreground.opacity(0.5))
+            .text_color(cx.theme().muted_foreground.opacity(0.7))
             .child(tr(key))
     }
 

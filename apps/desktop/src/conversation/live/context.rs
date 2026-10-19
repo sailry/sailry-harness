@@ -88,19 +88,32 @@ impl View {
                 form,
                 cx,
             ))
-            .when(!footer.is_empty(), |bar| {
-                bar.child(super::super::usage::render_groups(
-                    &footer,
-                    "composer-footer-metrics",
-                    cx,
-                ))
-            })
-            .when(!statistics.is_empty(), |bar| {
-                bar.child(if self.compact_composer {
-                    super::super::usage::compact(statistics, cx)
-                } else {
-                    super::super::usage::render_groups(&statistics, "composer-stats", cx)
-                })
+            .when(!footer.is_empty() || !statistics.is_empty(), |bar| {
+                bar.child(
+                    h_flex()
+                        .ml_auto()
+                        .min_w_0()
+                        .gap_3()
+                        .flex_wrap()
+                        .when(!footer.is_empty(), |metrics| {
+                            metrics.child(super::super::usage::render_groups(
+                                &footer,
+                                "composer-footer-metrics",
+                                cx,
+                            ))
+                        })
+                        .when(!statistics.is_empty(), |metrics| {
+                            metrics.child(if self.compact_composer {
+                                super::super::usage::compact(statistics, cx)
+                            } else {
+                                super::super::usage::render_groups(
+                                    &statistics,
+                                    "composer-stats",
+                                    cx,
+                                )
+                            })
+                        }),
+                )
             })
             .into_any_element()
     }

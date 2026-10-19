@@ -473,7 +473,6 @@ fn valid_run(run: &conversation::Run, session: SessionId) -> bool {
         && run.sequence > 0
         && run.input.as_ref().is_none_or(|input| {
             run.kind == conversation::RunKind::Task
-                && run.status != Status::Queued
                 && run.continuation.is_none()
                 && !run.notice
                 && input

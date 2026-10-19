@@ -17,6 +17,7 @@ pub struct State {
     parse: Option<Task<()>>,
     failed: bool,
     rows: usize,
+    missing_newline_visible: bool,
 }
 
 impl State {
@@ -30,7 +31,14 @@ impl State {
             parse: None,
             failed: false,
             rows: 0,
+            missing_newline_visible: true,
         }
+    }
+
+    /// Hides only Kit's missing-newline metadata label; source and copy remain exact.
+    pub fn missing_newline_visible(mut self, visible: bool) -> Self {
+        self.missing_newline_visible = visible;
+        self
     }
 
     pub fn set_patch(&mut self, text: &str, path: &str, added: bool, cx: &mut Context<Self>) {
@@ -123,6 +131,7 @@ impl Render for State {
         }
         Diff::new(&self.diff)
             .header_visible(false)
+            .missing_newline_visible(self.missing_newline_visible)
             .hunk_separator(DiffHunkSeparator::Simple)
             .border_0()
             .bg(super::background(cx))

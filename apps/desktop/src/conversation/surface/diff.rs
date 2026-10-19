@@ -68,7 +68,7 @@ impl RenderOnce for FileRows {
         } = self;
         let state =
             window.use_keyed_state(SharedString::from(format!("diff-{id}")), cx, |_, cx| {
-                crate::content::diff::State::new(cx)
+                crate::content::diff::State::new(cx).missing_newline_visible(false)
             });
         state.update(cx, |state, cx| state.set_patch(&text, &path, added, cx));
         let (added, removed, _) = state.read(cx).summary(cx);

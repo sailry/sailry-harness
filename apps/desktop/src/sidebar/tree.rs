@@ -243,16 +243,14 @@ impl Shell {
             |target| self.splits.read(cx).parent(target),
             |target| self.splits.read(cx).ordered_members(target, cx),
         );
-        let group = project_id.map(|project| limits::Group::Project(node, project));
+        let group = project_id.map_or(limits::Group::Unassigned(node), |project| {
+            limits::Group::Project(node, project)
+        });
         let rows = rows
             .into_iter()
             .filter(|row| row.project == project_id)
             .collect();
-        let (rows, more) = if let Some(group) = group {
-            window(rows, self.sidebar.sessions_expanded(group))
-        } else {
-            (rows, false)
-        };
+        let (rows, more) = window(rows, self.sidebar.sessions_expanded(group));
         v_flex()
             .gap_0p5()
             .children(
@@ -300,7 +298,7 @@ impl Shell {
                         Target::Draft => unreachable!(),
                     }),
             )
-            .children(group.and_then(|group| self.more_sessions(group, more, cx)))
+            .children(self.more_sessions(group, more, cx))
             .into_any_element()
     }
 }

@@ -249,6 +249,15 @@ fn estimates_only_after_summary_reset() {
         .unwrap();
     assert!(!usage.observed);
     assert_eq!(usage.tokens, 0);
+    let totals = read(&fixture.database.connection, fixture.session).unwrap();
+    assert_eq!(totals.context_tokens, None);
+    assert_eq!(
+        totals.context_estimate,
+        Some(crate::agent::estimate_context(&usage.pending))
+    );
+    assert!(totals.context_estimate.unwrap() > 0);
+    assert_eq!(totals.usage.as_ref().unwrap().input, 14_000);
+    assert_eq!(totals.usage.as_ref().unwrap().output, 10);
     assert!(
         usage.pending[0].content().unwrap().parts[0]
             .text()
@@ -271,6 +280,12 @@ fn estimates_only_after_summary_reset() {
             .is_none()
     );
     fixture.append([event(40, 8)]);
+    assert_eq!(
+        read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .context_estimate,
+        None
+    );
     assert!(
         context_usage(&fixture.database.connection, fixture.session)
             .unwrap()

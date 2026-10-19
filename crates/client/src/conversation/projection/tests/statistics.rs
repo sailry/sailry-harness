@@ -71,7 +71,9 @@ fn leaves_old_context_limits_unknown() {
     })
     .unwrap();
     value.as_object_mut().unwrap().remove("context_limit");
+    value.as_object_mut().unwrap().remove("context_estimate");
     let statistics: Statistics = serde_json::from_value(value).unwrap();
     assert_eq!(statistics.context_tokens, Some(100));
     assert_eq!(statistics.context_limit, None);
+    assert_eq!(statistics.context_estimate, None);
 }

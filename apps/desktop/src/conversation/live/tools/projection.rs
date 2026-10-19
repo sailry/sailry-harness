@@ -77,6 +77,9 @@ pub(super) fn group(
                     false,
                     cx,
                 )
+                .text_size(cx.theme().typography_tokens().sm.size)
+                .font_normal()
+                .font_family(cx.theme().mono_font_family.clone())
                 .on_click(cx.listener(move |_, _, _, cx| {
                     if let Some(worktree) = worktree {
                         cx.emit(Event::FileAt(worktree, path.to_string()));

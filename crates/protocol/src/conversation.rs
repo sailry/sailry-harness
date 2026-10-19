@@ -182,7 +182,7 @@ pub struct Run {
     pub notice: bool,
     #[serde(default)]
     pub notices: Vec<background::Notice>,
-    /// Claimed ordinary input until canonical user history is available.
+    /// Frozen admitted task input until canonical user history is available, including queued work.
     /// Included only in the owning conversation, never in activity summaries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<SentInput>,
@@ -400,9 +400,13 @@ pub struct Statistics {
     /// Absent when no response reported token usage.
     pub usage: Option<Usage>,
     /// Latest model response's input plus output, not cumulative session usage.
-    /// An estimate of occupied context; unknown after compaction or an unmetered response.
+    /// Provider observation only; absent after compaction or an unmetered response.
     pub context_tokens: Option<u64>,
-    /// Context limit captured by the model response that supplied context_tokens.
+    /// Bounded text estimate of the resumed window after a persisted summary.
+    /// Separate from provider observations and cumulative billed token usage.
+    #[serde(default)]
+    pub context_estimate: Option<u64>,
+    /// Frozen model limit paired with the observation or summarized window.
     /// Missing historical metadata remains unknown, never a current-provider fallback.
     #[serde(default)]
     pub context_limit: Option<u32>,

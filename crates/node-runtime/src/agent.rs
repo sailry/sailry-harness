@@ -4,6 +4,7 @@ mod approval;
 pub(crate) mod attachments;
 mod catalog;
 mod compaction;
+pub(crate) use compaction::estimate::tokens as estimate_context;
 pub(crate) mod completion;
 mod controls;
 mod delegation;

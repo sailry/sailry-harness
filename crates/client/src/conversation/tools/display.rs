@@ -211,7 +211,15 @@ pub(super) fn resolve(call: &Call, page: &Page) -> Option<Resolved> {
                             text.text = command::format(&text.text, &display.unwrap().aliases);
                         }
                         Some(sailry_protocol::tool::InputFormat::Session) => {
-                            text.text = session_title(&text.text, page)?.into_owned();
+                            text.text = session_title(&text.text, page)
+                                .map(Cow::into_owned)
+                                .or_else(|| {
+                                    field
+                                        .names
+                                        .get(&text.text)
+                                        .filter(|name| !name.trim().is_empty())
+                                        .cloned()
+                                })?;
                         }
                         Some(sailry_protocol::tool::InputFormat::Connection) | None => {}
                     }

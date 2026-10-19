@@ -53,7 +53,7 @@ fn original_evidence(fixture: &Fixture, page: &Page) {
     }
 }
 
-async fn statistics(fixture: &Fixture) -> Statistics {
+pub(super) async fn statistics(fixture: &Fixture) -> Statistics {
     let mut updates = fixture
         .client
         .subscribe_conversation(fixture.session.id)

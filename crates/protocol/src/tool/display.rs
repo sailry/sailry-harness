@@ -151,7 +151,11 @@ impl Field {
             && self.omit.len() <= 16
             && self.omit.iter().all(|value| value.len() <= 256)
             && self.result_path.as_deref().is_none_or(valid_pointer)
-            && (self.names.is_empty() || self.format == Some(InputFormat::Connection))
+            && (self.names.is_empty()
+                || matches!(
+                    self.format,
+                    Some(InputFormat::Connection | InputFormat::Session)
+                ))
             && self.names.iter().all(|(id, name)| {
                 !id.is_empty()
                     && !id.chars().any(char::is_control)

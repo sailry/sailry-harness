@@ -6,6 +6,8 @@ pub(super) const INITIAL: usize = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum Group {
+    Active(NodeId),
+    Unassigned(NodeId),
     Project(NodeId, ProjectId),
     PreviewProject(usize, usize),
 }
@@ -50,7 +52,7 @@ impl Shell {
                         .min_w_0()
                         .text_left()
                         .text_ellipsis()
-                        .text_color(cx.theme().muted_foreground)
+                        .text_color(cx.theme().muted_foreground.opacity(0.7))
                         .child(label),
                 )
                 .on_click(cx.listener(move |shell, _, _, cx| {
@@ -85,6 +87,12 @@ mod tests {
             state.session_limit(Group::Project(NodeId([2; 32]), project)),
             INITIAL
         );
+        for group in [Group::Active(node), Group::Unassigned(node)] {
+            assert_eq!(state.session_limit(group), INITIAL);
+            state.expanded_sessions.insert(group);
+            assert_eq!(state.session_limit(group), usize::MAX);
+            assert_eq!(state.session_limit(Group::Active(NodeId([2; 32]))), INITIAL);
+        }
         assert!(state.closed_groups.is_empty());
     }
 }

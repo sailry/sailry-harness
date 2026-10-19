@@ -14,19 +14,12 @@ fn status(page: &Page, turn: TurnId) -> Status {
         .status
 }
 
-async fn visible(client: &Client, run: &Run) {
+async fn visible(client: &Client, run: &Run, expected: &sailry_protocol::conversation::Input) {
     let page = history(client, run.session).await;
     assert_eq!(status(&page, run.turn), run.status);
-    if run.status == Status::Queued {
-        assert!(
-            page.runs
-                .iter()
-                .find(|value| value.turn == run.turn)
-                .unwrap()
-                .input
-                .is_none()
-        );
-    }
+    let input = sailry_client::conversation::turns::input(&page, run.turn).unwrap();
+    assert_eq!(&input.message, expected);
+    let captured = input.message.clone();
     let mut updates = client.subscribe_conversation(run.session).await.unwrap();
     let mut projection =
         sailry_client::conversation::Projection::new(client.target(), run.session, 0);
@@ -37,6 +30,12 @@ async fn visible(client: &Client, run: &Run) {
     assert_eq!(
         status(&projection.snapshot().unwrap().page, run.turn),
         run.status
+    );
+    assert_eq!(
+        sailry_client::conversation::turns::input(&projection.snapshot().unwrap().page, run.turn)
+            .unwrap()
+            .message,
+        captured
     );
 }
 
@@ -71,8 +70,27 @@ async fn isolates_parent_budgets() {
             assert_eq!(group[0].status, Status::Running);
             assert!(group[1..].iter().all(|run| run.status == Status::Queued));
         }
+        let mut inputs = std::collections::BTreeMap::new();
+        for parent in &fixture.parents {
+            let page = history(&fixture.client, parent.id).await;
+            for child in &page.children {
+                assert_eq!(child.origin.session, parent.id);
+                let entry = page
+                    .entries
+                    .iter()
+                    .find(|entry| entry.id == child.origin.entry)
+                    .unwrap();
+                let Part::ToolCall { arguments, .. } = &entry.parts[child.origin.index] else {
+                    panic!("origin call expected")
+                };
+                let input =
+                    sailry_protocol::conversation::Input::from(arguments["task"].as_str().unwrap());
+                assert!(inputs.insert(child.run.turn, input).is_none());
+            }
+        }
+        assert_eq!(inputs.len(), original.len());
         for run in &original {
-            visible(&fixture.client, run).await;
+            visible(&fixture.client, run, &inputs[&run.turn]).await;
         }
         fixture.child.wait_count(2).await;
         assert_eq!(fixture.child.requests.lock().unwrap().len(), 2);
@@ -114,7 +132,7 @@ async fn isolates_parent_budgets() {
             assert_eq!(group[2].status, Status::Queued);
         }
         for run in &expanded {
-            visible(&fixture.client, run).await;
+            visible(&fixture.client, run, &inputs[&run.turn]).await;
         }
         fixture.child.wait_count(4).await;
         fixture.capacity(1).await;
@@ -130,13 +148,19 @@ async fn isolates_parent_budgets() {
         release.cancel();
         for run in &original {
             let page = finished(&fixture.client, run.session, run.turn).await;
+            assert_eq!(
+                sailry_client::conversation::turns::input(&page, run.turn)
+                    .unwrap()
+                    .message,
+                inputs[&run.turn]
+            );
             assert_eq!(status(&page, run.turn), Status::Completed);
             let completed = page
                 .runs
                 .iter()
                 .find(|value| value.turn == run.turn)
                 .unwrap();
-            visible(&fixture.client, completed).await;
+            visible(&fixture.client, completed, &inputs[&run.turn]).await;
         }
         for capture in captures {
             assert_eq!(

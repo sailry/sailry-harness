@@ -25,7 +25,7 @@ pub(super) fn request(request: &LlmRequest) -> adk_core::Result<u64> {
             .sum::<u64>())
 }
 
-pub(super) fn tokens(events: &[Event]) -> u64 {
+pub(crate) fn tokens(events: &[Event]) -> u64 {
     events
         .iter()
         .filter_map(Event::content)

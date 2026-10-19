@@ -478,6 +478,7 @@ fn summary(call: &Call, page: &Page) -> Summary {
             }
         });
     let mut detail = declared.unwrap_or_else(|| Detail::plain(target));
+    detail.secondary = true;
     detail.state = if call.state == State::Returned && !denied {
         detail.state.or_else(|| state.map(tr))
     } else {

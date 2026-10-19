@@ -25,6 +25,15 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
     let observation = observation(db, session)?;
     let context_tokens = observation.as_ref().and_then(|value| value.tokens);
     let context_limit = observation.as_ref().and_then(|value| value.context_limit);
+    let context_estimate = if observation.as_ref().is_some_and(|value| value.summary) {
+        context_usage(db, session)?.map(|usage| {
+            usage
+                .tokens
+                .saturating_add(crate::agent::estimate_context(&usage.pending))
+        })
+    } else {
+        None
+    };
     let first_token_us = observation.as_ref().and_then(|value| value.first_token_us);
     db.query_row(TOTALS, [session.to_string()], |row| {
         let responses = row.get::<_, i64>(0)? as u64;
@@ -43,6 +52,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
             responses,
             usage,
             context_tokens,
+            context_estimate,
             context_limit,
             first_token_us,
             cost: metrics.cost.clone(),
@@ -156,7 +166,9 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation
             Ok(Observation {
                 summary: row.get(4)?,
                 sequence: row.get(0)?,
-                context_limit: if tokens.is_some() { row.get::<_, Option<u32>>(3)?.filter(|limit| *limit > 0) } else { None },
+                context_limit: if tokens.is_some() || row.get::<_, bool>(4)? {
+                    row.get::<_, Option<u32>>(3)?.filter(|limit| *limit > 0)
+                } else { None },
                 tokens,
                 first_token_us: row.get::<_, Option<i64>>(2)?.map(|value| value as u64),
             })

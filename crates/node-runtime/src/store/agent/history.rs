@@ -79,6 +79,16 @@ pub(super) fn insert(
         event.llm_response.error_message = Some("model response reported an error".into());
     }
     super::approvals::results::append(db, turn, &mut event)?;
+    let previous: Option<(String, Vec<u8>)> = db.query_row(
+        "SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2",
+        params![session.to_string(),event.id],|row| Ok((row.get(0)?,row.get(1)?)),
+    ).optional().map_err(storage_error)?;
+    super::presentation::capture_names(
+        db,
+        session,
+        &mut event,
+        previous.as_ref().map(|(_, body)| body.as_slice()),
+    )?;
     let body = encode(&event)?;
     if body.len() > MAX_FRAME_BYTES {
         return Err(Fault::invalid("event exceeds the history frame limit"));
@@ -93,10 +103,6 @@ pub(super) fn insert(
     if !owns {
         return Err(Fault::invalid("event turn belongs to another session"));
     }
-    let previous: Option<(String, Vec<u8>)> = db.query_row(
-        "SELECT e.turn,e.body FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn WHERE h.session=?1 AND e.id=?2",
-        params![session.to_string(),event.id],|row| Ok((row.get(0)?,row.get(1)?)),
-    ).optional().map_err(storage_error)?;
     if let Some((previous_turn, previous)) = previous {
         // JSON maps need not retain insertion order across a process restart.
         if previous_turn != turn.to_string()

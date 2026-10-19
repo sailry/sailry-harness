@@ -13,9 +13,17 @@ impl Shell {
             })
             .map(|(_, session)| session)
             .collect();
-        let count = sessions.len();
+        let group = self
+            .live
+            .as_ref()
+            .map(|live| limits::Group::Active(live.selected));
+        let more = sessions.len() > limits::INITIAL;
+        let count = sessions
+            .len()
+            .min(group.map_or(limits::INITIAL, |group| self.sidebar.session_limit(group)));
         let rows: Vec<_> = sessions
             .into_iter()
+            .take(count)
             .enumerate()
             .map(|(index, session)| {
                 self.live_session_row(
@@ -32,7 +40,6 @@ impl Shell {
         Collapsible::new()
             .open(open)
             .flex_shrink_0()
-            .max_h(px(192.))
             .child(
                 gpui_kit::base::AccordionTrigger::new("active-toggle")
                     .open(open)
@@ -43,7 +50,7 @@ impl Shell {
                     .px_2()
                     .gap_1()
                     .text_sm()
-                    .text_color(cx.theme().sidebar_foreground.opacity(0.5))
+                    .text_color(cx.theme().muted_foreground.opacity(0.7))
                     .aria_label(tr("active_sessions"))
                     .debug_selector(|| "active-toggle".into())
                     .on_hover(cx.listener(|shell, hovered, _, cx| {
@@ -93,6 +100,7 @@ impl Shell {
                             .flex_none()
                             .gap_0p5()
                             .children(rows)
+                            .children(group.and_then(|group| self.more_sessions(group, more, cx)))
                             .when(empty, |list| {
                                 list.child(super::branch_empty(
                                     "active-sessions-empty",

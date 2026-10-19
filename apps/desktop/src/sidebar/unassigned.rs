@@ -36,7 +36,7 @@ impl Shell {
                     .px_2()
                     .gap_1()
                     .text_sm()
-                    .text_color(cx.theme().sidebar_foreground.opacity(0.5))
+                    .text_color(cx.theme().muted_foreground.opacity(0.7))
                     .debug_selector(|| "unassigned-sessions".into())
                     .on_hover(cx.listener(|shell, hovered, _, cx| {
                         if *hovered {
@@ -60,7 +60,7 @@ impl Shell {
                             .icon(
                                 Icon::new(IconName::Plus)
                                     .size(px(14.))
-                                    .text_color(cx.theme().sidebar_foreground.opacity(0.5)),
+                                    .text_color(cx.theme().muted_foreground.opacity(0.7)),
                             )
                             .when(self.sidebar.hovered != Some(Row::Unassigned), |button| {
                                 button.opacity(0.).focus(|style| style.opacity(1.))

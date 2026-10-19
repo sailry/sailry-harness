@@ -374,6 +374,104 @@ mod session_summary {
     }
 
     #[test]
+    fn retains_names_without_loaded_spawn_pages() {
+        let mut page = fixture(Some("A"), None);
+        let session = page.children[0].run.session.to_string();
+        let Part::ToolCall { display, .. } = &mut page.entries[1].parts[0] else {
+            unreachable!()
+        };
+        display
+            .as_mut()
+            .unwrap()
+            .input
+            .as_mut()
+            .unwrap()
+            .summary
+            .as_mut()
+            .unwrap()
+            .names
+            .insert(session.clone(), "Captured A".into());
+        assert_eq!(summary(&page).as_deref(), Some("A"));
+        page.entries.remove(0);
+        page.children.clear();
+        assert_eq!(summary(&page).as_deref(), Some("Captured A"));
+        let Part::ToolCall { arguments, .. } = &mut page.entries[0].parts[0] else {
+            unreachable!()
+        };
+        arguments["session"] = serde_json::json!(SessionId::new());
+        assert_eq!(summary(&page), None);
+    }
+
+    #[test]
+    fn matches_reversed_results_by_identity() {
+        let mut page = fixture(Some("A"), None);
+        let source = page.entries[1].clone();
+        let mut calls = Vec::new();
+        for (index, title) in ["A", "B", "C"].into_iter().enumerate() {
+            let mut call = source.clone();
+            call.id = format!("wait-{title}");
+            call.sequence = 2 + index as u64;
+            let Part::ToolCall {
+                id,
+                arguments,
+                display,
+                ..
+            } = &mut call.parts[0]
+            else {
+                unreachable!()
+            };
+            *id = Some(format!("call-{title}"));
+            let session = SessionId::new();
+            *arguments = serde_json::json!({"session":session});
+            display
+                .as_mut()
+                .unwrap()
+                .input
+                .as_mut()
+                .unwrap()
+                .summary
+                .as_mut()
+                .unwrap()
+                .names
+                .insert(session.to_string(), title.into());
+            calls.push((call, session, title));
+        }
+        page.entries = calls.iter().map(|(call, _, _)| call.clone()).collect();
+        page.children.clear();
+        for (index, (_, session, title)) in calls.iter().rev().enumerate() {
+            let mut response = source.clone();
+            response.id = format!("result-{title}");
+            response.sequence = 5 + index as u64;
+            response.parts[0] = Part::ToolResult {
+                id: Some(format!("call-{title}")),
+                name: "package_wait".into(),
+                result: serde_json::json!({"session":session,"status":"completed","response":format!("{title} complete")}),
+                images: Vec::new(),
+            };
+            page.entries.push(response);
+        }
+        let projected = collect(&page);
+        assert_eq!(projected.len(), 3);
+        for ((call, session, title), actual) in calls.iter().zip(projected) {
+            assert_eq!(actual.source.entry, call.id);
+            assert_eq!(
+                actual
+                    .resolved
+                    .as_ref()
+                    .unwrap()
+                    .input
+                    .summary
+                    .as_ref()
+                    .unwrap()
+                    .text,
+                *title
+            );
+            let result = actual.result(&page).unwrap();
+            assert_eq!(result["session"], session.to_string());
+            assert_eq!(result["response"], format!("{title} complete"));
+        }
+    }
+    #[test]
     fn preserves_captured_unformatted_recipes() {
         let mut page = fixture(Some("Known task"), None);
         let Part::ToolCall { display, .. } = &mut page.entries[1].parts[0] else {
