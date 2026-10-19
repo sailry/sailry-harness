@@ -4,6 +4,7 @@ use sailry_protocol::{file_browser::*, *};
 use std::path::{Path, PathBuf};
 
 mod actions;
+mod volumes;
 pub(crate) use actions::{execute, targets};
 #[cfg(test)]
 mod tests;
@@ -13,7 +14,7 @@ pub(super) fn list(
     after: Option<&DirectoryCursor>,
     control: &Control,
 ) -> Result<Listing, Fault> {
-    let locations = locations();
+    let locations = locations()?;
     let path = selected
         .map(PathBuf::from)
         .or_else(dirs::home_dir)
@@ -34,7 +35,7 @@ pub(super) fn list(
     })
 }
 
-fn locations() -> Vec<Location> {
+fn locations() -> Result<Vec<Location>, Fault> {
     let mut locations = Vec::new();
     for (kind, path) in [
         (LocationKind::Home, dirs::home_dir()),
@@ -52,19 +53,7 @@ fn locations() -> Vec<Location> {
             });
         }
     }
-    let disks =
-        sysinfo::Disks::new_with_refreshed_list_specifics(sysinfo::DiskRefreshKind::nothing());
-    add_volumes(
-        &mut locations,
-        disks.list().iter().filter_map(|disk| {
-            text(disk.mount_point()).ok().map(|path| Location {
-                kind: LocationKind::Volume,
-                name: disk.name().to_string_lossy().into_owned(),
-                path,
-            })
-        }),
-        cfg!(target_os = "macos"),
-    );
+    add_volumes(&mut locations, volumes::list()?, cfg!(target_os = "macos"));
     if let Some(home) = dirs::home_dir()
         && let Some(root) = home.ancestors().last()
         && let Ok(path) = text(root)
@@ -76,7 +65,7 @@ fn locations() -> Vec<Location> {
             path,
         });
     }
-    locations
+    Ok(locations)
 }
 
 fn add_volumes(
