@@ -47,11 +47,11 @@ sailry-content = { path = "crates/content" }
 objc2-application-services = { version = "=0.3.2", default-features = false, features = ["std", "libc", "HIServices", "AXUIElement", "AXError", "AXAttributeConstants", "AXRoleConstants", "AXActionConstants", "AXValue"] }
 objc2-core-graphics = { version = "=0.3.2", features = ["CGWindow"] }
 rfd = { version = "=0.17.2", default-features = false, features = ["gtk3", "common-controls-v6"] }
-gpui-kit = { git = "https://github.com/dux-web/gpui-component", rev = "2cb7bc964607e757ea8ac84eee4bbec2af00fb64", features = ["tree-sitter-languages", "gpui-fast"] }
-gpui-fps = { git = "https://github.com/dux-web/gpui-component", rev = "2cb7bc964607e757ea8ac84eee4bbec2af00fb64", features = ["gpui-fast"] }
-gpui-shell = { git = "https://github.com/dux-web/gpui-component", rev = "2cb7bc964607e757ea8ac84eee4bbec2af00fb64", features = ["gpui-fast"] }
-gpui-component-shell = { git = "https://github.com/dux-web/gpui-component", rev = "2cb7bc964607e757ea8ac84eee4bbec2af00fb64", features = ["gpui-fast"] }
-gpui-webview = { package = "gpui-wry", git = "https://github.com/dux-web/gpui-component", rev = "2cb7bc964607e757ea8ac84eee4bbec2af00fb64", features = ["gpui-fast"] }
+gpui-kit = { git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["tree-sitter-languages", "gpui-fast"] }
+gpui-fps = { git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["gpui-fast"] }
+gpui-shell = { git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["gpui-fast"] }
+gpui-component-shell = { git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["gpui-fast"] }
+gpui-webview = { package = "gpui-wry", git = "https://github.com/dux-web/gpui-component", rev = "32d1d835acca9a63011575abb326f6943776d911", features = ["gpui-fast"] }
 wry = { package = "lb-wry", version = "=0.53.3", features = ["transparent", "devtools"] }
 rust-i18n = "=4.2.0"
 sys-locale = "=0.3.2"

@@ -54,18 +54,15 @@ pub(super) fn open_sources(
     });
     view.update(cx, |view, cx| view.reload(window, cx));
     let content = view.clone();
-    let viewport = window.viewport_size();
     window.open_dialog(cx, move |dialog, _, cx| {
         let body = content.clone();
         let close = content.clone();
         let cancel = content.clone();
         dialog
             .floating_surface(cx)
+            .fullscreen(true)
             .close_button(false)
             .p_0()
-            .w(viewport.width)
-            .h(viewport.height)
-            .margin_top(px(0.))
             .entrance(DialogEntrance::None)
             .on_ok(|_, _, _| false)
             .on_cancel(move |_, _, cx| {
