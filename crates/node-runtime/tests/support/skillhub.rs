@@ -124,7 +124,7 @@ impl Registry {
                                 let page: usize = query.get("page").unwrap().parse().unwrap();
                                 assert!(page == 1 || page == 2);
                                 if let Some(keyword) = query.get("keyword") { assert_eq!(keyword, "analysis & review"); }
-                                ("200 OK", String::new(), serde_json::json!({"code":0,"data":{"skills":[{"slug":"analysis","name":format!("Analysis page {page}"),"description":"Inspect a sample","description_zh":"分析示例","namespace":{"handle":"example"},"version":version}],"total":25}}).to_string().into_bytes())
+                                ("200 OK", String::new(), serde_json::json!({"code":0,"data":{"skills":[{"slug":"analysis","name":format!("Analysis page {page}"),"description":"Inspect a sample","description_zh":"分析示例","iconUrl":if page == 1 { "https://images.example.test/analysis.png" } else { "javascript:invalid" },"namespace":{"handle":"example"},"version":version}],"total":25}}).to_string().into_bytes())
                             }
                             "/api/v1/skills/analysis" => ("200 OK", String::new(), serde_json::json!({"namespace":{"handle":"example"},"skill":{"slug":"analysis"},"latestVersion":{"version":version}}).to_string().into_bytes()),
                             "/api/v1/open/platform/keys" => ("200 OK", String::new(), keys.to_string().into_bytes()),

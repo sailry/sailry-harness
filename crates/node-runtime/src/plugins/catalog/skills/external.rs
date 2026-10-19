@@ -49,6 +49,8 @@ struct HubPage {
 }
 #[derive(Deserialize)]
 struct HubSkill {
+    #[serde(rename = "iconUrl", default)]
+    icon: Option<String>,
     slug: String,
     name: String,
     description: Option<String>,
@@ -68,6 +70,17 @@ fn segment(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+}
+
+fn icon(value: Option<String>) -> Option<String> {
+    value.filter(|value| {
+        url::Url::parse(value).is_ok_and(|url| {
+            url.scheme() == "https"
+                && url.host_str().is_some()
+                && url.username().is_empty()
+                && url.password().is_none()
+        })
+    })
 }
 
 fn directory_entry(skill: DirectorySkill) -> Result<Entry, Fault> {
@@ -100,6 +113,7 @@ fn directory_entry(skill: DirectorySkill) -> Result<Entry, Fault> {
         package: None,
         name: skill.skill_id,
         display_name: Some(skill.name),
+        icon: None,
         display_locales: Default::default(),
         description: skill.description,
         description_locales: Default::default(),
@@ -285,6 +299,7 @@ impl Host {
                 package: None,
                 name: source.slug.clone(),
                 display_name: Some(skill.name),
+                icon: icon(skill.icon),
                 display_locales: Default::default(),
                 description: skill.description,
                 description_locales,
@@ -339,6 +354,22 @@ mod tests {
         })
         .unwrap();
         assert!(matches!(entry.source, Some(InstallSource::Git(_))));
+    }
+
+    #[test]
+    fn preserves_public_icons() {
+        let url = "https://images.example.test/analysis.png";
+        assert_eq!(icon(Some(url.into())).as_deref(), Some(url));
+        assert_eq!(icon(None), None);
+        for value in [
+            "",
+            "images/analysis.png",
+            "javascript:alert(1)",
+            "http://images.example.test/icon.png",
+            "https://user:secret@images.example.test/icon.png",
+        ] {
+            assert_eq!(icon(Some(value.into())), None);
+        }
     }
 
     #[tokio::test]

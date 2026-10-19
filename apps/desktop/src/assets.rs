@@ -148,6 +148,7 @@ gpui_kit::assets::icon_assets!(
         House,
         RotateCcw,
         Package,
+        Box,
         Code,
         Clock,
         CircleQuestionMark,

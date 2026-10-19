@@ -30,6 +30,7 @@ pub(in crate::plugins) fn entry(
         package: Some(package.into()),
         name: skill.name.clone(),
         display_name: skill.display_name,
+        icon: None,
         display_locales: skill.display_locales,
         description: Some(skill.description),
         description_locales: Default::default(),

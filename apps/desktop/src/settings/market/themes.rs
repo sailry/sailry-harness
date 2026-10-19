@@ -478,7 +478,11 @@ impl Market {
                     ),
             )
             .on_click(cx.listener(move |_, _, window, cx| {
-                details::themes::open(cx.entity(), target.clone(), window, cx)
+                let market = cx.entity();
+                let target = target.clone();
+                window.defer(cx, move |window, cx| {
+                    details::themes::open(market, target, window, cx)
+                });
             }))
             .into_any_element()
     }

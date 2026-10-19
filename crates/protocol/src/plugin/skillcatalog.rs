@@ -25,6 +25,8 @@ pub struct Entry {
     pub package: Option<String>,
     pub name: String,
     pub display_name: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
     pub display_locales: BTreeMap<String, String>,
     pub description: Option<String>,
     pub description_locales: BTreeMap<String, String>,

@@ -49,6 +49,7 @@ async fn browses_sources_and_installs_selected_skills() {
         assert_eq!(first.total, Some(400));
         assert_eq!(first.entries[0].id, "example/foreign/review");
         assert!(!first.entries[0].bundled);
+        assert!(first.entries.iter().all(|entry| entry.icon.is_none()));
         assert_eq!(first.entries.len(), 2);
         assert_eq!(first.entries[1].origin, "open.feishu.cn");
         assert_eq!(first.entries[1].source, None);
@@ -112,8 +113,13 @@ async fn browses_sources_and_installs_selected_skills() {
         assert_eq!(hub.next, Some(2));
         assert_eq!(hub.total, Some(25));
         assert_eq!(hub.entries[0].description("zh-CN"), Some("分析示例"));
+        assert_eq!(
+            hub.entries[0].icon.as_deref(),
+            Some("https://images.example.test/analysis.png")
+        );
         let next = listing(&client, Source::Skillhub, "", 2, false).await;
         assert_eq!(next.next, None);
+        assert_eq!(next.entries[0].icon, None);
         assert_ne!(next.entries[0].display_name, hub.entries[0].display_name);
         let found = listing(&client, Source::Skillhub, "analysis & review", 1, false).await;
         assert_eq!(found.entries, hub.entries);

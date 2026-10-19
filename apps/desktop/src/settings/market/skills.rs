@@ -1,5 +1,6 @@
 use super::*;
 use crate::settings::skills::install;
+use gpui_kit::{assets::IconName as Glyph, component::avatar::Avatar};
 use sailry_protocol::plugin::{Info, skillcatalog};
 
 pub(super) fn installed(entry: &skillcatalog::Entry, info: &Info) -> bool {
@@ -173,7 +174,18 @@ impl Market {
                                 .description(&rust_i18n::locale())
                                 .unwrap_or_default()
                                 .to_owned(),
-                            None,
+                            Some(
+                                Avatar::new()
+                                    .with_size(px(40.))
+                                    .rounded(px(11.))
+                                    .placeholder(
+                                        Icon::new(Glyph::Box)
+                                            .size(px(22.))
+                                            .text_color(cx.theme().muted_foreground),
+                                    )
+                                    .when_some(entry.icon.clone(), |avatar, icon| avatar.src(icon))
+                                    .into_any_element(),
+                            ),
                             Some(entry.origin.clone().into()),
                             cx,
                         );
@@ -208,7 +220,11 @@ impl Market {
                         .on_click(cx.listener({
                             let entry = entry.clone();
                             move |_, _, window, cx| {
-                                details::skills::open(cx.entity(), entry.clone(), window, cx)
+                                let market = cx.entity();
+                                let entry = entry.clone();
+                                window.defer(cx, move |window, cx| {
+                                    details::skills::open(market, entry, window, cx)
+                                });
                             }
                         }))
                     })),
