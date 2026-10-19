@@ -10,6 +10,11 @@ pub(super) use external::group as external;
 use std::rc::Rc;
 pub(super) use summary::render as compact;
 
+/// Shared metric popover surface width when a package declares none.
+const POPOVER_WIDTH: f32 = 300.;
+/// Shared metric popover padding; content width excludes both horizontal insets.
+const POPOVER_INSET: (f32, f32) = (12., 14.);
+
 pub(super) struct Metric {
     pub id: String,
     pub order: i16,
@@ -57,7 +62,10 @@ pub(super) fn render_groups(groups: &[Group], selector: &'static str, cx: &App) 
                 .gap_1()
                 .tooltip(move |window, cx| {
                     let details = details.clone();
-                    Tooltip::element(move |_, cx| details(cx)).build(window, cx)
+                    Tooltip::element(move |_, cx| details(cx))
+                        .py(px(POPOVER_INSET.0))
+                        .px(px(POPOVER_INSET.1))
+                        .build(window, cx)
                 })
                 .children(metric.icon.clone().map(|icon| icon.small()))
                 .children(

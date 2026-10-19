@@ -20,7 +20,8 @@ pub(in crate::conversation) fn render(groups: Vec<Group>, cx: &App) -> AnyElemen
             let groups = groups.clone();
             Tooltip::element(move |window, cx| {
                 v_flex()
-                    .w((window.viewport_size().width - px(56.)).min(px(280.)))
+                    .w((window.viewport_size().width - px(56.))
+                        .min(px(POPOVER_WIDTH - 2. * POPOVER_INSET.1)))
                     .max_h((window.viewport_size().height - px(80.)).min(px(560.)))
                     .debug_selector(|| "composer-statistics-panel".into())
                     .child(
@@ -38,7 +39,8 @@ pub(in crate::conversation) fn render(groups: Vec<Group>, cx: &App) -> AnyElemen
                         ),
                     )
             })
-            .p_3()
+            .py(px(POPOVER_INSET.0))
+            .px(px(POPOVER_INSET.1))
             .build(window, cx)
         })
         .child(

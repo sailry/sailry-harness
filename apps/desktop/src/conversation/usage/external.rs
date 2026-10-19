@@ -2,6 +2,9 @@
 use super::*;
 use crate::plugins::contributions::Entry;
 use gpui_kit::component::progress::Progress;
+use gpui_kit::prelude::FluentBuilder as _;
+use sailry_protocol::plugin::{desktop::Navigation, ui::Detail};
+use std::sync::Arc;
 
 pub(in crate::conversation) fn group(entries: Vec<Entry>) -> Group {
     let metrics = entries
@@ -23,84 +26,218 @@ pub(in crate::conversation) fn group(entries: Vec<Entry>) -> Group {
         summary: Rc::new(move |cx| {
             v_flex()
                 .w_full()
-                .gap_1p5()
-                .text_sm()
-                .line_height(px(20.))
-                .text_color(cx.theme().muted_foreground)
-                .children(entries.iter().flat_map(rows))
+                .min_w_0()
+                .gap_3()
+                .children(entries.iter().map(|entry| body(entry, cx)))
                 .into_any_element()
         }),
     }
 }
 
-fn label(entry: &sailry_protocol::plugin::desktop::Navigation) -> SharedString {
+fn label(entry: &Navigation) -> SharedString {
     entry.label(&rust_i18n::locale()).to_owned().into()
 }
 
-fn rows(entry: &Entry) -> Vec<Div> {
-    let mut rows = vec![row(
-        format!(
-            "statistics-plugin-{}-{}",
-            entry.key.package.name, entry.key.id
-        ),
-        label(&entry.declaration.label),
-        entry.value(),
-        None,
-    )];
-    rows.extend(
-        entry
-            .state
-            .details
-            .iter()
-            .enumerate()
-            .map(|(index, detail)| {
-                row(
-                    format!(
-                        "statistics-plugin-{}-{}-{index}",
-                        entry.key.package.name, entry.key.id
-                    ),
-                    label(&detail.label),
-                    detail.value.clone().into(),
-                    detail
-                        .progress
-                        .as_ref()
-                        .and_then(serde_json::Number::as_f64)
-                        .map(|value| value as f32),
-                )
-            }),
-    );
-    rows
+/// Rows without progress precede meters; each group keeps the declared order and index.
+struct Layout<'a> {
+    values: Vec<(usize, &'a Detail)>,
+    meters: Vec<(usize, &'a Detail, f32)>,
 }
 
-fn row(id: String, label: SharedString, value: SharedString, progress: Option<f32>) -> Div {
-    let indicator = progress.map(|value| {
-        Progress::new(SharedString::from(format!("{id}-progress")))
-            .value(value)
-            .xsmall()
-            .accessibility_label(label.clone())
-    });
-    let line = h_flex()
-        .w_full()
-        .gap_4()
-        .justify_between()
-        .debug_selector(move || id.clone())
-        .child(label)
-        .child(div().flex_shrink_0().child(value));
-    match indicator {
-        Some(indicator) => v_flex().w_full().gap_1().child(line).child(indicator),
-        None => line,
+impl<'a> Layout<'a> {
+    fn new(details: &'a [Detail]) -> Self {
+        let mut layout = Self {
+            values: Vec::new(),
+            meters: Vec::new(),
+        };
+        for (index, detail) in details.iter().enumerate() {
+            match detail
+                .progress
+                .as_ref()
+                .and_then(serde_json::Number::as_f64)
+                .filter(|value| value.is_finite())
+            {
+                Some(value) => layout
+                    .meters
+                    .push((index, detail, value.clamp(0., 100.) as f32)),
+                None => layout.values.push((index, detail)),
+            }
+        }
+        layout
     }
 }
 
-fn details(entry: &Entry, cx: &App) -> AnyElement {
-    v_flex()
-        .debug_selector(|| "composer-stat-details".into())
-        .w(px(220.))
-        .p_2()
-        .gap_2()
+fn tabular() -> FontFeatures {
+    FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
+}
+
+/// Labels yield space and truncate so the value beside them stays whole.
+fn caption(text: SharedString) -> Div {
+    div().flex_1().min_w_0().truncate().child(text)
+}
+
+fn amount(text: SharedString) -> Div {
+    div()
+        .flex_shrink_0()
+        .whitespace_nowrap()
+        .font_features(tabular())
+        .child(text)
+}
+
+fn value_row(id: String, name: SharedString, value: SharedString, cx: &App) -> Div {
+    h_flex()
+        .w_full()
+        .min_w_0()
+        .h(px(26.))
+        .gap_4()
         .text_sm()
-        .line_height(px(20.))
-        .text_color(cx.theme().muted_foreground)
-        .children(rows(entry))
+        .debug_selector(move || id.clone())
+        .child(caption(name).text_color(cx.theme().muted_foreground))
+        .child(amount(value).text_color(cx.theme().foreground))
+}
+
+fn meter(id: String, name: SharedString, value: SharedString, progress: f32, cx: &App) -> Div {
+    let bar = Progress::new(SharedString::from(format!("{id}-progress")))
+        .value(progress)
+        .xsmall()
+        .accessibility_label(name.clone());
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .gap(px(6.))
+        .debug_selector(move || id.clone())
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .gap_3()
+                .child(caption(name).text_sm().text_color(cx.theme().foreground))
+                .child(
+                    amount(value)
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground),
+                ),
+        )
+        .child(bar)
+}
+
+fn body(entry: &Entry, cx: &App) -> Div {
+    let id = format!(
+        "statistics-plugin-{}-{}",
+        entry.key.package.name, entry.key.id
+    );
+    let layout = Layout::new(&entry.state.details);
+    let values = v_flex().w_full().min_w_0().child(value_row(
+        id.clone(),
+        label(&entry.declaration.label),
+        entry.value(),
+        cx,
+    ));
+    let values = values.children(layout.values.iter().map(|(index, detail)| {
+        value_row(
+            format!("{id}-{index}"),
+            label(&detail.label),
+            detail.value.clone().into(),
+            cx,
+        )
+    }));
+    let meters = (!layout.meters.is_empty()).then(|| {
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_3()
+            .children(layout.meters.iter().map(|(index, detail, progress)| {
+                meter(
+                    format!("{id}-{index}"),
+                    label(&detail.label),
+                    detail.value.clone().into(),
+                    *progress,
+                    cx,
+                )
+            }))
+    });
+    v_flex()
+        .w_full()
+        .min_w_0()
+        .child(values)
+        .when_some(meters, |body, meters| {
+            body.child(div().mt(px(10.)).mb(px(12.)).child(Separator::horizontal()))
+                .child(meters)
+        })
+}
+
+fn details(entry: &Entry, cx: &App) -> AnyElement {
+    div()
+        .debug_selector(|| "composer-stat-details".into())
+        .w(px(POPOVER_WIDTH - 2. * POPOVER_INSET.1))
+        .min_w_0()
+        .child(body(entry, cx))
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Detail, Layout, amount, caption};
+    use gpui_kit::{Overflow, Styled as _, TextOverflow, WhiteSpace, px};
+    use serde_json::json;
+
+    fn details(value: serde_json::Value) -> Vec<Detail> {
+        serde_json::from_value(value).unwrap()
+    }
+
+    #[test]
+    fn groups_values_before_meters_in_order() {
+        let details = details(json!([
+            {"label":{"label":"A"},"value":"1"},
+            {"label":{"label":"B"},"value":"2","progress":40},
+            {"label":{"label":"C"},"value":"3"},
+            {"label":{"label":"D"},"value":"4","progress":95.5}
+        ]));
+        let layout = Layout::new(&details);
+        let values: Vec<_> = layout
+            .values
+            .iter()
+            .map(|(_, row)| row.value.as_str())
+            .collect();
+        let meters: Vec<_> = layout
+            .meters
+            .iter()
+            .map(|(index, row, progress)| (*index, row.value.as_str(), *progress))
+            .collect();
+        assert_eq!(values, ["1", "3"]);
+        assert_eq!(meters, [(1, "2", 40.), (3, "4", 95.5)]);
+    }
+
+    #[test]
+    fn clamps_progress() {
+        let details = details(json!([
+            {"label":{"label":"Low"},"value":"0","progress":-5},
+            {"label":{"label":"High"},"value":"9","progress":250}
+        ]));
+        let progress: Vec<_> = Layout::new(&details)
+            .meters
+            .iter()
+            .map(|(_, _, progress)| *progress)
+            .collect();
+        assert_eq!(progress, [0., 100.]);
+    }
+
+    #[test]
+    fn labels_truncate_and_values_keep_width() {
+        let mut name = caption("A very long package name".into());
+        let style = name.style();
+        assert_eq!(style.flex_grow, Some(1.));
+        assert_eq!(style.min_size.width, Some(px(0.).into()));
+        assert_eq!(style.overflow.x, Some(Overflow::Hidden));
+        assert_eq!(style.text.white_space, Some(WhiteSpace::Nowrap));
+        assert!(matches!(
+            style.text.text_overflow,
+            Some(TextOverflow::Truncate(_))
+        ));
+        let mut value = amount("1500 / 1500".into());
+        let style = value.style();
+        assert_eq!(style.flex_shrink, Some(0.));
+        assert_eq!(style.text.white_space, Some(WhiteSpace::Nowrap));
+        assert_eq!(style.overflow.x, None);
+    }
 }
