@@ -50,7 +50,8 @@ fn direct_callbacks_cannot_mutate_catalog() {
                     Environment {
                         context: context(),
                         target: NodeId([1; 32]),
-                        stop: CancellationToken::new()
+                        stop: CancellationToken::new(),
+                        deadline: Instant::now() + CALL_TIMEOUT,
                     },
                     |_| panic!("forbidden role dispatch"),
                     state

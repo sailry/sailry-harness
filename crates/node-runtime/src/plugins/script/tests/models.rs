@@ -150,7 +150,8 @@ fn callbacks_cannot_remove_ocr_assets() {
                 Environment {
                     context: context(),
                     target: NodeId([1; 32]),
-                    stop: CancellationToken::new()
+                    stop: CancellationToken::new(),
+                    deadline: Instant::now() + CALL_TIMEOUT,
                 },
                 |_| panic!("forbidden OCR removal dispatch"),
                 state

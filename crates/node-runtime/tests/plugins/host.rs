@@ -5,6 +5,8 @@ use sailry_protocol::{
 };
 use serde_json::json;
 
+#[path = "host/deadlines.rs"]
+mod deadlines;
 #[path = "host/reads.rs"]
 mod reads;
 #[path = "host/versions.rs"]

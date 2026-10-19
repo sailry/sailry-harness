@@ -203,6 +203,8 @@ impl Turn {
             }));
             let ingress = owner.ingress.clone();
             let caller = owner.caller;
+            let deadline = ingress.plugins.script_deadline();
+            let stopped = owner.stop.clone();
             let result = crate::plugins::script::run_tool(
                 bundle,
                 &handler,
@@ -211,21 +213,10 @@ impl Turn {
                     context: owner.context.clone(),
                     target: ingress.node,
                     stop: owner.stop.clone(),
+                    deadline,
                 },
                 move |request| {
-                    runtime.block_on(async {
-                        ingress
-                            .dispatch(caller, request)
-                            .await?
-                            .completion
-                            .await
-                            .map_err(|_| {
-                                Fault::new(
-                                    ErrorCode::OutcomeUnknown,
-                                    "plugin SDK completion is unknown",
-                                )
-                            })?
-                    })
+                    runtime.block_on(ingress.script_dispatch(caller, request, deadline, &stopped))
                 },
                 state.clone(),
             )?;

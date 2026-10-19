@@ -174,7 +174,9 @@ fn refuses_scope_injection_and_script_write_bypass() {
               try { prepareKnowledgeCollection({name:'Notes',source:{kind:'storage',scope:'node',prefix:'notes/'}}); return null; }
               catch (error) { return error.code; }
             }
-        "#),"run",json!(null),Environment {context:context(),target:NodeId([1;32]),stop:CancellationToken::new()},|_| panic!("script writes must not bypass native approval"),state).unwrap();
+        "#),"run",json!(null),Environment {context:context(),target:NodeId([1;32]),stop:CancellationToken::new(),
+ deadline: Instant::now() + CALL_TIMEOUT,
+},|_| panic!("script writes must not bypass native approval"),state).unwrap();
         assert_eq!(result, "permission_denied");
     }
 }

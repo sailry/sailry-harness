@@ -59,6 +59,10 @@ pub(crate) struct Host {
     python_packages: std::sync::Arc<std::sync::Mutex<Vec<Info>>>,
     #[cfg(any(test, feature = "test-support"))]
     python_runtime: std::sync::Arc<std::sync::Mutex<Option<PathBuf>>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) script_timeout: std::sync::Arc<std::sync::Mutex<Option<std::time::Duration>>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) script_wait: std::sync::Arc<std::sync::Mutex<Option<script::Wait>>>,
 }
 
 impl Host {
@@ -112,7 +116,22 @@ impl Host {
             python_packages: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             python_runtime: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            script_timeout: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            script_wait: Default::default(),
         }
+    }
+
+    pub(crate) fn script_deadline(&self) -> std::time::Instant {
+        #[cfg(any(test, feature = "test-support"))]
+        let timeout = *self
+            .script_timeout
+            .lock()
+            .expect("script fixture lock is valid");
+        #[cfg(not(any(test, feature = "test-support")))]
+        let timeout = None;
+        std::time::Instant::now() + timeout.unwrap_or(script::CALL_TIMEOUT)
     }
 
     pub(crate) fn configure_python(&self, index: Option<String>) -> Result<(), Fault> {

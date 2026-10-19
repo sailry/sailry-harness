@@ -1,6 +1,45 @@
 use super::*;
 
 #[test]
+fn preserves_interrupted_dispatch_outcomes() {
+    for code in [ErrorCode::OutcomeUnknown, ErrorCode::PermissionDenied] {
+        let expected = Fault::new(code, "original SDK outcome");
+        let outcome = expected.clone();
+        let calls = Arc::new(Mutex::new(0));
+        let observed = calls.clone();
+        let stop = CancellationToken::new();
+        let cancelled = stop.clone();
+        let result = run_callback(
+            bundle(
+                r#"
+                import {setValue,completeRequest} from 'sailry/sdk';
+                export async function run() {
+                    await completeRequest(setValue('once',true,'0'));
+                    return 'not an execution receipt';
+                }
+            "#,
+            ),
+            "run",
+            json!(null),
+            Environment {
+                context: context(),
+                target: NodeId([1; 32]),
+                stop,
+                deadline: Instant::now() + CALL_TIMEOUT,
+            },
+            false,
+            move |_| {
+                *observed.lock().unwrap() += 1;
+                cancelled.cancel();
+                Err(outcome.clone())
+            },
+        );
+        assert_eq!(result, Err(expected));
+        assert_eq!(*calls.lock().unwrap(), 1);
+    }
+}
+
+#[test]
 fn read_callbacks_reject_mutations_before_dispatch() {
     let source = r#"
 import {getValue,setValue,prepareRequest,completeRequest} from 'sailry/sdk';
@@ -32,6 +71,7 @@ export async function run() {
             },
             target: NodeId([1; 32]),
             stop: CancellationToken::new(),
+            deadline: Instant::now() + CALL_TIMEOUT,
         },
         true,
         move |request| {

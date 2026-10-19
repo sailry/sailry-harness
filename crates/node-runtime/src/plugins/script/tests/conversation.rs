@@ -119,7 +119,9 @@ export async function run() {
             ),
             "run",
             json!({}),
-            Environment { context: scope.clone(), target: NodeId([1; 32]), stop: CancellationToken::new() },
+            Environment { context: scope.clone(), target: NodeId([1; 32]), stop: CancellationToken::new(),
+ deadline: Instant::now() + CALL_TIMEOUT,
+},
             move |request| {
                 let (revision, present) = match request.command {
                     sailry_protocol::Command::ReadPluginConversationValue { .. } => {

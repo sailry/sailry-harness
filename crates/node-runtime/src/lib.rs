@@ -267,6 +267,29 @@ impl Node {
         *self.ingress.agents.child_observation.lock().unwrap() = Some(window);
     }
 
+    /// Bounds callback waits only in isolated execution fixtures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_plugin_deadline_fixture(&self, timeout: std::time::Duration) {
+        *self.ingress.plugins.script_timeout.lock().unwrap() = Some(timeout);
+    }
+
+    /// Holds one durable SDK observation after real admission, without blocking execution.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_plugin_completion_fixture(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<sailry_protocol::Request>,
+        sailry_link::CancellationToken,
+    ) {
+        let (entered, observed) = tokio::sync::oneshot::channel();
+        let release = sailry_link::CancellationToken::new();
+        *self.ingress.plugins.script_wait.lock().unwrap() = Some(crate::plugins::script::Wait {
+            entered,
+            release: release.clone(),
+        });
+        (observed, release)
+    }
+
     /// Routes skill repository reads to an isolated HTTP fixture.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn start_with_skill_source(

@@ -7,8 +7,7 @@ pub(super) fn install(
     ctx: &Ctx<'_>,
     target: NodeId,
     context: plugin::Context,
-    stop: CancellationToken,
-    deadline: Instant,
+    control: Control,
     dispatch: impl FnMut(Request) -> sailry_link::Response + 'static,
     execution: Option<std::sync::Arc<std::sync::Mutex<execution::State>>>,
 ) -> rquickjs::Result<()> {
@@ -16,8 +15,7 @@ pub(super) fn install(
         execution,
         target,
         context,
-        stop,
-        deadline,
+        control,
         dispatch,
         drafts: BTreeMap::new(),
         calls: 0,
@@ -40,8 +38,7 @@ struct Bridge<F> {
     execution: Option<std::sync::Arc<std::sync::Mutex<execution::State>>>,
     target: NodeId,
     context: plugin::Context,
-    stop: CancellationToken,
-    deadline: Instant,
+    control: Control,
     dispatch: F,
     drafts: BTreeMap<String, Request>,
     calls: usize,
@@ -51,7 +48,7 @@ struct Bridge<F> {
 
 impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
     fn call(&mut self, operation: &str, body: &str) -> Result<Json, Fault> {
-        if self.stop.is_cancelled() || Instant::now() >= self.deadline {
+        if self.control.stop.is_cancelled() || Instant::now() >= self.control.deadline {
             return Err(Fault::new(ErrorCode::Cancelled, "plugin callback stopped"));
         }
         if body.len() > plugin::host::MAX_DATA_BYTES || self.calls >= 1024 {
@@ -276,7 +273,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             "SDK reads cannot execute writes",
                         ));
                     }
-                    return (self.dispatch)(request).map(output);
+                    return self.dispatch(request).map(output);
                 }
                 if self.drafts.len() >= 64 {
                     return Err(Fault::new(
@@ -313,7 +310,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     }
                     self.installations.insert(request.id);
                 }
-                Ok(match (self.dispatch)(request) {
+                Ok(match self.dispatch(request) {
                     Ok(result) => json!({"Ok": output(result)}),
                     Err(error) => json!({"Err": error}),
                 })
@@ -328,6 +325,20 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                 "unknown host SDK operation",
             )),
         }
+    }
+
+    fn dispatch(&mut self, request: Request) -> sailry_link::Response {
+        let result = (self.dispatch)(request);
+        if (self.control.stop.is_cancelled() || Instant::now() >= self.control.deadline)
+            && let Err(fault) = &result
+        {
+            *self
+                .control
+                .failure
+                .lock()
+                .expect("script result lock is valid") = Some(fault.clone());
+        }
+        result
     }
 }
 

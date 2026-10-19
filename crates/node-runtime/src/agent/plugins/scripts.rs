@@ -2,7 +2,6 @@
 use super::*;
 use adk_core::{AdkError, Tool, ToolContext};
 use async_trait::async_trait;
-use sailry_link::Handler as _;
 use sailry_protocol::{NodeId, plugin, tool};
 use serde_json::{Value, json};
 use std::sync::Mutex;
@@ -422,6 +421,8 @@ impl Script {
             let collector = ingress.clone();
             let collect_runtime = runtime.clone();
             let parent = card_scope.turn.expect("agent tool has a captured turn");
+            let deadline = ingress.plugins.script_deadline();
+            let stopped = stop.clone();
             let mut result = crate::plugins::script::run_tool(
                 bundle,
                 &handler,
@@ -430,16 +431,13 @@ impl Script {
                     context: scope,
                     target: ingress.node,
                     stop,
+                    deadline,
                 },
                 move |request| {
                     runtime.block_on(async {
-                        let admitted = ingress.dispatch(caller, request).await?;
-                        let output = admitted.completion.await.map_err(|_| {
-                            Fault::new(
-                                ErrorCode::OutcomeUnknown,
-                                "plugin SDK completion is unknown",
-                            )
-                        })??;
+                        let output = ingress
+                            .script_dispatch(caller, request, deadline, &stopped)
+                            .await?;
                         if let sailry_protocol::Output::CommandOutput(snapshot) = &output {
                             reads
                                 .lock()

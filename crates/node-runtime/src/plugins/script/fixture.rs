@@ -1,6 +1,6 @@
 //! Production script and SDK execution with explicit, in-memory service replies.
 //! This host does not start a Node or prove persistence, transport, or UI behavior.
-use super::{Bundle, Environment, execution};
+use super::{Bundle, CALL_TIMEOUT, Environment, execution};
 use sailry_link::CancellationToken;
 use sailry_protocol::{Command, Fault, NodeId, Request, RequestId, WorkMode, plugin};
 use serde::{Deserialize, Serialize};
@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 #[cfg(test)]
@@ -119,6 +120,7 @@ pub fn run(input: Input) -> Result<Report, Fault> {
                 context: input.context,
                 target: input.target,
                 stop,
+                deadline: Instant::now() + CALL_TIMEOUT,
             },
             dispatch,
             state.clone(),

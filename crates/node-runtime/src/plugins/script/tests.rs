@@ -48,9 +48,9 @@ fn execute(
             context: context(),
             target: NodeId([1; 32]),
             stop,
+            deadline: Instant::now() + timeout,
         },
         |_| panic!("unexpected SDK call"),
-        timeout,
         None,
     )
 }
@@ -332,7 +332,8 @@ fn restricts_execution_capabilities_and_commands() {
                 Environment {
                     context: context(),
                     target: NodeId([1; 32]),
-                    stop: CancellationToken::new()
+                    stop: CancellationToken::new(),
+                    deadline: Instant::now() + CALL_TIMEOUT,
                 },
                 |_| panic!("forbidden dispatch"),
                 state
@@ -366,6 +367,7 @@ fn private_tool_writes_reuse_the_captured_call() {
                 context: context(),
                 target: NodeId([1; 32]),
                 stop: CancellationToken::new(),
+                deadline: Instant::now() + CALL_TIMEOUT,
             },
             {
                 let captured = captured.clone();
@@ -417,6 +419,7 @@ fn scopes_call_identity_to_tool_execution() {
                 context: scope.clone(),
                 target: NodeId([1; 32]),
                 stop: CancellationToken::new(),
+                deadline: Instant::now() + CALL_TIMEOUT,
             },
             |_| panic!("identity must not dispatch"),
             state.clone(),
@@ -434,7 +437,8 @@ fn scopes_call_identity_to_tool_execution() {
             Environment {
                 context: scope,
                 target: NodeId([1; 32]),
-                stop: CancellationToken::new()
+                stop: CancellationToken::new(),
+                deadline: Instant::now() + CALL_TIMEOUT,
             },
             |_| panic!("identity must not dispatch"),
             state,

@@ -33,6 +33,19 @@ pub(crate) struct Environment {
     pub context: plugin::Context,
     pub target: sailry_protocol::NodeId,
     pub stop: CancellationToken,
+    pub deadline: Instant,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) struct Wait {
+    pub entered: tokio::sync::oneshot::Sender<sailry_protocol::Request>,
+    pub release: CancellationToken,
+}
+
+struct Control {
+    stop: CancellationToken,
+    deadline: Instant,
+    failure: std::sync::Arc<std::sync::Mutex<Option<Fault>>>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -53,6 +66,7 @@ pub(crate) fn run(
             context,
             target,
             stop,
+            deadline: Instant::now() + CALL_TIMEOUT,
         },
         false,
         dispatch,
@@ -90,7 +104,6 @@ pub(crate) fn run_callback(
             }
             dispatch(request)
         },
-        CALL_TIMEOUT,
         read_only.then(|| {
             std::sync::Arc::new(std::sync::Mutex::new(execution::State {
                 call_id: None,
@@ -118,7 +131,6 @@ pub(crate) fn run_tool(
         input,
         environment,
         dispatch,
-        CALL_TIMEOUT,
         Some(execution),
     )
 }
@@ -129,7 +141,6 @@ fn evaluate(
     input: serde_json::Value,
     environment: Environment,
     dispatch: impl FnMut(sailry_protocol::Request) -> sailry_link::Response + 'static,
-    timeout: Duration,
     execution: Option<std::sync::Arc<std::sync::Mutex<execution::State>>>,
 ) -> Result<serde_json::Value, Fault> {
     let context = &environment.context;
@@ -149,15 +160,7 @@ fn evaluate(
         ..Default::default()
     };
     let mut span = crate::logging::Span::new(entry).cancel_when(environment.stop.clone());
-    let result = evaluate_with(
-        bundle,
-        handler,
-        input,
-        environment,
-        dispatch,
-        timeout,
-        execution,
-    );
+    let result = evaluate_with(bundle, handler, input, environment, dispatch, execution);
     match &result {
         Ok(_) => span.finish(crate::logging::Phase::Completed, None),
         Err(fault) => {
@@ -181,15 +184,15 @@ fn evaluate_with(
     input: serde_json::Value,
     environment: Environment,
     dispatch: impl FnMut(sailry_protocol::Request) -> sailry_link::Response + 'static,
-    timeout: Duration,
     execution: Option<std::sync::Arc<std::sync::Mutex<execution::State>>>,
 ) -> Result<serde_json::Value, Fault> {
     let Environment {
         context,
         target,
         stop,
+        deadline,
     } = environment;
-    let deadline = Instant::now() + timeout;
+    let failure = std::sync::Arc::new(std::sync::Mutex::new(None));
     let runtime = Runtime::new().map_err(engine)?;
     runtime.set_memory_limit(MEMORY_BYTES);
     runtime.set_max_stack_size(STACK_BYTES);
@@ -244,8 +247,11 @@ fn evaluate_with(
                 &ctx,
                 target,
                 context,
-                stop.clone(),
-                deadline,
+                Control {
+                    stop: stop.clone(),
+                    deadline,
+                    failure: failure.clone(),
+                },
                 dispatch,
                 execution,
             )?;
@@ -264,6 +270,10 @@ fn evaluate_with(
         })();
         result.map_err(|error| exception(&ctx, &inspect, error))
     });
+    // An interrupted VM must not turn a possibly admitted write into a rejection.
+    if let Some(fault) = failure.lock().expect("script result lock is valid").take() {
+        return Err(fault);
+    }
     if stop.is_cancelled() {
         return Err(Fault::new(
             ErrorCode::Cancelled,

@@ -41,7 +41,9 @@ export async function run() {
         ),
         "run",
         json!({}),
-        Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new() },
+        Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
+ deadline: Instant::now() + CALL_TIMEOUT,
+},
         |request| {
             assert!(matches!(
                 request.command,
@@ -90,7 +92,9 @@ export async function run() {
 }
 "#),
         "run", json!({}),
-        Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new() },
+        Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
+ deadline: Instant::now() + CALL_TIMEOUT,
+},
         move |request| {
             requests.lock().unwrap().push(request);
             Ok(Output::PluginTransaction(vec![]))
@@ -136,7 +140,9 @@ export function run() {
 }
 "#),
             "run", json!({}),
-            Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new() },
+            Environment { context: context(), target: NodeId([1; 32]), stop: CancellationToken::new(),
+ deadline: Instant::now() + CALL_TIMEOUT,
+},
             |_| panic!("denied mixed transactions must not dispatch or partially write"), state,
         ).unwrap();
         assert_eq!(result, json!(vec!["permission_denied"; 4]));
