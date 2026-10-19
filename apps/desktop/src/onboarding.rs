@@ -17,18 +17,7 @@ use gpui_kit::{
     *,
 };
 
-actions!(sailry, [ShowWelcome]);
-
 impl Shell {
-    pub(crate) fn show_welcome(
-        &mut self,
-        _: &ShowWelcome,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.open_welcome(window, cx);
-    }
-
     pub(crate) fn open_welcome(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if cx.try_global::<Services>().is_none() || window.has_active_dialog(cx) {
             return;
@@ -95,6 +84,9 @@ impl Shell {
     }
 }
 
+const BRAND_TILE: Pixels = px(44.);
+const BRAND_GAP: Pixels = px(4.);
+
 fn launch(shell: &WeakEntity<Shell>, brand: Option<String>, window: &mut Window, cx: &mut App) {
     preferences::mark_welcome_seen(cx);
     window.close_dialog(cx);
@@ -112,13 +104,32 @@ fn body(
     let hero_height = px(280.).min(window.viewport_size().height * 0.4);
     let logo_size = px(96.).min(hero_height * 0.55);
     let brands = Workspace::provider_brands(entries);
-    let columns = if width >= px(450.) {
-        5
-    } else if width >= px(330.) {
-        4
-    } else {
-        3
-    };
+    // Balance brand tiles across the fewest rows the content width allows.
+    let fit = (((width - px(48.) + BRAND_GAP) / (BRAND_TILE + BRAND_GAP)).floor() as usize).max(1);
+    let per_row = brands
+        .len()
+        .div_ceil(brands.len().div_ceil(fit).max(1))
+        .max(1);
+    let mut tiles: Vec<_> = brands
+        .into_iter()
+        .map(|(brand, label, icon)| {
+            let shell = shell.clone();
+            Button::new(SharedString::from(format!("welcome-{brand}")))
+                .ghost()
+                .size(BRAND_TILE)
+                .p_0()
+                .accessibility_label(label.clone())
+                .tooltip(label)
+                .child(icon)
+                .on_click(move |_, window, cx| launch(&shell, Some(brand.clone()), window, cx))
+        })
+        .collect();
+    let mut rows = Vec::new();
+    while !tiles.is_empty() {
+        let rest = tiles.split_off(per_row.min(tiles.len()));
+        rows.push(h_flex().justify_center().gap(BRAND_GAP).children(tiles));
+        tiles = rest;
+    }
     let button = shell.clone();
     v_flex()
         .id("welcome-guide")
@@ -131,6 +142,8 @@ fn body(
                 .w_full()
                 .h(hero_height)
                 .flex_shrink_0()
+                // Content masks are rectangular, so the hero repeats the dialog's top radius.
+                .rounded_t(cx.theme().radius_lg)
                 .flex()
                 .items_center()
                 .justify_center()
@@ -168,21 +181,13 @@ fn body(
                         )
                         .child(DialogDescription::new().child(tr("onboarding_description"))),
                 )
-                .child(div().grid().grid_cols(columns).w_full().gap_2().children(
-                    brands.into_iter().map(|(brand, label, icon)| {
-                        let shell = shell.clone();
-                        Button::new(SharedString::from(format!("welcome-{brand}")))
-                            .ghost()
-                            .h_auto()
-                            .p_3()
-                            .accessibility_label(label.clone())
-                            .tooltip(label)
-                            .child(icon)
-                            .on_click(move |_, window, cx| {
-                                launch(&shell, Some(brand.clone()), window, cx)
-                            })
-                    }),
-                ))
+                .child(
+                    v_flex()
+                        .w_full()
+                        .items_center()
+                        .gap(BRAND_GAP)
+                        .children(rows),
+                )
                 .child(
                     v_flex()
                         .w_full()
@@ -197,7 +202,7 @@ fn body(
                         )
                         .child(
                             Button::new("welcome-later")
-                                .ghost()
+                                .secondary()
                                 .w_full()
                                 .large()
                                 .label(tr("onboarding_later"))

@@ -648,7 +648,6 @@ impl Render for Shell {
             .children(crate::theme::background("background.window", cx))
             .text_color(cx.theme().foreground)
             .text_sm()
-            .on_action(cx.listener(Self::show_welcome))
             .on_action(cx.listener(Self::search))
             .on_action(cx.listener(Self::open_page))
             .on_action(cx.listener(Self::open_settings_panel))

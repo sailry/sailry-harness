@@ -3,11 +3,7 @@ use super::{
     group::{Group, Row},
 };
 use crate::tr;
-use gpui_kit::component::{
-    Disableable,
-    button::{Button, ButtonVariants},
-    v_flex,
-};
+use gpui_kit::component::v_flex;
 use gpui_kit::*;
 
 impl Workspace {
@@ -37,15 +33,6 @@ impl Workspace {
                             }),
                         ))
                         .child(Row::new("settings_license", tr("settings_license_pending"))),
-                )
-                .child(
-                    Button::new("about-welcome")
-                        .disabled(cx.try_global::<crate::backend::Services>().is_none())
-                        .ghost()
-                        .label(tr("onboarding_reopen"))
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(Box::new(crate::onboarding::ShowWelcome), cx);
-                        }),
                 )
                 .child(self.updater.clone())
                 .into_any_element(),
