@@ -103,6 +103,7 @@ struct Summarizer {
     model: Arc<dyn Llm>,
     identity: crate::logging::Context,
     turn: TurnId,
+    context: Option<u64>,
     budget: Option<u64>,
     output: Option<i32>,
     instruction: Option<Instruction>,
@@ -152,6 +153,9 @@ impl Summarizer {
                 ..Default::default()
             },
             turn: invocation.turn.id,
+            context: metadata
+                .map(|model| u64::from(model.context))
+                .filter(|context| *context > 0),
             budget: metadata.and_then(|model| budget(model.context, model.output)),
             output: metadata.map(|model| model.output as i32),
             instruction: (invocation.turn.kind == sailry_protocol::conversation::RunKind::Task
@@ -221,8 +225,78 @@ fn budget(context: u32, output: u32) -> Option<u64> {
     // Provider usage describes the previous response. Leave room for new input
     // and tool results before the next observation, while reserving the model's
     // full output allowance when it is larger than the percentage reserve.
-    let tokens = (context * CONTEXT_PERCENT / 100).min(context.saturating_sub(u64::from(output)));
-    (tokens > 0).then_some(tokens)
+    (context > 0).then(|| {
+        let reserve = context
+            .checked_sub(u64::from(output))
+            .filter(|remaining| *remaining > 0);
+        let threshold = (context * CONTEXT_PERCENT / 100).max(1);
+        reserve.map_or(threshold, |remaining| threshold.min(remaining))
+    })
+}
+
+struct Prepared {
+    request: LlmRequest,
+    transcript_bytes: usize,
+    available: usize,
+    verbatim: String,
+    instruction: Option<Instruction>,
+}
+
+impl Summarizer {
+    fn prepare(&self, events: &[Event]) -> adk_core::Result<Prepared> {
+        let transcript = transcript(events)?;
+        let instruction = self.covered_instruction(events);
+        let verbatim = instruction
+            .as_ref()
+            .map_or_else(String::new, |instruction| {
+                format!(
+                    "\n\nLatest {} instruction (verbatim data)\n{}",
+                    instruction.source, instruction.text
+                )
+            });
+        let size_limit = self.size_limit();
+        let available = size_limit
+            .checked_sub(verbatim.len())
+            .filter(|available| *available >= MINIMUM_BYTES)
+            .ok_or_else(|| invalid("latest instruction exceeds the summary budget"))?;
+        let request = LlmRequest {
+            model: self.model.name().into(),
+            contents: vec![
+                Content::new("system")
+                    .with_text(format!("{PROMPT}\nHandoff budget: {available} UTF-8 bytes")),
+                Content::new("user").with_text(&transcript),
+            ],
+            config: Some(GenerateContentConfig {
+                max_output_tokens: self.output,
+                ..Default::default()
+            }),
+            tools: Default::default(),
+            previous_response_id: None,
+        };
+        Ok(Prepared {
+            request,
+            transcript_bytes: transcript.len(),
+            available,
+            verbatim,
+            instruction,
+        })
+    }
+
+    fn fits(&self, events: &[Event]) -> adk_core::Result<bool> {
+        let prepared = self.prepare(events)?;
+        self.fits_request(&prepared.request)
+    }
+
+    fn fits_request(&self, request: &LlmRequest) -> adk_core::Result<bool> {
+        let Some(context) = self.context else {
+            return Ok(true);
+        };
+        let reserve = context
+            .checked_sub(self.output.unwrap_or(0).max(0) as u64)
+            .filter(|remaining| *remaining > 0)
+            .unwrap_or(context);
+        Ok(estimate::request(request)? <= reserve)
+    }
 }
 
 impl Summarizer {
@@ -247,34 +321,18 @@ impl Summarizer {
         entry.stage = Some("validation");
         let mut span = crate::logging::Span::new(entry).cancel_when(self.stop.clone());
         let result = async {
-            let instruction = self.covered_instruction(events);
-            let verbatim = instruction
-                .as_ref()
-                .map_or_else(String::new, |instruction| {
-                    format!(
-                        "\n\nLatest {} instruction (verbatim data)\n{}",
-                        instruction.source, instruction.text
-                    )
-                });
-            let size_limit = self.size_limit();
-            let available = size_limit
-                .checked_sub(verbatim.len())
-                .filter(|available| *available >= MINIMUM_BYTES)
-                .ok_or_else(|| invalid("latest instruction exceeds the summary budget"))?;
-            let request = LlmRequest {
-                model: self.model.name().into(),
-                contents: vec![
-                    Content::new("system")
-                        .with_text(format!("{PROMPT}\nHandoff budget: {available} UTF-8 bytes")),
-                    Content::new("user").with_text(&transcript),
-                ],
-                config: Some(GenerateContentConfig {
-                    max_output_tokens: self.output,
-                    ..Default::default()
-                }),
-                tools: Default::default(),
-                previous_response_id: None,
-            };
+            let Prepared {
+                request,
+                transcript_bytes,
+                available,
+                verbatim,
+                instruction,
+            } = self.prepare(events)?;
+            if !self.fits_request(&request)? {
+                return Err(invalid(
+                    "context summary exceeds the estimated model input budget",
+                ));
+            }
             span.entry.stage = Some("request");
             // A failed or cancelled summary never replaces history or retries business work.
             let response = tokio::select! {
@@ -296,7 +354,7 @@ impl Summarizer {
                 return Err(invalid("context summary exceeds the size limit"));
             }
             text.push_str(&verbatim);
-            if text.len() > size_limit || text.len() * 2 >= transcript.len() {
+            if text.len() > self.size_limit() || text.len() * 2 >= transcript_bytes {
                 return Err(invalid("context summary did not reduce the conversation"));
             }
             let mut event = Event::new(self.turn.to_string());

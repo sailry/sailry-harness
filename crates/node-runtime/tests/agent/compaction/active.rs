@@ -112,7 +112,7 @@ async fn cancels_before_next_model_call() {
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
-                format!("Evidence {index}\n").repeat(1800),
+                format!("Evidence {index}\n").repeat(1000),
             )
             .unwrap();
         }
@@ -161,7 +161,7 @@ async fn preserves_context_on_failure() {
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
-                format!("Evidence {index}\n").repeat(1800),
+                format!("Evidence {index}\n").repeat(200),
             )
             .unwrap();
         }

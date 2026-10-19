@@ -56,7 +56,11 @@ pub async fn respond_plain(
     stream: TcpStream,
     body: &Value,
     input_tokens: i32,
+    fail_summary: bool,
 ) -> std::io::Result<()> {
+    if is_summary(body) && fail_summary {
+        return respond_usage(stream, body, Some(501), "Unused", input_tokens).await;
+    }
     let content = if is_summary(body) {
         "Prepared summary".into()
     } else {

@@ -24,6 +24,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
     let (metrics, delegated) = report::session(db, session)?;
     let observation = observation(db, session)?;
     let context_tokens = observation.as_ref().and_then(|value| value.tokens);
+    let context_limit = observation.as_ref().and_then(|value| value.context_limit);
     let first_token_us = observation.as_ref().and_then(|value| value.first_token_us);
     db.query_row(TOTALS, [session.to_string()], |row| {
         let responses = row.get::<_, i64>(0)? as u64;
@@ -42,6 +43,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
             responses,
             usage,
             context_tokens,
+            context_limit,
             first_token_us,
             cost: metrics.cost.clone(),
             generation: metrics.generation.clone(),
@@ -69,6 +71,7 @@ pub(super) fn parents(db: &Connection, turn: TurnId) -> Result<Vec<SessionId>, F
 struct Observation {
     sequence: i64,
     tokens: Option<u64>,
+    context_limit: Option<u32>,
     first_token_us: Option<u64>,
 }
 
@@ -118,8 +121,12 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation
           AND json_extract(e.body,'$.usage_metadata.candidates_token_count') >= 0
           AND json_type(e.body,'$.provider_metadata.sailry_timing.first_token_us')='integer'
           AND json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') >= 0
-         THEN json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') END
+         THEN json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') END,
+         (SELECT json_extract(model.value,'$.context') FROM json_each(r.provider,'$.models') model
+          WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1)
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+         LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn
+         LEFT JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
          WHERE h.session=?1 AND json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
            AND (json_extract(e.body,'$.content.role')='model'
            OR json_type(e.body,'$.usage_metadata')='object'
@@ -127,9 +134,11 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation
          ORDER BY h.sequence DESC LIMIT 1",
         [session.to_string()],
         |row| {
+            let tokens = row.get::<_, Option<i64>>(1)?.map(|value| value as u64);
             Ok(Observation {
                 sequence: row.get(0)?,
-                tokens: row.get::<_, Option<i64>>(1)?.map(|value| value as u64),
+                context_limit: if tokens.is_some() { row.get::<_, Option<u32>>(3)?.filter(|limit| *limit > 0) } else { None },
+                tokens,
                 first_token_us: row.get::<_, Option<i64>>(2)?.map(|value| value as u64),
             })
         },

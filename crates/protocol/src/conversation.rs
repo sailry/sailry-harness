@@ -402,6 +402,10 @@ pub struct Statistics {
     /// Latest model response's input plus output, not cumulative session usage.
     /// An estimate of occupied context; unknown after compaction or an unmetered response.
     pub context_tokens: Option<u64>,
+    /// Context limit captured by the model response that supplied context_tokens.
+    /// Missing historical metadata remains unknown, never a current-provider fallback.
+    #[serde(default)]
+    pub context_limit: Option<u32>,
     /// Recorded first text latency of the latest visible normal model response.
     /// Includes retries within that logical invocation; absent when unrecorded.
     #[serde(default)]

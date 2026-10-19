@@ -79,6 +79,23 @@ fn counts_new_content() {
 }
 
 #[test]
+fn excludes_cached_subsets_from_context() {
+    let mut fixture = Fixture::new();
+    let mut response = event(200_000, 12_000);
+    let usage = response.llm_response.usage_metadata.as_mut().unwrap();
+    usage.cache_read_input_token_count = Some(190_000);
+    usage.thinking_token_count = Some(10_000);
+    fixture.append([event(300_000, 20_000), response]);
+    assert_context(&fixture, fixture.session, 212_000, &[]);
+    let statistics = read(&fixture.database.connection, fixture.session).unwrap();
+    let usage = statistics.usage.unwrap();
+    assert_eq!(usage.input, 500_000);
+    assert_eq!(usage.output, 32_000);
+    assert_eq!(usage.cached_input, 190_002);
+    assert_eq!(usage.reasoning, 10_001);
+}
+
+#[test]
 fn follows_fork_and_rewind_membership() {
     let mut fixture = Fixture::new();
     let source = fixture.session;
@@ -144,4 +161,67 @@ fn follows_fork_and_rewind_membership() {
     assert_context(&fixture, source, 120, &[&inherited]);
     assert_context(&fixture, retained.id, 230, &[&source_result]);
     assert_context(&fixture, fork.id, 120, &[&inherited, &fork_input]);
+}
+
+#[test]
+fn freezes_observed_model_limits() {
+    let mut fixture = Fixture::new();
+    let config = crate::store::commands::session(&fixture.database.connection, fixture.session)
+        .unwrap()
+        .config;
+    let provider: sailry_protocol::conversation::Provider = serde_json::from_value(serde_json::json!({
+        "id":config.provider,"revision":0,"name":"Context fixture","api":"chat_completions","authentication":"api_key",
+        "endpoint":"http://127.0.0.1:1","enabled":true,"default_model":"fixture","credential":null,
+        "models":[{"id":"fixture","context":1_000,"output":64,"reasoning":true,"efforts":["low"],"default_effort":"low"}]
+    })).unwrap();
+    let Output::Provider(mut provider) = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutProvider {
+            provider,
+            expected_revision: 0,
+        },
+    ) else {
+        panic!("provider expected")
+    };
+    fixture.append([event(100, 20)]);
+    let observed = read(&fixture.database.connection, fixture.session).unwrap();
+    assert_eq!(
+        (observed.context_tokens, observed.context_limit),
+        (Some(120), Some(1_000))
+    );
+    provider.models[0].context = 2_000;
+    let expected_revision = provider.revision;
+    command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::PutProvider {
+            provider,
+            expected_revision,
+        },
+    );
+    let retained = read(&fixture.database.connection, fixture.session).unwrap();
+    assert_eq!(
+        (retained.context_tokens, retained.context_limit),
+        (Some(120), Some(1_000))
+    );
+    let turn = fixture.append([event(200, 30)]);
+    let latest = read(&fixture.database.connection, fixture.session).unwrap();
+    assert_eq!(
+        (latest.context_tokens, latest.context_limit),
+        (Some(230), Some(2_000))
+    );
+    fixture
+        .database
+        .connection
+        .execute(
+            "UPDATE agent_runs SET provider=NULL WHERE turn=?1",
+            [turn.to_string()],
+        )
+        .unwrap();
+    let historical = read(&fixture.database.connection, fixture.session).unwrap();
+    assert_eq!(
+        (historical.context_tokens, historical.context_limit),
+        (Some(230), None)
+    );
 }

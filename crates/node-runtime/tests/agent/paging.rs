@@ -18,6 +18,7 @@ fn assert_totals(statistics: &Statistics, turns: u64, responses: u64) {
             turns,
             responses,
             context_tokens: Some(16),
+            context_limit: Some(128_000),
             usage: Some(Usage {
                 input: responses * 12,
                 output: responses * 4,

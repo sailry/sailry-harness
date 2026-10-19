@@ -46,6 +46,9 @@ async fn supports_unknown_usage() {
     for remote in [false, true] {
         let server = Server::loop_usage(vec![None], 100).await;
         let fixture = Fixture::files(remote, &server).await;
+        // Preserve all six unmetered files while giving the manual summary's
+        // complete request a configured input window large enough to hold them.
+        super::budget::model(&fixture, 1_050_000, 128_000, false).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),

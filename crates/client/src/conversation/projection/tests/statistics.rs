@@ -8,6 +8,7 @@ fn recovers_totals_across_generations() {
         turns: 25,
         responses: 30,
         context_tokens: Some(16),
+        context_limit: Some(1_024),
         first_token_us: Some(125_000),
         usage: Some(Usage {
             input: 300,
@@ -23,6 +24,7 @@ fn recovers_totals_across_generations() {
     let mut updated = snapshot.statistics.clone();
     updated.responses += 1;
     updated.context_tokens = Some(26);
+    updated.context_limit = Some(2_048);
     updated.first_token_us = None;
     updated.usage.as_mut().unwrap().input += 10;
     let event = frame(&snapshot, 11, Change::Statistics(updated.clone()));
@@ -59,4 +61,17 @@ fn recovers_totals_across_generations() {
         projection.snapshot().unwrap().statistics,
         Statistics::default()
     );
+}
+
+#[test]
+fn leaves_old_context_limits_unknown() {
+    let mut value = serde_json::to_value(Statistics {
+        context_tokens: Some(100),
+        ..Default::default()
+    })
+    .unwrap();
+    value.as_object_mut().unwrap().remove("context_limit");
+    let statistics: Statistics = serde_json::from_value(value).unwrap();
+    assert_eq!(statistics.context_tokens, Some(100));
+    assert_eq!(statistics.context_limit, None);
 }

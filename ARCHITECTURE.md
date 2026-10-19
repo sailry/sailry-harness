@@ -207,6 +207,13 @@ display quota observations returned by Sailry's own authenticated model requests
 missing or expired observations remain unknown. These observations are not session
 usage statistics. External tool histories, separate account-quota queries and
 third-party billing are outside that boundary.
+Context observations pair provider-reported input and output tokens with the
+admitted model's frozen context limit; a later model change does not relabel an
+old observation. Pending-content estimates can trigger early compaction but are
+not provider token measurements. Before another request, compaction can summarize
+a completed historical prefix while preserving the current input and complete
+tool exchanges. Its summary request must fit the configured model budget; a
+failed summary never permits replay or a known over-limit ordinary request.
 
 ChatGPT OAuth uses device-code authorization and the account-scoped Codex backend
 catalog and Responses endpoint. ChatGPT SIWC uses the official browser flow,

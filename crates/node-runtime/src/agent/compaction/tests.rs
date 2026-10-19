@@ -63,6 +63,7 @@ fn summarizer(responses: Vec<LlmResponse>, error: bool) -> (Summarizer, Arc<Mode
             model: model.clone(),
             identity: crate::logging::Context::default(),
             turn: TurnId::new(),
+            context: Some(16_000),
             budget: Some(12800),
             output: Some(2048),
             instruction: None,
@@ -97,8 +98,25 @@ mod budget {
     }
 
     #[test]
+    fn retains_known_capacity_without_reserve() {
+        for output in [0, 16_000, 32_000] {
+            assert_eq!(super::super::budget(16_000, output), Some(12_800));
+        }
+    }
+
+    #[tokio::test]
+    async fn rejects_oversized_summary_before_request() {
+        let (summarizer, model) = summarizer(vec![complete("Unused summary")], false);
+        let mut events = history();
+        events[1].set_content(Content::new("model").with_text("x".repeat(80_000)));
+        assert!(!summarizer.fits(&events).unwrap());
+        assert!(summarizer.summarize_events(&events).await.is_err());
+        assert!(model.requests.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn leaves_unknown_capacity_unbounded() {
-        for (context, output) in [(0, 0), (0, 1024), (16_000, 16_000), (16_000, 32_000)] {
+        for (context, output) in [(0, 0), (0, 1024)] {
             assert_eq!(super::super::budget(context, output), None);
         }
         let (mut summarizer, _) = summarizer(vec![], false);
@@ -336,6 +354,7 @@ async fn discards_cancelled_summary() {
         model: model.clone(),
         identity: crate::logging::Context::default(),
         turn: TurnId::new(),
+        context: None,
         budget: None,
         output: None,
         instruction: None,
@@ -513,7 +532,7 @@ async fn preserves_large_covered_input_within_capacity() {
     );
     let mut evidence = Event::new("evidence");
     evidence.author = "assistant".into();
-    evidence.set_content(Content::new("model").with_text("Verified source evidence ".repeat(3000)));
+    evidence.set_content(Content::new("model").with_text("Verified source evidence ".repeat(1200)));
     let summary = summarizer
         .summarize_events(&[input, evidence])
         .await

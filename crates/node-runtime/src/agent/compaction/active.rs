@@ -1,5 +1,6 @@
 //! Compact completed tool exchanges through ADK's per-model callback.
 use super::*;
+use crate::store::agent::ContextUsage;
 use adk_core::BeforeModelResult;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -72,43 +73,37 @@ impl Context {
             .all())
     }
 
-    async fn needs_compaction(&self) -> adk_core::Result<bool> {
-        let usage = self
-            .ingress
+    async fn usage(&self) -> adk_core::Result<Option<ContextUsage>> {
+        self.ingress
             .context_usage(self.session)
             .await
             .map_err(|error| {
                 adk_core::AdkError::session("context usage could not be read").with_source(error)
-            })?;
-        // Only estimate content added after the latest provider observation;
-        // its output is already included. Estimates never enter usage totals.
-        let tokens = usage.map(|usage| {
-            usage
-                .tokens
-                .saturating_add(estimate::tokens(&usage.pending))
-        });
-        Ok(self.summarizer.needs_compaction(tokens))
+            })
     }
 
-    pub(super) async fn before(
+    fn projected(usage: &ContextUsage) -> u64 {
+        // Pending text estimates trigger early compaction, not a tokenizer-based
+        // rejection. Only the provider observation establishes a known full window.
+        usage
+            .tokens
+            .saturating_add(estimate::tokens(&usage.pending))
+    }
+
+    async fn needs_compaction(&self) -> adk_core::Result<bool> {
+        Ok(self
+            .summarizer
+            .needs_compaction(self.usage().await?.as_ref().map(Self::projected)))
+    }
+
+    fn cut(
         &self,
+        events: &[Event],
         invocation: &str,
-        mut request: LlmRequest,
-    ) -> adk_core::Result<BeforeModelResult> {
-        if self.summarizer.stop.is_cancelled() {
-            return Err(invalid("context compaction was cancelled"));
-        }
-        let compact = self.needs_compaction().await?;
-        if self.summarizer.stop.is_cancelled() {
-            return Err(invalid("context compaction was cancelled"));
-        }
-        if !compact && !self.applied.load(Ordering::Relaxed) {
-            return Ok(BeforeModelResult::Continue(request));
-        }
-        let mut events = self.events().await?;
-        // Preserve the latest two complete tool exchanges. The callback runs
-        // after ADK has yielded and persisted every result in the previous batch.
-        let cut = events
+        request: &LlmRequest,
+    ) -> adk_core::Result<Option<usize>> {
+        // Retain the current invocation's latest two complete tool exchanges.
+        let exchanges = events
             .iter()
             .enumerate()
             .filter(|(_, event)| {
@@ -120,34 +115,92 @@ impl Context {
                             .any(|part| matches!(part, Part::FunctionCall { .. }))
                     })
             })
-            .rev()
-            .nth(1)
-            .map(|(index, _)| index);
-        if compact
-            && let Some(cut) = cut
-            && crate::store::agent::compaction::complete_exchange(
-                &events[..cut]
-                    .iter()
-                    .filter(|event| event.invocation_id == invocation)
-                    .cloned()
-                    .collect::<Vec<_>>(),
-            )
-            && tail(&request, &events[cut..], &self.preamble).is_some()
-        {
-            match self.summarize(&events[..cut], true).await {
-                Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
-                    self.service
-                        .append_event(&self.session.to_string(), summary)
-                        .await
-                        .inspect_err(|error| {
-                            self.summarizer
-                                .failure(SummaryMode::Automatic, "persistence", error);
-                        })?;
-                    self.applied.store(true, Ordering::Relaxed);
-                    events = self.events().await?;
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        for cut in exchanges.into_iter().rev().skip(1) {
+            let current = events[..cut]
+                .iter()
+                .filter(|event| event.invocation_id == invocation)
+                .cloned()
+                .collect::<Vec<_>>();
+            if crate::store::agent::compaction::complete_exchange(&current)
+                && tail(request, &events[cut..], &self.preamble).is_some()
+                && self.summarizer.fits(&events[..cut])?
+            {
+                return Ok(Some(cut));
+            }
+        }
+        // Prior turns are already terminal. Summarize only a complete prefix,
+        // retaining all current input, attachments and provider-added suffix parts.
+        let current = events
+            .iter()
+            .position(|event| event.invocation_id == invocation)
+            .unwrap_or(0);
+        for cut in (1..=current).rev() {
+            if (cut == current || events[cut - 1].invocation_id != events[cut].invocation_id)
+                && tail(request, &events[cut..], &self.preamble).is_some()
+                && self.summarizer.fits(&events[..cut])?
+            {
+                return Ok(Some(cut));
+            }
+        }
+        Ok(None)
+    }
+
+    pub(super) async fn before(
+        &self,
+        invocation: &str,
+        mut request: LlmRequest,
+    ) -> adk_core::Result<BeforeModelResult> {
+        if self.summarizer.stop.is_cancelled() {
+            return Err(invalid("context compaction was cancelled"));
+        }
+        let usage = self.usage().await?;
+        let compact = self
+            .summarizer
+            .needs_compaction(usage.as_ref().map(Self::projected));
+        let full = self
+            .summarizer
+            .context
+            .zip(usage.as_ref().map(|usage| usage.tokens))
+            .is_some_and(|(context, tokens)| tokens >= context);
+        if self.summarizer.stop.is_cancelled() {
+            return Err(invalid("context compaction was cancelled"));
+        }
+        if !compact && !self.applied.load(Ordering::Relaxed) {
+            return Ok(BeforeModelResult::Continue(request));
+        }
+        let mut events = self.events().await?;
+        if compact {
+            let cut = self.cut(&events, invocation, &request)?;
+            if let Some(cut) = cut {
+                match self.summarize(&events[..cut], true).await {
+                    Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
+                        self.service
+                            .append_event(&self.session.to_string(), summary)
+                            .await
+                            .inspect_err(|error| {
+                                self.summarizer.failure(
+                                    SummaryMode::Automatic,
+                                    "persistence",
+                                    error,
+                                )
+                            })?;
+                        self.applied.store(true, Ordering::Relaxed);
+                        events = self.events().await?;
+                    }
+                    Err(error) if full => return Err(error),
+                    _ if full => {
+                        return Err(invalid(
+                            "context exceeds the model limit and no summary was applied",
+                        ));
+                    }
+                    _ => {}
                 }
-                Ok(_) => {}
-                Err(_) => {}
+            } else if full {
+                return Err(invalid(
+                    "context exceeds the model limit and no complete prefix fits the summary budget",
+                ));
             }
         }
         if self.summarizer.stop.is_cancelled() {

@@ -56,7 +56,10 @@ enum Reply {
         text: Arc<String>,
         usage: Arc<Vec<i32>>,
     },
-    Summary(i32),
+    Summary {
+        usage: i32,
+        fail_summary: bool,
+    },
     LoopCompaction {
         fail_summary: bool,
         pending_summary: bool,
@@ -238,12 +241,23 @@ impl Server {
                 "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂"
                     .into(),
             ),
-            usage: Arc::new(vec![14000]),
+            usage: Arc::new(vec![100, 100, 100, 14000]),
         })
         .await
     }
     pub async fn summary(usage: i32) -> Self {
-        Self::serve(Reply::Summary(usage)).await
+        Self::serve(Reply::Summary {
+            usage,
+            fail_summary: false,
+        })
+        .await
+    }
+    pub async fn summary_failure(usage: i32) -> Self {
+        Self::serve(Reply::Summary {
+            usage,
+            fail_summary: true,
+        })
+        .await
     }
     pub async fn loop_usage(usage: Vec<Option<i32>>, summary_input: i32) -> Self {
         assert!(!usage.is_empty());
@@ -502,9 +516,13 @@ async fn respond(
         };
         return compaction::respond_usage(stream, &body, failure_status, &text, input_tokens).await;
     }
-    if let Reply::Summary(usage) = reply {
+    if let Reply::Summary {
+        usage,
+        fail_summary,
+    } = reply
+    {
         records.lock().unwrap().push(body.clone());
-        return compaction::respond_plain(stream, &body, usage).await;
+        return compaction::respond_plain(stream, &body, usage, fail_summary).await;
     }
     if let Reply::LoopCompaction {
         fail_summary,

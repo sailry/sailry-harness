@@ -65,7 +65,7 @@ async fn statistics(fixture: &Fixture) -> Statistics {
     snapshot.statistics
 }
 
-async fn model(fixture: &Fixture, context: u32, output: u32, vision: bool) {
+pub(super) async fn model(fixture: &Fixture, context: u32, output: u32, vision: bool) {
     let mut provider = configuration::snapshot(&fixture.client).await.providers[0].clone();
     provider.models[0].context = context;
     provider.models[0].output = output;
@@ -403,6 +403,112 @@ async fn retains_low_usage_summary() {
         let statistics = statistics(&fixture).await;
         assert_eq!(statistics.context_tokens, Some(110));
         assert_eq!(statistics.responses, 8);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn compacts_before_plain_followup() {
+    for remote in [false, true] {
+        for output in [2_048, 16_000] {
+            let server = Server::summary(14_000).await;
+            let fixture = Fixture::files(remote, &server).await;
+            model(&fixture, 16_000, output, true).await;
+            let original = "Keep the original requirement ".repeat(120);
+            let (_, _, before) =
+                submit(&fixture.client, fixture.session.id, original.clone()).await;
+            assert_eq!(summaries(&before), 0);
+            assert_eq!(server.requests.lock().unwrap().len(), 1);
+            let attachment = image(&fixture).await;
+            let current = "Continue with this exact request and image";
+            let request = fixture.client.prepare(Command::SubmitTurn {
+                session: fixture.session.id,
+                expected_revision: 1,
+                message: Input {
+                    text: current.into(),
+                    attachments: vec![attachment],
+                    ..Default::default()
+                },
+            });
+            let Output::QueuedTurn(turn) = fixture.client.execute(request.clone()).await.unwrap()
+            else {
+                panic!("turn expected")
+            };
+            let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+            assert_eq!(
+                after
+                    .runs
+                    .iter()
+                    .find(|run| run.turn == turn.id)
+                    .unwrap()
+                    .status,
+                Status::Completed,
+                "{:?}",
+                after.runs
+            );
+            assert_eq!(summaries(&after), 1);
+            assert_eq!(&after.entries[..before.entries.len()], before.entries);
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), 3);
+            assert!(!agent_support::compaction::is_summary(&requests[0]));
+            assert!(agent_support::compaction::is_summary(&requests[1]));
+            assert!(!agent_support::compaction::is_summary(&requests[2]));
+            assert!(messages(&requests[1]).contains(&original));
+            assert!(!messages(&requests[1]).contains(current));
+            let retained = messages(&requests[2]);
+            assert!(retained.contains("Prepared summary"));
+            assert!(retained.contains(current));
+            assert!(!retained.contains(&"Conversation evidence ".repeat(200)));
+            assert!(
+                requests[2]["messages"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|message| message["content"]
+                        .as_array()
+                        .is_some_and(|parts| parts.iter().any(|part| part["type"] == "image_url")))
+            );
+            fixture.client.execute(request).await.unwrap();
+            assert_eq!(server.requests.lock().unwrap().len(), 3);
+            fixture.node.shutdown().await.unwrap();
+            fixture.controller.close().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn stops_overfull_context_on_summary_failure() {
+    for remote in [false, true] {
+        let server = Server::summary_failure(20_000).await;
+        let fixture = Fixture::files(remote, &server).await;
+        let (_, _, before) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Retain this original requirement ".repeat(120),
+        )
+        .await;
+        assert_eq!(summaries(&before), 0);
+        let request = fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: 1,
+            message: "Continue only after preparing context".into(),
+        });
+        let Output::QueuedTurn(turn) = fixture.client.execute(request.clone()).await.unwrap()
+        else {
+            panic!("turn expected")
+        };
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
+        assert_eq!(run.status, Status::Failed, "{run:?}");
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert_eq!(summaries(&after), 0);
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        assert!(!agent_support::compaction::is_summary(&requests[0]));
+        assert!(agent_support::compaction::is_summary(&requests[1]));
+        fixture.client.execute(request).await.unwrap();
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

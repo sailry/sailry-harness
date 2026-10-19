@@ -103,7 +103,7 @@ async fn resumes_compacted_context() {
             false,
             "Context summary fixture: retain user constraints and source.txt evidence 中文 🙂"
                 .into(),
-            vec![14000, 14000, 14000, 14000, 100],
+            vec![100, 100, 100, 14000, 100],
         )
         .await;
         let fixture = Fixture::files(remote, &server).await;
@@ -156,7 +156,7 @@ async fn resumes_compacted_context() {
                 .iter()
                 .any(|entry| entry.author == "system" && entry.usage.is_some())
         );
-        usage_total(&fixture.client, 5, 4 * 14000 + 100).await;
+        usage_total(&fixture.client, 5, 14000 + 4 * 100).await;
         let Output::Session(branch) = fixture
             .client
             .execute(fixture.client.prepare(Command::ForkConversation {
@@ -196,7 +196,7 @@ async fn resumes_compacted_context() {
         );
         client.execute(request).await.unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), 5);
-        usage_total(&client, 5, 4 * 14000 + 100).await;
+        usage_total(&client, 5, 14000 + 4 * 100).await;
         for session in [fixture.session.id, branch.id] {
             submit(&client, session, "Continue after restart".into()).await;
             let current = server.requests.lock().unwrap().last().unwrap().clone();
@@ -218,7 +218,7 @@ async fn resumes_compacted_context() {
         assert!(messages(&current).contains("Original tool evidence 中文 🙂"));
         assert!(!messages(&current).contains("Context summary fixture"));
         assert_eq!(server.requests.lock().unwrap().len(), 8);
-        usage_total(&client, 8, 4 * 14000 + 4 * 100).await;
+        usage_total(&client, 8, 14000 + 7 * 100).await;
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
