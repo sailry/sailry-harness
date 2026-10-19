@@ -103,26 +103,6 @@ pub(crate) fn grid(
     data: Option<&str>,
     size: Pixels,
 ) -> AnyElement {
-    use sailry_protocol::plugin::Tint;
-    let hash = name.bytes().fold(2_166_136_261_u32, |hash, byte| {
-        (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
-    });
-    let tint = tint.unwrap_or(
-        [
-            Tint::Blue,
-            Tint::Violet,
-            Tint::Teal,
-            Tint::Amber,
-            Tint::Gray,
-        ][hash as usize % 5],
-    );
-    let (top, base) = match tint {
-        Tint::Blue => (0x45b8ff, 0x1d6ef0),
-        Tint::Violet => (0xa98bff, 0x6440dc),
-        Tint::Teal => (0x3fd3b4, 0x0f8c7c),
-        Tint::Amber => (0xffc65c, 0xe07a18),
-        Tint::Gray => (0xa2a7b2, 0x565b66),
-    };
     let icon_size = if size <= px(40.) { px(22.) } else { px(28.) };
     let icon = if let Some((format, bytes)) = image_source(None, data) {
         img(std::sync::Arc::new(Image::from_bytes(format, bytes)))
@@ -136,6 +116,16 @@ pub(crate) fn grid(
             .text_color(gpui_kit::white())
             .into_any_element()
     };
+    surface(name, tint, size).child(icon).into_any_element()
+}
+
+/// The gradient grid tile shared by identity artwork; callers supply the white glyph.
+pub(crate) fn surface(
+    name: &str,
+    tint: Option<sailry_protocol::plugin::Tint>,
+    size: Pixels,
+) -> Div {
+    let (top, base) = gradient(tint.unwrap_or_else(|| fallback(name)));
     h_flex()
         .relative()
         .size(size)
@@ -170,8 +160,31 @@ pub(crate) fn grid(
                     .into_any_element(),
             ]
         }))
-        .child(icon)
-        .into_any_element()
+}
+
+fn fallback(name: &str) -> sailry_protocol::plugin::Tint {
+    use sailry_protocol::plugin::Tint;
+    let hash = name.bytes().fold(2_166_136_261_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
+    });
+    [
+        Tint::Blue,
+        Tint::Violet,
+        Tint::Teal,
+        Tint::Amber,
+        Tint::Gray,
+    ][hash as usize % 5]
+}
+
+fn gradient(tint: sailry_protocol::plugin::Tint) -> (u32, u32) {
+    use sailry_protocol::plugin::Tint;
+    match tint {
+        Tint::Blue => (0x45b8ff, 0x1d6ef0),
+        Tint::Violet => (0xa98bff, 0x6440dc),
+        Tint::Teal => (0x3fd3b4, 0x0f8c7c),
+        Tint::Amber => (0xffc65c, 0xe07a18),
+        Tint::Gray => (0xa2a7b2, 0x565b66),
+    }
 }
 
 #[cfg(test)]
@@ -216,6 +229,13 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn fallback_tints_are_stable() {
+        use sailry_protocol::plugin::Tint;
+        // Lock the algorithm so refactors cannot recolor existing tiles.
+        assert_eq!(fallback("office"), Tint::Teal);
     }
 
     #[test]

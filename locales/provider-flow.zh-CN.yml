@@ -1,4 +1,4 @@
-provider_all: "全部"
+provider_all: "全部类型"
 provider_search: "搜索渠道"
 provider_step_back: "上一步"
 provider_choose_method: "选择接入方式"

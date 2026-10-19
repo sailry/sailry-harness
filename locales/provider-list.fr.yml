@@ -1,0 +1,7 @@
+provider_auth_oauth: "OAuth"
+provider_auth_key: "Clé API"
+provider_auth_plugin: "Plugin"
+provider_status_missing_key: "Clé manquante"
+provider_status_signed_out: "Déconnecté"
+provider_list_search: "Rechercher un fournisseur ou un modèle"
+provider_manage_models: "Gérer les modèles"

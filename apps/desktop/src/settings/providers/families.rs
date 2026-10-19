@@ -1,10 +1,6 @@
 use super::data::Selection;
 use super::*;
-use gpui_kit::component::{
-    menu::{DropdownMenu, PopupMenuItem},
-    tab::{Tab, TabBar},
-    tooltip::Tooltip,
-};
+use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use sailry_protocol::conversation::{
     Provider,
     presets::{Entry as PresetEntry, Source},
@@ -139,71 +135,46 @@ impl Workspace {
             .iter()
             .position(|choice| choice.selection == self.providers.category)
             .unwrap_or(0);
-        let tabs = choices
-            .iter()
-            .map(|choice| {
-                let label = choice.label.clone();
-                Tab::new()
-                    .aria_label(label.clone())
-                    .tooltip(move |window, cx| Tooltip::new(label.clone()).build(window, cx))
-                    .child(choice.entry.as_ref().map_or_else(
-                        || ModelCategory::Other.icon().into_any_element(),
-                        |entry| presets::brand_icon(entry, rems(1.)),
-                    ))
-            })
-            .collect::<Vec<_>>();
-        let labels = choices
-            .iter()
-            .map(|choice| choice.label.clone())
-            .collect::<Vec<_>>();
-        let select = std::rc::Rc::new(cx.listener(move |this, index: &usize, _, cx| {
-            if let Some(choice) = choices.get(*index) {
-                this.providers.category = choice.selection.clone();
-                cx.notify();
-            }
-        }));
-        let menu_select = select.clone();
-        let scroll = self.providers.scroll.clone();
-        // Kit 98a's built-in menu cannot name custom-image tabs without visible labels.
-        let menu = Button::new("provider-families-more")
-            .accessibility_label(tr("provider_type"))
-            .tooltip(tr("provider_type"))
-            .xsmall()
-            .ghost()
-            .dropdown_caret(true)
-            .dropdown_menu(move |menu, _, _| {
-                labels
-                    .iter()
-                    .enumerate()
-                    .fold(menu.scrollable(true), |menu, (index, label)| {
-                        let select = menu_select.clone();
-                        let scroll = scroll.clone();
-                        menu.item(
-                            PopupMenuItem::new(label.clone())
-                                .checked(index == selected)
-                                .on_click(move |_, window, cx| {
-                                    select(&index, window, cx);
-                                    scroll.scroll_to_item(index);
-                                }),
-                        )
-                    })
-            });
-        h_flex()
+        let label = choices[selected].label.clone();
+        let select = cx.listener(move |this, selection: &Selection, _, cx| {
+            this.providers.category = selection.clone();
+            cx.notify();
+        });
+        let select = std::rc::Rc::new(select);
+        Button::new("provider-families")
             .debug_selector(|| "provider-families".into())
-            .max_w_full()
-            .min_w_0()
-            .h_9()
-            .child(
-                TabBar::new("provider-families")
-                    .segmented()
-                    .max_w_full()
-                    .min_w_0()
-                    .track_scroll(&self.providers.scroll)
-                    .suffix(menu)
-                    .selected_index(selected)
-                    .children(tabs)
-                    .on_click(move |index, window, cx| select(index, window, cx)),
-            )
+            .accessibility_label(tr("provider_type"))
+            .small()
+            .outline()
+            .dropdown_caret(true)
+            .label(label)
+            .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, _, _| {
+                choices.iter().enumerate().fold(
+                    menu.scrollable(true).max_h(px(360.)),
+                    |menu, (index, choice)| {
+                        let select = select.clone();
+                        let text = choice.label.clone();
+                        let icon = choice.entry.clone();
+                        menu.item(
+                            PopupMenuItem::element(move |_, _| {
+                                h_flex()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(icon.as_ref().map_or_else(
+                                        || ModelCategory::Other.icon().into_any_element(),
+                                        |entry| presets::brand_icon(entry, rems(1.)),
+                                    ))
+                                    .child(text.clone())
+                            })
+                            .checked(index == selected)
+                            .on_click({
+                                let selection = choice.selection.clone();
+                                move |_, window, cx| select(&selection, window, cx)
+                            }),
+                        )
+                    },
+                )
+            })
             .into_any_element()
     }
 }

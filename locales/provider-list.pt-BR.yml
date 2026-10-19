@@ -1,0 +1,7 @@
+provider_auth_oauth: "OAuth"
+provider_auth_key: "Chave de API"
+provider_auth_plugin: "Plugin"
+provider_status_missing_key: "Chave ausente"
+provider_status_signed_out: "Desconectado"
+provider_list_search: "Buscar provedores ou modelos"
+provider_manage_models: "Gerenciar modelos"

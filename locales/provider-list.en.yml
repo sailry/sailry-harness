@@ -1,0 +1,7 @@
+provider_auth_oauth: "OAuth"
+provider_auth_key: "API Key"
+provider_auth_plugin: "Plugin"
+provider_status_missing_key: "Missing key"
+provider_status_signed_out: "Signed out"
+provider_list_search: "Search providers or models"
+provider_manage_models: "Manage models"

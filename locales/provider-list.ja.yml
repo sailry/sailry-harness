@@ -1,0 +1,7 @@
+provider_auth_oauth: "OAuth"
+provider_auth_key: "API キー"
+provider_auth_plugin: "プラグイン"
+provider_status_missing_key: "キー未設定"
+provider_status_signed_out: "未ログイン"
+provider_list_search: "プロバイダーまたはモデルを検索"
+provider_manage_models: "モデルを管理"

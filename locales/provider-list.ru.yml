@@ -1,0 +1,7 @@
+provider_auth_oauth: "OAuth"
+provider_auth_key: "API-ключ"
+provider_auth_plugin: "Плагин"
+provider_status_missing_key: "Нет ключа"
+provider_status_signed_out: "Вход не выполнен"
+provider_list_search: "Поиск провайдеров или моделей"
+provider_manage_models: "Управление моделями"

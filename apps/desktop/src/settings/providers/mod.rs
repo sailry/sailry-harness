@@ -1,4 +1,3 @@
-use super::entry::Entry;
 mod catalog;
 mod data;
 mod directory;
@@ -27,6 +26,7 @@ pub(super) use data::Store;
 pub(crate) use data::{Channel, Model};
 use gpui_kit::component::{
     button::{Button, ButtonVariants},
+    input::{Input, InputEvent, InputState},
     switch::Switch,
     *,
 };
@@ -53,174 +53,100 @@ impl Workspace {
 
     pub(super) fn providers(&self, cx: &mut Context<Self>) -> AnyElement {
         let category = &self.providers.category;
-        let real = self.provider_link.is_some();
         let busy = self
             .provider_link
             .as_ref()
             .is_some_and(|live| live.pending || !live.connected);
         let owner = cx.entity();
-        let mut rows = Group::new("provider_channels")
-            .heading(false)
-            .empty(IconName::Cpu, "provider_empty_live");
-        let matching = self.providers.channels.iter().filter(|channel| {
-            let provider = self
-                .provider_link
-                .as_ref()
-                .and_then(|live| live.providers.get(&channel.id));
-            *category == data::Selection::All || families::selection(channel, provider) == *category
-        });
-        for channel in matching {
-            let id = channel.id;
-            let authorization = (real
-                && self
+        let query = self.provider_query.read(cx).value().to_string();
+        let matching = self
+            .providers
+            .channels
+            .iter()
+            .filter(|channel| {
+                let provider = self
                     .provider_link
                     .as_ref()
-                    .and_then(|live| live.providers.get(&id))
-                    .is_some_and(|provider| {
-                        provider.authentication != sailry_protocol::Authentication::ApiKey
-                    }))
-            .then(|| {
-                let owner = owner.clone();
-                Button::new(("provider-login", id))
-                    .ghost()
-                    .small()
-                    .disabled(busy)
-                    .debug_selector(move || format!("provider-login-{id}"))
-                    .icon(IconName::CircleUser)
-                    .tooltip(tr("provider_connect"))
-                    .accessibility_label(tr("provider_connect"))
-                    .on_click(move |_, window, cx| {
-                        login::open(owner.clone(), id, window, cx);
-                    })
-            });
-            let edit_owner = owner.clone();
-            let remove_owner = owner.clone();
-            let removal = self.provider_link.as_ref().and_then(|live| {
-                live.providers.get(&id).map(|provider| {
-                    (
-                        live.binding.clone(),
-                        sailry_protocol::Command::RemoveProvider {
-                            provider: provider.id,
-                            expected_revision: provider.revision,
-                        },
+                    .and_then(|live| live.providers.get(&channel.id));
+                *category == data::Selection::All
+                    || families::selection(channel, provider) == *category
+            })
+            .filter(|channel| list::matches(channel, &query))
+            .collect::<Vec<_>>();
+        let rows = Group::new("provider_channels")
+            .heading(false)
+            .empty(IconName::Cpu, "provider_empty_live")
+            .children(
+                matching
+                    .into_iter()
+                    .map(|channel| self.provider_row(channel, cx)),
+            );
+        let header = h_flex()
+            .debug_selector(|| "settings-heading-provider_channels".into())
+            .w_full()
+            .min_w_0()
+            .min_h_8()
+            .gap_2()
+            .child(
+                h_flex()
+                    .debug_selector(|| "settings-title-provider_channels".into())
+                    .flex_1()
+                    .min_w_0()
+                    .gap_2()
+                    .items_baseline()
+                    .child(div().font_semibold().child(tr("provider_channels")))
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(self.providers.channels.len().to_string()),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .debug_selector(|| "settings-actions-provider_channels".into())
+                    .flex_shrink_0()
+                    .gap_2()
+                    .child(
+                        div()
+                            .debug_selector(|| "provider-search".into())
+                            .w(px(220.))
+                            .child(
+                                Input::new(&self.provider_query)
+                                    .small()
+                                    .cleanable(true)
+                                    .prefix(Icon::new(IconName::Search).small()),
+                            ),
                     )
-                })
-            });
-            rows = rows.child(
-                Entry::new(format!("provider-{id}"), list::content(channel, real, cx))
-                    .control_width(rems(3.))
-                    // Four small Kit buttons and three gaps share the fixed action slot.
-                    .actions_width(rems(7.5))
-                    .control(
-                        h_flex().child(
-                            Switch::new(("provider-enabled", id))
-                                .disabled(busy)
-                                .checked(channel.enabled)
-                                .accessibility_label(tr("provider_enabled"))
-                                .on_click(cx.listener(move |this, enabled, _, cx| {
-                                    if this.provider_link.is_some() {
-                                        this.provider_action(id, false, *enabled, cx);
-                                        return;
-                                    }
-                                    if let Some(channel) =
-                                        this.providers.channels.iter_mut().find(|c| c.id == id)
-                                    {
-                                        channel.enabled = *enabled;
-                                    }
-                                    cx.notify();
-                                })),
-                        ),
-                    )
-                    .when_some(authorization, |row, button| row.action(button))
-                    .action(
-                        Button::new(("provider-edit", id))
+                    .child(self.provider_families(cx))
+                    .child(
+                        Button::new("settings-add")
                             .disabled(busy)
-                            .debug_selector(move || format!("provider-edit-{id}"))
-                            .icon(IconName::Settings2)
-                            .tooltip(tr("settings_edit"))
-                            .accessibility_label(tr("settings_edit"))
+                            .primary()
+                            .small()
+                            .debug_selector(|| "settings-add".into())
+                            .label(tr("settings_add"))
+                            .icon(IconName::Plus)
                             .on_click(move |_, window, cx| {
-                                editor::open(edit_owner.clone(), Some(id), window, cx);
-                            }),
-                    )
-                    .action(
-                        Button::new(("provider-delete", id))
-                            .disabled(busy)
-                            .debug_selector(move || format!("provider-delete-{id}"))
-                            .icon(IconName::CircleX)
-                            .tooltip(tr("settings_delete"))
-                            .accessibility_label(tr("settings_delete"))
-                            .on_click(move |_, window, cx| {
-                                let owner = remove_owner.clone();
-                                let removal = removal.clone();
-                                crate::prompts::confirm(
-                                    &tr("provider_delete_title"),
-                                    &tr(if real {
-                                        "provider_remove_effect"
-                                    } else {
-                                        "settings_remove_preview"
-                                    }),
-                                    tr("settings_delete"),
-                                    window,
-                                    cx,
-                                    move |_, cx| {
-                                        owner.update(cx, |this, cx| {
-                                            if let Some((binding, command)) = &removal {
-                                                this.submit_provider(
-                                                    binding.clone(),
-                                                    command.clone(),
-                                                    cx,
-                                                );
-                                            } else {
-                                                this.providers.remove(id);
-                                            }
-                                            cx.notify();
-                                        })
-                                    },
-                                );
+                                Self::add_provider(owner.clone(), None, window, cx);
                             }),
                     ),
             );
-        }
         v_flex()
             .gap_6()
             .child(self.model_catalog(cx))
-            .child(
-                v_flex()
-                    .gap_2()
-                    .child(
-                        h_flex()
-                            .debug_selector(|| "settings-heading-provider_channels".into())
-                            .w_full()
-                            .min_w_0()
-                            .min_h_8()
-                            .gap_3()
-                            .child(
-                                h_flex()
-                                    .debug_selector(|| "settings-title-provider_channels".into())
-                                    .flex_1()
-                                    .min_w_0()
-                                    .child(self.provider_families(cx)),
-                            )
-                            .child(
-                                h_flex()
-                                    .debug_selector(|| "settings-actions-provider_channels".into())
-                                    .flex_shrink_0()
-                                    .child(
-                                        Button::new("settings-add")
-                                            .disabled(busy)
-                                            .primary()
-                                            .debug_selector(|| "settings-add".into())
-                                            .label(tr("settings_add"))
-                                            .icon(IconName::Plus)
-                                            .on_click(move |_, window, cx| {
-                                                Self::add_provider(owner.clone(), None, window, cx);
-                                            }),
-                                    ),
-                            ),
-                    )
-                    .child(rows),
-            )
+            .child(v_flex().gap_3().child(header).child(rows))
             .into_any_element()
     }
+}
+
+pub(super) fn query(window: &mut Window, cx: &mut Context<Workspace>) -> Entity<InputState> {
+    let query = cx.new(|cx| InputState::new(window, cx).placeholder(tr("provider_list_search")));
+    cx.subscribe(&query, |_, _, event, cx| {
+        if matches!(event, InputEvent::Change) {
+            cx.notify();
+        }
+    })
+    .detach();
+    query
 }
