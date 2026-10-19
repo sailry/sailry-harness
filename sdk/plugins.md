@@ -39,6 +39,13 @@ or `decrement` without converting the value to a floating-point number. Packages
 own validation, exact arithmetic and saving. The bridge covers the pinned Kit
 script control's missing text-handle and step-event bindings.
 
+`sailry/ui.SettingsRow.new(id, {label})` reuses the application's settings row.
+Pass an already localized label and place the trailing controls in its children;
+packages retain their drafts, validation and save behavior. In the pinned Kit
+98a5e5d, `SettingItem` is a typed value consumed only by the complete `Settings`
+hierarchy. The shared row bridge supports standalone plugin settings pages
+without another settings sidebar or a package-specific renderer.
+
 Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
 
 Use `sailry/models` for public `search`, `versions` and `resolve` with `models.read`.
@@ -141,8 +148,10 @@ groups permissions for display; `read_only()` and execution checks are unchanged
 `SearchSkillCatalog {source, query, page, force}` is a read-only execution-Node
 command returning `SkillCatalog {entries, page, next, total, query_scope, unavailable}`.
 Sources are `official`, `skills_sh` and `skillhub`. Each entry carries actual display
-metadata and a typed Git or registry installation source. Listing neither installs
-anything nor creates a durable request record. Installation still discovers and
+metadata, its origin and an optional directory URL. A typed Git or registry source
+is present only when that source can use the supported installation path. Web-hosted
+entries remain visible without being misidentified as Git repositories. Listing
+neither installs anything nor creates a durable request record. Installation still discovers and
 validates the source on the selected Node: Git skills freeze a resolved commit;
 registry skills retain namespace, version and signature verification.
 
@@ -159,6 +168,14 @@ its search requires at least two characters and exposes no next page. A one-char
 query filters only the requested leaderboard page, reports `query_scope: page` and
 omits a global total. Skillhub uses its real page and keyword parameters. Directory
 results describe available sources, not installed packages.
+
+`ReadSkillDocument {source}` returns `{skill, content}` without installing or executing
+instructions. Its `DocumentSource` is an already resolved Git commit and candidate
+path, a verified registry coordinate, or an actual bundled package and skill name.
+Git directory links must first use discovery to select the real skill; display IDs
+are not repository paths. Registry documents reuse namespace, signature and archive
+verification. The existing single-document resource budget applies. This read does
+not create a durable request record.
 
 `ReadCatalogPluginInfo` returns `CatalogDetails`, with `plugin`, `skills` or
 `unsupported` content. Portable manifests are validated from the repository's actual
@@ -184,7 +201,9 @@ declarations. A private token-response transformation also requires
 editor asks separately for model-message and login-credential access. Approval
 belongs to that configured channel and its package source. A newly requested
 scope needs explicit approval; public catalog permission summaries do not grant
-it.
+it. Third-party access is bound to the exact package digest, including its code,
+declarations and network origins. Changed third-party code needs renewed approval;
+already admitted work retains its original package and approval.
 
 `model_auth` owns declarative PKCE, device-code, token-exchange or start-and-poll
 flows. The Node owns HTTP, callback state, deadlines, credentials, refresh and
@@ -192,13 +211,17 @@ uncertain outcomes. The public login presentation selects the existing common
 controller interaction. An optional `exchange` pure transformation may normalize
 a private token response only after credential approval. Do not implement login
 through an ordinary host callback, import another application's profile or retry
-an uncertain token rotation.
+an uncertain token rotation. A failed connection before delivery can be retried;
+a rejected refresh requires sign-in, while a possibly delivered rotation remains
+uncertain and is never replayed automatically.
 
 `model_adapters` declares a script, allowed HTTPS origins, response framing
 (`sse`, `ndjson` or `json`), schema dialect and explicit capabilities. A preset
 using one must select the `plugin` protocol. Its pure exports translate neutral
 model data: `prepare` produces an HTTP request description, `decode` produces
-validated deltas, and `classify` maps an upstream failure. Optional discovery
+validated deltas, and optional `classify` maps an upstream failure. Without it,
+Node applies the native HTTP classification for authentication, permission,
+rate limits and server failures. Optional discovery
 uses `prepare_discovery` and `decode_discovery`. See the authoritative
 [wire types](../crates/protocol/src/plugin/model_adapter/wire.rs) and
 [authentication declarations](../crates/protocol/src/plugin/model_auth.rs).
@@ -209,6 +232,9 @@ The inert `sailry/adapter` module exposes `version` and `parseJson`; its
 [type declarations](../crates/node-runtime/src/plugins/script/adapter.d.ts) describe
 the neutral input and deltas. These modules have no `sailry/sdk`, filesystem, network or tool dispatch. The Node performs
 transport and credential injection; model translation never receives tokens.
+Each model callback has a 50 ms execution budget and the model request budget is
+32 MiB. These limits do not bound HTTP/SSE waiting or asynchronous authorization;
+authentication transformations retain their existing separate budget.
 ADK remains the sole model/tool execution and history owner. Package-owned tests
 can use `translationInput` and `translate` from `scripts/test-host.mjs` with an
 explicit current `SAILRY_PLUGIN_TEST_HOST`; that bridge runs the production pure

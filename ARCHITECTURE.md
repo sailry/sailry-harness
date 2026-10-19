@@ -214,6 +214,17 @@ not provider token measurements. Before another request, compaction can summariz
 a completed historical prefix while preserving the current input and complete
 tool exchanges. Its summary request must fit the configured model budget; a
 failed summary never permits replay or a known over-limit ordinary request.
+Eligible prefixes use canonical turn ownership and complete call-ID-paired tool
+batches, including prefixes within completed turns. Parallel results are matched
+only within their batch; original history and provider-added parts are retained.
+Automatic, explicit and model-requested compaction select the largest eligible
+prefix that fits the estimated summary envelope and its remaining output budget.
+A persisted summary invalidates the old token observation; bounded estimates
+trigger subsequent compaction until the next provider measurement. A failed
+non-full attempt produces a controller warning and leaves context unchanged;
+a known-full window permits one further summary attempt before failing clearly.
+Request checkpoints are changed only after persistence succeeds and are local
+projections, not another history writer.
 
 ChatGPT OAuth uses device-code authorization and the account-scoped Codex backend
 catalog and Responses endpoint. ChatGPT SIWC uses the official browser flow,
@@ -404,7 +415,13 @@ its founding ancestry. The same parent session may reuse an idle child without
 losing history or changing its role, effective configuration or worktree. Idle
 reuse captures current packages and settings; initial delegation inherits the
 parent's frozen capture, and guidance retains the active recipient's capture.
-Delegation waits synchronously by default.
+Delegation observes completion synchronously by default within a bounded tool-wait
+window. If the admitted child is still queued or running, the tool returns its
+actual session, turn and pending status; observation expiry never cancels or
+replays the child. The existing session-owned supervisor retains execution and
+automatic completion delivery. Explicit Stop and Node shutdown still cancel
+running and queued children. Queue residence does not consume child model or
+command execution deadlines.
 Ordinary sessions without a project can delegate within their existing private
 worktree; resource-bound assistants and nested delegation remain excluded.
 The delegation package owns its child concurrency setting and settings page,
@@ -533,7 +550,11 @@ source through ordinary discovery before installation. Plugin listings choose an
 including its actual installation source; metadata is never grafted onto an older
 remote package. Public skills.sh and Skillhub lists use Node-owned read-only pages,
 search and short-lived caches, then reuse Git discovery or signed registry
-installation. Skills.sh single-character filtering is explicitly page-local; its
+installation. Web-hosted entries remain visible with their actual origin and
+directory link when no supported installation source is known. Skill details read
+real SKILL.md text from the resolved Git path, signed registry archive or shipped
+package; inspection neither installs the skill nor executes its instructions.
+Skills.sh single-character filtering is explicitly page-local; its
 search does not invent pagination. Community details validate real repository
 manifests rather than synthetic index documents. Confirmed external Codex or Claude
 Code packages can expose their actual metadata and immutable standalone skills;
