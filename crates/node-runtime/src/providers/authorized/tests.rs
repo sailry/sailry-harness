@@ -12,6 +12,7 @@ fn grant(authentication: Authentication) -> login::Grant {
             id_token,
             expires_at_ms: 1,
             earliest_refresh_at: None,
+            account_id: None,
             client_id: "oaiapp_fixture".into(),
             subject: "subject".into(),
             email: None,

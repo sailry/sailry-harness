@@ -2516,6 +2516,26 @@
       ],
       "type": "string"
     },
+    "Resource2": {
+      "additionalProperties": false,
+      "description": "A package can decode resources without receiving native account credentials.",
+      "properties": {
+        "authentication": {
+          "$ref": "#/$defs/Authentication"
+        },
+        "requests": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Endpoint"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "authentication",
+        "requests"
+      ],
+      "type": "object"
+    },
     "ResourceKind": {
       "enum": [
         "terminal",
@@ -3200,6 +3220,13 @@
       "description": "Channel declarations supplied by this package.",
       "items": {
         "$ref": "#/$defs/Preset"
+      },
+      "type": "array"
+    },
+    "model_resources": {
+      "description": "Named read-only resources for native provider accounts.",
+      "items": {
+        "$ref": "#/$defs/Resource2"
       },
       "type": "array"
     },

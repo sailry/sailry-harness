@@ -47,7 +47,7 @@ impl State {
         next["options"] = source.read(cx).package_options(&self.package, cx);
         publish(&self.changes, &mut self.cursor, next);
         let source = source.read(cx);
-        let mut model = source.model_context(&self.package);
+        let mut model = source.model_context(&self.package, cx);
         if self.node != source.binding().client.target()
             || self.session != source.session()
             || self.worktree != source.binding().worktree
@@ -118,7 +118,7 @@ pub(super) fn extend(
                 let mut snapshot = source.read(cx).composer_options(cx);
                 snapshot["cursor"] = "0".into();
                 snapshot["options"] = source.read(cx).package_options(&host.context().package, cx);
-                let mut model = source.read(cx).model_context(&host.context().package);
+                let mut model = source.read(cx).model_context(&host.context().package, cx);
                 model["cursor"] = "0".into();
                 State {
                     model_changes: tokio::sync::watch::channel(model).0,
@@ -148,7 +148,7 @@ pub(super) fn extend(
         module.declared().unwrap_or_default()
     );
     let declarations = format!(
-        "{declarations}\nexport interface ModelContext {{cursor:string;connected:boolean;provider:{{id:string;revision:string;model:string;preset:{{source:import('sailry/sdk').Json;id:string;route:import('sailry/sdk').Json|null}}}}|null}}\nexport function readModelContext():ModelContext;\nexport function nextModelContext(cursor:string):Promise<ModelContext>;"
+        "{declarations}\nexport interface ModelContext {{cursor:string;connected:boolean;provider:{{id:string;revision:string;model:string;authentication:'api_key'|'chat_gpt'|'chat_gpt_oauth'|'claude_oauth'|'copilot'|'plugin';preset:{{source:import('sailry/sdk').Json;id:string;route:import('sailry/sdk').Json|null}}|null}}|null}}\nexport function readModelContext():ModelContext;\nexport function nextModelContext(cursor:string):Promise<ModelContext>;"
     );
     let module = module
         .function("readModelContext", move |_| {
@@ -305,7 +305,7 @@ mod tests {
         publish(
             &model,
             &mut model_cursor,
-            json!({"connected":true,"provider":{"id":"channel","revision":"2","model":"selected","preset":null}}),
+            json!({"connected":true,"provider":{"id":"channel","revision":"2","model":"selected","authentication":"chat_gpt_oauth","preset":null}}),
         );
         assert_eq!(model_cursor, 1);
         assert!(model.borrow().get("busy").is_none());

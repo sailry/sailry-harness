@@ -12,7 +12,7 @@ mod media;
 #[path = "codex/search.rs"]
 mod search;
 #[path = "codex/server.rs"]
-mod server;
+pub(super) mod server;
 #[path = "codex/streaming.rs"]
 mod streaming;
 
@@ -49,7 +49,7 @@ async fn saved(client: &Client, id: ProviderId) -> Provider {
         .unwrap()
 }
 
-async fn configured(fixture: &Fixture, options: Option<Options>) -> Provider {
+pub(super) async fn configured(fixture: &Fixture, options: Option<Options>) -> Provider {
     let mut provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
     provider.oauth = options;
     provider.models = vec![Model {

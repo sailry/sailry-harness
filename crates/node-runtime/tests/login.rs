@@ -30,6 +30,8 @@ mod lifecycle;
 mod oauth;
 #[path = "login/package.rs"]
 mod package;
+#[path = "login/resources.rs"]
+mod resources;
 #[path = "login/responses.rs"]
 mod responses;
 #[path = "login/synchronization.rs"]

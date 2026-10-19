@@ -28,6 +28,35 @@ pub(in crate::store) fn prepare(
     let mut provider = super::current(&db.connection, *provider, *expected_revision)?;
     super::presets::capture_read(&db.connection, &mut provider)?;
     crate::providers::login::capture(&mut provider)?;
+    if provider.authentication != Authentication::Plugin {
+        if mutation || !provider.enabled {
+            return Err(denied());
+        }
+        let info = crate::store::plugins::get(&db.connection, &context.package.name)?
+            .filter(|info| info.summary.enabled && info.summary.reference() == context.package)
+            .ok_or_else(denied)?;
+        let resource = info
+            .extension
+            .as_ref()
+            .and_then(|extension| {
+                extension
+                    .model_resources
+                    .iter()
+                    .find(|resource| resource.authentication == provider.authentication)
+            })
+            .filter(|resource| resource.valid())
+            .ok_or_else(denied)?;
+        let endpoint = resource.requests.get(name).ok_or_else(|| {
+            Fault::new(
+                ErrorCode::NotConfigured,
+                "provider resource is not declared",
+            )
+        })?;
+        if !crate::providers::login::resource_endpoint(provider.authentication, &endpoint.url) {
+            return Err(denied());
+        }
+        return prepare_endpoint(endpoint, input, provider);
+    }
     let binding = provider.binding.as_ref().ok_or_else(denied)?;
     let package = binding.package.as_ref().ok_or_else(denied)?;
     if package != &context.package || provider.authentication != Authentication::Plugin {
@@ -62,6 +91,14 @@ pub(in crate::store) fn prepare(
             "provider resource is not declared",
         )
     })?;
+    prepare_endpoint(endpoint, input, provider)
+}
+
+fn prepare_endpoint(
+    endpoint: &plugin::model_auth::Endpoint,
+    input: &std::collections::BTreeMap<String, String>,
+    provider: Provider,
+) -> Result<crate::plugins::http::Input, Fault> {
     let fields = input
         .iter()
         .map(|(name, value)| {

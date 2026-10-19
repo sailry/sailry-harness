@@ -35,11 +35,14 @@ impl Tokens {
             .ok_or_else(|| {
                 sailry_protocol::Fault::invalid("authorization token expiry is invalid")
             })?;
-        let (previous_id, previous_scopes) = match previous {
+        let (previous_id, previous_scopes, previous_account) = match previous {
             Some(Grant::ChatGpt {
-                id_token, scopes, ..
-            }) => (Some(id_token), Some(scopes)),
-            None => (None, None),
+                id_token,
+                scopes,
+                account_id,
+                ..
+            }) => (Some(id_token), Some(scopes), account_id.clone()),
+            None => (None, None, None),
             Some(_) => {
                 return Err(sailry_protocol::Fault::invalid(
                     "ChatGPT authorization expected",
@@ -61,6 +64,7 @@ impl Tokens {
             client_id,
             subject: identity.sub,
             email: identity.email,
+            account_id: identity.account_id.or(previous_account),
             id_token: self
                 .id_token
                 .or_else(|| previous_id.cloned())

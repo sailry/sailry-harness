@@ -33,6 +33,41 @@ pub struct Declaration {
     pub mutations: BTreeMap<String, Endpoint>,
 }
 
+/// A package can decode resources without receiving native account credentials.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Resource {
+    pub authentication: crate::Authentication,
+    pub requests: BTreeMap<String, Endpoint>,
+}
+
+impl Resource {
+    pub fn valid(&self) -> bool {
+        matches!(
+            self.authentication,
+            crate::Authentication::ChatGpt
+                | crate::Authentication::ChatGptOAuth
+                | crate::Authentication::ClaudeOAuth
+        ) && !self.requests.is_empty()
+            && self.requests.len() <= 32
+            && self
+                .requests
+                .iter()
+                .all(|(name, endpoint)| named_endpoint(name, endpoint))
+    }
+}
+
+fn named_endpoint(name: &str, endpoint: &Endpoint) -> bool {
+    super::host::valid_handler(name)
+        && endpoint.valid()
+        && !endpoint.url.contains('{')
+        && !endpoint.url.contains('}')
+        && endpoint
+            .headers
+            .values()
+            .all(|value| !value.contains('{') && !value.contains('}'))
+}
+
 impl Declaration {
     pub fn valid(&self) -> bool {
         super::model_adapter::identifier(&self.id)
@@ -53,16 +88,7 @@ impl Declaration {
                 .requests
                 .iter()
                 .chain(&self.mutations)
-                .all(|(name, endpoint)| {
-                    super::host::valid_handler(name)
-                        && endpoint.valid()
-                        && !endpoint.url.contains('{')
-                        && !endpoint.url.contains('}')
-                        && endpoint
-                            .headers
-                            .values()
-                            .all(|value| !value.contains('{') && !value.contains('}'))
-                })
+                .all(|(name, endpoint)| named_endpoint(name, endpoint))
             && self.exchange.as_ref().is_none_or(|exchange| {
                 exchange.script.valid() && super::host::valid_handler(&exchange.handler)
             })
@@ -293,6 +319,35 @@ fn pointer(value: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn bounds_native_resource_declarations() {
+        for authentication in ["chat_gpt", "chat_gpt_oauth", "claude_oauth"] {
+            let resource: Resource = serde_json::from_value(json!({"authentication":authentication,"requests":{"usage":{"url":"https://example.invalid/usage","query":{"after":"{input.after}"}}}})).unwrap();
+            assert!(resource.valid());
+            let mut invalid = resource.clone();
+            invalid
+                .requests
+                .get_mut("usage")
+                .unwrap()
+                .headers
+                .insert("X-Input".into(), "{input.header}".into());
+            assert!(!invalid.valid());
+        }
+        for authentication in ["api_key", "copilot", "plugin"] {
+            let resource: Resource = serde_json::from_value(json!({"authentication":authentication,"requests":{"usage":{"url":"https://example.invalid/usage"}}})).unwrap();
+            assert!(!resource.valid());
+        }
+        let extension: crate::plugin::Extension =
+            serde_json::from_value(json!({"api_version":"v1"})).unwrap();
+        assert!(extension.model_resources.is_empty());
+        assert!(
+            serde_json::to_value(extension)
+                .unwrap()
+                .get("model_resources")
+                .is_none()
+        );
+    }
 
     #[test]
     fn keeps_resource_urls_and_headers_fixed() {

@@ -12,6 +12,16 @@ pub(crate) fn prepare(
     }
     for (name, value) in &endpoint.headers {
         header(name)?;
+        if provider.authentication != sailry_protocol::Authentication::Plugin
+            && matches!(
+                name.to_ascii_lowercase().as_str(),
+                "authorization" | "chatgpt-account-id"
+            )
+        {
+            return Err(Fault::invalid(
+                "provider credential header cannot be overridden",
+            ));
+        }
         if value.contains('{') || value.contains('}') {
             return Err(Fault::invalid("provider resource headers must be fixed"));
         }
@@ -73,8 +83,20 @@ pub(super) async fn authorize(
         )
         .await?
         .grant;
-    let headers = grant.headers(&options)?;
-    let secrets = grant.secrets(&headers);
+    let headers = if provider.authentication == sailry_protocol::Authentication::Plugin {
+        grant.headers(&options)?
+    } else {
+        grant.resource_headers(input.url.as_str())?
+    };
+    let secrets = if provider.authentication == sailry_protocol::Authentication::Plugin {
+        grant.secrets(&headers)
+    } else {
+        // Account identity may legitimately occur in a usage response. Actual token
+        // values remain protected even when they happen to equal that metadata.
+        let mut protected = headers.clone();
+        protected.remove("chatgpt-account-id");
+        grant.secrets(&protected)
+    };
     for (name, value) in &headers {
         if input.headers.contains_key(name) {
             return Err(Fault::invalid(

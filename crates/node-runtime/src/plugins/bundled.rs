@@ -19,6 +19,7 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("code", true),
     ("delegation", true),
     ("statistics", true),
+    ("provider-status", true),
     ("databases", true),
     ("ssh", true),
     ("worktrees", true),

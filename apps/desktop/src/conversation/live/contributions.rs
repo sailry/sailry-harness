@@ -64,7 +64,8 @@ impl View {
             .entries(Slot::Footer, cx)
             .into_iter()
             .filter(|entry| {
-                entry.state.enabled && !self.model_context(&entry.key.package)["provider"].is_null()
+                entry.state.enabled
+                    && !self.model_context(&entry.key.package, cx)["provider"].is_null()
             })
             .collect::<Vec<_>>();
         if entries.is_empty() {

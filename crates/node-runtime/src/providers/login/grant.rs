@@ -18,6 +18,8 @@ pub(crate) enum Grant {
         refresh: Secret,
         expires_at_ms: u64,
         earliest_refresh_at: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_id: Option<String>,
         client_id: String,
         subject: String,
         email: Option<String>,
@@ -237,6 +239,7 @@ impl Grant {
                 refresh,
                 expires_at_ms,
                 client_id,
+                account_id,
                 subject,
                 email,
                 id_token,
@@ -244,7 +247,12 @@ impl Grant {
                 ..
             } => {
                 chatgpt::flow::issued_client(client_id)?;
-                if subject.is_empty()
+                if account_id.as_ref().is_some_and(|value| {
+                    value.is_empty()
+                        || value.len() > 2048
+                        || value.chars().any(char::is_control)
+                        || reqwest::header::HeaderValue::from_str(value).is_err()
+                }) || subject.is_empty()
                     || subject.len() > 2048
                     || subject.chars().any(char::is_control)
                     || email.as_ref().is_some_and(|value| {

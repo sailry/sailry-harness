@@ -1,7 +1,49 @@
 use super::*;
 use reqwest::header::{HeaderMap, HeaderValue};
 
+/// Native authentication owns credential destinations; package declarations cannot expand them.
+pub(crate) fn resource_endpoint(authentication: Authentication, url: &str) -> bool {
+    let origin = match authentication {
+        Authentication::ChatGpt | Authentication::ChatGptOAuth => "https://chatgpt.com",
+        Authentication::ClaudeOAuth => "https://api.anthropic.com",
+        _ => return false,
+    };
+    reqwest::Url::parse(url).is_ok_and(|url| {
+        url.origin().ascii_serialization() == origin
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.fragment().is_none()
+    })
+}
+
 impl Grant {
+    /// Resource reads need account authentication, not generation-only headers or plan gates.
+    pub(crate) fn resource_headers(&self, url: &str) -> Result<HeaderMap, Fault> {
+        if !resource_endpoint(self.authentication(), url) {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "provider resource origin is not authorized",
+            ));
+        }
+        let mut headers = HeaderMap::new();
+        let mut access = HeaderValue::from_str(&format!("Bearer {}", self.access().expose()))
+            .map_err(|_| Fault::invalid("authorization header is invalid"))?;
+        access.set_sensitive(true);
+        headers.insert("authorization", access);
+        let account = match self {
+            Self::ChatGpt { account_id, .. } => account_id.as_deref(),
+            Self::ChatGptOAuth { account_id, .. } => Some(account_id.as_str()),
+            _ => None,
+        };
+        if let Some(account) = account {
+            let mut value = HeaderValue::from_str(account)
+                .map_err(|_| Fault::invalid("authorization account identifier is invalid"))?;
+            value.set_sensitive(true);
+            headers.insert("chatgpt-account-id", value);
+        }
+        Ok(headers)
+    }
+
     pub(crate) fn access(&self) -> &Secret {
         match self {
             Self::Plugin { record, .. } => &record.issued.access,

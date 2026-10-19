@@ -33,6 +33,7 @@ export type WebPage = {
 export function fetchWeb(input: WebRequest): Promise<WebPage>;
 export type ProviderHttpResponse = {status:number;headers:Record<string,string[]>;body:string};
 /** Only named read declarations are available without durable admission. */
+/** Reads an exact declared provider resource; native origins and private headers remain Node-owned. */
 export function requestProviderHttp(provider:string,revision:string,request:string,input?:Record<string,string>):Promise<ProviderHttpResponse>;
 /** Complete the stable request ID with completeRequest; retry that ID after uncertain outcomes. */
 export function prepareProviderHttp(provider:string,revision:string,request:string,input?:Record<string,string>):string;

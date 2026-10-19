@@ -135,3 +135,68 @@ fn refuses_invalid_expiry_type_and_missing_rotation() {
     value.as_object_mut().unwrap().remove("refresh_token");
     assert!(serde_json::from_value::<Tokens>(value).is_err());
 }
+
+#[test]
+fn retains_optional_resource_account_identity() {
+    let value = grant(response(), None).unwrap();
+    let original = value.encode().unwrap();
+    assert!(!original.expose().contains("account_id"));
+    assert_eq!(
+        Grant::decode(Authentication::ChatGpt, &original)
+            .unwrap()
+            .encode()
+            .unwrap()
+            .expose(),
+        original.expose()
+    );
+    let issued = serde_json::from_value::<Tokens>(response())
+        .unwrap()
+        .grant(
+            "oaiapp_fixture".into(),
+            identity::Identity {
+                sub: "subject".into(),
+                email: None,
+                account_id: Some("private-account".into()),
+            },
+            None,
+        )
+        .unwrap();
+    let headers = issued
+        .resource_headers("https://chatgpt.com/backend-api/wham/usage")
+        .unwrap();
+    assert_eq!(headers["chatgpt-account-id"], "private-account");
+    assert!(headers["chatgpt-account-id"].is_sensitive());
+    assert!(
+        !issued
+            .headers(&Options::defaults(Authentication::ChatGpt).unwrap())
+            .unwrap()
+            .contains_key("chatgpt-account-id")
+    );
+    let refreshed = grant(response(), Some(&issued)).unwrap();
+    assert_eq!(
+        refreshed
+            .resource_headers("https://chatgpt.com/backend-api/wham/usage")
+            .unwrap()["chatgpt-account-id"],
+        "private-account"
+    );
+    for url in [
+        "https://api.openai.com/usage",
+        "https://chatgpt.com.example.invalid/usage",
+        "http://chatgpt.com/usage",
+        "https://chatgpt.com:444/usage",
+        "https://user@chatgpt.com/usage",
+    ] {
+        assert_eq!(
+            issued.resource_headers(url).unwrap_err().code,
+            ErrorCode::PermissionDenied
+        );
+    }
+    let mut no_plan = response();
+    no_plan["scope"] = json!("openid email");
+    assert!(
+        grant(no_plan, None)
+            .unwrap()
+            .resource_headers("https://chatgpt.com/backend-api/wham/usage")
+            .is_ok()
+    );
+}

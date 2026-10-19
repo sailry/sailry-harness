@@ -166,6 +166,9 @@ pub struct Extension {
     pub model_providers: Vec<crate::conversation::presets::Preset>,
     #[serde(default)]
     pub model_auth: Vec<model_auth::Declaration>,
+    /// Named read-only resources for native provider accounts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub model_resources: Vec<model_auth::Resource>,
     #[serde(default)]
     pub model_adapters: Vec<model_adapter::Declaration>,
     /// Controller-rendered entries with state and named action handlers.

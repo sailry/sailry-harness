@@ -211,6 +211,7 @@ impl Fixture {
             refresh: Secret::new("isolated-quota-refresh".into()),
             expires_at_ms: 4_000_000_000_000,
             earliest_refresh_at: None,
+            account_id: None,
             client_id: "quota-fixture".into(),
             subject: "quota-subject".into(),
             email: None,

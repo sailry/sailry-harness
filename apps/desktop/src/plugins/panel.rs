@@ -778,6 +778,14 @@ impl Panel {
                             settings: panel.surface
                                 == sailry_protocol::plugin::desktop::Surface::Settings,
                         };
+                        let model_resources = panel
+                            .metadata
+                            .read(cx)
+                            .entries
+                            .get(&package.name)
+                            .filter(|info| info.summary.reference() == package)
+                            .and_then(|info| info.extension.as_ref())
+                            .is_some_and(|extension| !extension.model_resources.is_empty());
                         match Mounted::new(
                             cache,
                             host.clone(),
@@ -791,7 +799,8 @@ impl Panel {
                                         &sailry_protocol::plugin::Action::ReadConversation,
                                     ),
                                     model: actions
-                                        .contains(&sailry_protocol::plugin::Action::ProvideModels),
+                                        .contains(&sailry_protocol::plugin::Action::ProvideModels)
+                                        || model_resources,
                                     control: actions.contains(
                                         &sailry_protocol::plugin::Action::ControlConversation,
                                     ),

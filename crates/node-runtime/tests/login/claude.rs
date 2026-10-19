@@ -8,7 +8,7 @@ mod lifecycle;
 #[path = "claude/renewals.rs"]
 mod renewals;
 #[path = "claude/server.rs"]
-mod server;
+pub(super) mod server;
 
 const CLIENT: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const REDIRECT: &str = "http://127.0.0.1:53692/callback";
@@ -116,7 +116,7 @@ fn callback(authorization: &str, redirect: Option<&str>) -> Secret {
     }
 }
 
-async fn connected(fixture: &Fixture) -> Provider {
+pub(super) async fn connected(fixture: &Fixture) -> Provider {
     let provider = provider(&fixture.client, None).await;
     let (_, attempt, url) = begin(&fixture.client, &provider, Some(REDIRECT)).await;
     super::complete(&fixture.client, &attempt, callback(&url, Some(REDIRECT))).await;

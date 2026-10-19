@@ -64,7 +64,20 @@ impl View {
             "compacting":compacting,"sidebar":self.sidebar,"has_messages":!self.rows.is_empty()})
     }
 
-    pub(crate) fn model_context(&self, owner: &sailry_protocol::plugin::Reference) -> Value {
+    pub(crate) fn model_context(
+        &self,
+        owner: &sailry_protocol::plugin::Reference,
+        cx: &App,
+    ) -> Value {
+        let resources = self
+            .contribution_metadata
+            .read(cx)
+            .entries
+            .get(&owner.name)
+            .filter(|info| info.summary.enabled && info.summary.reference() == *owner)
+            .and_then(|info| info.extension.as_ref())
+            .map(|extension| extension.model_resources.as_slice())
+            .unwrap_or_default();
         let connected = self.connected() && self.config_owner == self.binding.client.target();
         let selected = self.config.as_ref().and_then(|config| {
             self.node
@@ -76,7 +89,7 @@ impl View {
                 .map(|provider| (provider, config.model.as_str()))
         });
         json!({"connected":connected,"provider":if connected {
-            selected.and_then(|(provider,model)| provider_context(provider,model,&owner.name))
+            selected.and_then(|(provider,model)| provider_context(provider,model,&owner.name,resources))
         } else {None}})
     }
 
@@ -211,14 +224,26 @@ fn provider_context(
     provider: &sailry_protocol::conversation::Provider,
     model: &str,
     package: &str,
+    resources: &[sailry_protocol::plugin::model_auth::Resource],
 ) -> Option<Value> {
+    use sailry_protocol::Authentication;
     use sailry_protocol::conversation::presets::Source;
-    let preset = provider.preset.as_ref()?;
-    if !provider.enabled || !matches!(&preset.source, Source::Package {name} if name==package) {
+    let owns_preset = provider
+        .preset
+        .as_ref()
+        .is_some_and(|preset| matches!(&preset.source, Source::Package {name} if name==package));
+    let declared = matches!(
+        provider.authentication,
+        Authentication::ChatGpt | Authentication::ChatGptOAuth | Authentication::ClaudeOAuth
+    ) && resources
+        .iter()
+        .any(|resource| resource.authentication == provider.authentication);
+    if !provider.enabled || !(owns_preset || declared) {
         return None;
     }
     Some(
-        json!({"id":provider.id,"revision":provider.revision.to_string(),"model":model,"preset":preset}),
+        json!({"id":provider.id,"revision":provider.revision.to_string(),"model":model,
+            "authentication":provider.authentication,"preset":provider.preset}),
     )
 }
 
@@ -236,17 +261,52 @@ mod model_tests {
             "enabled":true,"models":[],"default_model":"old-model",
             "preset":{"source":{"kind":"package","data":{"name":"sample"}},"id":"regional","route":null}
         })).unwrap();
-        let context = provider_context(&provider, "selected-model", "sample").unwrap();
+        let context = provider_context(&provider, "selected-model", "sample", &[]).unwrap();
         assert_eq!(context["revision"], "9007199254740993");
         assert_eq!(context["model"], "selected-model");
         assert_eq!(context["preset"]["id"], "regional");
-        assert_eq!(context.as_object().unwrap().len(), 4);
+        assert_eq!(context["authentication"], "api_key");
+        assert_eq!(context.as_object().unwrap().len(), 5);
         assert!(!context.to_string().contains("private.example"));
-        assert!(provider_context(&provider, "selected-model", "other").is_none());
+        assert!(provider_context(&provider, "selected-model", "other", &[]).is_none());
         provider.enabled = false;
-        assert!(provider_context(&provider, "selected-model", "sample").is_none());
+        assert!(provider_context(&provider, "selected-model", "sample", &[]).is_none());
         provider.enabled = true;
         provider.preset = None;
-        assert!(provider_context(&provider, "selected-model", "sample").is_none());
+        assert!(provider_context(&provider, "selected-model", "sample", &[]).is_none());
+    }
+
+    #[test]
+    fn projects_declared_native_authentication() {
+        for (authentication, api) in [
+            ("chat_gpt", "responses"),
+            ("chat_gpt_oauth", "responses"),
+            ("claude_oauth", "anthropic"),
+        ] {
+            let mut provider: sailry_protocol::conversation::Provider =
+                serde_json::from_value(json!({
+                    "id":sailry_protocol::ProviderId::new(),"revision":9007199254740993_u64,
+                    "name":"Private channel","api":api,"authentication":authentication,
+                    "endpoint":"https://private.example.test","enabled":true,
+                    "models":[],"default_model":"previous","credential":null
+                }))
+                .unwrap();
+            let resources = vec![serde_json::from_value(json!({
+                "authentication":authentication,"requests":{"usage":{"url":"https://example.test/usage"}}
+            })).unwrap()];
+            let context = provider_context(&provider, "selected", "status", &resources).unwrap();
+            assert_eq!(context["authentication"], authentication);
+            assert_eq!(context["revision"], "9007199254740993");
+            assert_eq!(context["model"], "selected");
+            assert!(context["preset"].is_null());
+            assert_eq!(context.as_object().unwrap().len(), 5);
+            assert!(!context.to_string().contains("private.example"));
+            assert!(provider_context(&provider, "selected", "status", &[]).is_none());
+            provider.authentication = sailry_protocol::Authentication::ApiKey;
+            assert!(provider_context(&provider, "selected", "status", &resources).is_none());
+            provider.authentication = resources[0].authentication;
+            provider.enabled = false;
+            assert!(provider_context(&provider, "selected", "status", &resources).is_none());
+        }
     }
 }

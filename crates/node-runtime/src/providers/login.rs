@@ -9,6 +9,7 @@ mod options;
 pub(crate) mod plugin;
 pub(crate) use chatgpt::Authorization;
 pub(crate) use grant::Grant;
+pub(crate) use headers::resource_endpoint;
 pub(crate) use options::capture;
 pub(crate) use options::effective;
 

@@ -100,6 +100,9 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             && parsed.model_auth.iter().enumerate().all(|(index,item)| item.valid() && !parsed.model_auth[..index].iter().any(|other|other.id==item.id)
                                 && parsed.actions.contains(&sailry_protocol::plugin::Action::AuthenticateModels)
                                 && (item.exchange.is_none() || parsed.actions.contains(&sailry_protocol::plugin::Action::InspectCredentials)))
+                            && parsed.model_resources.iter().enumerate().all(|(index,item)| item.valid()
+                                && !parsed.model_resources[..index].iter().any(|other| other.authentication == item.authentication)
+                                && parsed.actions.contains(&sailry_protocol::plugin::Action::Http))
                             && parsed.model_adapters.iter().enumerate().all(|(index,item)| item.valid() && !parsed.model_adapters[..index].iter().any(|other|other.id==item.id)
                                 && parsed.actions.contains(&sailry_protocol::plugin::Action::ProvideModels))
                             && parsed.model_providers.iter().enumerate().all(|(index,preset)| {
@@ -298,6 +301,17 @@ mod settings;
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn validates_native_resource_ownership() {
+        let resource = json!({"authentication":"chat_gpt_oauth","requests":{"usage":{"url":"https://chatgpt.com/backend-api/wham/usage"}}});
+        let check = |resources: Value, actions: Value| {
+            parse(&serde_json::to_vec(&json!({"$schema":SCHEMA,"name":"resources","extensions":{"dev.sailry.platform":{"api_version":"v1","actions":actions,"model_resources":resources}}})).unwrap()).unwrap().extension.is_some()
+        };
+        assert!(check(json!([resource]), json!(["http.request"])));
+        assert!(!check(json!([resource, resource]), json!(["http.request"])));
+        assert!(!check(json!([resource]), json!([])));
+    }
 
     #[test]
     fn accepts_standard_display_metadata() {

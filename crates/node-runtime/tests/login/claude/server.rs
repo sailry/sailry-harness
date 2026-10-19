@@ -22,7 +22,7 @@ pub(super) fn authorization(url: &str, endpoint: &str, redirect: Option<&str>) {
     assert!(fields["code_challenge"] == expected);
 }
 
-pub(super) fn tokens(request: &discovery_support::Request, fresh: bool, expires: u64) -> Value {
+pub(crate) fn tokens(request: &discovery_support::Request, fresh: bool, expires: u64) -> Value {
     assert_eq!(request.method, "POST");
     assert_eq!(request.path, "/v1/oauth/token");
     assert!(request.headers["content-type"].starts_with("application/json"));
@@ -97,7 +97,7 @@ pub(super) fn catalog(request: &discovery_support::Request, access: &str, agent:
     })
 }
 
-pub(super) fn standard(request: &discovery_support::Request) -> Reply {
+pub(crate) fn standard(request: &discovery_support::Request) -> Reply {
     if request.path == "/v1/oauth/token" {
         Reply::Json(tokens(request, false, 3600))
     } else if request.path.starts_with("/v1/models") {

@@ -14,6 +14,7 @@ fn pending(client_id: Option<&str>) -> Pending {
         refresh: Secret::new("refresh".into()),
         expires_at_ms: 1,
         earliest_refresh_at: None,
+        account_id: None,
         renewal_pending: false,
     });
     Pending::new(

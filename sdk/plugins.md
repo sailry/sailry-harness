@@ -228,8 +228,21 @@ uncertain and is never replayed automatically.
 
 An authentication declaration may add named read-only `requests`, using the
 existing endpoint format. `requestProviderHttp(provider, revision, name, input)`
-resolves that name for the current channel and exact calling package. It uses only that installed package’s own provider authorization. Endpoint URLs
-and headers are fixed declarations; public query and body values may reference
+resolves that name for the current channel and exact calling package. Plugin
+accounts use only that installed package's own authentication declaration.
+
+A package can declare native account reads separately with optional
+`model_resources: [{authentication, requests}]`. Each authentication may appear
+once; supported values are `chat_gpt`, `chat_gpt_oauth` and `claude_oauth`.
+These declarations require `http.request`, expose no credentials, and cannot
+declare mutations. The native authentication owner permits GPT resources only
+at `https://chatgpt.com` and Claude resources only at
+`https://api.anthropic.com`. It injects Bearer authentication and an actual
+account identifier when available. Packages may declare fixed public headers
+such as User-Agent or anthropic-beta, but cannot supply Authorization or
+chatgpt-account-id. Resource reads use the existing credential renewal owner;
+they do not change model authentication or require conversation access.
+Endpoint URLs and headers are fixed declarations; public query and body values may reference
 `{input.field}`. They cannot name grant fields or override credential headers.
 The Node obtains and injects the grant through its authorization owner, applies
 the existing HTTP time/size budgets, refuses redirects and rejects responses that
@@ -425,11 +438,14 @@ stay whole. A `metric` declaration may set `width` from 240 through 480 logical
 pixels; the host default is 300. Packages do not supply popup views, positioning
 or styles.
 
-A package declaring `models.provide` can use `readModelContext()` and
+A package declaring `models.provide` or a matching native `model_resources` entry
+can use `readModelContext()` and
 `nextModelContext(cursor)` without `conversation.read`. This projection contains
 only `cursor`, `connected` and the selected current channel's
-`provider: {id, revision, model, preset}`, or `null` when the selection belongs to
-another package or is unavailable. Revisions and cursors are decimal strings.
+`provider: {id, revision, model, authentication, preset}`, or `null` when the
+selection is unavailable or does not match the package declaration. Native
+providers have a nullable `preset`; plugin providers retain their exact package
+binding. Revisions and cursors are decimal strings.
 It exposes neither credentials nor conversation content. Clear displayed data
 when the context changes and discard HTTP replies for an older selection.
 `requestProviderHttp(id, revision, request, input)` invokes a named authentication

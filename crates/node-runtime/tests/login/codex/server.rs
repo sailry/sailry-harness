@@ -1,7 +1,7 @@
 use super::*;
 use serde_json::Value;
 
-pub(super) fn standard(request: &discovery_support::Request, expires: u64) -> Reply {
+pub(crate) fn standard(request: &discovery_support::Request, expires: u64) -> Reply {
     match request.path.as_str() {
         "/api/accounts/deviceauth/usercode" => {
             assert_eq!(request.method, "POST");
@@ -35,7 +35,7 @@ pub(super) fn standard(request: &discovery_support::Request, expires: u64) -> Re
     }
 }
 
-pub(super) fn tokens(
+pub(crate) fn tokens(
     request: &discovery_support::Request,
     expires: u64,
     access: &str,

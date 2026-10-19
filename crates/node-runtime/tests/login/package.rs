@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[allow(dead_code)]
 #[path = "../plugins/support.rs"]
-mod support;
+pub(super) mod support;
 
 #[path = "package/adapter.rs"]
 mod adapter;
