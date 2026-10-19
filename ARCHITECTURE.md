@@ -121,6 +121,10 @@ registered again at that path or the conversation moves to another worktree.
 
 Manual profile backups use the execution Node's consistent SQLite snapshot,
 referenced plugin packages, attachments and session HTML documents, and registered managed workspaces.
+Database copying and reference enumeration share one pinned read transaction on an
+independent connection, outside the Store actor; concurrent commands can continue.
+Referenced session documents remain on disk until copying finishes; session
+metadata can still be removed while their physical cleanup waits.
 External project paths remain references. WebDAV and S3 exports publish verified
 password-encrypted age segments before their manifest; uncertain operations keep
 their original request identity. Explicit restore validates the archive into a new empty profile,
@@ -343,8 +347,10 @@ changing captured access for pending or running commands. User-created
 terminals start with the complete login-shell environment. Language services
 and configured hooks retain their own execution policies.
 The language-service plugin's enable switch controls the Node's service setting
-atomically. Disabling it cancels pending starts and queries, stops active servers
-before command completion and omits language tools from subsequent turns.
+atomically. Disabling it cancels pending starts and queries immediately and omits
+language tools from subsequent turns. Server cleanup runs asynchronously outside
+Store admission and metadata locks; startup and shutdown remain serialized, and
+obsolete cleanup cannot replace current service policy or newly started servers.
 Installation remains available while disabled. Enabled services start on demand
 and stop after inactivity; installation alone does not launch a server.
 Controllers may stop one exact running server without changing its settings or

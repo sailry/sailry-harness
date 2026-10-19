@@ -497,6 +497,10 @@ async fn cancels_initialization_before_disable_completes() {
     })
     .await
     .unwrap();
+    assert!(
+        pool.state.try_lock().is_ok(),
+        "initialization must not hold the metadata lock"
+    );
     let mut settings = pool.settings();
     settings.enabled = false;
     tokio::time::timeout(Duration::from_secs(2), pool.configure(settings))
@@ -545,5 +549,127 @@ async fn rejects_stop_after_registered_root_changes() {
         Status::Stopped
     );
     assert!(pool.list(fixture.worktree).await.unwrap().is_empty());
+    pool.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn publishes_policy_before_delayed_cleanup() {
+    use sailry_client::Client;
+    use sailry_link::{Link, NetworkScope};
+    use sailry_protocol::{Command, Output};
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = crate::Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let pool = node.ingress.code.clone();
+        // Deterministically hold lifecycle cleanup while allowing metadata and Store work.
+        let lifecycle = pool.lifecycle.lock().await;
+        let Output::CodeSettings(mut settings) = client
+            .execute(client.prepare(Command::ReadCodeSettings))
+            .await
+            .unwrap()
+        else {
+            panic!("code settings expected")
+        };
+        settings.enabled = false;
+        let request = client.prepare(Command::SaveCodeSettings {
+            expected_revision: settings.revision,
+            settings,
+        });
+        let saved =
+            tokio::time::timeout(Duration::from_secs(5), client.execute(request.clone())).await;
+        assert!(!pool.enabled());
+        let metadata = pool
+            .state
+            .try_lock()
+            .expect("cleanup must not retain the metadata lock");
+        drop(metadata);
+        let Output::CodeSettings(saved) = saved
+            .expect("settings must complete before cleanup")
+            .unwrap()
+        else {
+            panic!("code settings expected")
+        };
+        assert!(!saved.enabled);
+        let project = directory.path().join("project");
+        std::fs::create_dir(&project).unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            assert!(matches!(
+                client
+                    .execute(client.prepare(Command::Snapshot))
+                    .await
+                    .unwrap(),
+                Output::Snapshot(_)
+            ));
+            assert!(matches!(
+                client
+                    .execute(client.prepare(Command::RegisterProject {
+                        name: "Concurrent".into(),
+                        path: project.to_str().unwrap().into()
+                    }))
+                    .await
+                    .unwrap(),
+                Output::Project(_)
+            ));
+            assert_eq!(
+                client.execute(request).await.unwrap(),
+                Output::CodeSettings(saved)
+            );
+        })
+        .await;
+        drop(lifecycle);
+        result.expect("Store reads and durable writes must not wait for language cleanup");
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn delayed_cleanup_preserves_current_policy() {
+    let fixture = Fixture::new().await;
+    let pool = Pool::new(None, fixture.environment.clone(), CancellationToken::new());
+    let lifecycle = pool.lifecycle.lock().await;
+    let mut settings = pool.settings();
+    settings.enabled = false;
+    let first = pool.configure(settings.clone());
+    assert!(!pool.enabled());
+    settings.enabled = true;
+    let second = pool.configure(settings);
+    assert!(pool.enabled());
+    drop(lifecycle);
+    second.await;
+    let query = Query::Diagnostics {
+        path: "main.rs".into(),
+        severity: None,
+    };
+    let startup = pool
+        .prepare(fixture.worktree, fixture.root.clone(), &query)
+        .await
+        .unwrap()
+        .unwrap();
+    pool.start(&startup, &fixture.root, &CancellationToken::new())
+        .await
+        .unwrap();
+    first.await;
+    assert!(pool.enabled());
+    assert_eq!(
+        pool.list(fixture.worktree).await.unwrap()[0].status,
+        Status::Ready
+    );
     pool.shutdown().await;
 }

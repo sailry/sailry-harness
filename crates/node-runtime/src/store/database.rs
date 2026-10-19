@@ -880,7 +880,7 @@ impl Database {
         self.relocations.remove(&(caller, request.id));
         let mut background = Vec::new();
         let mut deliveries = Vec::new();
-        let recorded = (|| -> Result<Vec<EventEnvelope>, Fault> {
+        let recorded = (|| {
             let transaction = self.connection.transaction().map_err(storage_error)?;
             let event = finish(&transaction, &mut result)?;
             let event = match event {
@@ -939,8 +939,17 @@ impl Database {
             if changed != 1 {
                 return Err(storage_error("durable admission missing"));
             }
+            let delivered = deliveries
+                .iter()
+                .map(|turn| {
+                    Ok((
+                        super::agent::runs::get(&transaction, turn.id)?,
+                        super::agent::background::list(&transaction, turn.session)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, Fault>>()?;
             transaction.commit().map_err(storage_error)?;
-            Ok(envelopes)
+            Ok::<_, Fault>((envelopes, delivered))
         })();
         match recorded {
             Err(_) => {
@@ -956,17 +965,11 @@ impl Database {
                 }
                 Err(error)
             }
-            Ok(envelopes) => {
+            Ok((envelopes, delivered)) => {
                 super::agent::background::publish(self, background);
-                for turn in deliveries {
-                    super::agent::publish_run(
-                        self,
-                        super::agent::runs::get(&self.connection, turn.id)?,
-                    );
-                    super::agent::background::publish(
-                        self,
-                        super::agent::background::list(&self.connection, turn.session)?,
-                    );
+                for (run, tasks) in delivered {
+                    super::agent::publish_run(self, run);
+                    super::agent::background::publish(self, tasks);
                 }
                 for event in envelopes {
                     match &event.event {

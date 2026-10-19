@@ -316,10 +316,14 @@ async fn disabling_service_stops_all_worktrees() {
             panic!("settings expected")
         };
         assert!(settings.enabled);
-        assert!(
-            pids.iter().all(|pid| !running(pid)),
-            "completion waits for every owned instance to stop"
-        );
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while pids.iter().any(|pid| running(pid)) {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("disabled language servers must finish asynchronous cleanup");
+        assert!(pids.iter().all(|pid| !running(pid)));
         for startup in &startups {
             let Output::CodeServers(servers) = fixture
                 .client

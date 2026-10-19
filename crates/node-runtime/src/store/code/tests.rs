@@ -251,3 +251,112 @@ fn preserves_removed_package_choice_at_startup() {
         initialized
     );
 }
+
+#[tokio::test]
+async fn preserves_completion_when_refresh_fails() {
+    use crate::Node;
+    use sailry_client::Client;
+    use sailry_link::{Link, NetworkScope};
+
+    for remote in [false, true] {
+        for install in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let node = Node::start_empty(directory.path().join("profile"))
+                .await
+                .unwrap();
+            let controller =
+                Link::controller(directory.path().join("controller"), NetworkScope::default())
+                    .await
+                    .unwrap();
+            let address = controller
+                .handle()
+                .pair(node.link().invite().unwrap().ticket())
+                .await
+                .unwrap();
+            let client = Client::new(if remote {
+                controller.handle().remote(address)
+            } else {
+                node.local()
+            });
+            let Output::Plugin(package) = client
+                .execute(client.prepare(Command::InstallBundledPlugin {
+                    name: "code".into(),
+                    expected_revision: 0,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("plugin expected")
+            };
+            let db =
+                rusqlite::Connection::open(node.profile().join("storage/node.sqlite3")).unwrap();
+            let original = encode(&settings(&db).unwrap()).unwrap();
+            db.execute(
+                "INSERT INTO code_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body",
+                [&original],
+            )
+            .unwrap();
+            let mut changed: sailry_protocol::code::Settings =
+                serde_json::from_slice(&original).unwrap();
+            changed.enabled = false;
+            let request = client.prepare(if install {
+                Command::InstallBundledPlugin {
+                    name: "code".into(),
+                    expected_revision: package.summary.revision,
+                }
+            } else {
+                Command::SaveCodeSettings {
+                    expected_revision: changed.revision,
+                    settings: changed,
+                }
+            });
+            // Corrupt only the disposable fixture's refresh input after durable completion.
+            db.execute_batch(&format!(
+                "CREATE TRIGGER fail_refresh AFTER UPDATE OF status ON requests WHEN NEW.id='{}' AND NEW.status='completed' BEGIN UPDATE code_settings SET body=x'7b'; END;",
+                request.id
+            ))
+            .unwrap();
+            let response = client.execute(request.clone()).await.unwrap();
+            assert!(matches!(
+                response,
+                Output::CodeSettings(_) | Output::Plugin(_)
+            ));
+            assert!(settings(&db).is_err(), "the post-commit refresh must fail");
+            let events: i64 = db
+                .query_row("SELECT count(*) FROM events", [], |row| row.get(0))
+                .unwrap();
+            let stored: sailry_link::Response = serde_json::from_str(
+                &db.query_row(
+                    "SELECT result FROM requests WHERE id=?1 AND status='completed'",
+                    [request.id.to_string()],
+                    |row| row.get::<_, String>(0),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(stored, Ok(response.clone()));
+            assert_eq!(client.execute(request).await.unwrap(), response);
+            assert_eq!(
+                db.query_row("SELECT count(*) FROM events", [], |row| row
+                    .get::<_, i64>(0))
+                    .unwrap(),
+                events
+            );
+            let mut query = db
+                .prepare("SELECT body FROM events ORDER BY cursor DESC LIMIT 1")
+                .unwrap();
+            let last: Vec<u8> = query.query_row([], |row| row.get(0)).unwrap();
+            assert!(matches!(
+                serde_json::from_slice::<Event>(&last).unwrap(),
+                Event::PluginChanged(_)
+            ));
+            drop(query);
+            db.execute_batch("DROP TRIGGER fail_refresh").unwrap();
+            db.execute("UPDATE code_settings SET body=?1", [original])
+                .unwrap();
+            drop(db);
+            controller.close().await.unwrap();
+            node.shutdown().await.unwrap();
+        }
+    }
+}

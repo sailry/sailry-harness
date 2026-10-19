@@ -9,6 +9,7 @@ pub(super) fn release_removed(
     computer: Arc<crate::computer::Desktop>,
     commands: Arc<crate::process::background::Commands>,
     profile: Option<std::path::PathBuf>,
+    backup_resources: Arc<tokio::sync::RwLock<()>>,
     runtime: &tokio::runtime::Handle,
     reply: oneshot::Sender<Result<Admission, Fault>>,
     cleanup: oneshot::Receiver<Result<Vec<sailry_protocol::SessionId>, Fault>>,
@@ -39,9 +40,13 @@ pub(super) fn release_removed(
                             computer.finish(*session).await;
                             commands.close_session(*session).await;
                         }
-                        if let Some(profile) = &profile {
+                        if let Some(profile) = &profile
+                            && !owners.is_empty()
+                        {
                             let profile = profile.clone();
+                            let resources = backup_resources.write_owned().await;
                             match tokio::task::spawn_blocking(move || {
+                                let _resources = resources;
                                 let mut result = Ok(());
                                 for owner in owners {
                                     let cleanup = crate::files::artifacts::remove(&profile, owner);

@@ -23,6 +23,7 @@ type Key = (WorktreeId, String, String);
 struct Slot {
     server: Arc<Server>,
     restarts: u8,
+    active: CancellationToken,
 }
 struct Configuration {
     settings: code::Settings,
@@ -55,6 +56,7 @@ pub(crate) struct Pool {
     identities: Arc<super::identity::Cache>,
     closed: CancellationToken,
     state: Mutex<State>,
+    lifecycle: Mutex<()>,
     configuration: std::sync::RwLock<Configuration>,
     pub(super) rules: Arc<super::rules::Registry>,
     pub(super) install: Arc<super::install::Manager>,
@@ -87,6 +89,7 @@ impl Pool {
             }),
             closed,
             state: Mutex::new(State::default()),
+            lifecycle: Mutex::new(()),
             rules,
             install,
         });
@@ -144,6 +147,7 @@ impl Pool {
         self.install.network.fixture(endpoint)
     }
     pub(crate) async fn uninstall(&self, package: &str, version: &str) -> Result<(), Fault> {
+        let _lifecycle = self.lifecycle.lock().await;
         let mut state = self.state.lock().await;
         let path = self.install.validate_uninstall(package, version)?;
         let keys = state
@@ -164,49 +168,68 @@ impl Pool {
         state
             .prepared
             .retain(|_, plan| !plan.executable.starts_with(&path));
-        for key in keys {
-            if let Some(slot) = state.slots.remove(&key) {
-                slot.server.rpc.shutdown().await;
-            }
+        let removed = keys
+            .into_iter()
+            .filter_map(|key| state.slots.remove(&key))
+            .collect::<Vec<_>>();
+        drop(state);
+        for slot in removed {
+            slot.server.rpc.shutdown().await;
         }
         self.install.uninstall(package, version)
     }
 
-    pub(crate) async fn configure(&self, settings: code::Settings) {
-        let enabled = settings.enabled;
-        let disabled: std::collections::BTreeSet<_> = settings
-            .servers
-            .iter()
-            .filter(|(_, value)| value.disabled)
-            .map(|(name, _)| name.clone())
-            .collect();
+    /// Publish policy synchronously; process cleanup never holds up the Store actor.
+    pub(crate) fn configure(
+        self: &Arc<Self>,
+        settings: code::Settings,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static + use<> {
         {
             let mut configuration = self
                 .configuration
                 .write()
                 .expect("code settings lock is healthy");
-            if !enabled {
+            if !settings.enabled {
                 configuration.stop.cancel();
             } else if !configuration.settings.enabled {
                 configuration.stop = self.closed.child_token();
             }
             configuration.settings = settings;
         }
-        let mut state = self.state.lock().await;
-        state
-            .prepared
-            .retain(|_, plan| enabled && !disabled.contains(&plan.startup.server));
-        state
-            .failures
-            .retain(|(_, _, server), _| enabled && !disabled.contains(server));
-        let keys: Vec<_> = state
-            .slots
-            .keys()
-            .filter(|(_, _, server)| !enabled || disabled.contains(server))
-            .cloned()
-            .collect();
-        for key in keys {
-            if let Some(slot) = state.slots.remove(&key) {
+        let pool = self.clone();
+        async move {
+            let _lifecycle = pool.lifecycle.lock().await;
+            let removed = {
+                let mut state = pool.state.lock().await;
+                // A delayed cleanup observes current policy, never its stale caller's settings.
+                let settings = pool
+                    .configuration
+                    .read()
+                    .expect("code settings lock is healthy")
+                    .settings
+                    .clone();
+                let allowed = |server: &str| {
+                    settings.enabled
+                        && !settings
+                            .servers
+                            .get(server)
+                            .is_some_and(|value| value.disabled)
+                };
+                state
+                    .prepared
+                    .retain(|_, plan| allowed(&plan.startup.server));
+                state.failures.retain(|(_, _, server), _| allowed(server));
+                let keys = state
+                    .slots
+                    .iter()
+                    .filter(|((_, _, server), slot)| !allowed(server) || slot.active.is_cancelled())
+                    .map(|(key, _)| key.clone())
+                    .collect::<Vec<_>>();
+                keys.into_iter()
+                    .filter_map(|key| state.slots.remove(&key))
+                    .collect::<Vec<_>>()
+            };
+            for slot in removed {
                 slot.server.rpc.shutdown().await;
             }
         }
@@ -316,10 +339,16 @@ impl Pool {
         self.available(&startup.server)?;
         state.cache(plan)?;
         let key = key(&startup);
-        let warm = if let Some(slot) = state.slots.get(&key) {
-            slot.server.plan.startup == startup
+        let server = state
+            .slots
+            .get(&key)
+            .filter(|slot| !slot.active.is_cancelled())
+            .map(|slot| slot.server.clone());
+        drop(state);
+        let warm = if let Some(server) = server {
+            server.plan.startup == startup
                 && matches!(
-                    slot.server.rpc.state.lock().await.status,
+                    server.rpc.state.lock().await.status,
                     Status::Ready | Status::Indexing
                 )
         } else {
@@ -374,33 +403,54 @@ impl Pool {
         stop: &CancellationToken,
     ) -> Result<code::Server, Fault> {
         let (_, active) = self.capture()?;
+        let _lifecycle = tokio::select! {
+            biased;
+            _=stop.cancelled()=>return Err(cancelled()),
+            _=active.cancelled()=>return Err(self.current(&active).unwrap_err()),
+            guard=self.lifecycle.lock()=>guard,
+        };
         self.available(&startup.server)?;
         self.validate(startup, root).await?;
-        let mut state = self.state.lock().await;
-        self.current(&active)?;
-        self.available(&startup.server)?;
         let key = key(startup);
-        let mut restarts = state
-            .failures
-            .get(&key)
-            .filter(|(revision, _)| revision == &startup.revision)
-            .map_or(0, |(_, count)| *count);
-        if let Some(slot) = state.slots.get(&key)
-            && slot.server.plan.startup == *startup
+        let (existing, mut restarts, plan) = {
+            let state = self.state.lock().await;
+            self.current(&active)?;
+            let existing = state.slots.get(&key).map(|slot| {
+                (
+                    slot.server.clone(),
+                    slot.restarts,
+                    !slot.active.is_cancelled(),
+                )
+            });
+            let restarts = state
+                .failures
+                .get(&key)
+                .filter(|(revision, _)| revision == &startup.revision)
+                .map_or(0, |(_, count)| *count);
+            let plan = state
+                .prepared
+                .get(&startup.revision)
+                .cloned()
+                .ok_or_else(|| {
+                    Fault::new(
+                        ErrorCode::PermissionDenied,
+                        "language startup was not prepared by this Node",
+                    )
+                })?;
+            (existing, restarts, plan)
+        };
+        if let Some((server, attempts, valid)) = existing
+            && valid
+            && server.plan.startup == *startup
         {
-            let status = slot.server.rpc.state.lock().await.status;
+            let status = server.rpc.state.lock().await.status;
             if matches!(status, Status::Ready | Status::Indexing) {
-                let result = info(&slot.server).await;
+                let result = info(&server).await;
                 self.current(&active)?;
+                self.available(&startup.server)?;
                 return result;
             }
-            restarts = slot.restarts + 1;
-            if restarts > 3 {
-                return Err(Fault::new(
-                    ErrorCode::Unavailable,
-                    "language server stopped after three restart attempts",
-                ));
-            }
+            restarts = attempts + 1;
         }
         if restarts > 3 {
             return Err(Fault::new(
@@ -409,93 +459,131 @@ impl Pool {
             ));
         }
         if restarts > 0 {
-            tokio::select! { biased; _ = stop.cancelled() => return Err(cancelled()), _ = active.cancelled() => return Err(self.current(&active).unwrap_err()), _ = tokio::time::sleep(Duration::from_millis(200 << (restarts-1))) => {} }
+            tokio::select! {biased;_=stop.cancelled()=>return Err(cancelled()),_=active.cancelled()=>return Err(self.current(&active).unwrap_err()),_=tokio::time::sleep(Duration::from_millis(200 << (restarts-1)))=>{}}
         }
-        if let Some(slot) = state.slots.remove(&key) {
+        let removed = self.state.lock().await.slots.remove(&key);
+        if let Some(slot) = removed {
             slot.server.rpc.shutdown().await;
         }
-        if state.slots.len() >= CAPACITY {
-            let mut idle = None;
-            for (key, slot) in &state.slots {
-                if Arc::strong_count(&slot.server) == 1 {
-                    let used = *slot.server.used.lock().await;
-                    if idle.as_ref().is_none_or(|(_, earlier)| used < *earlier) {
-                        idle = Some((key.clone(), used));
-                    }
-                }
+        let candidates = {
+            let state = self.state.lock().await;
+            if state.slots.len() < CAPACITY {
+                None
+            } else {
+                Some(
+                    state
+                        .slots
+                        .iter()
+                        .filter(|(_, slot)| Arc::strong_count(&slot.server) == 1)
+                        .map(|(key, slot)| (key.clone(), slot.server.clone()))
+                        .collect::<Vec<_>>(),
+                )
             }
-            let (key, _) =
-                idle.ok_or_else(|| Fault::new(ErrorCode::Busy, "all language servers are in use"))?;
-            if let Some(slot) = state.slots.remove(&key) {
+        };
+        if let Some(candidates) = candidates {
+            let mut idle = Vec::new();
+            for (key, server) in candidates {
+                let used = *server.used.lock().await;
+                idle.push((used, key, server));
+            }
+            idle.sort_by_key(|(used, _, _)| *used);
+            let removed = {
+                let mut state = self.state.lock().await;
+                let key = idle
+                    .iter()
+                    .find(|(_, _, server)| Arc::strong_count(server) == 2)
+                    .map(|(_, key, _)| key.clone())
+                    .ok_or_else(|| {
+                        Fault::new(ErrorCode::Busy, "all language servers are in use")
+                    })?;
+                state.slots.remove(&key)
+            };
+            if let Some(slot) = removed {
                 slot.server.rpc.shutdown().await;
             }
         }
         self.current(&active)?;
-        let plan = state
-            .prepared
-            .get(&startup.revision)
-            .cloned()
-            .ok_or_else(|| {
-                Fault::new(
-                    ErrorCode::PermissionDenied,
-                    "language startup was not prepared by this Node",
-                )
-            })?;
+        self.available(&startup.server)?;
         let server = match Server::start(plan, &self.environment, active.clone(), stop).await {
             Ok(server) => server,
             Err(error) => {
+                let mut state = self.state.lock().await;
                 self.current(&active)?;
+                self.available(&startup.server)?;
                 state
                     .failures
                     .insert(key, (startup.revision.clone(), restarts + 1));
                 return Err(error);
             }
         };
+        let result = info(&server).await;
         if let Err(error) = self
             .current(&active)
             .and_then(|()| self.available(&startup.server))
         {
+            server.rpc.shutdown().await;
+            return Err(error);
+        }
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                server.rpc.shutdown().await;
+                return Err(error);
+            }
+        };
+        let mut state = self.state.lock().await;
+        // Policy may change while waiting for the metadata lock.
+        if let Err(error) = self
+            .current(&active)
+            .and_then(|()| self.available(&startup.server))
+        {
+            drop(state);
             server.rpc.shutdown().await;
             return Err(error);
         }
         state.failures.remove(&key);
-        let result = info(&server).await?;
-        if let Err(error) = self
-            .current(&active)
-            .and_then(|()| self.available(&startup.server))
-        {
-            server.rpc.shutdown().await;
-            return Err(error);
-        }
-        state.slots.insert(key, Slot { server, restarts });
+        state.slots.insert(
+            key,
+            Slot {
+                server,
+                restarts,
+                active,
+            },
+        );
         Ok(result)
     }
 
     pub(crate) async fn stop(&self, startup: &Startup, root: &Path) -> Result<code::Server, Fault> {
-        let mut state = self.state.lock().await;
-        let key = key(startup);
-        let slot = state.slots.get(&key).ok_or_else(|| {
-            Fault::new(ErrorCode::NotFound, "language server is no longer running")
-        })?;
-        if slot.server.plan.startup != *startup {
-            return Err(Fault::new(
-                ErrorCode::RevisionConflict,
-                "language server changed before stopping",
-            ));
-        }
-        if slot.server.plan.root != root {
-            return Err(Fault::new(
-                ErrorCode::PermissionDenied,
-                "language server belongs to another registered worktree",
-            ));
-        }
-        // Keep startup and stop serialized until the owned process group has exited.
+        let _lifecycle = self.lifecycle.lock().await;
+        let slot = {
+            let mut state = self.state.lock().await;
+            let key = key(startup);
+            let slot = state.slots.get(&key).ok_or_else(|| {
+                Fault::new(ErrorCode::NotFound, "language server is no longer running")
+            })?;
+            if slot.server.plan.startup != *startup {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "language server changed before stopping",
+                ));
+            }
+            if slot.server.plan.root != root {
+                return Err(Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "language server belongs to another registered worktree",
+                ));
+            }
+            let slot = state
+                .slots
+                .remove(&key)
+                .expect("checked language slot exists");
+            state.failures.remove(&key);
+            slot
+        };
         slot.server.rpc.shutdown().await;
         let mut stopped = info(&slot.server).await?;
         stopped.status = Status::Stopped;
         stopped.progress = None;
-        state.slots.remove(&key);
-        state.failures.remove(&key);
         Ok(stopped)
     }
 
@@ -592,12 +680,18 @@ impl Pool {
     }
 
     pub(crate) async fn list(&self, worktree: WorktreeId) -> Result<Vec<code::Server>, Fault> {
-        let state = self.state.lock().await;
+        let current = self
+            .state
+            .lock()
+            .await
+            .slots
+            .iter()
+            .filter(|((id, _, _), _)| *id == worktree)
+            .map(|(_, slot)| slot.server.clone())
+            .collect::<Vec<_>>();
         let mut servers = Vec::new();
-        for ((id, _, _), slot) in &state.slots {
-            if *id == worktree {
-                servers.push(info(&slot.server).await?);
-            }
+        for server in current {
+            servers.push(info(&server).await?);
         }
         Ok(servers)
     }
@@ -723,38 +817,55 @@ impl Pool {
     }
 
     pub(crate) async fn remove(&self, worktree: WorktreeId) {
-        let mut state = self.state.lock().await;
-        let keys = state
-            .slots
-            .keys()
-            .filter(|(id, _, _)| *id == worktree)
-            .cloned()
-            .collect::<Vec<_>>();
-        for key in keys {
-            if let Some(slot) = state.slots.remove(&key) {
-                slot.server.rpc.shutdown().await;
-            }
+        let _lifecycle = self.lifecycle.lock().await;
+        let removed = {
+            let mut state = self.state.lock().await;
+            let keys = state
+                .slots
+                .keys()
+                .filter(|(id, _, _)| *id == worktree)
+                .cloned()
+                .collect::<Vec<_>>();
+            state
+                .prepared
+                .retain(|_, plan| plan.startup.worktree != worktree);
+            state.failures.retain(|(id, _, _), _| *id != worktree);
+            keys.into_iter()
+                .filter_map(|key| state.slots.remove(&key))
+                .collect::<Vec<_>>()
+        };
+        for slot in removed {
+            slot.server.rpc.shutdown().await;
         }
-        state
-            .prepared
-            .retain(|_, plan| plan.startup.worktree != worktree);
-        state.failures.retain(|(id, _, _), _| *id != worktree);
     }
 
     async fn reap(&self) {
-        let mut state = self.state.lock().await;
+        let _lifecycle = self.lifecycle.lock().await;
+        let candidates = self
+            .state
+            .lock()
+            .await
+            .slots
+            .iter()
+            .filter(|(_, slot)| Arc::strong_count(&slot.server) == 1)
+            .map(|(key, slot)| (key.clone(), slot.server.clone()))
+            .collect::<Vec<_>>();
         let mut stale = Vec::new();
-        for (key, slot) in &state.slots {
-            if Arc::strong_count(&slot.server) == 1
-                && Instant::now().duration_since(*slot.server.used.lock().await) >= IDLE
-            {
-                stale.push(key.clone());
+        for (key, server) in candidates {
+            if Instant::now().duration_since(*server.used.lock().await) >= IDLE {
+                stale.push((key, server));
             }
         }
-        for key in stale {
-            if let Some(slot) = state.slots.remove(&key) {
-                slot.server.rpc.shutdown().await;
-            }
+        let removed = {
+            let mut state = self.state.lock().await;
+            stale
+                .iter()
+                .filter(|(_, server)| Arc::strong_count(server) == 2)
+                .filter_map(|(key, _)| state.slots.remove(key))
+                .collect::<Vec<_>>()
+        };
+        for slot in removed {
+            slot.server.rpc.shutdown().await;
         }
     }
 
@@ -765,6 +876,7 @@ impl Pool {
             .stop
             .cancel();
         self.install.shutdown();
+        let _lifecycle = self.lifecycle.lock().await;
         let slots = std::mem::take(&mut self.state.lock().await.slots);
         futures::future::join_all(
             slots

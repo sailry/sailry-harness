@@ -74,7 +74,7 @@ enum Job {
     BackupSnapshot {
         revision: u64,
         cancel: sailry_link::CancellationToken,
-        reply: oneshot::Sender<Result<backup::Capture, Fault>>,
+        reply: oneshot::Sender<Result<backup::Source, Fault>>,
     },
     OcrCatalog {
         reply: oneshot::Sender<Result<ocr::Catalog, Fault>>,
@@ -323,6 +323,7 @@ enum Job {
 pub(crate) struct Ingress {
     pub(crate) node: NodeId,
     profile: Option<PathBuf>,
+    backup_resources: Arc<tokio::sync::RwLock<()>>,
     host: Arc<crate::host::Host>,
     discovery: crate::providers::Discovery,
     pub(crate) presets: Arc<crate::providers::presets::Directory>,
@@ -456,6 +457,7 @@ impl Store {
         let ingress = Arc::new(Ingress {
             node,
             profile: profile.clone(),
+            backup_resources: Arc::default(),
             host: crate::host::Host::new(),
             discovery: crate::providers::Discovery::new(),
             presets: Arc::default(),
@@ -522,6 +524,7 @@ impl Store {
         let git = ingress.git.clone();
         let commands = ingress.commands.clone();
         let cleanup_commands = ingress.commands.clone();
+        let backup_resources = ingress.backup_resources.clone();
         let process_runtime = tokio::runtime::Handle::current();
         let cleanup_runtime = tokio::runtime::Handle::current();
         let computer = ingress.computer.clone();
@@ -584,7 +587,7 @@ impl Store {
                 }
                 plugins::collection::run(&mut database.connection, &collection);
                 if let Err(error) = plugins::retain_python(&database.connection, &collection) { let _ = ready.send(Err(crate::Error::from(error))); return Ok(()); }
-                match code::initialize(&mut database.connection) {Ok(settings)=>cleanup_runtime.block_on(code_pool.configure(settings)),Err(error)=>{let _=ready.send(Err(crate::Error::from(error)));return Ok(());}}
+                match code::initialize(&mut database.connection) {Ok(settings)=>{cleanup_runtime.spawn(code_pool.configure(settings));},Err(error)=>{let _=ready.send(Err(crate::Error::from(error)));return Ok(());}}
                 attachments::collect(&database.connection, attachment_profile.as_deref());
                 let mut mutations =
                     match mutations::Worker::start(completed, move |caller, roots, request| {
@@ -796,7 +799,7 @@ impl Store {
                             release.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
                         }
                         Job::BackupPlan { expected, reply } => { let _ = reply.send(backup::plan(&database.connection, expected)); }
-                        Job::BackupSnapshot { revision, cancel, reply } => { let _ = reply.send(backup::capture(&database, revision, &cancel)); }
+                        Job::BackupSnapshot { revision, cancel, reply } => { let _ = reply.send(backup::source(&database, revision, &cancel)); }
                         Job::OcrCatalog { reply } => { let _ = reply.send(ocr::read(&database.connection)); }
                         Job::OcrModels { models, reply } => { let _ = reply.send(ocr::models(&mut database, models, &events)); }
                         Job::PythonSettings { reply } => {
@@ -910,7 +913,7 @@ impl Store {
                         }
                         Job::Completed(completed) => {
                             code::observe(&database,&completed.request,&completed.result,&code_pool,&cleanup_runtime);
-                            let mut result = database.finish_external(
+                            let result = database.finish_external(
                                 completed.caller,
                                 &completed.request,
                                 completed.result,
@@ -920,16 +923,13 @@ impl Store {
                                 dispatch_controls.wake.notify_one();
                             }
                             if result.is_ok() && code::configures(&completed.request.command) {
-                                match code::settings(&database.connection) {
-                                    Ok(settings) => cleanup_runtime.block_on(code_pool.configure(settings)),
-                                    Err(error) => result = Err(error),
-                                }
+                                code::refresh(&database.connection,&code_pool,&cleanup_runtime);
                             }
                             let _ = completed.reply.send(result);
                             mutations.pending -= 1;
                         }
                         Job::Installed { completed, operation, release } => {
-                            let mut result = database.finish_external(
+                            let result = database.finish_external(
                                 completed.caller,
                                 &completed.request,
                                 completed.result,
@@ -939,10 +939,7 @@ impl Store {
                                 dispatch_controls.wake.notify_one();
                             }
                             if result.is_ok() && code::configures(&completed.request.command) {
-                                match code::settings(&database.connection) {
-                                    Ok(settings) => cleanup_runtime.block_on(code_pool.configure(settings)),
-                                    Err(error) => result = Err(error),
-                                }
+                                code::refresh(&database.connection,&code_pool,&cleanup_runtime);
                             }
                             installing.installations.finish(completed.caller, completed.request.id, &result);
                             let _ = completed.reply.send(result);
@@ -1199,7 +1196,7 @@ impl Store {
                         } => {
                             let (reply, artifact_cleanup) = if matches!(request.command, sailry_protocol::Command::RemoveSession { .. }) {
                                 let (send, cleanup) = oneshot::channel();
-                                (admission::release_removed(computer.clone(), cleanup_commands.clone(), attachment_profile.clone(), &cleanup_runtime, reply, cleanup), Some(send))
+                                (admission::release_removed(computer.clone(), cleanup_commands.clone(), attachment_profile.clone(), backup_resources.clone(), &cleanup_runtime, reply, cleanup), Some(send))
                             } else {
                                 (reply, None)
                             };
@@ -1344,10 +1341,7 @@ impl Store {
                             if let Some((reply, completion)) = code_completion {
                                 let result = completion.blocking_recv().unwrap_or_else(|_| Err(unavailable()));
                                 if result.is_ok() {
-                                    match code::settings(&database.connection) {
-                                        Ok(settings) => cleanup_runtime.block_on(code_pool.configure(settings)),
-                                        Err(error) => {let _ = reply.send(Err(error)); continue;}
-                                    }
+                                    code::refresh(&database.connection,&code_pool,&cleanup_runtime);
                                 }
                                 let _ = reply.send(result);
                             }

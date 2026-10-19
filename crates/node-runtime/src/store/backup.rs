@@ -5,7 +5,7 @@ use super::{
     unavailable,
 };
 use crate::backup::{self, Auth, Plan, archive::Snapshot};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use sailry_link::{Admission, CancellationToken};
 use sailry_protocol::{
     Command, ErrorCode, Event, Fault, Output, Request, Secret,
@@ -18,7 +18,13 @@ use std::{
 };
 use tokio::sync::oneshot;
 
-pub(super) type Capture = (Plan, Snapshot, Vec<String>);
+type Capture = (Plan, Snapshot, Vec<String>);
+
+pub(super) struct Source {
+    profile: PathBuf,
+    node: sailry_protocol::NodeId,
+    revision: u64,
+}
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -171,24 +177,59 @@ pub(super) fn plan(db: &Connection, expected: Option<u64>) -> Result<Plan, Fault
     })
 }
 
-pub(super) fn capture(
+pub(super) fn source(
     database: &Database,
     revision: u64,
     cancel: &CancellationToken,
-) -> Result<Capture, Fault> {
+) -> Result<Source, Fault> {
     backup::cancelled(cancel)?;
     let plan = plan(&database.connection, Some(revision))?;
     backup::encryption::passphrase(plan.auth.passphrase.as_ref())?;
-    let profile = database
-        .profile
-        .as_deref()
-        .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "backup requires a Node profile"))?;
-    let mut snapshot = Snapshot::new(profile, database.node)?;
+    Ok(Source {
+        profile: database.profile.clone().ok_or_else(|| {
+            Fault::new(ErrorCode::NotConfigured, "backup requires a Node profile")
+        })?,
+        node: database.node,
+        revision,
+    })
+}
+
+fn capture(source: Source, cancel: &CancellationToken) -> Result<Capture, Fault> {
+    capture_with(source, cancel, |_| Ok(()))
+}
+
+fn capture_with(
+    source: Source,
+    cancel: &CancellationToken,
+    ready: impl FnOnce(&Connection) -> Result<(), Fault>,
+) -> Result<Capture, Fault> {
+    backup::cancelled(cancel)?;
+    let db = Connection::open_with_flags(
+        source.profile.join("storage/node.sqlite3"),
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )
+    .map_err(storage_error)?;
+    db.busy_timeout(Duration::from_secs(1))
+        .map_err(storage_error)?;
+    db.execute_batch("BEGIN").map_err(storage_error)?;
+    let identity: Vec<u8> = db
+        .query_row("SELECT identity FROM node WHERE singleton=1", [], |row| {
+            row.get(0)
+        })
+        .map_err(storage_error)?;
+    if identity.as_slice() != source.node.0.as_slice() {
+        return Err(Fault::invalid("backup source identity changed"));
+    }
+    let plan = plan(&db, Some(source.revision))?;
+    backup::encryption::passphrase(plan.auth.passphrase.as_ref())?;
+    ready(&db)?;
+    let profile = &source.profile;
+    let mut snapshot = Snapshot::new(profile, source.node)?;
     let path = snapshot.database_path()?;
     let mut destination = Connection::open(&path).map_err(storage_error)?;
     {
-        let transfer = rusqlite::backup::Backup::new(&database.connection, &mut destination)
-            .map_err(storage_error)?;
+        let transfer =
+            rusqlite::backup::Backup::new(&db, &mut destination).map_err(storage_error)?;
         loop {
             backup::cancelled(cancel)?;
             match transfer.step(256).map_err(storage_error)? {
@@ -202,10 +243,8 @@ pub(super) fn capture(
         }
     }
     drop(destination);
-    snapshot.database(cancel)?;
     let mut roots = vec!["link.key".into()];
-    let mut artifacts = database
-        .connection
+    let mut artifacts = db
         .prepare("SELECT session,id FROM artifacts ORDER BY session,id")
         .map_err(storage_error)?;
     for row in artifacts
@@ -226,7 +265,7 @@ pub(super) fn capture(
         ),
         ("SELECT id FROM attachments ORDER BY id", "attachments"),
     ] {
-        let mut statement = database.connection.prepare(query).map_err(storage_error)?;
+        let mut statement = db.prepare(query).map_err(storage_error)?;
         for value in statement
             .query_map([], |row| row.get::<_, String>(0))
             .map_err(storage_error)?
@@ -236,8 +275,7 @@ pub(super) fn capture(
             roots.push(format!("{prefix}/{value}"));
         }
     }
-    let mut statement = database
-        .connection
+    let mut statement = db
         .prepare("SELECT path FROM worktrees WHERE id NOT IN (SELECT worktree FROM removed_worktrees) ORDER BY path")
         .map_err(storage_error)?;
     for value in statement
@@ -262,6 +300,8 @@ pub(super) fn capture(
     }
     roots.sort();
     roots.dedup();
+    db.execute_batch("COMMIT").map_err(storage_error)?;
+    snapshot.database(cancel)?;
     Ok((plan, snapshot, roots))
 }
 
@@ -341,6 +381,11 @@ impl Ingress {
         controller(request)?;
         match &request.command {
             Command::ExportBackup { expected_revision } => {
+                let resources = tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "profile backup cancelled")),
+                    resources = self.backup_resources.clone().read_owned() => resources,
+                };
                 let (reply, result) = oneshot::channel();
                 self.send_internal(Job::BackupSnapshot {
                     revision: *expected_revision,
@@ -348,11 +393,13 @@ impl Ingress {
                     reply,
                 })
                 .await?;
-                let (plan, mut snapshot, roots) = result.await.map_err(|_| unavailable())??;
+                let source = result.await.map_err(|_| unavailable())??;
                 let stop = cancel.clone();
-                let packed = tokio::task::spawn_blocking(move || {
+                let (plan, packed) = tokio::task::spawn_blocking(move || {
+                    let (plan, mut snapshot, roots) = capture(source, &stop)?;
                     snapshot.capture(&roots, &stop)?;
-                    snapshot.pack(&stop)
+                    drop(resources);
+                    Ok::<_, Fault>((plan, snapshot.pack(&stop)?))
                 })
                 .await
                 .map_err(io_fault)??;

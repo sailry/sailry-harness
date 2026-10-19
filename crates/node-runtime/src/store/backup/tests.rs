@@ -219,3 +219,373 @@ fn relocates_only_current_owned_paths() {
     );
     assert!(!original.exists());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn copies_consistent_state_without_blocking_commands() {
+    use sailry_client::Client;
+    use sailry_link::{Link, NetworkScope};
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let node = crate::Node::start_empty(directory.path().join("node"))
+            .await
+            .unwrap();
+        let controller =
+            Link::controller(directory.path().join("controller"), NetworkScope::default())
+                .await
+                .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let Output::BackupSettings(saved) = client
+            .execute(client.prepare(Command::SaveBackupSettings(Update {
+                settings: Settings {
+                    destination: Some(destination()),
+                    ..Default::default()
+                },
+                identity: SecretUpdate::Clear,
+                secret: SecretUpdate::Clear,
+                session_token: SecretUpdate::Clear,
+                passphrase: SecretUpdate::Replace(Secret::new("isolated-backup-passphrase".into())),
+            })))
+            .await
+            .unwrap()
+        else {
+            panic!("backup settings expected")
+        };
+        let project = directory.path().join("project");
+        std::fs::create_dir_all(project.join("package")).unwrap();
+        let manifest = |version: &str| serde_json::json!({"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"example","version":version,"extensions":{"dev.sailry.platform":{"api_version":"v1"}}});
+        std::fs::write(
+            project.join("package/plugin.json"),
+            manifest("0.1.0").to_string(),
+        )
+        .unwrap();
+        let Output::Project(registered) = client
+            .execute(client.prepare(Command::RegisterProject {
+                name: "Snapshot".into(),
+                path: project.to_str().unwrap().into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("project expected")
+        };
+        let Output::Snapshot(current) = client
+            .execute(client.prepare(Command::Snapshot))
+            .await
+            .unwrap()
+        else {
+            panic!("snapshot expected")
+        };
+        let worktree = current
+            .worktrees
+            .iter()
+            .find(|entry| entry.project == Some(registered.id))
+            .unwrap()
+            .id;
+        let install = |revision| Command::InstallPlugin {
+            worktree,
+            path: "package".into(),
+            name: "example".into(),
+            expected_revision: revision,
+            expected_digest: None,
+        };
+        let Output::Plugin(original) = client.execute(client.prepare(install(0))).await.unwrap()
+        else {
+            panic!("plugin expected")
+        };
+        assert!(original.issues.is_empty());
+        let Output::Session(session) = client
+            .execute(client.prepare(Command::CreateSession {
+                project: Some(registered.id),
+                worktree: Some(worktree),
+                config: Some(sailry_protocol::SessionConfig {
+                    assistant: None,
+                    resource: None,
+                    provider: sailry_protocol::ProviderId::new(),
+                    model: "fixture".into(),
+                    effort: sailry_protocol::Effort::Low,
+                    mode: sailry_protocol::WorkMode::Code,
+                    options: Default::default(),
+                    permission: sailry_protocol::Permission::Ask,
+                    credential: None,
+                }),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        let Output::QueuedTurn(turn) = client
+            .execute(client.prepare(Command::QueueTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Artifact fixture".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("queued turn expected")
+        };
+        client
+            .execute(client.prepare(Command::StopTurn { turn: turn.id }))
+            .await
+            .unwrap();
+        let profile = node.profile().to_owned();
+        let html = "<!doctype html><html><body>Recorded document</body></html>";
+        let artifact = sailry_protocol::artifact::Summary {
+            id: sailry_protocol::ArtifactId::new(),
+            session: session.id,
+            revision: 1,
+            title: "Recorded document".into(),
+            summary: "Original content".into(),
+            kind: sailry_protocol::artifact::Kind::Document,
+            turn: turn.id,
+            package: original.summary.reference(),
+            size: html.len() as u64,
+            created_at: 1,
+            updated_at: 1,
+        };
+        let digest =
+            crate::files::artifacts::write(&profile, session.id, artifact.id, 1, html).unwrap();
+        let db = Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        db.execute(
+            "INSERT INTO artifacts(id,session,body) VALUES(?1,?2,?3)",
+            rusqlite::params![
+                artifact.id.to_string(),
+                session.id.to_string(),
+                encode(&artifact).unwrap()
+            ],
+        )
+        .unwrap();
+        db.execute("INSERT INTO artifact_revisions(artifact,revision,body,digest,warnings) VALUES(?1,1,?2,?3,?4)",rusqlite::params![artifact.id.to_string(),encode(&artifact).unwrap(),&digest,encode(&Vec::<String>::new()).unwrap()]).unwrap();
+        drop(db);
+        let resources = node.ingress.backup_resources.clone().read_owned().await;
+        let (reply, source) = tokio::sync::oneshot::channel();
+        node.ingress
+            .send_internal(Job::BackupSnapshot {
+                revision: saved.revision,
+                cancel: CancellationToken::new(),
+                reply,
+            })
+            .await
+            .unwrap();
+        let source = source.await.unwrap().unwrap();
+        let (entered, ready) = tokio::sync::oneshot::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let worker = tokio::task::spawn_blocking(move || {
+            let stop = CancellationToken::new();
+            let (plan, mut snapshot, roots) = capture_with(source, &stop, move |db| {
+                assert_eq!(
+                    db.pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))
+                        .unwrap(),
+                    "wal"
+                );
+                let _ = entered.send(());
+                wait.recv().map_err(storage_error)?;
+                Ok(())
+            })?;
+            snapshot.capture(&roots, &stop)?;
+            drop(resources);
+            Ok::<_, Fault>((plan, snapshot.pack(&stop)?, roots))
+        });
+        ready.await.unwrap();
+        let Output::Session(removing) = client
+            .execute(client.prepare(Command::ReadSession {
+                session: session.id,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        let mut removal = client
+            .dispatch(client.prepare(Command::RemoveSession {
+                session: session.id,
+                expected_revision: removing.revision,
+            }))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while node.ingress.backup_resources.try_read().is_ok() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("physical cleanup must wait for the snapshot lease");
+        let current = Connection::open_with_flags(
+            profile.join("storage/node.sqlite3"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        assert_eq!(
+            current
+                .query_row(
+                    "SELECT state FROM sessions WHERE id=?1",
+                    [session.id.to_string()],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "removed"
+        );
+        assert_eq!(
+            current
+                .query_row(
+                    "SELECT count(*) FROM artifacts WHERE id=?1",
+                    [artifact.id.to_string()],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        drop(current);
+        assert!(matches!(
+            removal.completion.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        assert_eq!(
+            crate::files::artifacts::read(
+                &profile,
+                session.id,
+                artifact.id,
+                1,
+                artifact.size,
+                &digest
+            )
+            .unwrap(),
+            html
+        );
+        std::fs::write(
+            project.join("package/plugin.json"),
+            manifest("0.1.1").to_string(),
+        )
+        .unwrap();
+        let update = tokio::time::timeout(Duration::from_secs(5), async {
+            assert!(matches!(
+                client
+                    .execute(client.prepare(Command::Snapshot))
+                    .await
+                    .unwrap(),
+                Output::Snapshot(_)
+            ));
+            client
+                .execute(client.prepare(install(original.summary.revision)))
+                .await
+                .unwrap()
+        })
+        .await;
+        let _ = release.send(());
+        let Output::Plugin(updated) =
+            update.expect("read snapshot must not block Store reads or durable writes")
+        else {
+            panic!("updated plugin expected")
+        };
+        assert!(updated.issues.is_empty());
+        assert_ne!(updated.summary.digest, original.summary.digest);
+        let (_, packed, roots) = worker.await.unwrap().unwrap();
+        assert!(matches!(
+            removal.completion.await.unwrap().unwrap(),
+            Output::SessionsRemoved(_)
+        ));
+        assert!(
+            !profile
+                .join("artifacts")
+                .join(session.id.to_string())
+                .exists()
+        );
+        let restore = tempfile::tempdir().unwrap();
+        let restored = restore.path().canonicalize().unwrap();
+        backup::archive::unpack(
+            packed.file.reopen().unwrap(),
+            &restored,
+            &CancellationToken::new(),
+        )
+        .unwrap();
+        let copied = Connection::open_with_flags(
+            restored.join("storage/node.sqlite3"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        assert_eq!(
+            copied
+                .pragma_query_value(None, "integrity_check", |row| row.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        assert_eq!(
+            copied
+                .query_row(
+                    "SELECT state FROM sessions WHERE id=?1",
+                    [session.id.to_string()],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            "active"
+        );
+        assert_eq!(
+            copied
+                .query_row(
+                    "SELECT digest FROM plugin_packages WHERE name='example'",
+                    [],
+                    |row| row.get::<_, String>(0)
+                )
+                .unwrap(),
+            original.summary.digest
+        );
+        assert!(roots.contains(&format!("plugins/packages/{}", original.summary.digest)));
+        assert!(!roots.contains(&format!("plugins/packages/{}", updated.summary.digest)));
+        assert_eq!(
+            std::fs::read(
+                restored
+                    .join("plugins/packages")
+                    .join(&original.summary.digest)
+                    .join("plugin.json")
+            )
+            .unwrap(),
+            manifest("0.1.0").to_string().as_bytes()
+        );
+        assert_eq!(
+            crate::files::artifacts::read(
+                &restored,
+                session.id,
+                artifact.id,
+                1,
+                artifact.size,
+                &digest
+            )
+            .unwrap(),
+            html
+        );
+        assert_eq!(
+            copied
+                .query_row(
+                    "SELECT count(*) FROM artifacts WHERE id=?1",
+                    [artifact.id.to_string()],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            copied
+                .query_row(
+                    "SELECT count(*) FROM plugin_packages WHERE digest=?1",
+                    [updated.summary.digest],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        drop(copied);
+        drop(packed);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}

@@ -493,3 +493,16 @@ pub(super) fn observe(
 mod management;
 #[cfg(test)]
 mod tests;
+
+pub(super) fn refresh(
+    db: &Connection,
+    pool: &std::sync::Arc<crate::code::Pool>,
+    runtime: &tokio::runtime::Handle,
+) {
+    match settings(db) {
+        Ok(settings) => {
+            runtime.spawn(pool.configure(settings));
+        }
+        Err(error) => eprintln!("language settings refresh failed: {:?}", error.code),
+    }
+}
