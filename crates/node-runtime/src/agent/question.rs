@@ -72,6 +72,8 @@ impl Tool for Question {
                 .ask(
                     self.turn,
                     ToolConfirmationRequest {
+                        acting: None,
+                        origin: None,
                         tool_name: self.name().into(),
                         function_call_id: Some(context.function_call_id().into()),
                         args: arguments,

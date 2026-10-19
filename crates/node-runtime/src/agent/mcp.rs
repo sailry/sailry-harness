@@ -379,6 +379,8 @@ impl Bound {
                 .authorize(
                     self.turn,
                     ToolConfirmationRequest {
+                        acting: None,
+                        origin: None,
                         tool_name: self.name.clone(),
                         function_call_id: Some(context.function_call_id().into()),
                         args: arguments.clone(),
@@ -404,6 +406,8 @@ impl Bound {
             self.turn,
             self.session.clone(),
             ToolConfirmationRequest {
+                acting: None,
+                origin: None,
                 tool_name: self.name.clone(),
                 function_call_id: Some(context.function_call_id().into()),
                 args: arguments.clone(),

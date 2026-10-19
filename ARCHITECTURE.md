@@ -249,6 +249,15 @@ Media operations try the admitted model and credential first. Only a definite
 unsupported capability may use an explicitly configured, session-captured fallback;
 authentication, quota, timeout and uncertain outcomes never trigger fallback.
 
+Model transports use a 30-second connection deadline and a 300-second raw-byte
+read deadline, including incomplete frames and keepalives. Node owns one budget
+of five retries, including at most two timeout retries and one recovery after
+partial output. Recovery buffers the replacement privately until completion;
+committed responses and executed tools are never replayed. A server-requested
+delay of at most 60 seconds is honored; a longer delay is reported without an
+automatic retry. Exhaustion preserves canonical history for the existing retry
+and continuation actions.
+
 ## Runtime behavior
 
 ### Command admission and recovery

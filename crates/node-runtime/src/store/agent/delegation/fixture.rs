@@ -44,6 +44,8 @@ pub(super) fn queued(
 ) -> Result<Invocation, Fault> {
     let mut event = AdkEvent::new("delegation-fixture");
     let request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("delegation", "spawn_agent"),
         function_call_id: Some(format!("call-{}", event.id)),
         args,

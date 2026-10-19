@@ -211,6 +211,8 @@ async fn releases_matching_pending_calls() {
                     .with_plugin(context.clone());
                 fixture.node.authorize_tool_fixture(
                     adk_core::ToolConfirmationRequest {
+                        acting: None,
+                        origin: None,
                         tool_name: name.clone(),
                         function_call_id: Some(format!("call-fixture-{index}")),
                         args: args.clone(),

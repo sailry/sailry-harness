@@ -25,12 +25,11 @@ pub(super) struct Accumulator {
     calls: BTreeMap<u64, Call>,
     usage: Option<UsageMetadata>,
     finish: Option<Finish>,
-    published: bool,
 }
 
 impl Accumulator {
-    pub(super) fn published(&self) -> bool {
-        self.published
+    pub(super) fn finished(&self) -> bool {
+        self.finish.is_some()
     }
 
     pub(super) fn push(
@@ -72,9 +71,6 @@ impl Accumulator {
                     arguments_delta,
                 } => {
                     self.open()?;
-                    if streaming {
-                        self.published = true;
-                    }
                     let call = self.calls.entry(index).or_default();
                     if let Some(id) = id {
                         if !call.id.is_empty() && call.id != id {
@@ -124,20 +120,10 @@ impl Accumulator {
                     message,
                     retry_after_ms,
                 } => {
-                    return Err(classified(
-                        class,
-                        &message,
-                        retry_after_ms,
-                        None,
-                        self.published,
-                        secrets,
-                    ));
+                    return Err(classified(class, &message, retry_after_ms, None, secrets));
                 }
             }
             if streaming {
-                if partial.is_some() {
-                    self.published = true;
-                }
                 output.push(LlmResponse {
                     content: partial.map(|part| Content {
                         role: "model".into(),
@@ -164,13 +150,11 @@ impl Accumulator {
         tools: &std::collections::BTreeSet<String>,
     ) -> Result<LlmResponse, AdkError> {
         let reason = self.finish.ok_or_else(|| {
-            let mut error = failure(
+            failure(
                 ErrorCategory::Unavailable,
                 "model.plugin.incomplete",
                 "model stream ended before completion",
-            );
-            error.retry.should_retry = !self.published;
-            error
+            )
         })?;
         if (!self.calls.is_empty() && matches!(reason, Finish::Length | Finish::ContentFilter))
             || (self.calls.is_empty() && reason == Finish::ToolCalls)
@@ -243,7 +227,6 @@ pub(super) fn classified(
     message: &str,
     retry_after_ms: Option<u64>,
     status: Option<u16>,
-    published: bool,
     secrets: &[Secret],
 ) -> AdkError {
     let (category, code) = match class {
@@ -253,13 +236,23 @@ pub(super) fn classified(
         Class::Quota => (ErrorCategory::InvalidInput, "model.plugin.quota"),
         Class::ContextOverflow => (ErrorCategory::InvalidInput, "model.plugin.context_overflow"),
         Class::InvalidRequest => (ErrorCategory::InvalidInput, "model.plugin.invalid_request"),
-        Class::Unavailable => (ErrorCategory::Unavailable, "model.plugin.unavailable"),
+        Class::Unavailable => (
+            status
+                .map(adk_model::retry::category_for_status_code)
+                .filter(|category| {
+                    matches!(
+                        category,
+                        ErrorCategory::Timeout | ErrorCategory::Unavailable
+                    )
+                })
+                .unwrap_or(ErrorCategory::Unavailable),
+            "model.plugin.unavailable",
+        ),
         Class::Unsupported => (ErrorCategory::Unsupported, "model.plugin.unsupported"),
-        Class::Unknown => (ErrorCategory::Internal, "model.plugin.unknown"),
+        Class::Unknown => (ErrorCategory::Unavailable, "model.plugin.unknown"),
     };
     let safe = redact(message, secrets);
     let mut error = failure(category, code, &safe);
-    error.retry.should_retry &= !published;
     error.retry.retry_after_ms = retry_after_ms;
     if let Some(status) = status {
         error = error.with_upstream_status(status);

@@ -137,7 +137,7 @@ impl Llm for Model {
             usize::MAX,
         )
         .await
-        .map_err(response::fault)?;
+        .map_err(transport::Failure::model)?;
         let status = received.status().as_u16();
         let headers =
             transport::headers(received.headers(), &credentials).map_err(response::fault)?;
@@ -199,11 +199,9 @@ async fn produce(
             next = bytes.next()=>next,
         };
         let done = next.is_none();
-        let chunk = next.transpose().map_err(|_| {
-            let mut error = response::fault(transport::network());
-            error.retry.should_retry &= !accumulator.published();
-            error
-        })?;
+        let chunk = next
+            .transpose()
+            .map_err(|error| transport::Failure::Network(error).model())?;
         if !(200..300).contains(&status) {
             if let Some(chunk) = chunk {
                 if error_body
@@ -246,7 +244,6 @@ async fn produce(
                     &classified.message,
                     classified.retry_after_ms,
                     Some(status),
-                    false,
                     &credentials.secrets,
                 ));
             }
@@ -264,20 +261,7 @@ async fn produce(
         for event in &events {
             transport::public(&event.data, credentials).map_err(response::fault)?;
         }
-        // Activity events keep the existing outer idle timeout alive even when
-        // an SSE heartbeat contains no model delta. No user text is fabricated.
         if events.is_empty() && !done {
-            if streaming
-                && sender
-                    .send(Ok(LlmResponse {
-                        partial: true,
-                        ..Default::default()
-                    }))
-                    .await
-                    .is_err()
-            {
-                return Err(response::fault(transport::cancelled()));
-            }
             continue;
         }
         let decoded: wire::Decoded = worker
@@ -299,7 +283,7 @@ async fn produce(
                 return Err(response::fault(transport::cancelled()));
             }
         }
-        if done {
+        if done || accumulator.finished() {
             return Ok(());
         }
     }
@@ -547,7 +531,7 @@ async fn read_catalog(
             stop,
             DISCOVERY_BYTES,
         )
-        .await?;
+        .await.map_err(transport::Failure::fault)?;
         let status = received.status().as_u16();
         upstream_status = Some(u64::from(status));
         stage = "headers";

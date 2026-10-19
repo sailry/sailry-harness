@@ -8,6 +8,8 @@ fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         .unwrap()
         .unwrap();
     let request = adk_core::ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("delegation", "spawn_agent"),
         function_call_id: Some("same-call".into()),
         args: serde_json::json!({"task":"Independent task"}),

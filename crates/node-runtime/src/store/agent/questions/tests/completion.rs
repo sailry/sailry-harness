@@ -32,6 +32,8 @@ fn preserves_canonical_identity() {
     let call = event.id.clone();
     append(&mut fixture, event).unwrap();
     fixture.request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: review::TOOL.into(),
         function_call_id: Some(call.clone()),
         args: serde_json::json!({"prompt":"","input":{"kind":"plan"}}),

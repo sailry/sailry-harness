@@ -216,7 +216,7 @@ async fn retains_incomplete_output_as_failed() {
 }
 
 #[tokio::test]
-async fn rejects_empty_completion() {
+async fn distinguishes_omitted_and_empty_final_output() {
     for remote in [false, true] {
         for finalized in [false, true] {
             for content_empty in [false, true] {
@@ -240,12 +240,26 @@ async fn rejects_empty_completion() {
                 let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
                 let turn = fixture.submit("Answer this task").await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;
-                assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+                let retained = !finalized && !content_empty;
+                let run = page.runs.last().unwrap();
                 assert_eq!(
-                    page.runs.last().unwrap().error.as_ref().unwrap().message,
-                    "Model returned no answer"
+                    run.status,
+                    if retained {
+                        Status::Completed
+                    } else {
+                        Status::Failed
+                    }
                 );
-                assert!(response(&page).is_empty());
+                if retained {
+                    assert!(run.error.is_none());
+                    assert_eq!(response(&page), "Draft");
+                } else {
+                    assert_eq!(
+                        run.error.as_ref().unwrap().message,
+                        "Model returned no answer"
+                    );
+                    assert!(response(&page).is_empty());
+                }
                 assert_eq!(server.requests.lock().unwrap().len(), 1);
                 fixture.controller.close().await.unwrap();
                 fixture.node.shutdown().await.unwrap();

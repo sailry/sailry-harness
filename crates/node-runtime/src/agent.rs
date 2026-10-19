@@ -466,6 +466,7 @@ async fn execute_with(
     let bindings = approval::bindings(&invocation, &extensions.tools)?;
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         .model(model.clone())
+        .expose_tool_error_messages(true)
         .instruction_provider(Box::new(move |_| {
             let instruction = instruction.clone();
             Box::pin(async move { Ok(instruction) })

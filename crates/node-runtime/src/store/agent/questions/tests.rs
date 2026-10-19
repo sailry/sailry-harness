@@ -78,6 +78,8 @@ impl Fixture {
         };
         runs::claim(&mut database, &events).unwrap().unwrap();
         let request = ToolConfirmationRequest {
+            acting: None,
+            origin: None,
             tool_name: "ask_user".into(),
             function_call_id: Some("question-fixture".into()),
             args: serde_json::to_value(Spec {

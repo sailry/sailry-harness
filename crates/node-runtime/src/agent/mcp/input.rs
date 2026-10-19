@@ -210,6 +210,8 @@ impl ClientHandler for Handler {
                 .ask(
                     call.turn,
                     ToolConfirmationRequest {
+                        acting: None,
+                        origin: None,
                         tool_name: elicitation::TOOL.into(),
                         function_call_id: Some(id.clone()),
                         args: serde_json::to_value(spec).map_err(|_| failed())?,

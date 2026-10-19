@@ -132,6 +132,8 @@ impl Script {
                                         Fault::invalid("command flow requires a turn")
                                     })?,
                                     adk_core::ToolConfirmationRequest {
+                                        acting: None,
+                                        origin: None,
                                         tool_name: self.name.clone(),
                                         function_call_id: Some(context.function_call_id().into()),
                                         args: arguments.clone(),
@@ -151,6 +153,8 @@ impl Script {
                                         Fault::invalid("connection flow requires a turn")
                                     })?,
                                     adk_core::ToolConfirmationRequest {
+                                        acting: None,
+                                        origin: None,
                                         tool_name: self.name.clone(),
                                         function_call_id: Some(context.function_call_id().into()),
                                         args: arguments.clone(),

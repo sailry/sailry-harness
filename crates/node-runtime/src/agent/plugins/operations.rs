@@ -309,6 +309,8 @@ impl HostOperation {
             .authorize(
                 self.turn,
                 adk_core::ToolConfirmationRequest {
+                    acting: None,
+                    origin: None,
                     tool_name: self.name.clone(),
                     function_call_id: Some(context.function_call_id().into()),
                     args: arguments,
@@ -455,6 +457,8 @@ impl HostOperation {
                     .approved_command_access(
                         self.turn,
                         adk_core::ToolConfirmationRequest {
+                            acting: None,
+                            origin: None,
                             tool_name: self.name.clone(),
                             function_call_id: Some(context.function_call_id().into()),
                             args: authorized_arguments.clone(),
@@ -476,6 +480,8 @@ impl HostOperation {
                 && let Some(startup) = self.ingress.prepare_code(*worktree, query).await?
             {
                 let confirmation = adk_core::ToolConfirmationRequest {
+                    acting: None,
+                    origin: None,
                     tool_name: self.name.clone(),
                     function_call_id: Some(context.function_call_id().into()),
                     args: authorized_arguments.clone(),
@@ -528,6 +534,8 @@ impl HostOperation {
                     biased;
                     _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled,"connection approval was cancelled")),
                     decision = self.ingress.confirm_connection(self.turn, adk_core::ToolConfirmationRequest {
+                        acting: None,
+                        origin: None,
                         tool_name: self.name.clone(), function_call_id: Some(context.function_call_id().into()), args: authorized_arguments.clone(),
                     }, crate::store::agent::ApprovalBinding { owner: self.context.package.clone(), tool: self.name.clone(), operation: Some(self.operation) }, request.command.clone(), trust.clone()) => decision?,
                 };
@@ -552,6 +560,8 @@ impl HostOperation {
                         .confirm(
                             self.turn,
                             adk_core::ToolConfirmationRequest {
+                                acting: None,
+                                origin: None,
                                 tool_name: self.name.clone(),
                                 function_call_id: Some(context.function_call_id().into()),
                                 args: authorized_arguments.clone(),

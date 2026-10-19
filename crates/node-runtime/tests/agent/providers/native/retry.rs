@@ -170,56 +170,70 @@ async fn cancels_a_hinted_wait_without_replay() {
 }
 
 #[tokio::test]
-async fn rejects_unrepresentable_server_delays() {
+async fn ignores_invalid_server_delays() {
     for remote in [false, true] {
         let server = Server::start(
             ModelApi::Responses,
-            Reply::Scripted(Arc::new(vec![unavailable("18446744073709551616")])),
+            Reply::Scripted(Arc::new(vec![
+                unavailable("not-a-delay"),
+                Script {
+                    bytes: wire(&[completed()], true, true),
+                    ending: Ending::Close,
+                },
+            ])),
         )
         .await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-        let turn = fixture.submit("Retain the unavailable outcome").await;
+        let turn = fixture.submit("Ignore an invalid retry delay").await;
         let page = finished(&fixture.client, fixture.session.id, turn).await;
-        let run = page.runs.last().unwrap();
-        assert_eq!(run.status, Status::Failed);
-        let message = &run.error.as_ref().unwrap().message;
-        let (summary, details) = message.split_once("\n\n").unwrap();
-        assert_eq!(
-            summary,
-            "Agent execution failed (model.openai_responses.unavailable); HTTP 503; unavailable"
-        );
-        assert_eq!(
-            serde_json::from_str::<Value>(details).unwrap(),
-            json!({"message":"private provider failure", "type":"server_error", "status":503})
-        );
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert_eq!(completion::response(&page), RECOVERED);
+        assert_eq!(attempts(&page), [1]);
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
-        assert!(attempts(&page).is_empty());
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }
 }
 
-async fn recover(chunked: bool) {
+async fn recover(chunked: bool, empty: bool) {
     for remote in [false, true] {
         let release = Arc::new(tokio::sync::Notify::new());
+        let final_events = if empty {
+            let mut complete = completed();
+            complete["response"]["output"] = json!([]);
+            vec![complete]
+        } else {
+            vec![
+                delta("Recovered"),
+                json!({"type":"response.output_text.done", "sequence_number":2,
+                    "item_id":"retry-answer", "output_index":0, "content_index":0,
+                    "text":RECOVERED, "logprobs":[]}),
+                completed(),
+            ]
+        };
         let scripts = vec![
-            Script {
-                bytes: wire(&[delta(DISCARDED)], chunked, false),
-                ending: Ending::Release(release.clone()),
-            },
             Script {
                 bytes: wire(
                     &[
-                        delta("Recovered"),
-                        json!({"type":"response.output_text.done", "sequence_number":2,
-                            "item_id":"retry-answer", "output_index":0, "content_index":0,
-                            "text":RECOVERED, "logprobs":[]}),
-                        completed(),
+                        json!({"type":"response.reasoning_summary_text.delta", "sequence_number":0,
+                            "item_id":"discarded-reasoning", "output_index":0, "summary_index":0,
+                            "delta":"Discarded thinking"}),
+                        delta(DISCARDED),
+                        json!({"type":"response.output_item.added", "sequence_number":2,
+                            "output_index":1,"item":{"type":"function_call","id":"discarded-item",
+                                "call_id":"discarded-call","name":"discarded_tool",
+                                "arguments":"","status":"in_progress"}}),
+                        json!({"type":"response.function_call_arguments.delta", "sequence_number":3,
+                            "output_index":1,"item_id":"discarded-item","delta":"{\"discarded\":"}),
                     ],
-                    true,
-                    true,
+                    chunked,
+                    false,
                 ),
+                ending: Ending::Release(release.clone()),
+            },
+            Script {
+                bytes: wire(&final_events, true, true),
                 ending: Ending::Close,
             },
         ];
@@ -238,7 +252,8 @@ async fn recover(chunked: bool) {
                 loop {
                     if observed.borrow().snapshot.as_ref().is_some_and(|snapshot| {
                         snapshot.drafts.iter().any(|draft| {
-                            draft.turn == turn && draft.parts == vec![Part::Text(DISCARDED.into())]
+                            draft.turn == turn
+                                && draft.parts.contains(&Part::Text(DISCARDED.into()))
                         })
                     }) {
                         break;
@@ -279,12 +294,38 @@ async fn recover(chunked: bool) {
             })
             .await
             .expect("recovered answer deadline");
+            let run = page.runs.last().unwrap();
             assert_eq!(
-                page.runs.last().unwrap().status,
-                Status::Completed,
+                run.status,
+                if empty {
+                    Status::Failed
+                } else {
+                    Status::Completed
+                },
                 "{page:?}"
             );
-            assert_eq!(completion::response(&page), RECOVERED);
+            if empty {
+                assert_eq!(
+                    run.error.as_ref().unwrap().message,
+                    "Model returned no answer"
+                );
+            }
+            assert_eq!(
+                completion::response(&page),
+                if empty { "" } else { RECOVERED }
+            );
+            assert!(
+                !page
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .any(|part| {
+                        matches!(
+                            part,
+                            Part::Thinking(_) | Part::ToolCall { .. } | Part::ToolResult { .. }
+                        )
+                    })
+            );
             assert_eq!(
                 page.entries
                     .iter()
@@ -293,7 +334,7 @@ async fn recover(chunked: bool) {
                             && entry.parts.iter().any(|part| matches!(part, Part::Text(_)))
                     })
                     .count(),
-                1
+                usize::from(!empty)
             );
             assert_eq!(attempts(&page), vec![1]);
             let requests = server.requests.lock().unwrap();
@@ -311,12 +352,17 @@ async fn recover(chunked: bool) {
 
 #[tokio::test]
 async fn recovers_partial_disconnect() {
-    recover(true).await;
+    recover(true, false).await;
 }
 
 #[tokio::test]
 async fn recovers_premature_end() {
-    recover(false).await;
+    recover(false, false).await;
+}
+
+#[tokio::test]
+async fn clears_discarded_output_after_empty_recovery() {
+    recover(true, true).await;
 }
 
 #[tokio::test]
@@ -330,64 +376,69 @@ async fn preserves_committed_tools_without_replay() {
                     "function":{"name":tool, "arguments":json!({"path":"once.txt", "text":"once", "expected_revision":null}).to_string()}}]},
                 "finish_reason":"tool_calls"}],
             "usage":{"prompt_tokens":8,"completion_tokens":3,"total_tokens":11}});
+        let mut first = chat_script(event);
+        first.ending = Ending::Release(release.clone());
         let server = Server::start(
             ModelApi::ChatCompletions,
-            Reply::Scripted(Arc::new(vec![Script {
-                bytes: wire(&[event], true, false),
-                ending: Ending::Release(release.clone()),
-            }])),
+            Reply::Scripted(Arc::new(vec![first, unavailable("61")])),
         )
         .await;
-        let fixture = Fixture::packages(
+        let mut fixture = Fixture::packages(
             remote,
             ModelApi::ChatCompletions,
             &server.endpoint,
             &["files"],
         )
         .await;
-        let turn = fixture.submit("Write once.txt").await;
-        tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                let page = history(&fixture.client, fixture.session.id).await;
-                if page
-                    .entries
-                    .iter()
-                    .flat_map(|entry| &entry.parts)
-                    .any(|part| matches!(part, Part::ToolCall { .. }))
-                {
-                    assert_eq!(page.runs.last().unwrap().status, Status::Running);
-                    break;
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
+        let mut config = fixture.session.config.clone();
+        config.permission = sailry_protocol::Permission::Full;
+        let Output::Session(session) = execute(
+            &fixture.client,
+            Command::SetSessionConfig {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                config,
+            },
+        )
         .await
-        .expect("full tool call must commit before disconnect");
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let turn = fixture.submit("Write once.txt").await;
+        // DONE commits the tool and releases its HTTP stream, even while the server
+        // retains that socket. A later failed model call cannot repeat the write.
+        let page = tokio::time::timeout(
+            Duration::from_secs(10),
+            finished(&fixture.client, fixture.session.id, turn),
+        )
+        .await
+        .expect("completed tool must not wait for HTTP EOF");
         release.notify_one();
-        let page = finished(&fixture.client, fixture.session.id, turn).await;
         assert_eq!(page.runs.last().unwrap().status, Status::Failed);
         assert_eq!(
             page.runs.last().unwrap().error.as_ref().unwrap().code,
             ErrorCode::Unavailable
         );
-        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        assert_eq!(server.requests.lock().unwrap().len(), 2);
         assert!(attempts(&page).is_empty());
-        assert_eq!(
-            page.entries
-                .iter()
-                .flat_map(|entry| &entry.parts)
-                .filter(|part| matches!(part, Part::ToolCall { .. }))
-                .count(),
-            1
-        );
-        assert!(
-            !page
+        for result in [false, true] {
+            let ids: Vec<_> = page
                 .entries
                 .iter()
                 .flat_map(|entry| &entry.parts)
-                .any(|part| matches!(part, Part::ToolResult { .. }))
+                .filter_map(|part| match part {
+                    Part::ToolCall { id, .. } if !result => id.as_deref(),
+                    Part::ToolResult { id, .. } if result => id.as_deref(),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(ids, ["write-once"]);
+        }
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),
+            "once"
         );
-        assert!(!fixture.root.join("once.txt").exists());
         unique_entries(&page);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
@@ -420,7 +471,7 @@ async fn preserves_committed_answers_without_replay() {
 }
 
 #[tokio::test]
-async fn shares_opening_and_stream_retry_budget() {
+async fn shares_opening_and_partial_retry_budget() {
     for remote in [false, true] {
         let failure = Script {
             bytes: b"HTTP/1.1 503 Unavailable\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"error\":{\"message\":\"fixture unavailable\",\"type\":\"server_error\"}}".to_vec(),
@@ -433,6 +484,14 @@ async fn shares_opening_and_stream_retry_budget() {
                 bytes: wire(&[delta(DISCARDED)], true, false),
                 ending: Ending::Close,
             },
+            Script {
+                bytes: wire(&[delta("Uncommitted recovery")], true, false),
+                ending: Ending::Close,
+            },
+            Script {
+                bytes: wire(&[completed()], true, true),
+                ending: Ending::Close,
+            },
         ];
         let server = Server::start(ModelApi::Responses, Reply::Scripted(Arc::new(scripts))).await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
@@ -443,10 +502,10 @@ async fn shares_opening_and_stream_retry_budget() {
             page.runs.last().unwrap().error.as_ref().unwrap().code,
             ErrorCode::Unavailable
         );
-        assert_eq!(attempts(&page), vec![1, 2, 3, 4, 5]);
+        assert_eq!(attempts(&page), vec![1, 2, 3]);
         {
             let requests = server.requests.lock().unwrap();
-            assert_eq!(requests.len(), 6);
+            assert_eq!(requests.len(), 4);
             assert!(
                 requests
                     .iter()
@@ -455,6 +514,24 @@ async fn shares_opening_and_stream_retry_budget() {
         }
         assert_eq!(completion::response(&page), DISCARDED);
         unique_entries(&page);
+        let continuation = fixture.submit("Continue from the saved answer").await;
+        let continued = finished(&fixture.client, fixture.session.id, continuation).await;
+        assert_eq!(continued.runs.last().unwrap().status, Status::Completed);
+        assert!(completion::response(&continued).ends_with(RECOVERED));
+        let sent = {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 5);
+            requests.last().unwrap().body.to_string()
+        };
+        assert!(sent.contains(DISCARDED));
+        assert!(sent.contains("Continue from the saved answer"));
+        assert!(!sent.contains("Uncommitted recovery"));
+        assert!(
+            page.entries
+                .iter()
+                .all(|entry| continued.entries.contains(entry))
+        );
+        unique_entries(&continued);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }
@@ -501,6 +578,118 @@ async fn cancels_recovery_without_another_request() {
             .unwrap();
         assert_eq!(server.requests.lock().unwrap().len(), 2);
         assert_eq!(attempts(&page), vec![1]);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn bounds_retries_before_any_output() {
+    for remote in [false, true] {
+        let server = Server::start(
+            ModelApi::Responses,
+            Reply::Scripted(Arc::new(vec![unavailable("0")])),
+        )
+        .await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let turn = fixture.submit("Bound retries without model output").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+        assert_eq!(attempts(&page), [1, 2, 3, 4, 5]);
+        assert_eq!(server.requests.lock().unwrap().len(), 6);
+        unique_entries(&page);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+fn chat_script(event: Value) -> Script {
+    Script {
+        bytes: format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {event}\n\ndata: [DONE]\n\n").into_bytes(),
+        ending: Ending::Close,
+    }
+}
+
+#[tokio::test]
+async fn continues_without_repeating_completed_tools() {
+    for remote in [false, true] {
+        let tool = crate::agent_support::plugin_tool("files", "write_file");
+        let first = chat_script(
+            json!({"id":"write-response", "object":"chat.completion.chunk",
+            "created":1, "model":"fixture-a", "choices":[{"index":0,
+                "delta":{"tool_calls":[{"index":0,"id":"write-once","type":"function",
+                    "function":{"name":tool,"arguments":json!({"path":"once.txt","text":"once","expected_revision":null}).to_string()}}]},
+                "finish_reason":"tool_calls"}]}),
+        );
+        let last = chat_script(
+            json!({"id":"answer-response", "object":"chat.completion.chunk",
+            "created":1, "model":"fixture-a", "choices":[{"index":0,
+                "delta":{"content":RECOVERED}, "finish_reason":"stop"}]}),
+        );
+        let server = Server::start(
+            ModelApi::ChatCompletions,
+            Reply::Dynamic(Arc::new(move |index| match index {
+                0 => first.clone(),
+                1..=6 => unavailable("0"),
+                _ => last.clone(),
+            })),
+        )
+        .await;
+        let mut fixture = Fixture::packages(
+            remote,
+            ModelApi::ChatCompletions,
+            &server.endpoint,
+            &["files"],
+        )
+        .await;
+        let mut config = fixture.session.config.clone();
+        config.permission = sailry_protocol::Permission::Full;
+        let Output::Session(session) = execute(
+            &fixture.client,
+            Command::SetSessionConfig {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                config,
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let turn = fixture.submit("Write once.txt, then summarize").await;
+        let failed = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(failed.runs.last().unwrap().status, Status::Failed);
+        assert_eq!(server.requests.lock().unwrap().len(), 7);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),
+            "once"
+        );
+        let results = |page: &Page| {
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .filter(|part| matches!(part, Part::ToolResult { .. }))
+                .count()
+        };
+        assert_eq!(results(&failed), 1);
+        let resumed = fixture.submit("Continue from the completed work").await;
+        let page = finished(&fixture.client, fixture.session.id, resumed).await;
+        assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+        assert!(completion::response(&page).ends_with(RECOVERED));
+        assert_eq!(results(&page), 1);
+        assert_eq!(server.requests.lock().unwrap().len(), 8);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("once.txt")).unwrap(),
+            "once"
+        );
+        assert!(
+            failed
+                .entries
+                .iter()
+                .all(|entry| page.entries.contains(entry))
+        );
+        unique_entries(&page);
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();
     }

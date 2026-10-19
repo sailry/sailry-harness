@@ -9,6 +9,7 @@ use sailry_protocol::{
     },
 };
 use serde_json::json;
+use tokio::sync::mpsc;
 
 fn capabilities() -> Capabilities {
     Capabilities {
@@ -196,7 +197,7 @@ fn rejects_incomplete_streams_and_private_errors() {
         )
         .unwrap();
     assert!(
-        !output
+        output
             .finish(&Default::default())
             .unwrap_err()
             .retry
@@ -207,14 +208,16 @@ fn rejects_incomplete_streams_and_private_errors() {
         "echo private-token",
         Some(20),
         Some(429),
-        false,
         &[Secret::new("private-token".into())],
     );
     assert!(error.retry.should_retry);
     assert!(!error.to_string().contains("private-token"));
     assert_eq!(error.retry.retry_after_ms, Some(20));
-    let error = response::classified(wire::Class::Unavailable, "failed", None, None, true, &[]);
-    assert!(!error.retry.should_retry);
+    let error = response::classified(wire::Class::Unavailable, "failed", None, None, &[]);
+    assert!(error.retry.should_retry);
+    let error = response::classified(wire::Class::Unknown, "No upstream code", None, None, &[]);
+    assert_eq!(error.category, adk_core::ErrorCategory::Unavailable);
+    assert!(error.retry.should_retry);
     let error = response::resource();
     assert_eq!(error.category, adk_core::ErrorCategory::Internal);
     assert_eq!(error.code, "model.plugin.resource_budget");
@@ -416,7 +419,8 @@ async fn bounds_requests_before_network_io() {
         usize::MAX,
     )
     .await
-    .unwrap_err();
+    .unwrap_err()
+    .fault();
     assert_eq!(error.code, sailry_protocol::ErrorCode::Internal);
     for (status, category) in [
         (401, adk_core::ErrorCategory::Unauthorized),
@@ -429,21 +433,11 @@ async fn bounds_requests_before_network_io() {
             "Synthetic HTTP failure",
             None,
             Some(status),
-            false,
             &[],
         );
         assert_eq!(error.category, category);
         assert_eq!(error.details.upstream_status_code, Some(status));
         assert_eq!(error.retry.should_retry, matches!(status, 429 | 503));
-        let committed = response::classified(
-            response::http_class(status),
-            "Synthetic HTTP failure",
-            None,
-            Some(status),
-            true,
-            &[],
-        );
-        assert!(!committed.retry.should_retry);
     }
 }
 
@@ -518,4 +512,80 @@ async fn defaults_when_classify_is_not_exported() {
         );
         server.await.unwrap();
     }
+}
+
+#[tokio::test]
+async fn finishes_before_the_http_connection_closes() {
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let release = std::sync::Arc::new(tokio::sync::Notify::new());
+    let stopped = release.clone();
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = [0; 1024];
+        let _ = stream.read(&mut request).await.unwrap();
+        let data = r#"[{"kind":"text","text":"done"},{"kind":"usage","input_tokens":11,"output_tokens":3,"cached_input_tokens":4,"reasoning_tokens":1},{"kind":"finish","reason":"stop"}]"#;
+        stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: keep-alive\r\n\r\ndata: {data}\n\n").as_bytes()).await.unwrap();
+        stopped.notified().await;
+    });
+    let received = transport::client()
+        .unwrap()
+        .get(format!("http://{address}/"))
+        .send()
+        .await
+        .unwrap();
+    let entry = "dev.sailry.platform/adapter.js".to_owned();
+    let worker = worker::Worker::new(crate::plugins::script::Bundle {
+        entry: entry.clone(), files: [(entry, "export function decode(input) {return {state:null,deltas:input.events.flatMap(event=>JSON.parse(event.data))}}".into())].into(),
+    }, &CancellationToken::new(), 4096).await.unwrap();
+    let stop = CancellationToken::new();
+    let credentials = transport::Credentials {
+        headers: Default::default(),
+        access: None,
+        key: None,
+        secrets: vec![],
+    };
+    let (sender, _) = mpsc::channel(1);
+    let mut accumulator = response::Accumulator::default();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        super::produce(
+            received,
+            worker,
+            Framing::Sse,
+            200,
+            Default::default(),
+            super::StreamContext {
+                credentials: &credentials,
+                stop: &stop,
+                streaming: false,
+                sender: &sender,
+            },
+            &mut accumulator,
+        ),
+    )
+    .await;
+    release.notify_one();
+    server.await.unwrap();
+    result
+        .expect("the declared finish must not wait for HTTP EOF")
+        .unwrap();
+    let response = accumulator.finish(&Default::default()).unwrap();
+    assert!(response.turn_complete);
+    let usage = response.usage_metadata.unwrap();
+    assert_eq!(usage.prompt_token_count, 11);
+    assert_eq!(usage.candidates_token_count, 3);
+    assert_eq!(usage.cache_read_input_token_count, Some(4));
+    assert_eq!(usage.thinking_token_count, Some(1));
+    assert_eq!(
+        response.content.unwrap().parts,
+        [adk_core::Part::Text {
+            text: "done".into()
+        }]
+    );
 }

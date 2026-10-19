@@ -79,6 +79,19 @@ impl Tool for Probe {
     fn required_scopes(&self) -> &[&str] {
         &["scope"]
     }
+    fn annotations(&self) -> Option<&Value> {
+        static ANNOTATIONS: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+        Some(ANNOTATIONS.get_or_init(|| json!({"readOnlyHint":true})))
+    }
+    fn origin(&self) -> &str {
+        "fixture:origin"
+    }
+    fn effect(&self) -> adk_core::ToolEffect {
+        adk_core::ToolEffect::Idempotent
+    }
+    fn timeout_override(&self) -> Option<Option<std::time::Duration>> {
+        Some(Some(std::time::Duration::from_secs(17)))
+    }
     fn is_long_running(&self) -> bool {
         true
     }
@@ -247,6 +260,10 @@ async fn uses_final_schema_and_preserves_metadata() {
     assert_eq!(tool.enhanced_description(), probe.enhanced_description());
     assert_eq!(tool.response_schema(), probe.response_schema());
     assert_eq!(tool.required_scopes(), ["scope"]);
+    assert_eq!(tool.annotations(), probe.annotations());
+    assert_eq!(tool.origin(), probe.origin());
+    assert_eq!(tool.effect(), probe.effect());
+    assert_eq!(tool.timeout_override(), probe.timeout_override());
     assert!(
         tool.is_builtin()
             && tool.is_long_running()

@@ -9,6 +9,8 @@ fn fixture(permission: Permission, mode: WorkMode) -> (Fixture, Binding, Startup
         .find(|owner| owner.name == "code")
         .unwrap();
     fixture.request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("code", "code_hover"),
         function_call_id: Some("code-call".into()),
         args: json!({"path":"main.rs","line":1,"symbol":"name"}),
@@ -183,6 +185,8 @@ fn permits_project_and_full_with_plan_limits() {
                         &fixture.database.connection,
                         fixture.turn,
                         &ToolConfirmationRequest {
+                            acting: None,
+                            origin: None,
                             tool_name: crate::plugins::tools::alias("files", "write_file"),
                             function_call_id: Some("write".into()),
                             args: json!({})

@@ -181,6 +181,8 @@ impl Delegate {
             .then(|| self.selected.clone())
             .flatten();
         let request = ToolConfirmationRequest {
+            acting: None,
+            origin: None,
             tool_name: self.name().into(),
             function_call_id: Some(context.function_call_id().into()),
             args: original,

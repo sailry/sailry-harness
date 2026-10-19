@@ -72,6 +72,8 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
         _ => panic!("file mutation expected"),
     };
     let authorization = adk_core::ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("files", name),
         function_call_id: Some(RequestId::new().to_string()),
         args: arguments,

@@ -13,6 +13,56 @@ use url::Url;
 
 pub(super) const REQUEST_BYTES: usize = 32 * 1024 * 1024;
 
+#[derive(Debug)]
+pub(super) enum Failure {
+    Request(Fault),
+    Network(reqwest::Error),
+}
+
+impl From<Fault> for Failure {
+    fn from(fault: Fault) -> Self {
+        Self::Request(fault)
+    }
+}
+
+impl Failure {
+    pub(super) fn fault(self) -> Fault {
+        match self {
+            Self::Request(fault) => fault,
+            Self::Network(_) => network(),
+        }
+    }
+
+    pub(super) fn model(self) -> adk_core::AdkError {
+        match self {
+            Self::Request(fault) => super::response::fault(fault),
+            Self::Network(error) => {
+                let (category, code, message) = if error.is_timeout() {
+                    (
+                        adk_core::ErrorCategory::Timeout,
+                        "model.plugin.timeout",
+                        "model HTTP request timed out",
+                    )
+                } else if error.is_body() {
+                    (
+                        adk_core::ErrorCategory::Unavailable,
+                        "model.plugin.stream_read",
+                        "model response stream could not be read",
+                    )
+                } else {
+                    (
+                        adk_core::ErrorCategory::Unavailable,
+                        "model.plugin.connection",
+                        "model connection failed",
+                    )
+                };
+                adk_core::AdkError::new(adk_core::ErrorComponent::Model, category, code, message)
+                    .with_source(Fault::new(ErrorCode::Unavailable, message))
+            }
+        }
+    }
+}
+
 pub(super) struct Credentials {
     pub(super) headers: HeaderMap,
     pub(super) access: Option<Secret>,
@@ -38,6 +88,8 @@ pub(super) fn public(value: &str, credentials: &Credentials) -> Result<(), Fault
 pub(super) fn client() -> Result<Client, Fault> {
     Client::builder()
         .redirect(reqwest::redirect::Policy::none())
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .read_timeout(std::time::Duration::from_secs(300))
         .build()
         .map_err(|_| Fault::new(ErrorCode::Unavailable, "model HTTP client is unavailable"))
 }
@@ -50,7 +102,7 @@ pub(super) async fn send(
     credentials: &Credentials,
     stop: &CancellationToken,
     budget: usize,
-) -> Result<Response, Fault> {
+) -> Result<Response, Failure> {
     let budget = budget.min(REQUEST_BYTES);
     let endpoint = address(endpoint)?;
     let url = address(&prepared.url)?;
@@ -64,7 +116,8 @@ pub(super) async fn send(
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "model request origin was not declared",
-        ));
+        )
+        .into());
     }
     let mut headers = HeaderMap::new();
     let mut bytes = prepared
@@ -81,7 +134,7 @@ pub(super) async fn send(
             .ok_or_else(resource)?;
         let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| invalid())?;
         if forbidden(name.as_str()) {
-            return Err(invalid());
+            return Err(invalid().into());
         }
         let value = HeaderValue::from_str(&value).map_err(|_| invalid())?;
         headers.try_insert(name, value).map_err(|_| invalid())?;
@@ -98,11 +151,12 @@ pub(super) async fn send(
             return Err(Fault::new(
                 ErrorCode::PermissionDenied,
                 "model credentials cannot leave the configured origin",
-            ));
+            )
+            .into());
         }
         let name = HeaderName::from_bytes(injection.header.as_bytes()).map_err(|_| invalid())?;
         if forbidden(name.as_str()) {
-            return Err(invalid());
+            return Err(invalid().into());
         }
         let mut value = injection.template;
         for (token, secret) in [
@@ -117,7 +171,7 @@ pub(super) async fn send(
             }
         }
         if value.contains('{') || value.contains('}') {
-            return Err(invalid());
+            return Err(invalid().into());
         }
         let mut value = HeaderValue::from_str(&value).map_err(|_| invalid())?;
         value.set_sensitive(true);
@@ -138,7 +192,7 @@ pub(super) async fn send(
         .and_then(|bytes| bytes.checked_add(header_bytes))
         .is_none_or(|bytes| bytes > budget)
     {
-        return Err(resource());
+        return Err(resource().into());
     }
     let method = match prepared.method {
         sailry_protocol::plugin::model_auth::Method::Get => reqwest::Method::GET,
@@ -149,8 +203,8 @@ pub(super) async fn send(
         request = request.body(body);
     }
     tokio::select! {
-        _ = stop.cancelled()=>Err(cancelled()),
-        response = request.send()=>response.map_err(|_|network()),
+        _ = stop.cancelled()=>Err(cancelled().into()),
+        response = request.send()=>response.map_err(Failure::Network),
     }
 }
 

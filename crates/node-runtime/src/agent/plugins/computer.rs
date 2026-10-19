@@ -133,6 +133,8 @@ impl Tool for Bound {
                     .authorize(
                         self.turn,
                         adk_core::ToolConfirmationRequest {
+                            acting: None,
+                            origin: None,
                             tool_name: self.name().into(),
                             function_call_id: Some(context.function_call_id().into()),
                             args: arguments,

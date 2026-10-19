@@ -214,6 +214,10 @@ impl Llm for Model {
         self.inner.uses_interactions_api()
     }
 
+    fn max_cost_micro_usd(&self, request: &adk_core::LlmRequest) -> Option<u64> {
+        self.inner.max_cost_micro_usd(request)
+    }
+
     async fn generate_content(
         &self,
         mut request: LlmRequest,

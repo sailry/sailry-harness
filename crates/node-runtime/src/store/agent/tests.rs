@@ -11,6 +11,7 @@ mod images;
 mod inputs;
 mod location;
 mod preview;
+mod records;
 mod removal;
 mod rewind;
 mod title;

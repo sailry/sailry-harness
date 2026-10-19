@@ -203,6 +203,8 @@ fn category(value: ErrorCategory) -> &'static str {
         Cancelled => "cancelled",
         Internal => "internal",
         Unsupported => "unsupported",
+        ResourceExhausted => "resource_exhausted",
+        Conflict => "conflict",
     }
 }
 

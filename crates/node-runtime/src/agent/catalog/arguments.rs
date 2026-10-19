@@ -184,6 +184,18 @@ impl Tool for Validated {
     fn required_scopes(&self) -> &[&str] {
         self.tool.required_scopes()
     }
+    fn annotations(&self) -> Option<&Value> {
+        self.tool.annotations()
+    }
+    fn origin(&self) -> &str {
+        self.tool.origin()
+    }
+    fn effect(&self) -> adk_core::ToolEffect {
+        self.tool.effect()
+    }
+    fn timeout_override(&self) -> Option<Option<std::time::Duration>> {
+        self.tool.timeout_override()
+    }
     fn is_long_running(&self) -> bool {
         self.tool.is_long_running()
     }

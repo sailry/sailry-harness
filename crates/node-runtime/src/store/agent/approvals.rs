@@ -629,6 +629,8 @@ pub(in crate::store) fn request(
         return Err(Fault::invalid("approval has no canonical tool call"));
     };
     Ok(ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: name.clone(),
         function_call_id: id.clone(),
         args: args.clone(),

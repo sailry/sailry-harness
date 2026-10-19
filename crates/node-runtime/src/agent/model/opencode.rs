@@ -47,7 +47,8 @@ pub(super) fn build(
         .with_base_url(&provider.endpoint)
         .with_user_agent(concat!("Sailry/", env!("CARGO_PKG_VERSION")))
         .with_session_id(session.to_string())
-        .with_retry_config(RetryConfig::disabled());
+        .with_retry_config(RetryConfig::disabled())
+        .with_timeouts(timeouts());
     if api(provider.api, &config.model)? == ModelApi::Anthropic {
         let native = reasoning::anthropic(AnthropicConfig::new(key, &config.model), effort)?;
         if let Some(thinking) = native.thinking {

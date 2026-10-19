@@ -60,6 +60,8 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
         _ => unreachable!(),
     };
     fixture.request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("code", name),
         function_call_id: Some("management-call".into()),
         args,

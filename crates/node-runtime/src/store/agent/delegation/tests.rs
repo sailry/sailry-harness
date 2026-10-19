@@ -16,6 +16,8 @@ fn canonical_admission_and_recovery() {
         .unwrap()
         .unwrap();
     let request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("delegation", "spawn_agent"),
         function_call_id: Some("child-call".into()),
         args: json!({"role": null, "title": "Inspect files", "task": "Independent task"}),

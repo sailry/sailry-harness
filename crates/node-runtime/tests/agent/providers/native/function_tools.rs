@@ -40,8 +40,7 @@ async fn capture(declaration: Value, streaming: bool) -> Value {
     )
     .unwrap()
     .with_retry_config(RetryConfig::disabled())
-    .with_request_adapter(adapter)
-    .unwrap();
+    .with_request_adapter(adapter);
     let mut request = LlmRequest::new(
         "fixture-a",
         vec![Content::new("user").with_text("Inspect records")],

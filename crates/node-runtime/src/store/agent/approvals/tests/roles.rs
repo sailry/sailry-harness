@@ -37,6 +37,8 @@ fn fixture(operation: Operation, mode: WorkMode) -> (Fixture, Binding, Command) 
         _ => unreachable!(),
     };
     fixture.request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("delegation", name),
         function_call_id: Some("role-call".into()),
         args: json!({"fixture":"exact canonical arguments"}),

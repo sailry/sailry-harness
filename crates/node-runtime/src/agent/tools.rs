@@ -100,6 +100,8 @@ impl<D: Definition + 'static> Tool for Operation<D> {
             return Err(AdkError::tool("tool invocation was cancelled"));
         }
         let authorization = adk_core::ToolConfirmationRequest {
+            acting: None,
+            origin: None,
             tool_name: self.name().into(),
             function_call_id: Some(context.function_call_id().into()),
             args: arguments.clone(),

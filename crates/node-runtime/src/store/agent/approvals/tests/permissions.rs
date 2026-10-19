@@ -289,6 +289,8 @@ fn requires_command_authority() {
             "unknown_tool",
         ] {
             let request = ToolConfirmationRequest {
+                acting: None,
+                origin: None,
                 tool_name: tool_name.into(),
                 function_call_id: Some("command".into()),
                 args: json!({"command": "printf content"}),

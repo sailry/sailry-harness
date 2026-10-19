@@ -28,6 +28,13 @@ use sailry_protocol::{
     conversation::{ModelApi, Provider},
 };
 
+fn timeouts() -> adk_model::HttpTimeouts {
+    adk_model::HttpTimeouts::new(
+        std::time::Duration::from_secs(30),
+        std::time::Duration::from_secs(300),
+    )
+}
+
 pub(super) async fn build(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
@@ -56,7 +63,6 @@ pub(super) async fn build(
     Ok(Arc::new(attachments::Model {
         inner: Arc::new(retry::Model {
             inner,
-            api: opencode::api(provider.api, &config.model)?,
             ingress: ingress.clone(),
             turn: invocation.turn.id,
             session: invocation.turn.session,
@@ -240,7 +246,9 @@ pub(super) fn native(
                 effort,
             )?)
             .map_err(error)?
-            .with_retry_config(RetryConfig::disabled()),
+            .with_retry_config(RetryConfig::disabled())
+            .with_timeouts(timeouts())
+            .map_err(error)?,
         ),
         ModelApi::ChatCompletions => {
             let mut client = OpenAICompatible::new_with_reasoning_effort(
@@ -261,7 +269,7 @@ pub(super) fn native(
             if let Some(adapter) = adapter {
                 client = client.with_request_adapter(adapter);
             }
-            Arc::new(client)
+            Arc::new(client.with_timeouts(timeouts()).map_err(error)?)
         }
         ModelApi::Responses => {
             let config = OpenAIResponsesConfig::new(key, &config.model)
@@ -299,12 +307,12 @@ pub(super) fn native(
                     .map_err(error)?;
             }
             if let Some(adapter) = adapter {
-                client = client.with_request_adapter(adapter).map_err(error)?;
+                client = client.with_request_adapter(adapter);
             }
             if let Some(observer) = observer {
-                client = client.with_response_observer(observer).map_err(error)?;
+                client = client.with_response_observer(observer);
             }
-            Arc::new(client)
+            Arc::new(client.with_timeouts(timeouts()).map_err(error)?)
         }
         ModelApi::Anthropic => {
             let endpoint = crate::providers::anthropic_base_url(&provider.endpoint)?;
@@ -319,13 +327,18 @@ pub(super) fn native(
             if let Some(adapter) = adapter {
                 client = client.with_request_adapter(adapter);
             }
-            Arc::new(client)
+            Arc::new(client.with_timeouts(timeouts()).map_err(error)?)
         }
         ModelApi::Gemini => {
             let endpoint = format!("{}/", provider.endpoint.trim_end_matches('/'));
-            let mut native = GeminiModel::new_with_base_url(key, &config.model, endpoint)
-                .map_err(error)?
-                .with_retry_config(RetryConfig::disabled());
+            let mut native = GeminiModel::new_with_base_url_and_timeouts(
+                key,
+                &config.model,
+                endpoint,
+                timeouts(),
+            )
+            .map_err(error)?
+            .with_retry_config(RetryConfig::disabled());
             if let Some(thinking) = reasoning::gemini(effort)? {
                 native = native.with_thinking_config(thinking);
             }
@@ -345,6 +358,9 @@ pub(super) fn error(error: adk_core::AdkError) -> Fault {
 }
 
 fn summary(error: &adk_core::AdkError) -> String {
+    if error.component == adk_core::ErrorComponent::Model && error.code == "model.empty_response" {
+        return "Model returned no answer".into();
+    }
     // Unchecked provider bodies never enter public history.
     let mut message = format!("Agent execution failed ({})", error.code);
     if let Some(status) = error.details.upstream_status_code {

@@ -109,8 +109,8 @@ dependencies = [
 
 [[package]]
 name = "adk-acp"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "agent-client-protocol",
@@ -126,8 +126,8 @@ dependencies = [
 
 [[package]]
 name = "adk-agent"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "adk-telemetry",
@@ -147,8 +147,8 @@ dependencies = [
 
 [[package]]
 name = "adk-anthropic"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -168,8 +168,8 @@ dependencies = [
 
 [[package]]
 name = "adk-browser"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -184,24 +184,26 @@ dependencies = [
 
 [[package]]
 name = "adk-core"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "async-trait",
  "chrono",
  "futures",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 
 [[package]]
 name = "adk-eval"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "adk-model",
@@ -219,8 +221,8 @@ dependencies = [
 
 [[package]]
 name = "adk-gemini"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "async-stream",
@@ -246,8 +248,8 @@ dependencies = [
 
 [[package]]
 name = "adk-model"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-anthropic",
  "adk-core",
@@ -261,6 +263,7 @@ dependencies = [
  "chrono",
  "futures",
  "http",
+ "httpdate",
  "reqwest 0.12.28",
  "reqwest 0.13.4",
  "serde",
@@ -272,8 +275,8 @@ dependencies = [
 
 [[package]]
 name = "adk-runner"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "adk-session",
@@ -291,8 +294,8 @@ dependencies = [
 
 [[package]]
 name = "adk-rust-macros"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -301,8 +304,8 @@ dependencies = [
 
 [[package]]
 name = "adk-sandbox"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -318,8 +321,8 @@ dependencies = [
 
 [[package]]
 name = "adk-session"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "async-trait",
@@ -332,8 +335,8 @@ dependencies = [
 
 [[package]]
 name = "adk-telemetry"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "thiserror 2.0.20",
  "tracing",
@@ -342,8 +345,8 @@ dependencies = [
 
 [[package]]
 name = "adk-tool"
-version = "2.3.0"
-source = "git+https://github.com/dux-web/adk-rust.git?rev=b6b5ce6063542c655d57b8aba8700731cd927b6a#b6b5ce6063542c655d57b8aba8700731cd927b6a"
+version = "3.0.0"
+source = "git+https://github.com/dux-web/adk-rust.git?rev=f8bca99c342c734e3f858b7d724fe506960aace4#f8bca99c342c734e3f858b7d724fe506960aace4"
 dependencies = [
  "adk-core",
  "adk-rust-macros",
@@ -351,6 +354,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "futures",
+ "jsonschema 0.47.0",
  "rmcp",
  "schemars 1.2.2",
  "serde",
@@ -495,9 +499,9 @@ dependencies = [
 
 [[package]]
 name = "agent-client-protocol"
-version = "2.2.0"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13f780597b2c88ab83d02509bcc3e86366751f86fa12114005e35c55ed691763"
+checksum = "72adac0ce6b0d0390df9b7a498392b24ebcf9c65c3451e5d618d936f50256289"
 dependencies = [
  "agent-client-protocol-derive",
  "agent-client-protocol-schema",
@@ -508,7 +512,6 @@ dependencies = [
  "futures-concurrency",
  "rustc-hash 2.1.3",
  "rustix",
- "schemars 1.2.2",
  "serde",
  "serde_json",
  "shell-words",
@@ -519,9 +522,9 @@ dependencies = [
 
 [[package]]
 name = "agent-client-protocol-derive"
-version = "2.2.0"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4893bfb11e0e193aa5a64611a126ee87567acb1879556519c902722899229de"
+checksum = "532fa6f1870bb7cb0bfe91fbcb5166393f7046e186bc590d1aa037d306d48716"
 dependencies = [
  "quote",
  "syn 3.0.5",
@@ -529,18 +532,16 @@ dependencies = [
 
 [[package]]
 name = "agent-client-protocol-schema"
-version = "1.9.1"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d595a79e1665d02c91c7dd1bedd118501e75cc0a3d5b1651b5150ec4c5c1e0d"
+checksum = "430e900fdb40a811c1a3e0d85b1134e485d96699f8b90889a15c1da6a0b26c3f"
 dependencies = [
  "anyhow",
  "derive_more 2.1.1",
- "schemars 1.2.2",
  "serde",
  "serde_json",
  "serde_with",
  "strum",
- "tracing",
 ]
 
 [[package]]
@@ -1403,6 +1404,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7178fe5f7d460b13895ebb9dcb28a3a6216d2df2574a0806cb51b555d297f38"
 dependencies = [
  "arrayvec",
+]
+
+[[package]]
+name = "aws-lc-rs"
+version = "1.18.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "faac5829c2b74c28f830747e7818ccfb684261b5f48a1118b1e2a13d36dfab13"
+dependencies = [
+ "aws-lc-sys",
+ "zeroize",
+]
+
+[[package]]
+name = "aws-lc-sys"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1622d8446a2d4b2ce0c7eefc73dd43a99779028d5ee5c2dd8073a658ba8a2bc"
+dependencies = [
+ "cc",
+ "cmake",
+ "dunce",
+ "fs_extra",
+ "pkg-config",
 ]
 
 [[package]]
@@ -2309,6 +2333,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "210e9ea90a5f6c731c23bf642383ad7c006d8b24803c5c33afd5aaeae5a33f66"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "cmake"
+version = "0.1.58"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -4829,6 +4862,12 @@ dependencies = [
  "libc",
  "winapi",
 ]
+
+[[package]]
+name = "fs_extra"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
 
 [[package]]
 name = "fsevent-sys"
@@ -12609,6 +12648,7 @@ version = "0.11.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04759210543be93709136e28212294a659ef5001836ff4eab4d663e4529bba83"
 dependencies = [
+ "aws-lc-rs",
  "bytes",
  "getrandom 0.4.3",
  "lru-slab",
@@ -13331,6 +13371,7 @@ dependencies = [
  "mime_guess",
  "percent-encoding",
  "pin-project-lite",
+ "quinn",
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
@@ -13917,6 +13958,7 @@ version = "0.23.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6725596c3f2c3a0aef021139e145d4eafe314a6623e4680ca83852b2c67ab2ba"
 dependencies = [
+ "aws-lc-rs",
  "log",
  "once_cell",
  "ring",
@@ -14024,6 +14066,7 @@ version = "0.103.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
 dependencies = [
+ "aws-lc-rs",
  "ring",
  "rustls-pki-types",
  "untrusted",

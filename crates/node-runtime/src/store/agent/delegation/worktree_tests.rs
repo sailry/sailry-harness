@@ -12,6 +12,8 @@ fn request(
         .unwrap()
         .unwrap();
     let request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("delegation", "spawn_agent"),
         function_call_id: Some("child".into()),
         args: json!({"role":null,"task":"Inspect", "worktree":worktree}),

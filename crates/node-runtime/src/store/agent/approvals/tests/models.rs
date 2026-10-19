@@ -9,6 +9,8 @@ fn fixture(mode: WorkMode) -> (Fixture, Binding, Command) {
         .find(|package| package.name == "files")
         .unwrap();
     fixture.request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("files", "uninstall_ocr_model"),
         function_call_id: Some("ocr-call".into()),
         args: json!({"id":"a".repeat(64)}),

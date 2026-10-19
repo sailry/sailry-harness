@@ -107,6 +107,8 @@ impl Fixture {
             turn.id
         );
         let request = ToolConfirmationRequest {
+            acting: None,
+            origin: None,
             tool_name: crate::plugins::tools::alias("files", "write_file"),
             function_call_id: Some("call-fixture".into()),
             args: json!({"path": "资料.txt", "text": "中文 🙂", "expected_revision": null}),

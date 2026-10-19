@@ -31,6 +31,8 @@ fn fixture() -> (Fixture, Binding, database::Profile) {
         .find(|package| package.name == "databases")
         .unwrap();
     fixture.request = ToolConfirmationRequest {
+        acting: None,
+        origin: None,
         tool_name: crate::plugins::tools::alias("databases", "database_execute"),
         function_call_id: Some("execute-approved-target".into()),
         args: json!({"connection":profile.id,"sql":"DELETE FROM items","row_limit":2,"timeout_ms":1000}),
