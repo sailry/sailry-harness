@@ -8,7 +8,7 @@ mod summary;
 mod tests;
 
 pub(super) use summary::matches;
-use summary::{AuthKind, Mark, Status};
+use summary::{AuthKind, Status};
 
 const TILE: f32 = 36.;
 const GAP: f32 = 12.;
@@ -160,7 +160,7 @@ impl Workspace {
             .min_w_0()
             .child(row)
             .when(expanded, |entry| {
-                entry.child(Self::provider_models(channel, cx.entity(), cx))
+                entry.child(Self::provider_models(channel, cx))
             })
             .into_any_element()
     }
@@ -168,25 +168,21 @@ impl Workspace {
     fn provider_tile(channel: &Channel) -> AnyElement {
         let tile = crate::plugins::emblem::surface(&channel.name, None, px(TILE))
             .when(!channel.enabled, |tile| tile.opacity(0.45));
-        let glyph = match Mark::of(channel) {
-            Mark::Image => channel.directory.as_ref().map_or_else(
-                || div().into_any_element(),
-                |entry| presets::render_icon(entry, rems(1.25)),
-            ),
-            Mark::Logo(path) => Icon::empty()
-                .path(path)
-                .size(px(20.))
-                .text_color(gpui_kit::white())
-                .into_any_element(),
-            Mark::Letter(letter) => div()
-                .text_color(gpui_kit::white())
-                .text_base()
-                .font_semibold()
-                .line_height(px(TILE))
-                .child(letter.to_string())
-                .into_any_element(),
-        };
-        tile.child(glyph).into_any_element()
+        // The type icon, as in the type picker; monochrome icons inherit the white text color.
+        let glyph = channel.directory.as_ref().map_or_else(
+            || {
+                channel
+                    .preset
+                    .category()
+                    .icon()
+                    .size(px(20.))
+                    .into_any_element()
+            },
+            |entry| presets::render_icon(entry, rems(1.25)),
+        );
+        tile.text_color(gpui_kit::white())
+            .child(glyph)
+            .into_any_element()
     }
 
     fn provider_quota(
@@ -246,7 +242,7 @@ impl Workspace {
             .into_any_element()
     }
 
-    fn provider_models(channel: &Channel, owner: Entity<Self>, cx: &App) -> AnyElement {
+    fn provider_models(channel: &Channel, cx: &App) -> AnyElement {
         let id = channel.id;
         let (chips, hidden) =
             summary::chips(&channel.models, &channel.default_model, summary::CHIPS);
@@ -295,17 +291,6 @@ impl Workspace {
                         }),
                 )
             })
-            .child(
-                h_flex().child(
-                    Button::new(("provider-manage", id))
-                        .link()
-                        .xsmall()
-                        .label(tr("provider_manage_models"))
-                        .on_click(move |_, window, cx| {
-                            editor::open(owner.clone(), Some(id), window, cx);
-                        }),
-                ),
-            )
             .into_any_element()
     }
 }

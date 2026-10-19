@@ -11,13 +11,11 @@ fn channel(preset: Preset) -> super::Channel {
     channel
 }
 
-fn packaged(mut channel: super::Channel, icon: Option<&str>) -> super::Channel {
+fn packaged(mut channel: super::Channel) -> super::Channel {
     let mut entry = super::super::presets::bundled().remove(0);
     entry.source = Source::Package {
         name: "sample.models".into(),
     };
-    entry.icon = icon.map(Into::into);
-    entry.preset.logo = None;
     channel.directory = Some(entry);
     channel
 }
@@ -38,7 +36,7 @@ mod auth {
 
     #[test]
     fn marks_plugin_channels() {
-        let channel = packaged(channel(Preset::CompatibleChat), None);
+        let channel = packaged(channel(Preset::CompatibleChat));
         assert_eq!(
             AuthKind::of(&channel, Authentication::ApiKey),
             AuthKind::Plugin
@@ -86,43 +84,6 @@ mod status {
             Status::of(&login, Authentication::ChatGptOAuth),
             Some(Status::SignedOut)
         );
-    }
-}
-
-mod mark {
-    use super::*;
-
-    #[test]
-    fn uses_brand_logos() {
-        assert_eq!(
-            Mark::of(&channel(Preset::OpenAi)),
-            Mark::Logo("icons/providers/openai.svg".into())
-        );
-        assert!(matches!(
-            Mark::of(&channel(Preset::ChatGptOAuth)),
-            Mark::Logo(_)
-        ));
-    }
-
-    #[test]
-    fn letters_generic_channels() {
-        let mut generic = channel(Preset::CompatibleAnthropic);
-        generic.name = " rrwkj".into();
-        assert_eq!(Mark::of(&generic), Mark::Letter('R'));
-        generic.name = "—".into();
-        assert_eq!(Mark::of(&generic), Mark::Letter('?'));
-    }
-
-    #[test]
-    fn keeps_package_images() {
-        let image = packaged(
-            channel(Preset::CompatibleChat),
-            Some("data:image/png;base64,AA=="),
-        );
-        assert_eq!(Mark::of(&image), Mark::Image);
-        let mut plain = packaged(channel(Preset::OpenAi), None);
-        plain.name = "workbuddy".into();
-        assert_eq!(Mark::of(&plain), Mark::Letter('W'));
     }
 }
 

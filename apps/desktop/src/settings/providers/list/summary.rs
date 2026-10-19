@@ -67,57 +67,6 @@ impl Status {
     }
 }
 
-/// What the identity tile shows on its gradient.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Mark {
-    /// A package image that cannot be recolored.
-    Image,
-    /// A monochrome logo asset painted white.
-    Logo(String),
-    Letter(char),
-}
-
-impl Mark {
-    pub fn of(channel: &Channel) -> Self {
-        let letter = Self::Letter(monogram(&channel.name));
-        if let Some(entry) = &channel.directory
-            && entry.source != Source::Builtin
-        {
-            let image = entry.icon.is_some()
-                || entry
-                    .preset
-                    .logo
-                    .as_ref()
-                    .is_some_and(|logo| logo.starts_with("https://"));
-            return if image { Self::Image } else { letter };
-        }
-        // Compatible endpoints only borrow a protocol logo, which would misname the service.
-        if matches!(
-            channel.preset,
-            Preset::CompatibleResponses
-                | Preset::CompatibleChat
-                | Preset::CompatibleAnthropic
-                | Preset::CompatibleGemini
-                | Preset::Plugin
-        ) {
-            return letter;
-        }
-        channel
-            .directory
-            .as_ref()
-            .and_then(|entry| entry.preset.logo.clone())
-            .or_else(|| channel.preset.category().logo())
-            .map_or(letter, Self::Logo)
-    }
-}
-
-fn monogram(name: &str) -> char {
-    name.chars()
-        .find(|character| character.is_alphanumeric())
-        .and_then(|character| character.to_uppercase().next())
-        .unwrap_or('?')
-}
-
 /// The default model leads, then the saved order up to `limit`; returns the hidden count.
 pub(super) fn chips<'a>(models: &'a [Model], default: &str, limit: usize) -> (Vec<&'a str>, usize) {
     let mut ids = models
