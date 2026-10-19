@@ -434,7 +434,7 @@ mod recovery {
     }
 
     #[tokio::test]
-    async fn rejects_incompatible_records_without_replay() {
+    async fn rejects_incompatible_archives_during_upgrade() {
         for source in ["events.body", "requests.result"] {
             let directory = tempfile::tempdir().unwrap();
             let profile = directory.path().join("node");
@@ -483,6 +483,8 @@ mod recovery {
                 }
                 _ => unreachable!(),
             }
+            // Full archive validation runs during upgrades, before any replay or writes.
+            db.execute_batch("DROP INDEX events_kind").unwrap();
             let pending = RequestId::new();
             assert_eq!(
                 db.execute(

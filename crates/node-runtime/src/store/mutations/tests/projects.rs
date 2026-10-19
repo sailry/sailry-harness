@@ -433,6 +433,15 @@ async fn rechecks_new_tasks() {
         .await
         .unwrap();
     gate.entered.recv().await.unwrap();
+    let queued = fixture
+        .client
+        .dispatch(fixture.client.prepare(Command::QueueTurn {
+            session: session.id,
+            expected_revision: session.revision,
+            message: "Hold the isolated task".into(),
+        }))
+        .await
+        .unwrap();
     let removal = fixture
         .client
         .dispatch(fixture.client.prepare(Command::RemoveProject {
@@ -440,17 +449,12 @@ async fn rechecks_new_tasks() {
         }))
         .await
         .unwrap();
-    fixture
-        .client
-        .execute(fixture.client.prepare(Command::QueueTurn {
-            session: session.id,
-            expected_revision: session.revision,
-            message: "Hold the isolated task".into(),
-        }))
-        .await
-        .unwrap();
     gate.release.send(()).unwrap();
     first.completion.await.unwrap().unwrap();
+    let Output::QueuedTurn(turn) = queued.completion.await.unwrap().unwrap() else {
+        panic!("queued turn expected")
+    };
+    assert_eq!(turn.session, session.id);
     let error = removal.completion.await.unwrap().unwrap_err();
     assert_eq!(error.code, ErrorCode::Busy);
     assert_eq!(

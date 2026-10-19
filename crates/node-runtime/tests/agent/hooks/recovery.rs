@@ -97,10 +97,11 @@ async fn confines_scripts_without_granting_tool_access() {
         let address = listener.local_addr().unwrap();
         let curl = which::which("curl").expect("hook sandbox acceptance requires curl");
         let read_tool = plugin_tool("files", "read_file");
+        let write_tool = plugin_tool("files", "write_file");
         let server = Server::tools(vec![
             (read_tool.clone(), json!({"path":"source.txt"})),
             (
-                plugin_tool("files", "write_file"),
+                write_tool.clone(),
                 json!({"path":"denied.txt","text":"must remain denied","expected_revision":null}),
             ),
         ])
@@ -135,6 +136,12 @@ async fn confines_scripts_without_granting_tool_access() {
                 .await
                 .is_err()
         );
+        // ADK runs attempt callbacks before confirmation; they do not authorize the tool.
+        let attempted = format!("{read_tool}\n{write_tool}\n");
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("called.txt")).unwrap(),
+            attempted
+        );
         process::decide(&fixture.client, &approval, Decision::Deny).await;
         let page = finished(&fixture.client, fixture.session.id, turn.id).await;
         assert_eq!(
@@ -148,7 +155,7 @@ async fn confines_scripts_without_granting_tool_access() {
         assert!(!fixture.root.join("denied.txt").exists());
         assert_eq!(
             std::fs::read_to_string(fixture.root.join("called.txt")).unwrap(),
-            format!("{read_tool}\n")
+            attempted
         );
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();

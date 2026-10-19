@@ -72,6 +72,14 @@ fn follows_visible_delegations_without_duplication() {
         event(40, 4_000),
     );
     finish(&mut fixture, guidance.id);
+    let consumed = super::super::background::consume_child(
+        &fixture.database.connection,
+        first,
+        child.turn.session,
+        guidance.id,
+    )
+    .unwrap();
+    assert_eq!(consumed.len(), 1);
     finish(&mut fixture, first);
     let Output::Session(fork) = command(
         &mut fixture.database,
@@ -122,6 +130,16 @@ fn follows_visible_delegations_without_duplication() {
         event(50, 5_000),
     );
     finish(&mut fixture, sibling.turn.id);
+    for child in [&reused.turn, &sibling.turn] {
+        let consumed = super::super::background::consume_child(
+            &fixture.database.connection,
+            second,
+            child.session,
+            child.id,
+        )
+        .unwrap();
+        assert_eq!(consumed.len(), 1);
+    }
     finish(&mut fixture, second);
     let db = &fixture.database.connection;
     db.execute(

@@ -16,9 +16,19 @@ struct Work {
     answer: Option<Value>,
     repeated: bool,
     cancelled: bool,
+    requests: Vec<(String, bool)>,
 }
 
 impl State {
+    pub fn trace(&self) -> BTreeMap<String, Vec<(String, bool)>> {
+        self.work
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(id, work)| (id.clone(), work.requests.clone()))
+            .collect()
+    }
+
     pub fn respond(&self, request: &Value, schema: &Value, calls: &AtomicUsize) -> Option<Value> {
         let method = request["method"].as_str()?;
         if method == "initialize" {
@@ -43,6 +53,7 @@ impl State {
         }
         let id = request["params"]["taskId"].as_str().unwrap();
         let work = work.get_mut(id).unwrap();
+        work.requests.push((method.to_owned(), work.cancelled));
         match method {
             "tasks/cancel" => {
                 self.cancelled.fetch_add(1, Ordering::SeqCst);

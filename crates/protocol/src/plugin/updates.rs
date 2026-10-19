@@ -62,7 +62,8 @@ mod tests {
                 "package": {
                     "id": "fixture", "name": "Fixture", "version": "0.1.0",
                     "description": null, "display": null, "icon": null,
-                    "repository": null, "bundled": true
+                    "repository": null, "bundled": true,
+                    "provides_models": false, "permissions": []
                 }
             }),
         ] {

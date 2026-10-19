@@ -641,6 +641,7 @@ async fn respond(
                 Reply::TurnTools(_)
                     | Reply::ResultTools(_)
                     | Reply::ScriptedTools(_)
+                    | Reply::PromptTools { .. }
                     | Reply::TurnParallel(_)
             ) || message["role"] != "user"
                 || !message["content"].is_string()
@@ -693,7 +694,15 @@ async fn respond(
             .as_array()
             .unwrap()
             .iter()
-            .any(|message| message["role"] == "user" && message["content"] == prompt.as_str())
+            .rev()
+            .find(|message| message["role"] == "user" && message["content"].is_string())
+            .is_some_and(|message| {
+                message["content"]
+                    .as_str()
+                    .unwrap()
+                    .strip_suffix(prompt.as_str())
+                    .is_some_and(|prefix| prefix.is_empty() || prefix.ends_with('\n'))
+            })
             .then(|| calls.get(completed))
             .flatten(),
         Reply::Delegation(_) => delegated_call.as_ref(),

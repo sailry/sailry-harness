@@ -98,15 +98,12 @@ fn preserves_fifo_when_lowering_budget() {
     let next = self::parent(&mut fixture);
     let third = queued(&mut fixture, next, 2);
     let fourth = queued(&mut fixture, next, 3);
-    assert!(
-        runs::hydrate(
-            &fixture.database.connection,
-            runs::get(&fixture.database.connection, third.id).unwrap(),
-        )
-        .unwrap()
-        .input
-        .is_none()
-    );
+    let captured = runs::hydrate(
+        &fixture.database.connection,
+        runs::get(&fixture.database.connection, third.id).unwrap(),
+    )
+    .unwrap()
+    .input;
     let input = |fixture: &Fixture| {
         fixture
             .database
@@ -119,6 +116,13 @@ fn preserves_fifo_when_lowering_budget() {
             .unwrap()
     };
     let frozen = input(&fixture);
+    assert_eq!(
+        captured,
+        Some(sailry_protocol::conversation::SentInput {
+            message: serde_json::from_slice(&frozen).unwrap(),
+            attachments: vec![],
+        })
+    );
     runs::stop(&fixture.database.connection, first.id).unwrap();
     assert_eq!(claim(&mut fixture, third.id), Status::Queued);
     limit(&fixture, 1);

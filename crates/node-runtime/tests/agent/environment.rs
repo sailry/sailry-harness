@@ -28,10 +28,29 @@ async fn connect(node: &Node, controller: &Link, remote: bool) -> Client {
 async fn run(client: &Client, session: &Session) -> Page {
     let turn = approvals::submit(client, session.id).await;
     for _ in 0..2 {
-        let (_, approval) = approvals::pending(client, session.id).await;
-        process::decide(client, &approval, Decision::Approve).await;
+        let page = approvals::rules::observe(client, session.id, |page| {
+            page.approvals
+                .iter()
+                .any(|approval| approval.turn == turn && approval.state == ApprovalState::Pending)
+        })
+        .await;
+        let approval = page
+            .approvals
+            .iter()
+            .find(|approval| approval.turn == turn && approval.state == ApprovalState::Pending)
+            .unwrap();
+        process::decide(client, approval, Decision::Approve).await;
     }
     let mut page = finished(client, session.id, turn).await;
+    assert_eq!(
+        page.approvals
+            .iter()
+            .filter(|approval| {
+                approval.turn == turn && approval.state == ApprovalState::Approved
+            })
+            .count(),
+        2
+    );
     page.entries.retain(|entry| entry.turn == turn);
     page.runs.retain(|run| run.turn == turn);
     assert_eq!(page.runs.last().unwrap().status, Status::Completed);
@@ -94,7 +113,7 @@ async fn freezes_login_until_restart() {
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await
                 .unwrap();
-        let server = Server::turn_tools(vec![
+        let server = Server::prompt_tools("Write the requested file".into(), vec![
             (
                 plugin_tool("commands", "run_command"),
                 json!({"access":"unrestricted","command":"environment-fixture"}),
@@ -284,8 +303,13 @@ async fn shares_login_with_stdio() {
         let mut secrets: std::collections::BTreeMap<_, _> = config["env"]
             .as_object()
             .unwrap()
-            .keys()
-            .map(|key| (key.clone(), SecretUpdate::Keep))
+            .iter()
+            .map(|(key, value)| {
+                (
+                    key.clone(),
+                    SecretUpdate::Replace(Secret::new(value.as_str().unwrap().into())),
+                )
+            })
             .collect();
         secrets.insert(
             "PATH".into(),

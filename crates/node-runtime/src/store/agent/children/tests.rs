@@ -43,6 +43,10 @@ fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         &fixture.events,
     )
     .unwrap();
+    assert_eq!(
+        delegation::claim(&mut fixture.database, child.turn.id, &fixture.events).unwrap(),
+        Status::Running
+    );
     runs::finish(
         &mut fixture.database,
         child.turn.id,
@@ -51,6 +55,14 @@ fn admitted(fixture: &mut Fixture) -> (TurnId, Invocation) {
         &fixture.events,
     )
     .unwrap();
+    let consumed = background::consume_child(
+        &fixture.database.connection,
+        parent,
+        child.turn.session,
+        child.turn.id,
+    )
+    .unwrap();
+    assert_eq!(consumed.len(), 1);
     (parent, child)
 }
 

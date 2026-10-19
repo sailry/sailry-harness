@@ -643,6 +643,14 @@ fn rejects_missing_foreign_and_busy_children() {
         );
     }
     finish(&mut fixture, child.turn.id);
+    let consumed = super::super::super::background::consume_child(
+        &fixture.database.connection,
+        parent,
+        child.turn.session,
+        child.turn.id,
+    )
+    .unwrap();
+    assert_eq!(consumed.len(), 1);
     finish(&mut fixture, parent);
     let original = super::super::super::super::commands::session(
         &fixture.database.connection,

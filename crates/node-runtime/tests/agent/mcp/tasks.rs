@@ -69,7 +69,37 @@ async fn cancels_tasks_before_transport_closure() {
                 page.questions[0].state,
                 State::Cancelled | State::Interrupted
             ));
-            assert_eq!(peer.tasks.cancelled.load(Ordering::SeqCst), 1);
+            let cancelled = peer.tasks.cancelled.load(Ordering::SeqCst);
+            // Dropping the call and confirming cleanup can each send one cancellation.
+            assert!((1..=2).contains(&cancelled));
+            let trace = peer.tasks.trace();
+            assert_eq!(trace.len(), 1);
+            let requests = &trace["task-1"];
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|(method, _)| method == "tasks/cancel")
+                    .count(),
+                cancelled
+            );
+            let first_cancel = requests
+                .iter()
+                .position(|(method, _)| method == "tasks/cancel")
+                .unwrap();
+            assert!(
+                requests[first_cancel + 1..]
+                    .iter()
+                    .any(|(method, terminal)| method == "tasks/get" && *terminal != ignore_cancel)
+            );
+            assert_eq!(
+                requests
+                    .iter()
+                    .rev()
+                    .find(|(method, _)| method == "tasks/get")
+                    .unwrap()
+                    .1,
+                !ignore_cancel
+            );
             assert_eq!(peer.tasks.updates.load(Ordering::SeqCst), 0);
             assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
             assert_eq!(model.requests.lock().unwrap().len(), 1);

@@ -14,7 +14,8 @@ export function accessor() {
 export async function mixed() {
   await completeRequest(prepareTransaction([
     {kind:'conversation_write',data:{key:'partial',value:1,expected_revision:'0'}},
-    {kind:'write',data:{key:'foreign',value:1,expected_revision:'0'}}
+    {kind:'write',data:{key:'foreign',value:1,expected_revision:'0'}},
+    {kind:'notify',data:{title:'Notice',message:'Do not publish',kind:'info',session:null}}
   ]));
 }
 "#;
