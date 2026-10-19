@@ -92,6 +92,9 @@ impl RenderOnce for Group {
                 .border_color(cx.theme().border)
                 .rounded(cx.theme().radius_lg);
         }
+        if self.rows.is_empty() {
+            content_style = content_style.border_dashed();
+        }
         let mut rows = v_flex()
             .relative()
             .w_full()

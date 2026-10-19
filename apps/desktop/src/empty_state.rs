@@ -117,6 +117,7 @@ pub(crate) fn card_aligned(
         .p_0()
         .gap_0()
         .border_1()
+        .border_dashed()
         .border_color(cx.theme().border)
         .rounded(cx.theme().radius_lg);
     if fill_height {
