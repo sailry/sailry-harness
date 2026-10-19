@@ -234,6 +234,14 @@ pub(crate) async fn run(
         let value = ingress.oauth.access(ingress, target, &stop).await?;
         insert(&mut input.headers, target.header.clone(), value)?;
     }
+    send(input, protection, stop).await
+}
+
+async fn send(
+    input: Input,
+    protection: Option<Vec<sailry_protocol::Secret>>,
+    stop: CancellationToken,
+) -> Result<http::Response, Fault> {
     if metadata_size(&input.url, &input.headers) > sailry_protocol::MAX_FRAME_BYTES {
         return Err(Fault::invalid(
             "plugin HTTP metadata exceeds the transport budget",
