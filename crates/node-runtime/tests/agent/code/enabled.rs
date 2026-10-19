@@ -54,6 +54,40 @@ fn running(pid: &str) -> bool {
     !state.is_empty() && !state.starts_with('Z')
 }
 
+async fn stopped(pid: &str) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while running(pid) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("disabled language server must finish asynchronous cleanup");
+    assert!(!running(pid));
+}
+
+async fn rejects_queries(fixture: &Fixture, query: &Query, startup: &code::Startup) {
+    for command in [
+        Command::ReadCode {
+            worktree: fixture.session.worktree,
+            query: query.clone(),
+            overlay: None,
+        },
+        Command::StartCodeServer {
+            startup: startup.clone(),
+        },
+    ] {
+        assert_eq!(
+            fixture
+                .client
+                .execute(fixture.client.prepare(command))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::Unavailable
+        );
+    }
+}
+
 #[tokio::test]
 async fn editor_switch_preserves_shared_servers() {
     for remote in [false, true] {
@@ -262,11 +296,9 @@ async fn stops_servers_and_preserves_management() {
         assert_eq!(
             fixture
                 .client
-                .execute(
-                    fixture
-                        .client
-                        .prepare(Command::StartCodeServer { startup: prepared })
-                )
+                .execute(fixture.client.prepare(Command::StartCodeServer {
+                    startup: prepared.clone()
+                }))
                 .await
                 .unwrap_err()
                 .code,
@@ -305,14 +337,13 @@ async fn stops_servers_and_preserves_management() {
         let mut value = settings(&fixture.client).await;
         value.enabled = false;
         let (_, disabled) = save(&fixture.client, value).await;
-        assert!(
-            !running(&pid),
-            "disable completion must wait for server shutdown"
-        );
+        assert!(!disabled.enabled);
+        rejects_queries(&fixture, &query, &prepared).await;
         assert_eq!(
             task.await.unwrap().unwrap_err().code,
             ErrorCode::Unavailable
         );
+        stopped(&pid).await;
         let Output::CodeServers(servers) = fixture
             .client
             .execute(fixture.client.prepare(Command::ListCodeServers {
@@ -462,12 +493,11 @@ async fn synchronizes_plugin_switches_with_settings() {
             line: 1,
             symbol: "symbol".into(),
         };
-        start(&fixture, &query).await;
+        let startup = start(&fixture, &query).await;
         let before = settings(&fixture.client).await;
         let pid = std::fs::read_to_string(fixture.root.join("pid")).unwrap();
         let (disable, disabled_package) = toggle(&fixture.client, false).await;
         let disabled = settings(&fixture.client).await;
-        assert!(!running(&pid));
         assert!(!disabled.enabled);
         assert!(!disabled.after_edit);
         assert_eq!(disabled.revision, before.revision + 1);
@@ -499,6 +529,8 @@ async fn synchronizes_plugin_switches_with_settings() {
         );
         assert_eq!(settings(&other.client).await, other_settings);
         assert_eq!(package(&other.client).await, other_package);
+        rejects_queries(&fixture, &query, &startup).await;
+        stopped(&pid).await;
         let mut enabled = disabled;
         enabled.enabled = true;
         let (_, enabled) = save(&fixture.client, enabled).await;
@@ -528,7 +560,7 @@ async fn synchronizes_plugin_switches_with_settings() {
             ErrorCode::RevisionConflict
         );
         assert_eq!(settings(&fixture.client).await, enabled);
-        start(&fixture, &query).await;
+        let startup = start(&fixture, &query).await;
         assert!(matches!(
             fixture.read(query.clone(), None).await.content,
             Content::Hover(_)
@@ -541,8 +573,10 @@ async fn synchronizes_plugin_switches_with_settings() {
         let mut disabled = edited;
         disabled.enabled = false;
         let (disable_settings, disabled) = save(&fixture.client, disabled).await;
-        assert!(!running(&pid));
+        assert!(!disabled.enabled);
         assert!(!package(&fixture.client).await.summary.enabled);
+        rejects_queries(&fixture, &query, &startup).await;
+        stopped(&pid).await;
         let (_, resumed) = toggle(&fixture.client, true).await;
         assert!(settings(&fixture.client).await.enabled);
         assert!(settings(&fixture.client).await.after_edit);
@@ -555,7 +589,7 @@ async fn synchronizes_plugin_switches_with_settings() {
             Output::CodeSettings(disabled)
         );
         assert_eq!(package(&fixture.client).await, resumed);
-        start(&fixture, &query).await;
+        let startup = start(&fixture, &query).await;
         assert!(matches!(
             fixture.read(query.clone(), None).await.content,
             Content::Hover(_)
@@ -570,7 +604,6 @@ async fn synchronizes_plugin_switches_with_settings() {
             panic!("inventory expected")
         };
         assert!(inventory.iter().all(|summary| summary.name != "code"));
-        assert!(!running(&pid));
         assert!(!settings(&fixture.client).await.enabled);
         let removed_settings = settings(&fixture.client).await;
         let mut enabling = removed_settings.clone();
@@ -588,6 +621,8 @@ async fn synchronizes_plugin_switches_with_settings() {
             ErrorCode::NotConfigured
         );
         assert_eq!(settings(&fixture.client).await, removed_settings);
+        rejects_queries(&fixture, &query, &startup).await;
+        stopped(&pid).await;
         let install = fixture.client.prepare(Command::InstallBundledPlugin {
             name: "code".into(),
             expected_revision: 0,
