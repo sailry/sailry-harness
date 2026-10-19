@@ -23,6 +23,21 @@ pub struct Candidate {
     pub skill: super::Skill,
 }
 
+/// A read-only document coordinate, never permission to execute its instructions.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum DocumentSource {
+    Git { source: Resolved, path: String },
+    Registry(RegistryResolved),
+    Bundled { package: String, skill: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Document {
+    pub skill: super::Skill,
+    pub content: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Discovery {
     pub source: Resolved,

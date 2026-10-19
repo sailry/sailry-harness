@@ -364,7 +364,8 @@ impl Ingress {
             }
             if matches!(
                 request.command,
-                sailry_protocol::Command::DiscoverSkills { .. }
+                sailry_protocol::Command::ReadSkillDocument { .. }
+                    | sailry_protocol::Command::DiscoverSkills { .. }
                     | sailry_protocol::Command::DiscoverRegistrySkill { .. }
             ) {
                 return self.discover_skills(request).await;

@@ -5,7 +5,7 @@ mod installation;
 mod tests;
 mod transfer;
 
-pub(crate) use catalog::{Catalog, Selection};
+pub(crate) use catalog::{Catalog, Entry, Selection};
 pub(crate) use installation::{Installed, Prepared};
 use sailry_link::CancellationToken;
 use serde::{Deserialize, Serialize};

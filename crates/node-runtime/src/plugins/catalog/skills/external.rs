@@ -34,6 +34,7 @@ struct DirectorySkill {
     source: String,
     skill_id: String,
     name: String,
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +68,46 @@ fn segment(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
+}
+
+fn directory_entry(skill: DirectorySkill) -> Result<Entry, Fault> {
+    if skill.source.trim().is_empty()
+        || skill.source.chars().any(char::is_control)
+        || !segment(&skill.skill_id)
+        || skill.name.trim().is_empty()
+    {
+        return Err(Fault::invalid("invalid skills.sh entry"));
+    }
+    let parts = skill.source.split('/').collect::<Vec<_>>();
+    let url = parts.iter().all(|part| segment(part)).then(|| {
+        let mut url = url::Url::parse("https://skills.sh/").unwrap();
+        url.path_segments_mut()
+            .unwrap()
+            .clear()
+            .extend(&parts)
+            .push(&skill.skill_id);
+        url.to_string()
+    });
+    let source = (parts.len() == 2 && parts.iter().all(|part| segment(part))).then(|| {
+        InstallSource::Git(Source {
+            repository: url.clone().unwrap(),
+            git_ref: None,
+            path: None,
+        })
+    });
+    Ok(Entry {
+        id: format!("{}/{}", skill.source, skill.skill_id),
+        package: None,
+        name: skill.skill_id,
+        display_name: Some(skill.name),
+        display_locales: Default::default(),
+        description: skill.description,
+        description_locales: Default::default(),
+        origin: skill.source,
+        url,
+        source,
+        bundled: false,
+    })
 }
 
 impl Host {
@@ -175,29 +216,7 @@ impl Host {
         let response: DirectoryPage = self.catalog_json(url, stop).await?;
         let mut entries = vec![];
         for skill in response.skills {
-            let parts = skill.source.split('/').collect::<Vec<_>>();
-            if parts.len() != 2
-                || !parts.iter().all(|part| segment(part))
-                || !segment(&skill.skill_id)
-                || skill.name.trim().is_empty()
-            {
-                return Err(Fault::invalid("invalid skills.sh source"));
-            }
-            entries.push(Entry {
-                id: format!("{}/{}", skill.source, skill.skill_id),
-                package: None,
-                name: skill.skill_id.clone(),
-                display_name: Some(skill.name),
-                display_locales: Default::default(),
-                description: None,
-                description_locales: Default::default(),
-                source: InstallSource::Git(Source {
-                    repository: format!("https://skills.sh/{}/{}", skill.source, skill.skill_id),
-                    git_ref: None,
-                    path: None,
-                }),
-                bundled: false,
-            });
+            entries.push(directory_entry(skill)?);
         }
         // A one-character filter applies only to this real leaderboard page, not a global search.
         if !searching && !query.is_empty() {
@@ -269,7 +288,13 @@ impl Host {
                 display_locales: Default::default(),
                 description: skill.description,
                 description_locales,
-                source: InstallSource::Registry(source),
+                origin: source.namespace.as_ref().unwrap().clone(),
+                url: Some(format!(
+                    "https://skillhub.cn/skills/{}/{}",
+                    source.namespace.as_ref().unwrap(),
+                    source.slug
+                )),
+                source: Some(InstallSource::Registry(source)),
                 bundled: false,
             });
         }
@@ -282,5 +307,68 @@ impl Host {
             total: Some(response.data.total),
             unavailable: false,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_non_git_directory_sources() {
+        // Public leaderboards contain web-hosted skills alongside GitHub coordinates.
+        let entry = directory_entry(DirectorySkill {
+            source: "open.feishu.cn".into(),
+            skill_id: "lark-doc".into(),
+            name: "lark-doc".into(),
+            description: Some("Read documents".into()),
+        })
+        .unwrap();
+        assert_eq!(entry.id, "open.feishu.cn/lark-doc");
+        assert_eq!(entry.origin, "open.feishu.cn");
+        assert_eq!(entry.source, None);
+        assert_eq!(
+            entry.url.as_deref(),
+            Some("https://skills.sh/open.feishu.cn/lark-doc")
+        );
+        let entry = directory_entry(DirectorySkill {
+            source: "vercel-labs/skills".into(),
+            skill_id: "find-skills".into(),
+            name: "find-skills".into(),
+            description: None,
+        })
+        .unwrap();
+        assert!(matches!(entry.source, Some(InstallSource::Git(_))));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the public skills.sh and Skillhub directories"]
+    async fn public_directories() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let host = Host::new(None);
+        for source in [DirectorySource::SkillsSh, DirectorySource::Skillhub] {
+            for (query, page) in [("", 1), ("", 2), ("react", 1)] {
+                let value = host
+                    .skill_catalog(source, query, page, true, CancellationToken::new())
+                    .await
+                    .unwrap();
+                assert!(!value.unavailable, "{source:?} {query:?} page {page}");
+                assert!(
+                    !value.entries.is_empty(),
+                    "{source:?} {query:?} page {page}"
+                );
+                assert_eq!(value.page, page);
+                println!(
+                    "{source:?} {query:?} page {page}: {} entries, next {:?}, {} supported sources",
+                    value.entries.len(),
+                    value.next,
+                    value
+                        .entries
+                        .iter()
+                        .filter(|entry| entry.source.is_some())
+                        .count()
+                );
+            }
+        }
     }
 }

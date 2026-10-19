@@ -27,3 +27,8 @@ market_theme_apply: "Anwenden"
 market_theme_builtin: "Integriert"
 market_paste_link: "Über Link installieren"
 market_kind: Marktplatztyp
+
+market_skills_failed: "Skill-Katalog konnte nicht geladen werden"
+market_themes_failed: "Designs konnten nicht geladen werden"
+market_no_themes: "Keine passenden Designs"
+market_load_more: Mehr laden

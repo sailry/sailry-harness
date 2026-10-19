@@ -28,7 +28,9 @@ pub struct Entry {
     pub display_locales: BTreeMap<String, String>,
     pub description: Option<String>,
     pub description_locales: BTreeMap<String, String>,
-    pub source: InstallSource,
+    pub origin: String,
+    pub url: Option<String>,
+    pub source: Option<InstallSource>,
     pub bundled: bool,
 }
 

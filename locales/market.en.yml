@@ -27,3 +27,8 @@ market_theme_apply: "Apply"
 market_theme_builtin: "Built-in"
 market_paste_link: "Install from link"
 market_kind: Market type
+
+market_skills_failed: "Could not load the skill catalog"
+market_themes_failed: "Could not load themes"
+market_no_themes: "No matching themes"
+market_load_more: Load more

@@ -7,7 +7,7 @@ pub(super) fn response(path: &str, status: u16) -> Option<(u16, &'static str, Ve
         .collect::<std::collections::BTreeMap<_, _>>();
     let json = match url.path() {
         "/skills-sh/api/skills/all-time/0" => {
-            serde_json::json!({"skills":[{"source":"example/foreign","skillId":"review","name":"Review"}],"page":0,"total":400,"hasMore":true})
+            serde_json::json!({"skills":[{"source":"example/foreign","skillId":"review","name":"Review"},{"source":"open.feishu.cn","skillId":"lark-doc","name":"lark-doc"}],"page":0,"total":400,"hasMore":true})
         }
         "/skills-sh/api/skills/all-time/1" => {
             serde_json::json!({"skills":[{"source":"example/foreign","skillId":"analysis","name":"Analysis"}],"page":1,"total":400,"hasMore":false})
@@ -15,7 +15,7 @@ pub(super) fn response(path: &str, status: u16) -> Option<(u16, &'static str, Ve
         "/skills-sh/api/search" => {
             assert_eq!(query.get("q").unwrap(), "review & analysis");
             assert_eq!(query.get("limit").unwrap(), "100");
-            serde_json::json!({"skills":[{"source":"example/foreign","skillId":"review","name":"Review"}],"count":1})
+            serde_json::json!({"skills":[{"source":"example/foreign","skillId":"review","name":"Review"},{"source":"open.feishu.cn","skillId":"lark-doc","name":"lark-doc"}],"count":2})
         }
         "/api/v1/plugins/foreign" | "/api/v1/plugins/invalid" => {
             let name = url.path().rsplit('/').next().unwrap();

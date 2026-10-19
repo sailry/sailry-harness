@@ -4,7 +4,7 @@ use gpui_kit::component::{
     separator::Separator,
 };
 
-pub(super) fn row(
+pub(in crate::settings) fn row(
     id: String,
     icon: IconName,
     title: impl Into<SharedString>,
@@ -52,7 +52,7 @@ pub(super) fn row(
         )
 }
 
-pub(super) fn section(
+pub(in crate::settings) fn section(
     key: &'static str,
     count: Option<usize>,
     rows: Vec<AnyElement>,
@@ -85,7 +85,7 @@ pub(super) fn section(
         .into_any_element()
 }
 
-pub(super) fn tag(label: impl Into<SharedString>) -> AnyElement {
+pub(in crate::settings) fn tag(label: impl Into<SharedString>) -> AnyElement {
     gpui_kit::component::tag::Tag::secondary()
         .small()
         .child(label.into())

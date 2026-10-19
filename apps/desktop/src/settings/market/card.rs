@@ -61,7 +61,7 @@ pub(super) fn content(
 pub(super) fn row(
     id: String,
     summary: impl IntoElement,
-    action: Button,
+    action: impl IntoElement,
     cx: &App,
 ) -> list::ListItem {
     list::ListItem::new(SharedString::from(id))

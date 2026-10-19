@@ -27,3 +27,8 @@ market_theme_apply: "套用"
 market_theme_builtin: "內建"
 market_paste_link: "貼上連結安裝"
 market_kind: 市集類型
+
+market_skills_failed: "無法載入技能目錄"
+market_themes_failed: "無法載入主題"
+market_no_themes: "沒有符合的主題"
+market_load_more: 載入更多

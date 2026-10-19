@@ -33,11 +33,13 @@ pub(in crate::plugins) fn entry(
         display_locales: skill.display_locales,
         description: Some(skill.description),
         description_locales: Default::default(),
-        source: skillcatalog::InstallSource::Git(Source {
+        origin: "sailry/sailry-plugins".into(),
+        url: None,
+        source: Some(skillcatalog::InstallSource::Git(Source {
             repository: "https://github.com/sailry/sailry-plugins".into(),
             git_ref: Some("main".into()),
             path: Some(format!("{package}/skills/{}", skill.name)),
-        }),
+        })),
         bundled,
     })
 }

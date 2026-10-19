@@ -49,6 +49,13 @@ async fn browses_sources_and_installs_selected_skills() {
         assert_eq!(first.total, Some(400));
         assert_eq!(first.entries[0].id, "example/foreign/review");
         assert!(!first.entries[0].bundled);
+        assert_eq!(first.entries.len(), 2);
+        assert_eq!(first.entries[1].origin, "open.feishu.cn");
+        assert_eq!(first.entries[1].source, None);
+        assert_eq!(
+            first.entries[1].url.as_deref(),
+            Some("https://skills.sh/open.feishu.cn/lark-doc")
+        );
         let requests = catalog.requests.lock().unwrap().len();
         assert_eq!(
             listing(&client, Source::SkillsSh, "", 1, false).await,
@@ -111,7 +118,7 @@ async fn browses_sources_and_installs_selected_skills() {
         let found = listing(&client, Source::Skillhub, "analysis & review", 1, false).await;
         assert_eq!(found.entries, hub.entries);
         assert_eq!(retained(&node), before);
-        let InstallSource::Git(source) = first.entries[0].source.clone() else {
+        let Some(InstallSource::Git(source)) = first.entries[0].source.clone() else {
             panic!("Git source expected")
         };
         assert_eq!(
@@ -144,7 +151,7 @@ async fn browses_sources_and_installs_selected_skills() {
             installed.skill,
             Some(plugin::skills::Provenance::Git(_))
         ));
-        let InstallSource::Registry(source) = hub.entries[0].source.clone() else {
+        let Some(InstallSource::Registry(source)) = hub.entries[0].source.clone() else {
             panic!("registry source expected")
         };
         assert_eq!(source.namespace.as_deref(), Some("example"));
@@ -232,6 +239,137 @@ async fn inspects_foreign_packages_without_running_hooks() {
         assert!(installed.extension.is_none());
         assert!(installed.mcp.is_empty());
         assert_eq!(installed.skills[0].name, candidate.skill.name);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+async fn document(
+    client: &Client,
+    source: plugin::skills::DocumentSource,
+) -> plugin::skills::Document {
+    let request = client.prepare(Command::ReadSkillDocument { source });
+    assert!(!request.command.durable());
+    let pending = client.dispatch(request).await.unwrap();
+    assert!(!pending.receipt.durable);
+    let Output::SkillDocument(document) = pending.completion.await.unwrap().unwrap() else {
+        panic!("skill document expected")
+    };
+    document
+}
+
+#[tokio::test]
+async fn reads_immutable_documents_without_installation() {
+    for remote in [false, true] {
+        let catalog = Catalog::start().await;
+        let registry = registry::Registry::start().await;
+        let (_directory, node, controller, client) = connection(remote, &catalog).await;
+        node.set_skill_registry_fixture(&registry.endpoint).unwrap();
+        let before = retained(&node);
+        let inventory = execute(&client, Command::ListPlugins).await;
+        let Output::SkillDiscovery(discovery) = execute(
+            &client,
+            Command::DiscoverSkills {
+                source: plugin::skills::Source {
+                    repository: "https://skills.sh/example/foreign/review".into(),
+                    git_ref: None,
+                    path: None,
+                },
+            },
+        )
+        .await
+        else {
+            panic!("skill discovery expected")
+        };
+        let source = plugin::skills::DocumentSource::Git {
+            source: discovery.source.clone(),
+            path: discovery.skills[0].path.clone(),
+        };
+        let read = document(&client, source).await;
+        assert_eq!(read.skill, discovery.skills[0].skill);
+        assert_eq!(
+            read.content,
+            "---\nname: review\ndescription: Review changes\n---\nReview supplied changes\n"
+        );
+        assert!(
+            catalog
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .rev()
+                .take(1)
+                .all(|path| path == &format!("/example/foreign/zip/{FIRST}"))
+        );
+        let count = catalog.requests.lock().unwrap().len();
+        let error = client
+            .execute(client.prepare(Command::ReadSkillDocument {
+                source: plugin::skills::DocumentSource::Git {
+                    source: discovery.source,
+                    path: "../outside".into(),
+                },
+            }))
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(catalog.requests.lock().unwrap().len(), count);
+        let Output::RegistrySkillDiscovery(discovery) = execute(
+            &client,
+            Command::DiscoverRegistrySkill {
+                source: plugin::skills::RegistrySource {
+                    namespace: Some("example".into()),
+                    slug: "analysis".into(),
+                    version: Some("1.0.0".into()),
+                },
+            },
+        )
+        .await
+        else {
+            panic!("registry discovery expected")
+        };
+        let read = document(
+            &client,
+            plugin::skills::DocumentSource::Registry(discovery.source.clone()),
+        )
+        .await;
+        assert_eq!(read.skill, discovery.skills[0].skill);
+        assert_eq!(
+            read.content,
+            "---\nname: analysis\ndescription: Inspect a sample\n---\nRevision 1.0.0\n"
+        );
+        let mut changed = discovery.source;
+        changed.archive_sha256 = "0".repeat(64);
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ReadSkillDocument {
+                    source: plugin::skills::DocumentSource::Registry(changed)
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::RevisionConflict
+        );
+        catalog.status.store(503, Ordering::SeqCst);
+        let bundled = listing(&client, Source::Official, "", 1, true).await;
+        assert!(bundled.unavailable);
+        let entry = bundled.entries.iter().find(|entry| entry.bundled).unwrap();
+        let read = document(
+            &client,
+            plugin::skills::DocumentSource::Bundled {
+                package: entry.package.clone().unwrap(),
+                skill: entry.name.clone(),
+            },
+        )
+        .await;
+        assert_eq!(read.skill.name, entry.name);
+        assert_eq!(
+            Some(read.skill.description.as_str()),
+            entry.description.as_deref()
+        );
+        assert!(read.content.starts_with("---\n"));
+        assert!(read.content.len() > read.skill.description.len());
+        assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
+        assert_eq!(retained(&node), before);
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

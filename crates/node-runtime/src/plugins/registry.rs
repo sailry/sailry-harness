@@ -98,6 +98,30 @@ fn name(source: &RegistryResolved) -> String {
 }
 
 impl Host {
+    pub(in crate::plugins) async fn registry_document(
+        &self,
+        source: &RegistryResolved,
+        stop: CancellationToken,
+    ) -> Result<sailry_protocol::plugin::skills::Document, Fault> {
+        let (file, _) = self
+            .registry
+            .acquire(
+                &RegistrySource {
+                    namespace: Some(source.namespace.clone()),
+                    slug: source.slug.clone(),
+                    version: Some(source.version.clone()),
+                },
+                Some(source),
+                &stop,
+            )
+            .await?;
+        tokio::task::spawn_blocking(move || {
+            super::skill_sources::document::archive(file, "", &stop)
+        })
+        .await
+        .map_err(|_| client::unavailable())?
+    }
+
     pub(crate) async fn discover_registry_skill(
         &self,
         source: &RegistrySource,

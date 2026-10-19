@@ -40,7 +40,7 @@ async fn shares_immutable_sources_and_preserves_offline_inventory() {
         assert_eq!(entry.id, "official-new/fixture-skill");
         assert_eq!(entry.title("zh-CN"), "测试技能");
         assert!(!entry.bundled);
-        let plugin::skillcatalog::InstallSource::Git(source) = &entry.source else {
+        let Some(plugin::skillcatalog::InstallSource::Git(source)) = &entry.source else {
             panic!("Git source expected")
         };
         assert_eq!(source.git_ref.as_deref(), Some(FIRST));
@@ -75,7 +75,7 @@ async fn shares_immutable_sources_and_preserves_offline_inventory() {
             legacy
                 .entries
                 .iter()
-                .all(|entry| entry.bundled && matches!(&entry.source, plugin::skillcatalog::InstallSource::Git(source) if source.git_ref.as_deref() == Some("main")))
+                .all(|entry| entry.bundled && matches!(&entry.source, Some(plugin::skillcatalog::InstallSource::Git(source)) if source.git_ref.as_deref() == Some("main")))
         );
         assert!(legacy.entries.iter().all(
             |entry| entry.id == format!("{}/{}", entry.package.as_deref().unwrap(), entry.name)

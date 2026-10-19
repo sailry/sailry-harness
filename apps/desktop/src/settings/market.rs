@@ -1,5 +1,5 @@
 //! One marketplace presents execution-Node packages and controller-local themes.
-use super::plugins::{details, download, metadata};
+use super::plugins::{details as plugin_details, download, metadata};
 use super::{Workspace, group::Group};
 use crate::tr;
 use gpui_kit::{
@@ -25,7 +25,9 @@ use sailry_protocol::{
 };
 
 mod card;
+pub(in crate::settings) mod details;
 mod filter;
+mod paging;
 mod plugins;
 mod skills;
 mod themes;
@@ -49,6 +51,8 @@ pub(in crate::settings) struct Market {
     kind: Kind,
     filter: filter::Filter,
     page: Option<Page>,
+    paging: paging::State,
+    scroll: ScrollHandle,
     skills: Option<sailry_protocol::plugin::skillcatalog::Page>,
     themes: themes::State,
     pending: Option<Loading>,
@@ -83,10 +87,8 @@ pub(super) fn create(
         cx.observe(&owner, |_, _, cx| cx.notify()).detach();
         let query =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr("market_search_plugins")));
-        cx.subscribe_in(&query, window, |state: &mut Market, input, event, _, cx| {
-            if matches!(event, InputEvent::PressEnter { .. })
-                || (matches!(event, InputEvent::Change) && input.read(cx).value().trim().is_empty())
-            {
+        cx.subscribe_in(&query, window, |state: &mut Market, _, event, _, cx| {
+            if matches!(event, InputEvent::PressEnter { .. } | InputEvent::Change) {
                 state.search(1, false, cx);
             }
         })
@@ -101,6 +103,8 @@ pub(super) fn create(
             skills: None,
             themes: themes::State::new(cx),
             page: None,
+            paging: Default::default(),
+            scroll: ScrollHandle::new(),
             pending: None,
             stop: CancellationToken::new(),
             error: None,
@@ -122,6 +126,21 @@ impl Market {
     }
 
     fn search(&mut self, page: u32, force: bool, cx: &mut Context<Self>) {
+        self.paging.reset();
+        self.stop.cancel();
+        self.task = None;
+        self.pending = None;
+        self.error = None;
+        self.scroll.set_offset(point(px(0.), px(0.)));
+        match self.kind {
+            Kind::Plugins => self.page = None,
+            Kind::Skills => self.skills = None,
+            Kind::Themes if !force && self.themes.listing.is_some() => {
+                cx.notify();
+                return;
+            }
+            Kind::Themes => {}
+        }
         match self.kind {
             Kind::Plugins => self.load_plugins(page, force, cx),
             Kind::Skills => self.load_skills(page, force, cx),
@@ -152,7 +171,14 @@ impl Market {
     fn empty(&self, _cx: &App) -> AnyElement {
         Group::new("market_title")
             .heading(false)
-            .empty(IconName::Search, "plugins_none")
+            .empty(
+                IconName::Search,
+                match self.kind {
+                    Kind::Plugins => "plugins_none",
+                    Kind::Skills => "skills_no_matches",
+                    Kind::Themes => "market_no_themes",
+                },
+            )
             .into_any_element()
     }
 

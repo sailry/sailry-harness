@@ -143,7 +143,11 @@ fn selected_root(
     Ok((temporary, package_root(&root, path, &links)?))
 }
 
-fn package_root(root: &Path, path: &str, links: &[String]) -> Result<PathBuf, Fault> {
+pub(in crate::plugins) fn package_root(
+    root: &Path,
+    path: &str,
+    links: &[String],
+) -> Result<PathBuf, Fault> {
     if links.iter().any(|link| {
         path.is_empty()
             || path == link

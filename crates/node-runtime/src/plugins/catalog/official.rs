@@ -132,7 +132,7 @@ pub(super) async fn document(
             document.commit = Some(commit.clone());
             for skill in &mut document.skills {
                 if !skill.bundled
-                    && let sailry_protocol::plugin::skillcatalog::InstallSource::Git(source) =
+                    && let Some(sailry_protocol::plugin::skillcatalog::InstallSource::Git(source)) =
                         &mut skill.source
                 {
                     source.git_ref = Some(commit.clone());

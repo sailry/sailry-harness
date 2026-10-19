@@ -1,4 +1,3 @@
-use gpui_kit::SharedString;
 use sailry_protocol::plugin::{Category, skillcatalog};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -16,14 +15,6 @@ impl Skills {
             Self::All | Self::Official => skillcatalog::Source::Official,
             Self::Directory => skillcatalog::Source::SkillsSh,
             Self::Hub => skillcatalog::Source::Skillhub,
-        }
-    }
-
-    pub fn label(self) -> SharedString {
-        match self {
-            Self::All | Self::Official => crate::tr("market_skill_official"),
-            Self::Directory => "skills.sh".into(),
-            Self::Hub => "skillhub.cn".into(),
         }
     }
 }

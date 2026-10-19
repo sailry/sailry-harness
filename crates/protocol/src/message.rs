@@ -408,6 +408,9 @@ pub enum Command {
         name: String,
         expected_revision: u64,
     },
+    ReadSkillDocument {
+        source: crate::plugin::skills::DocumentSource,
+    },
     DiscoverSkills {
         source: crate::plugin::skills::Source,
     },
@@ -1503,6 +1506,7 @@ impl Command {
                 | Self::ListSshTerminals { .. }
                 | Self::ListDatabases
                 | Self::ListPlugins
+                | Self::ReadSkillDocument { .. }
                 | Self::DiscoverSkills { .. }
                 | Self::DiscoverRegistrySkill { .. }
                 | Self::DiscoverSkillUpload { .. }
@@ -1810,6 +1814,7 @@ pub enum Output {
     PluginLogin(crate::plugin::oauth::Attempt),
     Plugin(crate::plugin::Info),
     CatalogDetails(crate::plugin::catalog::Details),
+    SkillDocument(crate::plugin::skills::Document),
     SkillDiscovery(crate::plugin::skills::Discovery),
     RegistrySkillDiscovery(crate::plugin::skills::RegistryDiscovery),
     SkillImportDiscovery(crate::plugin::skills::ImportDiscovery),

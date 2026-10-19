@@ -27,3 +27,8 @@ market_theme_apply: "적용"
 market_theme_builtin: "기본 제공"
 market_paste_link: "링크로 설치"
 market_kind: 마켓 유형
+
+market_skills_failed: "스킬 카탈로그를 불러올 수 없습니다"
+market_themes_failed: "테마를 불러올 수 없습니다"
+market_no_themes: "일치하는 테마가 없습니다"
+market_load_more: 더 불러오기

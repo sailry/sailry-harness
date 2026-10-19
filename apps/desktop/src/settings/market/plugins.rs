@@ -1,21 +1,17 @@
 use super::*;
 
 impl Market {
-    pub(super) fn load_plugins(&mut self, page: u32, force: bool, cx: &mut Context<Self>) {
+    pub(super) fn load_plugins(&mut self, requested: u32, force: bool, cx: &mut Context<Self>) {
         let query = self.query.read(cx).value().trim().to_owned();
         let stop = self.begin(Loading::Catalog);
         let cancelled = stop.clone();
         let binding = self.binding.clone();
         let source = self.source;
         let job = binding.runtime.spawn(async move {
-            tokio::select! {
-                biased;
+            tokio::select! { biased;
                 _ = cancelled.cancelled() => None,
                 result = binding.client.execute(binding.client.prepare(Command::SearchPluginCatalog {
-                    source,
-                    query,
-                    page,
-                    force,
+                    source, query, page: requested, force,
                 })) => Some(result),
             }
         });
@@ -27,11 +23,35 @@ impl Market {
                 }
                 state.pending = None;
                 match result {
-                    Ok(Some(Ok(Output::PluginCatalog(page)))) => {
+                    Ok(Some(Ok(Output::PluginCatalog(mut page)))) => {
                         state.error = page.unavailable.then_some("plugins_market_failed");
-                        state.page = Some(page);
+                        if page.unavailable {
+                            state.paging.failed = Some(requested);
+                        } else {
+                            state.paging.received(requested);
+                        }
+                        if requested == 1 {
+                            state.page = Some(page);
+                        } else if !page.unavailable
+                            && let Some(current) = &mut state.page
+                        {
+                            if page.page > current.page {
+                                paging::append(
+                                    &mut current.entries,
+                                    std::mem::take(&mut page.entries),
+                                    |entry| &entry.id,
+                                );
+                                current.page = page.page;
+                                current.pages = page.pages;
+                            } else {
+                                current.pages = current.page;
+                            }
+                        }
                     }
-                    _ => state.error = Some("plugins_market_failed"),
+                    _ => {
+                        state.error = Some("plugins_market_failed");
+                        state.paging.failed = Some(requested);
+                    }
                 }
                 cx.notify();
             });
@@ -197,9 +217,9 @@ impl Market {
             .find(|package| package.name == entry.name)
             .cloned();
         if let Some(installed) = installed {
-            details::open(owner, installed, window, cx);
+            plugin_details::open(owner, installed, window, cx);
         } else {
-            details::open_catalog(
+            plugin_details::open_catalog(
                 cx.entity(),
                 self.binding.clone(),
                 self.source,
@@ -212,7 +232,7 @@ impl Market {
 }
 
 impl Market {
-    pub(super) fn plugin_cards(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn plugin_cards(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some(page) = &self.page else {
             return if self.pending.is_some() {
                 card::skeleton(cx)
@@ -225,7 +245,7 @@ impl Market {
             .as_ref()
             .map(|owner| owner.read(cx).plugin_catalog.packages.clone())
             .unwrap_or_default();
-        let visible: Vec<_> = page
+        let mut visible: Vec<_> = page
             .entries
             .iter()
             .filter(|entry| {
@@ -235,10 +255,13 @@ impl Market {
                 )
             })
             .collect();
+        if self.source == Source::Official {
+            visible.sort_by(|left, right| left.name.cmp(&right.name).then(left.id.cmp(&right.id)));
+        }
+        self.paging.count(visible.len());
+        visible.truncate(self.paging.limit);
         let busy = self.busy(cx);
         let connected = self.connected(cx);
-        let previous = page.page.saturating_sub(1);
-        let next = page.page + 1;
         v_flex()
             .gap_3()
             .when(visible.is_empty(), |view| view.child(self.empty(cx)))
@@ -322,37 +345,6 @@ impl Market {
                             }))
                     })),
             )
-            .when(page.pages > 1, |view| {
-                view.child(
-                    h_flex()
-                        .justify_end()
-                        .gap_2()
-                        .child(
-                            Button::new("market-previous")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ChevronLeft)
-                                .accessibility_label(tr("plugins_previous"))
-                                .tooltip(tr("plugins_previous"))
-                                .disabled(busy || page.page <= 1)
-                                .on_click(cx.listener(move |state, _, _, cx| {
-                                    state.search(previous, false, cx)
-                                })),
-                        )
-                        .child(
-                            Button::new("market-next")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ChevronRight)
-                                .accessibility_label(tr("plugins_next"))
-                                .tooltip(tr("plugins_next"))
-                                .disabled(busy || page.page >= page.pages)
-                                .on_click(cx.listener(move |state, _, _, cx| {
-                                    state.search(next, false, cx)
-                                })),
-                        ),
-                )
-            })
             .into_any_element()
     }
 }

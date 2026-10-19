@@ -162,12 +162,7 @@ impl Market {
                                     }
                                 }
                             }
-                            if state.kind == Kind::Skills {
-                                state.skills = None;
-                                state.search(1, false, cx);
-                            } else {
-                                cx.notify();
-                            }
+                            state.search(1, false, cx);
                         }))
                 }),
             ))
@@ -181,7 +176,7 @@ impl Market {
                             .accessibility_label(tr("market_installed_only"))
                             .on_click(cx.listener(|state, value, _, cx| {
                                 state.filter.installed = *value;
-                                cx.notify();
+                                state.search(1, false, cx);
                             })),
                     )
                     .child(
@@ -251,16 +246,11 @@ impl Render for Market {
                     .child(self.scope(cx)),
             )
             .child(self.filters(cx))
-            .when(self.error.is_some(), |view| {
-                view.child(
-                    crate::feedback::retry("market-retry")
-                        .on_click(cx.listener(|state, _, _, cx| state.search(1, true, cx))),
-                )
-            })
             .child(match self.kind {
                 Kind::Plugins => self.plugin_cards(cx),
                 Kind::Skills => self.skill_cards(cx),
                 Kind::Themes => self.theme_cards(cx),
             })
+            .child(self.footer(cx))
     }
 }

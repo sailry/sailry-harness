@@ -27,3 +27,8 @@ market_theme_apply: "Appliquer"
 market_theme_builtin: "Intégré"
 market_paste_link: "Installer depuis un lien"
 market_kind: Type de marché
+
+market_skills_failed: "Impossible de charger le catalogue de compétences"
+market_themes_failed: "Impossible de charger les thèmes"
+market_no_themes: "Aucun thème correspondant"
+market_load_more: Charger plus

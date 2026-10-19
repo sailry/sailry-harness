@@ -81,6 +81,26 @@ pub(super) fn skills() -> Result<Vec<sailry_protocol::plugin::skillcatalog::Entr
     Ok(entries)
 }
 
+pub(in crate::plugins) fn document(
+    package: &str,
+    skill: &str,
+) -> Result<sailry_protocol::plugin::skills::Document, Fault> {
+    let (_, files) = PACKAGES
+        .iter()
+        .find(|(name, _)| *name == package)
+        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "bundled plugin is unavailable"))?;
+    let path = format!("skills/{skill}/SKILL.md");
+    let (_, bytes) = files
+        .iter()
+        .find(|(name, _)| *name == path)
+        .ok_or_else(|| Fault::new(ErrorCode::NotFound, "bundled skill is unavailable"))?;
+    let document = super::skill_sources::document::parse(bytes)?;
+    if document.skill.name != skill {
+        return Err(Fault::invalid("bundled skill identity does not match"));
+    }
+    Ok(document)
+}
+
 impl Host {
     pub(crate) fn bundled_version(name: &str) -> Result<Option<String>, Fault> {
         let (_, files) = PACKAGES

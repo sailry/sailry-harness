@@ -91,4 +91,4 @@ market_permission_knowledge_write: "修改知識庫"
 
 market_details_formats: "其他格式"
 market_details_unsupported: "暫不支援"
-market_page_filter: "目前頁面篩選"
+market_page_filter: "僅篩選已載入內容"

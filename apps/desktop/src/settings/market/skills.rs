@@ -2,15 +2,15 @@ use super::*;
 use crate::settings::skills::install;
 use sailry_protocol::plugin::{Info, skillcatalog};
 
-fn installed(entry: &skillcatalog::Entry, info: &Info) -> bool {
+pub(super) fn installed(entry: &skillcatalog::Entry, info: &Info) -> bool {
     if entry.package.as_deref() == Some(&info.summary.name)
         && info.skills.iter().any(|skill| skill.name == entry.name)
     {
         return true;
     }
-    match (&entry.source, info.skill.as_ref()) {
+    match (entry.source.as_ref(), info.skill.as_ref()) {
         (
-            skillcatalog::InstallSource::Git(source),
+            Some(skillcatalog::InstallSource::Git(source)),
             Some(sailry_protocol::plugin::skills::Provenance::Git(installed)),
         ) => {
             if let Some((repository, name)) = directory_identity(&source.repository) {
@@ -23,7 +23,7 @@ fn installed(entry: &skillcatalog::Entry, info: &Info) -> bool {
             }
         }
         (
-            skillcatalog::InstallSource::Registry(source),
+            Some(skillcatalog::InstallSource::Registry(source)),
             Some(sailry_protocol::plugin::skills::Provenance::Registry { registry }),
         ) => {
             source
@@ -41,7 +41,7 @@ fn installed(entry: &skillcatalog::Entry, info: &Info) -> bool {
 }
 
 impl Market {
-    pub(super) fn load_skills(&mut self, page: u32, force: bool, cx: &mut Context<Self>) {
+    pub(super) fn load_skills(&mut self, requested: u32, force: bool, cx: &mut Context<Self>) {
         let query = self.query.read(cx).value().trim().to_owned();
         let source = self.filter.skills.source();
         let stop = self.begin(Loading::Catalog);
@@ -50,7 +50,7 @@ impl Market {
         let job=binding.runtime.spawn(async move {
             tokio::select! {biased;
                 _=cancelled.cancelled()=>None,
-                result=binding.client.execute(binding.client.prepare(Command::SearchSkillCatalog {source,query,page,force}))=>Some(result),
+                result=binding.client.execute(binding.client.prepare(Command::SearchSkillCatalog {source,query,page: requested,force}))=>Some(result),
             }
         });
         self.task = Some(cx.spawn(async move |state, cx| {
@@ -61,11 +61,37 @@ impl Market {
                 }
                 state.pending = None;
                 match result {
-                    Ok(Some(Ok(Output::SkillCatalog(page)))) => {
-                        state.error = page.unavailable.then_some("plugins_market_failed");
-                        state.skills = Some(page);
+                    Ok(Some(Ok(Output::SkillCatalog(mut page)))) => {
+                        state.error = page.unavailable.then_some("market_skills_failed");
+                        if page.unavailable {
+                            state.paging.failed = Some(requested);
+                        } else {
+                            state.paging.received(requested);
+                        }
+                        if requested == 1 {
+                            state.skills = Some(page);
+                        } else if !page.unavailable
+                            && let Some(current) = &mut state.skills
+                        {
+                            if page.page > current.page {
+                                paging::append(
+                                    &mut current.entries,
+                                    std::mem::take(&mut page.entries),
+                                    |entry| &entry.id,
+                                );
+                                current.page = page.page;
+                                current.next = page.next;
+                                current.total = page.total;
+                                current.query_scope = page.query_scope;
+                            } else {
+                                current.next = None;
+                            }
+                        }
                     }
-                    _ => state.error = Some("plugins_market_failed"),
+                    _ => {
+                        state.error = Some("market_skills_failed");
+                        state.paging.failed = Some(requested);
+                    }
                 }
                 cx.notify();
             });
@@ -94,7 +120,7 @@ impl Market {
         );
     }
 
-    pub(super) fn skill_cards(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn skill_cards(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let Some(page) = &self.skills else {
             return if self.pending.is_some() {
                 card::skeleton(cx)
@@ -106,7 +132,7 @@ impl Market {
         let metadata = owner
             .as_ref()
             .and_then(|owner| owner.read(cx).plugin_catalog.metadata.as_ref());
-        let visible: Vec<_> = page
+        let mut visible: Vec<_> = page
             .entries
             .iter()
             .filter_map(|entry| {
@@ -120,9 +146,9 @@ impl Market {
                 (!self.filter.installed || installed).then_some((entry, installed))
             })
             .collect();
+        self.paging.count(visible.len());
+        visible.truncate(self.paging.limit);
         let busy = self.busy(cx);
-        let previous = page.page.saturating_sub(1);
-        let next = page.next;
         v_flex()
             .gap_3()
             .when(page.query_scope == skillcatalog::QueryScope::Page, |view| {
@@ -148,64 +174,45 @@ impl Market {
                                 .unwrap_or_default()
                                 .to_owned(),
                             None,
-                            Some(self.filter.skills.label()),
+                            Some(entry.origin.clone().into()),
                             cx,
                         );
-                        let action = card::action(
-                            format!("market-skill-install-{}", entry.id),
-                            installed,
-                            false,
-                            cx,
-                        )
-                        .disabled(busy || installed)
-                        .on_click(cx.listener({
-                            let source = entry.source.clone();
-                            move |state, _, window, cx| {
-                                cx.stop_propagation();
-                                state.skill_install(source.clone(), window, cx)
-                            }
-                        }));
+                        let action = if entry.source.is_some() {
+                            card::action(
+                                format!("market-skill-install-{}", entry.id),
+                                installed,
+                                false,
+                                cx,
+                            )
+                            .disabled(busy || installed)
+                            .on_click(cx.listener({
+                                let source = entry.source.clone();
+                                move |state, _, window, cx| {
+                                    cx.stop_propagation();
+                                    if let Some(source) = &source {
+                                        state.skill_install(source.clone(), window, cx);
+                                    }
+                                }
+                            }))
+                            .into_any_element()
+                        } else {
+                            div().into_any_element()
+                        };
                         card::row(
                             format!("market-skill-card-{}", entry.id),
                             summary,
                             action,
                             cx,
                         )
+                        .accessibility_label(entry.title(&rust_i18n::locale()).to_owned())
+                        .on_click(cx.listener({
+                            let entry = entry.clone();
+                            move |_, _, window, cx| {
+                                details::skills::open(cx.entity(), entry.clone(), window, cx)
+                            }
+                        }))
                     })),
             )
-            .when(page.page > 1 || next.is_some(), |view| {
-                view.child(
-                    h_flex()
-                        .justify_end()
-                        .gap_2()
-                        .child(
-                            Button::new("market-skills-previous")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ChevronLeft)
-                                .accessibility_label(tr("plugins_previous"))
-                                .tooltip(tr("plugins_previous"))
-                                .disabled(busy || page.page <= 1)
-                                .on_click(cx.listener(move |state, _, _, cx| {
-                                    state.search(previous, false, cx)
-                                })),
-                        )
-                        .child(
-                            Button::new("market-skills-next")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ChevronRight)
-                                .accessibility_label(tr("plugins_next"))
-                                .tooltip(tr("plugins_next"))
-                                .disabled(busy || next.is_none())
-                                .on_click(cx.listener(move |state, _, _, cx| {
-                                    if let Some(next) = next {
-                                        state.search(next, false, cx);
-                                    }
-                                })),
-                        ),
-                )
-            })
             .into_any_element()
     }
 }

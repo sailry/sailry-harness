@@ -27,3 +27,8 @@ market_theme_apply: "適用"
 market_theme_builtin: "内蔵"
 market_paste_link: "リンクからインストール"
 market_kind: マーケットの種類
+
+market_skills_failed: "スキルカタログを読み込めませんでした"
+market_themes_failed: "テーマを読み込めませんでした"
+market_no_themes: "一致するテーマがありません"
+market_load_more: さらに読み込む

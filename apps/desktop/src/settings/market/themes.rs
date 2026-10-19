@@ -3,15 +3,17 @@ use crate::theme::{self, market as service};
 use std::{collections::BTreeMap, sync::Arc};
 
 pub(super) struct State {
-    service: Option<Arc<service::Service>>,
-    listing: Option<service::Listing>,
-    installed: BTreeMap<String, service::Installed>,
+    columns: u16,
+    pub(super) service: Option<Arc<service::Service>>,
+    pub(super) listing: Option<service::Listing>,
+    pub(super) installed: BTreeMap<String, service::Installed>,
     previews: BTreeMap<(String, bool), Arc<Image>>,
 }
 
 impl State {
     pub fn new(cx: &App) -> Self {
         Self {
+            columns: 3,
             service: cx
                 .global::<theme::Catalog>()
                 .root
@@ -76,7 +78,8 @@ impl Market {
                 state.pending = None;
                 match result {
                     Ok(Ok((listing, installed, previews))) => {
-                        state.error = listing.unavailable.then_some("plugins_market_failed");
+                        state.error = listing.unavailable.then_some("market_themes_failed");
+                        state.paging.failed = listing.unavailable.then_some(1);
                         state.themes.listing = Some(listing);
                         state.themes.installed = installed;
                         for (id, dark, bytes) in previews {
@@ -85,7 +88,10 @@ impl Market {
                             }
                         }
                     }
-                    _ => state.error = Some("plugins_market_failed"),
+                    _ => {
+                        state.error = Some("market_themes_failed");
+                        state.paging.failed = Some(1);
+                    }
                 }
                 cx.notify();
             });
@@ -93,7 +99,7 @@ impl Market {
         cx.notify();
     }
 
-    fn install_theme(
+    pub(super) fn install_theme(
         &mut self,
         selection: service::Selection,
         window: &mut Window,
@@ -226,7 +232,7 @@ impl Market {
         .detach();
     }
 
-    pub(super) fn theme_cards(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn theme_cards(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let catalog = cx.global::<theme::Catalog>();
         let selected = &catalog.packages[catalog.selected].id;
         let query = self.query.read(cx).value().trim().to_lowercase();
@@ -291,7 +297,10 @@ impl Market {
                             "market_theme_apply"
                         }))
                         .disabled(current)
-                        .on_click(move |_, window, cx| apply(&id, window, cx)),
+                        .on_click(move |_, window, cx| {
+                            cx.stop_propagation();
+                            apply(&id, window, cx)
+                        }),
                     cx,
                 ),
             );
@@ -350,6 +359,7 @@ impl Market {
                 )
                 .loading(matches!(&self.pending, Some(Loading::Theme(value)) if *value == id))
                 .on_click(cx.listener(move |state, _, window, cx| {
+                    cx.stop_propagation();
                     if installed && !update {
                         apply(&id, window, cx);
                     } else if let Some(selection) = selection.clone() {
@@ -370,14 +380,39 @@ impl Market {
                 ),
             );
         }
+        self.paging.count(cards.len());
+        let columns = self.themes.columns;
+        let owner = cx.weak_entity();
         div()
-            .grid()
-            .grid_cols(2)
-            .items_start()
-            .content_start()
-            .gap_4()
-            .when(cards.is_empty(), |view| view.child(self.empty(cx)))
-            .children(cards)
+            .w_full()
+            .on_children_prepainted(move |bounds, window, cx| {
+                let Some(bounds) = bounds.first() else {
+                    return;
+                };
+                let count = column_count(bounds.size.width);
+                if count != columns {
+                    let owner = owner.clone();
+                    window.defer(cx, move |_, cx| {
+                        _ = owner.update(cx, |state, cx| {
+                            if state.themes.columns != count {
+                                state.themes.columns = count;
+                                cx.notify();
+                            }
+                        });
+                    });
+                }
+            })
+            .child(
+                div()
+                    .w_full()
+                    .grid()
+                    .grid_cols(columns)
+                    .items_start()
+                    .content_start()
+                    .gap_4()
+                    .when(cards.is_empty(), |view| view.child(self.empty(cx)))
+                    .children(cards.into_iter().take(self.paging.limit)),
+            )
             .into_any_element()
     }
 
@@ -388,57 +423,68 @@ impl Market {
         description: String,
         preview: AnyElement,
         action: Button,
-        cx: &App,
+        cx: &Context<Self>,
     ) -> AnyElement {
-        v_flex()
-            .id(SharedString::from(format!("market-theme-{id}")))
+        let target = id.clone();
+        list::ListItem::new(SharedString::from(format!("market-theme-{id}")))
             .w_full()
+            .h_auto()
             .min_w_0()
-            .flex_shrink_0()
-            .gap(px(10.))
+            .p_0()
+            .rounded(cx.theme().radius_lg)
+            .accessibility_label(name.clone())
             .child(
-                div()
-                    .relative()
-                    .w_full()
-                    .aspect_ratio(16. / 10.)
-                    .flex_shrink_0()
-                    .overflow_hidden()
-                    .rounded(cx.theme().radius_lg)
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .child(div().absolute().inset_0().child(preview)),
-            )
-            .child(
-                h_flex()
+                v_flex()
                     .w_full()
                     .min_w_0()
-                    .flex_shrink_0()
-                    .px_0p5()
-                    .gap_3()
-                    .items_center()
+                    .gap(px(10.))
                     .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(div().text_sm().truncate().font_medium().child(name))
-                            .when(!description.is_empty(), |view| {
-                                view.child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(cx.theme().muted_foreground)
-                                        .truncate()
-                                        .child(description),
-                                )
-                            }),
+                        div()
+                            .relative()
+                            .w_full()
+                            .aspect_ratio(16. / 10.)
+                            .flex_shrink_0()
+                            .overflow_hidden()
+                            .rounded(cx.theme().radius_lg)
+                            .border_1()
+                            .border_color(cx.theme().border)
+                            .child(div().absolute().inset_0().child(preview)),
                     )
-                    .child(action.flex_shrink_0()),
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .min_w_0()
+                            .flex_shrink_0()
+                            .px_0p5()
+                            .gap_3()
+                            .items_center()
+                            .child(
+                                v_flex()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .gap_1()
+                                    .child(div().text_sm().truncate().font_medium().child(name))
+                                    .when(!description.is_empty(), |view| {
+                                        view.child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(cx.theme().muted_foreground)
+                                                .truncate()
+                                                .child(description),
+                                        )
+                                    }),
+                            )
+                            .child(action.flex_shrink_0()),
+                    ),
             )
+            .on_click(cx.listener(move |_, _, window, cx| {
+                details::themes::open(cx.entity(), target.clone(), window, cx)
+            }))
             .into_any_element()
     }
 }
 
-fn apply(id: &str, window: &mut Window, cx: &mut App) {
+pub(super) fn apply(id: &str, window: &mut Window, cx: &mut App) {
     if let Some(index) = cx
         .global::<theme::Catalog>()
         .packages
@@ -446,5 +492,30 @@ fn apply(id: &str, window: &mut Window, cx: &mut App) {
         .position(|package| package.id == id)
     {
         theme::apply(index, Some(window), cx);
+    }
+}
+
+fn column_count(width: Pixels) -> u16 {
+    const CARD_WIDTH: f32 = 240.;
+    const GAP: f32 = 16.;
+    (((f32::from(width) + GAP) / (CARD_WIDTH + GAP)).floor() as u16).clamp(1, 3)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+    #[test]
+    fn adapts_to_available_width() {
+        for (width, expected) in [
+            (960., 3),
+            (1600., 3),
+            (752., 3),
+            (744., 2),
+            (496., 2),
+            (480., 1),
+        ] {
+            assert_eq!(column_count(px(width)), expected);
+        }
     }
 }

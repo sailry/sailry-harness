@@ -91,4 +91,4 @@ market_permission_knowledge_write: "Change knowledge"
 
 market_details_formats: "Other formats"
 market_details_unsupported: "Unsupported"
-market_page_filter: "Current page filter"
+market_page_filter: "Filter applies to loaded results"

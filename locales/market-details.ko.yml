@@ -91,4 +91,4 @@ market_permission_knowledge_write: "지식 변경"
 
 market_details_formats: "다른 형식"
 market_details_unsupported: "지원되지 않음"
-market_page_filter: "현재 페이지 필터"
+market_page_filter: "불러온 결과만 필터링"

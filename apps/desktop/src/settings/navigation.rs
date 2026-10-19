@@ -1,10 +1,10 @@
 use super::Section;
 use crate::{preview::Page, shell::Shell};
-use gpui_kit::{Action, Context, Entity, Window};
+use gpui_kit::{Action, AnyView, Context, Window};
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = sailry, no_json)]
-pub(crate) struct OpenDetails(pub Entity<super::PluginDetails>);
+pub(crate) struct OpenDetails(pub AnyView);
 
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = sailry, no_json)]
@@ -22,7 +22,6 @@ impl Shell {
         cx: &mut Context<Self>,
     ) {
         self.clear_extension_details(cx);
-        cx.observe(&action.0, |_, _, cx| cx.notify()).detach();
         self.settings_details = Some(action.0.clone());
         cx.notify();
     }
@@ -37,9 +36,7 @@ impl Shell {
     }
 
     pub(crate) fn clear_extension_details(&mut self, cx: &mut Context<Self>) {
-        if let Some(details) = self.settings_details.take() {
-            details.read(cx).cancel();
-        }
+        self.settings_details = None;
         cx.notify();
     }
 

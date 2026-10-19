@@ -770,6 +770,7 @@ pub(super) fn execute(
         | Command::DeleteFile { .. }
         | Command::MoveFile { .. }
         | Command::InstallPlugin { .. }
+        | Command::ReadSkillDocument { .. }
         | Command::DiscoverSkills { .. }
         | Command::DiscoverRegistrySkill { .. }
         | Command::DiscoverSkillUpload { .. }

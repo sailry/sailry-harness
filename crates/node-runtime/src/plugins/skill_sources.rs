@@ -12,6 +12,7 @@ use sailry_protocol::{
 };
 use std::fs::File;
 mod directory;
+pub(super) mod document;
 mod imports;
 pub(super) mod package;
 impl Host {

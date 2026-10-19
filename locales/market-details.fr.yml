@@ -91,4 +91,4 @@ market_permission_knowledge_write: "Modifier les connaissances"
 
 market_details_formats: "Autres formats"
 market_details_unsupported: "Non pris en charge"
-market_page_filter: "Filtre de cette page"
+market_page_filter: "Le filtre concerne les résultats chargés"

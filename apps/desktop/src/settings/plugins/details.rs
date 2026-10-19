@@ -9,7 +9,7 @@ use sailry_protocol::{
 
 mod contents;
 mod permissions;
-mod rows;
+use crate::settings::market::details::rows;
 mod versions;
 mod view;
 
@@ -152,7 +152,10 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
         );
     });
     details.update(cx, |details, cx| details.load(cx));
-    window.dispatch_action(Box::new(super::super::OpenDetails(details.clone())), cx);
+    window.dispatch_action(
+        Box::new(super::super::OpenDetails(details.clone().into())),
+        cx,
+    );
     details
 }
 
@@ -161,10 +164,6 @@ pub(super) fn dismiss(window: &mut Window, cx: &mut App) {
 }
 
 impl Details {
-    pub(crate) fn cancel(&self) {
-        self.stop.cancel();
-    }
-
     fn configure(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.stop.is_cancelled() || self.error.is_some() || self.pending(cx) {
             return;

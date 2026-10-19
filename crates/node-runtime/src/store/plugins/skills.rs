@@ -15,6 +15,11 @@ impl Ingress {
             ));
         }
         let output = match request.command {
+            Command::ReadSkillDocument { source } => Output::SkillDocument(
+                self.plugins
+                    .read_skill_document(&source, self.closed.clone())
+                    .await?,
+            ),
             Command::DiscoverSkills { source } => Output::SkillDiscovery(
                 self.plugins
                     .discover_skills(&source, self.closed.clone())

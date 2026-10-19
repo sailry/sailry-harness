@@ -2,7 +2,6 @@ use super::*;
 use gpui_kit::component::{
     badge::Badge,
     menu::{DropdownMenu, PopupMenuItem},
-    scroll::ScrollableElement,
     skeleton::Skeleton,
     tab::{Tab as KitTab, TabBar},
 };
@@ -347,44 +346,7 @@ impl Render for Details {
                 .children((0..3).map(|_| Skeleton::new().h_10().w_full()))
                 .into_any_element()
         };
-        v_flex()
-            .id("plugin-details")
-            .size_full()
-            .min_w_0()
-            .min_h_0()
-            .overflow_hidden()
-            .text_sm()
-            .font_normal()
-            .child(
-                h_flex()
-                    .w_full()
-                    .h(px(52.))
-                    .flex_shrink_0()
-                    .px_3()
-                    .justify_end()
-                    .child(
-                        Button::new("plugin-details-close")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Close)
-                            .accessibility_label(tr("close"))
-                            .on_click(|_, window, cx| super::dismiss(window, cx)),
-                    ),
-            )
-            .child(header(self, cx))
-            .child(
-                div()
-                    .id("plugin-details-body")
-                    .relative()
-                    .flex_1()
-                    .min_h_0()
-                    .min_w_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll)
-                    .child(div().w_full().min_w_0().px_7().pt_5().pb_7().child(content))
-                    .vertical_scrollbar(&self.scroll),
-            )
-            .into_any_element()
+        crate::settings::market::details::panel(header(self, cx), content, &self.scroll, cx)
     }
 }
 

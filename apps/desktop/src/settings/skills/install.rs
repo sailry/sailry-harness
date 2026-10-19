@@ -109,6 +109,33 @@ pub(in crate::settings) fn open_discovery(
     });
 }
 
+pub(in crate::settings) fn open_registry_discovery(
+    binding: Binding,
+    known: Vec<Summary>,
+    discovery: sailry_protocol::plugin::skills::RegistryDiscovery,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let source = Selection::Registry(sailry_protocol::plugin::skills::RegistrySource {
+        namespace: Some(discovery.source.namespace.clone()),
+        slug: discovery.source.slug.clone(),
+        version: Some(discovery.source.version.clone()),
+    });
+    let editor = open_source(
+        binding,
+        known.clone(),
+        Channel::Hub,
+        None,
+        Some(source),
+        window,
+        cx,
+    );
+    editor.update(cx, |editor, cx| {
+        editor.accept(Discovery::Registry(discovery), known);
+        cx.notify();
+    });
+}
+
 fn open_source(
     binding: Binding,
     known: Vec<Summary>,

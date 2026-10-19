@@ -83,7 +83,7 @@ pub struct Shell {
     pub(crate) project_search: Entity<InputState>,
     pub(crate) chats: crate::live::conversation::State,
     pub settings: Entity<settings::Workspace>,
-    pub(crate) settings_details: Option<Entity<settings::PluginDetails>>,
+    pub(crate) settings_details: Option<AnyView>,
     pub(crate) settings_details_width: Pixels,
     settings_details_panels: Entity<ResizableState>,
     pub(crate) ports: BTreeMap<sailry_protocol::NodeId, Entity<crate::ports::Workspace>>,

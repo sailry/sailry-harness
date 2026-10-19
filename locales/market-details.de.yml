@@ -91,4 +91,4 @@ market_permission_knowledge_write: "Wissen ändern"
 
 market_details_formats: "Andere Formate"
 market_details_unsupported: "Nicht unterstützt"
-market_page_filter: "Filter für diese Seite"
+market_page_filter: "Nur geladene Ergebnisse werden gefiltert"

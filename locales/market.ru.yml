@@ -27,3 +27,8 @@ market_theme_apply: "Применить"
 market_theme_builtin: "Встроенная"
 market_paste_link: "Установить по ссылке"
 market_kind: Тип каталога
+
+market_skills_failed: "Не удалось загрузить каталог навыков"
+market_themes_failed: "Не удалось загрузить темы"
+market_no_themes: "Подходящих тем нет"
+market_load_more: Загрузить ещё

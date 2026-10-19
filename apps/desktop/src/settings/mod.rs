@@ -18,7 +18,6 @@ mod mcp;
 mod model_library;
 mod plugins;
 pub(crate) use navigation::{CloseDetails, OpenDetails};
-pub(crate) use plugins::details::Details as PluginDetails;
 pub(crate) use plugins::open_bound as open_plugin_details;
 pub(crate) use plugins::preparation::label as python_stage;
 pub(crate) use plugins::updates::connected as check_plugin_updates;
@@ -411,14 +410,20 @@ impl Render for Workspace {
             Section::Skills => self.skills(cx),
             _ => self.catalog(cx),
         };
-        if self.section == Section::Market {
-            return div()
+        if self.section == Section::Market
+            && let Some(market) = &self.plugin_catalog.market
+        {
+            let scroll = market.read(cx).viewport();
+            return v_flex()
                 .id("market-viewport")
                 .size_full()
                 .min_h_0()
                 .min_w_0()
-                .overflow_y_scrollbar()
-                .child(div().p_6().child(content))
+                .overflow_y_scroll()
+                .lock_scroll_axis()
+                .track_scroll(&scroll)
+                .child(div().flex_none().w_full().min_h_full().p_6().child(content))
+                .vertical_scrollbar(&scroll)
                 .into_any_element();
         }
         if self.plugin_full_width(cx) {
