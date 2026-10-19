@@ -78,3 +78,83 @@ fn sends_exact_provider_scope_without_durable_receipts() {
         );
     }
 }
+
+#[test]
+fn prepares_durable_provider_operations() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        fixture.package();
+        let package = fixture.install(0).summary.reference();
+        let host = Host::new(
+            fixture.binding.client.clone(),
+            Context {
+                invocation: None,
+                turn: None,
+                surface: Default::default(),
+                package: package.clone(),
+                worktree: None,
+                session: None,
+            },
+            fixture.runtime.handle().clone(),
+            false,
+            None,
+        );
+        let module = host.sdk();
+        let provider = sailry_protocol::ProviderId::new();
+        let id = call(
+            &module,
+            "prepareProviderHttp",
+            json!([provider,"9007199254740993","claim",{"date":"today"}]),
+        );
+        let parsed = id.as_str().unwrap().parse::<RequestId>().unwrap();
+        {
+            let drafts = host.requests.lock().unwrap();
+            let request = drafts.get(&parsed).unwrap();
+            assert!(request.command.durable());
+            assert_eq!(request.plugin.as_ref().unwrap().package, package);
+            let Command::ExecuteProviderHttp {
+                provider: actual,
+                expected_revision,
+                request: name,
+                input,
+            } = &request.command
+            else {
+                panic!("provider operation expected")
+            };
+            assert_eq!(*actual, provider);
+            assert_eq!(*expected_revision, 9007199254740993);
+            assert_eq!(name, "claim");
+            assert_eq!(input.get("date").map(String::as_str), Some("today"));
+        }
+        assert!(
+            fixture
+                .transport
+                .requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|request| !matches!(request.command, Command::ExecuteProviderHttp { .. }))
+        );
+        let first = complete(&fixture, &module, "completeRequest", json!([id]));
+        assert!(first["Err"].is_object());
+        assert_eq!(
+            complete(&fixture, &module, "completeRequest", json!([id])),
+            first
+        );
+        let requests = fixture.transport.requests.lock().unwrap();
+        let sent = requests
+            .iter()
+            .filter(|request| matches!(request.command, Command::ExecuteProviderHttp { .. }))
+            .collect::<Vec<_>>();
+        assert!(!sent.is_empty());
+        assert!(sent.iter().all(|request| request.id == parsed));
+        assert!(
+            module
+                .call(
+                    "prepareProviderHttp",
+                    &args(json!([provider, "01", "claim", {}]))
+                )
+                .is_err()
+        );
+    }
+}

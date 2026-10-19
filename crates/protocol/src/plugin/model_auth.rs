@@ -28,6 +28,9 @@ pub struct Declaration {
     /// Named read-only resources. Grant headers are injected only by the Node.
     #[serde(default)]
     pub requests: BTreeMap<String, Endpoint>,
+    /// Named durable operations. Only the Node can inject the provider grant.
+    #[serde(default)]
+    pub mutations: BTreeMap<String, Endpoint>,
 }
 
 impl Declaration {
@@ -46,16 +49,20 @@ impl Declaration {
                 .refresh
                 .as_ref()
                 .is_none_or(|refresh| refresh.request.valid() && refresh.token.valid())
-            && self.requests.iter().all(|(name, endpoint)| {
-                super::host::valid_handler(name)
-                    && endpoint.valid()
-                    && !endpoint.url.contains('{')
-                    && !endpoint.url.contains('}')
-                    && endpoint
-                        .headers
-                        .values()
-                        .all(|value| !value.contains('{') && !value.contains('}'))
-            })
+            && self
+                .requests
+                .iter()
+                .chain(&self.mutations)
+                .all(|(name, endpoint)| {
+                    super::host::valid_handler(name)
+                        && endpoint.valid()
+                        && !endpoint.url.contains('{')
+                        && !endpoint.url.contains('}')
+                        && endpoint
+                            .headers
+                            .values()
+                            .all(|value| !value.contains('{') && !value.contains('}'))
+                })
             && self.exchange.as_ref().is_none_or(|exchange| {
                 exchange.script.valid() && super::host::valid_handler(&exchange.handler)
             })
@@ -314,5 +321,33 @@ mod tests {
             declaration.valid(),
             "authentication retains its private template contract"
         );
+    }
+
+    #[test]
+    fn keeps_mutation_endpoints_fixed() {
+        let mut declaration: Declaration = serde_json::from_value(json!({
+            "id":"example","display":{"label":"Example"},
+            "flow":{"kind":"token_exchange","token":{"url":"https://example.invalid/token"}},
+            "token":{"access":"/access","refresh":null,"expires_in":null},
+            "inject":[{"header":"Authorization","template":"Bearer {access}"}],
+            "mutations":{"claim":{"url":"https://example.invalid/claim","method":"POST","body":{"kind":"json","value":{"day":"{input.day}"}}}}
+        })).unwrap();
+        assert!(declaration.requests.is_empty());
+        assert!(declaration.valid());
+        declaration
+            .mutations
+            .get_mut("claim")
+            .unwrap()
+            .headers
+            .insert("X-Input".into(), "{input.header}".into());
+        assert!(!declaration.valid());
+        declaration
+            .mutations
+            .get_mut("claim")
+            .unwrap()
+            .headers
+            .clear();
+        declaration.mutations.get_mut("claim").unwrap().url = "https://{input.host}/claim".into();
+        assert!(!declaration.valid());
     }
 }

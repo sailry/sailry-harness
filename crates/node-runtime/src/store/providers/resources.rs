@@ -1,4 +1,4 @@
-//! Package-declared provider reads retain the existing authorization and HTTP owners.
+//! Declared provider resources retain the existing authorization and HTTP owners.
 use super::*;
 use crate::store::database::Database;
 use sailry_protocol::{conversation::consent::Scope, plugin};
@@ -10,14 +10,20 @@ pub(in crate::store) fn prepare(
 ) -> Result<crate::plugins::http::Input, Fault> {
     db.check_plugin(caller, request)?;
     let context = request.plugin.as_ref().ok_or_else(denied)?;
-    let Command::RequestProviderHttp {
-        provider,
-        expected_revision,
-        request: name,
-        input,
-    } = &request.command
-    else {
-        return Err(Fault::invalid("provider resource read expected"));
+    let (provider, expected_revision, name, input, mutation) = match &request.command {
+        Command::RequestProviderHttp {
+            provider,
+            expected_revision,
+            request,
+            input,
+        } => (provider, expected_revision, request, input, false),
+        Command::ExecuteProviderHttp {
+            provider,
+            expected_revision,
+            request,
+            input,
+        } => (provider, expected_revision, request, input, true),
+        _ => return Err(Fault::invalid("provider resource command expected")),
     };
     let mut provider = super::current(&db.connection, *provider, *expected_revision)?;
     super::presets::capture_read(&db.connection, &mut provider)?;
@@ -28,7 +34,7 @@ pub(in crate::store) fn prepare(
         return Err(denied());
     }
     super::consent::check(&provider, Scope::Credentials)?;
-    // These are live, explicitly selected provider reads, not historical tool execution.
+    // Live provider resources resolve the current package before durable admission.
     let info = crate::store::plugins::get(&db.connection, &package.name)?
         .filter(|info| info.summary.enabled)
         .ok_or_else(denied)?;
@@ -45,7 +51,12 @@ pub(in crate::store) fn prepare(
         .and_then(|extension| extension.model_auth.iter().find(|item| &item.id == flow))
         .filter(|declaration| declaration.valid())
         .ok_or_else(denied)?;
-    let endpoint = declaration.requests.get(name).ok_or_else(|| {
+    let declarations = if mutation {
+        &declaration.mutations
+    } else {
+        &declaration.requests
+    };
+    let endpoint = declarations.get(name).ok_or_else(|| {
         Fault::new(
             ErrorCode::NotConfigured,
             "provider resource is not declared",

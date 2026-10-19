@@ -31,6 +31,11 @@ export type WebPage = {
 };
 /** Public, credential-free reads require web.read. Offsets count Unicode characters in the cached page. */
 export function fetchWeb(input: WebRequest): Promise<WebPage>;
+export type ProviderHttpResponse = {status:number;headers:Record<string,string[]>;body:string};
+/** Only named read declarations are available without durable admission. */
+export function requestProviderHttp(provider:string,revision:string,request:string,input?:Record<string,string>):Promise<ProviderHttpResponse>;
+/** Complete the stable request ID with completeRequest; retry that ID after uncertain outcomes. */
+export function prepareProviderHttp(provider:string,revision:string,request:string,input?:Record<string,string>):string;
 export function getValue(key: string): Promise<Entry>;
 export function getConversationValue(key: string): Promise<ConversationEntry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;

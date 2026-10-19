@@ -272,3 +272,49 @@ async fn rejects_invalid_edits() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn rejects_pattern_mismatches_before_saving() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let root = directory.path().join("source/package");
+        declare(&root, "Schedule");
+        fs::write(
+            root.join("dev.sailry.platform/settings.json"),
+            json!({
+                "$schema":plugin::settings::SCHEMA,"type":"object","additionalProperties":false,
+                "properties":{"time":{"type":"string","minLength":5,"maxLength":5,
+                    "pattern":"^([01][0-9]|2[0-3]):[0-5][0-9]$","default":"09:05"}},
+                "required":["time"]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let package = info(execute(&client, install(worktree, 0)).await);
+        let initial = read(&client, &package.summary.reference()).await;
+        let command = |package: &plugin::Reference, time: &str| Command::SavePluginSettings {
+            package: package.clone(),
+            values: BTreeMap::from([("time".into(), json!(time))]),
+            secrets: BTreeMap::new(),
+        };
+        let saved = state(execute(&client, command(&initial.package, "23:59")).await);
+        assert_eq!(saved.values["time"], "23:59");
+        for invalid in ["24:00", "9:05", "09:60", "09:05\n"] {
+            let error = client
+                .execute(client.prepare(command(&saved.package, invalid)))
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert_eq!(read(&client, &saved.package).await, saved);
+        }
+        let updated = state(execute(&client, command(&saved.package, "00:00")).await);
+        assert_eq!(
+            updated.package.settings_revision,
+            saved.package.settings_revision + 1
+        );
+        assert_eq!(updated.values["time"], "00:00");
+        assert_eq!(read(&client, &updated.package).await, updated);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

@@ -1013,6 +1013,14 @@
           },
           "type": "array"
         },
+        "mutations": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Endpoint"
+          },
+          "default": {},
+          "description": "Named durable operations. Only the Node can inject the provider grant.",
+          "type": "object"
+        },
         "refresh": {
           "anyOf": [
             {

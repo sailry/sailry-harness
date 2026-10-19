@@ -4,6 +4,8 @@ use serde_json::json;
 mod actions;
 #[path = "settings/collection.rs"]
 mod collection;
+#[path = "settings/events.rs"]
+mod events;
 #[path = "settings/persistence.rs"]
 mod persistence;
 #[path = "settings/targets.rs"]

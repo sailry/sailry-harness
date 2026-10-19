@@ -66,6 +66,9 @@ pub(in crate::store) fn prepare(
     if let Command::RequestPluginHttp(http) = &request.command {
         return super::http::prepare(db, request, http).map(Input::Http);
     }
+    if matches!(request.command, Command::ExecuteProviderHttp { .. }) {
+        return super::super::providers::resources::prepare(db, caller, request).map(Input::Http);
+    }
     let Command::GeneratePluginText {
         prompt,
         model,

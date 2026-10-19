@@ -37,6 +37,12 @@ async function read(kind, data) {
   }
   return call("read", {kind, data}).data;
 }
+export async function requestProviderHttp(provider, revision, request, input={}) {
+  return read("request_provider_http", {provider,expected_revision:revision,request,input});
+}
+export function prepareProviderHttp(provider, revision, request, input={}) {
+  return prepareRequest({kind:"execute_provider_http",data:{provider,expected_revision:revision,request,input}});
+}
 export async function readSettings() { return read("read_plugin_settings", {package: scope.package}); }
 /** Public catalog definitions only; fixed-model provider configuration remains private. */
 export async function listRoles() { return read("list_roles"); }

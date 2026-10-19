@@ -212,6 +212,14 @@ pub enum Command {
         #[serde(default)]
         input: std::collections::BTreeMap<String, String>,
     },
+    /// Execute a named package-declared operation with ordinary durable receipts.
+    ExecuteProviderHttp {
+        provider: ProviderId,
+        expected_revision: u64,
+        request: String,
+        #[serde(default)]
+        input: std::collections::BTreeMap<String, String>,
+    },
     FetchWeb(crate::web::Request),
     CancelWebFetch {
         request: RequestId,

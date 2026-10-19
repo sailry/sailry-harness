@@ -114,15 +114,23 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             .map_err(|_| Fault::invalid("invalid model registration"))?;
                     value = json!(registration.node_command()?);
                 }
-                if let Some(revision) = value.pointer_mut("/data/package/settings_revision") {
+                let revision_path = if matches!(
+                    value["kind"].as_str(),
+                    Some("request_provider_http" | "execute_provider_http")
+                ) {
+                    "/data/expected_revision"
+                } else {
+                    "/data/package/settings_revision"
+                };
+                if let Some(revision) = value.pointer_mut(revision_path) {
                     let text = revision.as_str().ok_or_else(|| {
-                        sailry_protocol::Fault::invalid("package revision must be a decimal string")
+                        sailry_protocol::Fault::invalid("revision must be a decimal string")
                     })?;
                     let parsed = text
                         .parse::<u64>()
-                        .map_err(|_| sailry_protocol::Fault::invalid("invalid package revision"))?;
+                        .map_err(|_| sailry_protocol::Fault::invalid("invalid revision"))?;
                     if parsed.to_string() != text {
-                        return Err(sailry_protocol::Fault::invalid("invalid package revision"));
+                        return Err(sailry_protocol::Fault::invalid("invalid revision"));
                     }
                     *revision = json!(parsed);
                 }
@@ -356,7 +364,9 @@ fn output(value: Output) -> Json {
 fn allowed(command: &Command) -> bool {
     matches!(
         command,
-        Command::PluginTransaction { .. }
+        Command::RequestProviderHttp { .. }
+            | Command::ExecuteProviderHttp { .. }
+            | Command::PluginTransaction { .. }
             | Command::ListRoles
             | Command::ReadArtifact { .. }
             | Command::ListArtifacts { .. }

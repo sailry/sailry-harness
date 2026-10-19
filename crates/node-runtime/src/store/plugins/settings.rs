@@ -400,6 +400,7 @@ pub(in crate::store) fn save(
         oauth,
     };
     persist(db, &mut info, &saved)?;
+    super::super::dispatch::settings_changed(db, &info.summary.reference())?;
     project(db, &info, &saved)
 }
 

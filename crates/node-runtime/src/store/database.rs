@@ -425,6 +425,7 @@ impl Database {
             request.command,
             Command::GeneratePluginText { .. }
                 | Command::RequestPluginHttp(_)
+                | Command::ExecuteProviderHttp { .. }
                 | Command::CallPlugin { .. }
                 | Command::ReadPluginCallback { .. }
                 | Command::CancelPluginCall { .. }

@@ -53,6 +53,24 @@ fn parse(value: Value) -> Result<Schema, Fault> {
 }
 
 #[test]
+fn validates_string_patterns_before_use() {
+    let field = json!({"type":"string","pattern":"^[A-Z]{2}[0-9]{2}$","default":"AB12"});
+    let parsed = parse(schema(json!({"code":field}))).unwrap();
+    assert_eq!(
+        parsed.properties["code"].pattern.as_deref(),
+        Some("^[A-Z]{2}[0-9]{2}$")
+    );
+    for field in [
+        json!({"type":"string","pattern":"["}),
+        json!({"type":"string","pattern":"^[A-Z]{2}[0-9]{2}$","default":"invalid"}),
+        json!({"type":"integer","pattern":"[0-9]"}),
+        json!({"type":"string","pattern":"a".repeat(MAX_STRING + 1)}),
+    ] {
+        assert!(parse(schema(json!({"code":field}))).is_err());
+    }
+}
+
+#[test]
 fn validates_tab_membership_and_enable_fields() {
     let mut document = schema(json!({
         "name": {"type": "string"},
@@ -165,7 +183,6 @@ fn rejects_unsupported_shapes() {
         json!({"type":"string", "x-sailry-model":true, "x-sailry-secret":{"server":"local", "env":"TOKEN"}}),
         json!({"type":"array"}),
         json!({"type":"string", "$ref":"https://example.com/schema"}),
-        json!({"type":"string", "pattern":".*"}),
         json!({"type":"string", "minLength":4, "maxLength":3}),
         json!({"type":"string", "maxLength":MAX_STRING+1}),
         json!({"type":"integer", "minLength":1}),

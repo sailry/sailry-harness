@@ -336,3 +336,213 @@ async fn reads_declared_resources_without_exposing_grants() {
         drop(directory);
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn executes_declared_mutations_once() {
+    use support::{execute, info};
+    for remote in [false, true] {
+        let effects = Arc::new(AtomicUsize::new(0));
+        let observed = effects.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| match request
+            .path
+            .as_str()
+        {
+            "/token" => tokens(true),
+            "/catalog" => {
+                Reply::Json(json!({"catalog":[{"id":"translated","context":64000,"output":4096}]}))
+            }
+            "/claim" => {
+                assert_eq!(request.headers["authorization"], format!("Bearer {FRESH}"));
+                assert_eq!(request.headers["x-account"], ACCOUNT);
+                let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+                assert!(matches!(body["date"].as_str(), Some("today" | "private")));
+                observed.fetch_add(1, Ordering::SeqCst);
+                if body["date"] == "private" {
+                    Reply::Json(json!({"echo":FRESH}))
+                } else {
+                    Reply::Json(json!({"accepted":true}))
+                }
+            }
+            _ => panic!("unexpected provider mutation fixture route"),
+        })
+        .await;
+        let fixture = Fixture::empty(remote, &server).await;
+        let provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint)).await;
+        let installed = info(
+            execute(
+                &fixture.client,
+                Command::ReadPlugin {
+                    name: "example".into(),
+                },
+            )
+            .await,
+        );
+        let path = fixture.directory.path().join("source/package/plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest["version"] = json!("1.0.1");
+        manifest["extensions"]["dev.sailry.platform"]["actions"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("http.request"));
+        manifest["extensions"]["dev.sailry.platform"]["model_auth"][0]["mutations"] = json!({"claim":{"url":"https://resource.example.test/claim","method":"POST","headers":{"Content-Type":"application/json"},"body":{"kind":"json","value":{"date":"{input.date}"}}}});
+        std::fs::write(path, manifest.to_string()).unwrap();
+        let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
+            panic!("snapshot expected")
+        };
+        let installed = info(
+            execute(
+                &fixture.client,
+                support::install(snapshot.worktrees[0].id, installed.summary.revision),
+            )
+            .await,
+        );
+        assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+        let (_, attempt) = begin(&fixture.client, &provider).await;
+        let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        assert_eq!(terminal(&mut updates).await.state, login::State::Connected);
+        let provider = saved(&fixture.client, provider.id).await;
+        let context = plugin::Context {
+            package: installed.summary.reference(),
+            worktree: None,
+            session: None,
+            turn: None,
+            invocation: None,
+            surface: Default::default(),
+        };
+        let command = |revision| Command::ExecuteProviderHttp {
+            provider: provider.id,
+            expected_revision: revision,
+            request: "claim".into(),
+            input: [("date".into(), "today".into())].into(),
+        };
+        let read = fixture
+            .client
+            .prepare(Command::RequestProviderHttp {
+                provider: provider.id,
+                expected_revision: provider.revision,
+                request: "claim".into(),
+                input: Default::default(),
+            })
+            .with_plugin(context.clone());
+        assert_eq!(
+            fixture.client.execute(read).await.unwrap_err().code,
+            ErrorCode::NotConfigured
+        );
+        let request = fixture
+            .client
+            .prepare(command(provider.revision))
+            .with_plugin(context.clone());
+        assert!(request.command.durable());
+        private(&request);
+        let admission = fixture.client.dispatch(request.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        assert_eq!(admission.receipt.id, request.id);
+        let result = admission.completion.await.unwrap().unwrap();
+        let Output::PluginHttp(response) = &result else {
+            panic!("provider HTTP response expected")
+        };
+        private(response);
+        assert_eq!(response.status, 200);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&response.body).unwrap(),
+            json!({"accepted":true})
+        );
+        assert_eq!(
+            fixture.client.execute(request.clone()).await.unwrap(),
+            result
+        );
+        assert_eq!(effects.load(Ordering::SeqCst), 1);
+        let stale = fixture
+            .client
+            .prepare(command(provider.revision + 1))
+            .with_plugin(context.clone());
+        assert_eq!(
+            fixture.client.execute(stale).await.unwrap_err().code,
+            ErrorCode::RevisionConflict
+        );
+        let foreign = fixture.directory.path().join("source/foreign");
+        std::fs::create_dir_all(foreign.join("dev.sailry.platform")).unwrap();
+        let mut other = manifest.clone();
+        other["name"] = json!("foreign");
+        std::fs::write(foreign.join("plugin.json"), other.to_string()).unwrap();
+        for name in ["auth.js", "adapter.js"] {
+            std::fs::copy(
+                fixture
+                    .directory
+                    .path()
+                    .join("source/package/dev.sailry.platform")
+                    .join(name),
+                foreign.join("dev.sailry.platform").join(name),
+            )
+            .unwrap();
+        }
+        let foreign = info(
+            execute(
+                &fixture.client,
+                Command::InstallPlugin {
+                    worktree: snapshot.worktrees[0].id,
+                    path: "foreign".into(),
+                    name: "foreign".into(),
+                    expected_revision: 0,
+                    expected_digest: None,
+                },
+            )
+            .await,
+        );
+        let mut foreign_context = context.clone();
+        foreign_context.package = foreign.summary.reference();
+        assert_eq!(
+            fixture
+                .client
+                .execute(
+                    fixture
+                        .client
+                        .prepare(command(provider.revision))
+                        .with_plugin(foreign_context)
+                )
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        assert_eq!(effects.load(Ordering::SeqCst), 1);
+        let unsafe_request = fixture
+            .client
+            .prepare(Command::ExecuteProviderHttp {
+                provider: provider.id,
+                expected_revision: provider.revision,
+                request: "claim".into(),
+                input: [("date".into(), "private".into())].into(),
+            })
+            .with_plugin(request.plugin.as_ref().unwrap().clone());
+        let error = fixture
+            .client
+            .execute(unsafe_request.clone())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::PermissionDenied);
+        private(&error);
+        assert_eq!(
+            fixture.client.execute(unsafe_request).await.unwrap_err(),
+            error
+        );
+        assert_eq!(effects.load(Ordering::SeqCst), 2);
+        let db = rusqlite::Connection::open_with_flags(
+            fixture.node.profile().join("storage/node.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let stored: (Vec<u8>, String) = db
+            .query_row(
+                "SELECT body,result FROM requests WHERE id=?1",
+                [request.id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        private(&String::from_utf8(stored.0).unwrap());
+        private(&stored.1);
+        drop(db);
+        fixture.close().await;
+    }
+}

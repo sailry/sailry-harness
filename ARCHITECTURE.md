@@ -211,6 +211,8 @@ display quota observations returned by Sailry's own authenticated model requests
 missing or expired observations remain unknown. An installed, enabled model
 plugin may also read its current provider's account status through declared
 scoped requests using that provider's authorization and display it independently.
+Declared account operations use the ordinary durable request ledger; only public
+inputs are retained, and the Node injects authorization during execution.
 Neither source contributes to session usage statistics. External tool histories
 and third-party billing analysis remain outside that boundary.
 Context observations pair provider-reported input and output tokens with the

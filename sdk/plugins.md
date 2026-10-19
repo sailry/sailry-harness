@@ -237,6 +237,16 @@ expose its protected credential values. This does not impose a public-IP-only
 policy on explicitly configured self-hosted endpoints. These reads do not retain
 durable request receipts and must not be used for state-changing operations.
 
+State-changing endpoints belong in the declaration’s optional `mutations` map.
+`prepareProviderHttp(provider, revision, name, input)` prepares a stable request ID;
+`completeRequest(id)` uses the ordinary durable admission and completion path.
+The same ID returns its recorded outcome without repeating the HTTP operation.
+Keep that ID when the outcome is uncertain; do not prepare a replacement request
+automatically. Public provider references, operation names and nonsecret input
+are retained with the request. Credential lookup and injection still happen only
+at execution on the Node. Both provider HTTP methods are available in Desktop
+and Node host callbacks and keep the same exact-package and revision checks.
+
 `model_adapters` declares a script, allowed HTTPS origins, response framing
 (`sse`, `ndjson` or `json`), schema dialect and explicit capabilities. A preset
 using one must select the `plugin` protocol. Its pure exports translate neutral
@@ -331,6 +341,17 @@ Use `Workspace.new` from `sailry/ui` to supply main content and an optional deta
 Entering settings can preload bounded immutable resources without running scripts or reading business data. Opening a page creates its View on first use and reads current data; later section switches reuse that entity. Leaving the settings area releases preloaded files, while mounted page owners remain with the captured Node until invalidation or window close.
 
 `settings_page` contributes settings navigation, placement and an optional shared enable control. A script page supplies `entry`; a schema-generated page omits it. Feature pages and workflows belong in the package, including bundled language-service and search settings. The host provides Kit composition and scoped service APIs, never package-specific native page selectors.
+
+String settings may declare a JSON Schema `pattern` alongside length limits. Invalid
+patterns reject the schema; values that do not match are rejected before saving.
+
+A successful `SavePluginSettings` publishes `settings.changed` in that package's
+dispatch namespace within the same transaction. Its payload contains only the
+public `package` reference and decimal-string `settings_revision`; the reference
+uses the same string revision. Subscribe through an ordinary dispatch handler and
+read current settings in its callback. Invalid saves publish nothing, and replaying
+the same request does not repeat the event. Callback failures have their own job
+outcomes and do not replace the saved settings receipt.
 
 A Host package declaring `agents.delegate` may mark one required public string setting with `x-sailry-child-concurrency: true`. Its default and saved values are positive decimal integers in the `u64` domain. One installed package may own this execution policy. The shared service reads its current configuration when claiming children, with separate running budgets and FIFO order for each main session; configuration changes do not rewrite admitted model or permission captures. Use ordinary `readSettings()` and `sailry/settings.prepareSettings` for package-owned controls. Without a declared owner, no product-specific child limit is applied.
 

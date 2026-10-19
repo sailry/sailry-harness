@@ -19,6 +19,7 @@ export function readComputerPermissions(): Promise<ComputerPermissions>;
 /** Explicit permission guidance is allowed only on the execution device's local client. */
 export function requestComputerPermission(permission: "screen_capture" | "accessibility"): Promise<ComputerPermissions | null>;
 /** Execute a declared authenticated request for this package's current provider. Credentials stay on Node. */
+export function prepareProviderHttp(provider:string,revision:string,request:string,input?:Record<string,string>):string;
 export function requestProviderHttp(provider:string,revision:string,request:string,input:Record<string,string>):Promise<{status:number;headers:Record<string,string[]>;body:string}>;
 export function listModels(): Promise<{ models: Json[] }>;
 /** Read-only resolution on the captured execution Node; credentials remain opaque references. */

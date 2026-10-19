@@ -170,7 +170,12 @@ fn validate_field(field: &Field, raw: &Value) -> Result<(), Fault> {
             "model settings must be public strings without fixed choices",
         ));
     }
-    if (field.kind != Kind::String && (field.min_length.is_some() || field.max_length.is_some()))
+    if (field.kind != Kind::String
+        && (field.min_length.is_some() || field.max_length.is_some() || field.pattern.is_some()))
+        || field
+            .pattern
+            .as_ref()
+            .is_some_and(|pattern| pattern.len() > MAX_STRING)
         || (!matches!(field.kind, Kind::Integer | Kind::Number)
             && (field.minimum.is_some() || field.maximum.is_some()))
         || field

@@ -42,11 +42,12 @@ fn preserves_interrupted_dispatch_outcomes() {
 #[test]
 fn read_callbacks_reject_mutations_before_dispatch() {
     let source = r#"
-import {getValue,setValue,prepareRequest,completeRequest} from 'sailry/sdk';
+import {getValue,setValue,prepareRequest,prepareProviderHttp,completeRequest} from 'sailry/sdk';
 export async function run() {
   const entry = await getValue('seed');
   const mutations = [
     () => setValue('seed',2,'1'),
+    () => prepareProviderHttp('11111111-1111-4111-8111-111111111111','1','claim'),
     () => prepareRequest({kind:'write_file',data:{worktree:'11111111-1111-4111-8111-111111111111',path:'untouched.txt',text:'Changed',expected_revision:null}}),
     () => prepareRequest({kind:'cancel_web_fetch',data:{request:'11111111-1111-4111-8111-111111111111'}})
   ];
@@ -95,8 +96,74 @@ export async function run() {
         json!([
             "permission_denied",
             "permission_denied",
+            "permission_denied",
             "permission_denied"
         ])
     );
     assert_eq!(calls.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn retains_provider_operation_identity() {
+    let requests = Arc::new(Mutex::new(Vec::new()));
+    let observed = requests.clone();
+    let result = run_callback(
+        bundle(
+            r#"
+import {requestProviderHttp,prepareProviderHttp,completeRequest} from 'sailry/sdk';
+export async function run() {
+  const provider='11111111-1111-4111-8111-111111111111';
+  const status=await requestProviderHttp(provider,'9007199254740993','status');
+  let invalid=false;
+  try { prepareProviderHttp(provider,'01','claim'); } catch { invalid=true; }
+  const id=prepareProviderHttp(provider,'9007199254740993','claim',{date:'today'});
+  const first=await completeRequest(id);
+  const second=await completeRequest(id);
+  return {status,first,second,invalid};
+}
+"#,
+        ),
+        "run",
+        json!(null),
+        Environment {
+            context: context(),
+            target: NodeId([1; 32]),
+            stop: CancellationToken::new(),
+            deadline: Instant::now() + CALL_TIMEOUT,
+        },
+        false,
+        move |request| {
+            observed.lock().unwrap().push(request);
+            Ok(Output::PluginHttp(plugin::http::Response {
+                status: 200,
+                headers: Default::default(),
+                body: "public status".into(),
+            }))
+        },
+    )
+    .unwrap();
+    assert_eq!(result["status"]["status"], 200);
+    assert_eq!(result["first"], result["second"]);
+    assert_eq!(result["invalid"], true);
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 3);
+    assert!(!requests[0].command.durable());
+    assert!(requests[1].command.durable());
+    assert_eq!(requests[1], requests[2]);
+    let sailry_protocol::Command::ExecuteProviderHttp {
+        expected_revision,
+        request,
+        input,
+        ..
+    } = &requests[1].command
+    else {
+        panic!("provider mutation expected")
+    };
+    assert_eq!(*expected_revision, 9007199254740993);
+    assert_eq!(request, "claim");
+    assert_eq!(input.get("date").map(String::as_str), Some("today"));
+    assert_eq!(
+        requests[1].plugin.as_ref().unwrap().package,
+        context().package
+    );
 }

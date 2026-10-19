@@ -18,6 +18,27 @@ pub(super) use worker::{finish, tick};
 #[cfg(test)]
 mod tests;
 
+pub(super) fn settings_changed(db: &Connection, package: &Reference) -> Result<(), Fault> {
+    let revision = package.settings_revision.to_string();
+    let mut reference = serde_json::to_value(package).map_err(storage_error)?;
+    reference["settings_revision"] = serde_json::json!(revision);
+    events::publish(
+        db,
+        &Event {
+            id: protocol::EventId::new(),
+            source: Source {
+                package: package.name.clone(),
+                topic: "settings.changed".into(),
+            },
+            payload: serde_json::json!({"package":reference,"settings_revision":revision}),
+            timestamp_ms: now(),
+            schedule: None,
+            scheduled_ms: None,
+        },
+    )?;
+    Ok(())
+}
+
 pub(super) fn execute(
     db: &Connection,
     package: &Reference,
