@@ -51,8 +51,6 @@ impl Workspace {
         }
         live.directory.read = None;
         live.directory.plugins = Some(plugins.clone());
-        live.directory.entries.clear();
-        apply(&mut self.providers.channels, &live.providers, &[]);
         let Binding {
             client, runtime, ..
         } = live.binding.clone();
@@ -102,9 +100,16 @@ fn apply(
     entries: &[Entry],
 ) {
     for channel in channels {
-        channel.directory = providers
+        let reference = providers
             .get(&channel.id)
-            .and_then(|provider| selected(provider.preset.as_ref(), entries));
+            .and_then(|provider| provider.preset.as_ref());
+        channel.directory = selected(reference, entries).or_else(|| {
+            channel.directory.take().filter(|entry| {
+                reference.is_some_and(|reference| {
+                    entry.source == reference.source && entry.preset.id == reference.id
+                })
+            })
+        });
     }
 }
 

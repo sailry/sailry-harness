@@ -280,3 +280,123 @@ async fn exercise_model_services(
     execute(&fixture.client, Command::StopTurn { turn: turn.id }).await;
     provider
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn preserves_public_endpoint_metadata() {
+    use support::{execute, info};
+    const HOST: &str = "127.0.0.1";
+    for remote in [false, true] {
+        let mode = Arc::new(AtomicUsize::new(0));
+        let selected = mode.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            match request.path.as_str() {
+                "/token" => Reply::Json(json!({"data":{"access":FRESH,"refresh":ROTATED,
+                    "expires_in":3600,"account":ACCOUNT,"domain":HOST}})),
+                "/catalog" => {
+                    assert_eq!(request.headers["authorization"], format!("Bearer {FRESH}"));
+                    assert_eq!(request.headers["x-domain"], HOST);
+                    assert_eq!(request.headers["x-account"], ACCOUNT);
+                    let echoed = match selected.load(Ordering::SeqCst) {
+                        0 => format!("https://{HOST}/models"),
+                        1 => FRESH.into(),
+                        2 => ROTATED.into(),
+                        _ => ACCOUNT.into(),
+                    };
+                    Reply::Json(json!({"documentation":echoed,"catalog":[{"id":"translated","context":64000,"output":4096}]}))
+                }
+                _ => panic!("unexpected endpoint metadata route"),
+            }
+        }).await;
+        let fixture = Fixture::empty(remote, &server).await;
+        let mut provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint)).await;
+        let installed = info(
+            execute(
+                &fixture.client,
+                Command::ReadPlugin {
+                    name: "example".into(),
+                },
+            )
+            .await,
+        );
+        let path = fixture.directory.path().join("source/package/plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest["version"] = json!("1.0.1");
+        let declaration = &mut manifest["extensions"]["dev.sailry.platform"]["model_auth"][0];
+        declaration["token"]["extra"]["domain"] = json!("/domain");
+        declaration["inject"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"header":"X-Domain","template":"{extra.domain}"}));
+        std::fs::write(path, manifest.to_string()).unwrap();
+        let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
+            panic!("snapshot expected")
+        };
+        let updated = info(
+            execute(
+                &fixture.client,
+                support::install(snapshot.worktrees[0].id, installed.summary.revision),
+            )
+            .await,
+        );
+        provider.consent.as_mut().unwrap().package = updated.summary.reference();
+        provider.consent.as_mut().unwrap().origin = None;
+        let Output::Provider(provider) = execute(
+            &fixture.client,
+            Command::PutProvider {
+                expected_revision: provider.revision,
+                provider,
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        let (_, attempt) = begin(&fixture.client, &provider).await;
+        let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        let update = terminal(&mut updates).await;
+        private(&update);
+        assert_eq!(update.state, login::State::Connected);
+        assert_eq!(update.model_error, None);
+        let provider = saved(&fixture.client, provider.id).await;
+        assert_eq!(provider.models[0].id, "translated");
+        for value in [1, 2, 3] {
+            mode.store(value, Ordering::SeqCst);
+            let error = fixture
+                .client
+                .execute(fixture.client.prepare(models(&provider)))
+                .await
+                .unwrap_err();
+            private(&error);
+            assert_eq!(error.code, ErrorCode::PermissionDenied);
+        }
+        mode.store(0, Ordering::SeqCst);
+        let Output::DiscoveredModels(catalog) = execute(&fixture.client, models(&provider)).await
+        else {
+            panic!("catalog expected")
+        };
+        assert_eq!(catalog.models[0].id, "translated");
+        assert_eq!(
+            saved(&fixture.client, provider.id).await.credential,
+            provider.credential
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| request.path == "/catalog")
+                    .count(),
+                5
+            );
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|request| request.path == "/token")
+                    .count(),
+                1
+            );
+        }
+        fixture.close().await;
+    }
+}

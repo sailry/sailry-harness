@@ -79,6 +79,20 @@ pub(super) fn render_icon(entry: &Entry, size: Rems) -> AnyElement {
     icon(entry).size(size).into_any_element()
 }
 
+pub(super) fn brand_icon(entry: &Entry, size: Rems) -> AnyElement {
+    if let Some(icon) = entry
+        .preset
+        .brand_display
+        .as_ref()
+        .and_then(|display| display.icon.as_ref())
+    {
+        return crate::assets::icons::icon(icon)
+            .size(size)
+            .into_any_element();
+    }
+    render_icon(entry, size)
+}
+
 pub(super) fn brand(entry: &Entry) -> String {
     let name = entry.preset.brand.as_deref().unwrap_or(&entry.preset.id);
     match &entry.source {
@@ -86,6 +100,23 @@ pub(super) fn brand(entry: &Entry) -> String {
         Source::Partner => format!("partner:{name}"),
         Source::Package { name: package } => format!("package:{package}:{name}"),
     }
+}
+
+pub(super) fn brand_label(entry: &Entry) -> String {
+    if let Some(display) = &entry.preset.brand_display {
+        return display.label(&rust_i18n::locale()).to_owned();
+    }
+    if entry.source == Source::Builtin {
+        if entry.preset.brand.as_deref() == Some("opencode") {
+            return "OpenCode".into();
+        }
+        if let Some(brand) = &entry.preset.brand
+            && let Some(base) = catalog().builtin.iter().find(|value| value.id == *brand)
+        {
+            return label(base);
+        }
+    }
+    label(&entry.preset)
 }
 
 pub(super) fn groups(entries: &[Entry]) -> Vec<(String, Vec<Entry>)> {

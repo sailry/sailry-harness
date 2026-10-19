@@ -202,6 +202,11 @@ package name and preset ID. Each new turn resolves the enabled package and
 captures its exact resources and request policies. Existing turns retain their
 original capture.
 
+Presets may share a source-scoped `brand` for one channel group. Optional
+`brand_display` uses the existing navigation label, locales and icon contract;
+explicit displays for the same brand must agree. Route names and saved preset
+references stay independent of that group label.
+
 Use `models.provide` for model adapters and `models.authenticate` for login
 declarations. A private token-response transformation also requires
 `credentials.inspect`. Installation alone does not approve access: the channel

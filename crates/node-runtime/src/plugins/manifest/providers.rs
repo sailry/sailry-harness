@@ -4,7 +4,7 @@ use sailry_protocol::{
     plugin::{Issue, IssueKind},
 };
 use serde_json::Value;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) fn normalize(value: &Value, issues: &mut Vec<Issue>) -> Value {
     let mut value = value.clone();
@@ -16,6 +16,7 @@ pub(super) fn normalize(value: &Value, issues: &mut Vec<Issue>) -> Value {
         return value;
     };
     let mut seen = BTreeSet::new();
+    let mut groups = BTreeMap::new();
     let mut index = 0;
     presets.retain(|preset| {
         let current=index;
@@ -24,6 +25,8 @@ pub(super) fn normalize(value: &Value, issues: &mut Vec<Issue>) -> Value {
             crate::providers::presets::validate(&preset,false,true).is_ok()
                 && (!matches!(&preset.auth, Auth::Plugin{flow} if !declares(&original,"model_auth",flow)))
                 && preset.adapter.as_ref().is_none_or(|adapter|declares(&original,"model_adapters",adapter))
+                && !seen.contains(&preset.id)
+                && crate::providers::presets::group(&preset, &mut groups)
                 && seen.insert(preset.id)
         });
         if !valid {issues.push(Issue {path:format!("plugin.json.extensions.dev.sailry.platform.model_providers.{current}"),kind:IssueKind::InvalidExtensions});}
@@ -65,5 +68,35 @@ mod tests {
                 .iter()
                 .all(|issue| issue.kind == IssueKind::InvalidExtensions)
         );
+    }
+
+    #[test]
+    fn isolates_conflicting_brand_displays() {
+        let first = json!({"id":"first","name":"First route","brand":"example",
+            "brand_display":{"label":"Example","icon":"reicon:messages/chat"},
+            "routes":[{"protocol":"openai-chat-completions","endpoint":"https://example.test/v1"}]});
+        let mut second = first.clone();
+        second["id"] = json!("second");
+        let mut third = first.clone();
+        third["id"] = json!("third");
+        third["brand_display"]["label"] = json!("Different brand");
+        let mut duplicate = first.clone();
+        duplicate["brand"] = json!("another");
+        duplicate["brand_display"]["label"] = json!("Duplicate label");
+        let mut later = first.clone();
+        later["id"] = json!("later");
+        later["brand"] = json!("another");
+        let mut issues = Vec::new();
+        let value = normalize(
+            &json!({"model_providers":[first.clone(),second.clone(),third,duplicate,later.clone()]}),
+            &mut issues,
+        );
+        assert_eq!(value["model_providers"], json!([first, second, later]));
+        assert_eq!(issues.len(), 2);
+        assert_eq!(
+            issues[0].path,
+            "plugin.json.extensions.dev.sailry.platform.model_providers.2"
+        );
+        assert_eq!(issues[0].kind, IssueKind::InvalidExtensions);
     }
 }

@@ -2160,11 +2160,22 @@
           ]
         },
         "brand": {
-          "description": "Builtin brand identity; package declarations may supply their own logo.",
+          "description": "Group identity scoped to this preset's source, independent of its route.",
           "type": [
             "string",
             "null"
           ]
+        },
+        "brand_display": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Navigation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "capabilities": {
           "$ref": "#/$defs/Capabilities",

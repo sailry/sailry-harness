@@ -8,7 +8,7 @@ pub(super) fn content(channel: &Channel, real: bool, cx: &App) -> AnyElement {
         .gap_3()
         .child(channel.directory.as_ref().map_or_else(
             || channel.preset.category().icon().size_8().into_any_element(),
-            |entry| super::presets::render_icon(entry,rems(2.)),
+            |entry| super::presets::render_icon(entry, rems(2.)),
         ))
         .child(
             v_flex()
@@ -18,10 +18,7 @@ pub(super) fn content(channel: &Channel, real: bool, cx: &App) -> AnyElement {
                 .overflow_hidden()
                 .gap_1()
                 .child(
-                    h_flex().min_w_0().min_h_6().gap_2().when(
-                        channel.directory.as_ref().is_some_and(|entry| entry.provenance==sailry_protocol::conversation::presets::Provenance::ThirdParty),
-                        |row| row.child(gpui_kit::component::tag::Tag::secondary().small().child(tr("provider_third_party"))),
-                    ).child(
+                    h_flex().min_w_0().min_h_6().gap_2().child(
                         div()
                             .debug_selector(move || format!("provider-name-{id}"))
                             .flex_1()

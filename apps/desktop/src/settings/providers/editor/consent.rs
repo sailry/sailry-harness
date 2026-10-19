@@ -1,6 +1,9 @@
 //! Approval belongs to a provider and the package shown in this draft.
 use super::*;
-use gpui_kit::component::{alert::Alert, checkbox::Checkbox, tooltip::Tooltip};
+use gpui_kit::component::{
+    checkbox::Checkbox,
+    group_box::{GroupBox, GroupBoxVariants},
+};
 use sailry_protocol::conversation::{
     consent::{Approval, Scopes},
     presets::Entry,
@@ -59,53 +62,64 @@ impl Editor {
     pub(super) fn consent_form(&self, cx: &Context<Self>) -> Option<Div> {
         let entry = self.selected.as_ref()?;
         let package = entry.package.as_ref()?;
-        let reference = format!(
-            "{}\n{}\n{}\n{}",
-            package.name,
-            package.digest,
-            package.settings_revision,
-            serde_json::to_string(&entry.origin).expect("package origins serialize")
-        );
+        // Pinned Alert accepts text only; GroupBox keeps interactive consent in one surface.
         let body = v_flex().w_full().items_start().gap_2().child(
-            div()
-                .id("provider-package-reference")
-                .w_full()
-                .tooltip(move |window, cx| Tooltip::new(reference.clone()).build(window, cx))
+            h_flex()
+                .items_start()
+                .gap_2()
+                .text_color(cx.theme().info)
+                .child(Icon::new(IconName::Info).size_4())
                 .child(
-                    Alert::info("provider-package", package.name.clone())
-                        .title(tr("provider_package"))
-                        .small(),
+                    v_flex()
+                        .gap_1()
+                        .child(div().font_semibold().child(tr("provider_package")))
+                        .child(package.name.clone()),
                 ),
         );
         Some(
-            body.when(entry.requested.messages, |body| {
-                body.child(
-                    Checkbox::new("provider-model-consent")
-                        .text_sm()
-                        .label(tr("provider_allow_messages"))
-                        .checked(self.consent_scopes.messages)
-                        .disabled(self.pending)
-                        .on_click(cx.listener(|editor, checked, _, cx| {
-                            editor.consent_scopes.messages = *checked;
-                            editor.consent_changed = true;
-                            cx.notify();
-                        })),
-                )
-            })
-            .when(entry.requested.credentials, |body| {
-                body.child(
-                    Checkbox::new("provider-credential-consent")
-                        .text_sm()
-                        .label(tr("provider_allow_credentials"))
-                        .checked(self.consent_scopes.credentials)
-                        .disabled(self.pending)
-                        .on_click(cx.listener(|editor, checked, _, cx| {
-                            editor.consent_scopes.credentials = *checked;
-                            editor.consent_changed = true;
-                            cx.notify();
-                        })),
-                )
-            }),
+            div().w_full().child(
+                GroupBox::new()
+                    .id("provider-package")
+                    .outline()
+                    .content_style(
+                        StyleRefinement::default()
+                            .px_3()
+                            .py_2()
+                            .gap_2()
+                            .bg(cx.theme().info.opacity(0.04))
+                            .border_color(cx.theme().info.opacity(0.3)),
+                    )
+                    .child(
+                        body.when(entry.requested.messages, |body| {
+                            body.child(
+                                Checkbox::new("provider-model-consent")
+                                    .text_sm()
+                                    .label(tr("provider_allow_messages"))
+                                    .checked(self.consent_scopes.messages)
+                                    .disabled(self.pending)
+                                    .on_click(cx.listener(|editor, checked, _, cx| {
+                                        editor.consent_scopes.messages = *checked;
+                                        editor.consent_changed = true;
+                                        cx.notify();
+                                    })),
+                            )
+                        })
+                        .when(entry.requested.credentials, |body| {
+                            body.child(
+                                Checkbox::new("provider-credential-consent")
+                                    .text_sm()
+                                    .label(tr("provider_allow_credentials"))
+                                    .checked(self.consent_scopes.credentials)
+                                    .disabled(self.pending)
+                                    .on_click(cx.listener(|editor, checked, _, cx| {
+                                        editor.consent_scopes.credentials = *checked;
+                                        editor.consent_changed = true;
+                                        cx.notify();
+                                    })),
+                            )
+                        }),
+                    ),
+            ),
         )
     }
 }

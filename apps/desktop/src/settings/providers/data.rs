@@ -389,6 +389,13 @@ pub struct Channel {
 impl Channel {
     pub fn label(&self) -> gpui_kit::SharedString {
         use sailry_protocol::conversation::connection::{Options, Product};
+        if let Some(entry) = self
+            .directory
+            .as_ref()
+            .filter(|entry| entry.source != sailry_protocol::conversation::presets::Source::Builtin)
+        {
+            return super::presets::label(&entry.preset).into();
+        }
         let Preset::Hosted(vendor) = self.preset else {
             return crate::tr(self.preset.key());
         };
@@ -415,8 +422,14 @@ impl Channel {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Selection {
+    All,
+    Group(String),
+}
+
 pub struct Store {
-    pub category: Category,
+    pub category: Selection,
     pub channels: Vec<Channel>,
     pub catalog_revision: usize,
     next_id: usize,
@@ -425,7 +438,7 @@ pub struct Store {
 impl Default for Store {
     fn default() -> Self {
         Self {
-            category: Category::OpenAi,
+            category: Selection::All,
             channels: vec![Channel {
                 directory: None,
                 options: None,

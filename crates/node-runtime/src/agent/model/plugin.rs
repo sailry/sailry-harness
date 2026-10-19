@@ -526,87 +526,111 @@ async fn read_catalog(
     credentials: Credentials,
     stop: &CancellationToken,
 ) -> Result<sailry_protocol::conversation::discovery::Catalog, Fault> {
-    const DISCOVERY_BYTES: usize = 8 * 1024 * 1024;
-    let worker = worker::Worker::new(bundle, stop, DISCOVERY_BYTES).await?;
-    let prepared: wire::Prepared = worker
-        .call(
-            "prepare_discovery",
-            &serde_json::json!({"endpoint":provider.endpoint}),
+    let mut stage = "prepare";
+    let mut upstream_status = None;
+    let result = async {
+        const DISCOVERY_BYTES: usize = 8 * 1024 * 1024;
+        let worker = worker::Worker::new(bundle, stop, DISCOVERY_BYTES).await?;
+        let prepared: wire::Prepared = worker
+            .call(
+                "prepare_discovery",
+                &serde_json::json!({"endpoint":provider.endpoint}),
+            )
+            .await?;
+        stage = "request";
+        let received = transport::send(
+            &transport::client()?,
+            prepared,
+            &provider.endpoint,
+            declaration,
+            &credentials,
+            stop,
+            DISCOVERY_BYTES,
         )
         .await?;
-    let received = transport::send(
-        &transport::client()?,
-        prepared,
-        &provider.endpoint,
-        declaration,
-        &credentials,
-        stop,
-        DISCOVERY_BYTES,
-    )
-    .await?;
-    let status = received.status().as_u16();
-    let headers = transport::headers(received.headers(), &credentials)?;
-    let mut chunks = received.bytes_stream();
-    let mut body = Vec::new();
-    loop {
-        let chunk = tokio::select! { _=stop.cancelled()=>return Err(transport::cancelled()),chunk=chunks.next()=>chunk };
-        let Some(chunk) = chunk else {
-            break;
-        };
-        let chunk = chunk.map_err(|_| transport::network())?;
-        if body
-            .len()
-            .checked_add(chunk.len())
-            .is_none_or(|size| size > DISCOVERY_BYTES)
-        {
+        let status = received.status().as_u16();
+        upstream_status = Some(u64::from(status));
+        stage = "headers";
+        let headers = transport::headers(received.headers(), &credentials)?;
+        stage = "body";
+        let mut chunks = received.bytes_stream();
+        let mut body = Vec::new();
+        loop {
+            let chunk = tokio::select! { _=stop.cancelled()=>return Err(transport::cancelled()),chunk=chunks.next()=>chunk };
+            let Some(chunk) = chunk else {
+                break;
+            };
+            let chunk = chunk.map_err(|_| transport::network())?;
+            if body
+                .len()
+                .checked_add(chunk.len())
+                .is_none_or(|size| size > DISCOVERY_BYTES)
+            {
+                return Err(Fault::new(
+                    ErrorCode::Internal,
+                    "model adapter resource budget exceeded",
+                ));
+            }
+            body.extend_from_slice(&chunk);
+        }
+        stage = "status";
+        if !(200..300).contains(&status) {
+            // Failed discovery bodies are never sent to the VM or diagnostics.
             return Err(Fault::new(
-                ErrorCode::Internal,
-                "model adapter resource budget exceeded",
+                ErrorCode::Unavailable,
+                format!("model discovery failed with HTTP {status}"),
             ));
         }
-        body.extend_from_slice(&chunk);
-    }
-    if !(200..300).contains(&status) {
-        // Failed discovery bodies are never sent to the VM or diagnostics.
-        return Err(Fault::new(
-            ErrorCode::Unavailable,
-            format!("model discovery failed with HTTP {status}"),
-        ));
-    }
-    let body = String::from_utf8(body)
-        .map_err(|_| Fault::invalid("model discovery response is not UTF-8"))?;
-    transport::public(&body, &credentials)?;
-    let mut catalog:sailry_protocol::conversation::discovery::Catalog = worker.call("decode_discovery",&serde_json::json!({"endpoint":provider.endpoint,"status":status,"headers":headers,"body":body})).await?;
-    if catalog.endpoint.trim_end_matches('/') != provider.endpoint.trim_end_matches('/') {
-        return Err(Fault::invalid(
-            "model discovery returned a different endpoint",
-        ));
-    }
-    let mut ids = std::collections::BTreeSet::new();
-    for model in &mut catalog.models {
-        if model.id.trim().is_empty()
-            || !ids.insert(model.id.clone())
-            || model.id.chars().any(char::is_control)
-            || model.context == Some(0)
-            || model.output == Some(0)
-            || model
-                .context
-                .zip(model.output)
-                .is_some_and(|(context, output)| output > context)
-        {
-            return Err(Fault::invalid("model discovery returned invalid metadata"));
+        let body = String::from_utf8(body)
+            .map_err(|_| Fault::invalid("model discovery response is not UTF-8"))?;
+        stage = "privacy";
+        transport::public(&body, &credentials)?;
+        stage = "decode";
+        let mut catalog:sailry_protocol::conversation::discovery::Catalog = worker.call("decode_discovery",&serde_json::json!({"endpoint":provider.endpoint,"status":status,"headers":headers,"body":body})).await?;
+        if catalog.endpoint.trim_end_matches('/') != provider.endpoint.trim_end_matches('/') {
+            return Err(Fault::invalid(
+                "model discovery returned a different endpoint",
+            ));
         }
-        // Catalog summaries cannot elevate the captured transport's abilities.
-        let capabilities = model.capabilities.get_or_insert_with(Default::default);
-        if !declaration.capabilities.vision {
-            capabilities.vision = Some(false);
+        let mut ids = std::collections::BTreeSet::new();
+        for model in &mut catalog.models {
+            if model.id.trim().is_empty()
+                || !ids.insert(model.id.clone())
+                || model.id.chars().any(char::is_control)
+                || model.context == Some(0)
+                || model.output == Some(0)
+                || model
+                    .context
+                    .zip(model.output)
+                    .is_some_and(|(context, output)| output > context)
+            {
+                return Err(Fault::invalid("model discovery returned invalid metadata"));
+            }
+            // Catalog summaries cannot elevate the captured transport's abilities.
+            let capabilities = model.capabilities.get_or_insert_with(Default::default);
+            if !declaration.capabilities.vision {
+                capabilities.vision = Some(false);
+            }
+            if !declaration.capabilities.tools {
+                capabilities.tools = Some(false);
+            }
+            if !declaration.capabilities.reasoning {
+                capabilities.reasoning = Some(false);
+            }
         }
-        if !declaration.capabilities.tools {
-            capabilities.tools = Some(false);
-        }
-        if !declaration.capabilities.reasoning {
-            capabilities.reasoning = Some(false);
+        Ok(catalog)
+    }.await;
+    if let Err(error) = &result {
+        // Only typed failure metadata is logged, never bodies, headers or grant fields.
+        let code = serde_json::to_value(error.code)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .unwrap_or_default();
+        if let Some(status) = upstream_status {
+            tracing::warn!(target: "sailry", area="model", phase="failed", operation="model_discovery", stage, code=code.as_str(), upstream_status=status);
+        } else {
+            tracing::warn!(target: "sailry", area="model", phase="failed", operation="model_discovery", stage, code=code.as_str());
         }
     }
-    Ok(catalog)
+    result
 }

@@ -409,7 +409,9 @@ impl Editor {
         match result {
             Ok(channel) => {
                 self.owner.update(cx, |owner, cx| {
-                    owner.providers.category = channel.preset.category();
+                    if owner.providers.category != super::data::Selection::All {
+                        owner.providers.category = super::families::selection(&channel, None);
+                    }
                     owner.providers.save(self.editing, channel);
                     cx.notify();
                 });

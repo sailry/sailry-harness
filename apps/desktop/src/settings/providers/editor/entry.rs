@@ -14,7 +14,7 @@ impl Editor {
                 (
                     key,
                     brand_label(first),
-                    presets::render_icon(first, rems(2.)),
+                    presets::brand_icon(first, rems(2.)),
                 )
             })
             .collect()
@@ -45,19 +45,5 @@ impl Editor {
 }
 
 pub(super) fn brand_label(entry: &sailry_protocol::conversation::presets::Entry) -> SharedString {
-    if entry.preset.brand.as_deref() == Some("opencode") {
-        return "OpenCode".into();
-    }
-    // Native methods share a brand while retaining their distinct method labels.
-    if matches!(
-        entry.source,
-        sailry_protocol::conversation::presets::Source::Builtin
-    ) && let Some(brand) = entry.preset.brand.as_deref()
-        && let Some(base) = presets::bundled()
-            .iter()
-            .find(|value| value.preset.id == brand)
-    {
-        return presets::label(&base.preset).into();
-    }
-    presets::label(&entry.preset).into()
+    presets::brand_label(entry).into()
 }

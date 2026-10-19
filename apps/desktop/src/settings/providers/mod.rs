@@ -52,7 +52,7 @@ impl Workspace {
     }
 
     pub(super) fn providers(&self, cx: &mut Context<Self>) -> AnyElement {
-        let category = self.providers.category;
+        let category = &self.providers.category;
         let real = self.provider_link.is_some();
         let busy = self
             .provider_link
@@ -62,11 +62,13 @@ impl Workspace {
         let mut rows = Group::new("provider_channels")
             .heading(false)
             .empty(IconName::Cpu, "provider_empty_live");
-        let matching = self
-            .providers
-            .channels
-            .iter()
-            .filter(|channel| channel.preset.category() == category);
+        let matching = self.providers.channels.iter().filter(|channel| {
+            let provider = self
+                .provider_link
+                .as_ref()
+                .and_then(|live| live.providers.get(&channel.id));
+            *category == data::Selection::All || families::selection(channel, provider) == *category
+        });
         for channel in matching {
             let id = channel.id;
             let authorization = (real

@@ -313,3 +313,70 @@ fn protects_core_request_semantics() {
     .unwrap();
     validate_policy(&policy).unwrap();
 }
+
+#[test]
+fn validates_explicit_brand_displays() {
+    let mut original: Value = serde_json::from_slice(FIXTURE).unwrap();
+    original["partners"][0]["brand"] = json!("example");
+    original["partners"][0]["brand_display"] =
+        json!({"label":"Example","locales":{"zh-CN":"示例"}});
+    let mut second = original["partners"][0].clone();
+    second["id"] = json!("another-route");
+    original["partners"].as_array_mut().unwrap().push(second);
+    assert_eq!(
+        parse(&serde_json::to_vec(&original).unwrap())
+            .unwrap()
+            .partners
+            .len(),
+        2
+    );
+    let mut duplicate = original["partners"][0].clone();
+    duplicate["brand"] = json!("another");
+    duplicate["brand_display"]["label"] = json!("Duplicate label");
+    let mut later = original["partners"][0].clone();
+    later["id"] = json!("later");
+    later["brand"] = json!("another");
+    let mut repeated = original.clone();
+    repeated["partners"]
+        .as_array_mut()
+        .unwrap()
+        .extend([duplicate, later]);
+    assert_eq!(
+        parse(&serde_json::to_vec(&repeated).unwrap())
+            .unwrap()
+            .partners
+            .len(),
+        3
+    );
+    original["partners"][1]["brand_display"]["label"] = json!("Different brand");
+    assert_eq!(
+        parse(&serde_json::to_vec(&original).unwrap())
+            .unwrap()
+            .partners
+            .len(),
+        1
+    );
+    for value in [
+        json!({"label":""}),
+        json!({"label":"Example","icon":"invalid icon"}),
+    ] {
+        let mut invalid = original.clone();
+        invalid["partners"].as_array_mut().unwrap().truncate(1);
+        invalid["partners"][0]["brand_display"] = value;
+        assert!(
+            parse(&serde_json::to_vec(&invalid).unwrap())
+                .unwrap()
+                .partners
+                .is_empty()
+        );
+    }
+    let mut invalid = original;
+    invalid["partners"].as_array_mut().unwrap().truncate(1);
+    invalid["partners"][0]["brand"] = Value::Null;
+    assert!(
+        parse(&serde_json::to_vec(&invalid).unwrap())
+            .unwrap()
+            .partners
+            .is_empty()
+    );
+}

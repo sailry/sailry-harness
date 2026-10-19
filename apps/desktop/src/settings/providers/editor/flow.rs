@@ -2,8 +2,8 @@
 use super::super::presets;
 use super::entry::brand_label;
 use super::*;
-use gpui_kit::component::{button::ButtonCustomVariant, input::Input, tag::Tag};
-use sailry_protocol::conversation::presets::{Auth, Provenance};
+use gpui_kit::component::{button::ButtonCustomVariant, input::Input};
+use sailry_protocol::conversation::presets::Auth;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Step {
@@ -400,11 +400,6 @@ impl Editor {
                                                 .child(tr(access.key())),
                                         ),
                                 )
-                                .when(entry.provenance == Provenance::ThirdParty, |row| {
-                                    row.child(
-                                        Tag::secondary().small().child(tr("provider_third_party")),
-                                    )
-                                })
                                 .child(
                                     Icon::new(IconName::ChevronRight)
                                         .size_4()

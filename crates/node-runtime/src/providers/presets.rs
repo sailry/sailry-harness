@@ -2,7 +2,7 @@
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, conversation::presets::Catalog};
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     time::{Duration, Instant},
 };
 use tokio::sync::Mutex;
@@ -154,9 +154,15 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Catalog, Fault> {
         .and_then(serde_json::Value::as_array_mut)
         .ok_or_else(invalid)?;
     let mut ids = BTreeSet::new();
+    let mut groups = BTreeMap::new();
     partners.retain(|value| {
         serde_json::from_value::<sailry_protocol::conversation::presets::Preset>(value.clone())
-            .is_ok_and(|preset| validate(&preset, false, false).is_ok() && ids.insert(preset.id))
+            .is_ok_and(|preset| {
+                validate(&preset, false, false).is_ok()
+                    && !ids.contains(&preset.id)
+                    && group(&preset, &mut groups)
+                    && ids.insert(preset.id)
+            })
     });
     let mut catalog: Catalog = serde_json::from_value(value).map_err(|_| invalid())?;
     if catalog.version != 1 {
@@ -175,6 +181,21 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Catalog, Fault> {
     Ok(catalog)
 }
 
+/// Explicit labels for one source-scoped brand must agree across its routes.
+pub(crate) fn group(
+    preset: &sailry_protocol::conversation::presets::Preset,
+    groups: &mut BTreeMap<String, sailry_protocol::plugin::desktop::Navigation>,
+) -> bool {
+    let Some((brand, display)) = preset.brand.as_ref().zip(preset.brand_display.as_ref()) else {
+        return true;
+    };
+    if let Some(previous) = groups.get(brand) {
+        return previous == display;
+    }
+    groups.insert(brand.clone(), display.clone());
+    true
+}
+
 pub(crate) fn validate(
     preset: &sailry_protocol::conversation::presets::Preset,
     builtin: bool,
@@ -188,6 +209,14 @@ pub(crate) fn validate(
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
         || preset.name.trim().is_empty()
         || preset.routes.is_empty()
+        || preset
+            .brand
+            .as_ref()
+            .is_some_and(|brand| brand.trim().is_empty() || brand.chars().any(char::is_control))
+        || preset
+            .brand_display
+            .as_ref()
+            .is_some_and(|display| preset.brand.is_none() || !display.valid())
         || (!builtin && matches!(preset.auth, Auth::Builtin { .. }))
         || (!package && (matches!(preset.auth, Auth::Plugin { .. }) || preset.adapter.is_some()))
         || preset.routes.iter().any(|route| {

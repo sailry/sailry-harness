@@ -1499,7 +1499,7 @@ settings_terminal: 终端
 settings_security: 安全
 settings_plugins: 插件
 settings_mcp: MCP
-settings_providers: AI 供应商
+settings_providers: "模型"
 settings_media: 媒体模型
 settings_agents: 子代理
 settings_skills: 技能

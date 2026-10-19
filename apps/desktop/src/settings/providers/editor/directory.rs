@@ -7,7 +7,7 @@ use gpui_kit::component::{
 };
 use sailry_protocol::{
     Command, Output,
-    conversation::presets::{Entry, Models, PresetRef, Provenance, Route},
+    conversation::presets::{Entry, Models, PresetRef, Route},
 };
 
 impl Editor {
@@ -332,13 +332,6 @@ impl Editor {
                                     .outline()
                                     .disabled(self.navigation_blocked())
                                     .child(presets::label(&entry.preset))
-                                    .when(entry.provenance == Provenance::ThirdParty, |button| {
-                                        button.child(
-                                            Tag::secondary()
-                                                .small()
-                                                .child(tr("provider_third_party")),
-                                        )
-                                    })
                                     .on_click(cx.listener(move |editor, _, window, cx| {
                                         editor.select_entry(
                                             entry.clone(),
@@ -355,17 +348,11 @@ impl Editor {
 
     pub(super) fn source_label(&self) -> Option<Div> {
         let entry = self.selected.as_ref()?;
-        if entry.provenance != Provenance::ThirdParty && entry.preset.badge.is_none() {
-            return None;
-        }
-        let body = h_flex().gap_2();
+        let badge = entry.preset.badge.clone()?;
         Some(
-            body.when(entry.provenance == Provenance::ThirdParty, |body| {
-                body.child(Tag::secondary().small().child(tr("provider_third_party")))
-            })
-            .when_some(entry.preset.badge.clone(), |body, badge| {
-                body.child(Tag::secondary().small().child(badge))
-            }),
+            h_flex()
+                .gap_2()
+                .child(Tag::secondary().small().child(badge)),
         )
     }
 

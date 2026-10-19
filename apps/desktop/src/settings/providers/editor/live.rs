@@ -145,7 +145,14 @@ impl Editor {
                                 live.binding.client.target()
                                     == editor.binding.as_ref().unwrap().client.target()
                             }) {
-                                owner.providers.category = editor.preset.category();
+                                if owner.providers.category != super::super::data::Selection::All {
+                                    owner.providers.category =
+                                        super::super::families::for_reference(
+                                            provider.preset.as_ref(),
+                                            editor.preset,
+                                            editor.selected.as_ref(),
+                                        );
+                                }
                                 cx.notify();
                             }
                         });

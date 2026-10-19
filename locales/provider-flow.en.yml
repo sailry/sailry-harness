@@ -1,3 +1,4 @@
+provider_all: "All"
 provider_search: "Search providers"
 provider_step_back: "Back"
 provider_choose_method: "Choose connection method"

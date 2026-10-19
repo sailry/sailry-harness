@@ -195,7 +195,20 @@ impl Workspace {
                     channel.directory = super::directory::selected(
                         provider.preset.as_ref(),
                         &live.directory.entries,
-                    );
+                    )
+                    .or_else(|| {
+                        self.providers
+                            .channels
+                            .iter()
+                            .find(|previous| previous.id == id)
+                            .and_then(|previous| previous.directory.clone())
+                            .filter(|entry| {
+                                provider.preset.as_ref().is_some_and(|reference| {
+                                    entry.source == reference.source
+                                        && entry.preset.id == reference.id
+                                })
+                            })
+                    });
                     channel.quota = snapshot
                         .provider_quotas
                         .iter()

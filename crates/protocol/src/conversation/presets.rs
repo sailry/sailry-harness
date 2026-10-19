@@ -29,8 +29,10 @@ pub struct Preset {
     pub homepage: Option<String>,
     pub key_url: Option<String>,
     pub badge: Option<String>,
-    /// Builtin brand identity; package declarations may supply their own logo.
+    /// Group identity scoped to this preset's source, independent of its route.
     pub brand: Option<String>,
+    #[serde(default)]
+    pub brand_display: Option<crate::plugin::desktop::Navigation>,
     #[serde(default = "offered")]
     pub offered: bool,
     pub routes: Vec<Route>,

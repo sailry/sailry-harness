@@ -1,3 +1,4 @@
+provider_all: "전체"
 provider_search: "공급자 검색"
 provider_step_back: "이전"
 provider_choose_method: "연결 방식 선택"
