@@ -36,10 +36,21 @@ mod unwind {
     }
 }
 
+fn profile() -> tempfile::TempDir {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("sailry-profile-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    builder.tempdir().unwrap()
+}
+
 #[test]
 fn reopens_owned_profile() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("node");
+    let directory = profile();
+    let path = directory.path().to_path_buf();
     let owner = Owner::start(Options {
         data_dir: path.clone(),
         relays: vec![],
@@ -78,8 +89,8 @@ fn reopens_owned_profile() {
 
 #[test]
 fn restores_relays_and_respects_explicit_startup_options() {
-    let directory = tempfile::tempdir().unwrap();
-    let profile = directory.path().join("node");
+    let directory = profile();
+    let profile = directory.path().to_path_buf();
     let initial = Owner::start(Options {
         data_dir: profile.clone(),
         relays: vec![],
@@ -127,15 +138,16 @@ fn restores_relays_and_respects_explicit_startup_options() {
 
 #[test]
 fn handoff_drains_only_local_owner() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("local");
+    let directory = profile();
+    let path = directory.path().to_path_buf();
     let local = Owner::start(Options {
         data_dir: path.clone(),
         relays: vec![],
     })
     .unwrap();
+    let remote_directory = profile();
     let remote = Owner::start(Options {
-        data_dir: directory.path().join("remote"),
+        data_dir: remote_directory.path().to_path_buf(),
         relays: vec![],
     })
     .unwrap();
