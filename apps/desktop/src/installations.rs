@@ -16,7 +16,9 @@ mod speech;
 pub(crate) use models::{completion as model_result, external, retry_model};
 pub(crate) use speech::controller;
 pub(crate) use speech::external as external_controller;
+mod lifecycle;
 mod rows;
+pub(crate) use lifecycle::reconcile;
 #[cfg(test)]
 mod tests;
 
@@ -72,6 +74,7 @@ struct Queue {
     entries: BTreeMap<Key, Entry>,
     next_order: u64,
     sources: BTreeMap<NodeId, Source>,
+    known: Option<std::collections::BTreeSet<NodeId>>,
     controller: Option<speech::Source>,
     list: Option<Entity<ListState<rows::Rows>>>,
     window: Option<WindowId>,
@@ -132,6 +135,7 @@ fn registry(cx: &mut App) -> Entity<Queue> {
             entries: BTreeMap::new(),
             next_order: 0,
             sources: BTreeMap::new(),
+            known: None,
             controller: None,
             list: None,
             window: None,
@@ -389,6 +393,7 @@ impl Queue {
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
+        self.prune();
         cx.global_mut::<Badge>().count = self.entries.len();
         if let Some(list) = &self.list {
             let rows = rows::snapshot(&self.entries);

@@ -1,5 +1,7 @@
 mod editor;
 mod requests;
+#[cfg(test)]
+mod tests;
 mod view;
 
 use super::{Workspace, providers::Binding};
@@ -98,6 +100,20 @@ impl Panel {
         self.draft.as_ref().or(self.saved.as_ref())
     }
 
+    fn settled(&self) -> bool {
+        self.draft == self.saved
+    }
+
+    fn discardable(&self) -> bool {
+        !self.active
+            && !self.loading
+            && !self.pending
+            && self.request.is_none()
+            && !self.conflict
+            && self.error != Some("hooks_unknown")
+            && self.settled()
+    }
+
     fn entry(&self, id: &str) -> Option<(Phase, Script)> {
         self.current()?
             .entries()
@@ -158,6 +174,19 @@ impl Panel {
         self.saved = Some(settings.clone());
         self.draft = Some(settings);
     }
+
+    fn accept(&mut self, submitted: &Settings, settings: Settings) -> bool {
+        self.request = None;
+        if self.draft.as_ref() == Some(submitted) {
+            self.apply(settings);
+        } else {
+            if let Some(draft) = self.draft.as_mut() {
+                draft.revision = settings.revision;
+            }
+            self.saved = Some(settings);
+        }
+        self.settled()
+    }
 }
 
 impl Workspace {
@@ -209,6 +238,9 @@ impl Workspace {
                 cx.notify();
             });
         }
+        self.hooks
+            .panels
+            .retain(|_, panel| !panel.read(cx).discardable());
     }
 }
 

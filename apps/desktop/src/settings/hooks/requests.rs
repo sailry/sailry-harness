@@ -123,18 +123,12 @@ impl Panel {
                 panel.pending = false;
                 match result {
                     Ok(Ok(Output::HookSettings(state))) if state.worktree == panel.worktree => {
-                        panel.request = None;
                         panel.sandboxed = state.sandboxed;
-                        if panel.draft.as_ref() == Some(&submitted) {
-                            panel.apply(state.settings);
+                        if panel.accept(&submitted, state.settings) {
+                            window.push_notification(crate::tr("hooks_saved"), cx);
                         } else {
-                            if let Some(draft) = panel.draft.as_mut() {
-                                draft.revision = state.settings.revision;
-                            }
-                            panel.saved = Some(state.settings);
+                            panel.save(window, cx);
                         }
-                        window.push_notification(crate::tr("hooks_saved"), cx);
-                        panel.save(window, cx);
                     }
                     Ok(Err(error)) => {
                         if !matches!(

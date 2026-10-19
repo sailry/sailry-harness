@@ -150,6 +150,7 @@ pub(super) fn observe(services: &Services, cx: &mut Context<Shell>) -> Task<()> 
                             })
                             .collect();
                         live.hosts.insert(local, link.address());
+                        crate::installations::reconcile(live.hosts.keys().copied(), cx);
                         if !live.hosts.contains_key(&live.selected) {
                             live.select(local, cx);
                             shell.page = crate::preview::Page::Host;
