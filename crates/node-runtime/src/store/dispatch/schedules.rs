@@ -87,30 +87,28 @@ pub(super) fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault>
             row.as_ref()
                 .map_or(true, |(package, _)| enabled.contains(package))
         })
-        .take(64)
         .collect::<Result<Vec<_>, _>>()
         .map_err(storage_error)?;
     let mut changed = Vec::new();
+    let mut attempted = 0;
     for (package, id) in records {
+        if attempted == 64 {
+            break;
+        }
         let mut schedule: Schedule = required(db, "dispatch_schedules", &package, "id", &id)?;
-        let first = schedule
-            .next_ms
-            .ok_or_else(|| sailry_protocol::Fault::invalid("due schedule has no cursor"))?;
-        let (scheduled_ms, next_ms) = match &schedule.timing {
-            Timing::Once { .. } => (first, None),
-            Timing::Every { interval_ms, .. } => {
-                let interval = interval(*interval_ms)?;
-                let latest = first + ((timestamp - first) / interval) * interval;
-                (latest, latest.checked_add(interval))
+        let (scheduled_ms, next_ms) = match occurrence(&schedule, timestamp) {
+            Ok(occurrence) => occurrence,
+            Err(error) if error.code == ErrorCode::InvalidRequest => {
+                // Keep the invalid cursor available for repair without starving valid records.
+                eprintln!(
+                    "dispatch schedule is invalid: package={package} id={id} code={:?}",
+                    error.code
+                );
+                continue;
             }
-            Timing::Weekly {
-                timezone,
-                weekdays,
-                hour,
-                minute,
-            } => calendar::Calendar::new(timezone, weekdays, *hour, *minute)?
-                .due(first, timestamp)?,
+            Err(error) => return Err(error),
         };
+        attempted += 1;
         let event = Event {
             id: protocol::EventId::new(),
             source: Source {
@@ -167,6 +165,27 @@ pub(super) fn next(db: &Connection, timestamp: i64) -> Result<Option<i64>, Fault
         }
     }
     Ok(next)
+}
+
+fn occurrence(schedule: &Schedule, timestamp: i64) -> Result<(i64, Option<i64>), Fault> {
+    let first = schedule
+        .next_ms
+        .filter(|first| *first >= 0 && *first <= timestamp)
+        .ok_or_else(|| Fault::invalid("due schedule has an invalid cursor"))?;
+    match &schedule.timing {
+        Timing::Once { .. } => Ok((first, None)),
+        Timing::Every { interval_ms, .. } => {
+            let interval = interval(*interval_ms)?;
+            let latest = first + ((timestamp - first) / interval) * interval;
+            Ok((latest, latest.checked_add(interval)))
+        }
+        Timing::Weekly {
+            timezone,
+            weekdays,
+            hour,
+            minute,
+        } => calendar::Calendar::new(timezone, weekdays, *hour, *minute)?.due(first, timestamp),
+    }
 }
 
 fn interval(milliseconds: u64) -> Result<i64, Fault> {

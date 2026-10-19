@@ -128,6 +128,9 @@ impl Tool for Control {
             }
             let deadline = tokio::time::Instant::now() + observation::window(&self.ingress.agents);
             loop {
+                let notified = self.ingress.agents.wake.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
                 let state = self
                     .ingress
                     .child_state_at(self.turn, args.session, args.turn)
@@ -161,7 +164,7 @@ impl Tool for Control {
                 tokio::select! {
                     _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "child wait was cancelled")),
                     _ = tokio::time::sleep_until(deadline) => return Ok(observation::pending(&state.run)),
-                    _ = tokio::time::sleep(Duration::from_millis(25)) => {},
+                    _ = notified => {},
                 }
             }
         };

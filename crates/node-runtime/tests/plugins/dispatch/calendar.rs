@@ -164,3 +164,134 @@ async fn delivers_overdue_calendar_after_restart() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn invalid_schedule_does_not_block_other_deliveries() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let context = actions::install_actions(
+            &client,
+            &directory.path().join("source/package"),
+            worktree,
+            0,
+            &[Action::Dispatch, Action::ReadStorage, Action::WriteStorage],
+        )
+        .await;
+        setup(&client, &context).await;
+        let mut records = Vec::new();
+        for topic in ["invalid", "message"] {
+            let jobs::Output::Schedule(schedule) = run(
+                &client,
+                &context,
+                jobs::Command::SaveSchedule(jobs::Schedule {
+                    id: ScheduleId::new(),
+                    revision: 0,
+                    enabled: false,
+                    topic: topic.into(),
+                    payload: json!({"key":"isolation","value":"once"}),
+                    timing: jobs::Timing::Once { at_ms: 1000 },
+                    next_ms: None,
+                }),
+            )
+            .await
+            else {
+                panic!("schedule expected")
+            };
+            records.push(schedule);
+        }
+        drop(client);
+        node.shutdown().await.unwrap();
+        let database =
+            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
+        let mut originals = Vec::new();
+        for (index, schedule) in records.iter_mut().enumerate() {
+            schedule.enabled = true;
+            if index == 0 {
+                schedule.timing = jobs::Timing::Every {
+                    anchor_ms: 1000,
+                    interval_ms: 0,
+                };
+            }
+            let body = serde_json::to_vec(schedule).unwrap();
+            database
+                .execute(
+                    "UPDATE dispatch_schedules SET next_ms=1000,body=?1 WHERE package=?2 AND id=?3",
+                    rusqlite::params![body, context.package.name, schedule.id.to_string()],
+                )
+                .unwrap();
+            originals.push(body);
+        }
+        database.close().unwrap();
+        let node = Node::start_empty_with_plugin_catalog(
+            directory.path().join("node"),
+            "http://127.0.0.1:9/",
+        )
+        .await
+        .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        let delivered = complete(&client, &context).await;
+        assert_eq!(delivered.event.schedule, Some(records[1].id));
+        let jobs::Output::Schedules(saved) =
+            run(&client, &context, jobs::Command::ListSchedules).await
+        else {
+            panic!("schedules expected")
+        };
+        assert_eq!(
+            saved.iter().find(|schedule| schedule.id == records[0].id),
+            Some(&records[0])
+        );
+        assert!(
+            saved
+                .iter()
+                .find(|schedule| schedule.id == records[1].id)
+                .unwrap()
+                .next_ms
+                .is_none()
+        );
+        let Output::PluginValue(value) = client
+            .execute(
+                client
+                    .prepare(Command::ReadPluginValue {
+                        key: "isolation".into(),
+                    })
+                    .with_plugin(context.clone()),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("value expected")
+        };
+        assert_eq!(value.value, json!("once"));
+        assert_eq!(value.revision, 1);
+        let jobs::Output::Jobs(page) = run(
+            &client,
+            &context,
+            jobs::Command::ListJobs {
+                before: None,
+                limit: 100,
+            },
+        )
+        .await
+        else {
+            panic!("jobs expected")
+        };
+        assert_eq!(page.jobs.len(), 1);
+        node.shutdown().await.unwrap();
+        let database =
+            rusqlite::Connection::open(directory.path().join("node/storage/node.sqlite3")).unwrap();
+        let body: Vec<u8> = database
+            .query_row(
+                "SELECT body FROM dispatch_schedules WHERE package=?1 AND id=?2",
+                rusqlite::params![context.package.name, records[0].id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(body, originals[0]);
+        database.close().unwrap();
+        controller.close().await.unwrap();
+    }
+}

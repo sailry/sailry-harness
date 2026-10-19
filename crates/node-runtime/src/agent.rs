@@ -221,14 +221,25 @@ async fn settle_children(
     if !ingress.pending_guidance(turn).await.unwrap_or(false) {
         controls.cancel_children(session);
     }
-    while controls.has_children(session) {
+    loop {
+        let changed = controls.changed.notified();
+        let guidance = controls.wake.notified();
+        tokio::pin!(changed, guidance);
+        changed.as_mut().enable();
+        guidance.as_mut().enable();
+        if !controls.has_children(session) {
+            break;
+        }
         if !token.is_cancelled() && ingress.yield_guidance(turn).await.unwrap_or(false) {
             break;
         }
         if token.is_cancelled() && ingress.pending_guidance(turn).await.unwrap_or(false) {
             break;
         }
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        tokio::select! {
+            _ = changed => {},
+            _ = guidance => {},
+        }
     }
 }
 

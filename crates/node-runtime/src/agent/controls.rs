@@ -32,7 +32,7 @@ pub(crate) struct Controls {
     pub(crate) stopped: CancellationToken,
     active: Mutex<BTreeMap<TurnId, Active>>,
     children: Mutex<BTreeMap<(SessionId, SessionId), Child>>,
-    changed: Notify,
+    pub(super) changed: Notify,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) child_observation: Mutex<Option<std::time::Duration>>,
 }
@@ -613,5 +613,26 @@ mod tests {
             controls.yield_run(turn);
             assert!(!controls.yielded(turn));
         }
+    }
+
+    #[tokio::test]
+    async fn retains_changes_registered_before_waiting() {
+        let controls = Controls::default();
+        let parent = SessionId::new();
+        let child = SessionId::new();
+        let turn = TurnId::new();
+        let stop = CancellationToken::new();
+        controls.register_child(parent, child, turn, stop.clone());
+        let changed = controls.changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        assert!(controls.has_children(parent));
+        controls.cancel_children(parent);
+        assert!(stop.is_cancelled());
+        controls.finish_child(parent, child, turn);
+        tokio::time::timeout(std::time::Duration::ZERO, changed)
+            .await
+            .unwrap();
+        assert!(!controls.has_children(parent));
     }
 }

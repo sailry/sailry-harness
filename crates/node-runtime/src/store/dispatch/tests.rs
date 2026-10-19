@@ -795,3 +795,116 @@ pub(super) fn install(
     };
     info
 }
+
+#[test]
+fn invalid_occurrences_do_not_starve_valid_schedules() {
+    let fixture = Fixture::new();
+    fixture.setup("valid");
+    let db = &fixture.database.connection;
+    let mut invalid = Vec::new();
+    for index in 0..65 {
+        let timing = if index % 2 == 0 {
+            Timing::Every {
+                anchor_ms: 0,
+                interval_ms: 0,
+            }
+        } else {
+            Timing::Weekly {
+                timezone: "invalid-zone".into(),
+                weekdays: vec![1],
+                hour: 12,
+                minute: 0,
+            }
+        };
+        let schedule = Schedule {
+            id: protocol::ScheduleId::new(),
+            revision: 1,
+            enabled: true,
+            topic: "invalid".into(),
+            payload: json!(null),
+            timing,
+            next_ms: Some(1000),
+        };
+        let body = encode(&schedule).unwrap();
+        db.execute(
+            "INSERT INTO dispatch_schedules(package,id,next_ms,body) VALUES(?1,?2,1000,?3)",
+            params![fixture.package.name, schedule.id.to_string(), body],
+        )
+        .unwrap();
+        invalid.push((schedule.id, body));
+    }
+    let valid = schedules::save(
+        db,
+        &fixture.package.name,
+        &Schedule {
+            id: protocol::ScheduleId::new(),
+            revision: 0,
+            enabled: true,
+            topic: "valid".into(),
+            payload: json!(null),
+            timing: Timing::Once { at_ms: 1001 },
+            next_ms: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        schedules::due(db, 2000).unwrap(),
+        vec![fixture.package.name.clone()]
+    );
+    let page = jobs::list(db, &fixture.package.name, None, 100).unwrap();
+    assert_eq!(page.jobs.len(), 1);
+    assert_eq!(page.jobs[0].event.schedule, Some(valid.id));
+    assert!(schedules::due(db, 2001).unwrap().is_empty());
+    for (id, original) in invalid {
+        let (cursor, body): (i64, Vec<u8>) = db
+            .query_row(
+                "SELECT next_ms,body FROM dispatch_schedules WHERE package=?1 AND id=?2",
+                params![fixture.package.name, id.to_string()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(cursor, 1000);
+        assert_eq!(body, original);
+    }
+}
+
+#[test]
+fn storage_failure_preserves_the_schedule_cursor() {
+    let fixture = Fixture::new();
+    fixture.setup("valid");
+    let db = &fixture.database.connection;
+    let schedule = schedules::save(
+        db,
+        &fixture.package.name,
+        &Schedule {
+            id: protocol::ScheduleId::new(),
+            revision: 0,
+            enabled: true,
+            topic: "valid".into(),
+            payload: json!(null),
+            timing: Timing::Once { at_ms: 1000 },
+            next_ms: None,
+        },
+    )
+    .unwrap();
+    db.execute_batch("DROP TABLE dispatch_events").unwrap();
+    assert_eq!(
+        schedules::due(db, 2000).unwrap_err().code,
+        ErrorCode::Internal
+    );
+    assert!(
+        jobs::list(db, &fixture.package.name, None, 100)
+            .unwrap()
+            .jobs
+            .is_empty()
+    );
+    let saved: Schedule = required(
+        db,
+        "dispatch_schedules",
+        &fixture.package.name,
+        "id",
+        &schedule.id.to_string(),
+    )
+    .unwrap();
+    assert_eq!(saved, schedule);
+}
