@@ -1,4 +1,4 @@
-use super::super::failure;
+use crate::terminal::failure;
 use portable_pty::CommandBuilder;
 use sailry_protocol::Fault;
 use std::path::Path;

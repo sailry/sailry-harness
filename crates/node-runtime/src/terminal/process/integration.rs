@@ -1,7 +1,7 @@
 //! Standard Ghostty shell hooks, installed for this PTY without editing user files.
 //! Zsh and Fish explicitly opt into OSC 133 prompt redraw: libghostty-vt defaults
 //! it off, unlike the full Ghostty application these hooks were written for.
-use super::super::failure;
+use crate::terminal::failure;
 use portable_pty::CommandBuilder;
 use sailry_protocol::Fault;
 use std::{ffi::OsString, path::Path};
@@ -29,12 +29,17 @@ pub(super) fn configure(
     }
     let mut builder = tempfile::Builder::new();
     builder.prefix("sailry-shell-");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
     let directory = match scratch {
         Some(scratch) => builder.tempdir_in(scratch),
         None => builder.tempdir(),
     }
     .map_err(failure)?;
     let root = directory.path();
+    crate::profile::private_directory(root).map_err(failure)?;
     let write = |name: &str, text: &str| std::fs::write(root.join(name), text).map_err(failure);
     command.env("GHOSTTY_SHELL_FEATURES", "title");
     match name {

@@ -15,7 +15,7 @@ use std::{
 };
 
 #[cfg(windows)]
-mod windows;
+pub(super) mod windows;
 
 struct Process {
     child: Box<dyn Child + Send + Sync>,

@@ -1,5 +1,12 @@
 use super::*;
 
+#[cfg(unix)]
+mod cleanup;
+#[cfg(unix)]
+mod fixture;
+#[cfg(unix)]
+mod startup;
+
 #[test]
 fn ignores_stale_metadata() {
     let db = Connection::open_in_memory().unwrap();

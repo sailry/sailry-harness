@@ -12,12 +12,21 @@ mod login;
 
 use crate::process::pty;
 
+#[cfg(unix)]
+mod ownership;
+#[cfg(test)]
+mod tests;
+
 pub(in crate::terminal) struct Process {
     pub child: Box<dyn Child + Send + Sync>,
     master: Option<Box<dyn MasterPty + Send>>,
     io: pty::Io,
     _integration: Option<tempfile::TempDir>,
     _sandbox: Option<crate::process::sandbox::Sandbox>,
+    #[cfg(unix)]
+    owner: Option<ownership::Owner>,
+    #[cfg(windows)]
+    job: Option<crate::process::PtyJob>,
 }
 
 impl Process {
@@ -62,19 +71,7 @@ impl Process {
         let scratch = if access == sailry_protocol::process::Access::Workspace
             && crate::process::sandbox::SUPPORTED
         {
-            let directory = if let Some(profile) = profile {
-                let directory = profile.join("tmp");
-                std::fs::create_dir_all(&directory).map_err(failure)?;
-                tempfile::Builder::new()
-                    .prefix("terminal-")
-                    .tempdir_in(directory)
-                    .map_err(failure)?
-            } else {
-                tempfile::Builder::new()
-                    .prefix("sailry-terminal-")
-                    .tempdir()
-                    .map_err(failure)?
-            };
+            let directory = scratch(profile)?;
             Some(std::sync::Arc::new(directory))
         } else {
             None
@@ -126,7 +123,13 @@ impl Process {
             let device: Option<std::path::PathBuf> = None;
             sandbox.terminal(&mut command, device.as_deref())?;
         }
+        #[cfg(windows)]
+        let job = crate::process::PtyJob::new()?;
+        #[cfg(windows)]
+        job.configure(&mut command);
         let mut child = pair.slave.spawn_command(command).map_err(failure)?;
+        #[cfg(unix)]
+        let owner = ownership::Owner::capture(child.as_ref());
         drop(pair.slave);
         let io = match pty::Io::start(
             &*pair.master,
@@ -143,6 +146,12 @@ impl Process {
         ) {
             Ok(io) => io,
             Err(error) => {
+                #[cfg(unix)]
+                if let Some(owner) = &owner {
+                    let _ = owner.stop();
+                }
+                #[cfg(windows)]
+                drop(job);
                 let _ = child.kill();
                 drop(pair.master);
                 let _ = child.wait();
@@ -155,6 +164,10 @@ impl Process {
             io,
             _integration: integration,
             _sandbox: sandbox,
+            #[cfg(unix)]
+            owner,
+            #[cfg(windows)]
+            job: Some(job),
         })
     }
 
@@ -169,10 +182,28 @@ impl Process {
     pub fn write(&self, bytes: Vec<u8>) -> Result<(), Fault> {
         self.io.write(bytes)
     }
+
+    pub fn try_wait(&mut self) -> Result<Option<u32>, Fault> {
+        let result = self.child.try_wait().map_err(failure)?;
+        #[cfg(unix)]
+        if result.is_some() {
+            // A reaped leader no longer anchors a session identity. Never reuse its numeric SID.
+            self.owner.take();
+        }
+        Ok(result.map(|status| status.exit_code()))
+    }
 }
 
 impl Drop for Process {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(owner) = self.owner.take()
+            && let Err(error) = owner.stop()
+        {
+            eprintln!("terminal descendant cleanup failed: {:?}", error.code);
+        }
+        #[cfg(windows)]
+        self.job.take();
         // Release every PTY descriptor before waiting: a foreground TUI can
         // remain in terminal teardown until the master is closed on macOS.
         self.io.stop();
@@ -207,4 +238,21 @@ fn size(viewport: &Viewport) -> PtySize {
         pixel_width: viewport.pixel_width.min(u16::MAX.into()) as u16,
         pixel_height: viewport.pixel_height.min(u16::MAX.into()) as u16,
     }
+}
+
+fn scratch(profile: Option<&Path>) -> Result<tempfile::TempDir, Fault> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("sailry-terminal-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let directory = match profile {
+        Some(profile) => builder.tempdir_in(crate::profile::temporary(profile)?),
+        None => builder.tempdir(),
+    }
+    .map_err(failure)?;
+    crate::profile::private_directory(directory.path()).map_err(failure)?;
+    Ok(directory)
 }

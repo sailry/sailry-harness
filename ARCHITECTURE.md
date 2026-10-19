@@ -344,7 +344,13 @@ commands requiring the complete environment automatically; Ask and Project
 retain explicit approval for that access. The Node's conversation setting can
 disable command sandboxing for subsequent calls in existing sessions without
 changing captured access for pending or running commands. User-created
-terminals start with the complete login-shell environment. Language services
+terminals start with the complete login-shell environment. Startup reserves a
+terminal slot before launching outside the shared inventory lock; concurrent
+opens of the same terminal share the existing result. Stop prevents late starts
+from publishing. Closing a local terminal stops its verified PTY session's job
+groups before its shell, or its existing Windows Job. If the Unix leader has
+already been reaped or its identity cannot be verified, cleanup does not infer
+ownership from a recycled session ID. Language services
 and configured hooks retain their own execution policies.
 The language-service plugin's enable switch controls the Node's service setting
 atomically. Disabling it cancels pending starts and queries immediately and omits

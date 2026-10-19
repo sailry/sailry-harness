@@ -172,7 +172,6 @@ pub(super) fn target(command: &Command) -> Option<Target> {
         Command::CreateTerminal(launch) | Command::OpenToolTerminal { launch, .. } => {
             Some(Target::Worktree(launch.worktree))
         }
-        Command::CloseTerminal { worktree, .. } => Some(Target::Worktree(*worktree)),
         Command::CopyEntryTo {
             source, worktree, ..
         }

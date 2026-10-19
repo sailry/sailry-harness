@@ -1,7 +1,7 @@
 mod local;
 pub(crate) mod ssh;
 
-use super::{failure, session::Message};
+use super::session::Message;
 use sailry_protocol::{
     Fault, SshId,
     terminal::{Settings, Tool, Viewport},
@@ -85,11 +85,7 @@ impl Process {
 
     pub fn try_wait(&mut self) -> Result<Option<u32>, Fault> {
         match self {
-            Self::Local(process) => process
-                .child
-                .try_wait()
-                .map(|status| status.map(|status| status.exit_code()))
-                .map_err(failure),
+            Self::Local(process) => process.try_wait(),
             Self::Ssh(process) => process.try_wait(),
         }
     }

@@ -444,7 +444,8 @@ impl Database {
             }
         } else if matches!(
             request.command,
-            Command::ExportBackup { .. }
+            Command::CloseTerminal { .. }
+                | Command::ExportBackup { .. }
                 | Command::RestoreBackup { .. }
                 | Command::StartCodeServer { .. }
                 | Command::StopCodeServer { .. }

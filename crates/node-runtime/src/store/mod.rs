@@ -718,11 +718,6 @@ impl Store {
                                 return commands.write(*session, *id, input)
                                     .map(|bytes| sailry_protocol::Output::CommandInputAccepted { id: *id, bytes });
                             }
-                            sailry_protocol::Command::CloseTerminal { worktree, terminal } => {
-                                return terminals
-                                    .close(*worktree, *terminal)
-                                    .map(sailry_protocol::Output::Terminal);
-                            }
                             sailry_protocol::Command::RemoveWorktree { worktree, .. }
                                 if terminals.active(*worktree) =>
                             {

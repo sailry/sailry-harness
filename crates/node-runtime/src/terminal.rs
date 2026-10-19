@@ -2,6 +2,7 @@ mod activity;
 mod process;
 mod session;
 pub(crate) mod shells;
+mod starts;
 pub(crate) mod tools;
 mod vt;
 pub(crate) use process::{Source, ssh::Connection as SshConnection};
@@ -11,26 +12,34 @@ use sailry_protocol::{
     terminal::{Frame, Info, Launch, Status},
     *,
 };
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Condvar, Mutex};
 use tokio::sync::broadcast;
 
 type Changed = Arc<dyn Fn(Info) + Send + Sync>;
 
 pub(crate) struct Terminals {
     node: NodeId,
-    sessions: Mutex<BTreeMap<TerminalId, Arc<session::Handle>>>,
+    sessions: Mutex<starts::State>,
+    started: Condvar,
+    #[cfg(test)]
+    before_start: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     stopping: CancellationToken,
     changed: Changed,
 }
 
 impl Terminals {
+    #[cfg(test)]
+    pub(crate) fn on_start(&self, before: Arc<dyn Fn() + Send + Sync>) {
+        *self.before_start.lock().unwrap() = Some(before);
+    }
+
     pub fn new(node: NodeId, changed: impl Fn(Info) + Send + Sync + 'static) -> Arc<Self> {
         Arc::new(Self {
             node,
-            sessions: Mutex::new(BTreeMap::new()),
+            sessions: Mutex::default(),
+            started: Condvar::new(),
+            #[cfg(test)]
+            before_start: Mutex::default(),
             stopping: CancellationToken::new(),
             changed: Arc::new(changed),
         })
@@ -71,6 +80,7 @@ impl Terminals {
             .sessions
             .lock()
             .unwrap()
+            .handles
             .get(&id)
             .map(|handle| handle.snapshot.lock().unwrap().info.clone()))
     }
@@ -103,22 +113,18 @@ impl Terminals {
         previous: Option<&Info>,
     ) -> Result<Info, Fault> {
         viewport.validate()?;
-        let mut sessions = self.sessions.lock().unwrap();
-        if self.stopping.is_cancelled() {
-            return Err(unavailable());
-        }
-        if let Some(previous) = previous
-            && let Some(handle) = sessions.get(&previous.id)
+        let reservation = match self.reserve(previous)? {
+            starts::Start::Existing(handle) => {
+                return Ok(handle.snapshot.lock().unwrap().info.clone());
+            }
+            starts::Start::Reserved(reservation) => reservation,
+        };
+        #[cfg(test)]
         {
-            return Ok(handle.snapshot.lock().unwrap().info.clone());
-        }
-        if sessions
-            .values()
-            .filter(|session| session.running())
-            .count()
-            >= 32
-        {
-            return Err(Fault::new(ErrorCode::Busy, "terminal capacity exhausted"));
+            let before = self.before_start.lock().unwrap().clone();
+            if let Some(before) = before {
+                before();
+            }
         }
         let handle = Arc::new(session::Handle::start(
             session::Origin {
@@ -130,11 +136,9 @@ impl Terminals {
             appearance.clone(),
             source,
             self.changed.clone(),
-            previous.map(|info| (info.id, info.revision + 1)),
+            Some((reservation.id, reservation.revision)),
         )?);
-        let info = handle.snapshot.lock().unwrap().info.clone();
-        sessions.insert(info.id, handle);
-        Ok(info)
+        reservation.publish(handle)
     }
 
     fn get(&self, id: TerminalId) -> Result<Arc<session::Handle>, Fault> {
@@ -144,6 +148,7 @@ impl Terminals {
         self.sessions
             .lock()
             .unwrap()
+            .handles
             .get(&id)
             .cloned()
             .ok_or_else(|| Fault::new(ErrorCode::NotFound, "terminal is not running on this Node"))
@@ -189,15 +194,20 @@ impl Terminals {
         });
         (self.changed)(info.clone());
         drop(snapshot);
-        self.sessions.lock().unwrap().remove(&id);
+        self.sessions.lock().unwrap().handles.remove(&id);
         Ok(info)
     }
 
     pub fn active(&self, worktree: WorktreeId) -> bool {
-        self.sessions.lock().unwrap().values().any(|handle| {
-            let snapshot = handle.snapshot.lock().unwrap();
-            snapshot.info.worktree == Some(worktree) && snapshot.info.status == Status::Running
-        })
+        self.sessions
+            .lock()
+            .unwrap()
+            .handles
+            .values()
+            .any(|handle| {
+                let snapshot = handle.snapshot.lock().unwrap();
+                snapshot.info.worktree == Some(worktree) && snapshot.info.status == Status::Running
+            })
     }
 
     pub async fn command(&self, caller: NodeId, command: Command) -> Result<Output, Fault> {
@@ -237,14 +247,20 @@ impl Terminals {
 
     pub fn stop(&self) {
         self.stopping.cancel();
-        for handle in self.sessions.lock().unwrap().values() {
+        for handle in self.sessions.lock().unwrap().handles.values() {
             handle.stop();
         }
+        self.started.notify_all();
     }
 
     pub fn join(&self) {
         self.stop();
-        let sessions = std::mem::take(&mut *self.sessions.lock().unwrap());
+        let mut state = self.sessions.lock().unwrap();
+        while state.pending() {
+            state = self.started.wait(state).unwrap();
+        }
+        let sessions = std::mem::take(&mut state.handles);
+        drop(state);
         for handle in sessions.values() {
             handle.close();
         }

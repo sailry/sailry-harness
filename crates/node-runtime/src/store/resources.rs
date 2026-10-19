@@ -7,6 +7,10 @@ use std::{panic::AssertUnwindSafe, sync::Arc};
 use tokio::{runtime::Handle, sync::oneshot};
 
 pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Fault> {
+    if let Command::CloseTerminal { worktree, .. } = &request.command {
+        database.worktree_root(*worktree)?;
+        return Ok(());
+    }
     if matches!(
         request.command,
         Command::ExportBackup { .. } | Command::RestoreBackup { .. }
@@ -143,6 +147,20 @@ impl Worker {
         self.runtime.spawn(async move {
             let operation = async {
                 match &execution.request.command {
+                    Command::CloseTerminal { worktree, terminal } => {
+                        let terminals = ingress.terminals.clone();
+                        let worktree = *worktree;
+                        let terminal = *terminal;
+                        tokio::task::spawn_blocking(move || terminals.close(worktree, terminal))
+                            .await
+                            .map_err(|_| {
+                                Fault::new(
+                                    ErrorCode::OutcomeUnknown,
+                                    "terminal close outcome is unavailable",
+                                )
+                            })?
+                            .map(Output::Terminal)
+                    }
                     Command::ExportBackup { .. } | Command::RestoreBackup { .. } => {
                         ingress.change_backup(&execution.request, &stop).await
                     }

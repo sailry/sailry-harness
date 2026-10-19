@@ -9,10 +9,10 @@ use windows_sys::Win32::System::JobObjects::{
     JobObjectExtendedLimitInformation, SetInformationJobObject,
 };
 
-pub(super) struct Job(Arc<OwnedHandle>);
+pub(crate) struct Job(Arc<OwnedHandle>);
 
 impl Job {
-    pub(super) fn new() -> Result<Self, Fault> {
+    pub(crate) fn new() -> Result<Self, Fault> {
         // SAFETY: null attributes and name create a private, non-inheritable Job.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
@@ -38,7 +38,7 @@ impl Job {
         Ok(job)
     }
 
-    pub(super) fn configure(&self, command: &mut portable_pty::CommandBuilder) {
+    pub(crate) fn configure(&self, command: &mut portable_pty::CommandBuilder) {
         command.set_windows_job(self.0.clone());
     }
 }
