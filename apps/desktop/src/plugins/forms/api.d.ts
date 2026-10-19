@@ -25,3 +25,11 @@ export function setText(handle:string, value:string): void;
 export function focusText(handle:string): void;
 export function isTextFocused(handle:string): boolean;
 export function nextTextEvent(): Promise<{id:string;kind:'enter'|'change'|'focus'|'blur'|'increment'|'decrement'}>;
+
+/** View-local styled Kit Slider. Programmatic values do not emit user events. */
+export function createSlider(value:number, options:{min:number;max:number;step:number;label?:string}):string;
+export function readSlider(handle:string):number;
+export function setSlider(handle:string,value:number):void;
+export function releaseSlider(handle:string):void;
+export function nextSliderEvent():Promise<{id:string;kind:'change'|'release';value:number}>;
+export const SliderField:{new(handle:string,props?:{disabled?:boolean}):import("gpui-kit").Element};

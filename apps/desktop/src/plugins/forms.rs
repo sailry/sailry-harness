@@ -22,6 +22,7 @@ use std::{
 const MAX_FIELDS: usize = 64;
 mod configuration;
 mod date;
+mod slider;
 #[cfg(test)]
 mod tests;
 
@@ -360,7 +361,7 @@ pub(super) fn module() -> HostModule {
             view.into_any_element()
         });
     }
-    date::extend(module).declarations(include_str!("forms/api.d.ts"))
+    slider::extend(date::extend(module)).declarations(include_str!("forms/api.d.ts"))
 }
 
 pub(super) fn bound(

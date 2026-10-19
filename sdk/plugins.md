@@ -39,6 +39,13 @@ or `decrement` without converting the value to a floating-point number. Packages
 own validation, exact arithmetic and saving. The bridge covers the pinned Kit
 script control's missing text-handle and step-event bindings.
 
+`sailry/forms.SliderField` binds a `createSlider(value, {min, max, step})`
+handle to Kit's styled native Slider. `nextSliderEvent` reports local `change`
+values and one `release` at the end of interaction; packages decide when to save.
+`setSlider` updates presentation without publishing a user event. Release handles
+with `releaseSlider`. This bridge covers the pinned 98a5e5d styled script Slider's
+missing state and event bindings; it does not reproduce the native track or thumb.
+
 `sailry/ui.SettingsRow.new(id, {label})` reuses the application's settings row.
 Pass an already localized label and place the trailing controls in its children;
 packages retain their drafts, validation and save behavior. In the pinned Kit
