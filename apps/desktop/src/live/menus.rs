@@ -89,13 +89,6 @@ pub(super) fn items(target: Target, local: bool) -> Vec<(Command, &'static str)>
     }
 }
 
-impl Command {
-    fn available(self, snapshot: Option<&sailry_protocol::Snapshot>) -> bool {
-        let _ = snapshot;
-        true
-    }
-}
-
 impl Shell {
     pub(crate) fn live_resource_menu(
         &mut self,
@@ -224,9 +217,6 @@ impl Shell {
         let Some(snapshot) = live.view.snapshot.clone() else {
             return;
         };
-        if !action.command.available(Some(&snapshot)) {
-            return;
-        }
         if let Target::Session(id) = action.target {
             let Some(session) = snapshot
                 .sessions

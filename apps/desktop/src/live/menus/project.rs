@@ -134,9 +134,6 @@ impl Shell {
         let mut menu = NativeMenu::new();
         let mut previous = None;
         for (command, label) in items(Target::Project(project), false) {
-            if !command.available(live.view.snapshot.as_ref()) {
-                continue;
-            }
             let group = match command {
                 Command::Open | Command::Edit => Group::Project,
                 Command::NewSession => Group::Create,

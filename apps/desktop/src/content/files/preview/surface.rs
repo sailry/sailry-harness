@@ -22,8 +22,6 @@ impl Native {
         window: &mut Window,
         cx: &mut App,
     ) -> Result<Self, ()> {
-        #[cfg(all(feature = "workload-tests", target_os = "macos"))]
-        let builder = super::check::prepare(builder);
         let handle = window.window_handle().map_err(|_| ())?;
         let page = builder
             .with_incognito(true)

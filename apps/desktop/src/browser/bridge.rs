@@ -55,12 +55,6 @@ impl State {
         };
         self.views.get(&Owner::Session(node, session)) == Some(browser)
     }
-    #[cfg(feature = "workload-tests")]
-    pub(crate) fn connected(&self, node: NodeId) -> bool {
-        self.connections
-            .get(&node)
-            .is_some_and(|connection| connection.ready.load(std::sync::atomic::Ordering::Acquire))
-    }
     pub(crate) fn close(&mut self) -> Vec<Entity<Browser>> {
         self.connections.clear();
         std::mem::take(&mut self.views).into_values().collect()
@@ -68,13 +62,10 @@ impl State {
 }
 struct Connection {
     stop: CancellationToken,
-    ready: std::sync::Arc<std::sync::atomic::AtomicBool>,
     _task: Task<()>,
 }
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.ready
-            .store(false, std::sync::atomic::Ordering::Release);
         self.stop.cancel();
     }
 }
@@ -99,8 +90,6 @@ impl Shell {
                 };
                 let stop = CancellationToken::new();
                 let cancellation = stop.clone();
-                let ready = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-                let connected = ready.clone();
                 let (send, mut receive) = tokio::sync::mpsc::channel::<(
                     Call,
                     tokio::sync::oneshot::Sender<sailry_protocol::browser::Result>,
@@ -110,7 +99,6 @@ impl Shell {
                     let work = async {
                         loop {
                             if let Ok(mut subscription) = client.subscribe_browser().await {
-                                connected.store(true, std::sync::atomic::Ordering::Release);
                                 while let Ok(Update::BrowserCall(call)) = subscription.next().await
                                 {
                                     let id = call.id;
@@ -133,7 +121,6 @@ impl Shell {
                                     }
                                 }
                             }
-                            connected.store(false, std::sync::atomic::Ordering::Release);
                             tokio::time::sleep(Duration::from_secs(1)).await;
                         }
                     };
@@ -165,14 +152,9 @@ impl Shell {
                         }
                     }
                 });
-                self.browsers.connections.insert(
-                    node,
-                    Connection {
-                        stop,
-                        ready,
-                        _task: task,
-                    },
-                );
+                self.browsers
+                    .connections
+                    .insert(node, Connection { stop, _task: task });
             }
         }
     }

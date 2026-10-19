@@ -3,8 +3,6 @@ use base64::Engine as _;
 use gpui_kit::{App, Task, Window};
 use std::path::PathBuf;
 
-#[cfg(all(feature = "workload-tests", target_os = "macos"))]
-pub(crate) mod check;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod native;
 

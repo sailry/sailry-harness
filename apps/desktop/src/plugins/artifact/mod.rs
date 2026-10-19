@@ -14,10 +14,6 @@ use sailry_protocol::{
 use serde::Deserialize;
 use std::sync::Arc;
 mod export;
-#[cfg(all(target_os = "macos", feature = "workload-tests"))]
-pub(super) mod native_check;
-#[cfg(all(target_os = "macos", feature = "workload-tests"))]
-pub(in crate::plugins) mod native_flow;
 mod page;
 mod surface;
 #[cfg(test)]

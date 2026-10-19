@@ -9,8 +9,6 @@ use sailry_protocol::{
 
 pub(super) async fn prepare(
     root: &Path,
-    browser: Option<String>,
-    capture: bool,
 ) -> (Node, crate::agent_fixture::Server, [(NodeId, Session); 2]) {
     let local = Node::start_isolated(root.join("local")).await.unwrap();
     let remote = Node::start_isolated(root.join("remote")).await.unwrap();
@@ -19,15 +17,7 @@ pub(super) async fn prepare(
         .pair(remote.link().invite().unwrap().ticket())
         .await
         .unwrap();
-    let server = if let Some(url) = &browser {
-        if capture {
-            crate::agent_fixture::Server::browser(url.clone()).await
-        } else {
-            crate::agent_fixture::Server::browser_interactions(url.clone()).await
-        }
-    } else {
-        crate::agent_fixture::Server::workload().await
-    };
+    let server = crate::agent_fixture::Server::workload().await;
     let mut sessions = Vec::new();
     for (name, node) in [("Local workload", &local), ("Remote workload", &remote)] {
         let project_root = root.join(name);
@@ -121,9 +111,7 @@ pub(super) async fn prepare(
         else {
             panic!("session expected")
         };
-        if browser.is_none() {
-            turns(&client, &session, "Seed ", 24).await;
-        }
+        turns(&client, &session, "Seed ", 24).await;
         sessions.push((node.id(), session));
     }
     local.shutdown().await.unwrap();

@@ -456,15 +456,6 @@ cli_untrusted: 项目信任已撤销，请关闭后重新确认
 cli_codex: Codex
 cli_claude: Claude Code
 cli_gemini: Gemini CLI
-cli_live_empty: 此主机未找到可用的 CLI
-cli_live_failed: 无法读取此主机的 CLI
-cli_live_unavailable: 此主机上的 CLI 已不可用
-cli_live_launch_failed: 终端启动失败
-cli_live_unknown: 尚未确认启动结果，请重试确认
-cli_live_starting: 正在启动
-cli_live_loading: 正在读取
-cli_live_retry: 重试
-cli_live_refresh: 刷新
 cli_agy: Agy
 cli_grok: Grok
 cli_opencode: OpenCode
@@ -959,15 +950,6 @@ chat_search_unavailable: 无法显示搜索建议
 chat_capability_pending: 尚未接入
 chat_config_desktop: 桌面配置
 chat_provider_source: "%{name} · %{source}"
-chat_selection_effect: 保存采用所选版本，不改变已发送或排队的任务
-chat_selection_empty: 暂无可选项
-chat_selection_missing: 不可用
-chat_selection_updated: 将更新至此版本
-chat_selection_unavailable: 请取消选择不可用项
-chat_selection_changed: 所选项已变化，请重新加载
-chat_selection_conflict: 配置已变化，请重新加载
-chat_selection_disconnected: 未连接，暂时无法重新加载
-chat_selection_reload: 重新加载
 settings_save: 保存
 chat_provider_session: "%{name} · 会话"
 chat_provider_node: "%{name} · 主机"
@@ -1237,15 +1219,6 @@ composer_effort: 推理强度
 composer_model_settings: 模型与强度
 composer_effort_reset: 恢复默认强度
 composer_effort_unavailable: 默认
-composer_effort_default: 默认
-composer_effort_dynamic: 动态
-composer_effort_budget: "%{tokens} Token"
-composer_effort_none: 无
-composer_effort_minimal: 极低
-composer_effort_low: 低
-composer_effort_medium: 中
-composer_effort_high: 高
-composer_effort_xhigh: 极高
 composer_compression_hint: 上下文压缩进度：暂无运行数据（UI 预览）
 composer_context_usage: "%{used} / %{limit}"
 composer_context_thousand: "%{value}K"

@@ -156,16 +156,7 @@ impl Surface {
         let loaded = self.events.clone();
         let handle = HasWindowHandle::window_handle(window).map_err(|error| error.to_string())?;
         let view = wry::WebViewBuilder::new()
-            .with_custom_protocol("sailry-visual".into(), |_, request| {
-                let response = asset(&request);
-                #[cfg(feature = "workload-tests")]
-                eprintln!(
-                    "Visual asset: {} {}",
-                    request.uri().path(),
-                    response.status()
-                );
-                response
-            })
+            .with_custom_protocol("sailry-visual".into(), |_, request| asset(&request))
             .with_url(URL)
             .with_incognito(true)
             .with_visible(false)
@@ -179,14 +170,6 @@ impl Surface {
             .with_download_started_handler(|_, _| false)
             .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
             .with_on_page_load_handler(move |event, _| {
-                #[cfg(feature = "workload-tests")]
-                eprintln!(
-                    "Visual page: {}",
-                    match &event {
-                        wry::PageLoadEvent::Started => "started",
-                        wry::PageLoadEvent::Finished => "finished",
-                    }
-                );
                 if matches!(event, wry::PageLoadEvent::Finished) {
                     let _ = loaded.send(Event::Ready(generation));
                 }
@@ -195,17 +178,7 @@ impl Surface {
                 if request.body().len() <= visuals::MAX_SVG_BYTES + 4096
                     && let Ok(message) = serde_json::from_str::<Message>(request.body())
                 {
-                    #[cfg(feature = "workload-tests")]
-                    eprintln!(
-                        "Visual IPC: id={} result={} error={:?}",
-                        message.id,
-                        message.result.is_some(),
-                        message.error
-                    );
                     let _ = events.send(Event::Result(generation, message));
-                } else {
-                    #[cfg(feature = "workload-tests")]
-                    eprintln!("Visual IPC rejected: {} bytes", request.body().len());
                 }
             })
             .build_as_child(&handle)
@@ -269,8 +242,6 @@ impl Surface {
                 continue;
             }
             let script = script(job.id, &job.request);
-            #[cfg(feature = "workload-tests")]
-            eprintln!("Visual dispatch: id={} kind={:?}", job.id, job.request.kind);
             if let Err(error) = self
                 .view
                 .as_ref()
@@ -290,16 +261,6 @@ impl Surface {
         self.deadline = Some(cx.spawn(async move |surface, cx| {
             cx.background_executor().timer(DEADLINE).await;
             let _ = surface.update(cx, |surface, _| {
-                #[cfg(feature = "workload-tests")]
-                eprintln!(
-                    "Visual deadline: ready={} active={:?} queued={}",
-                    surface.ready,
-                    surface
-                        .active
-                        .as_ref()
-                        .map(|job| (job.id, job.request.kind)),
-                    surface.queue.len()
-                );
                 surface.close("Visual rendering timed out");
             });
         }));
@@ -347,6 +308,3 @@ fn script(id: u64, request: &Request) -> String {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(all(feature = "workload-tests", target_os = "macos"))]
-pub(super) mod native_check;

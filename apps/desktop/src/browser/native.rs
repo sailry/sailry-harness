@@ -18,37 +18,6 @@ pub(super) enum Event {
 }
 
 impl Browser {
-    #[cfg(feature = "workload-tests")]
-    pub(crate) fn visibility_state(&self, id: u64, cx: &App) -> serde_json::Value {
-        let tab = self.tabs.iter().find(|tab| tab.id as u64 == id);
-        let page = tab
-            .and_then(|tab| tab.page.as_ref())
-            .map(|page| page.read(cx));
-        #[cfg(target_os = "macos")]
-        let hidden = page.map(|page| {
-            use wry::WebViewExtMacOS as _;
-            page.raw().webview().isHidden()
-        });
-        #[cfg(target_os = "windows")]
-        let hidden = page.and_then(|page| {
-            use wry::WebViewExtWindows as _;
-            let mut visible = windows_webview::core::BOOL::default();
-            // SAFETY: the retained controller and output pointer are valid on this UI thread.
-            unsafe { page.raw().controller().IsVisible(&mut visible).ok() }?;
-            Some(!visible.as_bool())
-        });
-        serde_json::json!({
-            "mounted": self.mounted.get(),
-            "lease": self.lease,
-            "selected": self.tabs.get(self.selected).map(|tab| tab.id),
-            "requested": id,
-            "background": tab.map(|tab| tab.background),
-            "loading": tab.map(|tab| tab.loading),
-            "kit_visible": page.map(|page| page.visible()),
-            "raw_hidden": hidden,
-        })
-    }
-
     pub(super) fn focus_selected(&self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(tab) = self
             .tabs
@@ -234,15 +203,6 @@ impl Browser {
         tab.loading = tab.error.is_none();
         self.visibility(self.mounted.get(), window, cx);
         self.changed(cx);
-    }
-
-    #[cfg(feature = "workload-tests")]
-    pub(crate) fn handle(&self, tab: u64, cx: &App) -> Option<gpui_webview::WebViewHandle> {
-        self.tabs
-            .iter()
-            .find(|entry| entry.id as u64 == tab)
-            .and_then(|entry| entry.page.as_ref())
-            .map(|page| page.read(cx).handle())
     }
 
     pub(super) fn accept(

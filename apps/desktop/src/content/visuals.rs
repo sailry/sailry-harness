@@ -15,8 +15,3 @@ pub(crate) fn release(window: &mut gpui_kit::Window, cx: &mut gpui_kit::App) {
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = (window, cx);
 }
-
-#[cfg(all(feature = "workload-tests", target_os = "macos"))]
-pub(crate) fn verify_native(output: &std::path::Path) {
-    native::native_check::run(output);
-}

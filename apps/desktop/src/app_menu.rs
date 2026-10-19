@@ -7,10 +7,6 @@ use gpui_kit::{component::input, prelude::*, *};
 mod logs;
 #[cfg(not(test))]
 mod native;
-#[cfg(feature = "workload-tests")]
-mod native_check;
-#[cfg(feature = "workload-tests")]
-pub(crate) use native_check::run as verify_native;
 
 actions!(
     sailry,

@@ -119,15 +119,6 @@ impl<D: Definition + 'static> Tool for Operation<D> {
                         Some(request.command.clone()),
                     )
                     .await?;
-                if matches!(
-                    request.command,
-                    Command::WriteFile { .. } | Command::EditFile { .. }
-                ) {
-                    self.binding
-                        .ingress
-                        .checkpoint_write(self.binding.turn, &request, self.binding.stop.clone())
-                        .await?;
-                }
                 if context.is_cancelled() || self.binding.stop.is_cancelled() {
                     return Err(Fault::new(
                         ErrorCode::Cancelled,

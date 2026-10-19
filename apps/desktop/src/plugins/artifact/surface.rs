@@ -86,16 +86,6 @@ impl View {
                 "kind":"edited","artifact":resource.artifact.id,"revision":revision.unwrap()
             }));
         }
-        #[cfg(all(target_os = "macos", feature = "workload-tests"))]
-        {
-            let owner = cx.entity().downgrade();
-            if cx.has_global::<super::native_flow::Surfaces>() {
-                cx.global_mut::<super::native_flow::Surfaces>().0.insert(
-                    (resource.binding.client.target(), resource.artifact.id),
-                    owner,
-                );
-            }
-        }
         let stop = host.stop_token().child_token();
         let mut updates = host.artifact_updates().ok();
         let cancellation = stop.clone();
@@ -205,20 +195,6 @@ impl View {
         }
         self.dirty = false;
         self.refresh(window, cx);
-    }
-
-    #[cfg(all(target_os = "macos", feature = "workload-tests"))]
-    pub(super) fn native_fixture(
-        &self,
-    ) -> Option<Rc<crate::content::files::html::surface::Native>> {
-        self.native.clone()
-    }
-
-    #[cfg(all(target_os = "macos", feature = "workload-tests"))]
-    pub(super) fn fixture_revision(&self) -> Option<(u32, u32)> {
-        self.content
-            .as_ref()
-            .map(|content| (content.artifact.revision, content.latest_revision))
     }
 
     fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {

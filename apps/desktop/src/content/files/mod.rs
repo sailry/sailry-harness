@@ -84,11 +84,6 @@ pub(crate) fn mime(path: &str) -> String {
     }
 }
 
-#[cfg(all(feature = "workload-tests", target_os = "macos"))]
-pub(crate) fn verify_native(output: &std::path::Path) {
-    html::check::run(output);
-}
-
 /// Native document surfaces keep platform handles and bytes outside plugin JavaScript.
 pub(crate) fn preview(
     binding: Binding,

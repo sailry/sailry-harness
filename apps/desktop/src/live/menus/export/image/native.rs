@@ -99,13 +99,6 @@ fn create(
         .with_download_started_handler(|_, _| false)
         .with_ipc_handler(move |request| {
             if request.body().len() <= 64 * 1024 * 1024 {
-                #[cfg(feature = "workload-tests")]
-                if std::env::var("SAILRY_WORKLOAD_CASE").is_ok_and(|case| case == "conversation-export")
-                    && let Ok(value) = serde_json::from_str::<serde_json::Value>(request.body())
-                    && let Some(error) = value.get("error").and_then(serde_json::Value::as_str)
-                {
-                    eprintln!("Export renderer: {}", error.chars().take(2048).collect::<String>());
-                }
                 let _ = send.try_send(request.body().clone());
             }
         })

@@ -140,10 +140,6 @@ async fn read(
     Ok(bytes)
 }
 
-#[cfg(all(feature = "workload-tests", target_os = "macos"))]
-#[path = "preview/native_check.rs"]
-pub(super) mod check;
-
 pub(super) fn create(
     binding: Binding,
     file: File,
