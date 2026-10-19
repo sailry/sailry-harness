@@ -209,7 +209,13 @@ async fn request(
                     biased;
                     _ = core.stop.cancelled() => break,
                     _ = send.stopped() => break,
-                    update = subscription.next() => update?,
+                    update = subscription.next() => match update {
+                        Ok(update) => update,
+                        Err(error) => {
+                            frame::write_reply(&core, &mut send, &Reply::Rejected(error)).await?;
+                            break;
+                        }
+                    },
                 };
                 if !core.trusted(peer) {
                     break;

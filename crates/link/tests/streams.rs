@@ -58,10 +58,17 @@ impl<'writer> tracing_subscriber::fmt::MakeWriter<'writer> for Capture {
 }
 
 #[derive(Default)]
-struct Peers(Mutex<BTreeSet<NodeId>>);
+struct Peers {
+    values: Mutex<BTreeSet<NodeId>>,
+    gate: Mutex<Option<Arc<TrustGate>>>,
+}
+struct TrustGate {
+    entered: tokio::sync::Semaphore,
+    release: tokio::sync::Semaphore,
+}
 impl PeerStore for Peers {
     fn peers(&self) -> Pending<'_, Result<Vec<NodeId>, Fault>> {
-        Box::pin(async { Ok(self.0.lock().unwrap().iter().copied().collect()) })
+        Box::pin(async { Ok(self.values.lock().unwrap().iter().copied().collect()) })
     }
     fn addresses(&self) -> Pending<'_, Result<Vec<EndpointAddr>, Fault>> {
         Box::pin(async { Ok(vec![]) })
@@ -71,7 +78,12 @@ impl PeerStore for Peers {
     }
     fn set_trust(&self, peer: NodeId, trusted: bool) -> Pending<'_, Result<(), Fault>> {
         Box::pin(async move {
-            let mut peers = self.0.lock().unwrap();
+            let gate = self.gate.lock().unwrap().clone();
+            if let Some(gate) = gate {
+                gate.entered.add_permits(1);
+                gate.release.acquire().await.unwrap().forget();
+            }
+            let mut peers = self.values.lock().unwrap();
             if trusted {
                 peers.insert(peer);
             } else {
@@ -144,6 +156,9 @@ impl Handler for Echo {
         topic: sailry_protocol::Topic,
     ) -> Pending<'_, Result<Box<dyn Subscription>, Fault>> {
         Box::pin(async move {
+            if matches!(topic, Topic::Browser) {
+                return Ok(Box::new(subscriptions::Failure(false)) as Box<dyn Subscription>);
+            }
             if matches!(topic, Topic::Conversation(_)) {
                 self.preparing.add_permits(1);
                 return Ok(Box::new(subscriptions::Idle(false)) as Box<dyn Subscription>);
@@ -164,6 +179,7 @@ impl Handler for Echo {
 struct Fixture {
     _directory: tempfile::TempDir,
     controller: Link,
+    peers: Arc<Peers>,
     execution: Link,
     handler: Arc<Echo>,
     caller: NodeId,
@@ -189,11 +205,12 @@ impl Fixture {
             release: tokio::sync::Semaphore::new(0),
             completions: Mutex::new(vec![]),
         });
+        let peers = Arc::new(Peers::default());
         let controller = Link::bind(
             &controller,
             NetworkScope::default(),
             handler.clone(),
-            Arc::new(Peers::default()),
+            peers.clone(),
         )
         .await
         .unwrap();
@@ -210,6 +227,7 @@ impl Fixture {
         Self {
             _directory: directory,
             controller,
+            peers,
             execution,
             handler,
             caller,

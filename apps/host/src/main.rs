@@ -1,4 +1,5 @@
 mod bootstrap;
+mod lifecycle;
 #[cfg(target_os = "macos")]
 use sailry_node_runtime::computer_worker;
 #[cfg(unix)]
@@ -92,71 +93,17 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     } else {
         None
     };
-    let node = Node::start_with_computer(&options.data_dir, options.network, computer).await?;
-    if options.internet
-        && let Err(error) = node.link().online().await
-    {
-        node.shutdown().await?;
-        return Err(error.into());
-    }
-    node.observe().probe().await?;
-    let stop = sailry_link::CancellationToken::new();
-    #[cfg(unix)]
-    let control = match control::listen(&options.data_dir) {
-        Ok(listener) => listener,
-        Err(error) => {
-            node.shutdown().await?;
-            return Err(error.into());
+    let node =
+        Node::start_with_computer(&options.data_dir, options.network.clone(), computer).await?;
+    let stopped = async move {
+        #[cfg(unix)]
+        tokio::select! {
+            _ = terminate.recv() => {},
+            _ = interrupt.recv() => {},
         }
+        #[cfg(not(unix))]
+        tokio::signal::ctrl_c().await?;
+        Ok(())
     };
-    #[cfg(unix)]
-    let control = tokio::spawn(control::serve(
-        control,
-        node.link(),
-        node.local(),
-        stop.clone(),
-    ));
-    println!(
-        "Node ready: {} (only paired peers are authorized)",
-        node.profile().display()
-    );
-    println!(
-        "Link address: {}",
-        serde_json::to_string(&node.link().address())?
-    );
-    let bootstrap = options.bootstrap.then(|| {
-        let path = options.data_dir.join("bootstrap.ticket");
-        let link = node.link();
-        let stop = stop.clone();
-        tokio::spawn(async move {
-            if let Err(error) = bootstrap::serve(link, path, stop).await {
-                eprintln!("Host bootstrap failed: {error}");
-            }
-        })
-    });
-    let sharing = options
-        .pairing
-        .map(|relay| tokio::spawn(pairing::share(relay, node.link(), stop.clone())));
-    #[cfg(unix)]
-    tokio::select! {
-        _ = terminate.recv() => {},
-        _ = interrupt.recv() => {},
-    }
-    #[cfg(not(unix))]
-    tokio::signal::ctrl_c().await?;
-    stop.cancel();
-    #[cfg(unix)]
-    {
-        let _ = control.await;
-        std::fs::remove_file(options.data_dir.join("control.sock"))?;
-    }
-    if let Some(sharing) = sharing {
-        let _ = sharing.await;
-    }
-    if let Some(bootstrap) = bootstrap {
-        let _ = bootstrap.await;
-    }
-    node.shutdown().await?;
-    println!("Node stopped");
-    Ok(0)
+    lifecycle::serve(node, options, stopped).await.map(|()| 0)
 }

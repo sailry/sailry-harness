@@ -77,8 +77,13 @@ pub(super) async fn observe(
                 .lock()
                 .await
                 .get(&NodeId(*address.id.as_bytes()))
-                .filter(|cached| cached.address.id == address.id)
-                .map(|cached| cached.telemetry.clone());
+                .and_then(|slot| {
+                    let cached = slot.cached.lock().ok()?;
+                    cached
+                        .as_ref()
+                        .filter(|cached| cached.address.id == address.id)
+                        .map(|cached| cached.telemetry.clone())
+                });
             if let Some(mut receiver) = receiver {
                 loop {
                     updates.send_replace(*receiver.borrow_and_update());

@@ -147,3 +147,44 @@ async fn shutdown_cancels_preparation() {
     drop(subscription);
     fixture.controller.close().await.unwrap();
 }
+
+pub(super) struct Failure(pub bool);
+impl Subscription for Failure {
+    fn next(&mut self) -> Pending<'_, Result<Update, Fault>> {
+        Box::pin(async move {
+            if !self.0 {
+                self.0 = true;
+                return Ok(Update::ResetRequired);
+            }
+            Err(Fault::new(
+                ErrorCode::RevisionConflict,
+                "fixture subscription changed",
+            ))
+        })
+    }
+}
+
+#[tokio::test]
+async fn preserves_live_rejections() {
+    let fixture = Fixture::new().await;
+    let local: Arc<dyn Transport> = Arc::new(Local::new(
+        fixture.target,
+        fixture.caller,
+        fixture.handler.clone(),
+    ));
+    for transport in [local, fixture.remote()] {
+        let mut subscription = transport.subscribe(Topic::Browser).await.unwrap();
+        assert!(matches!(
+            subscription.next().await,
+            Ok(Update::ResetRequired)
+        ));
+        let error = tokio::time::timeout(Duration::from_secs(2), subscription.next())
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error.code, ErrorCode::RevisionConflict);
+        assert_eq!(error.message, "fixture subscription changed");
+        assert_eq!(error.details, None);
+    }
+    fixture.close().await;
+}

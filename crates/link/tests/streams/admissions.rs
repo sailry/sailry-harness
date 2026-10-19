@@ -243,3 +243,100 @@ async fn shutdown_interrupts_completion_without_replay() {
     assert_eq!(fixture.handler.completions.lock().unwrap().len(), 1);
     fixture.execution.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn trust_changes_bypass_completion_capacity() {
+    let fixture = Fixture::new().await;
+    let directory = fixture._directory.path().join("second-execution");
+    std::fs::create_dir(&directory).unwrap();
+    let identity = Identity::open(&directory).unwrap();
+    let other = identity.id();
+    let execution = Link::bind(
+        &identity,
+        NetworkScope::default(),
+        fixture.handler.clone(),
+        Arc::new(Peers::default()),
+    )
+    .await
+    .unwrap();
+    execution
+        .handle()
+        .set_trust(fixture.caller, true)
+        .await
+        .unwrap();
+    fixture
+        .controller
+        .handle()
+        .set_trust(other, true)
+        .await
+        .unwrap();
+    let mut completions = Vec::new();
+    // The observer quota belongs to the controller. Two peers avoid testing
+    // QUIC's batched stream-credit return after each connection's Inspect.
+    for (target, address) in [
+        (fixture.target, fixture.execution.handle().address()),
+        (other, execution.handle().address()),
+    ] {
+        let remote = fixture.controller.handle().remote(address);
+        for _ in 0..32 {
+            let admission = remote.dispatch(installation(target)).await.unwrap();
+            assert!(admission.receipt.durable);
+            completions.push(admission.completion);
+        }
+    }
+    // Every receipt has arrived, but the service has not released one business
+    // completion. All 64 existing observer slots are still occupied.
+    assert_eq!(fixture.handler.completions.lock().unwrap().len(), 64);
+    let gate = Arc::new(TrustGate {
+        entered: tokio::sync::Semaphore::new(0),
+        release: tokio::sync::Semaphore::new(0),
+    });
+    *fixture.peers.gate.lock().unwrap() = Some(gate.clone());
+    let handle = fixture.controller.handle();
+    let target = fixture.target;
+    let mut changes = handle.peer_changes();
+    let control = tokio::spawn(async move { handle.set_trust(target, false).await });
+    notified(&gate.entered).await;
+    control.abort();
+    assert!(control.await.unwrap_err().is_cancelled());
+    gate.release.add_permits(1);
+    tokio::time::timeout(Duration::from_secs(2), changes.changed())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !fixture
+            .peers
+            .values
+            .lock()
+            .unwrap()
+            .contains(&fixture.target)
+    );
+    *fixture.peers.gate.lock().unwrap() = None;
+    fixture
+        .controller
+        .handle()
+        .set_trust(other, false)
+        .await
+        .unwrap();
+    for completion in completions {
+        let result = tokio::time::timeout(Duration::from_secs(2), completion)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            result,
+            Err(Fault {
+                code: ErrorCode::OutcomeUnknown,
+                ..
+            })
+        ));
+    }
+    assert_eq!(
+        fixture.handler.completions.lock().unwrap().len(),
+        64,
+        "revocation must not replay admitted work"
+    );
+    execution.close().await.unwrap();
+    fixture.close().await;
+}

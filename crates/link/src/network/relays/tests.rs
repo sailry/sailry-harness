@@ -332,6 +332,11 @@ async fn observes_selected_relay_and_ip_paths() {
             .await
             .get(&NodeId(*address.id.as_bytes()))
             .unwrap()
+            .cached
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
             .telemetry
             .clone();
         let (sender, mut observed) = watch::channel(ConnectionInfo::default());
@@ -364,6 +369,11 @@ async fn observes_selected_relay_and_ip_paths() {
             updates.same_channel(
                 &cached
                     .get(&NodeId(*address.id.as_bytes()))
+                    .unwrap()
+                    .cached
+                    .lock()
+                    .unwrap()
+                    .as_ref()
                     .unwrap()
                     .telemetry
             )
@@ -451,6 +461,11 @@ async fn reconnects_existing_handles_after_host_switch() {
             .lock()
             .await
             .get(&NodeId(*id.as_bytes()))
+            .unwrap()
+            .cached
+            .lock()
+            .unwrap()
+            .as_ref()
             .unwrap()
             .address,
         candidate

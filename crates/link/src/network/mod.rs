@@ -1,5 +1,6 @@
 mod connection;
 mod frame;
+mod outgoing;
 mod pairing;
 mod relays;
 mod remote;
@@ -68,12 +69,13 @@ struct Core {
     handler: Arc<dyn Handler>,
     store: Arc<dyn PeerStore>,
     trusted: RwLock<BTreeSet<NodeId>>,
-    outgoing: Mutex<HashMap<NodeId, CachedConnection>>,
+    outgoing: Mutex<HashMap<NodeId, Arc<outgoing::Slot>>>,
     // Authenticated migration hints supplement addresses held by existing Remote handles.
     addresses: RwLock<HashMap<NodeId, EndpointAddr>>,
     stop: CancellationToken,
     work: mpsc::Sender<Work>,
-    trust_update: Mutex<()>,
+    control: mpsc::Sender<Work>,
+    trust_update: Arc<Mutex<()>>,
     trust_changed: watch::Sender<()>,
     invitation: std::sync::Mutex<Option<pairing::Offer>>,
     auxiliary: Arc<tokio::sync::Semaphore>,
@@ -200,6 +202,9 @@ impl Link {
     ) -> Result<Self, Fault> {
         let trusted = store.peers().await?.into_iter().collect();
         let (work, receiver) = mpsc::channel(MAX_TASKS);
+        // The owned trust guard serializes controls before enqueue. Completion
+        // observers cannot occupy this slot in the existing supervisor.
+        let (control, controls) = mpsc::channel(1);
         let core = Arc::new(Core {
             name: RwLock::new(None),
             endpoint,
@@ -210,14 +215,15 @@ impl Link {
             addresses: RwLock::new(HashMap::new()),
             stop: CancellationToken::new(),
             work,
-            trust_update: Mutex::new(()),
+            control,
+            trust_update: Arc::new(Mutex::new(())),
             trust_changed: watch::channel(()).0,
             invitation: std::sync::Mutex::new(None),
             auxiliary: Arc::new(tokio::sync::Semaphore::new(32)),
             relay_selection: RwLock::new(relay_selection),
             relay_update: Mutex::new(()),
         });
-        let worker = tokio::spawn(drive(core.clone(), receiver));
+        let worker = tokio::spawn(drive(core.clone(), receiver, controls));
         Ok(Self {
             handle: LinkHandle { core },
             worker,
@@ -285,70 +291,7 @@ impl LinkHandle {
     /// Authenticate the same paired identity before publishing a replacement route.
     /// Existing Remote handles resolve this route on their next connection attempt.
     pub async fn update_peer(&self, address: EndpointAddr) -> Result<(), Fault> {
-        let _update = self.core.trust_update.lock().await;
-        let peer = NodeId(*address.id.as_bytes());
-        if !self.core.trusted(peer) {
-            return Err(Fault::new(
-                ErrorCode::PermissionDenied,
-                "peer is not paired",
-            ));
-        }
-        let mut outgoing = self.core.outgoing.lock().await;
-        outgoing.retain(|_, cached| cached.connection.close_reason().is_none());
-        if !outgoing.contains_key(&peer) && outgoing.len() >= MAX_CONNECTIONS {
-            return Err(Fault::new(
-                ErrorCode::Busy,
-                "Link connection capacity exhausted",
-            ));
-        }
-        let connection = self
-            .core
-            .wait(self.core.endpoint.connect(address.clone(), ALPN))
-            .await?
-            .map_err(network)?;
-        let info = match self.core.inspect_connection(&connection).await {
-            Ok(info) => info,
-            Err(error) => {
-                connection.close(0u32.into(), b"peer inspection failed");
-                return Err(error);
-            }
-        };
-        crate::compatibility::check(
-            self.core.handler.product_version(),
-            info.software_version.as_deref(),
-        )?;
-        self.core.store.remember(address.clone()).await?;
-        self.core
-            .addresses
-            .write()
-            .map_err(network)?
-            .insert(peer, address.clone());
-        if let Some(previous) = outgoing.remove(&peer) {
-            // iroh may return an already established connection for this identity.
-            if previous.connection.stable_id() != connection.stable_id() {
-                previous
-                    .connection
-                    .close(0u32.into(), b"peer address changed");
-            }
-        }
-        let (updates, telemetry) = watch::channel(connection::snapshot(&connection));
-        let sampler = tokio::spawn(connection::monitor(
-            connection.clone(),
-            updates,
-            self.core.stop.clone(),
-        ));
-        outgoing.insert(
-            peer,
-            CachedConnection {
-                address,
-                connection,
-                software_version: info.software_version,
-                telemetry,
-                sampler,
-            },
-        );
-        self.core.trust_changed.send_replace(());
-        Ok(())
+        self.core.replace_address(address).await
     }
 
     /// Wait before issuing an Internet invitation so its ticket includes the home relay.
@@ -377,9 +320,10 @@ impl LinkHandle {
     pub async fn set_trust(&self, peer: NodeId, trusted: bool) -> Result<(), Fault> {
         let core = self.core.clone();
         let (reply, response) = oneshot::channel();
-        self.core.spawn(Box::pin(async move {
+        let update = self.core.trust_update.clone().lock_owned().await;
+        let work = Box::pin(async move {
+            let _update = update;
             let result = async {
-                let _update = core.trust_update.lock().await;
                 core.store.set_trust(peer, trusted).await?;
                 {
                     let mut peers = core.trusted.write().map_err(network)?;
@@ -393,22 +337,25 @@ impl LinkHandle {
                 if !trusted {
                     core.addresses.write().map_err(network)?.remove(&peer);
                 }
-                if !trusted && let Some(connection) = core.outgoing.lock().await.remove(&peer) {
-                    connection.connection.close(1u32.into(), b"peer revoked");
+                if !trusted && let Some(connection) = core.outgoing.lock().await.get(&peer) {
+                    connection.close(1, b"peer revoked");
                 }
                 Ok(())
             }
             .await;
             let _ = reply.send(result);
-        }))?;
+        });
+        tokio::select! {
+            biased;
+            _ = self.core.stop.cancelled() => return Err(network("closed")),
+            result = self.core.control.send(work) => result.map_err(network)?,
+        }
         response.await.map_err(network)?
     }
 
     pub async fn disconnect(&self, peer: NodeId) {
-        if let Some(connection) = self.core.outgoing.lock().await.remove(&peer) {
-            connection
-                .connection
-                .close(0u32.into(), b"client disconnected");
+        if let Some(connection) = self.core.outgoing.lock().await.get(&peer) {
+            connection.close(0, b"client disconnected");
         }
     }
 }
@@ -477,74 +424,6 @@ impl Core {
         Ok(target)
     }
 
-    async fn connection(
-        &self,
-        target: &EndpointAddr,
-        execution: bool,
-    ) -> Result<Connection, Fault> {
-        if self.stop.is_cancelled() {
-            return Err(network("closed"));
-        }
-        let id = NodeId(*target.id.as_bytes());
-        if !self.trusted(id) {
-            return Err(Fault::new(
-                ErrorCode::PermissionDenied,
-                "peer is not paired",
-            ));
-        }
-        // One outgoing connection owner per peer; reconnection never replays a request itself.
-        let mut outgoing = self.outgoing.lock().await;
-        let target = self.current_address(target)?;
-        outgoing.retain(|_, cached| cached.connection.close_reason().is_none());
-        if let Some(cached) = outgoing.get(&id) {
-            if execution {
-                crate::compatibility::check(
-                    self.handler.product_version(),
-                    cached.software_version.as_deref(),
-                )?;
-            }
-            return Ok(cached.connection.clone());
-        }
-        if outgoing.len() >= MAX_CONNECTIONS {
-            return Err(Fault::new(
-                ErrorCode::Busy,
-                "Link connection capacity exhausted",
-            ));
-        }
-        let connection = self
-            .wait(self.endpoint.connect(target.clone(), ALPN))
-            .await?
-            .map_err(network)?;
-        if !self.trusted(id) {
-            connection.close(1u32.into(), b"peer revoked");
-            return Err(Fault::new(ErrorCode::PermissionDenied, "peer was revoked"));
-        }
-        let info = self.inspect_connection(&connection).await?;
-        if execution {
-            crate::compatibility::check(
-                self.handler.product_version(),
-                info.software_version.as_deref(),
-            )?;
-        }
-        let (updates, telemetry) = watch::channel(connection::snapshot(&connection));
-        let sampler = tokio::spawn(connection::monitor(
-            connection.clone(),
-            updates,
-            self.stop.clone(),
-        ));
-        outgoing.insert(
-            id,
-            CachedConnection {
-                address: target.clone(),
-                connection: connection.clone(),
-                software_version: info.software_version,
-                telemetry,
-                sampler,
-            },
-        );
-        Ok(connection)
-    }
-
     async fn wait<T>(&self, future: impl std::future::Future<Output = T>) -> Result<T, Fault> {
         tokio::select! {
             biased;
@@ -554,13 +433,18 @@ impl Core {
     }
 }
 
-async fn drive(core: Arc<Core>, mut receiver: mpsc::Receiver<Work>) -> Result<(), Fault> {
+async fn drive(
+    core: Arc<Core>,
+    mut receiver: mpsc::Receiver<Work>,
+    mut controls: mpsc::Receiver<Work>,
+) -> Result<(), Fault> {
     let mut work = JoinSet::new();
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
             biased;
             _ = core.stop.cancelled() => break,
+            Some(control) = controls.recv() => { work.spawn(control); },
             _ = work.join_next(), if !work.is_empty() => {},
             _ = connections.join_next(), if !connections.is_empty() => {},
             Some(task) = receiver.recv(), if work.len() < MAX_TASKS => { work.spawn(task); },
@@ -579,6 +463,7 @@ async fn drive(core: Arc<Core>, mut receiver: mpsc::Receiver<Work>) -> Result<()
         }
     }
     receiver.close();
+    controls.close();
     work.shutdown().await;
     connections.shutdown().await;
     core.endpoint.close().await;
