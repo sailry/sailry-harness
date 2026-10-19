@@ -261,6 +261,12 @@ fn accepts_complete_batches() {
         &fixture.events,
     )
     .unwrap();
+    assert_eq!(
+        context::history(&fixture.database.connection, fixture.session, turn)
+            .unwrap()
+            .frontier,
+        Some(format!("exchange:{}", results[1].id))
+    );
     let compacted = summary(&results[1]);
     history::append(
         &mut fixture.database,
@@ -339,4 +345,58 @@ fn rejects_orphans_and_mismatches() {
             id == "call" && name == "read_file"
         );
     }
+}
+
+#[test]
+fn uses_real_turn_boundaries() {
+    let mut fixture = Fixture::new();
+    let original = event("First canonical content");
+    let mut retry = AdkEvent::new("different-synthetic-invocation");
+    retry.author = "system".into();
+    retry.provider_metadata.insert(
+        "sailry_retry".into(),
+        serde_json::json!({"attempt":1,"limit":5}).to_string(),
+    );
+    let final_event = event("Final canonical content");
+    let prior = fixture.append([original.clone(), retry, final_event.clone()]);
+    let current = fixture.queued();
+    let history = context::history(&fixture.database.connection, fixture.session, current).unwrap();
+    assert_eq!(history.completed, vec![3]);
+    assert_eq!(history.current, 3);
+    assert_eq!(history.recent, None);
+    assert_eq!(history.frontier, Some(format!("turn:{prior}")));
+    assert_eq!(history.events[0].id, original.id);
+    assert_eq!(history.events[2].id, final_event.id);
+    assert!(
+        context::validate(
+            &fixture.database.connection,
+            fixture.session,
+            current,
+            &summary(&original)
+        )
+        .is_err()
+    );
+    assert!(
+        context::validate(
+            &fixture.database.connection,
+            fixture.session,
+            current,
+            &summary(&final_event)
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn retains_recent_plain_turns() {
+    let mut fixture = Fixture::new();
+    fixture.append([event("First turn")]);
+    let second = event("Second turn");
+    fixture.append([second.clone(), event("Second response")]);
+    fixture.append([event("Third turn")]);
+    let current = fixture.queued();
+    let history = context::history(&fixture.database.connection, fixture.session, current).unwrap();
+    assert_eq!(history.recent, Some(1));
+    assert_eq!(history.events[history.recent.unwrap()].id, second.id);
+    assert_eq!(history.completed, vec![1, 3, 4]);
 }

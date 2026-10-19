@@ -220,3 +220,87 @@ async fn reply_usage(
         .await?;
     stream.shutdown().await
 }
+
+pub async fn respond_exchange(
+    stream: TcpStream,
+    body: &Value,
+    delegation: bool,
+) -> std::io::Result<()> {
+    if is_summary(body) {
+        return respond_usage(
+            stream,
+            body,
+            None,
+            "Context summary fixture: first file verified",
+            100,
+        )
+        .await;
+    }
+    let messages = body["messages"].as_array().unwrap();
+    let done = |id: &str| {
+        messages
+            .iter()
+            .any(|message| message["role"] == "tool" && message["tool_call_id"] == id)
+    };
+    let settled = if delegation {
+        done("delegated-first") && done("delegated-second")
+    } else {
+        done("parallel-read") && done("parallel-write")
+    };
+    let calls = if settled {
+        vec![]
+    } else if done("sequential-2") {
+        if delegation {
+            vec![
+                (
+                    "delegated-first",
+                    plugin_tool("delegation", "spawn_agent"),
+                    json!({"role":"review","task":"First child evidence","background":false}),
+                ),
+                (
+                    "delegated-second",
+                    plugin_tool("delegation", "spawn_agent"),
+                    json!({"role":"fast","task":"Second child evidence","background":false}),
+                ),
+            ]
+        } else {
+            vec![
+                (
+                    "parallel-write",
+                    plugin_tool("files", "write_file"),
+                    json!({"path":"written.txt","text":"Written exactly once","expected_revision":null}),
+                ),
+                (
+                    "parallel-read",
+                    plugin_tool("files", "read_file"),
+                    json!({"path":"source-3.txt","limit":sailry_protocol::MAX_FILE_LINES}),
+                ),
+            ]
+        }
+    } else {
+        let index = if done("sequential-1") { 2 } else { 1 };
+        vec![(
+            if index == 1 {
+                "sequential-1"
+            } else {
+                "sequential-2"
+            },
+            plugin_tool("files", "read_file"),
+            json!({"path":format!("source-{index}.txt"),"limit":sailry_protocol::MAX_FILE_LINES}),
+        )]
+    };
+    let read = !calls.is_empty();
+    let delta = if read {
+        json!({"role":"assistant","tool_calls":calls.into_iter().enumerate().map(|(index,(id,name,args))| json!({"index":index,"id":id,"type":"function","function":{"name":name,"arguments":args.to_string()}})).collect::<Vec<_>>()})
+    } else {
+        json!({"role":"assistant","content":"Verified the independent results"})
+    };
+    reply_usage(
+        stream,
+        body,
+        delta,
+        read,
+        Some(if read { 14_000 } else { 100 }),
+    )
+    .await
+}

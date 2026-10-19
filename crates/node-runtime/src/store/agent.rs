@@ -206,6 +206,11 @@ pub(super) enum Operation {
         closed: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<Box<dyn sailry_link::Subscription>, Fault>>,
     },
+    ContextHistory {
+        session: SessionId,
+        turn: TurnId,
+        reply: oneshot::Sender<adk_core::Result<compaction::History>>,
+    },
     ContextUsage {
         session: SessionId,
         reply: oneshot::Sender<Result<Option<ContextUsage>, Fault>>,
@@ -275,6 +280,7 @@ pub(crate) struct Child {
 }
 
 pub(crate) struct ContextUsage {
+    pub observed: bool,
     pub tokens: u64,
     pub pending: Vec<AdkEvent>,
 }
@@ -295,6 +301,25 @@ impl Ingress {
             .await
             .map_err(|_| super::unavailable())?;
         response.await.map_err(|_| super::unavailable())?
+    }
+
+    pub(crate) async fn context_history(
+        &self,
+        session: SessionId,
+        turn: TurnId,
+    ) -> adk_core::Result<compaction::History> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .send(Job::Agent(Box::new(Operation::ContextHistory {
+                session,
+                turn,
+                reply,
+            })))
+            .await
+            .map_err(|_| AdkError::session("Node storage is closed"))?;
+        response
+            .await
+            .map_err(|_| AdkError::session("Node storage is closed"))?
     }
 
     pub(crate) async fn context_usage(
@@ -827,6 +852,13 @@ pub(super) fn execute(
                 )
             });
             let _ = reply.send(result);
+        }
+        Operation::ContextHistory {
+            session,
+            turn,
+            reply,
+        } => {
+            let _ = reply.send(compaction::history(&database.connection, session, turn));
         }
         Operation::ContextUsage { session, reply } => {
             let result = check_session(&database.connection, session)

@@ -345,7 +345,7 @@ fn reuses_calls_during_streaming() {
         statistics: Default::default(),
     };
     let mut view = View::default();
-    view.replace(Arc::new(snapshot.clone()), 0);
+    view.replace(Arc::new(snapshot.clone()), 0, 1, None);
     let calls = view.calls.clone();
     snapshot.sequence += 1;
     snapshot.drafts.push(Draft {
@@ -355,14 +355,16 @@ fn reuses_calls_during_streaming() {
         branch: String::new(),
         parts: vec![Part::Text("streaming".into())],
     });
-    view.replace(Arc::new(snapshot.clone()), 0);
+    view.replace(Arc::new(snapshot.clone()), 0, 1, None);
     assert!(Arc::ptr_eq(&calls, &view.calls));
     let turn = snapshot.page.runs[0].turn;
     Arc::make_mut(&mut snapshot.page)
         .entries
         .push(entry(2, turn, "", true));
-    view.replace(Arc::new(snapshot), 0);
+    view.replace(Arc::new(snapshot), 0, 2, Some(2));
     assert!(!Arc::ptr_eq(&calls, &view.calls));
+    assert_eq!(view.generation, 2);
+    assert_eq!(view.live_start, Some(2));
     assert_eq!(view.calls[0].state, State::Returned);
     let serialized = serde_json::to_value(&view).unwrap();
     assert_eq!(serialized["calls"][0]["response"]["entry"], "event-2");

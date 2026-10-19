@@ -165,6 +165,8 @@ impl Client {
                                         view.replace(
                                             Arc::new(snapshot.clone()),
                                             projection.artifact_cursor(),
+                                            generation,
+                                            projection.live_start(),
                                         );
                                         view.loading_older = load.is_some();
                                     });

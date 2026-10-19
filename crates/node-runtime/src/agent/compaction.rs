@@ -62,17 +62,14 @@ pub(super) async fn manual(
 ) -> Result<(), Fault> {
     let service = ingress.sessions(invocation.turn.id);
     let session = invocation.turn.session.to_string();
-    let history = service
-        .get(adk_session::GetRequest {
-            app_name: APP.into(),
-            user_id: USER.into(),
-            session_id: session.clone(),
-            num_recent_events: None,
-            after: None,
-        })
+    let history = ingress
+        .context_history(invocation.turn.session, invocation.turn.id)
         .await
         .map_err(model::error)?;
-    let events = history.events().all();
+    let events = history.events;
+    if events.is_empty() {
+        return Ok(());
+    }
     if events.len() == 1
         && events[0]
             .provider_metadata
@@ -81,8 +78,16 @@ pub(super) async fn manual(
         return Ok(());
     }
     let summarizer = Summarizer::new(ingress, model, invocation, stop.clone());
+    let Some(cut) = summarizer
+        .prefix(&events, history.completed.into_iter().rev())
+        .map_err(model::error)?
+    else {
+        return Err(model::error(invalid(
+            "no complete prefix fits the context summary budget",
+        )));
+    };
     if let Some(event) = summarizer
-        .summarize_with(&events, SummaryMode::Manual)
+        .summarize_with(&events[..cut], SummaryMode::Manual)
         .await
         .map_err(model::error)?
         && !stop.is_cancelled()
@@ -189,22 +194,20 @@ impl Summarizer {
     }
 
     fn covered_instruction(&self, events: &[Event]) -> Option<Instruction> {
-        if let Some(instruction) = &self.instruction {
-            let turn = self.turn.to_string();
-            return events
-                .iter()
-                .any(|event| {
-                    event.author == "user"
-                        && event.provider_metadata.get(crate::store::agent::INPUT_TURN)
-                            == Some(&turn)
+        self.instruction
+            .as_ref()
+            .filter(|instruction| {
+                events.iter().any(|event| {
+                    event.provider_metadata.get(crate::store::agent::INPUT_TURN)
+                        == Some(&self.turn.to_string())
                         && original(event).is_some_and(|original| {
                             original.text == instruction.text
                                 && original.source == instruction.source
                         })
                 })
-                .then(|| instruction.clone());
-        }
-        latest(events)
+            })
+            .cloned()
+            .or_else(|| latest(events))
     }
 
     fn failure(&self, mode: SummaryMode, stage: &'static str, error: &adk_core::AdkError) {
@@ -243,9 +246,21 @@ struct Prepared {
 }
 
 impl Summarizer {
+    #[cfg(test)]
     fn prepare(&self, events: &[Event]) -> adk_core::Result<Prepared> {
-        let transcript = transcript(events)?;
-        let instruction = self.covered_instruction(events);
+        self.prepare_text(transcript(events)?, self.covered_instruction(events))?
+            .ok_or_else(|| {
+                invalid(
+                    "context summary exceeds the summary budget or estimated model input budget",
+                )
+            })
+    }
+
+    fn prepare_text(
+        &self,
+        transcript: String,
+        instruction: Option<Instruction>,
+    ) -> adk_core::Result<Option<Prepared>> {
         let verbatim = instruction
             .as_ref()
             .map_or_else(String::new, |instruction| {
@@ -254,12 +269,14 @@ impl Summarizer {
                     instruction.source, instruction.text
                 )
             });
-        let size_limit = self.size_limit();
-        let available = size_limit
+        let Some(mut available) = self
+            .size_limit()
             .checked_sub(verbatim.len())
             .filter(|available| *available >= MINIMUM_BYTES)
-            .ok_or_else(|| invalid("latest instruction exceeds the summary budget"))?;
-        let request = LlmRequest {
+        else {
+            return Ok(None);
+        };
+        let mut request = LlmRequest {
             model: self.model.name().into(),
             contents: vec![
                 Content::new("system")
@@ -273,29 +290,91 @@ impl Summarizer {
             tools: Default::default(),
             previous_response_id: None,
         };
-        Ok(Prepared {
+        let input = estimate::request(&request)?;
+        let remaining = self.context.map(|context| context.saturating_sub(input));
+        let output = self
+            .output
+            .filter(|output| *output > 0)
+            .map(|output| output as u64)
+            .unwrap_or_else(|| (available as u64).div_ceil(4));
+        let output = remaining.map_or(output, |remaining| output.min(remaining));
+        if output == 0 {
+            return Ok(None);
+        }
+        available = available.min(usize::try_from(output.saturating_mul(4)).unwrap_or(usize::MAX));
+        request.config.as_mut().unwrap().max_output_tokens =
+            Some(output.min(i32::MAX as u64) as i32);
+        request.contents[0] = Content::new("system")
+            .with_text(format!("{PROMPT}\nHandoff budget: {available} UTF-8 bytes"));
+        Ok(Some(Prepared {
             request,
             transcript_bytes: transcript.len(),
             available,
             verbatim,
             instruction,
-        })
+        }))
     }
 
     fn fits(&self, events: &[Event]) -> adk_core::Result<bool> {
-        let prepared = self.prepare(events)?;
-        self.fits_request(&prepared.request)
+        // Inability to fit is a candidate rejection, not a failed ordinary turn.
+        match self.prepare_text(transcript(events)?, self.covered_instruction(events))? {
+            Some(prepared) => self.fits_request(&prepared.request),
+            None => Ok(false),
+        }
     }
 
     fn fits_request(&self, request: &LlmRequest) -> adk_core::Result<bool> {
         let Some(context) = self.context else {
             return Ok(true);
         };
-        let reserve = context
-            .checked_sub(self.output.unwrap_or(0).max(0) as u64)
-            .filter(|remaining| *remaining > 0)
-            .unwrap_or(context);
-        Ok(estimate::request(request)? <= reserve)
+        let output = request
+            .config
+            .as_ref()
+            .and_then(|config| config.max_output_tokens)
+            .unwrap_or(0)
+            .max(0) as u64;
+        Ok(estimate::request(request)?.saturating_add(output) <= context)
+    }
+
+    fn prefix(
+        &self,
+        events: &[Event],
+        candidates: impl Iterator<Item = usize>,
+    ) -> adk_core::Result<Option<usize>> {
+        // Serialize each canonical event once. Reject large candidates by their
+        // cumulative envelope estimate before materializing any full transcript.
+        let mut bytes = vec![2usize];
+        let mut count = 0usize;
+        for event in events {
+            let size = transcript(std::slice::from_ref(event))?
+                .len()
+                .saturating_sub(2);
+            if size > 0 {
+                count += 1;
+            }
+            bytes.push(
+                bytes
+                    .last()
+                    .unwrap()
+                    .saturating_add(size)
+                    .saturating_add(usize::from(size > 0 && count > 1)),
+            );
+        }
+        for cut in candidates {
+            if cut == 0 || cut > events.len() {
+                continue;
+            }
+            if self
+                .context
+                .is_some_and(|context| (bytes[cut] as u64).div_ceil(4).saturating_add(1) > context)
+            {
+                continue;
+            }
+            if self.fits(&events[..cut])? {
+                return Ok(Some(cut));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -327,7 +406,8 @@ impl Summarizer {
                 available,
                 verbatim,
                 instruction,
-            } = self.prepare(events)?;
+            } = self.prepare_text(transcript, self.covered_instruction(events))?
+                .ok_or_else(|| invalid("context summary exceeds the summary budget or estimated model input budget"))?;
             if !self.fits_request(&request)? {
                 return Err(invalid(
                     "context summary exceeds the estimated model input budget",
@@ -339,7 +419,7 @@ impl Summarizer {
                 biased;
                 _ = self.stop.cancelled() => return Ok(None),
                 // The shared model owns first-response and per-event inactivity deadlines.
-                result = summarize(&*self.model, request) => result?,
+                result = summarize(&*self.model, request, available) => result?,
             };
             span.entry.stage = Some("validation");
             let Summary {
@@ -353,8 +433,15 @@ impl Summarizer {
             if text.len() > available {
                 return Err(invalid("context summary exceeds the size limit"));
             }
+            // Verbatim source instructions cannot be compressed. Require the
+            // generated handoff to reduce the other data and the complete result
+            // to remain smaller, without penalizing preserving original words.
+            let preserved = instruction.as_ref().map_or(0, |instruction| instruction.text.len());
+            if text.len().saturating_mul(2) >= transcript_bytes.saturating_sub(preserved) {
+                return Err(invalid("context summary did not reduce the conversation"));
+            }
             text.push_str(&verbatim);
-            if text.len() > self.size_limit() || text.len() * 2 >= transcript_bytes {
+            if text.len() > self.size_limit() || text.len() >= transcript_bytes {
                 return Err(invalid("context summary did not reduce the conversation"));
             }
             let mut event = Event::new(self.turn.to_string());
@@ -453,7 +540,11 @@ struct Summary {
     timing: Option<serde_json::Value>,
 }
 
-async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Summary> {
+async fn summarize(
+    model: &dyn Llm,
+    request: LlmRequest,
+    available: usize,
+) -> adk_core::Result<Summary> {
     let mut stream = model
         .generate_content(request, true)
         .await
@@ -467,6 +558,19 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
         if response.interrupted || response.error_code.is_some() || response.error_message.is_some()
         {
             return Err(invalid("context summary request failed"));
+        }
+        let final_text = !response.partial
+            && response.content.as_ref().is_some_and(|content| {
+                content
+                    .parts
+                    .iter()
+                    .any(|part| matches!(part, Part::Text {text} if !text.is_empty()))
+            });
+        if response
+            .finish_reason
+            .is_some_and(|reason| reason != FinishReason::Stop)
+        {
+            return Err(invalid("context summary was not completed"));
         }
         if let Some(content) = response.content {
             let mut chunk = String::new();
@@ -484,7 +588,7 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
                     text = chunk
                 }
             }
-            if text.len() > SUMMARY_BYTES {
+            if text.len() > available {
                 return Err(invalid("context summary exceeds the size limit"));
             }
         }
@@ -496,12 +600,9 @@ async fn summarize(model: &dyn Llm, request: LlmRequest) -> adk_core::Result<Sum
                 .and_then(|metadata| metadata.get("sailry_timing"))
                 .cloned();
         }
-        if response.turn_complete {
-            if response.finish_reason != Some(FinishReason::Stop) {
-                return Err(invalid("context summary was not completed"));
-            }
-            complete = true;
-        }
+        complete |= response.turn_complete
+            || response.finish_reason == Some(FinishReason::Stop)
+            || final_text;
     }
     if !complete {
         return Err(invalid("context summary stream ended before completion"));

@@ -205,6 +205,7 @@ fn invalidates_stale_context() {
         assert_eq!(
             context_usage(&fixture.database.connection, fixture.session)
                 .unwrap()
+                .filter(|usage| usage.observed)
                 .map(|usage| usage.tokens),
             tokens
         );

@@ -504,11 +504,83 @@ async fn stops_overfull_context_on_summary_failure() {
         assert_eq!(&after.entries[..before.entries.len()], before.entries);
         assert_eq!(summaries(&after), 0);
         let requests = server.requests.lock().unwrap().clone();
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 3);
         assert!(!agent_support::compaction::is_summary(&requests[0]));
-        assert!(agent_support::compaction::is_summary(&requests[1]));
+        assert!(
+            requests[1..]
+                .iter()
+                .all(agent_support::compaction::is_summary)
+        );
         fixture.client.execute(request).await.unwrap();
-        assert_eq!(server.requests.lock().unwrap().len(), 2);
+        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn continues_nonfull_unfittable_context() {
+    for remote in [false, true] {
+        let server = Server::summary(14_000).await;
+        let fixture = Fixture::files(remote, &server).await;
+        model(&fixture, 16_000, 2_048, false).await;
+        let original = "x".repeat(31 * 1024);
+        let (_, first, before) =
+            submit(&fixture.client, fixture.session.id, original.clone()).await;
+        let (_, second, after) = submit(
+            &fixture.client,
+            fixture.session.id,
+            "Continue with the original constraint".into(),
+        )
+        .await;
+        for turn in [first, second] {
+            assert_eq!(
+                after
+                    .runs
+                    .iter()
+                    .find(|run| run.turn == turn)
+                    .unwrap()
+                    .status,
+                Status::Completed
+            );
+        }
+        assert_eq!(&after.entries[..before.entries.len()], before.entries);
+        assert!(
+            after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::Text(text) if text == &original))
+        );
+        assert_eq!(summaries(&after), 0);
+        let warnings = after
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| {
+                if let Part::Resource(value) = part
+                    && value["type"] == "operation_warning"
+                {
+                    Some(value)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0]["code"], "context_summary_failed");
+        assert_eq!(warnings[0]["turn"], serde_json::to_value(second).unwrap());
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 2);
+            assert!(
+                requests
+                    .iter()
+                    .all(|request| !agent_support::compaction::is_summary(request))
+            );
+            assert!(messages(&requests[1]).contains(&original));
+            assert!(!messages(&requests[1]).contains("context_summary_failed"));
+        }
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

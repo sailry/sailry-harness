@@ -63,6 +63,7 @@ mod submission;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(super) mod tools;
+mod warnings;
 mod watch;
 
 #[derive(Clone)]
@@ -211,6 +212,7 @@ impl View {
         cx: &mut Context<Self>,
     ) -> Self {
         Self::observe_errors(window, cx);
+        warnings::observe(window, cx);
         crate::preferences::init(cx);
         cx.observe_global::<crate::preferences::Preferences>(|view, cx| {
             let display = crate::preferences::data(cx)

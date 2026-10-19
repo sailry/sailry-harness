@@ -1,10 +1,15 @@
-//! Compact completed tool exchanges through ADK's per-model callback.
+//! Compact complete canonical prefixes through ADK's per-model callback.
 use super::*;
-use crate::store::agent::ContextUsage;
+use crate::store::agent::{ContextUsage, compaction::History};
 use adk_core::BeforeModelResult;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{
+    Mutex,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 
+mod matching;
 mod native;
+use matching::{Checkpoint, tail};
 
 pub(super) struct Context {
     ingress: Arc<Ingress>,
@@ -13,7 +18,22 @@ pub(super) struct Context {
     summarizer: Summarizer,
     preamble: Content,
     applied: AtomicBool,
-    failed: AtomicBool,
+    retention: AtomicUsize,
+    attempted: Mutex<Option<Attempt>>,
+    checkpoint: Mutex<Option<Arc<Checkpoint>>>,
+}
+
+struct Attempt {
+    end: String,
+    length: usize,
+    // A larger retention window alone is not newly completed work.
+    frontier: Option<String>,
+}
+
+impl Attempt {
+    fn advances(&self, next: &Self) -> bool {
+        self.end != next.end && next.length > self.length && self.frontier != next.frontier
+    }
 }
 
 impl Context {
@@ -31,7 +51,9 @@ impl Context {
             summarizer,
             preamble: Content::new("system").with_text(instruction),
             applied: AtomicBool::new(false),
-            failed: AtomicBool::new(false),
+            retention: AtomicUsize::new(1),
+            attempted: Mutex::new(None),
+            checkpoint: Mutex::new(None),
         }
     }
 
@@ -39,38 +61,47 @@ impl Context {
         &self,
         events: &[Event],
         automatic: bool,
+        frontier: Option<&str>,
     ) -> adk_core::Result<Option<Event>> {
-        // A failed automatic request must not stall every remaining tool batch
-        // or repeat again after the invocation. Explicit requests can retry;
-        // a new turn has its own Context and keeps the original history.
-        if automatic && self.failed.load(Ordering::Relaxed) {
-            return Ok(None);
+        let last = events
+            .iter()
+            .rev()
+            .find(|event| event.content().is_some())
+            .map(|event| event.id.clone());
+        if automatic && let Some(last) = last {
+            let mut attempted = self
+                .attempted
+                .lock()
+                .map_err(|_| invalid("context attempt state is unavailable"))?;
+            let next = Attempt {
+                end: last,
+                length: events.len(),
+                frontier: frontier.map(str::to_owned),
+            };
+            if attempted
+                .as_ref()
+                .is_some_and(|previous| !previous.advances(&next))
+            {
+                return Ok(None);
+            }
+            *attempted = Some(next);
         }
-        let result = self
-            .summarizer
-            .summarize_with(events, SummaryMode::Automatic)
-            .await;
-        match &result {
-            Err(_) => self.failed.store(true, Ordering::Relaxed),
-            Ok(Some(_)) => self.failed.store(false, Ordering::Relaxed),
-            Ok(None) => {}
-        }
-        result
+        self.summarizer
+            .summarize_with(
+                events,
+                if automatic {
+                    SummaryMode::Automatic
+                } else {
+                    SummaryMode::Manual
+                },
+            )
+            .await
     }
 
-    async fn events(&self) -> adk_core::Result<Vec<Event>> {
-        Ok(self
-            .service
-            .get(adk_session::GetRequest {
-                app_name: APP.into(),
-                user_id: USER.into(),
-                session_id: self.session.to_string(),
-                num_recent_events: None,
-                after: None,
-            })
-            .await?
-            .events()
-            .all())
+    async fn history(&self) -> adk_core::Result<History> {
+        self.ingress
+            .context_history(self.session, self.summarizer.turn)
+            .await
     }
 
     async fn usage(&self) -> adk_core::Result<Option<ContextUsage>> {
@@ -83,186 +114,400 @@ impl Context {
     }
 
     fn projected(usage: &ContextUsage) -> u64 {
-        // Pending text estimates trigger early compaction, not a tokenizer-based
-        // rejection. Only the provider observation establishes a known full window.
         usage
             .tokens
             .saturating_add(estimate::tokens(&usage.pending))
     }
 
-    async fn needs_compaction(&self) -> adk_core::Result<bool> {
-        Ok(self
-            .summarizer
-            .needs_compaction(self.usage().await?.as_ref().map(Self::projected)))
+    fn candidates(&self, history: &History, keep: usize) -> Vec<usize> {
+        let mut exchange = crate::store::agent::compaction::Exchange::default();
+        let complete = history.events[history.current..]
+            .iter()
+            .map(|event| exchange.push(event))
+            .collect::<Vec<_>>();
+        let mut cuts = history
+            .events
+            .iter()
+            .enumerate()
+            .skip(history.current)
+            .filter(|(_, event)| {
+                event.content().is_some_and(|content| {
+                    content
+                        .parts
+                        .iter()
+                        .any(|part| matches!(part, Part::FunctionCall { .. }))
+                })
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .skip(keep)
+            .filter(|cut| *cut > history.current && complete[*cut - history.current - 1])
+            .collect::<Vec<_>>();
+        let recent = history
+            .events
+            .iter()
+            .enumerate()
+            .filter(|(_, event)| {
+                event.content().is_some_and(|content| {
+                    content
+                        .parts
+                        .iter()
+                        .any(|part| matches!(part, Part::FunctionCall { .. }))
+                })
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .nth(keep);
+        cuts.extend(history.completed.iter().rev().copied().filter(|cut| {
+            *cut <= history.current
+                && recent.is_none_or(|recent| *cut <= recent)
+                && history.recent.is_none_or(|recent| *cut <= recent)
+        }));
+        cuts
     }
 
     fn cut(
         &self,
-        events: &[Event],
-        invocation: &str,
+        history: &History,
         request: &LlmRequest,
+        keep: usize,
     ) -> adk_core::Result<Option<usize>> {
-        // Retain the current invocation's latest two complete tool exchanges.
-        let exchanges = events
-            .iter()
-            .enumerate()
-            .filter(|(_, event)| {
-                event.invocation_id == invocation
-                    && event.content().is_some_and(|content| {
-                        content
-                            .parts
-                            .iter()
-                            .any(|part| matches!(part, Part::FunctionCall { .. }))
-                    })
-            })
-            .map(|(index, _)| index)
-            .collect::<Vec<_>>();
-        for cut in exchanges.into_iter().rev().skip(1) {
-            let current = events[..cut]
-                .iter()
-                .filter(|event| event.invocation_id == invocation)
-                .cloned()
-                .collect::<Vec<_>>();
-            if crate::store::agent::compaction::complete_exchange(&current)
-                && tail(request, &events[cut..], &self.preamble).is_some()
-                && self.summarizer.fits(&events[..cut])?
-            {
-                return Ok(Some(cut));
-            }
-        }
-        // Prior turns are already terminal. Summarize only a complete prefix,
-        // retaining all current input, attachments and provider-added suffix parts.
-        let current = events
-            .iter()
-            .position(|event| event.invocation_id == invocation)
-            .unwrap_or(0);
-        for cut in (1..=current).rev() {
-            if (cut == current || events[cut - 1].invocation_id != events[cut].invocation_id)
-                && tail(request, &events[cut..], &self.preamble).is_some()
-                && self.summarizer.fits(&events[..cut])?
-            {
-                return Ok(Some(cut));
-            }
-        }
-        Ok(None)
+        self.summarizer.prefix(
+            &history.events,
+            self.candidates(history, keep)
+                .into_iter()
+                .filter(|cut| tail(request, &history.events[*cut..], &self.preamble).is_some()),
+        )
+    }
+
+    fn saved(
+        &self,
+        request: &mut LlmRequest,
+        history: &[Event],
+        summary: &Event,
+        offset: usize,
+    ) -> adk_core::Result<()> {
+        let index = tail(request, history, &self.preamble)
+            .ok_or_else(|| invalid("model context does not match the persisted summary"))?;
+        let content = summary
+            .actions
+            .compaction
+            .as_ref()
+            .map(|value| &value.compacted_content)
+            .or_else(|| summary.content())
+            .ok_or_else(|| invalid("persisted context summary is missing"))?;
+        let checkpoint = Checkpoint::new(request, index, content.clone(), offset);
+        request.contents.splice(1..index, [content.clone()]);
+        request.previous_response_id = None;
+        *self
+            .checkpoint
+            .lock()
+            .map_err(|_| invalid("context checkpoint is unavailable"))? =
+            Some(Arc::new(checkpoint));
+        *self
+            .attempted
+            .lock()
+            .map_err(|_| invalid("context attempt state is unavailable"))? = None;
+        self.applied.store(true, Ordering::Relaxed);
+        Ok(())
     }
 
     pub(super) async fn before(
         &self,
-        invocation: &str,
+        _invocation: &str,
         mut request: LlmRequest,
     ) -> adk_core::Result<BeforeModelResult> {
         if self.summarizer.stop.is_cancelled() {
             return Err(invalid("context compaction was cancelled"));
         }
+        let checkpoint = self
+            .checkpoint
+            .lock()
+            .map_err(|_| invalid("context checkpoint is unavailable"))?
+            .clone();
+        let mut offset = if let Some(checkpoint) = &checkpoint {
+            checkpoint.apply(&mut request, &self.preamble)?;
+            checkpoint.offset()
+        } else {
+            0
+        };
+        if self.applied.load(Ordering::Relaxed) && checkpoint.is_none() {
+            let history = self.history().await?;
+            let summary = history
+                .events
+                .first()
+                .filter(|event| {
+                    event
+                        .provider_metadata
+                        .contains_key(crate::store::agent::compaction::END_EVENT)
+                })
+                .ok_or_else(|| invalid("persisted context summary is missing"))?;
+            self.saved(&mut request, &history.events[1..], summary, 0)?;
+            offset = self
+                .checkpoint
+                .lock()
+                .map_err(|_| invalid("context checkpoint is unavailable"))?
+                .as_ref()
+                .unwrap()
+                .offset();
+        }
         let usage = self.usage().await?;
-        let compact = self
-            .summarizer
-            .needs_compaction(usage.as_ref().map(Self::projected));
+        // Estimates trigger compaction only after a summary invalidates the
+        // provider observation. Do not rescan a measured request every batch.
+        let projected = match usage.as_ref() {
+            Some(usage) if usage.observed => Some(Self::projected(usage)),
+            Some(_) => Some(estimate::request(&request)?),
+            None => None,
+        };
+        let compact = self.summarizer.needs_compaction(projected);
         let full = self
             .summarizer
             .context
-            .zip(usage.as_ref().map(|usage| usage.tokens))
+            .zip(
+                usage
+                    .as_ref()
+                    .filter(|usage| usage.observed)
+                    .map(|usage| usage.tokens),
+            )
             .is_some_and(|(context, tokens)| tokens >= context);
-        if self.summarizer.stop.is_cancelled() {
-            return Err(invalid("context compaction was cancelled"));
-        }
-        if !compact && !self.applied.load(Ordering::Relaxed) {
+        if !compact {
             return Ok(BeforeModelResult::Continue(request));
         }
-        let mut events = self.events().await?;
-        if compact {
-            let cut = self.cut(&events, invocation, &request)?;
-            if let Some(cut) = cut {
-                match self.summarize(&events[..cut], true).await {
-                    Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
-                        self.service
-                            .append_event(&self.session.to_string(), summary)
-                            .await
-                            .inspect_err(|error| {
-                                self.summarizer.failure(
-                                    SummaryMode::Automatic,
-                                    "persistence",
-                                    error,
-                                )
-                            })?;
-                        self.applied.store(true, Ordering::Relaxed);
-                        events = self.events().await?;
-                    }
-                    Err(error) if full => return Err(error),
-                    _ if full => {
-                        return Err(invalid(
-                            "context exceeds the model limit and no summary was applied",
-                        ));
-                    }
-                    _ => {}
-                }
-            } else if full {
+        let history = self.history().await?;
+        let keep = self.retention.load(Ordering::Relaxed);
+        let Some(cut) = self.cut(&history, &request, keep)? else {
+            if full {
                 return Err(invalid(
                     "context exceeds the model limit and no complete prefix fits the summary budget",
                 ));
+            }
+            if !self.candidates(&history, keep).is_empty() {
+                let key = self
+                    .candidates(&history, keep)
+                    .first()
+                    .and_then(|cut| {
+                        history.events[..*cut]
+                            .iter()
+                            .rev()
+                            .find(|event| event.content().is_some())
+                    })
+                    .map(|event| format!("fit:{}", event.id));
+                let warn = {
+                    let mut attempted = self
+                        .attempted
+                        .lock()
+                        .map_err(|_| invalid("context attempt state is unavailable"))?;
+                    let length = self
+                        .candidates(&history, keep)
+                        .first()
+                        .copied()
+                        .unwrap_or(0);
+                    let next = key.map(|end| Attempt {
+                        end,
+                        length,
+                        frontier: history.frontier.clone(),
+                    });
+                    let warn = next.as_ref().is_some_and(|next| {
+                        attempted
+                            .as_ref()
+                            .is_none_or(|previous| previous.advances(next))
+                    });
+                    if warn {
+                        *attempted = next;
+                    }
+                    warn
+                };
+                if warn {
+                    self.warning().await?;
+                }
+            }
+            return Ok(BeforeModelResult::Continue(request));
+        };
+        let mut failure = None;
+        for attempt in 0..if full { 2 } else { 1 } {
+            let result = if !full && attempt == 0 {
+                self.summarize(&history.events[..cut], true, history.frontier.as_deref())
+                    .await
+            } else {
+                self.summarizer
+                    .summarize_with(&history.events[..cut], SummaryMode::Automatic)
+                    .await
+            };
+            let result = match result {
+                Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
+                    match self
+                        .service
+                        .append_event(&self.session.to_string(), summary.clone())
+                        .await
+                    {
+                        Ok(()) => {
+                            self.saved(&mut request, &history.events[cut..], &summary, offset)?;
+                            // A completed summary can still be too large with the retained input.
+                            // This remains an estimate, never a claim of provider-measured overflow.
+                            if full
+                                && self.summarizer.context.is_some_and(|context| {
+                                    estimate::request(&request)
+                                        .is_ok_and(|tokens| tokens >= context)
+                                })
+                            {
+                                return Err(invalid(
+                                    "context remains over the estimated model budget after compaction",
+                                ));
+                            }
+                            return Ok(BeforeModelResult::Continue(request));
+                        }
+                        Err(error) => {
+                            self.summarizer
+                                .failure(SummaryMode::Automatic, "persistence", &error);
+                            Err(error)
+                        }
+                    }
+                }
+                other => other,
+            };
+            match result {
+                Err(error) => failure = Some(error),
+                Ok(_) => break,
+            }
+            if self.summarizer.stop.is_cancelled() {
+                return Err(invalid("context compaction was cancelled"));
             }
         }
         if self.summarizer.stop.is_cancelled() {
             return Err(invalid("context compaction was cancelled"));
         }
-        if self.applied.load(Ordering::Relaxed) {
-            let summary = events
-                .first()
-                .and_then(Event::content)
-                .ok_or_else(|| invalid("persisted context summary is missing"))?;
-            let index = tail(&request, &events[1..], &self.preamble)
-                .ok_or_else(|| invalid("model context does not match the persisted summary"))?;
-            request.contents.splice(1..index, [summary.clone()]);
-            request.previous_response_id = None;
+        if full {
+            return Err(failure.unwrap_or_else(|| {
+                invalid("context exceeds the model limit and no summary was applied")
+            }));
+        }
+        if failure.is_some() {
+            self.warning().await?;
         }
         Ok(BeforeModelResult::Continue(request))
     }
-}
 
-// Keep provider-added parts in the actual request. Match the complete retained
-// suffix before replacing its prefix, rather than rebuilding ADK's prompt.
-fn tail(request: &LlmRequest, events: &[Event], preamble: &Content) -> Option<usize> {
-    if !request.contents.first().is_some_and(|content| {
-        content.role == preamble.role && content.parts.starts_with(&preamble.parts)
-    }) {
-        return None;
+    async fn warning(&self) -> adk_core::Result<()> {
+        let mut event = Event::new(self.summarizer.turn.to_string());
+        event.author = "system".into();
+        event.provider_metadata.insert(
+            "sailry_operation_warning".into(),
+            "context_summary_failed".into(),
+        );
+        self.service
+            .append_event(&self.session.to_string(), event)
+            .await
     }
-    let retained: Vec<_> = events.iter().filter_map(Event::content).collect();
-    if retained.is_empty() {
-        return None;
-    }
-    let index = request.contents.len().checked_sub(retained.len())?;
-    (index > 0
-        && request.contents[index..]
-            .iter()
-            .zip(retained)
-            .all(|(actual, stored)| actual.parts.starts_with(&stored.parts)))
-    .then_some(index)
 }
 
 #[async_trait]
 impl BaseEventsSummarizer for Context {
     async fn summarize_events(&self, window: &[Event]) -> adk_core::Result<Option<Event>> {
-        if !self.needs_compaction().await? || self.summarizer.stop.is_cancelled() {
+        let usage = self.usage().await?;
+        let tokens = usage.as_ref().map(Self::projected);
+        if !self.summarizer.needs_compaction(tokens) || self.summarizer.stop.is_cancelled() {
             return Ok(None);
         }
         let Some(last) = window.last() else {
             return Ok(None);
         };
-        let canonical = self.events().await?;
-        // A summary produced inside this invocation can supersede ADK's
-        // original post-invocation window. Do not summarize the stale prefix.
-        let Some(end) = canonical.iter().position(|event| event.id == last.id) else {
+        let history = self.history().await?;
+        let Some(end) = history.events.iter().position(|event| event.id == last.id) else {
             return Ok(None);
         };
-        self.summarize(&canonical[..=end], true).await
+        let candidates = history
+            .completed
+            .iter()
+            .rev()
+            .copied()
+            .filter(|cut| *cut <= end + 1);
+        let Some(cut) = self.summarizer.prefix(&history.events, candidates)? else {
+            return Ok(None);
+        };
+        match self
+            .summarize(&history.events[..cut], true, history.frontier.as_deref())
+            .await
+        {
+            Ok(Some(summary)) if !self.summarizer.stop.is_cancelled() => {
+                // Own persistence through the same canonical service so a rejected
+                // checkpoint is observable, rather than ADK logging it silently.
+                match self
+                    .service
+                    .append_event(&self.session.to_string(), summary)
+                    .await
+                {
+                    Ok(()) => {
+                        *self
+                            .checkpoint
+                            .lock()
+                            .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
+                        *self
+                            .attempted
+                            .lock()
+                            .map_err(|_| invalid("context attempt state is unavailable"))? = None;
+                        self.applied.store(true, Ordering::Relaxed);
+                    }
+                    Err(error) => {
+                        self.summarizer
+                            .failure(SummaryMode::Automatic, "persistence", &error);
+                        self.warning().await?;
+                    }
+                }
+                // The event is already persisted; do not ask Runner to append it twice.
+                Ok(None)
+            }
+            Err(_) => {
+                self.warning().await?;
+                Ok(None)
+            }
+            _ => Ok(None),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retries_only_after_completed_work() {
+        let previous = Attempt {
+            end: "first".into(),
+            length: 4,
+            frontier: Some("turn:third".into()),
+        };
+        let retained = Attempt {
+            end: "second".into(),
+            length: 6,
+            frontier: Some("turn:third".into()),
+        };
+        assert!(!previous.advances(&retained));
+        let metadata = Attempt {
+            end: "retry".into(),
+            length: 12,
+            frontier: Some("turn:third".into()),
+        };
+        assert!(!previous.advances(&metadata));
+        let exchange = Attempt {
+            end: "next".into(),
+            length: 8,
+            frontier: Some("exchange:result".into()),
+        };
+        assert!(previous.advances(&exchange));
+        assert!(!previous.advances(&Attempt {
+            end: previous.end.clone(),
+            ..exchange
+        }));
+        assert!(!previous.advances(&Attempt {
+            end: "older".into(),
+            length: 3,
+            frontier: Some("exchange:new".into())
+        }));
+    }
 
     #[test]
     fn preserves_retained_provider_parts() {

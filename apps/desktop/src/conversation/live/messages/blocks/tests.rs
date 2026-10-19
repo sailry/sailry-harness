@@ -166,6 +166,9 @@ fn retains_text_boundaries() {
         Part::Thinking("reasoning".into()),
         Part::Resource(serde_json::json!({"type":"provider_context"})),
         Part::Compaction("Summary".into()),
+        Part::Resource(
+            serde_json::json!({"type":"operation_warning","code":"context_summary_failed","turn":turn}),
+        ),
     ];
     let reference = |index| Reference {
         entry: "entry".into(),

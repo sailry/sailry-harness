@@ -123,6 +123,7 @@ fn commits_canonical_output() {
         .unwrap();
     assert!(projection.snapshot().unwrap().drafts.is_empty());
     assert_eq!(projection.snapshot().unwrap().page.entries, vec![entry]);
+    assert_eq!(projection.live_start(), Some(41));
     run.status = Status::Completed;
     projection
         .apply(1, frame(&snapshot, 14, Change::Run(run.clone())))

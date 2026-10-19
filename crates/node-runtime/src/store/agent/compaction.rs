@@ -53,14 +53,15 @@ fn current_exchange(
     turn: TurnId,
     end: &str,
 ) -> Result<bool, Fault> {
-    let sequence: Option<i64> = db.query_row(
-        "SELECT e.sequence FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+    let boundary: Option<(i64, String)> = db.query_row(
+        "SELECT e.sequence,e.turn FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          JOIN turns t ON t.id=e.turn JOIN agent_runs r ON r.turn=t.id
-         WHERE h.session=?1 AND e.id=?2 AND e.turn=?3 AND t.kind='task'
-         AND json_extract(r.body,'$.status')='running'",
-        params![session.to_string(), end, turn.to_string()], |row| row.get(0)
+         WHERE h.session=?1 AND e.id=?2 AND t.kind='task'
+         AND ((e.turn=?3 AND json_extract(r.body,'$.status')='running')
+           OR json_extract(r.body,'$.status') NOT IN ('queued','running','stopping'))",
+        params![session.to_string(), end, turn.to_string()], |row| Ok((row.get(0)?, row.get(1)?))
     ).optional().map_err(storage_error)?;
-    let Some(sequence) = sequence else {
+    let Some((sequence, owner)) = boundary else {
         return Ok(false);
     };
     let mut statement = db
@@ -70,9 +71,7 @@ fn current_exchange(
         )
         .map_err(storage_error)?;
     let events = statement
-        .query_map(params![turn.to_string(), sequence], |row| {
-            row.get::<_, Vec<u8>>(0)
-        })
+        .query_map(params![owner, sequence], |row| row.get::<_, Vec<u8>>(0))
         .map_err(storage_error)?
         .map(|body| {
             serde_json::from_slice::<AdkEvent>(&body.map_err(storage_error)?).map_err(storage_error)
@@ -81,46 +80,59 @@ fn current_exchange(
     Ok(complete_exchange(&events))
 }
 
-pub(crate) fn complete_exchange(events: &[AdkEvent]) -> bool {
-    use adk_core::Part;
-    use std::collections::HashMap;
-    let mut pending = HashMap::new();
-    for part in events
-        .iter()
-        .filter_map(AdkEvent::content)
-        .flat_map(|content| &content.parts)
-    {
-        match part {
-            Part::FunctionCall { id, name, .. } => {
-                *pending.entry((id, name)).or_insert(0usize) += 1;
-            }
-            Part::FunctionResponse {
-                id,
-                function_response,
-                ..
-            } => {
-                let key = (id, &function_response.name);
-                let Some(count) = pending.get_mut(&key) else {
-                    return false;
-                };
-                *count -= 1;
-                if *count == 0 {
-                    pending.remove(&key);
-                }
-            }
-            _ => {}
+#[derive(Default)]
+pub(crate) struct Exchange {
+    pending: std::collections::HashMap<(Option<String>, String), usize>,
+    invalid: bool,
+    complete: bool,
+}
+
+impl Exchange {
+    pub(crate) fn push(&mut self, event: &AdkEvent) -> bool {
+        if event.content().is_none() {
+            return self.complete;
         }
+        let mut response = false;
+        for part in event
+            .content()
+            .into_iter()
+            .flat_map(|content| &content.parts)
+        {
+            match part {
+                adk_core::Part::FunctionCall { id, name, .. } => {
+                    *self.pending.entry((id.clone(), name.clone())).or_default() += 1;
+                }
+                adk_core::Part::FunctionResponse {
+                    id,
+                    function_response,
+                    ..
+                } => {
+                    response = true;
+                    let key = (id.clone(), function_response.name.clone());
+                    if let Some(count) = self.pending.get_mut(&key) {
+                        *count -= 1;
+                        if *count == 0 {
+                            self.pending.remove(&key);
+                        }
+                    } else {
+                        self.invalid = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.complete = !self.invalid && response && self.pending.is_empty();
+        self.complete
     }
-    pending.is_empty()
-        && events
-            .last()
-            .and_then(AdkEvent::content)
-            .is_some_and(|content| {
-                content
-                    .parts
-                    .iter()
-                    .any(|part| matches!(part, Part::FunctionResponse { .. }))
-            })
+}
+
+pub(crate) fn complete_exchange(events: &[AdkEvent]) -> bool {
+    let mut exchange = Exchange::default();
+    let mut complete = false;
+    for event in events {
+        complete = exchange.push(event);
+    }
+    complete
 }
 
 pub(super) fn read(
@@ -159,4 +171,102 @@ pub(super) fn read(
     event.set_content(summary.compacted_content);
     event.llm_response.usage_metadata = None;
     Ok(Some((sequence, event)))
+}
+
+/// A derived model window with boundaries from canonical turn ownership.
+/// Synthetic invocation IDs and wall clocks never establish a turn boundary.
+pub(crate) struct History {
+    pub events: Vec<AdkEvent>,
+    pub completed: Vec<usize>,
+    pub current: usize,
+    pub recent: Option<usize>,
+    pub frontier: Option<String>,
+}
+
+pub(super) fn history(
+    db: &Connection,
+    session: SessionId,
+    turn: TurnId,
+) -> adk_core::Result<History> {
+    let events = sessions::get(
+        db,
+        turn,
+        GetRequest {
+            app_name: APP.into(),
+            user_id: USER.into(),
+            session_id: session.to_string(),
+            num_recent_events: None,
+            after: None,
+        },
+    )?
+    .events()
+    .all();
+    let mut query = db
+        .prepare(
+            "WITH ends AS (SELECT e.turn, max(e.sequence) AS last FROM conversation_events h
+           JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1
+           AND json_type(e.body,'$.actions.compaction') IS NULL GROUP BY e.turn)
+         SELECT e.id, e.turn, json_extract(r.body,'$.status'), e.sequence=ends.last
+         FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+         JOIN agent_runs r ON r.turn=e.turn JOIN ends ON ends.turn=e.turn WHERE h.session=?1",
+        )
+        .map_err(|error| adk_error(storage_error(error)))?;
+    let owners = query
+        .query_map([session.to_string()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                (
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, bool>(3)?,
+                ),
+            ))
+        })
+        .map_err(|error| adk_error(storage_error(error)))?
+        .collect::<Result<std::collections::HashMap<_, _>, _>>()
+        .map_err(|error| adk_error(storage_error(error)))?;
+    let current = events
+        .iter()
+        .position(|event| {
+            !event.provider_metadata.contains_key(END_EVENT)
+                && owners
+                    .get(&event.id)
+                    .is_some_and(|(owner, _, _)| *owner == turn.to_string())
+        })
+        .unwrap_or(events.len());
+    let mut completed = Vec::new();
+    let mut frontier = None;
+    let mut starts = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut exchanges = std::collections::HashMap::<String, Exchange>::new();
+    for (index, event) in events.iter().enumerate() {
+        let Some((owner, status, last)) = owners.get(&event.id) else {
+            continue;
+        };
+        if !event.provider_metadata.contains_key(END_EVENT)
+            && !matches!(status.as_str(), "queued" | "running" | "stopping")
+            && seen.insert(owner.clone())
+        {
+            starts.push(index);
+        }
+        let exchange = exchanges.entry(owner.clone()).or_default().push(event);
+        // Retries, media metadata and summaries do not establish new work.
+        if event.content().is_some() && !event.provider_metadata.contains_key(END_EVENT) {
+            if !matches!(status.as_str(), "queued" | "running" | "stopping") {
+                frontier = Some(format!("turn:{owner}"));
+            } else if *owner == turn.to_string() && exchange {
+                frontier = Some(format!("exchange:{}", event.id));
+            }
+        }
+        if !matches!(status.as_str(), "queued" | "running" | "stopping") && (*last || exchange) {
+            completed.push(index + 1);
+        }
+    }
+    Ok(History {
+        events,
+        completed,
+        current,
+        recent: starts.iter().rev().nth(1).copied(),
+        frontier,
+    })
 }

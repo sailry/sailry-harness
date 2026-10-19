@@ -209,7 +209,10 @@ async fn resumes_compacted_context() {
             ] {
                 assert!(contents.contains(text), "{text}");
             }
-            assert!(!contents.contains("Original constraint"));
+            assert!(
+                contents.contains(&original),
+                "original user instruction must remain verbatim"
+            );
             assert!(!contents.contains("evidence-call"));
         }
         submit(&client, early.id, "Continue early branch".into()).await;
@@ -222,6 +225,39 @@ async fn resumes_compacted_context() {
         node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
+}
+
+async fn submit_retrying(
+    client: &Client,
+    session: SessionId,
+    input: &str,
+    server: &Server,
+) -> Page {
+    use futures::FutureExt as _;
+    let request = client.prepare(Command::SubmitTurn {
+        session,
+        expected_revision: 1,
+        message: input.into(),
+    });
+    let Output::QueuedTurn(turn) = client.execute(request).await.unwrap() else {
+        panic!("turn expected")
+    };
+    let result = std::panic::AssertUnwindSafe(finished_within(
+        client,
+        session,
+        turn.id,
+        crate::retry_fixture::budget(),
+    ))
+    .catch_unwind()
+    .await;
+    let page = result.unwrap_or_else(|error| {
+        let requests = server.requests.lock().unwrap();
+        let summaries = requests.iter().filter(|request| agent_support::compaction::is_summary(request)).count();
+        eprintln!("Synthetic compaction completion failed: turn={}, summary_requests={}, ordinary_requests={}", turn.id, summaries, requests.len() - summaries);
+        std::panic::resume_unwind(error)
+    });
+    assert_eq!(page.runs[0].status, Status::Completed, "{:?}", page.runs);
+    page
 }
 
 #[tokio::test]
@@ -237,7 +273,7 @@ async fn failure_preserves_context() {
         )
         .await;
         submit(&fixture.client, fixture.session.id, "Second".into()).await;
-        let (_, _, page) = submit(&fixture.client, fixture.session.id, "Third".into()).await;
+        let page = submit_retrying(&fixture.client, fixture.session.id, "Third", &server).await;
         let parts = page.entries.iter().flat_map(|entry| &entry.parts);
         assert!(
             !parts
@@ -255,11 +291,15 @@ async fn failure_preserves_context() {
                 .filter(|request| agent_support::compaction::is_summary(request))
                 .count();
             assert_eq!(attempts, retries + 1);
+            assert_eq!(
+                attempts, 6,
+                "one summary attempt must use one bounded retry chain"
+            );
             assert_eq!(requests.len() - attempts, 4);
             attempts
         };
-        let (_, _, continued) =
-            submit(&fixture.client, fixture.session.id, "Continue".into()).await;
+        let continued =
+            submit_retrying(&fixture.client, fixture.session.id, "Continue", &server).await;
         assert!(
             !continued
                 .entries

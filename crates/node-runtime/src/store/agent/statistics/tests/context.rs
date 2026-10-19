@@ -225,3 +225,56 @@ fn freezes_observed_model_limits() {
         (Some(230), None)
     );
 }
+
+#[test]
+fn estimates_only_after_summary_reset() {
+    let mut fixture = Fixture::new();
+    let anchor = event(14_000, 10);
+    fixture.append([user("Preserved requirement"), anchor.clone()]);
+    let mut summary = AdkEvent::new("summary-fixture");
+    summary.author = "system".into();
+    summary
+        .provider_metadata
+        .insert(super::super::super::compaction::END_EVENT.into(), anchor.id);
+    summary.actions.compaction = Some(adk_core::EventCompaction {
+        start_timestamp: anchor.timestamp,
+        end_timestamp: anchor.timestamp,
+        compacted_content: Content::new("model").with_text("Verified handoff"),
+    });
+    fixture.append([summary]);
+    let growth = tool(&"Unobserved pending evidence ".repeat(3000));
+    fixture.append([growth.clone()]);
+    let usage = context_usage(&fixture.database.connection, fixture.session)
+        .unwrap()
+        .unwrap();
+    assert!(!usage.observed);
+    assert_eq!(usage.tokens, 0);
+    assert!(
+        usage.pending[0].content().unwrap().parts[0]
+            .text()
+            .unwrap()
+            .contains("Verified handoff")
+    );
+    assert_eq!(usage.pending.last().unwrap().id, growth.id);
+    assert_eq!(
+        read(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .context_tokens,
+        None
+    );
+    let mut unknown = event(10, 2);
+    unknown.llm_response.usage_metadata = None;
+    fixture.append([unknown]);
+    assert!(
+        context_usage(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .is_none()
+    );
+    fixture.append([event(40, 8)]);
+    assert!(
+        context_usage(&fixture.database.connection, fixture.session)
+            .unwrap()
+            .unwrap()
+            .observed
+    );
+}

@@ -19,6 +19,7 @@ pub struct Projection {
     snapshot: Option<Snapshot>,
     recovery: bool,
     artifact_cursor: u64,
+    live_start: Option<u64>,
 }
 
 impl Projection {
@@ -30,6 +31,7 @@ impl Projection {
             snapshot: None,
             recovery: true,
             artifact_cursor: 0,
+            live_start: None,
         }
     }
 
@@ -39,6 +41,11 @@ impl Projection {
 
     pub fn artifact_cursor(&self) -> u64 {
         self.artifact_cursor
+    }
+
+    /// First newly committed entry in this snapshot generation, excluding pagination.
+    pub fn live_start(&self) -> Option<u64> {
+        self.live_start
     }
 
     pub fn reconnect(&mut self, generation: u64) -> Result<(), Fault> {
@@ -159,6 +166,7 @@ impl Projection {
                     .artifact_cursor
                     .checked_add(1)
                     .ok_or_else(|| Fault::invalid("artifact cursor exhausted"))?;
+                self.live_start = None;
                 self.snapshot = Some(snapshot);
                 self.recovery = false;
                 Ok(Apply::Applied)
@@ -237,6 +245,7 @@ impl Projection {
                             snapshot
                                 .drafts
                                 .retain(|draft| draft.turn != entry.turn || draft.id != entry.id);
+                            self.live_start.get_or_insert(entry.sequence);
                             page.entries.push(entry);
                         }
                         if user && let Some(run) = page.runs.iter_mut().find(|run| run.turn == turn)

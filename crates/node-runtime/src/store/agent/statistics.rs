@@ -69,6 +69,7 @@ pub(super) fn parents(db: &Connection, turn: TurnId) -> Result<Vec<SessionId>, F
 }
 
 struct Observation {
+    summary: bool,
     sequence: i64,
     tokens: Option<u64>,
     context_limit: Option<u32>,
@@ -79,13 +80,21 @@ pub(super) fn context_usage(
     db: &Connection,
     session: SessionId,
 ) -> Result<Option<ContextUsage>, Fault> {
-    let Some(Observation {
-        sequence,
-        tokens: Some(tokens),
-        ..
-    }) = observation(db, session)?
-    else {
+    let Some(observation) = observation(db, session)? else {
         return Ok(None);
+    };
+    let (sequence, tokens, observed, summary) = match observation.tokens {
+        Some(tokens) => (observation.sequence, tokens, true, None),
+        None if observation.summary => {
+            let Some((boundary, summary)) = super::compaction::read(db, session).map_err(|_| {
+                Fault::new(ErrorCode::Internal, "context summary could not be read")
+            })?
+            else {
+                return Ok(None);
+            };
+            (boundary, 0, false, Some(summary))
+        }
+        None => return Ok(None),
     };
     // Both reads run in one storage job. Only new canonical content is decoded;
     // the observation already includes its model response's output tokens.
@@ -93,18 +102,26 @@ pub(super) fn context_usage(
         .prepare(
             "SELECT e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND h.sequence>?2
+           AND json_type(e.body,'$.actions.compaction') IS NULL
            AND json_extract(e.body,'$.event_metadata.sailry_media') IS NULL
          ORDER BY h.sequence",
         )
         .map_err(storage_error)?;
-    let pending = query
+    let mut pending = query
         .query_map(params![session.to_string(), sequence], |row| {
             row.get::<_, Vec<u8>>(0)
         })
         .map_err(storage_error)?
         .map(|body| serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Some(ContextUsage { tokens, pending }))
+    if let Some(summary) = summary {
+        pending.insert(0, summary);
+    }
+    Ok(Some(ContextUsage {
+        observed,
+        tokens,
+        pending,
+    }))
 }
 
 fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation>, Fault> {
@@ -123,7 +140,8 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation
           AND json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') >= 0
          THEN json_extract(e.body,'$.provider_metadata.sailry_timing.first_token_us') END,
          (SELECT json_extract(model.value,'$.context') FROM json_each(r.provider,'$.models') model
-          WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1)
+          WHERE json_extract(model.value,'$.id')=json_extract(revision.config,'$.model') LIMIT 1),
+         coalesce(json_type(e.body,'$.actions.compaction')='object',0)
          FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          LEFT JOIN agent_runs r ON r.turn=e.turn LEFT JOIN turns t ON t.id=e.turn
          LEFT JOIN session_revisions revision ON revision.session=t.session AND revision.revision=t.revision
@@ -136,6 +154,7 @@ fn observation(db: &Connection, session: SessionId) -> Result<Option<Observation
         |row| {
             let tokens = row.get::<_, Option<i64>>(1)?.map(|value| value as u64);
             Ok(Observation {
+                summary: row.get(4)?,
                 sequence: row.get(0)?,
                 context_limit: if tokens.is_some() { row.get::<_, Option<u32>>(3)?.filter(|limit| *limit > 0) } else { None },
                 tokens,

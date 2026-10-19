@@ -66,6 +66,9 @@ enum Reply {
         usage: Arc<Vec<Option<i32>>>,
         summary_input: i32,
     },
+    ExchangeCompaction {
+        delegation: bool,
+    },
     NativeCompaction {
         fail_summary: bool,
     },
@@ -174,6 +177,12 @@ impl Server {
     }
     pub async fn workload() -> Self {
         Self::serve(Reply::Workload).await
+    }
+    pub async fn file_compaction() -> Self {
+        Self::serve(Reply::ExchangeCompaction { delegation: false }).await
+    }
+    pub async fn delegate_compaction() -> Self {
+        Self::serve(Reply::ExchangeCompaction { delegation: true }).await
     }
     pub async fn native_compaction(fail_summary: bool) -> Self {
         Self::serve(Reply::NativeCompaction { fail_summary }).await
@@ -536,6 +545,10 @@ async fn respond(
             return std::future::pending().await;
         }
         return compaction::respond_loop(stream, &body, fail_summary, &usage, summary_input).await;
+    }
+    if let Reply::ExchangeCompaction { delegation } = reply {
+        records.lock().unwrap().push(body.clone());
+        return compaction::respond_exchange(stream, &body, delegation).await;
     }
     if let Reply::NativeCompaction { fail_summary } = reply {
         records.lock().unwrap().push(body.clone());

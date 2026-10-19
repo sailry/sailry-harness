@@ -25,6 +25,10 @@ pub enum HistoryRequest {
 
 #[derive(Clone, Default, serde::Serialize)]
 pub struct View {
+    /// The existing observer connection generation; snapshots begin a new generation.
+    pub generation: u64,
+    /// First live canonical entry; older history pages never establish this boundary.
+    pub live_start: Option<u64>,
     pub snapshot: Option<Arc<Snapshot>>,
     pub calls: Arc<Vec<tools::Call>>,
     pub connected: bool,
@@ -36,7 +40,13 @@ pub struct View {
 }
 
 impl View {
-    fn replace(&mut self, snapshot: Arc<Snapshot>, artifact_cursor: u64) {
+    fn replace(
+        &mut self,
+        snapshot: Arc<Snapshot>,
+        artifact_cursor: u64,
+        generation: u64,
+        live_start: Option<u64>,
+    ) {
         if self
             .snapshot
             .as_ref()
@@ -45,6 +55,8 @@ impl View {
             self.calls = Arc::new(tools::collect(&snapshot.page));
         }
         self.snapshot = Some(snapshot);
+        self.generation = generation;
+        self.live_start = live_start;
         self.artifact_cursor = artifact_cursor;
         self.connected = true;
         self.error = None;

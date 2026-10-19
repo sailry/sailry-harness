@@ -37,30 +37,14 @@ impl Tool for Context {
         if !arguments.as_object().is_some_and(serde_json::Map::is_empty) {
             return Err(AdkError::tool("context compaction accepts an empty object"));
         }
-        let events = self.events().await?;
-        let start = events
-            .iter()
-            .position(|event| event.invocation_id == context.invocation_id())
-            .ok_or_else(|| AdkError::tool("context compaction has no active invocation"))?;
-        // The current batch has not yielded its results yet. Keep it and the
-        // latest two completed exchanges outside the summary boundary.
-        let cut = events
-            .iter()
-            .enumerate()
-            .filter(|(_, event)| {
-                event.invocation_id == context.invocation_id()
-                    && event.content().is_some_and(|content| {
-                        content
-                            .parts
-                            .iter()
-                            .any(|part| matches!(part, Part::FunctionCall { .. }))
-                    })
-            })
-            .rev()
-            .nth(2)
-            .map(|(index, _)| index)
-            .filter(|cut| crate::store::agent::compaction::complete_exchange(&events[start..*cut]))
-            .unwrap_or(start);
+        let history = self.history().await?;
+        let events = &history.events;
+        let Some(cut) = self
+            .summarizer
+            .prefix(events, self.candidates(&history, 2).into_iter())?
+        else {
+            return Ok(json!({"status":"skipped"}));
+        };
         let prior = &events[..cut];
         if prior.len() == 1
             && prior[0]
@@ -69,7 +53,10 @@ impl Tool for Context {
         {
             return Ok(json!({"status":"skipped"}));
         }
-        let Some(summary) = self.summarize(prior, false).await? else {
+        let Some(summary) = self
+            .summarize(prior, false, history.frontier.as_deref())
+            .await?
+        else {
             if self.summarizer.stop.is_cancelled() {
                 return Err(AdkError::tool("context compaction was cancelled"));
             }
@@ -82,6 +69,16 @@ impl Tool for Context {
         self.service
             .append_event(&self.session.to_string(), summary)
             .await?;
+        *self
+            .checkpoint
+            .lock()
+            .map_err(|_| invalid("context checkpoint is unavailable"))? = None;
+        *self
+            .attempted
+            .lock()
+            .map_err(|_| invalid("context attempt state is unavailable"))? = None;
+        // Later automatic callbacks must retain the exchanges protected here.
+        self.retention.store(2, Ordering::Relaxed);
         self.applied.store(true, Ordering::Relaxed);
         Ok(json!({"status":"compacted", "summary_id":id}))
     }

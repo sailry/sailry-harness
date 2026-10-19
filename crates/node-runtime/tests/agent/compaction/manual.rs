@@ -46,9 +46,9 @@ async fn supports_unknown_usage() {
     for remote in [false, true] {
         let server = Server::loop_usage(vec![None], 100).await;
         let fixture = Fixture::files(remote, &server).await;
-        // Preserve all six unmetered files while giving the manual summary's
-        // complete request a configured input window large enough to hold them.
-        super::budget::model(&fixture, 1_050_000, 128_000, false).await;
+        // The complete history exceeds this real window. Summarize only the
+        // largest complete exchange prefix that fits and retain all later work.
+        super::budget::model(&fixture, 16_000, 2_048, false).await;
         for index in 1..=6 {
             std::fs::write(
                 fixture.root.join(format!("source-{index}.txt")),
@@ -72,9 +72,10 @@ async fn supports_unknown_usage() {
         {
             let requests = server.requests.lock().unwrap();
             assert_eq!(requests.len(), 8);
-            assert!(agent_support::compaction::is_summary(
-                requests.last().unwrap()
-            ));
+            let summary = requests.last().unwrap();
+            assert!(agent_support::compaction::is_summary(summary));
+            assert!(messages(summary).contains("Unmetered evidence 1"));
+            assert!(!messages(summary).contains("Unmetered evidence 6"));
         }
         usage(&fixture.client, 1).await;
         fixture.node.shutdown().await.unwrap();
@@ -415,6 +416,39 @@ async fn preserves_cancelled_configuration() {
             "fixture-a"
         );
         node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn preserves_unfittable_original_input() {
+    for remote in [false, true] {
+        let server = Server::summary(100).await;
+        let fixture = Fixture::files(remote, &server).await;
+        super::budget::model(&fixture, 16_000, 2_048, false).await;
+        let original = "x".repeat(31 * 1024);
+        let (_, _, before) = submit(&fixture.client, fixture.session.id, original.clone()).await;
+        let (_, turn) = compact(&fixture.client, fixture.session.id, 1).await;
+        let after = finished(&fixture.client, fixture.session.id, turn.id).await;
+        let run = after.runs.iter().find(|run| run.turn == turn.id).unwrap();
+        assert_eq!(run.status, Status::Failed);
+        assert!(
+            run.error
+                .as_ref()
+                .unwrap()
+                .message
+                .contains("no complete prefix fits")
+        );
+        assert_eq!(after.entries, before.entries);
+        assert!(
+            after
+                .entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::Text(text) if text == &original))
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 1);
+        fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }
 }

@@ -165,6 +165,41 @@ async fn preserves_context_on_failure() {
             )
             .unwrap();
         }
+        let mut stream = fixture
+            .client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        let observer = tokio::spawn(async move {
+            let mut warnings = Vec::new();
+            while let Ok(update) = stream.next().await {
+                if let Update::ConversationFrame(frame) = update {
+                    match frame.change {
+                        sailry_protocol::conversation::Change::Entry(entry) => {
+                            for part in &entry.parts {
+                                if let Part::Resource(value) = part
+                                    && value["type"] == "operation_warning"
+                                {
+                                    assert_eq!(value["code"], "context_summary_failed");
+                                    assert_eq!(
+                                        value["turn"],
+                                        serde_json::to_value(entry.turn).unwrap()
+                                    );
+                                    warnings.push(entry.id.clone());
+                                }
+                            }
+                        }
+                        sailry_protocol::conversation::Change::Run(run)
+                            if run.status == Status::Completed =>
+                        {
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            warnings
+        });
         let (_, _, page) = submit(
             &fixture.client,
             fixture.session.id,
@@ -177,6 +212,28 @@ async fn preserves_context_on_failure() {
                 .iter()
                 .any(|part| matches!(part, Part::Compaction(_)))
         }));
+        let live = tokio::time::timeout(Duration::from_secs(10), observer)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(live.len(), 4);
+        assert_eq!(
+            live.iter().collect::<std::collections::BTreeSet<_>>().len(),
+            4
+        );
+        let mut restored = fixture
+            .client
+            .subscribe_conversation(fixture.session.id)
+            .await
+            .unwrap();
+        let snapshot = restored.next().await.unwrap();
+        let mut projection = sailry_client::conversation::Projection::new(
+            fixture.client.target(),
+            fixture.session.id,
+            1,
+        );
+        projection.apply(1, snapshot).unwrap();
+        assert_eq!(projection.live_start(), None);
         let requests = server.requests.lock().unwrap().clone();
         assert_eq!(
             requests
@@ -186,17 +243,263 @@ async fn preserves_context_on_failure() {
             7
         );
         // The fixture returns a nonretryable HTTP 501.
-        // Later tool batches must not start another summary request.
+        // A changed complete prefix may retry; each prefix gets only one attempt.
         let summaries: Vec<_> = requests
             .iter()
             .filter(|request| agent_support::compaction::is_summary(request))
             .collect();
-        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries.len(), 4);
+        assert_eq!(page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| matches!(part, Part::Resource(value) if value["type"] == "operation_warning")).count(), 4);
         let content = messages(requests.last().unwrap());
+        assert!(!content.contains("context_summary_failed"));
         for index in 1..=6 {
             assert!(content.contains(&format!("Evidence {index}")));
         }
         usage_total(&fixture.client, 7, 7 * 14000).await;
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn retains_read_and_write_results() {
+    for remote in [false, true] {
+        let server = Server::file_compaction().await;
+        let fixture = Fixture::files(remote, &server).await;
+        for index in 1..=3 {
+            std::fs::write(
+                fixture.root.join(format!("source-{index}.txt")),
+                format!("Evidence {index}\n").repeat(600),
+            )
+            .unwrap();
+        }
+        let request = fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: 1,
+            message: "Read the sources and write written.txt once".into(),
+        });
+        let Output::QueuedTurn(turn) = fixture.client.execute(request.clone()).await.unwrap()
+        else {
+            panic!("turn expected")
+        };
+        let (_, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
+        // The real parent permission check precedes dispatch. Ordinary file
+        // tools retain their existing sequential execution policy.
+        fixture
+            .client
+            .execute(fixture.client.prepare(Command::ResolveApproval {
+                session: fixture.session.id,
+                approval: approval.id,
+                decision: Decision::Approve,
+            }))
+            .await
+            .unwrap();
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("written.txt")).unwrap(),
+            "Written exactly once"
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 5);
+        assert!(agent_support::compaction::is_summary(&requests[3]));
+        assert!(messages(&requests[3]).contains("Evidence 1"));
+        assert!(!messages(&requests[3]).contains("Evidence 2"));
+        let resumed = messages(&requests[4]);
+        for text in [
+            "Context summary fixture",
+            "Evidence 2",
+            "Evidence 3",
+            "parallel-read",
+            "parallel-write",
+            "Written exactly once",
+        ] {
+            assert!(resumed.contains(text), "{text}");
+        }
+        assert!(!resumed.contains("Evidence 1"));
+        let writes = page.entries.iter().flat_map(|entry| &entry.parts).filter(|part| matches!(part, Part::ToolCall {name,..} if name == &plugin_tool("files","write_file"))).count();
+        assert_eq!(writes, 1);
+        fixture.client.execute(request).await.unwrap();
+        assert_eq!(server.requests.lock().unwrap().len(), 5);
+        fixture.node.shutdown().await.unwrap();
+        fixture.controller.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn resumes_out_of_order_delegation_results() {
+    for remote in [false, true] {
+        let parent = Server::delegate_compaction().await;
+        let release = sailry_link::CancellationToken::new();
+        let held = Server::markdown_held("First child evidence".into(), release.clone()).await;
+        let fast = Server::markdown("Second child evidence".into()).await;
+        let mut fixture =
+            super::super::delegation::fixture::Fixture::start(remote, parent, held).await;
+        for index in 1..=2 {
+            std::fs::write(
+                fixture.root().join(format!("source-{index}.txt")),
+                format!("Evidence {index}\n").repeat(600),
+            )
+            .unwrap();
+        }
+        let mut provider = fixture.provider.clone();
+        provider.id = sailry_protocol::ProviderId::new();
+        provider.revision = 0;
+        provider.endpoint = fast.endpoint.clone();
+        let Output::Provider(provider) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutProvider {
+                provider,
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("provider expected")
+        };
+        let mut role = fixture.role.clone();
+        role.id = sailry_protocol::RoleId::new();
+        role.revision = 0;
+        role.key = "fast".into();
+        role.name = "Fast".into();
+        role.model.as_mut().unwrap().provider = provider.id;
+        let Output::Role(role) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::PutRole {
+                role,
+                expected_revision: 0,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("role expected")
+        };
+        let Output::Session(session) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::SetSessionRoles {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+                roles: vec![fixture.role.reference(), role.reference()],
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("session expected")
+        };
+        fixture.session = session;
+        let request = fixture.client.prepare(Command::SubmitTurn {
+            session: fixture.session.id,
+            expected_revision: fixture.session.revision,
+            message: "Read both files and delegate the independent tasks".into(),
+        });
+        let Output::QueuedTurn(turn) = fixture.client.execute(request.clone()).await.unwrap()
+        else {
+            panic!("turn expected")
+        };
+        fixture.child.wait_count(1).await;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let page = history(&fixture.client, fixture.session.id).await;
+                let ids = page
+                    .entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .filter_map(|part| {
+                        if let Part::ToolResult { id: Some(id), .. } = part {
+                            Some(id.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                assert!(!ids.contains(&"delegated-first"));
+                if ids.contains(&"delegated-second") {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the second child must finish while the first remains held");
+        release.cancel();
+        let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+        assert_eq!(
+            page.runs
+                .iter()
+                .find(|run| run.turn == turn.id)
+                .unwrap()
+                .status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        let results = page
+            .entries
+            .iter()
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| {
+                if let Part::ToolResult { id: Some(id), .. } = part {
+                    Some(id.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            results
+                .iter()
+                .position(|id| *id == "delegated-second")
+                .unwrap()
+                < results
+                    .iter()
+                    .position(|id| *id == "delegated-first")
+                    .unwrap()
+        );
+        let requests = fixture.parent.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 5);
+        assert!(agent_support::compaction::is_summary(&requests[3]));
+        assert!(messages(&requests[3]).contains("Evidence 1"));
+        let resumed = messages(&requests[4]);
+        for text in [
+            "Context summary fixture",
+            "Evidence 2",
+            "delegated-first",
+            "delegated-second",
+            "First child evidence",
+            "Second child evidence",
+        ] {
+            assert!(resumed.contains(text), "{text}");
+        }
+        let calls = requests[4]["messages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|message| message["role"] == "tool")
+            .filter_map(|message| message["tool_call_id"].as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            calls
+                .iter()
+                .position(|id| *id == "delegated-first")
+                .unwrap()
+                < calls
+                    .iter()
+                    .position(|id| *id == "delegated-second")
+                    .unwrap()
+        );
+        fixture.client.execute(request).await.unwrap();
+        assert_eq!(fixture.parent.requests.lock().unwrap().len(), 5);
+        assert_eq!(fixture.child.requests.lock().unwrap().len(), 1);
+        assert_eq!(fast.requests.lock().unwrap().len(), 1);
         fixture.node.shutdown().await.unwrap();
         fixture.controller.close().await.unwrap();
     }

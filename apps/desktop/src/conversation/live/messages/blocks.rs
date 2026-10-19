@@ -132,7 +132,10 @@ pub(super) fn collect(turn: TurnId, history: &View) -> Vec<Block<'_>> {
             }
             Part::Compaction(text) => blocks.push(Block::Compaction(key, text)),
             Part::Resource(value)
-                if value["type"] == "provider_context" || value["type"] == "tool_started" => {}
+                if value["type"] == "provider_context"
+                    || value["type"] == "tool_started"
+                    || (value["type"] == "operation_warning"
+                        && value["code"] == "context_summary_failed") => {}
             Part::Resource(value) if value["type"] == "model_retry" => {
                 if let (Some(attempt), Some(limit)) =
                     (value["attempt"].as_u64(), value["limit"].as_u64())

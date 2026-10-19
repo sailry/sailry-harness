@@ -495,12 +495,22 @@ async fn leaves_large_retained_input_outside_summary() {
         .await
         .unwrap()
         .unwrap();
-    let content = summary.actions.compaction.unwrap().compacted_content.parts[0]
+    let content = summary
+        .actions
+        .compaction
+        .as_ref()
+        .unwrap()
+        .compacted_content
+        .parts[0]
         .text()
         .unwrap()
         .to_owned();
-    assert_eq!(content, "Covered evidence only");
-    assert!(!summary.provider_metadata.contains_key(LATEST_INSTRUCTION));
+    assert!(content.starts_with("Covered evidence only"));
+    assert!(content.ends_with("Keep requirements 中文 🙂"));
+    assert_eq!(
+        latest(std::slice::from_ref(&summary)).unwrap().text,
+        "Keep requirements 中文 🙂"
+    );
     assert!(
         !serde_json::to_string(&model.requests.lock().unwrap()[0])
             .unwrap()
@@ -641,4 +651,83 @@ fn identifies_input_sources_and_original_parts() {
     let value: serde_json::Value = serde_json::from_str(&transcript(&[input]).unwrap()).unwrap();
     assert!(value[0].get("input_source").is_none());
     assert!(value[0].get("original_text_part").is_none());
+}
+
+#[test]
+fn rejects_unfittable_candidate_without_failing_search() {
+    let (summarizer, model) = summarizer(vec![], false);
+    let mut events = history();
+    events[0].set_content(Content::new("user").with_text("x".repeat(31 * 1024)));
+    assert!(!summarizer.fits(&events).unwrap());
+    assert!(
+        summarizer
+            .prefix(&events, [events.len()].into_iter())
+            .unwrap()
+            .is_none()
+    );
+    assert!(model.requests.lock().unwrap().is_empty());
+    assert_eq!(
+        events[0].content().unwrap().parts[0].text().unwrap().len(),
+        31 * 1024
+    );
+}
+
+#[tokio::test]
+async fn accepts_completed_stream_without_finish_reason() {
+    let mut response = complete("Completed summary");
+    response.finish_reason = None;
+    response.turn_complete = false;
+    let (summarizer, _) = summarizer(vec![response], false);
+    assert!(
+        summarizer
+            .summarize_events(&history())
+            .await
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn limits_output_to_remaining_capacity() {
+    let (mut summarizer, _) = summarizer(vec![], false);
+    summarizer.context = Some(2_400);
+    summarizer.budget = Some(1_920);
+    let prepared = summarizer.prepare(&history()).unwrap();
+    let output = prepared
+        .request
+        .config
+        .as_ref()
+        .unwrap()
+        .max_output_tokens
+        .unwrap() as u64;
+    assert!(output < 2_048);
+    assert!(estimate::request(&prepared.request).unwrap() + output <= 2_400);
+    assert!(prepared.available <= (output * 4) as usize);
+}
+
+#[tokio::test]
+async fn preserves_user_dominated_windows() {
+    let (summarizer, _) = summarizer(vec![complete("Verified the source")], false);
+    let original = "Keep exact constraints. ".repeat(160);
+    let mut events = history();
+    events[0].set_content(Content::new("user").with_text(original.clone()));
+    events[1].set_content(Content::new("model").with_text("Verified evidence. ".repeat(50)));
+    let bytes = transcript(&events).unwrap().len();
+    let summary = summarizer.summarize_events(&events).await.unwrap().unwrap();
+    let text = summary
+        .actions
+        .compaction
+        .as_ref()
+        .unwrap()
+        .compacted_content
+        .parts[0]
+        .text()
+        .unwrap();
+    assert!(text.ends_with(&original));
+    assert!(text.len() < bytes);
+    assert!(text.len() * 2 > bytes);
+    assert_eq!(
+        events[0].content().unwrap().parts[0].text(),
+        Some(original.as_str())
+    );
 }

@@ -390,6 +390,12 @@ pub(crate) fn project(
                 let name = value["name"].as_str().ok_or_else(|| sailry_protocol::Fault::invalid("invalid tool start name"))?;
                 Ok(Part::Resource(serde_json::json!({"type": "tool_started", "id": value["id"], "name": name})))
             }))
+            .chain(event.provider_metadata.get("sailry_operation_warning").map(|code| {
+                if event.author != "system" || code != "context_summary_failed" {
+                    return Err(sailry_protocol::Fault::invalid("invalid operation warning metadata"));
+                }
+                Ok(Part::Resource(serde_json::json!({"type":"operation_warning","code":code,"turn":turn})))
+            }))
             .chain(event.provider_metadata.get("sailry_retry").map(|value| {
                 let value: Value = serde_json::from_str(value).map_err(storage_error)?;
                 let attempt = value["attempt"]

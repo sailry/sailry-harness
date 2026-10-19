@@ -74,6 +74,7 @@ fn merges_turns_after_watermark() {
     projection
         .apply(1, Update::ConversationSnapshot(snapshot.clone()))
         .unwrap();
+    assert_eq!(projection.live_start(), None);
     let older = Run {
         turn: TurnId::new(),
         sequence: 1,
@@ -103,6 +104,17 @@ fn merges_turns_after_watermark() {
         Apply::Ignored
     );
     assert_eq!(projection.snapshot().unwrap(), &snapshot);
+    let mut paged = Projection::new(snapshot.node, run.session, 1);
+    paged
+        .apply(1, Update::ConversationSnapshot(snapshot.clone()))
+        .unwrap();
+    let mut older_page = history.clone();
+    older_page.sequence = snapshot.sequence;
+    assert_eq!(
+        paged.merge_history(1, Some(run.turn), older_page).unwrap(),
+        Apply::Applied
+    );
+    assert_eq!(paged.live_start(), None);
     projection
         .apply(1, frame(&snapshot, 11, Change::Entry(entry(&run, 4))))
         .unwrap();
@@ -138,6 +150,7 @@ fn merges_turns_after_watermark() {
         Apply::Ignored
     );
     assert_eq!(projection.snapshot().unwrap(), &complete);
+    assert_eq!(projection.live_start(), Some(4));
 }
 
 #[test]
