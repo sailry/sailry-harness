@@ -52,7 +52,8 @@ fn locations() -> Vec<Location> {
             });
         }
     }
-    let disks = sysinfo::Disks::new_with_refreshed_list();
+    let disks =
+        sysinfo::Disks::new_with_refreshed_list_specifics(sysinfo::DiskRefreshKind::nothing());
     add_volumes(
         &mut locations,
         disks.list().iter().filter_map(|disk| {
