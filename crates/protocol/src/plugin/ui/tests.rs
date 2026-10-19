@@ -202,3 +202,57 @@ fn details_accept_bounded_optional_progress() {
     entry.kind = Kind::Button;
     assert!(!state.valid(&entry));
 }
+
+mod metric_width {
+    use super::*;
+
+    fn metric() -> Contribution {
+        let mut entry = contribution(Slot::Footer, Kind::Metric);
+        entry.handler = None;
+        entry
+    }
+
+    #[test]
+    fn accepts_bounded_metric_widths() {
+        let mut entry = metric();
+        for width in [None, Some(240), Some(320), Some(480)] {
+            entry.width = width;
+            assert!(entry.valid());
+        }
+        for width in [0, 239, 481, u16::MAX] {
+            entry.width = Some(width);
+            assert!(!entry.valid());
+        }
+    }
+
+    #[test]
+    fn rejects_width_on_other_kinds() {
+        let mut entry = contribution(Slot::Status, Kind::Popover);
+        assert!(entry.valid());
+        entry.width = Some(320);
+        assert!(!entry.valid());
+    }
+
+    #[test]
+    fn round_trips_on_the_wire() {
+        let mut entry = metric();
+        assert!(serde_json::to_value(&entry).unwrap().get("width").is_none());
+        entry.width = Some(360);
+        let encoded = serde_json::to_value(&entry).unwrap();
+        assert_eq!(encoded["width"], 360);
+        assert_eq!(
+            serde_json::from_value::<Contribution>(encoded).unwrap(),
+            entry
+        );
+        assert!(
+            serde_json::from_value::<Contribution>(json!({
+                "id": "action",
+                "slot": "footer",
+                "kind": "metric",
+                "label": { "label": "Action" },
+                "width": -1
+            }))
+            .is_err()
+        );
+    }
+}

@@ -765,6 +765,16 @@
         },
         "slot": {
           "$ref": "#/$defs/Slot"
+        },
+        "width": {
+          "description": "Logical width of a metric's shared details popover; the host default applies when absent.",
+          "format": "uint16",
+          "maximum": 480,
+          "minimum": 240,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [

@@ -24,6 +24,7 @@ fn core(id: &str, kind: Kind, align: Align, order: i16) -> Contribution {
         align,
         choices: vec![],
         command: None,
+        width: None,
     }
 }
 

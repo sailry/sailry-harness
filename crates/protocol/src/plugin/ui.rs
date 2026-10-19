@@ -9,6 +9,8 @@ mod tests;
 pub const MAX_ENTRIES: usize = 32;
 pub const MAX_CHOICES: usize = 256;
 pub const MAX_STATE_BYTES: usize = 64 * 1024;
+/// Logical pixel bounds for a metric's shared details popover.
+pub const METRIC_WIDTH: std::ops::RangeInclusive<u16> = 240..=480;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -105,6 +107,10 @@ pub struct Contribution {
     /// A command and its ordinary control share one captured state and handler.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<Command>,
+    /// Logical width of a metric's shared details popover; the host default applies when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 240, max = 480))]
+    pub width: Option<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -221,6 +227,9 @@ impl Contribution {
             && icon(&self.icon)
             && (self.slot != Slot::Status || matches!(self.kind, Kind::Button | Kind::Popover))
             && (self.slot != Slot::Commands || self.command.is_some())
+            && self
+                .width
+                .is_none_or(|width| self.kind == Kind::Metric && METRIC_WIDTH.contains(&width))
             && self.command.as_ref().is_none_or(|command| {
                 command_name(&command.name)
                     && ![

@@ -398,8 +398,11 @@ The `footer` slot accepts passive `metric` contributions immediately before the
 conversation usage controls, independently of Sailry session statistics. Supply
 `value` and localized `details: [{label, value, progress?}]`; optional `progress`
 is a finite percentage from 0 through 100, including decimals. The shared metric
-popover renders the same label/value rows and native Kit progress bars for every
-package. Packages do not supply popup views, positioning or styles.
+popover lists rows without `progress` first, then rows with `progress` as labeled
+Kit progress bars, each group in declared order. Long labels truncate so values
+stay whole. A `metric` declaration may set `width` from 240 through 480 logical
+pixels; the host default is 300. Packages do not supply popup views, positioning
+or styles.
 
 A package declaring `models.provide` can use `readModelContext()` and
 `nextModelContext(cursor)` without `conversation.read`. This projection contains

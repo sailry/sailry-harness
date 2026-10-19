@@ -169,7 +169,9 @@ fn body(entry: &Entry, cx: &App) -> Div {
 fn details(entry: &Entry, cx: &App) -> AnyElement {
     div()
         .debug_selector(|| "composer-stat-details".into())
-        .w(px(POPOVER_WIDTH - 2. * POPOVER_INSET.1))
+        .w(px(
+            entry.declaration.width.map_or(POPOVER_WIDTH, f32::from) - 2. * POPOVER_INSET.1
+        ))
         .min_w_0()
         .child(body(entry, cx))
         .into_any_element()
