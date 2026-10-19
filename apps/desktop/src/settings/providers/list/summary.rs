@@ -9,13 +9,13 @@ use sailry_protocol::{
 pub(super) const CHIPS: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Auth {
+pub(super) enum AuthKind {
     OAuth,
     ApiKey,
     Plugin,
 }
 
-impl Auth {
+impl AuthKind {
     pub fn of(channel: &Channel, authentication: Authentication) -> Self {
         let packaged = channel
             .directory

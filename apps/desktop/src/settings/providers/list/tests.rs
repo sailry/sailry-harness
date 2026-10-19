@@ -28,17 +28,26 @@ mod auth {
     #[test]
     fn follows_authentication() {
         let key = channel(Preset::CompatibleChat);
-        assert_eq!(Auth::of(&key, Authentication::ApiKey), Auth::ApiKey);
+        assert_eq!(AuthKind::of(&key, Authentication::ApiKey), AuthKind::ApiKey);
         let login = channel(Preset::ChatGptOAuth);
-        assert_eq!(Auth::of(&login, Authentication::ChatGptOAuth), Auth::OAuth);
+        assert_eq!(
+            AuthKind::of(&login, Authentication::ChatGptOAuth),
+            AuthKind::OAuth
+        );
     }
 
     #[test]
     fn marks_plugin_channels() {
         let channel = packaged(channel(Preset::CompatibleChat), None);
-        assert_eq!(Auth::of(&channel, Authentication::ApiKey), Auth::Plugin);
+        assert_eq!(
+            AuthKind::of(&channel, Authentication::ApiKey),
+            AuthKind::Plugin
+        );
         let declared = super::channel(Preset::Plugin);
-        assert_eq!(Auth::of(&declared, Authentication::Plugin), Auth::Plugin);
+        assert_eq!(
+            AuthKind::of(&declared, Authentication::Plugin),
+            AuthKind::Plugin
+        );
     }
 }
 

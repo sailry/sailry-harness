@@ -8,7 +8,7 @@ mod summary;
 mod tests;
 
 pub(super) use summary::matches;
-use summary::{Auth, Mark, Status};
+use summary::{AuthKind, Mark, Status};
 
 const TILE: f32 = 36.;
 const GAP: f32 = 12.;
@@ -37,7 +37,7 @@ impl Workspace {
             .as_ref()
             .is_some_and(|live| live.pending || !live.connected);
         let authentication = self.provider_authentication(channel);
-        let auth = Auth::of(channel, authentication);
+        let auth = AuthKind::of(channel, authentication);
         let expanded = self.providers.expanded == Some(id);
         let theme = cx.theme();
         let details = v_flex()
@@ -131,7 +131,7 @@ impl Workspace {
             .child(Self::provider_tile(channel))
             .child(details)
             .when_some(
-                channel.quota.as_ref().filter(|_| auth == Auth::OAuth),
+                channel.quota.as_ref().filter(|_| auth == AuthKind::OAuth),
                 |row, quota| row.child(Self::provider_quota(id, quota, cx)),
             )
             .child(summary)
