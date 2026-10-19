@@ -1,6 +1,7 @@
 use super::*;
 use std::sync::atomic::Ordering;
 mod cache;
+mod external;
 mod fixture;
 mod live;
 mod skills;
@@ -74,7 +75,7 @@ async fn installs_pinned_packages() {
         };
         assert_eq!(source.path.as_deref(), Some("official-new"));
         assert_eq!(source.git_ref.as_deref(), Some(FIRST));
-        let details = info(
+        let details = details(
             execute(
                 &client,
                 Command::ReadCatalogPluginInfo {
@@ -241,7 +242,7 @@ async fn offline_and_invalid_indexes() {
         assert_eq!(page.entries.len(), 1);
         assert_eq!(page.entries[0].name, "city-trader");
         assert!(page.entries[0].bundled);
-        let details = info(
+        let details = details(
             execute(
                 &client,
                 Command::ReadCatalogPluginInfo {
@@ -319,7 +320,7 @@ async fn obsolete_manifests_use_bundled_listings() {
             .iter()
             .find(|entry| entry.id == "files")
             .unwrap();
-        let details = info(
+        let details = details(
             execute(
                 &client,
                 Command::ReadCatalogPluginInfo {
@@ -353,6 +354,58 @@ async fn obsolete_manifests_use_bundled_listings() {
             );
         }
         assert_eq!(execute(&client, Command::ListPlugins).await, before);
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}
+
+fn details(output: Output) -> plugin::Info {
+    let Output::CatalogDetails(plugin::catalog::Details::Plugin(info)) = output else {
+        panic!("portable catalog details expected")
+    };
+    *info
+}
+
+#[tokio::test]
+async fn prefers_complete_newer_bundled_entries() {
+    for remote in [false, true] {
+        let catalog = Catalog::start().await;
+        catalog.legacy.store(true, Ordering::SeqCst);
+        let (_directory, node, controller, client) = connection(remote, &catalog).await;
+        let Output::PluginCatalog(page) = execute(&client, search("files")).await else {
+            panic!("catalog expected")
+        };
+        let entry = page
+            .entries
+            .iter()
+            .find(|entry| entry.id == "files")
+            .unwrap();
+        assert!(entry.bundled);
+        assert!(entry.category.is_some());
+        assert_eq!(entry.repository, None);
+        let details = details(
+            execute(
+                &client,
+                Command::ReadCatalogPluginInfo {
+                    source: plugin::catalog::Source::Official,
+                    id: entry.id.clone(),
+                    bundled: entry.bundled,
+                },
+            )
+            .await,
+        );
+        assert_eq!(details.summary.version, entry.version);
+        assert_eq!(details.extension.as_ref().unwrap().category, entry.category);
+        let Output::PluginCatalog(page) = execute(&client, search("official-new")).await else {
+            panic!("catalog expected")
+        };
+        assert_eq!(page.entries.len(), 1);
+        assert!(!page.entries[0].bundled);
+        assert_eq!(page.entries[0].version.as_deref(), Some("1.0.0"));
+        assert_eq!(
+            page.entries[0].repository.as_deref(),
+            Some("https://github.com/sailry/sailry-plugins")
+        );
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }

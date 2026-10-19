@@ -1,24 +1,6 @@
 use super::*;
 use gpui_kit::assets::IconName;
 
-pub(super) fn summary(
-    id: String,
-    title: SharedString,
-    description: String,
-    icon: Option<AnyElement>,
-    cx: &App,
-) -> Button {
-    Button::new(SharedString::from(id))
-        .ghost()
-        .h_auto()
-        .flex_1()
-        .min_w_0()
-        .px_0()
-        .py_0()
-        .accessibility_label(title.clone())
-        .child(content(title, description, icon, None, cx))
-}
-
 pub(super) fn content(
     title: SharedString,
     description: String,
@@ -76,11 +58,16 @@ pub(super) fn content(
         .into_any_element()
 }
 
-pub(super) fn row(id: String, summary: impl IntoElement, action: Button, cx: &App) -> AnyElement {
-    h_flex()
-        .id(SharedString::from(id))
+pub(super) fn row(
+    id: String,
+    summary: impl IntoElement,
+    action: Button,
+    cx: &App,
+) -> list::ListItem {
+    list::ListItem::new(SharedString::from(id))
         .w_full()
         .h(px(76.))
+        .text_sm()
         .min_w_0()
         .px_4()
         .gap_3()
@@ -89,9 +76,15 @@ pub(super) fn row(id: String, summary: impl IntoElement, action: Button, cx: &Ap
         .border_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().group_box)
-        .child(summary)
-        .child(action)
-        .into_any_element()
+        .child(
+            h_flex()
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .gap_3()
+                .child(summary)
+                .child(action),
+        )
 }
 
 pub(super) fn action(id: String, installed: bool, update: bool, cx: &App) -> Button {

@@ -66,6 +66,7 @@ impl Channel {
     }
 }
 
+#[derive(Clone)]
 pub(super) enum Selection {
     Git { source: Source },
     Registry(RegistrySource),

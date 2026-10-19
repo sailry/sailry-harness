@@ -114,6 +114,9 @@ impl super::Shell {
             window_content_width = window_content_width.max(panel.read(cx).min_content_width(cx));
             window_content_height = panel.read(cx).min_content_height(cx);
         }
+        if self.settings_details.is_some() {
+            constraints.details = px(360.)..px(720.);
+        }
         let sidebar_open = layout.sidebar_open;
         let navigation_width = if sidebar_open {
             px(layout.sidebar_width)
@@ -128,7 +131,9 @@ impl super::Shell {
         // Fit the rendered navigation without overwriting its saved width.
         layout.sidebar_width = f32::from(navigation_width);
         let sidebar_width = px(RAIL_WIDTH) + navigation_width;
-        let panel_width = if let Some(workspace) = &plugin_workspace {
+        let panel_width = if self.settings_details.is_some() {
+            self.settings_details_width
+        } else if let Some(workspace) = &plugin_workspace {
             workspace.read(cx).width
         } else if let Some(width) = &compact_width {
             (*width.read(cx))
@@ -137,11 +142,12 @@ impl super::Shell {
             px(layout.panel_size(self.page, f32::from(window.viewport_size().width)))
         }
         .clamp(constraints.details.start, constraints.details.end);
-        let requested = plugin_workspace
-            .as_ref()
-            .map_or(layout.panel_open[self.page.panel_index()], |workspace| {
-                workspace.read(cx).open
-            });
+        let requested = self.settings_details.is_some()
+            || plugin_workspace
+                .as_ref()
+                .map_or(layout.panel_open[self.page.panel_index()], |workspace| {
+                    workspace.read(cx).open
+                });
         let panel_minimum = window_content_width
             + px(RAIL_WIDTH)
             + if sidebar_open {
@@ -192,10 +198,11 @@ impl super::Shell {
             None => self.feature_navigation(window, cx),
         };
         let navigation_available = navigation.is_some();
-        let has_panel = slots.as_ref().map_or_else(
-            || self.has_resource_panel(cx),
-            |slots| slots.details.is_some(),
-        );
+        let has_panel = self.settings_details.is_some()
+            || slots.as_ref().map_or_else(
+                || self.has_resource_panel(cx),
+                |slots| slots.details.is_some(),
+            );
         let geometry = self.frame_geometry(navigation_available, has_panel, window, cx);
         limits::apply(geometry.window_minimum(), window, cx);
         let Geometry {
@@ -209,9 +216,13 @@ impl super::Shell {
             compact_width,
             ..
         } = geometry;
-        let details = match &mut slots {
-            Some(slots) => slots.details.take(),
-            None => has_panel.then(|| self.details(px(panel_width), window, cx)),
+        let details = if let Some(details) = &self.settings_details {
+            Some(details.clone().into_any_element())
+        } else {
+            match &mut slots {
+                Some(slots) => slots.details.take(),
+                None => has_panel.then(|| self.details(px(panel_width), window, cx)),
+            }
         };
         let plugin_workspace = self.plugin_workspace(cx);
         let panel_index = self.page.panel_index();
@@ -219,10 +230,14 @@ impl super::Shell {
         let details_resize = details_range.clone();
         let frame = Frame {
             state: self.panels.clone(),
-            workspace_state: plugin_workspace
-                .as_ref()
-                .map(|workspace| workspace.read(cx).panels.clone())
-                .unwrap_or_else(|| self.workspace_panels.clone()),
+            workspace_state: if self.settings_details.is_some() {
+                self.settings_details_panels.clone()
+            } else {
+                plugin_workspace
+                    .as_ref()
+                    .map(|workspace| workspace.read(cx).panels.clone())
+                    .unwrap_or_else(|| self.workspace_panels.clone())
+            },
             sidebar: navigation.map(|content| Pane {
                 visible: sidebar_open,
                 width: sidebar_width - px(RAIL_WIDTH),
@@ -273,7 +288,11 @@ impl super::Shell {
             on_workspace_resize: Box::new(cx.listener(
                 move |this, state: &Entity<ResizableState>, _, cx| {
                     let sizes = state.read(cx).sizes().to_vec();
-                    if visible && let Some(workspace) = &plugin_workspace {
+                    if visible && this.settings_details.is_some() {
+                        this.settings_details_width =
+                            sizes[1].clamp(details_resize.start, details_resize.end);
+                        cx.notify();
+                    } else if visible && let Some(workspace) = &plugin_workspace {
                         workspace.update(cx, |state, cx| {
                             state.width = sizes[1].clamp(details_resize.start, details_resize.end);
                             cx.notify();

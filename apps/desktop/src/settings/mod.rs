@@ -17,6 +17,8 @@ pub(crate) use navigation::OpenSection;
 mod mcp;
 mod model_library;
 mod plugins;
+pub(crate) use navigation::{CloseDetails, OpenDetails};
+pub(crate) use plugins::details::Details as PluginDetails;
 pub(crate) use plugins::open_bound as open_plugin_details;
 pub(crate) use plugins::preparation::label as python_stage;
 pub(crate) use plugins::updates::connected as check_plugin_updates;
@@ -34,7 +36,7 @@ mod skills;
 mod terminal;
 pub(super) mod upload;
 
-use gpui_kit::component::*;
+use gpui_kit::component::{scroll::ScrollableElement, *};
 use gpui_kit::*;
 
 use crate::tr;
@@ -409,6 +411,16 @@ impl Render for Workspace {
             Section::Skills => self.skills(cx),
             _ => self.catalog(cx),
         };
+        if self.section == Section::Market {
+            return div()
+                .id("market-viewport")
+                .size_full()
+                .min_h_0()
+                .min_w_0()
+                .overflow_y_scrollbar()
+                .child(div().p_6().child(content))
+                .into_any_element();
+        }
         if self.plugin_full_width(cx) {
             return div()
                 .size_full()

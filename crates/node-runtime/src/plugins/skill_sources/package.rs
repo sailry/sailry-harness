@@ -29,7 +29,7 @@ pub(super) fn discover(
     Ok(candidates)
 }
 
-pub(super) fn scan(
+pub(in crate::plugins) fn scan(
     directory: &Dir,
     repository: &str,
     path: &str,

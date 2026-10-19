@@ -240,22 +240,34 @@ impl PathPicker {
 
     fn tile(&self, size: f32, cx: &App) -> Div {
         let tint = self.kind.tint(cx);
-        div()
-            .flex()
+        h_flex()
+            .relative()
             .flex_none()
-            .items_center()
-            .justify_center()
             .size(px(size))
             .rounded(cx.theme().radius_lg)
             .bg(tint.opacity(0.16))
             .text_color(tint)
-            .child(if self.busy {
-                Spinner::new().into_any_element()
-            } else {
-                Icon::new(self.kind.icon(!self.accept.is_empty()))
-                    .size(px(size * 0.45))
-                    .into_any_element()
-            })
+            .child(
+                h_flex()
+                    .absolute()
+                    .inset_0()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        h_flex()
+                            .size(px(size * 0.45))
+                            .items_center()
+                            .justify_center()
+                            .child(if self.busy {
+                                Spinner::new().into_any_element()
+                            } else {
+                                Icon::new(self.kind.icon(!self.accept.is_empty()))
+                                    .size_full()
+                                    .text_color(tint)
+                                    .into_any_element()
+                            }),
+                    ),
+            )
     }
 
     fn zone(&self, over: Option<bool>, cx: &App) -> Button {

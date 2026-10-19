@@ -88,3 +88,7 @@ market_permission_storage_read: "플러그인 데이터 읽기"
 market_permission_storage_write: "플러그인 데이터 저장"
 market_permission_knowledge_read: "지식 읽기"
 market_permission_knowledge_write: "지식 변경"
+
+market_details_formats: "다른 형식"
+market_details_unsupported: "지원되지 않음"
+market_page_filter: "현재 페이지 필터"

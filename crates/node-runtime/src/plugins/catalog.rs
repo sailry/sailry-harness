@@ -2,7 +2,7 @@
 use super::*;
 use sailry_link::CancellationToken;
 use sailry_protocol::plugin::{
-    catalog::{Entry, Page, Source as CatalogSource},
+    catalog::{Details, Entry, Page, Source as CatalogSource},
     skills::Source,
 };
 use serde::Deserialize;
@@ -40,7 +40,6 @@ struct Detail {
 #[derive(Deserialize)]
 struct Manifest {
     path: String,
-    raw: String,
 }
 
 impl Host {
@@ -52,7 +51,7 @@ impl Host {
         force: bool,
         stop: CancellationToken,
     ) -> Result<Page, Fault> {
-        if query.len() > 200 || page == 0 {
+        if page == 0 {
             return Err(sailry_protocol::Fault::invalid("invalid catalog query"));
         }
         if source == CatalogSource::Official {
@@ -173,7 +172,7 @@ impl Host {
         id: &str,
         bundled: bool,
         stop: CancellationToken,
-    ) -> Result<Info, Fault> {
+    ) -> Result<Details, Fault> {
         if !sailry_protocol::plugin::ui::identifier(id) {
             return Err(sailry_protocol::Fault::invalid(
                 "invalid catalog identifier",
@@ -194,10 +193,17 @@ impl Host {
             let id = id.to_owned();
             return tokio::task::spawn_blocking(move || host.inspect_bundled(&id, stop))
                 .await
-                .map_err(|_| github::unavailable())?;
+                .map_err(|_| github::unavailable())?
+                .map(|info| Details::Plugin(Box::new(info)));
         }
-        let source = self.catalog_source(source, id, stop.clone()).await?;
-        Ok(self.inspect_source(&source, stop).await?.info)
+        let selected = self.catalog_source(source, id, stop.clone()).await?;
+        if source == CatalogSource::ThirdParty {
+            self.inspect_catalog_source(&selected, stop).await
+        } else {
+            Ok(Details::Plugin(Box::new(
+                self.inspect_source(&selected, stop).await?.info,
+            )))
+        }
     }
 
     fn catalog_url(&self, path: &str) -> url::Url {
@@ -276,18 +282,30 @@ pub(super) fn entry(id: &str, manifest: manifest::Manifest) -> Entry {
 }
 
 fn source(detail: Detail) -> Result<Source, Fault> {
-    let manifest = detail
-        .manifests
-        .get("agent-plugins")
-        .ok_or_else(|| sailry_protocol::Fault::invalid("Agent Plugins manifest is unavailable"))?;
-    if manifest.path != "plugin.json"
-        && manifest.path != format!("{}/plugin.json", detail.plugin_path.trim_end_matches('/'))
-    {
-        return Err(sailry_protocol::Fault::invalid(
-            "portable plugin manifest must be at the package root",
+    let root_manifest = detail.manifests.get("agent-plugins");
+    if let Some(manifest) = root_manifest {
+        if manifest.path != "plugin.json"
+            && manifest.path != format!("{}/plugin.json", detail.plugin_path.trim_end_matches('/'))
+        {
+            return Err(Fault::invalid(
+                "portable plugin manifest must be at the package root",
+            ));
+        }
+    } else if ![
+        ("codex", ".codex-plugin/plugin.json"),
+        ("claude-code", ".claude-plugin/plugin.json"),
+    ]
+    .iter()
+    .any(|(format, path)| {
+        detail.manifests.get(*format).is_some_and(|manifest| {
+            manifest.path == *path
+                || manifest.path == format!("{}/{path}", detail.plugin_path.trim_end_matches('/'))
+        })
+    }) {
+        return Err(Fault::invalid(
+            "supported repository plugin metadata is unavailable",
         ));
     }
-    manifest::parse(manifest.raw.as_bytes())?;
     let source = Source {
         repository: detail.repo_url,
         git_ref: None,
@@ -359,34 +377,23 @@ mod tests {
         );
     }
 
-    fn detail(path: &str, schema: &str) -> Detail {
+    fn detail(path: &str) -> Detail {
         Detail {
             repo_url: "https://github.com/example/plugins".into(),
             plugin_path: "plugins/review".into(),
-            manifests: [(
-                "agent-plugins".into(),
-                Manifest {
-                    path: path.into(),
-                    raw: serde_json::json!({"$schema":schema, "name":"review"}).to_string(),
-                },
-            )]
-            .into(),
+            manifests: [("agent-plugins".into(), Manifest { path: path.into() })].into(),
         }
     }
     #[test]
     fn accepts_only_portable_package_roots() {
         for path in ["plugin.json", "plugins/review/plugin.json"] {
             assert_eq!(
-                source(detail(path, manifest::SCHEMA))
-                    .unwrap()
-                    .path
-                    .as_deref(),
+                source(detail(path)).unwrap().path.as_deref(),
                 Some("plugins/review")
             );
         }
-        assert!(source(detail(".claude-plugin/plugin.json", manifest::SCHEMA)).is_err());
-        assert!(source(detail("plugin.json", "unknown")).is_err());
-        let mut unsafe_path = detail("plugin.json", manifest::SCHEMA);
+        assert!(source(detail(".claude-plugin/plugin.json")).is_err());
+        let mut unsafe_path = detail("plugin.json");
         unsafe_path.plugin_path = "../private".into();
         assert!(source(unsafe_path).is_err());
     }

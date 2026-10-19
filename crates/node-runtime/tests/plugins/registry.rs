@@ -1,6 +1,6 @@
 use super::*;
 #[path = "../support/skillhub.rs"]
-mod fixture;
+pub(super) mod fixture;
 
 fn source() -> plugin::skills::RegistrySource {
     plugin::skills::RegistrySource {

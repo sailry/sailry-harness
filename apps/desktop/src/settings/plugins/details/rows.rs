@@ -58,7 +58,7 @@ pub(super) fn section(
     rows: Vec<AnyElement>,
     cx: &App,
 ) -> AnyElement {
-    let mut content = v_flex().w_full().gap_0();
+    let mut content = v_flex().w_full().min_w_0().gap_0();
     for (index, row) in rows.into_iter().enumerate() {
         if index > 0 {
             content = content.child(Separator::horizontal());
@@ -66,6 +66,9 @@ pub(super) fn section(
         content = content.child(row);
     }
     GroupBox::new()
+        .id(key)
+        .min_w_0()
+        .flex_shrink_0()
         .outline()
         .gap_2()
         .title(

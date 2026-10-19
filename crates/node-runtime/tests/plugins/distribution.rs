@@ -98,7 +98,11 @@ async fn catalog_details_do_not_install_packages() {
         assert!(!request.command.durable());
         let admission = client.dispatch(request).await.unwrap();
         assert!(!admission.receipt.durable);
-        let details = info(admission.completion.await.unwrap().unwrap());
+        let Output::CatalogDetails(plugin::catalog::Details::Plugin(details)) =
+            admission.completion.await.unwrap().unwrap()
+        else {
+            panic!("catalog details expected")
+        };
         assert_eq!(details.summary.name, "city-trader");
         assert_eq!(details.summary.revision, 0);
         assert_eq!(details.summary.digest.len(), 64);
@@ -535,7 +539,7 @@ async fn activity_board_is_optional() {
             panic!("inventory expected")
         };
         assert!(!entries.iter().any(|entry| entry.name == "progress"));
-        let available = info(
+        let available = catalog_info(
             execute(
                 &client,
                 Command::ReadCatalogPluginInfo {
@@ -916,4 +920,11 @@ async fn preserves_unshipped_installed_package() {
         node.shutdown().await.unwrap();
         controller.close().await.unwrap();
     }
+}
+
+fn catalog_info(output: Output) -> plugin::Info {
+    let Output::CatalogDetails(plugin::catalog::Details::Plugin(info)) = output else {
+        panic!("portable catalog details expected")
+    };
+    *info
 }

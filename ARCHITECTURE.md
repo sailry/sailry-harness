@@ -522,7 +522,16 @@ upgrade; update failures preserve installed packages and are reported honestly.
 Official skill entries come from actual package skill frontmatter, not a separate
 curated history. Older catalogs without a skill inventory use the real bundled
 inventory; those entries remain identified as bundled and resolve their public
-source through ordinary discovery before installation. Package category, icon
+source through ordinary discovery before installation. Plugin listings choose an entire newer bundled entry over an older online version,
+including its actual installation source; metadata is never grafted onto an older
+remote package. Public skills.sh and Skillhub lists use Node-owned read-only pages,
+search and short-lived caches, then reuse Git discovery or signed registry
+installation. Skills.sh single-character filtering is explicitly page-local; its
+search does not invent pagination. Community details validate real repository
+manifests rather than synthetic index documents. Confirmed external Codex or Claude
+Code packages can expose their actual metadata and immutable standalone skills;
+unsupported integrations and hooks are not executed. Invalid declared portable
+manifests still fail validation. Package category, icon
 tint and localized names are presentation metadata. Release notes are plain text
 for the exact package version; displayed access categories do not grant permission.
 

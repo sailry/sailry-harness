@@ -88,3 +88,7 @@ market_permission_storage_read: "读取插件数据"
 market_permission_storage_write: "保存插件数据"
 market_permission_knowledge_read: "读取知识库"
 market_permission_knowledge_write: "修改知识库"
+
+market_details_formats: "其他格式"
+market_details_unsupported: "暂不支持"
+market_page_filter: "当前页筛选"

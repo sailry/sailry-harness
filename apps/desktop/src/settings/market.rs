@@ -124,7 +124,7 @@ impl Market {
     fn search(&mut self, page: u32, force: bool, cx: &mut Context<Self>) {
         match self.kind {
             Kind::Plugins => self.load_plugins(page, force, cx),
-            Kind::Skills => self.load_skills(force, cx),
+            Kind::Skills => self.load_skills(page, force, cx),
             Kind::Themes => self.load_themes(force, cx),
         }
     }

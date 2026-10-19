@@ -132,7 +132,10 @@ gpui_kit::assets::icon_assets!(
     ]
 );
 gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare]);
-gpui_kit::assets::icon_assets!(PickerAssets, [Monitor, List, LayoutGrid, FolderInput]);
+gpui_kit::assets::icon_assets!(
+    PickerAssets,
+    [Monitor, List, LayoutGrid, FolderInput, FileArchive]
+);
 gpui_kit::assets::icon_assets!(
     SettingsAssets,
     [
@@ -643,6 +646,7 @@ mod tests {
             "icons/monitor.svg",
             "icons/list.svg",
             "icons/layout-grid.svg",
+            "icons/file-archive.svg",
         ] {
             assert_eq!(
                 Assets.load(path).unwrap().unwrap(),

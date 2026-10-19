@@ -280,7 +280,9 @@ impl Market {
                     } else {
                         String::new()
                     },
-                    theme::preview(package, cx.theme().is_dark(), cx).into_any_element(),
+                    theme::preview(package, cx.theme().is_dark(), cx)
+                        .h_full()
+                        .into_any_element(),
                     Button::new(SharedString::from(format!("market-theme-apply-{id}")))
                         .small()
                         .label(tr(if current {
@@ -313,22 +315,20 @@ impl Market {
                 .filter(|listing| !listing.unavailable)
                 .and_then(|listing| listing.selection(&entry.id));
             let preview = if let Some(package) = package {
-                theme::preview(package, cx.theme().is_dark(), cx).into_any_element()
+                theme::preview(package, cx.theme().is_dark(), cx)
+                    .h_full()
+                    .into_any_element()
             } else if let Some(image) = self
                 .themes
                 .previews
                 .get(&(entry.id.clone(), cx.theme().is_dark()))
             {
                 img(image.clone())
-                    .w_full()
-                    .aspect_ratio(1.6)
+                    .size_full()
                     .object_fit(ObjectFit::Cover)
                     .into_any_element()
             } else {
-                Skeleton::new()
-                    .w_full()
-                    .aspect_ratio(1.6)
-                    .into_any_element()
+                Skeleton::new().size_full().into_any_element()
             };
             let id = entry.id.clone();
             let key = if update {
@@ -373,6 +373,8 @@ impl Market {
         div()
             .grid()
             .grid_cols(2)
+            .items_start()
+            .content_start()
             .gap_4()
             .when(cards.is_empty(), |view| view.child(self.empty(cx)))
             .children(cards)
@@ -390,18 +392,28 @@ impl Market {
     ) -> AnyElement {
         v_flex()
             .id(SharedString::from(format!("market-theme-{id}")))
+            .w_full()
             .min_w_0()
-            .gap_3()
+            .flex_shrink_0()
+            .gap(px(10.))
             .child(
                 div()
+                    .relative()
                     .w_full()
-                    .aspect_ratio(1.6)
+                    .aspect_ratio(16. / 10.)
+                    .flex_shrink_0()
                     .overflow_hidden()
                     .rounded(cx.theme().radius_lg)
-                    .child(preview),
+                    .border_1()
+                    .border_color(cx.theme().border)
+                    .child(div().absolute().inset_0().child(preview)),
             )
             .child(
                 h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .flex_shrink_0()
+                    .px_0p5()
                     .gap_3()
                     .items_center()
                     .child(
@@ -409,16 +421,18 @@ impl Market {
                             .flex_1()
                             .min_w_0()
                             .gap_1()
-                            .child(div().truncate().font_medium().child(name))
-                            .child(
-                                div()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .truncate()
-                                    .child(description),
-                            ),
+                            .child(div().text_sm().truncate().font_medium().child(name))
+                            .when(!description.is_empty(), |view| {
+                                view.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(cx.theme().muted_foreground)
+                                        .truncate()
+                                        .child(description),
+                                )
+                            }),
                     )
-                    .child(action),
+                    .child(action.flex_shrink_0()),
             )
             .into_any_element()
     }

@@ -162,7 +162,12 @@ impl Market {
                                     }
                                 }
                             }
-                            cx.notify();
+                            if state.kind == Kind::Skills {
+                                state.skills = None;
+                                state.search(1, false, cx);
+                            } else {
+                                cx.notify();
+                            }
                         }))
                 }),
             ))

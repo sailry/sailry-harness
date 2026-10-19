@@ -126,6 +126,7 @@ impl Render for Editor {
                                     .debug_selector(move || format!("skill-source-{index}"))
                                     .child(
                                         Input::new(&self.fields[index])
+                                            .readonly(self.catalog_source.is_some())
                                             .disabled(locked)
                                             .aria_label(tr(key)),
                                     ),
@@ -138,11 +139,18 @@ impl Render for Editor {
                 |body| {
                     let index = self.channel.index() - 1;
                     body.child(
-                        Field::new().label(tr("skill_source_link")).child(
-                            Input::new(&self.links[index])
-                                .disabled(locked)
-                                .aria_label(tr("skill_source_link")),
-                        ),
+                        Field::new()
+                            .label(tr(if self.catalog_source.is_some() {
+                                "market_details_source"
+                            } else {
+                                "skill_source_link"
+                            }))
+                            .child(
+                                Input::new(&self.links[index])
+                                    .readonly(self.catalog_source.is_some())
+                                    .disabled(locked)
+                                    .aria_label(tr("skill_source_link")),
+                            ),
                     )
                 },
             )

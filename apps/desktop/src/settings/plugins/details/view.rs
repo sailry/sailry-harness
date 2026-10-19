@@ -2,13 +2,14 @@ use super::*;
 use gpui_kit::component::{
     badge::Badge,
     menu::{DropdownMenu, PopupMenuItem},
+    scroll::ScrollableElement,
     skeleton::Skeleton,
     tab::{Tab as KitTab, TabBar},
 };
 use sailry_protocol::plugin::Origin;
 
-pub(super) fn header(owner: &Entity<Details>, cx: &App) -> AnyElement {
-    let details = owner.read(cx);
+fn header(details: &Details, cx: &Context<Details>) -> AnyElement {
+    let owner = cx.entity();
     let info = details.info.as_ref();
     let installed = matches!(details.target, Target::Installed(_));
     let update = info.is_some_and(|info| {
@@ -16,29 +17,39 @@ pub(super) fn header(owner: &Entity<Details>, cx: &App) -> AnyElement {
     });
     let configurable =
         installed && info.is_some_and(super::super::super::extensions::modal::configurable);
-    let disabled = details.pending(cx) || details.error.is_some() || info.is_none();
-    let title = info
-        .map(metadata::title)
-        .unwrap_or_else(|| details.name().into());
-    let publisher = info.map(publisher).unwrap_or_default();
-    let version = details.version().unwrap_or_else(|| "—".into());
-    let subtitle = if installed && update {
-        format!("{publisher} · {} {version}", tr("market_installed"))
-    } else {
-        format!("{publisher} · {version}")
-    };
+    let disabled = details.pending(cx) || details.error.is_some() || !details.ready();
+    let title = info.map(metadata::title).unwrap_or_else(|| {
+        details
+            .external_metadata()
+            .map(|metadata| metadata.name.clone())
+            .unwrap_or_else(|| details.name().into())
+    });
+    let publisher = info
+        .map(publisher)
+        .or_else(|| {
+            details
+                .external_metadata()
+                .and_then(|metadata| metadata.author.clone())
+        })
+        .unwrap_or_default();
+    let subtitle = byline(&publisher, details.version().as_deref(), installed);
     let primary = owner.clone();
     let more = owner.clone();
     let tabs = owner.clone();
     let extension = info.and_then(|info| info.extension.as_ref());
     v_flex()
-        .flex_1()
+        .w_full()
         .min_w_0()
-        .gap_4()
+        .flex_shrink_0()
+        .px_7()
+        .gap_3()
+        .text_sm()
+        .font_normal()
         .child(
             h_flex()
                 .w_full()
                 .min_w_0()
+                .items_center()
                 .gap_3()
                 .child(crate::plugins::emblem::grid(
                     details.name(),
@@ -62,32 +73,35 @@ pub(super) fn header(owner: &Entity<Details>, cx: &App) -> AnyElement {
                                 .child(subtitle),
                         ),
                 )
-                .when(!installed || update || configurable, |row| {
-                    row.child(
-                        Button::new("plugin-details-primary")
-                            .small()
-                            .disabled(disabled)
-                            .when(update || !installed, |button| button.primary())
-                            .label(tr(if update {
-                                "market_update"
-                            } else if installed {
-                                "plugins_configure"
-                            } else {
-                                "market_install"
-                            }))
-                            .on_click(move |_, window, cx| {
-                                primary.update(cx, |details, cx| {
-                                    if update {
-                                        details.update(window, cx);
-                                    } else if installed {
-                                        details.configure(window, cx);
-                                    } else {
-                                        details.submit(window, cx);
-                                    }
-                                })
-                            }),
-                    )
-                })
+                .when(
+                    (!installed && details.installable()) || update || configurable,
+                    |row| {
+                        row.child(
+                            Button::new("plugin-details-primary")
+                                .small()
+                                .disabled(disabled)
+                                .when(update || !installed, |button| button.primary())
+                                .label(tr(if update {
+                                    "market_update"
+                                } else if installed {
+                                    "plugins_configure"
+                                } else {
+                                    "market_install"
+                                }))
+                                .on_click(move |_, window, cx| {
+                                    primary.update(cx, |details, cx| {
+                                        if update {
+                                            details.update(window, cx);
+                                        } else if installed {
+                                            details.configure(window, cx);
+                                        } else {
+                                            details.submit(window, cx);
+                                        }
+                                    })
+                                }),
+                        )
+                    },
+                )
                 .when(installed, |row| {
                     row.child(
                         Button::new("plugin-details-more")
@@ -111,15 +125,23 @@ pub(super) fn header(owner: &Entity<Details>, cx: &App) -> AnyElement {
                     )
                 }),
         )
-        .when_some(info.and_then(metadata::description), |view, description| {
-            view.child(
-                div()
-                    .text_sm()
-                    .font_normal()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(description),
-            )
-        })
+        .when_some(
+            info.and_then(metadata::description).or_else(|| {
+                details
+                    .external_metadata()
+                    .and_then(|metadata| metadata.description.clone())
+            }),
+            |view, description| {
+                view.child(
+                    div()
+                        .w_full()
+                        .text_sm()
+                        .line_height(relative(1.6))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(description),
+                )
+            },
+        )
         .child(
             TabBar::new("plugin-details-tabs")
                 .underline()
@@ -131,19 +153,22 @@ pub(super) fn header(owner: &Entity<Details>, cx: &App) -> AnyElement {
                 })
                 .child(KitTab::new().label(tr("market_details_overview")))
                 .child(KitTab::new().label(tr("market_details_contents")))
-                .child(KitTab::new().label(tr("market_details_permissions")))
-                .child(
-                    KitTab::new()
-                        .label(tr("market_details_versions"))
-                        .when(update, |tab| {
+                .when(info.is_some(), |tabs| {
+                    tabs.child(KitTab::new().label(tr("market_details_permissions")))
+                })
+                .when(info.is_some(), |tabs| {
+                    tabs.child(KitTab::new().label(tr("market_details_versions")).when(
+                        update,
+                        |tab| {
                             tab.suffix(
                                 Badge::new()
                                     .dot()
                                     .color(cx.theme().primary)
                                     .child(div().size_2()),
                             )
-                        }),
-                )
+                        },
+                    ))
+                })
                 .on_click(move |index, _, cx| {
                     tabs.update(cx, |details, cx| {
                         details.tab = match index {
@@ -152,6 +177,7 @@ pub(super) fn header(owner: &Entity<Details>, cx: &App) -> AnyElement {
                             2 => Tab::Permissions,
                             _ => Tab::Versions,
                         };
+                        details.scroll.set_offset(point(px(0.), px(0.)));
                         cx.notify();
                     })
                 }),
@@ -194,7 +220,7 @@ impl Details {
         }
         let name = expected.name.clone();
         self.stop.cancel();
-        window.close_sheet(cx);
+        super::dismiss(window, cx);
         self.updates
             .update(cx, |state, cx| state.apply(Some(&name), window, cx));
     }
@@ -237,6 +263,7 @@ impl Details {
                     ))
                     .on_click(cx.listener(|details, _, _, cx| {
                         details.tab = Tab::Contents;
+                        details.scroll.set_offset(point(px(0.), px(0.)));
                         cx.notify();
                     }))
                     .into_any_element(),
@@ -300,27 +327,80 @@ impl Details {
 
 impl Render for Details {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(info) = self.info.clone() else {
-            return v_flex()
+        let content = if let Some(info) = self.info.clone() {
+            match self.tab {
+                Tab::Overview => self.overview(&info, cx),
+                Tab::Contents => self.contents(&info, cx),
+                Tab::Permissions => self.permissions(&info, cx),
+                Tab::Versions => self.versions(&info, cx),
+            }
+        } else if self.external.is_some() {
+            self.external_contents(cx)
+        } else if self.error.is_some() {
+            crate::feedback::retry("plugin-details-reload")
+                .on_click(cx.listener(|details, _, _, cx| details.load(cx)))
+                .into_any_element()
+        } else {
+            v_flex()
                 .w_full()
                 .gap_3()
-                .p_1()
                 .children((0..3).map(|_| Skeleton::new().h_10().w_full()))
-                .into_any_element();
+                .into_any_element()
         };
-        let content = match self.tab {
-            Tab::Overview => self.overview(&info, cx),
-            Tab::Contents => self.contents(&info, cx),
-            Tab::Permissions => self.permissions(&info, cx),
-            Tab::Versions => self.versions(&info, cx),
-        };
-        div()
-            .w_full()
+        v_flex()
+            .id("plugin-details")
+            .size_full()
             .min_w_0()
-            .pt_2()
-            .pb_4()
-            .child(content)
+            .min_h_0()
+            .overflow_hidden()
+            .text_sm()
+            .font_normal()
+            .child(
+                h_flex()
+                    .w_full()
+                    .h(px(52.))
+                    .flex_shrink_0()
+                    .px_3()
+                    .justify_end()
+                    .child(
+                        Button::new("plugin-details-close")
+                            .ghost()
+                            .small()
+                            .icon(IconName::Close)
+                            .accessibility_label(tr("close"))
+                            .on_click(|_, window, cx| super::dismiss(window, cx)),
+                    ),
+            )
+            .child(header(self, cx))
+            .child(
+                div()
+                    .id("plugin-details-body")
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .min_w_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll)
+                    .child(div().w_full().min_w_0().px_7().pt_5().pb_7().child(content))
+                    .vertical_scrollbar(&self.scroll),
+            )
             .into_any_element()
+    }
+}
+
+fn byline(publisher: &str, version: Option<&str>, installed: bool) -> String {
+    let Some(version) = version else {
+        return publisher.into();
+    };
+    let version = if installed {
+        format!("{} {version}", tr("market_installed"))
+    } else {
+        version.into()
+    };
+    if publisher.is_empty() {
+        version
+    } else {
+        format!("{publisher} · {version}")
     }
 }
 
@@ -328,6 +408,17 @@ impl Render for Details {
 mod tests {
     use super::*;
     use core::prelude::v1::test;
+    #[test]
+    fn formats_version_once() {
+        assert_eq!(byline("Sailry", None, true), "Sailry");
+        assert_eq!(byline("Sailry", Some("0.1.7"), false), "Sailry · 0.1.7");
+        assert_eq!(
+            byline("Sailry", Some("0.1.7"), true),
+            format!("Sailry · {} 0.1.7", tr("market_installed")),
+        );
+        assert_eq!(byline("", Some("0.1.7"), false), "0.1.7");
+    }
+
     #[test]
     fn identifies_repository_publishers() {
         assert_eq!(

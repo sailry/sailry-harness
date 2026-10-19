@@ -31,13 +31,15 @@ enum Target {
     },
 }
 
-pub(in crate::settings) struct Details {
+pub(crate) struct Details {
     binding: Binding,
     target: Target,
     info: Option<Info>,
+    external: Option<sailry_protocol::plugin::catalog::Details>,
     authorization: Entity<authorization::Capabilities>,
     updates: Entity<updates::State>,
     tab: Tab,
+    scroll: ScrollHandle,
     error: Option<&'static str>,
     stop: CancellationToken,
     task: Option<Task<()>>,
@@ -117,9 +119,11 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
             authorization: capabilities,
             updates: update_state,
             tab: Tab::Overview,
+            scroll: ScrollHandle::new(),
             binding,
             target,
             info: None,
+            external: None,
             error: None,
             stop: CancellationToken::new(),
             task: None,
@@ -148,20 +152,19 @@ fn mount(binding: Binding, target: Target, window: &mut Window, cx: &mut App) ->
         );
     });
     details.update(cx, |details, cx| details.load(cx));
-    let entity = details.clone();
-    window.open_sheet_at(Placement::Right, cx, move |sheet, window, cx| {
-        let close = details.clone();
-        sheet
-            .size(px(480.).min(window.viewport_size().width))
-            .resizable(false)
-            .title(view::header(&details, cx))
-            .on_close(move |_, _, cx| close.read(cx).stop.cancel())
-            .child(details.clone())
-    });
-    entity
+    window.dispatch_action(Box::new(super::super::OpenDetails(details.clone())), cx);
+    details
+}
+
+pub(super) fn dismiss(window: &mut Window, cx: &mut App) {
+    window.dispatch_action(Box::new(super::super::CloseDetails), cx);
 }
 
 impl Details {
+    pub(crate) fn cancel(&self) {
+        self.stop.cancel();
+    }
+
     fn configure(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.stop.is_cancelled() || self.error.is_some() || self.pending(cx) {
             return;
@@ -181,7 +184,7 @@ impl Details {
         }
         let binding = self.binding.clone();
         self.stop.cancel();
-        window.close_sheet(cx);
+        dismiss(window, cx);
         super::super::extensions::modal::open(binding, info, window, cx);
     }
 
@@ -194,11 +197,25 @@ impl Details {
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.stop.is_cancelled()
-            || self.info.is_none()
-            || self.error.is_some()
-            || self.pending(cx)
+        if self.stop.is_cancelled() || !self.ready() || self.error.is_some() || self.pending(cx) {
+            return;
+        }
+        if let Some(sailry_protocol::plugin::catalog::Details::Skills(collection)) = &self.external
         {
+            let Target::Catalog { market, .. } = &self.target else {
+                return;
+            };
+            if let Some(market) = market.upgrade() {
+                let collection = collection.as_ref().clone();
+                self.stop.cancel();
+                dismiss(window, cx);
+                market.update(cx, |market, cx| {
+                    market.open_skill_collection(collection, window, cx)
+                });
+            }
+            return;
+        }
+        if self.external.is_some() {
             return;
         }
         match &self.target {
@@ -218,7 +235,7 @@ impl Details {
                             .update(cx, |details, _| !details.stop.is_cancelled())
                             .unwrap_or(false);
                         if active {
-                            window.close_sheet(cx);
+                            dismiss(window, cx);
                         }
                     },
                 );
@@ -239,7 +256,7 @@ impl Details {
                 let source = *source;
                 // Dismiss Details before acquisition opens its own dialog.
                 self.stop.cancel();
-                window.close_sheet(cx);
+                dismiss(window, cx);
                 market.update(cx, |market, cx| market.install(source, entry, window, cx));
             }
         }
@@ -252,7 +269,31 @@ impl Details {
         }
     }
 
+    fn ready(&self) -> bool {
+        self.info.is_some() || self.external.is_some()
+    }
+
+    fn installable(&self) -> bool {
+        self.info.is_some()
+            || matches!(&self.external, Some(sailry_protocol::plugin::catalog::Details::Skills(collection)) if !collection.skills.is_empty())
+    }
+
+    fn external_metadata(&self) -> Option<&sailry_protocol::plugin::catalog::Metadata> {
+        match self.external.as_ref()? {
+            sailry_protocol::plugin::catalog::Details::Skills(collection) => {
+                Some(&collection.metadata)
+            }
+            sailry_protocol::plugin::catalog::Details::Unsupported(external) => {
+                Some(&external.metadata)
+            }
+            sailry_protocol::plugin::catalog::Details::Plugin(_) => None,
+        }
+    }
+
     fn version(&self) -> Option<String> {
+        if let Some(metadata) = self.external_metadata() {
+            return metadata.version.clone();
+        }
         self.info
             .as_ref()
             .and_then(|info| info.summary.version.clone())
@@ -292,6 +333,19 @@ impl Details {
                     return;
                 }
                 match result {
+                    Ok(Some(Ok(Output::CatalogDetails(
+                        sailry_protocol::plugin::catalog::Details::Plugin(info),
+                    )))) => {
+                        if info.summary.name == details.name() {
+                            details.info = Some(*info);
+                        } else {
+                            details.error = Some("plugins_conflict");
+                        }
+                    }
+                    Ok(Some(Ok(Output::CatalogDetails(external)))) => {
+                        details.external = Some(external);
+                        details.tab = Tab::Contents;
+                    }
                     Ok(Some(Ok(Output::Plugin(info)))) => {
                         let matches = match &details.target {
                             Target::Installed(expected) => info.summary == *expected,

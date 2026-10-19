@@ -1,4 +1,5 @@
 //! Repository inspection and installation share acquisition and package validation.
+mod catalog;
 use super::repository::source;
 use super::*;
 use sailry_link::CancellationToken;

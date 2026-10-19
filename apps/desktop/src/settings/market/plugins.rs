@@ -39,7 +39,77 @@ impl Market {
         cx.notify();
     }
 
+    pub(in crate::settings) fn open_skill_collection(
+        &self,
+        collection: sailry_protocol::plugin::catalog::SkillCollection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        super::super::skills::install::open_discovery(
+            self.binding.clone(),
+            owner.read(cx).plugin_catalog.packages.clone(),
+            sailry_protocol::plugin::skills::Discovery {
+                source: collection.source,
+                skills: collection.skills,
+            },
+            window,
+            cx,
+        );
+    }
+
     pub(in crate::settings) fn install(
+        &mut self,
+        source: Source,
+        entry: Listing,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy(cx) {
+            return;
+        }
+        if entry.bundled {
+            self.acquire_plugin(source, entry, window, cx);
+            return;
+        }
+        let stop = self.begin(Loading::Repository(entry.id.clone()));
+        let cancelled = stop.clone();
+        let binding = self.binding.clone();
+        let id = entry.id.clone();
+        let job = binding.runtime.spawn(async move {
+            tokio::select! { biased;
+                _ = cancelled.cancelled() => None,
+                result = binding.client.execute(binding.client.prepare(Command::ReadCatalogPluginInfo {source, id, bundled:false})) => Some(result),
+            }
+        });
+        self.task = Some(cx.spawn_in(window, async move |state, cx| {
+            let result = job.await;
+            _ = state.update_in(cx, |state, window, cx| {
+                if stop.is_cancelled() {
+                    return;
+                }
+                state.pending = None;
+                match result {
+                    Ok(Some(Ok(Output::CatalogDetails(
+                        sailry_protocol::plugin::catalog::Details::Plugin(_),
+                    )))) => state.acquire_plugin(source, entry, window, cx),
+                    Ok(Some(Ok(Output::CatalogDetails(
+                        sailry_protocol::plugin::catalog::Details::Skills(collection),
+                    )))) => state.open_skill_collection(*collection, window, cx),
+                    Ok(Some(Ok(Output::CatalogDetails(
+                        sailry_protocol::plugin::catalog::Details::Unsupported(_),
+                    )))) => state.details(entry, window, cx),
+                    _ => state.error = Some("plugins_market_failed"),
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+
+    fn acquire_plugin(
         &mut self,
         source: Source,
         entry: Listing,
@@ -207,21 +277,16 @@ impl Market {
                                 .or_else(|| info.and_then(|info| info.icon.as_deref())),
                             px(40.),
                         );
-                        let summary = card::summary(
-                            format!("market-details-{}", entry.id),
-                            title.into(),
+                        let summary = card::content(
+                            title.clone().into(),
                             entry
                                 .description(&rust_i18n::locale())
                                 .unwrap_or_default()
                                 .to_owned(),
                             Some(icon),
+                            None,
                             cx,
-                        )
-                        .disabled(!connected)
-                        .on_click(cx.listener({
-                            let entry = entry.clone();
-                            move |state, _, window, cx| state.details(entry.clone(), window, cx)
-                        }));
+                        );
                         let action = card::action(
                             format!("market-action-{}", entry.id),
                             known,
@@ -249,6 +314,12 @@ impl Market {
                             }
                         }));
                         card::row(format!("market-card-{}", entry.id), summary, action, cx)
+                            .accessibility_label(title)
+                            .disabled(!connected)
+                            .on_click(cx.listener({
+                                let entry = entry.clone();
+                                move |state, _, window, cx| state.details(entry.clone(), window, cx)
+                            }))
                     })),
             )
             .when(page.pages > 1, |view| {

@@ -176,7 +176,7 @@ impl Details {
                             .small()
                             .label(tr("market_details_open"))
                             .on_click(|_, window, cx| {
-                                window.close_sheet(cx);
+                                super::dismiss(window, cx);
                                 window.dispatch_action(
                                     Box::new(crate::settings::OpenSection(
                                         crate::settings::Section::Permissions,

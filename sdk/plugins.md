@@ -138,14 +138,34 @@ package, response and resource budgets still apply. `Mcp.host` contains only the
 endpoint hostname, never headers, credentials or the full URL. `Action.access()`
 groups permissions for display; `read_only()` and execution checks are unchanged.
 
-`SearchSkillCatalog {query, force}` is a read-only execution-Node command returning
-`SkillCatalog {entries, unavailable}`. Each entry retains its package, skill
-metadata, source and bundled status. Official plugin and skill listings share one
-cache; online refresh resolves `main` once and binds the catalog and skill sources
-to that immutable commit. An older catalog without skills falls back to actual
-bundled skills, whose public source is resolved by normal discovery. Listing does
-not install anything or create a durable request record. Installation retains the
-existing selected-Node, source-inspection and immutable-commit boundaries.
+`SearchSkillCatalog {source, query, page, force}` is a read-only execution-Node
+command returning `SkillCatalog {entries, page, next, total, query_scope, unavailable}`.
+Sources are `official`, `skills_sh` and `skillhub`. Each entry carries actual display
+metadata and a typed Git or registry installation source. Listing neither installs
+anything nor creates a durable request record. Installation still discovers and
+validates the source on the selected Node: Git skills freeze a resolved commit;
+registry skills retain namespace, version and signature verification.
+
+Official plugin and skill listings share one cache. Online refresh resolves `main`
+once and binds the index and online skill sources to that commit. An older catalog
+without skills falls back to actual bundled skills, whose public source is resolved
+by normal discovery. Plugin listings select the whole newer bundled entry when its
+SemVer precedence exceeds the online version; they never attach newer metadata to
+an older online source.
+
+The external directories use their public browsing APIs, with Node-owned page
+caching and short failure caching. Skills.sh browsing has real next-page information;
+its search requires at least two characters and exposes no next page. A one-character
+query filters only the requested leaderboard page, reports `query_scope: page` and
+omits a global total. Skillhub uses its real page and keyword parameters. Directory
+results describe available sources, not installed packages.
+
+`ReadCatalogPluginInfo` returns `CatalogDetails`, with `plugin`, `skills` or
+`unsupported` content. Portable manifests are validated from the repository's actual
+bytes. Confirmed Codex and Claude Code packages expose their own metadata and any
+supported standalone skills at the same immutable source; their hooks and other
+unsupported integrations are never executed. Synthetic directory manifests cannot
+replace repository files or bypass an invalid declared portable schema.
 
 ## Model channels
 

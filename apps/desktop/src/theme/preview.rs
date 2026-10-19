@@ -1,7 +1,7 @@
 use super::{Package, decoration::asset, raster};
 use gpui_kit::{component::*, *};
 
-pub fn preview(package: &Package, dark: bool, cx: &App) -> AnyElement {
+pub fn preview(package: &Package, dark: bool, cx: &App) -> Stateful<Div> {
     let mut theme = cx.theme().clone();
     theme.apply_config(if dark { &package.dark } else { &package.light });
     // Gallery and import cards share a one-pixel Kit border.
@@ -95,5 +95,4 @@ pub fn preview(package: &Package, dark: bool, cx: &App) -> AnyElement {
                         ),
                 ),
         )
-        .into_any_element()
 }

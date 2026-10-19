@@ -83,6 +83,9 @@ pub struct Shell {
     pub(crate) project_search: Entity<InputState>,
     pub(crate) chats: crate::live::conversation::State,
     pub settings: Entity<settings::Workspace>,
+    pub(crate) settings_details: Option<Entity<settings::PluginDetails>>,
+    pub(crate) settings_details_width: Pixels,
+    settings_details_panels: Entity<ResizableState>,
     pub(crate) ports: BTreeMap<sailry_protocol::NodeId, Entity<crate::ports::Workspace>>,
     pub(crate) activity: crate::activity::State,
     pub(crate) settings_target: Option<sailry_protocol::NodeId>,
@@ -128,6 +131,7 @@ impl Shell {
             &settings,
             window,
             |shell, _, _: &settings::OpenPlugins, window, cx| {
+                shell.clear_extension_details(cx);
                 if shell.page == Page::Plugins {
                     return;
                 }
@@ -140,6 +144,7 @@ impl Shell {
         cx.subscribe(
             &settings,
             |shell, _, event: &settings::extensions::SelectHost, cx| {
+                shell.clear_extension_details(cx);
                 shell.settings_target = None;
                 if let Some(live) = &mut shell.live {
                     live.select(event.0, cx);
@@ -214,6 +219,9 @@ impl Shell {
             project_search,
             chats: Default::default(),
             settings,
+            settings_details: None,
+            settings_details_width: px(480.),
+            settings_details_panels: cx.new(|_| ResizableState::default()),
             ports: BTreeMap::new(),
             activity: Default::default(),
             settings_target: None,
@@ -286,6 +294,9 @@ impl Shell {
     }
 
     pub fn navigate(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
+        if page != self.page {
+            self.clear_extension_details(cx);
+        }
         if matches!(page, Page::Files | Page::Git) && self.live.is_some() {
             if let Some(entry) = self.renderer_navigation(
                 if page == Page::Git {
@@ -476,6 +487,10 @@ impl Shell {
     }
 
     fn toggle_details(&mut self, _: &ToggleDetails, window: &mut Window, cx: &mut Context<Self>) {
+        if self.settings_details.is_some() {
+            self.clear_extension_details(cx);
+            return;
+        }
         if !self.has_resource_panel(cx) {
             return;
         }
@@ -638,6 +653,8 @@ impl Render for Shell {
             .on_action(cx.listener(Self::open_page))
             .on_action(cx.listener(Self::open_settings_panel))
             .on_action(cx.listener(Self::open_settings_section))
+            .on_action(cx.listener(Self::open_extension_details))
+            .on_action(cx.listener(Self::close_extension_details))
             .on_action(cx.listener(Self::refresh_host))
             .on_action(cx.listener(Self::close_active_terminal))
             .on_action(cx.listener(Self::find_conversation))

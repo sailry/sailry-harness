@@ -51,6 +51,7 @@ pub(crate) struct Host {
     github: github::Github,
     pub(crate) registry: registry::Registry,
     official_catalog: std::sync::Arc<catalog::official::Cache>,
+    external_skill_catalog: std::sync::Arc<catalog::skills::Directory>,
     python: std::sync::Arc<tokio::sync::OnceCell<std::sync::Arc<crate::python::Manager>>>,
     python_index: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     python_progress:
@@ -104,6 +105,7 @@ impl Host {
             github: Default::default(),
             registry: Default::default(),
             official_catalog: Default::default(),
+            external_skill_catalog: Default::default(),
             python: Default::default(),
             python_index: Default::default(),
             python_progress: std::sync::Arc::new(tokio::sync::watch::channel(Vec::new()).0),

@@ -2,6 +2,8 @@ use super::*;
 
 async fn listing(client: &Client, query: &str, force: bool) -> plugin::skillcatalog::Page {
     let request = client.prepare(Command::SearchSkillCatalog {
+        source: plugin::skillcatalog::Source::Official,
+        page: 1,
         query: query.into(),
         force,
     });
@@ -36,11 +38,14 @@ async fn shares_immutable_sources_and_preserves_offline_inventory() {
         assert_eq!(page.entries.len(), 1);
         let entry = &page.entries[0];
         assert_eq!(entry.id, "official-new/fixture-skill");
-        assert_eq!(entry.skill.display_name("zh-CN"), "测试技能");
+        assert_eq!(entry.title("zh-CN"), "测试技能");
         assert!(!entry.bundled);
-        assert_eq!(entry.source.git_ref.as_deref(), Some(FIRST));
+        let plugin::skillcatalog::InstallSource::Git(source) = &entry.source else {
+            panic!("Git source expected")
+        };
+        assert_eq!(source.git_ref.as_deref(), Some(FIRST));
         assert_eq!(
-            entry.source.path.as_deref(),
+            source.path.as_deref(),
             Some("official-new/skills/fixture-skill")
         );
         assert_eq!(*catalog.requests.lock().unwrap(), catalog.index_paths());
@@ -50,6 +55,8 @@ async fn shares_immutable_sources_and_preserves_offline_inventory() {
         assert_eq!(
             client
                 .execute(client.prepare(Command::SearchSkillCatalog {
+                    source: plugin::skillcatalog::Source::Official,
+                    page: 1,
                     query: String::new(),
                     force: true,
                 }))
@@ -68,14 +75,11 @@ async fn shares_immutable_sources_and_preserves_offline_inventory() {
             legacy
                 .entries
                 .iter()
-                .all(|entry| entry.bundled && entry.source.git_ref.as_deref() == Some("main"))
+                .all(|entry| entry.bundled && matches!(&entry.source, plugin::skillcatalog::InstallSource::Git(source) if source.git_ref.as_deref() == Some("main")))
         );
-        assert!(
-            legacy
-                .entries
-                .iter()
-                .all(|entry| entry.id == format!("{}/{}", entry.package, entry.skill.name))
-        );
+        assert!(legacy.entries.iter().all(
+            |entry| entry.id == format!("{}/{}", entry.package.as_deref().unwrap(), entry.name)
+        ));
         catalog.status.store(503, Ordering::SeqCst);
         let offline = listing(&client, "", true).await;
         assert!(offline.unavailable);

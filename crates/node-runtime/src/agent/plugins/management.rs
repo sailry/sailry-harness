@@ -326,7 +326,7 @@ impl Definition for Management {
                 let info = match report.available {
                     Some(updates::Candidate::Package(info)) => *info,
                     Some(updates::Candidate::Official(entry)) => {
-                        let Output::Plugin(info) = execute(
+                        let Output::CatalogDetails(catalog::Details::Plugin(info)) = execute(
                             binding,
                             Command::ReadCatalogPluginInfo {
                                 source: catalog::Source::Official,
@@ -344,7 +344,7 @@ impl Definition for Management {
                                 "plugin catalog changed during inspection",
                             ));
                         }
-                        info
+                        *info
                     }
                     None => {
                         return Err(Fault::new(
@@ -383,6 +383,11 @@ impl Definition for Management {
                 feature(&info)?;
                 Ok(summary(&info))
             }
+            Output::CatalogDetails(catalog::Details::Plugin(info)) => {
+                feature(&info)?;
+                Ok(summary(&info))
+            }
+            Output::CatalogDetails(details) => Ok(json!({"catalog_details":details})),
             Output::PluginSource(selection) => {
                 feature(&selection.info)?;
                 Ok(

@@ -2,6 +2,101 @@ use super::*;
 use sailry_protocol::plugin::{McpTransport, conversation::Resource};
 
 impl Details {
+    pub(super) fn external_contents(&self, cx: &App) -> AnyElement {
+        use sailry_protocol::plugin::catalog::{Details as CatalogDetails, Format};
+        let mut view = v_flex().gap_5();
+        let (source, formats) = match self.external.as_ref() {
+            Some(CatalogDetails::Skills(collection)) => {
+                let skills = collection
+                    .skills
+                    .iter()
+                    .map(|candidate| {
+                        rows::row(
+                            format!("catalog-skill-{}", candidate.name),
+                            IconName::BookOpen,
+                            candidate
+                                .skill
+                                .display_name(&rust_i18n::locale())
+                                .to_owned(),
+                            Some(candidate.path.clone()),
+                            div(),
+                            cx,
+                        )
+                        .into_any_element()
+                    })
+                    .collect();
+                view = view.child(rows::section(
+                    "market_details_skills",
+                    Some(collection.skills.len()),
+                    skills,
+                    cx,
+                ));
+                (&collection.source, collection.unsupported.as_slice())
+            }
+            Some(CatalogDetails::Unsupported(external)) => {
+                (&external.source, external.formats.as_slice())
+            }
+            _ => return div().into_any_element(),
+        };
+        if !formats.is_empty() {
+            let formats = formats
+                .iter()
+                .enumerate()
+                .map(|(index, format)| {
+                    rows::row(
+                        format!("catalog-format-{index}"),
+                        IconName::Package,
+                        match format {
+                            Format::Codex => "Codex",
+                            Format::ClaudeCode => "Claude Code",
+                        },
+                        None,
+                        rows::tag(tr("market_details_unsupported")),
+                        cx,
+                    )
+                    .into_any_element()
+                })
+                .collect();
+            view = view.child(rows::section("market_details_formats", None, formats, cx));
+        }
+        if self.tab == Tab::Overview {
+            let metadata = self.external_metadata();
+            let mut details = vec![
+                rows::row(
+                    "catalog-source".into(),
+                    IconName::Globe,
+                    tr("market_details_source"),
+                    None,
+                    source.repository.clone(),
+                    cx,
+                )
+                .into_any_element(),
+            ];
+            if let Some(version) = metadata.and_then(|metadata| metadata.version.as_ref()) {
+                details.push(
+                    rows::row(
+                        "catalog-version".into(),
+                        IconName::Tag,
+                        tr("market_details_version"),
+                        None,
+                        version.clone(),
+                        cx,
+                    )
+                    .into_any_element(),
+                );
+            }
+            view = view.child(rows::section(
+                "market_details_information",
+                None,
+                details,
+                cx,
+            ));
+        }
+        view.into_any_element()
+    }
+}
+
+impl Details {
     pub(super) fn contents(&self, info: &Info, cx: &App) -> AnyElement {
         let locale = rust_i18n::locale();
         let mut body = v_flex().gap_5();

@@ -88,3 +88,7 @@ market_permission_storage_read: "Чтение данных плагина"
 market_permission_storage_write: "Сохранение данных плагина"
 market_permission_knowledge_read: "Чтение базы знаний"
 market_permission_knowledge_write: "Изменение базы знаний"
+
+market_details_formats: "Другие форматы"
+market_details_unsupported: "Не поддерживается"
+market_page_filter: "Фильтр текущей страницы"

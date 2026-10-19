@@ -48,7 +48,7 @@ pub(super) async fn entries(
     stop: &CancellationToken,
 ) -> Result<Vec<Entry>, Fault> {
     match fetch(host, force, stop).await {
-        Ok(entries) => Ok(entries),
+        Ok(entries) => Ok(preferred(entries, bundled::entries()?)),
         // Listings can use shipped packages without trusting invalid online manifests.
         Err(error)
             if !force && (unavailable(&error) || error.code == ErrorCode::InvalidRequest) =>
@@ -57,6 +57,29 @@ pub(super) async fn entries(
         }
         Err(error) => Err(error),
     }
+}
+
+fn preferred(mut entries: Vec<Entry>, bundled: Vec<Entry>) -> Vec<Entry> {
+    for candidate in bundled {
+        if let Some(current) = entries.iter_mut().find(|entry| entry.id == candidate.id) {
+            let newer = candidate
+                .version
+                .as_deref()
+                .zip(current.version.as_deref())
+                .and_then(|(candidate, current)| {
+                    semver::Version::parse(candidate)
+                        .ok()
+                        .zip(semver::Version::parse(current).ok())
+                })
+                .is_some_and(|(candidate, current)| candidate.cmp_precedence(&current).is_gt());
+            if newer {
+                *current = candidate;
+            }
+        } else {
+            entries.push(candidate);
+        }
+    }
+    entries
 }
 
 pub(super) async fn source(
@@ -108,8 +131,11 @@ pub(super) async fn document(
             let mut document = parse(index)?;
             document.commit = Some(commit.clone());
             for skill in &mut document.skills {
-                if !skill.bundled {
-                    skill.source.git_ref = Some(commit.clone());
+                if !skill.bundled
+                    && let sailry_protocol::plugin::skillcatalog::InstallSource::Git(source) =
+                        &mut skill.source
+                {
+                    source.git_ref = Some(commit.clone());
                 }
             }
             Ok(document)
@@ -271,6 +297,28 @@ mod tests {
             );
         }
         index
+    }
+
+    #[test]
+    fn chooses_whole_entries_by_precedence() {
+        let bundled = bundled::entries().unwrap().remove(0);
+        let mut remote = bundled.clone();
+        remote.bundled = false;
+        remote.repository = Some(REPOSITORY.into());
+        remote.category = None;
+        remote.version = Some("0.0.1".into());
+        assert_eq!(
+            preferred(vec![remote.clone()], vec![bundled.clone()]).as_slice(),
+            std::slice::from_ref(&bundled)
+        );
+        for version in [bundled.version.clone().unwrap(), "99.0.0".into()] {
+            remote.version = Some(version);
+            assert_eq!(
+                preferred(vec![remote.clone()], vec![bundled.clone()]).as_slice(),
+                std::slice::from_ref(&remote)
+            );
+        }
+        assert_eq!(preferred(vec![], vec![bundled.clone()]), [bundled]);
     }
 
     #[test]

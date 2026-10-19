@@ -17,6 +17,46 @@ pub struct Selection {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "data", rename_all = "snake_case")]
+pub enum Details {
+    Plugin(Box<Info>),
+    Skills(Box<SkillCollection>),
+    Unsupported(Box<External>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Metadata {
+    pub name: String,
+    pub version: Option<String>,
+    pub description: Option<String>,
+    pub homepage: Option<String>,
+    pub license: Option<String>,
+    pub author: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Format {
+    Codex,
+    ClaudeCode,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SkillCollection {
+    pub source: skills::Resolved,
+    pub metadata: Metadata,
+    pub skills: Vec<skills::Candidate>,
+    pub unsupported: Vec<Format>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct External {
+    pub source: skills::Resolved,
+    pub metadata: Metadata,
+    pub formats: Vec<Format>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<super::Category>,

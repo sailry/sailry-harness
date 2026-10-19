@@ -75,7 +75,7 @@ pub(crate) fn source_url(input: &str) -> Result<Option<RegistrySource>, Fault> {
     Ok(Some(source))
 }
 
-fn validate(source: &RegistrySource) -> Result<(), Fault> {
+pub(in crate::plugins) fn validate(source: &RegistrySource) -> Result<(), Fault> {
     if !segment(&source.slug)
         || source
             .namespace

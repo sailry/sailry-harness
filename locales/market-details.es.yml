@@ -88,3 +88,7 @@ market_permission_storage_read: "Leer datos del plugin"
 market_permission_storage_write: "Guardar datos del plugin"
 market_permission_knowledge_read: "Leer conocimiento"
 market_permission_knowledge_write: "Cambiar conocimiento"
+
+market_details_formats: "Otros formatos"
+market_details_unsupported: "No compatible"
+market_page_filter: "Filtro de esta página"

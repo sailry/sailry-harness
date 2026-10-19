@@ -9,8 +9,7 @@ use std::collections::BTreeSet;
 mod import;
 mod source;
 mod view;
-pub(in crate::settings) use source::Channel;
-use source::{Discovery, Selection};
+use source::{Channel, Discovery, Selection};
 
 struct Editor {
     binding: Binding,
@@ -22,6 +21,7 @@ struct Editor {
     imports: [Option<std::sync::Arc<import::Snapshot>>; 2],
     lease: Option<import::Lease>,
     discovery: Option<Discovery>,
+    catalog_source: Option<Selection>,
     selected: BTreeSet<usize>,
     completed: BTreeSet<usize>,
     scroll: ScrollHandle,
@@ -61,25 +61,52 @@ pub(super) fn reimport(
     );
 }
 
-pub(in crate::settings) fn open_channel(
-    binding: Binding,
-    known: Vec<Summary>,
-    channel: Channel,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    open_source(binding, known, channel, None, None, window, cx);
-}
-
 pub(in crate::settings) fn open_catalog(
     binding: Binding,
     known: Vec<Summary>,
-    source: sailry_protocol::plugin::skills::Source,
+    source: sailry_protocol::plugin::skillcatalog::InstallSource,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let editor = open_source(binding, known, Channel::Git, None, Some(source), window, cx);
+    let (channel, source) = match source {
+        sailry_protocol::plugin::skillcatalog::InstallSource::Git(source) => {
+            (Channel::Git, Selection::Git { source })
+        }
+        sailry_protocol::plugin::skillcatalog::InstallSource::Registry(source) => {
+            (Channel::Hub, Selection::Registry(source))
+        }
+    };
+    let editor = open_source(binding, known, channel, None, Some(source), window, cx);
     editor.update(cx, |editor, cx| editor.discover(window, cx));
+}
+
+pub(in crate::settings) fn open_discovery(
+    binding: Binding,
+    known: Vec<Summary>,
+    discovery: sailry_protocol::plugin::skills::Discovery,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let source = Selection::Git {
+        source: sailry_protocol::plugin::skills::Source {
+            repository: discovery.source.repository.clone(),
+            git_ref: Some(discovery.source.commit.clone()),
+            path: None,
+        },
+    };
+    let editor = open_source(
+        binding,
+        known.clone(),
+        Channel::Git,
+        None,
+        Some(source),
+        window,
+        cx,
+    );
+    editor.update(cx, |editor, cx| {
+        editor.accept(Discovery::Git(discovery), known);
+        cx.notify();
+    });
 }
 
 fn open_source(
@@ -87,19 +114,36 @@ fn open_source(
     known: Vec<Summary>,
     channel: Channel,
     target: Option<String>,
-    initial: Option<sailry_protocol::plugin::skills::Source>,
+    initial: Option<Selection>,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Editor> {
     let values: [String; 3] = initial
-        .map(|source| {
-            [
-                source.repository,
-                source.git_ref.unwrap_or_default(),
-                source.path.unwrap_or_default(),
-            ]
+        .as_ref()
+        .and_then(|selection| {
+            let Selection::Git { source } = selection else {
+                return None;
+            };
+            Some([
+                source.repository.clone(),
+                source.git_ref.clone().unwrap_or_default(),
+                source.path.clone().unwrap_or_default(),
+            ])
         })
         .unwrap_or_default();
+    let registry_label = match initial.as_ref() {
+        Some(Selection::Registry(source)) => {
+            let name = source.namespace.as_ref().map_or_else(
+                || source.slug.clone(),
+                |namespace| format!("{namespace}/{}", source.slug),
+            );
+            source
+                .version
+                .as_ref()
+                .map_or(name.clone(), |version| format!("{name}@{version}"))
+        }
+        _ => String::new(),
+    };
     let editor = cx.new(|cx| {
         let placeholders = [
             "skills_repository_hint",
@@ -113,8 +157,21 @@ fn open_source(
                     .default_value(values[index].clone())
             })
         });
-        let links = ["skill_source_skills_hint", "skill_source_hub_hint"]
-            .map(|key| cx.new(|cx| InputState::new(window, cx).placeholder(tr(key))));
+        let links = std::array::from_fn(|index| {
+            cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(tr(if index == 0 {
+                        "skill_source_skills_hint"
+                    } else {
+                        "skill_source_hub_hint"
+                    }))
+                    .default_value(if index == 1 {
+                        registry_label.clone()
+                    } else {
+                        String::new()
+                    })
+            })
+        });
         for input in fields.iter().chain(links.iter()) {
             cx.subscribe(input, |editor: &mut Editor, _, event, cx| {
                 if matches!(event, InputEvent::Change)
@@ -140,6 +197,7 @@ fn open_source(
             imports: [None, None],
             lease: None,
             discovery: None,
+            catalog_source: initial,
             selected: BTreeSet::new(),
             completed: BTreeSet::new(),
             scroll: ScrollHandle::default(),
@@ -171,6 +229,7 @@ impl Editor {
         self.scroll.set_offset(point(px(0.), px(0.)));
         self.generation = self.generation.wrapping_add(1);
         self.discovery = None;
+        self.catalog_source = None;
         self.selected.clear();
         self.completed.clear();
         self.error = None;
@@ -179,6 +238,9 @@ impl Editor {
     }
 
     fn selection(&self, cx: &App) -> Option<Selection> {
+        if let Some(source) = &self.catalog_source {
+            return Some(source.clone());
+        }
         match self.channel {
             Channel::Git => Selection::git(
                 self.fields

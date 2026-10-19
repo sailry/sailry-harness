@@ -52,7 +52,7 @@ impl Registry {
         Ok(())
     }
 
-    fn url(&self, parts: &[&str]) -> Url {
+    pub(in crate::plugins) fn url(&self, parts: &[&str]) -> Url {
         #[cfg(any(test, feature = "test-support"))]
         let fixture = self
             .endpoint
@@ -66,7 +66,7 @@ impl Registry {
         url
     }
 
-    async fn json<T: serde::de::DeserializeOwned>(
+    pub(in crate::plugins) async fn json<T: serde::de::DeserializeOwned>(
         &self,
         url: Url,
         stop: &CancellationToken,

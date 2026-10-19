@@ -356,7 +356,9 @@ pub enum Command {
     },
     ListPlugins,
     SearchSkillCatalog {
+        source: crate::plugin::skillcatalog::Source,
         query: String,
+        page: u32,
         force: bool,
     },
     SearchPluginCatalog {
@@ -1807,6 +1809,7 @@ pub enum Output {
     PluginAuthorization(crate::plugin::oauth::Status),
     PluginLogin(crate::plugin::oauth::Attempt),
     Plugin(crate::plugin::Info),
+    CatalogDetails(crate::plugin::catalog::Details),
     SkillDiscovery(crate::plugin::skills::Discovery),
     RegistrySkillDiscovery(crate::plugin::skills::RegistryDiscovery),
     SkillImportDiscovery(crate::plugin::skills::ImportDiscovery),

@@ -1,3 +1,4 @@
+mod external;
 use std::{
     io::{Cursor, Write},
     path::Path,
@@ -107,43 +108,49 @@ impl Catalog {
                     .nth(1)
                     .unwrap();
                 captured.lock().unwrap().push(path.to_owned());
-                let (code, content_type, body) = match path {
-                    path if path == format!("/{FIRST}/catalog.json")
-                        || path == format!("/{SECOND}/catalog.json") =>
-                    {
-                        (
-                            response_status.load(Ordering::SeqCst),
-                            "application/json",
-                            if malformed.load(Ordering::SeqCst) {
-                                b"{\"version\":2,\"packages\":[]}".to_vec()
-                            } else {
-                                index(
-                                    path == format!("/{SECOND}/catalog.json"),
-                                    selected_version.lock().unwrap().as_deref(),
-                                    incompatible.load(Ordering::SeqCst),
-                                    old_format.load(Ordering::SeqCst),
-                                )
-                            },
-                        )
-                    }
-                    "/repos/sailry/sailry-plugins/commits/main" => (
-                        200,
-                        "application/vnd.github.sha",
-                        if current.load(Ordering::SeqCst) {
-                            SECOND
-                        } else {
-                            FIRST
+                let (code, content_type, body) = if let Some(response) =
+                    external::response(path, response_status.load(Ordering::SeqCst))
+                {
+                    response
+                } else {
+                    match path {
+                        path if path == format!("/{FIRST}/catalog.json")
+                            || path == format!("/{SECOND}/catalog.json") =>
+                        {
+                            (
+                                response_status.load(Ordering::SeqCst),
+                                "application/json",
+                                if malformed.load(Ordering::SeqCst) {
+                                    b"{\"version\":2,\"packages\":[]}".to_vec()
+                                } else {
+                                    index(
+                                        path == format!("/{SECOND}/catalog.json"),
+                                        selected_version.lock().unwrap().as_deref(),
+                                        incompatible.load(Ordering::SeqCst),
+                                        old_format.load(Ordering::SeqCst),
+                                    )
+                                },
+                            )
                         }
-                        .as_bytes()
-                        .to_vec(),
-                    ),
-                    path if path == format!("/sailry/sailry-plugins/zip/{FIRST}") => {
-                        (200, "application/zip", first.clone())
+                        "/repos/sailry/sailry-plugins/commits/main" => (
+                            200,
+                            "application/vnd.github.sha",
+                            if current.load(Ordering::SeqCst) {
+                                SECOND
+                            } else {
+                                FIRST
+                            }
+                            .as_bytes()
+                            .to_vec(),
+                        ),
+                        path if path == format!("/sailry/sailry-plugins/zip/{FIRST}") => {
+                            (200, "application/zip", first.clone())
+                        }
+                        path if path == format!("/sailry/sailry-plugins/zip/{SECOND}") => {
+                            (200, "application/zip", second.clone())
+                        }
+                        _ => panic!("unexpected catalog fixture path: {path}"),
                     }
-                    path if path == format!("/sailry/sailry-plugins/zip/{SECOND}") => {
-                        (200, "application/zip", second.clone())
-                    }
-                    _ => panic!("unexpected catalog fixture path: {path}"),
                 };
                 // The client rejects error status at the headers without reading its body.
                 // Do not stream a complete success catalog into that closed connection.
@@ -215,6 +222,20 @@ fn index(updated: bool, version: Option<&str>, obsolete: bool, legacy: bool) -> 
             "office.export".into();
     }
     if legacy {
+        for package in index["packages"].as_array_mut().unwrap() {
+            if package["id"] != "official-new" {
+                package["manifest"]["version"] = "0.1.0".into();
+            }
+            if let Some(extension) = package
+                .get_mut("manifest")
+                .and_then(|manifest| manifest.get_mut("extensions"))
+                .and_then(|extensions| extensions.get_mut("dev.sailry.platform"))
+                .and_then(serde_json::Value::as_object_mut)
+            {
+                extension.remove("category");
+                extension.remove("tint");
+            }
+        }
         index.as_object_mut().unwrap().remove("skills");
     } else {
         let skills = index

@@ -77,6 +77,9 @@ impl SideResource {
 
 impl Shell {
     pub(crate) fn has_resource_panel(&self, cx: &App) -> bool {
+        if self.settings_details.is_some() {
+            return true;
+        }
         if self.page == Page::Plugin {
             return self
                 .plugin_workspace(cx)
