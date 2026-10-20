@@ -1,0 +1,242 @@
+//! Structured error types for the Anthropic provider.
+//!
+//! Provides [`AnthropicApiError`] for API-level errors with full diagnostic
+//! context (error type, message, status code, request ID) and
+//! [`ConversionError`] for content mapping failures.
+
+use adk_core::AdkError;
+
+/// Structured Anthropic API error preserving all diagnostic context.
+///
+/// Captures the error type, message, HTTP status code, and optional request ID
+/// returned by the Anthropic API, enabling precise debugging and support
+/// escalation.
+///
+/// # Example
+///
+/// ```rust
+/// use adk_model::anthropic::AnthropicApiError;
+///
+/// let err = AnthropicApiError {
+///     error_type: "rate_limit_error".to_string(),
+///     message: "Too many requests".to_string(),
+///     status_code: 429,
+///     request_id: Some("req_abc123".to_string()),
+/// };
+///
+/// assert!(err.to_string().contains("429"));
+/// assert!(err.to_string().contains("rate_limit_error"));
+/// assert!(err.to_string().contains("req_abc123"));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnthropicApiError {
+    /// Error type from Anthropic (e.g., "invalid_request_error", "rate_limit_error").
+    pub error_type: String,
+    /// Human-readable error message.
+    pub message: String,
+    /// HTTP status code.
+    pub status_code: u16,
+    /// Request ID from the `request-id` response header.
+    pub request_id: Option<String>,
+}
+
+impl std::fmt::Display for AnthropicApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Anthropic API error ({}): {} [type={}]",
+            self.status_code, self.message, self.error_type
+        )?;
+        if let Some(ref rid) = self.request_id {
+            write!(f, " [request_id={rid}]")?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for AnthropicApiError {}
+
+impl From<AnthropicApiError> for AdkError {
+    /// The message quotes at most [`adk_core::UPSTREAM_EXCERPT_BYTES`] of the API's message,
+    /// which can echo the request.
+    fn from(err: AnthropicApiError) -> Self {
+        use adk_core::ErrorComponent;
+        let msg = AnthropicApiError {
+            message: adk_core::upstream_excerpt(&err.message).to_string(),
+            ..err.clone()
+        }
+        .to_string();
+        // Anthropic documents `api_error` (500) and `overloaded_error` (529) as transient.
+        let category = crate::retry::category_for_status_code(err.status_code);
+        let mut adk_err =
+            AdkError::new(ErrorComponent::Model, category, "model.anthropic.api_error", msg)
+                .with_upstream_status(err.status_code)
+                .with_provider("anthropic");
+        if let Some(ref rid) = err.request_id {
+            adk_err = adk_err.with_request_id(rid.clone());
+        }
+        crate::error_metadata::with_code(adk_err, Some(&err.error_type))
+    }
+}
+
+/// Error type for content conversion failures.
+///
+/// Used when mapping ADK content types to Anthropic API types encounters
+/// unsupported or invalid content.
+///
+/// # Example
+///
+/// ```rust
+/// use adk_model::anthropic::ConversionError;
+///
+/// let err = ConversionError::UnsupportedMimeType("audio/wav".to_string());
+/// assert!(err.to_string().contains("audio/wav"));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConversionError {
+    /// The MIME type is not supported by the Anthropic API.
+    UnsupportedMimeType(String),
+    /// A provider-native tool declaration could not be deserialized.
+    InvalidToolDeclaration(String),
+}
+
+impl std::fmt::Display for ConversionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConversionError::UnsupportedMimeType(mime) => {
+                write!(f, "unsupported MIME type for Anthropic API: {mime}")
+            }
+            ConversionError::InvalidToolDeclaration(message) => write!(f, "{message}"),
+        }
+    }
+}
+
+impl std::error::Error for ConversionError {}
+
+impl From<ConversionError> for AdkError {
+    fn from(err: ConversionError) -> Self {
+        AdkError::model(err.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_api_error_display_with_request_id() {
+        let err = AnthropicApiError {
+            error_type: "rate_limit_error".to_string(),
+            message: "Too many requests".to_string(),
+            status_code: 429,
+            request_id: Some("req_abc123".to_string()),
+        };
+        let display = err.to_string();
+        assert!(display.contains("429"));
+        assert!(display.contains("rate_limit_error"));
+        assert!(display.contains("Too many requests"));
+        assert!(display.contains("req_abc123"));
+    }
+
+    #[test]
+    fn test_api_error_display_without_request_id() {
+        let err = AnthropicApiError {
+            error_type: "invalid_request_error".to_string(),
+            message: "Invalid model".to_string(),
+            status_code: 400,
+            request_id: None,
+        };
+        let display = err.to_string();
+        assert!(display.contains("400"));
+        assert!(display.contains("invalid_request_error"));
+        assert!(display.contains("Invalid model"));
+        assert!(!display.contains("request_id"));
+    }
+
+    #[test]
+    fn test_api_error_into_adk_error() {
+        let err = AnthropicApiError {
+            error_type: "overloaded_error".to_string(),
+            message: "Server overloaded".to_string(),
+            status_code: 529,
+            request_id: Some("req_xyz".to_string()),
+        };
+        let adk_err: AdkError = err.into();
+        assert!(adk_err.is_model());
+        assert!(adk_err.to_string().contains("529"));
+        assert_eq!(adk_err.details.upstream_status_code, Some(529));
+        assert_eq!(adk_err.details.provider.as_deref(), Some("anthropic"));
+        assert_eq!(
+            adk_err.details.metadata.get("provider_error_code").and_then(serde_json::Value::as_str),
+            Some("overloaded_error")
+        );
+        assert!(adk_err.is_retryable(), "529 should be retryable (Unavailable category)");
+    }
+
+    #[test]
+    fn excludes_invalid_provider_codes() {
+        let oversized = "x".repeat(129);
+        for error_type in ["", "bad code", "line\nbreak", oversized.as_str()] {
+            let error = AnthropicApiError {
+                error_type: error_type.to_string(),
+                message: "Bad request".to_string(),
+                status_code: 400,
+                request_id: Some("req_123".to_string()),
+            };
+            let display = error.to_string();
+            let mapped: AdkError = error.into();
+            assert_eq!(mapped.category, adk_core::ErrorCategory::InvalidInput);
+            assert_eq!(mapped.code, "model.anthropic.api_error");
+            assert_eq!(mapped.message, display);
+            assert_eq!(mapped.details.upstream_status_code, Some(400));
+            assert_eq!(mapped.details.request_id.as_deref(), Some("req_123"));
+            assert!(!mapped.is_retryable());
+            assert!(!mapped.details.metadata.contains_key("provider_error_code"));
+        }
+    }
+
+    #[test]
+    fn transient_server_errors_are_retryable() {
+        for (error_type, status_code) in [
+            ("api_error", 500),
+            ("api_error", 502),
+            ("timeout_error", 504),
+            ("overloaded_error", 529),
+        ] {
+            let adk_err: AdkError = AnthropicApiError {
+                error_type: error_type.to_string(),
+                message: "transient".to_string(),
+                status_code,
+                request_id: None,
+            }
+            .into();
+            assert_eq!(adk_err.category, adk_core::ErrorCategory::Unavailable, "{status_code}");
+            assert!(adk_err.is_retryable(), "{status_code} should be retryable");
+            assert_eq!(adk_err.details.upstream_status_code, Some(status_code));
+        }
+
+        let client_error: AdkError = AnthropicApiError {
+            error_type: "client_error".to_string(),
+            message: "bad".to_string(),
+            status_code: 0,
+            request_id: None,
+        }
+        .into();
+        assert!(!client_error.is_retryable());
+    }
+
+    #[test]
+    fn test_conversion_error_display() {
+        let err = ConversionError::UnsupportedMimeType("audio/wav".to_string());
+        assert!(err.to_string().contains("audio/wav"));
+        assert!(err.to_string().contains("unsupported MIME type"));
+    }
+
+    #[test]
+    fn test_conversion_error_into_adk_error() {
+        let err = ConversionError::UnsupportedMimeType("video/mp4".to_string());
+        let adk_err: AdkError = err.into();
+        assert!(adk_err.is_model());
+        assert!(adk_err.to_string().contains("video/mp4"));
+    }
+}

@@ -1,0 +1,483 @@
+//! Every provider response carries its provider, model and — for priced models —
+//! a cost computed from the provider's own usage report.
+//!
+//! The expected costs are computed by hand from the published rates, with each
+//! prompt token billed once: cached tokens are part of the reported prompt.
+
+use adk_core::{Content, Llm, LlmRequest, LlmResponse};
+use futures::StreamExt;
+use serde_json::json;
+use wiremock::matchers::method;
+use wiremock::{Mock, MockServer, ResponseTemplate};
+
+async fn mock_json(body: serde_json::Value) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .mount(&server)
+        .await;
+    server
+}
+
+async fn final_response(model: &dyn Llm, model_id: &str) -> LlmResponse {
+    let request = LlmRequest::new(model_id, vec![Content::new("user").with_text("Hello")]);
+    let responses: Vec<LlmResponse> = model
+        .generate_content(request, false)
+        .await
+        .unwrap()
+        .map(|item| item.unwrap())
+        .collect()
+        .await;
+    responses.into_iter().rev().find(|response| response.usage_metadata.is_some()).unwrap()
+}
+
+fn assert_cost(response: &LlmResponse, expected: f64) {
+    let cost = response.usage_metadata.as_ref().and_then(|usage| usage.cost).expect("cost");
+    assert!((cost - expected).abs() < 1e-9, "cost {cost} != {expected}");
+}
+
+#[cfg(feature = "gemini")]
+#[tokio::test]
+async fn gemini_cost_bills_cached_prompt_tokens_once() {
+    let server = mock_json(json!({
+        "candidates": [{
+            "content": {"role": "model", "parts": [{"text": "ok"}]},
+            "finishReason": "STOP"
+        }],
+        "usageMetadata": {
+            "promptTokenCount": 1_000_000,
+            "cachedContentTokenCount": 400_000,
+            "candidatesTokenCount": 150_000,
+            "thoughtsTokenCount": 50_000,
+            "totalTokenCount": 1_200_000
+        },
+        "modelVersion": "gemini-2.5-flash-001"
+    }))
+    .await;
+    let model = adk_model::GeminiModel::new_with_base_url(
+        "test-key",
+        "gemini-2.5-flash",
+        format!("{}/v1beta/", server.uri()),
+    )
+    .unwrap();
+
+    let response = final_response(&model, "gemini-2.5-flash").await;
+
+    assert_eq!(response.provider.as_deref(), Some("gemini"));
+    assert_eq!(response.model.as_deref(), Some("gemini-2.5-flash-001"));
+    // 600K uncached × $0.30 + 400K cached × $0.03 + (150K + 50K thinking) × $2.50.
+    assert_cost(&response, 0.18 + 0.012 + 0.50);
+}
+
+#[cfg(feature = "gemini")]
+#[tokio::test]
+async fn gemini_streaming_chunks_are_attributed_and_priced() {
+    let chunk = |text: &str, finish: Option<&str>, output: i32| {
+        let mut candidate = json!({"content": {"role": "model", "parts": [{"text": text}]}});
+        if let Some(finish) = finish {
+            candidate["finishReason"] = json!(finish);
+        }
+        json!({
+            "candidates": [candidate],
+            "usageMetadata": {
+                "promptTokenCount": 1_000,
+                "candidatesTokenCount": output,
+                "totalTokenCount": 1_000 + output
+            }
+        })
+    };
+    let body =
+        format!("data: {}\n\ndata: {}\n\n", chunk("Hel", None, 10), chunk("lo", Some("STOP"), 20));
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(body),
+        )
+        .mount(&server)
+        .await;
+    let model = adk_model::GeminiModel::new_with_base_url(
+        "test-key",
+        "gemini-3.5-flash-lite",
+        format!("{}/v1beta/", server.uri()),
+    )
+    .unwrap();
+
+    let request =
+        LlmRequest::new("gemini-3.5-flash-lite", vec![Content::new("user").with_text("Hi")]);
+    let responses: Vec<LlmResponse> = model
+        .generate_content(request, true)
+        .await
+        .unwrap()
+        .map(|item| item.unwrap())
+        .collect()
+        .await;
+
+    let priced: Vec<&LlmResponse> =
+        responses.iter().filter(|response| response.usage_metadata.is_some()).collect();
+    assert_eq!(priced.len(), 2);
+    assert!(priced[0].partial && !priced[1].partial);
+    // Every chunk reports cumulative usage, so the final chunk alone carries the call's cost.
+    assert_cost(priced[1], (1_000.0 * 0.30 + 20.0 * 2.50) / 1e6);
+    assert!(responses.iter().all(|response| response.provider.as_deref() == Some("gemini")));
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn openai_cost_uses_the_reported_dated_model() {
+    let server = mock_json(json!({
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "gpt-4.1-2025-04-14",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": "ok"},
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 1_000_000,
+            "completion_tokens": 100_000,
+            "total_tokens": 1_100_000,
+            "prompt_tokens_details": {"cached_tokens": 400_000}
+        }
+    }))
+    .await;
+    let model = adk_model::openai::OpenAIClient::new(adk_model::openai::OpenAIConfig {
+        api_key: "test-key".to_string(),
+        model: "gpt-4.1".to_string(),
+        base_url: Some(server.uri()),
+        organization_id: None,
+        project_id: None,
+        reasoning_effort: None,
+    })
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "gpt-4.1").await;
+
+    assert_eq!(response.provider.as_deref(), Some("openai"));
+    assert_eq!(response.model.as_deref(), Some("gpt-4.1-2025-04-14"));
+    // 600K uncached × $2.00 + 400K cached × $0.50 + 100K × $8.00.
+    assert_cost(&response, 1.20 + 0.20 + 0.80);
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn unpriced_models_keep_an_unknown_cost() {
+    let server = mock_json(json!({
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "gpt-4.1",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": "ok"},
+            "finish_reason": "stop"
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    }))
+    .await;
+    // A gateway that serves an OpenAI model name does not bill at OpenAI's list price.
+    let model = adk_model::OpenAICompatible::new(
+        adk_model::OpenAICompatibleConfig::together("test-key", "gpt-4.1")
+            .with_base_url(server.uri()),
+    )
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "gpt-4.1").await;
+
+    assert_eq!(response.provider.as_deref(), Some("together"));
+    let usage = response.usage_metadata.unwrap();
+    assert_eq!(usage.total_token_count, 15);
+    assert_eq!(usage.cost, None);
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_cost_splits_cache_writes_by_ttl() {
+    let server = mock_json(json!({
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "text", "text": "ok"}],
+        "model": "claude-sonnet-4-6",
+        "stop_reason": "end_turn",
+        "stop_sequence": null,
+        "usage": {
+            "input_tokens": 1_000,
+            "output_tokens": 2_000,
+            "cache_read_input_tokens": 200_000,
+            "cache_creation_input_tokens": 100_000,
+            "cache_creation": {
+                "ephemeral_5m_input_tokens": 60_000,
+                "ephemeral_1h_input_tokens": 40_000
+            }
+        }
+    }))
+    .await;
+    let model = adk_model::anthropic::AnthropicClient::new(
+        adk_model::anthropic::AnthropicConfig::new("test-key", "claude-sonnet-4-6")
+            .with_base_url(server.uri()),
+    )
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "claude-sonnet-4-6").await;
+
+    assert_eq!(response.provider.as_deref(), Some("anthropic"));
+    assert_eq!(response.model.as_deref(), Some("claude-sonnet-4-6"));
+    let usage = response.usage_metadata.as_ref().unwrap();
+    // The normalized prompt includes cache reads and writes; none is billed twice.
+    assert_eq!(usage.prompt_token_count, 301_000);
+    // 1K × $3.00 + 200K reads × $0.30 + 60K 5m writes × $3.75 + 40K 1h writes × $6.00
+    // + 2K × $15.00.
+    assert_cost(&response, 0.003 + 0.06 + 0.225 + 0.24 + 0.03);
+}
+
+fn uses(response: &LlmResponse) -> Vec<(String, u32)> {
+    response
+        .usage_metadata
+        .as_ref()
+        .unwrap()
+        .builtin_tool_uses
+        .iter()
+        .map(|used| (used.kind.clone(), used.count))
+        .collect()
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_server_tool_uses_add_their_fees() {
+    let server = mock_json(json!({
+        "id": "msg_1", "type": "message", "role": "assistant",
+        "content": [
+            {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "rust"}},
+            {"type": "text", "text": "ok"}
+        ],
+        "model": "claude-sonnet-4-6", "stop_reason": "end_turn", "stop_sequence": null,
+        "usage": {
+            "input_tokens": 1_000, "output_tokens": 1_000,
+            "server_tool_use": {"web_search_requests": 3, "web_fetch_requests": 2}
+        }
+    }))
+    .await;
+    let model = adk_model::anthropic::AnthropicClient::new(
+        adk_model::anthropic::AnthropicConfig::new("test-key", "claude-sonnet-4-6")
+            .with_base_url(server.uri()),
+    )
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "claude-sonnet-4-6").await;
+
+    // `usage.server_tool_use` is authoritative over the blocks in the content.
+    assert_eq!(uses(&response), [("web_search".into(), 3), ("web_fetch".into(), 2)]);
+    // 1K × $3.00 + 1K × $15.00 + 3 searches × $0.01; web fetch has no fee.
+    assert_cost(&response, 0.003 + 0.015 + 0.03);
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_server_tool_blocks_are_counted_without_a_usage_report() {
+    let server = mock_json(json!({
+        "id": "msg_1", "type": "message", "role": "assistant",
+        "content": [
+            {"type": "server_tool_use", "id": "srvtoolu_1", "name": "web_search", "input": {"query": "a"}},
+            {"type": "server_tool_use", "id": "srvtoolu_2", "name": "bash_code_execution", "input": {"command": "ls"}},
+            {"type": "text", "text": "ok"}
+        ],
+        "model": "claude-sonnet-4-6", "stop_reason": "end_turn", "stop_sequence": null,
+        "usage": {"input_tokens": 1_000, "output_tokens": 1_000}
+    }))
+    .await;
+    let model = adk_model::anthropic::AnthropicClient::new(
+        adk_model::anthropic::AnthropicConfig::new("test-key", "claude-sonnet-4-6")
+            .with_base_url(server.uri()),
+    )
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "claude-sonnet-4-6").await;
+
+    assert_eq!(uses(&response), [("code_execution".into(), 1), ("web_search".into(), 1)]);
+    assert_cost(&response, 0.003 + 0.015 + 0.01);
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn openai_responses_hosted_tool_items_add_their_fees() {
+    let server = mock_json(json!({
+        "id": "resp_1", "object": "response", "created_at": 0, "model": "gpt-5.6-luna",
+        "status": "completed",
+        "output": [
+            {"type": "web_search_call", "id": "ws_1", "status": "completed",
+                "action": {"type": "search", "query": "rust"}},
+            {"type": "web_search_call", "id": "ws_2", "status": "completed",
+                "action": {"type": "search", "query": "rust 1.95"}},
+            {"type": "file_search_call", "id": "fs_1", "status": "completed", "queries": ["q"]},
+            {"type": "message", "id": "msg_1", "role": "assistant", "status": "completed",
+                "content": [{"type": "output_text", "text": "ok", "annotations": []}]}
+        ],
+        "usage": {
+            "input_tokens": 1_000_000, "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens": 0, "output_tokens_details": {"reasoning_tokens": 0},
+            "total_tokens": 1_000_000
+        }
+    }))
+    .await;
+    let model = adk_model::openai::OpenAIResponsesClient::new(
+        adk_model::openai::OpenAIResponsesConfig::new("test-key", "gpt-5.6-luna")
+            .with_base_url(server.uri()),
+    )
+    .unwrap();
+
+    let response = final_response(&model, "gpt-5.6-luna").await;
+
+    assert_eq!(uses(&response), [("file_search".into(), 1), ("web_search".into(), 2)]);
+    // 1M input × $0.20 + 2 searches × $0.01 + 1 file search × $0.0025.
+    assert_cost(&response, 0.20 + 0.02 + 0.0025);
+}
+
+#[cfg(feature = "gemini")]
+#[tokio::test]
+async fn gemini_stream_accumulates_builtin_uses_onto_the_final_chunk() {
+    let usage =
+        json!({"promptTokenCount": 1_000, "candidatesTokenCount": 10, "totalTokenCount": 1_010});
+    let first = json!({
+        "candidates": [{"content": {"role": "model", "parts": [
+            {"executableCode": {"language": "PYTHON", "code": "print(1)"}}
+        ]}}],
+        "usageMetadata": usage
+    });
+    let last = json!({
+        "candidates": [{
+            "content": {"role": "model", "parts": [{"text": "1"}]},
+            "finishReason": "STOP",
+            "groundingMetadata": {"webSearchQueries": ["a", "b", "a"]}
+        }],
+        "usageMetadata": usage,
+        "modelVersion": "gemini-3.7-flash"
+    });
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_raw(format!("data: {first}\n\ndata: {last}\n\n"), "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+    let model = adk_model::GeminiModel::new_with_base_url(
+        "test-key",
+        "gemini-3.7-flash",
+        format!("{}/v1beta/", server.uri()),
+    )
+    .unwrap();
+
+    let request = LlmRequest::new("gemini-3.7-flash", vec![Content::new("user").with_text("Hi")]);
+    let responses: Vec<LlmResponse> = model
+        .generate_content(request, true)
+        .await
+        .unwrap()
+        .map(|item| item.unwrap())
+        .collect()
+        .await;
+
+    let last = responses.iter().rfind(|response| !response.partial).unwrap();
+    // Distinct queries count once each; code execution has no fee.
+    assert_eq!(uses(last), [("code_execution".into(), 1), ("google_search".into(), 2)]);
+    assert_cost(last, (1_000.0 * 0.75 + 10.0 * 3.75) / 1e6 + 2.0 * 0.014);
+}
+
+#[cfg(any(feature = "openai", feature = "groq"))]
+fn chat_completion(model: &str, prompt: i32, completion: i32, cached: i32) -> serde_json::Value {
+    json!({
+        "id": "chatcmpl-1",
+        "object": "chat.completion",
+        "created": 1,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": "ok"},
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": prompt,
+            "completion_tokens": completion,
+            "total_tokens": prompt + completion,
+            "prompt_tokens_details": {"cached_tokens": cached}
+        }
+    })
+}
+
+#[cfg(feature = "groq")]
+#[tokio::test]
+async fn groq_responses_are_priced_at_groq_rates() {
+    let server =
+        mock_json(chat_completion("openai/gpt-oss-120b", 1_000_000, 100_000, 400_000)).await;
+    let model = adk_model::groq::GroqClient::new(
+        adk_model::groq::GroqConfig::gpt_oss_120b("test-key").with_base_url(server.uri()),
+    )
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "openai/gpt-oss-120b").await;
+
+    assert_eq!(response.provider.as_deref(), Some("groq"));
+    // 600K uncached × $0.15 + 400K cached × $0.075 + 100K × $0.60.
+    assert_cost(&response, 0.09 + 0.03 + 0.06);
+}
+
+#[cfg(feature = "groq")]
+#[tokio::test]
+async fn groq_models_without_a_published_price_stay_unpriced() {
+    let server = mock_json(chat_completion("llama-3.3-70b-versatile", 10, 5, 0)).await;
+    let model = adk_model::groq::GroqClient::new(
+        adk_model::groq::GroqConfig::llama70b("test-key").with_base_url(server.uri()),
+    )
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "llama-3.3-70b-versatile").await;
+
+    assert_eq!(response.provider.as_deref(), Some("groq"));
+    assert_eq!(response.usage_metadata.unwrap().cost, None);
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn xai_responses_are_priced_at_xai_rates() {
+    let server = mock_json(chat_completion("grok-4.6", 100_000, 10_000, 40_000)).await;
+    let model = adk_model::OpenAICompatible::new(
+        adk_model::OpenAICompatibleConfig::xai("test-key", "grok-4.6").with_base_url(server.uri()),
+    )
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "grok-4.6").await;
+
+    assert_eq!(response.provider.as_deref(), Some("xai"));
+    // Under the 200K long-context threshold: 60K uncached × $2.00 + 40K cached × $0.50
+    // + 10K × $6.00.
+    assert_cost(&response, 0.12 + 0.02 + 0.06);
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn mistral_responses_are_priced_at_mistral_rates() {
+    let server = mock_json(chat_completion("mistral-medium-latest", 1_000_000, 100_000, 0)).await;
+    let model = adk_model::OpenAICompatible::new(
+        adk_model::OpenAICompatibleConfig::mistral("test-key", "mistral-medium-latest")
+            .with_base_url(server.uri()),
+    )
+    .unwrap()
+    .with_retry_config(adk_model::RetryConfig::disabled());
+
+    let response = final_response(&model, "mistral-medium-latest").await;
+
+    assert_eq!(response.provider.as_deref(), Some("mistral"));
+    // 1M × $1.50 + 100K × $7.50.
+    assert_cost(&response, 1.50 + 0.75);
+}

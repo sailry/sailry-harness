@@ -1,0 +1,54 @@
+//! OpenAI provider implementation for ADK.
+//!
+//! This module provides support for OpenAI, Azure OpenAI, and OpenAI-compatible APIs.
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use adk_model::openai::{OpenAIClient, OpenAIConfig};
+//!
+//! let client = OpenAIClient::new(OpenAIConfig {
+//!     api_key: std::env::var("OPENAI_API_KEY").unwrap(),
+//!     model: "gpt-4o-mini".to_string(),
+//!     ..Default::default()
+//! })?;
+//! ```
+
+mod azure;
+mod background;
+mod client;
+mod compaction;
+mod config;
+#[cfg(feature = "openai-conversations")]
+pub mod conversations;
+pub(crate) mod convert;
+pub mod file_input;
+pub mod pricing;
+mod request;
+mod responses_client;
+mod responses_convert;
+mod responses_errors;
+mod responses_lines;
+mod responses_stream;
+pub mod schema_adapter;
+#[cfg(feature = "openai-ws")]
+pub mod ws_transport;
+
+pub use crate::openai_compatible::{
+    OpenAICompatible, OpenAICompatibleConfig, ReasoningReplayField,
+};
+pub use azure::AzureOpenAIClient;
+pub use client::OpenAIClient;
+pub use config::{
+    AzureConfig, OpenAIConfig, OpenAIReasoningEffort, OpenAIResponsesConfig, PromptCacheRetention,
+    ReasoningEffort, ReasoningSummary, ServiceTier,
+};
+#[cfg(feature = "openai-conversations")]
+pub use conversations::ConversationsClient;
+pub use request::{RequestAdapter, ResponseObserver};
+pub use responses_client::OpenAIResponsesClient;
+pub use schema_adapter::{OpenAiSchemaAdapter, OpenAiStrictSchemaAdapter};
+#[cfg(feature = "openai-ws")]
+pub use ws_transport::{WsTransport, WsOptions, WsRefusal, TransportEvent};
+#[cfg(feature = "openai-ws")]
+pub use responses_client::http_only;

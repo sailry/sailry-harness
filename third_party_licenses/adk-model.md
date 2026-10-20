@@ -1,23 +1,22 @@
 # ADK model and native clients
 
-The model, Anthropic and Gemini dependencies come from
-[dux-web/adk-rust](https://github.com/dux-web/adk-rust), a fork of
-[ADK-Rust](https://github.com/zavora-ai/adk-rust). The pinned fork revision is
-[`8fe511f`](https://github.com/dux-web/adk-rust/commit/8fe511f79cd9fe449958301a85d240324c293e29),
-based on upstream [v2.3.0](https://github.com/zavora-ai/adk-rust/releases/tag/v2.3.0)
-at `7dd31e2571e0e50ee5039b3edcec1150c106bcc6`. The root Cargo.toml and
-Cargo.lock use that exact fork revision for all ADK packages.
+ADK dependencies use [dux-web/adk-rust](https://github.com/dux-web/adk-rust),
+a fork of [ADK-Rust](https://github.com/zavora-ai/adk-rust), at
+[`e15668344ecaf4a3579ca9978b3c7bb35434ef0d`](https://github.com/dux-web/adk-rust/commit/e15668344ecaf4a3579ca9978b3c7bb35434ef0d).
+The root Cargo.toml and Cargo.lock retain that exact Git source for sibling ADK
+packages. Sailry does not carry the retired request-scoped provider-error hooks;
+native ADK errors supply provider classification and diagnostics.
 
-The pinned fork retains Sailry's focused Responses streaming, retryable premature
-stream EOF without weakening terminal validation, consumed wire-field
-validation, and safe typed parse diagnostics, provider error metadata, and Anthropic request adaptation. Its Gemini adapter
-forwards explicitly requested response modalities through generation extensions
-and preserves uncached system instructions. The Google Search entry point,
-grounding part index and Anthropic request-size error extensions remain available
-to Sailry. Its HTTP transports use Sailry's shared Rustls crypto provider. These
-changes remain in the attributed ADK source, not local vendor packages.
-The Anthropic client does not impose a local 100-tool limit or trim tool definitions.
+Only `adk-model` is vendored at that revision, with a focused Responses transport
+patch. HTTP and WebSocket share request adapters, compatible event normalization
+and response projections. The patch adds refreshed handshake headers, bounded
+socket lifetimes, continuation and HTTP fallback, while Node owns authorization,
+capability observations and retry budgets. The manifest expands upstream
+workspace inheritance and aligns WebSocket TLS roots with the generation HTTP
+client. Source provenance and modification details are retained in
+[vendor/adk-model/SAILRY_PATCHES.md](../vendor/adk-model/SAILRY_PATCHES.md).
 
-ADK's Apache-2.0 copyright notice is retained in [adk-LICENSE](adk-LICENSE).
-The Gemini client's original MIT notice, Copyright (c) 2025 Michael Yang,
-is retained in [adk-gemini-LICENSE](adk-gemini-LICENSE).
+ADK's Apache-2.0 copyright notice is retained in [adk-LICENSE](adk-LICENSE)
+and in the vendored crate. The Gemini client's original MIT notice,
+Copyright (c) 2025 Michael Yang, is retained in
+[adk-gemini-LICENSE](adk-gemini-LICENSE).
