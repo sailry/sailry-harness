@@ -4,7 +4,7 @@ use gpui_kit::*;
 
 mod preview;
 pub(super) use preview::context_progress;
-mod external;
+pub(crate) mod external;
 mod summary;
 pub(super) use external::group as external;
 use std::rc::Rc;
@@ -41,6 +41,18 @@ impl Shell {
     }
 }
 
+/// The shared metric popover surface around declared or host-owned details.
+pub(crate) fn popover(
+    content: Rc<dyn Fn(&App) -> AnyElement>,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyView {
+    Tooltip::element(move |_, cx| content(cx))
+        .py(px(POPOVER_INSET.0))
+        .px(px(POPOVER_INSET.1))
+        .build(window, cx)
+}
+
 pub(super) fn render_groups(groups: &[Group], selector: &'static str, cx: &App) -> AnyElement {
     let mut metrics: Vec<_> = groups.iter().flat_map(|group| &group.metrics).collect();
     metrics.sort_by_key(|metric| metric.order);
@@ -60,13 +72,7 @@ pub(super) fn render_groups(groups: &[Group], selector: &'static str, cx: &App) 
                 .id(SharedString::from(id.clone()))
                 .debug_selector(move || id.clone())
                 .gap_1()
-                .tooltip(move |window, cx| {
-                    let details = details.clone();
-                    Tooltip::element(move |_, cx| details(cx))
-                        .py(px(POPOVER_INSET.0))
-                        .px(px(POPOVER_INSET.1))
-                        .build(window, cx)
-                })
+                .tooltip(move |window, cx| popover(details.clone(), window, cx))
                 .children(metric.icon.clone().map(|icon| icon.small()))
                 .children(
                     metric

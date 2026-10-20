@@ -3,6 +3,7 @@ use super::super::data::{Channel, Model, Preset};
 use sailry_protocol::{
     Authentication,
     conversation::{presets::Source, quota},
+    plugin::{desktop::Navigation, ui::Detail},
 };
 
 /// Models shown before the expansion collapses the rest into a count.
@@ -109,4 +110,40 @@ pub(super) fn badge(channel: &Channel, kind: AuthKind) -> gpui_kit::SharedString
         return label.clone().into();
     }
     crate::tr(kind.key())
+}
+
+/// The usage column's leading metric; the remaining details appear on hover.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Primary {
+    pub value: gpui_kit::SharedString,
+    /// Omitted when the plugin gives none.
+    pub label: Option<gpui_kit::SharedString>,
+    /// A meter precedes the value when present.
+    pub progress: Option<f32>,
+}
+
+impl Primary {
+    /// The first detail leads; without details, the metric's own label and value.
+    pub fn of(
+        details: &[Detail],
+        fallback: Option<(&Navigation, gpui_kit::SharedString)>,
+        locale: &str,
+    ) -> Option<Self> {
+        let caption = |label: &Navigation| {
+            let text = label.label(locale).trim();
+            (!text.is_empty()).then(|| gpui_kit::SharedString::from(text.to_owned()))
+        };
+        match details.first() {
+            Some(detail) => Some(Self {
+                value: detail.value.clone().into(),
+                label: caption(&detail.label),
+                progress: crate::conversation::usage::external::progress(detail),
+            }),
+            None => fallback.map(|(label, value)| Self {
+                value,
+                label: caption(label),
+                progress: None,
+            }),
+        }
+    }
 }

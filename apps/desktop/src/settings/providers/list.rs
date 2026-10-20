@@ -1,6 +1,8 @@
 use super::*;
+use crate::conversation::usage::{self, external};
 use gpui_kit::component::{progress::Progress, tag::Tag};
-use sailry_protocol::Authentication;
+use sailry_protocol::{Authentication, conversation::quota, plugin::ui::Detail};
+use std::rc::Rc;
 
 mod menu;
 mod summary;
@@ -8,10 +10,14 @@ mod summary;
 mod tests;
 
 pub(super) use summary::matches;
-use summary::{AuthKind, Status};
+use summary::{AuthKind, Primary, Status};
 
 const TILE: f32 = 36.;
 const GAP: f32 = 12.;
+/// Fixed usage column width so values right-align across rows.
+const USAGE: f32 = 156.;
+/// Width of the meter preceding a percentage value.
+const METER: f32 = 44.;
 
 /// The channel's type icon on its gradient tile, as in the type picker; monochrome icons
 /// inherit the white text color.
@@ -140,7 +146,12 @@ impl Workspace {
                 .on_click(cx.listener(move |this, _, _, cx| this.expand_provider(id, cx)))
                 .into_any_element(),
         };
-        let metrics = self.provider_metrics(channel, cx);
+        let usage = Self::provider_usage(
+            id,
+            self.provider_metrics(channel, cx),
+            channel.quota.as_ref().filter(|_| auth == AuthKind::OAuth),
+            cx,
+        );
         let row = h_flex()
             .py_3()
             .gap(px(GAP))
@@ -151,17 +162,11 @@ impl Workspace {
                     .into_any_element(),
             )
             .child(details)
-            .when_some(
-                channel
-                    .quota
-                    .as_ref()
-                    .filter(|_| auth == AuthKind::OAuth && metrics.is_empty()),
-                |row, quota| row.child(Self::provider_quota(id, quota, cx)),
-            )
-            .children(
-                metrics
-                    .into_iter()
-                    .map(|entry| Self::provider_metric(entry, cx)),
+            .child(
+                div()
+                    .flex_shrink_0()
+                    .when(!channel.enabled, |usage| usage.opacity(0.45))
+                    .child(usage),
             )
             .child(summary)
             .child(
@@ -194,21 +199,18 @@ impl Workspace {
             .into_any_element()
     }
 
-    fn provider_quota(
-        id: usize,
-        quota: &sailry_protocol::conversation::quota::Snapshot,
-        cx: &App,
-    ) -> AnyElement {
+    /// Login quota windows as shared metric details.
+    fn quota_rows(quota: &quota::Snapshot) -> Vec<Detail> {
         let now = live::quota::now();
         let windows = [
             ("provider_usage_5h", quota.five_hour.as_ref()),
             ("provider_usage_7d", quota.seven_day.as_ref()),
         ];
-        let rows = windows
+        windows
             .into_iter()
             .filter_map(|(key, window)| {
                 let remaining = summary::remaining(window?, now)?;
-                Some(sailry_protocol::plugin::ui::Detail {
+                Some(Detail {
                     label: sailry_protocol::plugin::desktop::Navigation {
                         label: tr(key).to_string(),
                         icon: None,
@@ -218,8 +220,7 @@ impl Workspace {
                     progress: serde_json::Number::from_f64(f64::from(remaining)),
                 })
             })
-            .collect::<Vec<_>>();
-        Self::metric_rows(format!("provider-quota-{id}"), &rows, cx)
+            .collect()
     }
 
     fn provider_models(channel: &Channel, cx: &App) -> AnyElement {
@@ -276,67 +277,85 @@ impl Workspace {
 }
 
 impl Workspace {
-    fn provider_metric(entry: crate::plugins::contributions::Entry, cx: &App) -> AnyElement {
-        let theme = cx.theme();
-        if entry.state.details.is_empty() {
-            return h_flex()
-                .gap_1p5()
-                .flex_shrink_0()
-                .text_sm()
-                .text_color(theme.muted_foreground)
-                .when_some(entry.icon(), |line, icon| line.child(icon.small()))
-                .child(entry.value())
-                .into_any_element();
-        }
-        Self::metric_rows(
-            format!(
-                "provider-metric-{}-{}",
-                entry.key.package.name,
-                entry.state.scope.as_ref().unwrap().provider
-            ),
-            &entry.state.details,
-            cx,
-        )
-    }
-
-    fn metric_rows(
-        id: String,
-        rows: &[sailry_protocol::plugin::ui::Detail],
+    /// The primary metric in two lines matching the name and type lines; every metric
+    /// appears in the shared metric popover on hover. Plugin metrics replace login quota.
+    fn provider_usage(
+        id: usize,
+        entries: Vec<crate::plugins::contributions::Entry>,
+        quota: Option<&quota::Snapshot>,
         cx: &App,
     ) -> AnyElement {
-        v_flex()
-            .w_40()
+        let column = v_flex()
+            .id(("provider-usage", id))
+            .debug_selector(move || format!("provider-usage-{id}"))
+            .w(px(USAGE))
             .flex_shrink_0()
-            .gap_1()
-            .children(rows.iter().enumerate().map(|(index, detail)| {
-                let label: SharedString =
-                    detail.label.label(&rust_i18n::locale()).to_owned().into();
-                let progress = detail.progress.as_ref().and_then(|value| value.as_f64());
+            .items_end()
+            .gap_0p5();
+        let locale = rust_i18n::locale();
+        let (primary, content): (_, Rc<dyn Fn(&App) -> AnyElement>) = if let Some(entry) =
+            entries.first()
+        {
+            let label = entry
+                .state
+                .label
+                .as_ref()
+                .unwrap_or(&entry.declaration.label);
+            let primary = Primary::of(&entry.state.details, Some((label, entry.value())), &locale);
+            (primary, Rc::new(move |cx| external::panel(&entries, cx)))
+        } else {
+            let rows = quota.map(Self::quota_rows).unwrap_or_default();
+            let primary = Primary::of(&rows, None, &locale);
+            let key = format!("provider-quota-{id}");
+            (
+                primary,
+                Rc::new(move |cx| external::rows(key.clone(), &rows, cx)),
+            )
+        };
+        let Some(primary) = primary else {
+            return column.into_any_element();
+        };
+        let theme = cx.theme();
+        let name = primary
+            .label
+            .clone()
+            .unwrap_or_else(|| primary.value.clone());
+        column
+            .tooltip(move |window, cx| usage::popover(content.clone(), window, cx))
+            .child(
                 h_flex()
+                    .h_5()
                     .gap_2()
                     .items_center()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(div().w_16().flex_shrink_0().truncate().child(label.clone()))
-                    .when_some(progress, |line, value| {
+                    .text_sm()
+                    .when_some(primary.progress, |line, value| {
                         line.child(
-                            Progress::new(SharedString::from(format!("{id}-{index}")))
+                            Progress::new(("provider-usage-meter", id))
                                 .xsmall()
-                                .flex_1()
-                                .value(value as f32)
-                                .accessibility_label(label)
-                                .when(value < 20., |bar| bar.color(cx.theme().warning)),
+                                .w(px(METER))
+                                .value(value)
+                                .accessibility_label(name)
+                                .when(value < 20., |bar| bar.color(theme.warning)),
                         )
                     })
                     .child(
                         div()
-                            .flex_shrink_0()
-                            .text_right()
-                            .when(progress.is_some(), |value| value.w(px(30.)))
-                            .when(progress.is_none(), |value| value.flex_1())
-                            .child(detail.value.clone()),
-                    )
-            }))
+                            .whitespace_nowrap()
+                            .font_features(external::tabular())
+                            .text_color(theme.foreground)
+                            .child(primary.value),
+                    ),
+            )
+            .when_some(primary.label, |column, label| {
+                column.child(
+                    div()
+                        .max_w_full()
+                        .truncate()
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .child(label),
+                )
+            })
             .into_any_element()
     }
 }

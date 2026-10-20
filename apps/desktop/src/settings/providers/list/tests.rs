@@ -168,3 +168,61 @@ fn displays_current_account_label() {
         crate::tr(AuthKind::OAuth.key())
     );
 }
+
+mod primary {
+    use super::*;
+    use sailry_protocol::plugin::{desktop::Navigation, ui::Detail};
+    use serde_json::json;
+
+    fn details(value: serde_json::Value) -> Vec<Detail> {
+        serde_json::from_value(value).unwrap()
+    }
+
+    fn label(text: &str) -> Navigation {
+        serde_json::from_value(json!({"label": text, "locales": {"zh-CN": "积分"}})).unwrap()
+    }
+
+    #[test]
+    fn leads_with_first_detail_meter() {
+        let rows = details(json!([
+            {"label":{"label":"7d left"},"value":"91%","progress":91},
+            {"label":{"label":"Credits"},"value":"41205.37"}
+        ]));
+        let primary = Primary::of(&rows, Some((&label("Usage"), "64%".into())), "en").unwrap();
+        assert_eq!(primary.value.as_ref(), "91%");
+        assert_eq!(primary.label.as_deref(), Some("7d left"));
+        assert_eq!(primary.progress, Some(91.));
+    }
+
+    #[test]
+    fn plain_values_have_no_meter() {
+        let rows = details(json!([{"label":{"label":"Credits"},"value":"12"}]));
+        let primary = Primary::of(&rows, None, "en").unwrap();
+        assert_eq!(primary.progress, None);
+        let clamped = details(json!([{"label":{"label":"Left"},"value":"0%","progress":-4}]));
+        assert_eq!(
+            Primary::of(&clamped, None, "en").unwrap().progress,
+            Some(0.)
+        );
+    }
+
+    #[test]
+    fn falls_back_to_localized_metric() {
+        let primary =
+            Primary::of(&[], Some((&label("Credits"), "2550.59".into())), "zh-CN").unwrap();
+        assert_eq!(primary.value.as_ref(), "2550.59");
+        assert_eq!(primary.label.as_deref(), Some("积分"));
+        assert_eq!(primary.progress, None);
+    }
+
+    #[test]
+    fn omits_blank_labels() {
+        let rows = details(json!([{"label":{"label":"  "},"value":"3"}]));
+        assert_eq!(Primary::of(&rows, None, "en").unwrap().label, None);
+    }
+
+    #[test]
+    fn empty_without_usage() {
+        assert_eq!(Primary::of(&[], None, "en"), None);
+    }
+}

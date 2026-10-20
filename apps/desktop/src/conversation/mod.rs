@@ -20,7 +20,7 @@ pub(crate) mod subagent;
 pub(crate) mod surface;
 pub(crate) mod transcript;
 pub(crate) mod turn;
-mod usage;
+pub(crate) mod usage;
 mod welcome;
 
 pub(crate) use composer::Options;

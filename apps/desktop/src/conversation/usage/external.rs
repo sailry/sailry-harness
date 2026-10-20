@@ -51,15 +51,8 @@ impl<'a> Layout<'a> {
             meters: Vec::new(),
         };
         for (index, detail) in details.iter().enumerate() {
-            match detail
-                .progress
-                .as_ref()
-                .and_then(serde_json::Number::as_f64)
-                .filter(|value| value.is_finite())
-            {
-                Some(value) => layout
-                    .meters
-                    .push((index, detail, value.clamp(0., 100.) as f32)),
+            match progress(detail) {
+                Some(value) => layout.meters.push((index, detail, value)),
                 None => layout.values.push((index, detail)),
             }
         }
@@ -67,7 +60,17 @@ impl<'a> Layout<'a> {
     }
 }
 
-fn tabular() -> FontFeatures {
+/// A detail's finite percentage, clamped for meters.
+pub(crate) fn progress(detail: &Detail) -> Option<f32> {
+    detail
+        .progress
+        .as_ref()
+        .and_then(serde_json::Number::as_f64)
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0., 100.) as f32)
+}
+
+pub(crate) fn tabular() -> FontFeatures {
     FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
 }
 
@@ -126,13 +129,25 @@ fn body(entry: &Entry, cx: &App) -> Div {
         "statistics-plugin-{}-{}",
         entry.key.package.name, entry.key.id
     );
-    let layout = Layout::new(&entry.state.details);
-    let values = v_flex().w_full().min_w_0().child(value_row(
-        id.clone(),
-        label(&entry.declaration.label),
-        entry.value(),
-        cx,
-    ));
+    let summary = (label(&entry.declaration.label), entry.value());
+    content(id, Some(summary), &entry.state.details, cx)
+}
+
+/// Summary rows lead, then a separator and the meters.
+fn content(
+    id: String,
+    summary: Option<(SharedString, SharedString)>,
+    details: &[Detail],
+    cx: &App,
+) -> Div {
+    let layout = Layout::new(details);
+    let divided = summary.is_some() || !layout.values.is_empty();
+    let values = v_flex()
+        .w_full()
+        .min_w_0()
+        .when_some(summary, |values, (name, value)| {
+            values.child(value_row(id.clone(), name, value, cx))
+        });
     let values = values.children(layout.values.iter().map(|(index, detail)| {
         value_row(
             format!("{id}-{index}"),
@@ -161,19 +176,52 @@ fn body(entry: &Entry, cx: &App) -> Div {
         .min_w_0()
         .child(values)
         .when_some(meters, |body, meters| {
-            body.child(div().mt(px(10.)).mb(px(12.)).child(Separator::horizontal()))
-                .child(meters)
+            body.when(divided, |body| {
+                body.child(div().mt(px(10.)).mb(px(12.)).child(Separator::horizontal()))
+            })
+            .child(meters)
         })
 }
 
-fn details(entry: &Entry, cx: &App) -> AnyElement {
+/// The popover content width for a declared surface width.
+fn frame(width: Option<u16>) -> Div {
     div()
-        .debug_selector(|| "composer-stat-details".into())
         .w(px(
-            entry.declaration.width.map_or(POPOVER_WIDTH, f32::from) - 2. * POPOVER_INSET.1
+            width.map_or(POPOVER_WIDTH, f32::from) - 2. * POPOVER_INSET.1
         ))
         .min_w_0()
+}
+
+fn details(entry: &Entry, cx: &App) -> AnyElement {
+    frame(entry.declaration.width)
+        .debug_selector(|| "composer-stat-details".into())
         .child(body(entry, cx))
+        .into_any_element()
+}
+
+/// Every entry in one popover, sized by the first entry's declared width.
+pub(crate) fn panel(entries: &[Entry], cx: &App) -> AnyElement {
+    frame(entries.first().and_then(|entry| entry.declaration.width))
+        .child(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_3()
+                .children(entries.iter().enumerate().map(|(index, entry)| {
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .when(index > 0, |section| section.child(Separator::horizontal()))
+                        .child(body(entry, cx))
+                })),
+        )
+        .into_any_element()
+}
+
+/// Host-owned details without a summary row.
+pub(crate) fn rows(id: String, details: &[Detail], cx: &App) -> AnyElement {
+    frame(None)
+        .child(content(id, None, details, cx))
         .into_any_element()
 }
 
