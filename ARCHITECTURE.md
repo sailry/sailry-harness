@@ -252,6 +252,12 @@ request composition and verified claim mappings. The execution Node runs those
 pure steps through its existing private HTTP, PKCE callback, OIDC verification,
 registration, cancellation and persistence services. It alone owns rotating-grant
 fences and credential revision checks.
+Explicit sign-in can replace a channel's account. A changed or unproven identity
+receives a new credential reference; current ordinary sessions using the replaced
+reference receive a new configuration revision, while admitted turns retain their
+original authorization. Automatic renewal still requires the same account and
+keeps its existing uncertainty fence. Optional public account emails come from the
+authentication adapter and share one credential projection across channel types.
 Stable authentication IDs and private credential codecs preserve existing accounts
 and immutable sent-turn captures. Private account bindings retain the owning
 package and flow across ordinary code updates; changed or ambiguous ownership

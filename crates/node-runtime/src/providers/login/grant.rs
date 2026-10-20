@@ -156,6 +156,17 @@ impl Grant {
         }
     }
 
+    pub(crate) fn account_label(&self) -> Option<&str> {
+        let email = match self {
+            Self::ChatGpt { email, .. } | Self::ChatGptOAuth { email, .. } => email.as_deref(),
+            Self::Plugin { record, .. } => record.issued.account_label.as_deref(),
+            _ => None,
+        };
+        email.map(str::trim).filter(|value| {
+            !value.is_empty() && value.len() <= 1024 && !value.chars().any(char::is_control)
+        })
+    }
+
     pub(crate) fn same_account(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Plugin { record: first, .. }, Self::Plugin { record: second, .. }) => {

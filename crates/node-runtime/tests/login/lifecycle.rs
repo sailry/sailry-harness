@@ -70,17 +70,26 @@ async fn preserves_revocation_and_reconnects() {
         else {
             panic!("credentials expected")
         };
-        assert_eq!(credentials.len(), 1);
-        assert_eq!(credentials[0].id, reference.id);
-        assert_eq!(credentials[0].revision, 3);
-        assert!(!credentials[0].revoked);
+        assert_eq!(credentials.len(), 2);
+        let old = credentials
+            .iter()
+            .find(|value| value.id == reference.id)
+            .unwrap();
+        assert_eq!(old.revision, 2);
+        assert!(old.revoked);
+        let current = credentials
+            .iter()
+            .find(|value| value.id != reference.id)
+            .unwrap();
+        assert_eq!(current.revision, 1);
+        assert!(!current.revoked);
         assert_eq!(
             fixture
                 .client
                 .execute(fixture.client.prepare(Command::PutCredential {
                     id: reference.id,
                     provider: provider.id,
-                    expected_revision: 3,
+                    expected_revision: 2,
                     secret: Secret::new("isolated-api-key".into()),
                     expires_at_ms: None
                 }))

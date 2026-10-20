@@ -505,6 +505,7 @@ impl Editor {
             preset: self.preset,
             endpoint,
             credential_configured: configured,
+            account_label: None,
             enabled: true,
             connected: false,
             default_model: models

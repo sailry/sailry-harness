@@ -86,7 +86,7 @@ impl Workspace {
                         Tag::secondary()
                             .xsmall()
                             .flex_shrink_0()
-                            .child(tr(auth.key())),
+                            .child(summary::badge(channel, auth)),
                     )
                     .when(!real, |line| {
                         line.child(

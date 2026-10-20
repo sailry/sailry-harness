@@ -163,3 +163,339 @@ async fn retains_capture_through_refresh() {
         fixture.close().await;
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn switches_accounts_without_rewriting_captures() {
+    for remote in [false, true] {
+        for catalog_failure in [false, true] {
+            let phase = Arc::new(AtomicUsize::new(0));
+            let active = phase.clone();
+            let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+                let stage = active.load(Ordering::SeqCst);
+                let changed = stage != 0;
+                if request.path == "/api/accounts/deviceauth/token" && stage == 1 {
+                    return Reply::Hold;
+                }
+                if request.path == "/oauth/token" && changed {
+                    let mut value = server::tokens(request, 3600, "account-b-access", "account-b-refresh");
+                    value["id_token"] = json!(super::super::identity::signed(&json!({
+                        "sub":"account-b-subject","name":"Account B","email":"b@example.test",
+                        "chatgpt_account_id":"account-b-workspace"
+                    })));
+                    return Reply::Json(value);
+                }
+                if request.path.starts_with("/models") && changed {
+                    assert_eq!(request.headers["authorization"], "Bearer account-b-access");
+                    assert_eq!(request.headers["chatgpt-account-id"], "account-b-workspace");
+                    if catalog_failure {
+                        return Reply::Raw("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into());
+                    }
+                    return Reply::Json(json!({"models":[{"slug":"fixture","display_name":"Fixture","visibility":"list"},{"slug":"b-only","display_name":"Account B model","visibility":"list"}]}));
+                }
+                if request.path == "/responses" {
+                    let body: serde_json::Value = serde_json::from_str(&request.body).unwrap();
+                    let from_b = request.headers["authorization"] == "Bearer account-b-access";
+                    assert_eq!(request.headers["chatgpt-account-id"], if from_b {"account-b-workspace"} else {ACCOUNT});
+                    if !from_b { assert_eq!(request.headers["authorization"], format!("Bearer {ACCESS}")); }
+                    let completed = json!({"type":"response.completed","sequence_number":0,"response":{"id":"fixture-response","object":"response","created_at":1,"status":"completed","model":body["model"],"output":[{"type":"message","id":"fixture-message","role":"assistant","status":"completed","content":[{"type":"output_text","text":if from_b {"Account B response"} else {"Account A response"},"annotations":[]}]}]}});
+                    return Reply::Raw(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {completed}\n\n"));
+                }
+                server::standard(request, 3600)
+            }).await;
+            let fixture = Fixture::empty(remote, &server).await;
+            let mut provider = configured(&fixture, None).await;
+            provider.models[0].context = 8192;
+            let mut extra = provider.models[0].clone();
+            extra.id = "unknown".into();
+            provider.models.push(extra);
+            provider.default_model = "unknown".into();
+            let Output::Provider(provider) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("provider expected")
+            };
+            let mut selected = provider.clone();
+            selected.models.swap(0, 1);
+            let session = super::super::execution::session(&fixture, &selected).await;
+            let Output::QueuedTurn(queued) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::QueueTurn {
+                    session: session.id,
+                    expected_revision: session.revision,
+                    message: "Account A queued input".into(),
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("queued turn expected")
+            };
+            let frozen = captured(&fixture, &queued);
+            let Output::Credentials(original) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ListCredentials))
+                .await
+                .unwrap()
+            else {
+                panic!("credentials expected")
+            };
+            phase.store(1, Ordering::SeqCst);
+            let (_, cancelled) = start(&fixture.client, &provider).await;
+            let mut pending = fixture.client.subscribe_login(cancelled.id).await.unwrap();
+            fixture
+                .client
+                .execute(fixture.client.prepare(Command::CancelProviderLogin {
+                    attempt: cancelled.id,
+                }))
+                .await
+                .unwrap();
+            assert_eq!(terminal(&mut pending).await.state, login::State::Cancelled);
+            assert_eq!(saved(&fixture.client, provider.id).await, provider);
+            assert_eq!(
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::ListCredentials))
+                    .await
+                    .unwrap(),
+                Output::Credentials(original.clone())
+            );
+            phase.store(2, Ordering::SeqCst);
+            let (_, attempt) = start(&fixture.client, &provider).await;
+            let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+            let update = terminal(&mut stream).await;
+            assert_eq!(update.state, login::State::Connected);
+            assert_eq!(update.model_error.is_some(), catalog_failure);
+            let replaced = saved(&fixture.client, provider.id).await;
+            assert_eq!(replaced.id, provider.id);
+            assert_eq!(replaced.name, provider.name);
+            assert_eq!(replaced.oauth, provider.oauth);
+            assert_ne!(replaced.credential, provider.credential);
+            if catalog_failure {
+                assert!(replaced.models.is_empty());
+                assert!(replaced.default_model.is_empty());
+            } else {
+                assert_eq!(replaced.models.len(), 1);
+                assert_eq!(replaced.models[0].id, "fixture");
+                assert_eq!(replaced.models[0].context, 8192);
+                assert_eq!(replaced.default_model, "fixture");
+            }
+            let Output::Snapshot(snapshot) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::Snapshot))
+                .await
+                .unwrap()
+            else {
+                panic!("snapshot expected")
+            };
+            let current = snapshot
+                .sessions
+                .into_iter()
+                .find(|value| value.id == session.id)
+                .unwrap();
+            assert_eq!(current.revision, session.revision + 1);
+            assert_eq!(current.config.credential, replaced.credential);
+            assert_eq!(
+                current.config.model,
+                if catalog_failure {
+                    "unknown"
+                } else {
+                    "fixture"
+                }
+            );
+            assert_eq!(captured(&fixture, &queued), frozen);
+            let Output::QueuedTurn(retained) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ReadTurnCapture {
+                    session: session.id,
+                    turn: queued.id,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("capture expected")
+            };
+            assert_eq!(retained, queued);
+            let Output::Credentials(credentials) = fixture
+                .client
+                .execute(fixture.client.prepare(Command::ListCredentials))
+                .await
+                .unwrap()
+            else {
+                panic!("credentials expected")
+            };
+            assert_eq!(credentials.len(), 2);
+            assert!(credentials.contains(&original[0]));
+            assert_eq!(
+                credentials
+                    .iter()
+                    .find(|value| Some(value.id)
+                        == replaced.credential.as_ref().map(|value| value.id))
+                    .unwrap()
+                    .account_label
+                    .as_deref(),
+                Some("b@example.test")
+            );
+            assert_eq!(
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::SubmitTurn {
+                        session: session.id,
+                        expected_revision: session.revision,
+                        message: "Stale configuration".into()
+                    }))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::RevisionConflict
+            );
+            fixture
+                .client
+                .execute(
+                    fixture
+                        .client
+                        .prepare(Command::StartQueuedTurn { turn: queued.id }),
+                )
+                .await
+                .unwrap();
+            let queue = fixture
+                .client
+                .read_conversation(session.id, None, 10)
+                .await
+                .unwrap()
+                .page
+                .queue;
+            if queue.paused {
+                fixture
+                    .client
+                    .execute(fixture.client.prepare(Command::SetQueuePaused {
+                        session: session.id,
+                        expected_revision: queue.revision,
+                        paused: false,
+                    }))
+                    .await
+                    .unwrap();
+            }
+            let completed =
+                super::super::execution::finished(&fixture.client, &queued, Status::Completed)
+                    .await;
+            assert_eq!(answer(&completed, queued.id), "Account A response");
+            let (_, next) = super::super::execution::submit(&fixture.client, &current).await;
+            let page =
+                super::super::execution::finished(&fixture.client, &next, Status::Completed).await;
+            assert_eq!(answer(&page, next.id), "Account B response");
+            assert_eq!(answer(&page, queued.id), "Account A response");
+            assert_eq!(captured(&fixture, &next).credential, replaced.credential);
+            assert_eq!(captured(&fixture, &queued), frozen);
+            let fixture =
+                super::super::execution::renewals::restart(fixture, &server, remote).await;
+            assert_eq!(saved(&fixture.client, provider.id).await, replaced);
+            assert_eq!(captured(&fixture, &queued), frozen);
+            assert_eq!(
+                server
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|value| value.path == "/responses")
+                    .count(),
+                2
+            );
+            fixture.close().await;
+        }
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn preserves_unsettled_authorizations_on_relogin() {
+    for remote in [false, true] {
+        let server = Server::start_with_request(ModelApi::Anthropic, |request| {
+            server::standard(request, 3600)
+        })
+        .await;
+        let fixture = Fixture::empty(remote, &server).await;
+        let provider = configured(&fixture, None).await;
+        let session = super::super::execution::session(&fixture, &provider).await;
+        let Output::QueuedTurn(queued) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::QueueTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Retain uncertain authorization".into(),
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("queued turn expected")
+        };
+        let reference = provider.credential.as_ref().unwrap();
+        let db = rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3"))
+            .unwrap();
+        let read = |db: &rusqlite::Connection| -> serde_json::Value {
+            let body: Vec<u8> = db
+                .query_row(
+                    "SELECT body FROM providers WHERE id=?1",
+                    [provider.id.to_string()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            serde_json::from_slice(&body).unwrap()
+        };
+        let mut stored = read(&db);
+        let authorization = &mut stored["authorizations"][reference.id.to_string()];
+        let mut grant: serde_json::Value =
+            serde_json::from_str(authorization["key"].as_str().unwrap()).unwrap();
+        grant["renewal_pending"] = json!(true);
+        authorization["key"] = json!(grant.to_string());
+        let original = authorization.clone();
+        db.execute(
+            "UPDATE providers SET body=?1 WHERE id=?2",
+            rusqlite::params![
+                serde_json::to_vec(&stored).unwrap(),
+                provider.id.to_string()
+            ],
+        )
+        .unwrap();
+        drop(db);
+        let fixture = super::super::execution::renewals::restart(fixture, &server, remote).await;
+        let (_, attempt) = start(&fixture.client, &provider).await;
+        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        let update = terminal(&mut stream).await;
+        assert_eq!(update.state, login::State::Connected);
+        assert_eq!(update.model_error, None);
+        let current = saved(&fixture.client, provider.id).await;
+        assert_ne!(current.credential, provider.credential);
+        let db = rusqlite::Connection::open_with_flags(
+            fixture.node.profile().join("storage/node.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let stored = read(&db);
+        assert_eq!(stored["authorizations"][reference.id.to_string()], original);
+        let current_grant: serde_json::Value = serde_json::from_str(
+            stored["authorizations"][current.credential.as_ref().unwrap().id.to_string()]["key"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(current_grant["renewal_pending"], false);
+        assert_eq!(captured(&fixture, &queued).credential, provider.credential);
+        let Output::QueuedTurn(retained) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ReadTurnCapture {
+                session: session.id,
+                turn: queued.id,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("capture expected")
+        };
+        assert_eq!(retained, queued);
+        drop(db);
+        fixture.close().await;
+    }
+}

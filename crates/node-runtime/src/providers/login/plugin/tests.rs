@@ -6,6 +6,7 @@ fn mapping() -> model_auth::Mapping {
         access: "/data/access".into(),
         refresh: Some("/data/refresh".into()),
         expires_in: Some("/data/expires_in".into()),
+        account_label: None,
         extra: BTreeMap::from([("account".into(), "/data/account".into())]),
     }
 }
@@ -376,4 +377,30 @@ async fn distinguishes_an_undelivered_refresh() {
     .unwrap_err();
     assert_eq!(error.code, ErrorCode::Unavailable);
     assert!(!error.message.contains(&endpoint));
+}
+
+#[test]
+fn maps_public_account_labels() {
+    let mut mapping = mapping();
+    mapping.account_label = Some("/data/email".into());
+    let value =
+        json!({"data":{"access":"private-access","expires_in":60,"email":"display@example.test"}});
+    assert_eq!(
+        Issued::parse(&value, &mapping, 0, None)
+            .unwrap()
+            .account_label
+            .as_deref(),
+        Some("display@example.test")
+    );
+    assert_eq!(
+        Issued::parse(
+            &json!({"data":{"access":"private-access","expires_in":60}}),
+            &mapping,
+            0,
+            None
+        )
+        .unwrap()
+        .account_label,
+        None
+    );
 }

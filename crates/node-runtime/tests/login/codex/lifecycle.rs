@@ -182,25 +182,31 @@ async fn connects_with_isolated_credentials() {
                     Output::ProviderLogin(attempt)
                 );
                 assert_eq!(server.requests.lock().unwrap().len(), before);
+                let mut current = connected.clone();
                 for index in [1, 2] {
                     drift.store(index, Ordering::SeqCst);
                     release.notify_one();
-                    let (_, reconnect) = start(&fixture.client, &connected).await;
+                    let (_, reconnect) = start(&fixture.client, &current).await;
                     let mut stream = fixture.client.subscribe_login(reconnect.id).await.unwrap();
-                    let login::State::Failed(error) = terminal(&mut stream).await.state else {
-                        panic!("changed signed identity must not replace its credential")
+                    let update = terminal(&mut stream).await;
+                    assert_eq!(update.state, login::State::Connected);
+                    assert_eq!(update.model_error, None);
+                    let replaced = saved(&fixture.client, provider.id).await;
+                    assert_eq!(replaced.id, current.id);
+                    assert_eq!(replaced.revision, current.revision + 1);
+                    assert_ne!(replaced.credential, current.credential);
+                    let Output::Credentials(retained) = fixture
+                        .client
+                        .execute(fixture.client.prepare(Command::ListCredentials))
+                        .await
+                        .unwrap()
+                    else {
+                        panic!("credentials expected")
                     };
-                    assert_eq!(error.code, ErrorCode::PermissionDenied);
-                    no_secrets(&error);
-                    assert_eq!(saved(&fixture.client, provider.id).await, connected);
-                    assert_eq!(
-                        fixture
-                            .client
-                            .execute(fixture.client.prepare(Command::ListCredentials))
-                            .await
-                            .unwrap(),
-                        Output::Credentials(credentials.clone())
-                    );
+                    assert_eq!(retained.len(), index + 1);
+                    assert!(retained.contains(&credentials[0]));
+                    assert!(retained.iter().all(|credential| !credential.revoked));
+                    current = replaced;
                 }
                 no_secrets(
                     &fixture

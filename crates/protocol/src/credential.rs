@@ -47,7 +47,7 @@ pub struct Credential {
     pub id: CredentialId,
     pub provider: ProviderId,
     pub authentication: Authentication,
-    /// Verified provider identity for display, never token or plan metadata.
+    /// Public account email for display, never a name, subject, account ID or secret.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_label: Option<String>,
     pub revision: u64,

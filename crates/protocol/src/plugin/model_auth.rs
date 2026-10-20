@@ -305,6 +305,9 @@ pub struct Mapping {
     pub access: String,
     pub refresh: Option<String>,
     pub expires_in: Option<String>,
+    /// JSON pointer to the account email, never a name, subject, account ID or secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_label: Option<String>,
     #[serde(default)]
     pub extra: BTreeMap<String, String>,
 }
@@ -312,7 +315,7 @@ pub struct Mapping {
 impl Mapping {
     fn valid(&self) -> bool {
         pointer(&self.access)
-            && [&self.refresh, &self.expires_in]
+            && [&self.refresh, &self.expires_in, &self.account_label]
                 .into_iter()
                 .all(|value| value.as_ref().is_none_or(|value| pointer(value)))
             && self
@@ -436,6 +439,7 @@ mod tests {
         plugin.authentication = None;
         assert!(!plugin.valid());
         plugin.token = Some(Mapping {
+            account_label: None,
             access: "/access".into(),
             refresh: None,
             expires_in: None,

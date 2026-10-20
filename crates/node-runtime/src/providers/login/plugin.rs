@@ -61,6 +61,8 @@ impl Capture {
 /// Private values are never used as public callback results or progress.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Issued {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_label: Option<String>,
     pub access: Secret,
     pub refresh: Option<Secret>,
     pub expires_at_ms: Option<u64>,
@@ -195,7 +197,19 @@ impl Issued {
                 extra.insert(key.clone(), value);
             }
         }
+        let account_label = mapping
+            .account_label
+            .as_ref()
+            .and_then(|pointer| document.pointer(pointer))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 1024 && !value.chars().any(char::is_control)
+            })
+            .map(str::to_owned)
+            .or_else(|| previous.and_then(|value| value.account_label.clone()));
         Ok(Self {
+            account_label,
             access,
             refresh,
             expires_at_ms,

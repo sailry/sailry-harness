@@ -97,3 +97,16 @@ pub(super) fn usage(window: &quota::Window, now: u64) -> Option<f32> {
         .available_at(now)
         .then(|| (window.used_basis_points as f32 / 100.).min(100.))
 }
+
+/// Public account metadata replaces only the login badge, never an API key label.
+pub(super) fn badge(channel: &Channel, kind: AuthKind) -> gpui_kit::SharedString {
+    if kind != AuthKind::ApiKey
+        && let Some(label) = channel
+            .account_label
+            .as_ref()
+            .filter(|label| !label.is_empty())
+    {
+        return label.clone().into();
+    }
+    crate::tr(kind.key())
+}

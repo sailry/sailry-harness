@@ -162,3 +162,25 @@ fn retains_optional_resource_account_identity() {
             .is_none()
     );
 }
+
+#[test]
+fn projects_optional_account_emails() {
+    let authentication = Authentication::ChatGptOAuth;
+    let mut value = document(authentication);
+    value["email"] = Value::Null;
+    value["name"] = json!("Display name");
+    assert_eq!(
+        read(authentication, value.clone()).unwrap().account_label(),
+        None
+    );
+    value["email"] = json!("   ");
+    assert_eq!(
+        read(authentication, value.clone()).unwrap().account_label(),
+        None
+    );
+    value["email"] = json!("fixture@example.test");
+    assert_eq!(
+        read(authentication, value).unwrap().account_label(),
+        Some("fixture@example.test")
+    );
+}

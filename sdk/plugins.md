@@ -216,6 +216,11 @@ when their provider, package and authentication contract are unchanged; changing
 an issuer, client, flow, injection or account scope requires sign-in again.
 Historical captures and stored approval metadata remain intact.
 
+Account token mappings may expose an optional `account_label` JSON pointer to a
+public account email. Omit it when unavailable; names, token values, subjects
+and account identifiers are never display labels. The shared credential
+projection and channel list render this field for any authentication adapter.
+
 `model_auth` owns declarative PKCE, device-code, token-exchange or start-and-poll
 flows. A `script` flow composes the same services with a pure package step
 function; it does not install an SDK, network client or another runtime in the

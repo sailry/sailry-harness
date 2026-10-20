@@ -107,15 +107,38 @@ impl Workspace {
         let python = super::super::plugins::preparation::watch(&binding, &stop, cx);
         let (sender, mut receiver) = tokio::sync::watch::channel(View::default());
         let client = binding.client.clone();
+        let watcher = client.clone();
         let cancellation = stop.clone();
         binding.runtime.spawn(async move {
-            let _ = client.watch(sender, cancellation).await;
+            let _ = watcher.watch(sender, cancellation).await;
         });
+        let runtime = binding.runtime.clone();
         let task = cx.spawn(async move |owner, cx| {
+            let mut providers = Vec::new();
+            let mut credentials = Vec::new();
             loop {
                 let view = receiver.borrow_and_update().clone();
+                if let Some(snapshot) = &view.snapshot
+                    && providers != snapshot.providers
+                {
+                    providers = snapshot.providers.clone();
+                    let client = client.clone();
+                    credentials = match runtime
+                        .spawn(async move {
+                            client
+                                .execute(client.prepare(Command::ListCredentials))
+                                .await
+                        })
+                        .await
+                    {
+                        Ok(Ok(sailry_protocol::Output::Credentials(values))) => values,
+                        _ => Vec::new(),
+                    };
+                }
                 if owner
-                    .update(cx, |owner, cx| owner.accept_providers(node, view, cx))
+                    .update(cx, |owner, cx| {
+                        owner.accept_providers(node, view, &credentials, cx)
+                    })
                     .is_err()
                 {
                     break;
@@ -146,7 +169,13 @@ impl Workspace {
         cx.notify();
     }
 
-    fn accept_providers(&mut self, node: NodeId, view: View, cx: &mut Context<Self>) {
+    fn accept_providers(
+        &mut self,
+        node: NodeId,
+        view: View,
+        credentials: &[sailry_protocol::Credential],
+        cx: &mut Context<Self>,
+    ) {
         let Some(live) = &mut self.provider_link else {
             return;
         };
@@ -192,6 +221,18 @@ impl Workspace {
                 .iter()
                 .map(|(&id, provider)| {
                     let mut channel = channel(id, provider);
+                    channel.account_label = provider
+                        .credential
+                        .as_ref()
+                        .and_then(|reference| {
+                            credentials.iter().find(|credential| {
+                                reference.node == node
+                                    && credential.id == reference.id
+                                    && credential.provider == provider.id
+                                    && !credential.revoked
+                            })
+                        })
+                        .and_then(|credential| credential.account_label.clone());
                     channel.directory = super::directory::selected(
                         provider.preset.as_ref(),
                         &live.directory.entries,
@@ -393,6 +434,7 @@ pub(crate) fn channel(id: usize, provider: &Provider) -> Channel {
         preset: preset(provider),
         endpoint: provider.endpoint.clone(),
         credential_configured: provider.credential.is_some(),
+        account_label: None,
         enabled: provider.enabled,
         connected: false,
         default_model: provider.default_model.clone(),

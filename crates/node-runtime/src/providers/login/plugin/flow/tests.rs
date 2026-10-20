@@ -187,3 +187,49 @@ async fn rejects_invalid_private_grants() {
         assert!(!public.contains("private@example.test"));
     }
 }
+
+#[tokio::test]
+async fn rejects_identity_changes_during_renewal() {
+    let original = json!({"kind":"chat_gpt_oauth","access":"original-access","refresh":"original-refresh","expires_at_ms":1800000000000u64,"subject":"original-subject","account_id":"original-account","email":"original@example.test","id_token":"original-id-token","renewal_pending":true});
+    let previous = super::super::super::Grant::decode(
+        sailry_protocol::Authentication::ChatGptOAuth,
+        &Secret::new(original.to_string()),
+    )
+    .unwrap();
+    for field in ["subject", "account_id"] {
+        let mut changed = original.clone();
+        changed[field] = json!("changed-identity");
+        let entry = "dev.sailry.platform/auth/fixture.js";
+        let declaration: model_auth::Declaration = serde_json::from_value(json!({"id":"fixture","authentication":"chat_gpt_oauth","display":{"label":"Fixture"},"flow":{"kind":"script","script":{"entry":entry,"resources":[]},"handler":"authorize","refresh":true,"requests":{"token":{"url":"https://auth.example.test/token"}}}})).unwrap();
+        let bundle = crate::plugins::script::Bundle {
+            entry: entry.into(),
+            files: BTreeMap::from([(
+                entry.into(),
+                format!(
+                    "export function authorize() {{ return {}; }}",
+                    json!({"kind":"finish","grant":changed})
+                ),
+            )]),
+        };
+        let error = renew(
+            Input {
+                context: None,
+                service: crate::providers::login::Service::default(),
+                declaration,
+                fields: BTreeMap::new(),
+                redirect: None,
+                callback: None,
+                exchange: Some(bundle),
+            },
+            &previous,
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(
+            serde_json::from_str::<Value>(previous.encode().unwrap().expose()).unwrap(),
+            original
+        );
+    }
+}

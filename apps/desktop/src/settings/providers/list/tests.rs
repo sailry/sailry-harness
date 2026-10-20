@@ -137,3 +137,22 @@ fn reports_live_usage_only() {
     };
     assert_eq!(usage(&over, 0), Some(100.));
 }
+
+#[test]
+fn displays_current_account_label() {
+    let mut value = channel(Preset::ChatGptOAuth);
+    value.account_label = Some("account@example.test".into());
+    assert_eq!(
+        badge(&value, AuthKind::OAuth).as_ref(),
+        "account@example.test"
+    );
+    assert_eq!(
+        badge(&value, AuthKind::ApiKey),
+        crate::tr(AuthKind::ApiKey.key())
+    );
+    value.account_label = None;
+    assert_eq!(
+        badge(&value, AuthKind::OAuth),
+        crate::tr(AuthKind::OAuth.key())
+    );
+}

@@ -1840,6 +1840,13 @@
         "access": {
           "type": "string"
         },
+        "account_label": {
+          "description": "JSON pointer to the account email, never a name, subject, account ID or secret.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "expires_in": {
           "type": [
             "string",
