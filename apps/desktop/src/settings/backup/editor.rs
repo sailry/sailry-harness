@@ -30,14 +30,49 @@ fn destination(settings: &Settings) -> Destination {
     })
 }
 
+fn storage_tab(settings: &Settings) -> usize {
+    if !settings.online_enabled && settings.local.as_ref().is_some_and(|local| local.enabled) {
+        2
+    } else {
+        usize::from(destination(settings).kind == Kind::S3)
+    }
+}
+
+fn storage(
+    settings: &mut Settings,
+    tab: usize,
+    mut destination: Destination,
+    directory: &str,
+) -> Result<(), &'static str> {
+    if tab == 2 {
+        if directory.is_empty() {
+            return Err("backup_invalid_target");
+        }
+    } else {
+        destination.kind = if tab == 1 { Kind::S3 } else { Kind::Webdav };
+        settings.destination = if destination.endpoint.is_empty() {
+            if settings.destination.is_some() || storage_tab(settings) != tab {
+                return Err("backup_invalid");
+            }
+            None
+        } else {
+            destination.validate().map_err(|_| "backup_invalid")?;
+            Some(destination)
+        };
+    }
+    settings.online_enabled = tab < 2;
+    settings.local = (!directory.is_empty()).then(|| Local {
+        directory: directory.to_owned(),
+        enabled: tab == 2,
+    });
+    Ok(())
+}
+
 pub(super) struct Editor {
     owner: WeakEntity<Panel>,
     tab: usize,
     settings: Settings,
-    kind: Kind,
     time: Entity<TimeFieldState>,
-    local_enabled: bool,
-    online_enabled: bool,
     schedule_enabled: bool,
     pub(super) fields: Vec<(&'static str, Entity<InputState>)>,
     remove_credentials: bool,
@@ -160,15 +195,12 @@ pub(super) fn create(
         .detach();
         Editor {
             owner,
-            tab: usize::from(value.kind == Kind::S3),
-            local_enabled: settings.local.as_ref().is_some_and(|local| local.enabled),
-            online_enabled: settings.online_enabled,
+            tab: storage_tab(&settings),
             schedule_enabled: settings
                 .schedule
                 .as_ref()
                 .is_some_and(|schedule| schedule.enabled),
             settings,
-            kind: value.kind,
             time,
             fields,
             remove_credentials: false,
@@ -225,27 +257,18 @@ impl Editor {
                 return Err("backup_passphrase_mismatch");
             }
         }
-        let kind = self.kind;
         let destination = Destination {
-            kind,
+            kind: if self.tab == 1 {
+                Kind::S3
+            } else {
+                Kind::Webdav
+            },
             endpoint: values[0].trim().into(),
             root: values[1].trim().into(),
             bucket: values[2].trim().into(),
             region: values[3].trim().into(),
         };
-        let destination = if destination.endpoint.is_empty() {
-            if self.online_enabled && self.settings.destination.is_some() {
-                return Err("backup_invalid");
-            }
-            None
-        } else {
-            destination.validate().map_err(|_| "backup_invalid")?;
-            Some(destination)
-        };
         let directory = values[9].trim();
-        if self.local_enabled && directory.is_empty() {
-            return Err("backup_invalid_target");
-        }
         let time = self.time.read(cx).time();
         let schedule = Schedule {
             enabled: self.schedule_enabled,
@@ -266,12 +289,7 @@ impl Editor {
             }
         };
         let mut settings = self.settings.clone();
-        settings.destination = destination;
-        settings.online_enabled = self.online_enabled;
-        settings.local = (!directory.is_empty() || self.local_enabled).then(|| Local {
-            directory: directory.to_owned(),
-            enabled: self.local_enabled,
-        });
+        storage(&mut settings, self.tab, destination, directory)?;
         settings.schedule = (self.settings.schedule.is_some()
             || schedule.enabled
             || schedule.timezone != "UTC"
@@ -282,10 +300,10 @@ impl Editor {
             settings,
             identity: credential(&values[4]),
             secret: credential(&values[5]),
-            session_token: if kind == Kind::S3 {
-                credential(&values[6])
-            } else {
+            session_token: if self.tab == 0 {
                 SecretUpdate::Clear
+            } else {
+                credential(&values[6])
             },
             passphrase: if !values[7].is_empty() {
                 SecretUpdate::Replace(Secret::new(values[7].clone()))
@@ -306,7 +324,7 @@ impl Editor {
         let time = self.time.read(cx).time();
         self.remove_credentials
             || values[4..9].iter().any(|value| !value.is_empty())
-            || self.kind != destination.kind
+            || self.tab != storage_tab(&self.settings)
             || values[..4]
                 .iter()
                 .zip([
@@ -316,7 +334,7 @@ impl Editor {
                     destination.region,
                 ])
                 .any(|(value, saved)| value.trim() != saved)
-            || self.local_enabled
+            || (self.tab == 2)
                 != self
                     .settings
                     .local
@@ -329,7 +347,7 @@ impl Editor {
                     .as_ref()
                     .map(|local| local.directory.as_str())
                     .unwrap_or_default()
-            || self.online_enabled != self.settings.online_enabled
+            || (self.tab < 2) != self.settings.online_enabled
             || self.schedule_enabled != schedule.enabled
             || values[10].trim() != schedule.timezone
             || time.hour() != u32::from(schedule.hour)
@@ -454,10 +472,8 @@ impl Editor {
                         .1
                         .update(cx, |input, cx| input.set_value(value, window, cx));
                 }
-                self.kind = destination.kind;
             }
-            self.local_enabled = settings.local.as_ref().is_some_and(|local| local.enabled);
-            self.online_enabled = settings.online_enabled;
+            self.tab = storage_tab(settings);
             self.schedule_enabled = settings
                 .schedule
                 .as_ref()
@@ -618,36 +634,29 @@ impl Render for Editor {
             .upgrade()
             .is_none_or(|owner| owner.read(cx).locked());
         let s3 = self.tab == 1;
-        let kind = if s3 { Kind::S3 } else { Kind::Webdav };
-        let selected = self.kind;
         v_flex()
             .gap_4()
             .child(
                 TabBar::new("backup-storage-tabs")
                     .segmented()
+                    .menu(false)
+                    .w_full()
                     .selected_index(self.tab)
                     .on_click(cx.listener(|editor, index, _, cx| {
                         editor.tab = *index;
+                        editor.task = None;
                         cx.notify();
                     }))
-                    .child(Tab::new().label(tr("backup_webdav")))
-                    .child(Tab::new().label(tr("backup_s3")))
-                    .child(Tab::new().label(tr("backup_local"))),
+                    .children(["backup_webdav", "backup_s3", "backup_local"].map(|key| {
+                        Tab::new()
+                            .flex_1()
+                            .min_w_0()
+                            .label(tr(key))
+                            .disabled(locked)
+                    })),
             )
             .when(self.tab == 2, |view| {
                 view.child(
-                    Field::new().label(tr("backup_local_enabled")).child(
-                        Switch::new("backup-local-enabled")
-                            .checked(self.local_enabled)
-                            .disabled(locked)
-                            .accessibility_label(tr("backup_local_enabled"))
-                            .on_change(cx.listener(|editor, value, window, cx| {
-                                editor.local_enabled = *value;
-                                editor.changed(window, cx);
-                            })),
-                    ),
-                )
-                .child(
                     Field::new().label(tr("backup_local_directory")).child(
                         h_flex()
                             .gap_2()
@@ -664,20 +673,7 @@ impl Render for Editor {
                 )
             })
             .when(self.tab < 2, |view| {
-                view.child(
-                    Field::new().label(tr("backup_online_enabled")).child(
-                        Switch::new("backup-online-enabled")
-                            .checked(self.online_enabled && selected == kind)
-                            .disabled(locked)
-                            .accessibility_label(tr("backup_online_enabled"))
-                            .on_change(cx.listener(move |editor, value, window, cx| {
-                                editor.kind = kind;
-                                editor.online_enabled = *value;
-                                editor.changed(window, cx);
-                            })),
-                    ),
-                )
-                .children(
+                view.children(
                     self.fields
                         .iter()
                         .enumerate()
@@ -685,7 +681,7 @@ impl Render for Editor {
                         .map(|(_, (key, input))| {
                             Field::new()
                                 .label(tr(key))
-                                .child(Input::new(input).disabled(locked || selected != kind))
+                                .child(Input::new(input).disabled(locked))
                         }),
                 )
             })
@@ -713,3 +709,7 @@ impl Render for Editor {
             .overflow_y_scrollbar()
     }
 }
+
+#[cfg(test)]
+#[path = "editor_tests.rs"]
+mod tests;

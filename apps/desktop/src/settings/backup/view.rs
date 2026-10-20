@@ -164,9 +164,10 @@ impl Render for Panel {
                 ),
             )
             .child(
-                Entry::new("backup-delete-all-row", tr("backup_delete_all")).action(
+                Entry::new("backup-delete-all-row", tr("backup_delete_all")).control(
                     Button::new("backup-delete-all")
                         .danger()
+                        .small()
                         .label(tr("backup_delete_all_action"))
                         .disabled(locked || removed.is_empty())
                         .on_click(move |_, window, cx| {
@@ -177,12 +178,6 @@ impl Render for Panel {
         v_flex()
             .gap_3()
             .child(rows)
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(tr("backup_node_online")),
-            )
             .when(self.settings.is_none() && !self.loading, |view| {
                 view.child(
                     crate::feedback::retry("backup-load-retry")
