@@ -94,7 +94,7 @@ pub(super) fn save(
     let model_error = match authorized.models {
         Ok(models) => {
             let mut completed = provider.clone();
-            super::models::seed(&transaction, &mut completed, &models)
+            super::models::seed(&transaction, &mut completed, &models, changed_account)
                 .and_then(|()| {
                     crate::store::agent::providers::validate(
                         &transaction,

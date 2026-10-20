@@ -9,6 +9,7 @@ pub(super) fn seed(
     db: &Connection,
     provider: &mut Provider,
     models: &[discovery::Model],
+    replace: bool,
 ) -> Result<(), Fault> {
     if models.is_empty() {
         return Err(Fault::new(
@@ -16,9 +17,9 @@ pub(super) fn seed(
             "account model catalog is empty",
         ));
     }
-    // A saved nonempty list is the user's model selection. Reconnecting must not
-    // re-enable removed models or replace explicit limits and reasoning choices.
-    if !provider.models.is_empty() {
+    // Reconnecting the same account preserves its explicit model selection.
+    // A replacement account uses its complete catalog and retains shared choices.
+    if !replace && !provider.models.is_empty() {
         return Ok(());
     }
     let mut references = BTreeMap::new();
@@ -50,14 +51,20 @@ pub(super) fn seed(
             }
         }
     }
+    let configured = std::mem::take(&mut provider.models)
+        .into_iter()
+        .map(|model| (model.id.clone(), model))
+        .collect::<BTreeMap<_, _>>();
     provider.models = models
         .iter()
         .map(|model| {
-            model.configuration(
-                references.get(&model.id),
-                provider.api,
-                provider.authentication,
-            )
+            configured.get(&model.id).cloned().unwrap_or_else(|| {
+                model.configuration(
+                    references.get(&model.id),
+                    provider.api,
+                    provider.authentication,
+                )
+            })
         })
         .collect();
     if !provider

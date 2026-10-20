@@ -279,9 +279,10 @@ async fn switches_accounts_without_rewriting_captures() {
                 assert!(replaced.models.is_empty());
                 assert!(replaced.default_model.is_empty());
             } else {
-                assert_eq!(replaced.models.len(), 1);
+                assert_eq!(replaced.models.len(), 2);
                 assert_eq!(replaced.models[0].id, "fixture");
                 assert_eq!(replaced.models[0].context, 8192);
+                assert_eq!(replaced.models[1].id, "b-only");
                 assert_eq!(replaced.default_model, "fixture");
             }
             let Output::Snapshot(snapshot) = fixture
