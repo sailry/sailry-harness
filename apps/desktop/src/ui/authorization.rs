@@ -12,6 +12,7 @@ use std::time::Duration;
 mod tests;
 
 type Handler = Rc<dyn Fn(&mut Window, &mut App)>;
+type LabeledHandler = (&'static str, Handler);
 
 const WIDTH: f32 = 400.;
 const CELL_WIDTH: f32 = 28.;
@@ -309,12 +310,7 @@ impl Authorization {
         })
     }
 
-    fn actions(
-        &self,
-    ) -> (
-        Option<(&'static str, Handler)>,
-        Option<(&'static str, Handler)>,
-    ) {
+    fn actions(&self) -> (Option<LabeledHandler>, Option<LabeledHandler>) {
         let open = |url: &SharedString| -> Handler {
             let url = url.clone();
             Rc::new(move |_: &mut Window, cx: &mut App| cx.open_url(&url))
