@@ -45,7 +45,7 @@ fn wire(events: &[Value], chunked: bool, complete: bool) -> Vec<u8> {
     bytes.into_bytes()
 }
 
-fn attempts(page: &Page) -> Vec<u64> {
+pub(super) fn attempts(page: &Page) -> Vec<u64> {
     page.entries
         .iter()
         .flat_map(|entry| &entry.parts)

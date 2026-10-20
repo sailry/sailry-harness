@@ -271,14 +271,29 @@ Media operations try the admitted model and credential first. Only a definite
 unsupported capability may use an explicitly configured, session-captured fallback;
 authentication, quota, timeout and uncertain outcomes never trigger fallback.
 
-Model transports use a 30-second connection deadline and a 300-second raw-byte
-read deadline, including incomplete frames and keepalives. Node owns one budget
-of five retries, including at most two timeout retries and one recovery after
-partial output. Recovery buffers the replacement privately until completion;
-committed responses and executed tools are never replayed. A server-requested
-delay of at most 60 seconds is honored; a longer delay is reported without an
-automatic retry. Exhaustion preserves canonical history for the existing retry
-and continuation actions.
+Node reuses native model clients by session and captured configuration. Each
+generation freezes its authorization, credential revision, response observer and
+redaction material through stream completion. Main API-key Responses and ChatGPT
+OAuth generations prefer a session-owned WebSocket; helpers and compaction use
+pooled HTTP. Both transports share request adaptation and response projection.
+Only verified extensions of canonical history use connection-local continuation.
+Pre-event WebSocket failures select the same adapted request over SSE once;
+capability observations stay in Node memory and definitive refusals are remembered
+only after SSE succeeds. Proxy configurations keep the HTTP path.
+
+Turn preparation overlaps a handshake-only preconnection; it sends no generation
+or warmup frame. Entry ownership cancels pending handshakes and closes unused
+preconnections within 25 seconds. Idle sockets close after four minutes and expire
+after 55 minutes at a request boundary; credential rotation reconnects with the
+new capture. Session archive/removal and Node shutdown release registry resources.
+HTTP uses a 30-second connection deadline; WebSocket handshakes use 15 seconds.
+HTTP raw-byte and WebSocket frame reads have a 300-second idle deadline, including
+keepalives. Node owns one budget of five retries, including at most two timeout
+retries and one recovery after partial output. Recovery buffers the replacement
+privately until completion; committed responses and executed tools are never
+replayed. A server-requested delay of at most 60 seconds is honored; a longer
+delay is reported without an automatic retry. Exhaustion preserves canonical
+history for the existing retry and continuation actions.
 
 ## Runtime behavior
 

@@ -20,14 +20,14 @@ fn reuses_and_evicts() {
     let registry = Registry::default();
     let session = SessionId::new();
     let first = registry
-        .get(session, "one".into(), || Ok(Arc::new(Fixture)))
+        .get(session, "one".into(), || Ok(Built::new(Arc::new(Fixture))))
         .unwrap();
     let second = registry
         .get(session, "one".into(), || panic!("client must be reused"))
         .unwrap();
     assert!(Arc::ptr_eq(&first, &second));
     let changed = registry
-        .get(session, "two".into(), || Ok(Arc::new(Fixture)))
+        .get(session, "two".into(), || Ok(Built::new(Arc::new(Fixture))))
         .unwrap();
     assert!(!Arc::ptr_eq(&first, &changed));
     registry.evict(session);
@@ -38,7 +38,7 @@ fn expires_and_bounds_entries() {
     let registry = Registry::default();
     let session = SessionId::new();
     registry
-        .get(session, "one".into(), || Ok(Arc::new(Fixture)))
+        .get(session, "one".into(), || Ok(Built::new(Arc::new(Fixture))))
         .unwrap();
     registry
         .entries
@@ -49,11 +49,13 @@ fn expires_and_bounds_entries() {
         .unwrap()
         .used -= IDLE;
     registry
-        .get(session, "one".into(), || Ok(Arc::new(Fixture)))
+        .get(session, "one".into(), || Ok(Built::new(Arc::new(Fixture))))
         .unwrap();
     for _ in 0..CAPACITY + 5 {
         registry
-            .get(SessionId::new(), "one".into(), || Ok(Arc::new(Fixture)))
+            .get(SessionId::new(), "one".into(), || {
+                Ok(Built::new(Arc::new(Fixture)))
+            })
             .unwrap();
     }
     assert_eq!(registry.entries.lock().unwrap().len(), CAPACITY);
@@ -105,14 +107,14 @@ async fn reuses_http_connections() {
     for _ in 0..2 {
         let entry = registry
             .get(session, "same".into(), || {
-                Ok(Arc::new(
+                Ok(Built::new(Arc::new(
                     adk_model::openai::OpenAIResponsesClient::new(
                         adk_model::openai::OpenAIResponsesConfig::new("fixture", "fixture")
                             .with_base_url(&endpoint)
                             .with_open_responses_mode(true),
                     )
                     .unwrap(),
-                ))
+                )))
             })
             .unwrap();
         let mut stream = entry
@@ -128,4 +130,80 @@ async fn reuses_http_connections() {
     assert_eq!(connections.load(Ordering::SeqCst), 1);
     server.abort();
     let _ = server.await;
+}
+
+#[tokio::test]
+async fn owns_unused_preconnections() {
+    use futures::StreamExt;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    for release in 0..4 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let (opened, handshake) = tokio::sync::oneshot::channel();
+        let (closed, disconnected) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+            let _ = opened.send(());
+            let message = socket.next().await;
+            assert!(!matches!(
+                message,
+                Some(Ok(tokio_tungstenite::tungstenite::Message::Text(_)))
+            ));
+            let _ = closed.send(());
+        });
+        let client = Arc::new(
+            OpenAIResponsesClient::new(
+                adk_model::openai::OpenAIResponsesConfig::new("fixture", "fixture")
+                    .with_base_url(endpoint),
+            )
+            .unwrap()
+            .with_websocket(Default::default()),
+        );
+        let socket = client.websocket().unwrap();
+        let registry = Registry::default();
+        let session = SessionId::new();
+        let model = client.clone();
+        let entry = registry
+            .get(session, "socket".into(), || {
+                Ok(Built {
+                    inner: model.clone(),
+                    responses: Some(model),
+                })
+            })
+            .unwrap();
+        let stop = CancellationToken::new();
+        entry.preconnect(&stop, async move {
+            let _ = client.preconnect().await;
+        });
+        tokio::time::timeout(Duration::from_secs(2), handshake)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !socket.is_connected() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::task::yield_now().await;
+        match release {
+            0 => stop.cancel(),
+            1 => registry.evict(session),
+            2 => registry.clear(),
+            _ => {
+                tokio::time::pause();
+                tokio::time::advance(Duration::from_secs(26)).await;
+                tokio::task::yield_now().await;
+                tokio::time::resume();
+            }
+        }
+        tokio::time::timeout(Duration::from_secs(2), disconnected)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!socket.is_connected());
+        server.await.unwrap();
+    }
 }

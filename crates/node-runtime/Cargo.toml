@@ -182,6 +182,7 @@ windows-registry.workspace = true
 objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }
 
 [dev-dependencies]
+tokio-tungstenite.workspace = true
 iroh-relay = { workspace = true, features = ["server", "test-utils"] }
 tokio-rustls.workspace = true
 rcgen.workspace = true

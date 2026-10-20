@@ -48,6 +48,11 @@ use std::{
 };
 
 pub(crate) fn start(ingress: Arc<Ingress>, tasks: &Tasks) -> Result<(), Error> {
+    let registry = Arc::downgrade(&ingress.model_clients);
+    let stopped = ingress.agents.stopped.clone();
+    tasks.spawn(async move {
+        model::registry::Registry::maintain(registry, stopped).await;
+    })?;
     for _ in 0..8 {
         let ingress = ingress.clone();
         let children = tasks.clone();
@@ -282,6 +287,9 @@ async fn execute(
         *completion_review = outcome.review;
         outcome.output
     });
+    if result.is_err() || stop.is_cancelled() {
+        ingress.model_clients.abandon(session);
+    }
     // Computer observations belong to the conversation's trusted SDK handle,
     // not this turn. Retain it with the history across completion and stopping.
     // ADK can drop a tool future on interruption before its async cleanup runs.
@@ -451,7 +459,7 @@ async fn execute_with(
     }
     let (compact, compaction_config, compact_tool) = compaction::bind(
         ingress,
-        model.clone(),
+        model::http(model.clone()),
         &invocation,
         stop.clone(),
         instruction.clone(),

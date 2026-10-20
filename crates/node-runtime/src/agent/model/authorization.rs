@@ -14,8 +14,13 @@ mod codex;
 struct Scope {
     adapter: RequestAdapter,
     observer: Option<ResponseObserver>,
+    revision: u64,
 }
 tokio::task_local! { static REQUEST: Scope; }
+
+pub(super) fn revision() -> u64 {
+    REQUEST.try_with(|scope| scope.revision).unwrap_or(0)
+}
 
 fn adapter(body: &mut Value, headers: &mut HeaderMap) -> Result<(), AdkError> {
     REQUEST
@@ -40,17 +45,16 @@ pub(super) struct Model {
     pub(super) stop: CancellationToken,
 }
 
-#[async_trait]
-impl Llm for Model {
-    fn name(&self) -> &str {
-        &self.config.model
-    }
+struct Prepared {
+    entry: Arc<registry::Entry>,
+    scope: Scope,
+    secrets: Vec<sailry_protocol::Secret>,
+    tools: Option<Vec<String>>,
+    stream: bool,
+}
 
-    async fn generate_content(
-        &self,
-        request: LlmRequest,
-        stream: bool,
-    ) -> Result<LlmResponseStream, AdkError> {
+impl Model {
+    async fn prepare(&self, request: &LlmRequest, stream: bool) -> Result<Prepared, AdkError> {
         let reference = self.config.credential.clone().ok_or_else(|| {
             failure(Fault::new(
                 ErrorCode::NotConfigured,
@@ -89,40 +93,41 @@ impl Llm for Model {
             self.ingress
                 .quota_observer(self.provider.id, reference, authorized.credential.revision)
         });
+        let revision = authorized.credential.revision;
         let grant = authorized.grant;
         let claude_tools = matches!(&grant, Grant::ClaudeOAuth { .. })
             .then(|| request.tools.keys().cloned().collect::<Vec<_>>());
         let base = grant.headers(&options).map_err(failure)?;
         let secrets = entry.protect(grant.secrets(&base));
-        let (_, adapter, stream) = match grant {
-            Grant::Plugin { record, .. } => {
+        let (adapter, stream) = match grant {
+            Grant::Plugin { .. } => {
                 let adapter: RequestAdapter = Arc::new(move |_, headers| {
                     headers.extend(base.clone());
                     Ok(())
                 });
-                (record.issued.access, adapter, stream)
+                (adapter, stream)
             }
-            Grant::ChatGpt { access, .. } => {
+            Grant::ChatGpt { .. } => {
                 let adapter: RequestAdapter = Arc::new(move |body, headers| {
                     headers.extend(base.clone());
                     chatgpt(body)
                 });
-                (access, adapter, true)
+                (adapter, true)
             }
-            Grant::ChatGptOAuth { access, .. } => {
+            Grant::ChatGptOAuth { .. } => {
                 let session = self.session;
                 let adapter: RequestAdapter = Arc::new(move |body, headers| {
                     headers.extend(base.clone());
                     codex::adapt(body, headers, session)
                 });
-                (access, adapter, true)
+                (adapter, true)
             }
-            Grant::ClaudeOAuth { access, .. } => {
+            Grant::ClaudeOAuth { .. } => {
                 let adapter: RequestAdapter =
                     Arc::new(move |body, headers| claude::adapt(body, headers, &base));
-                (access, adapter, stream)
+                (adapter, stream)
             }
-            Grant::Copilot { access, .. } => {
+            Grant::Copilot { .. } => {
                 let initiator = if !self.delegated
                     && request.contents.last().is_some_and(|content| {
                         content.role == "user"
@@ -142,12 +147,54 @@ impl Llm for Model {
                     headers.extend(base.clone());
                     copilot(headers, initiator, vision)
                 });
-                (access, adapter, stream)
+                (adapter, stream)
             }
         };
-        let model = super::errors::wrap(entry.inner.clone(), secrets);
-        let responses = scoped(Scope { adapter, observer }, model, request, stream).await?;
-        Ok(match claude_tools {
+        Ok(Prepared {
+            entry,
+            scope: Scope {
+                adapter,
+                observer,
+                revision,
+            },
+            secrets,
+            tools: claude_tools,
+            stream,
+        })
+    }
+
+    pub(super) async fn preconnect(&self) -> Result<(), AdkError> {
+        if self.provider.api != ModelApi::Responses
+            || self.provider.authentication != Authentication::ChatGptOAuth
+        {
+            return Ok(());
+        }
+        let prepared = self
+            .prepare(&LlmRequest::new(&self.config.model, vec![]), true)
+            .await?;
+        if let Some(client) = prepared.entry.responses.clone() {
+            prepared.entry.preconnect(&self.stop, async move {
+                let _ = REQUEST.scope(prepared.scope, client.preconnect()).await;
+            });
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Llm for Model {
+    fn name(&self) -> &str {
+        &self.config.model
+    }
+    async fn generate_content(
+        &self,
+        request: LlmRequest,
+        stream: bool,
+    ) -> Result<LlmResponseStream, AdkError> {
+        let prepared = self.prepare(&request, stream).await?;
+        let model = super::errors::wrap(prepared.entry.inner.clone(), prepared.secrets);
+        let responses = scoped(prepared.scope, model, request, prepared.stream).await?;
+        Ok(match prepared.tools {
             Some(tools) => claude::restore(responses, tools),
             None => responses,
         })
@@ -186,6 +233,9 @@ fn pooled(
             effort,
             Some(Arc::new(adapter)),
             Some(Arc::new(observe)),
+            registry
+                .capabilities
+                .options(provider, &config.model, session),
         )
     })
 }

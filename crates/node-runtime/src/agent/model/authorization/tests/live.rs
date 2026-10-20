@@ -158,8 +158,10 @@ async fn streams_before_completion() {
         Effort::Low,
         Some(adapter),
         Some(observer),
+        None,
     )
-    .unwrap_or_else(|_| panic!("the live model configuration is invalid"));
+    .unwrap_or_else(|_| panic!("the live model configuration is invalid"))
+    .inner;
     let request = LlmRequest::new(
         source.model,
         vec![Content::new("user").with_text(

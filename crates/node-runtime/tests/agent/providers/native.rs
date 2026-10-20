@@ -38,6 +38,8 @@ mod server;
 mod streaming;
 #[path = "native/tool_images.rs"]
 mod tool_images;
+#[path = "native/transport.rs"]
+mod transport;
 #[path = "native/usage.rs"]
 mod usage;
 #[path = "native/web_search.rs"]

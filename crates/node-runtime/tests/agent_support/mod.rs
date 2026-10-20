@@ -425,6 +425,14 @@ async fn respond(
         }
     };
     let headers = std::str::from_utf8(&request[..header_end]).unwrap();
+    if headers.starts_with("GET ") {
+        stream
+            .write_all(
+                b"HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )
+            .await?;
+        return stream.shutdown().await;
+    }
     let responses = headers.starts_with("POST /v1/responses ");
     let media = headers.starts_with("POST /v1/images/generations ")
         || headers.starts_with("POST /v1/videos ");

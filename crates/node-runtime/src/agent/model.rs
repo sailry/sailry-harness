@@ -12,6 +12,7 @@ mod reasoning;
 pub(crate) mod registry;
 mod retry;
 pub(super) mod timing;
+mod transport;
 use adk_core::Llm;
 use adk_model::{
     anthropic::{AnthropicClient, AnthropicConfig},
@@ -29,6 +30,7 @@ use sailry_protocol::{
     Authentication, Effort, SessionConfig,
     conversation::{ModelApi, Provider},
 };
+pub(super) use transport::http;
 
 fn timeouts() -> adk_model::HttpTimeouts {
     adk_model::HttpTimeouts::new(
@@ -49,13 +51,18 @@ pub(super) async fn build(
         )
     })?;
     let config = &invocation.turn.config;
-    let inner = configured(
+    let inner = configure(
         ingress,
         provider,
         config,
         invocation.turn.session,
         invocation.child.is_some(),
         stop,
+        if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
+            Purpose::Helper
+        } else {
+            Purpose::Main
+        },
     )
     .await?;
     let metadata = provider
@@ -107,6 +114,32 @@ pub(super) async fn configured(
     delegated: bool,
     stop: &CancellationToken,
 ) -> Result<Arc<dyn Llm>, Fault> {
+    configure(
+        ingress,
+        provider,
+        config,
+        session,
+        delegated,
+        stop,
+        Purpose::Helper,
+    )
+    .await
+}
+
+enum Purpose {
+    Main,
+    Helper,
+}
+
+async fn configure(
+    ingress: &Arc<Ingress>,
+    provider: &Provider,
+    config: &SessionConfig,
+    session: sailry_protocol::SessionId,
+    delegated: bool,
+    stop: &CancellationToken,
+    purpose: Purpose,
+) -> Result<Arc<dyn Llm>, Fault> {
     if !provider.enabled
         || (!provider.models.is_empty()
             && !provider.models.iter().any(|model| model.id == config.model))
@@ -154,8 +187,8 @@ pub(super) async fn configured(
             credential.as_ref().map(|(value, _)| value.revision),
         )?;
         let entry = ingress.model_clients.get(session, fingerprint, || {
-            let model = if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
-                opencode::build(provider, config, key, effort, session)?
+            if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
+                opencode::build(provider, config, key, effort, session).map(registry::Built::new)
             } else {
                 native(
                     provider,
@@ -164,17 +197,27 @@ pub(super) async fn configured(
                     effort,
                     hosted::session_adapter(provider, &config.model, session, resolved.summary),
                     None,
-                )?
-            };
-            Ok(model)
+                    ingress
+                        .model_clients
+                        .capabilities
+                        .options(provider, &config.model, session),
+                )
+            }
         })?;
+        if matches!(purpose, Purpose::Main)
+            && let Some(client) = entry.responses.clone()
+        {
+            entry.preconnect(stop, async move {
+                let _ = client.preconnect().await;
+            });
+        }
         errors::wrap(
             entry.inner.clone(),
             credential.into_iter().map(|(_, secret)| secret).collect(),
         )
     } else {
         crate::providers::login::validate(provider)?;
-        Arc::new(authorization::Model {
+        let model = Arc::new(authorization::Model {
             ingress: ingress.clone(),
             provider: provider.clone(),
             config: config.clone(),
@@ -182,7 +225,16 @@ pub(super) async fn configured(
             delegated,
             effort,
             stop: stop.clone(),
-        }) as Arc<dyn Llm>
+        });
+        if matches!(purpose, Purpose::Main) {
+            let _ = model.preconnect().await;
+        }
+        model as Arc<dyn Llm>
+    };
+    let inner = if matches!(purpose, Purpose::Helper) {
+        transport::http(inner)
+    } else {
+        inner
     };
     Ok(if api == ModelApi::Responses {
         features::wrap(inner, config.features.clone())
@@ -191,14 +243,15 @@ pub(super) async fn configured(
     })
 }
 
-pub(super) fn native(
+fn native(
     provider: &Provider,
     config: &SessionConfig,
     key: &str,
     effort: Effort,
     adapter: Option<RequestAdapter>,
     observer: Option<ResponseObserver>,
-) -> Result<Arc<dyn Llm>, Fault> {
+    websocket: Option<adk_model::openai::WsOptions>,
+) -> Result<registry::Built, Fault> {
     let adapter = match provider
         .binding
         .as_ref()
@@ -326,7 +379,15 @@ pub(super) fn native(
             if let Some(observer) = observer {
                 client = client.with_response_observer(observer);
             }
-            Arc::new(client.with_timeouts(timeouts()).map_err(error)?)
+            let mut client = client.with_timeouts(timeouts()).map_err(error)?;
+            if let Some(options) = websocket {
+                client = client.with_websocket(options);
+            }
+            let client = Arc::new(client);
+            return Ok(registry::Built {
+                inner: client.clone(),
+                responses: Some(client),
+            });
         }
         ModelApi::Anthropic => {
             let endpoint = crate::providers::anthropic_base_url(&provider.endpoint)?;
@@ -359,7 +420,7 @@ pub(super) fn native(
             Arc::new(native)
         }
     };
-    Ok(inner)
+    Ok(registry::Built::new(inner))
 }
 
 pub(super) fn error(error: adk_core::AdkError) -> Fault {

@@ -10,6 +10,7 @@ async fn isolates_concurrent_request_captures() {
         let barrier = barrier.clone();
         tasks.push(tokio::spawn(async move {
             let scope = Scope {
+                revision: 1,
                 adapter: Arc::new(move |_, headers| {
                     headers.insert("authorization", HeaderValue::from_static(token));
                     Ok(())
@@ -86,23 +87,25 @@ impl Llm for Lazy {
 #[tokio::test]
 async fn retains_capture_while_streaming() {
     let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let scope = |token| {
+    let scope = |token, captured_revision| {
         let observed = observed.clone();
         Scope {
+            revision: captured_revision,
             adapter: Arc::new(move |_, headers| {
                 headers.insert("authorization", HeaderValue::from_static(token));
                 Ok(())
             }),
             observer: Some(Arc::new(move |headers| {
-                observed
-                    .lock()
-                    .unwrap()
-                    .push((token, headers["authorization"].to_str().unwrap().to_owned()));
+                observed.lock().unwrap().push((
+                    token,
+                    headers["authorization"].to_str().unwrap().to_owned(),
+                    revision(),
+                ));
             })),
         }
     };
     let mut first = scoped(
-        scope("old"),
+        scope("old", 1),
         Arc::new(Lazy),
         LlmRequest::new("lazy", vec![]),
         true,
@@ -110,7 +113,7 @@ async fn retains_capture_while_streaming() {
     .await
     .unwrap();
     let mut renewed = scoped(
-        scope("new"),
+        scope("new", 2),
         Arc::new(Lazy),
         LlmRequest::new("lazy", vec![]),
         true,
@@ -123,7 +126,7 @@ async fn retains_capture_while_streaming() {
     assert!(renewed.next().await.unwrap().unwrap().turn_complete);
     assert_eq!(
         *observed.lock().unwrap(),
-        [("old", "old".into()), ("new", "new".into())]
+        [("old", "old".into(), 1), ("new", "new".into(), 2)]
     );
 }
 

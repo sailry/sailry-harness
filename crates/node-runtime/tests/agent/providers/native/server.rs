@@ -12,6 +12,9 @@ use tokio::{
     net::{TcpListener, TcpStream},
     task::JoinSet,
 };
+#[path = "server/websocket.rs"]
+mod websocket;
+pub use websocket::Mode;
 
 pub const KEY: &str = "isolated-native-provider-key";
 pub const ANSWER: &str = "原生响应 🙂";
@@ -29,6 +32,7 @@ pub enum Reply {
     Dynamic(Arc<dyn Fn(usize) -> Script + Send + Sync>),
     Redirect(String),
     Wait(Arc<tokio::sync::Notify>),
+    Stream(Arc<tokio::sync::Notify>),
 }
 
 #[derive(Clone)]
@@ -56,11 +60,17 @@ pub struct Request {
 pub struct Server {
     pub endpoint: String,
     pub requests: Arc<Mutex<Vec<Request>>>,
+    pub upgrades: Arc<Mutex<Vec<Request>>>,
+    pub closed: Arc<std::sync::atomic::AtomicUsize>,
     stop: CancellationToken,
 }
 
 impl Server {
     pub async fn start(api: ModelApi, reply: Reply) -> Self {
+        Self::transport(api, reply, Mode::Refuse(426)).await
+    }
+
+    pub async fn transport(api: ModelApi, reply: Reply, mode: Mode) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let suffix = if api == ModelApi::Anthropic {
@@ -71,6 +81,10 @@ impl Server {
         let endpoint = format!("http://{}{suffix}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let records = requests.clone();
+        let upgrades = Arc::new(Mutex::new(Vec::new()));
+        let handshakes = upgrades.clone();
+        let closed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let completed = closed.clone();
         let stop = CancellationToken::new();
         let stopped = stop.clone();
         tokio::spawn(async move {
@@ -83,7 +97,9 @@ impl Server {
                         let (stream, _) = result.unwrap();
                         let records = records.clone();
                         let reply = reply.clone();
-                        tasks.spawn(async move { let _ = respond(stream, records, api, reply).await; });
+                        let handshakes = handshakes.clone();
+                        let completed = completed.clone();
+                        tasks.spawn(async move { let _ = respond(stream, records, api, reply, mode, handshakes, completed).await; });
                     }
                 }
             }
@@ -92,6 +108,8 @@ impl Server {
         Self {
             endpoint,
             requests,
+            upgrades,
+            closed,
             stop,
         }
     }
@@ -108,7 +126,18 @@ async fn respond(
     records: Arc<Mutex<Vec<Request>>>,
     api: ModelApi,
     reply: Reply,
+    mode: Mode,
+    upgrades: Arc<Mutex<Vec<Request>>>,
+    closed: Arc<std::sync::atomic::AtomicUsize>,
 ) -> std::io::Result<()> {
+    let mut first = [0; 1];
+    if stream.peek(&mut first).await? == 0 {
+        return Ok(());
+    }
+    if first[0] == b'G' && !matches!(mode, Mode::Refuse(_)) {
+        websocket::respond(stream, records, upgrades, closed, reply, mode).await;
+        return Ok(());
+    }
     let mut bytes = Vec::new();
     let mut buffer = [0; 4096];
     let end = loop {
@@ -136,6 +165,28 @@ async fn respond(
         .filter_map(|line| line.split_once(':'))
         .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_owned()))
         .collect();
+    if header.starts_with("GET ") {
+        upgrades.lock().unwrap().push(Request {
+            received: Instant::now(),
+            received_at: SystemTime::now(),
+            path,
+            headers,
+            body: serde_json::Value::Null,
+        });
+        let status = match mode {
+            Mode::Refuse(status) => status,
+            _ => 426,
+        };
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 {status} Refused\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
+            .await?;
+        return stream.shutdown().await;
+    }
     let length: usize = headers["content-length"].parse().unwrap();
     assert!(length < 2 * 1024 * 1024);
     while bytes.len() < end + length {
@@ -226,18 +277,21 @@ async fn respond(
     }
     match api {
         ModelApi::Responses => {
-            assert!(matches!(reply, Reply::Text));
-            let event = json!({"type":"response.completed", "sequence_number":1,
-                "response":{"id":"native-response", "object":"response", "created_at":0,
-                    "model":"fixture-a", "status":"completed",
-                    "output":[{"type":"message", "id":"native-answer", "role":"assistant",
-                        "status":"completed", "content":[{"type":"output_text",
-                            "text":ANSWER, "annotations":[]}]}]}});
-            event_bytes(
-                &mut stream,
-                format!("event: response.completed\ndata: {event}\n\n"),
-            )
-            .await?;
+            assert!(matches!(
+                reply,
+                Reply::Text | Reply::Tool | Reply::Stream(_)
+            ));
+            for (index, event) in response_events(tool, matches!(reply, Reply::Stream(_)))
+                .into_iter()
+                .enumerate()
+            {
+                if index > 0
+                    && let Reply::Stream(release) = &reply
+                {
+                    release.notified().await;
+                }
+                event_bytes(&mut stream, format!("data: {event}\n\n")).await?;
+            }
         }
         ModelApi::ChatCompletions
         | ModelApi::DeepSeek
@@ -328,6 +382,27 @@ async fn respond(
         _ => unreachable!(),
     }
     stream.shutdown().await
+}
+
+pub(super) fn response_events(tool: bool, streaming: bool) -> Vec<serde_json::Value> {
+    let output = if tool {
+        json!([
+            {"type":"reasoning", "id":"reasoning", "summary":[{"type":"summary_text","text":"Read the file"}],"encrypted_content":"fixture-encrypted-reasoning"},
+            {"type":"function_call", "id":"read-item", "call_id":"native-call", "name":plugin_tool("files","read_file"), "arguments":"{\"path\":\"native.txt\"}", "status":"completed"}
+        ])
+    } else {
+        json!([{"type":"message", "id":"native-answer", "role":"assistant","status":"completed", "content":[{"type":"output_text","text":ANSWER, "annotations":[]}]}])
+    };
+    let mut events = Vec::new();
+    if streaming {
+        events.push(text_delta(ANSWER));
+    }
+    events.push(json!({"type":"response.completed", "sequence_number":1,"response":{"id":"native-response", "object":"response", "created_at":0,"model":"fixture-a", "status":"completed", "output":output}}));
+    events
+}
+
+fn text_delta(text: &str) -> serde_json::Value {
+    json!({"type":"response.output_text.delta", "sequence_number":0, "item_id":"native-answer", "output_index":0, "content_index":0, "delta":text, "logprobs":[]})
 }
 
 async fn event_bytes(stream: &mut TcpStream, event: String) -> std::io::Result<()> {

@@ -168,7 +168,7 @@ adk-gemini = { git = "https://github.com/dux-web/adk-rust.git", rev = "e15668344
 adk-session = { git = "https://github.com/dux-web/adk-rust.git", rev = "e15668344ecaf4a3579ca9978b3c7bb35434ef0d", default-features = false }
 adk-runner = { git = "https://github.com/dux-web/adk-rust.git", rev = "e15668344ecaf4a3579ca9978b3c7bb35434ef0d", default-features = false }
 adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "e15668344ecaf4a3579ca9978b3c7bb35434ef0d", default-features = false }
-adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "e15668344ecaf4a3579ca9978b3c7bb35434ef0d", default-features = false, features = ["openai", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
+adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "e15668344ecaf4a3579ca9978b3c7bb35434ef0d", default-features = false, features = ["openai", "openai-ws", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
 adk-tool = { git = "https://github.com/dux-web/adk-rust.git", rev = "e15668344ecaf4a3579ca9978b3c7bb35434ef0d", default-features = false, features = ["mcp"] }
 rmcp = { version = "=3.5.1", default-features = false, features = ["auth", "client", "transport-async-rw", "transport-streamable-http-client-reqwest"] }
 adk-acp = { git = "https://github.com/dux-web/adk-rust.git", rev = "e15668344ecaf4a3579ca9978b3c7bb35434ef0d", default-features = false }
@@ -177,6 +177,10 @@ chrono = { version = "=0.4.45", features = ["serde"] }
 chrono-tz = "=0.10.4"
 futures = "=0.3.34"
 url = "=2.5.8"
+tokio-tungstenite = { version = "=0.28.0", features = ["rustls-tls-webpki-roots", "connect"] }
+
+[patch."https://github.com/dux-web/adk-rust.git"]
+adk-model = { path = "vendor/adk-model" }
 
 [patch.crates-io]
 rquickjs = { git = "https://github.com/longbridge/gpui-kit", rev = "67265a36e260ffe03c5aaebdcd8d654dbf892eab" }

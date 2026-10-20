@@ -94,6 +94,10 @@ fn records_safe_model_causes_without_empty_fields() {
         entry.attempt = Some(2);
         entry.limit = Some(5);
         entry.request_mode = Some("interactions");
+        entry.transport = Some("sse");
+        entry.connection_reused = Some(false);
+        entry.fallback_reason = Some("refused");
+        entry.continuation = Some("full");
         entry.stream = Some(true);
         entry.budget = Some(4096);
         entry.parse_layer = Some("stream_event");
@@ -122,6 +126,10 @@ fn records_safe_model_causes_without_empty_fields() {
     assert_eq!(record["attempt"], 2);
     assert_eq!(record["limit"], 5);
     assert_eq!(record["request_mode"], "interactions");
+    assert_eq!(record["transport"], "sse");
+    assert_eq!(record["connection_reused"], false);
+    assert_eq!(record["fallback_reason"], "refused");
+    assert_eq!(record["continuation"], "full");
     assert_eq!(record["stream"], true);
     assert_eq!(record["budget"], 4096);
     assert_eq!(record["parse_layer"], "stream_event");
