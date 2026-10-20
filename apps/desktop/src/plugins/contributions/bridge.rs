@@ -20,6 +20,7 @@ pub(crate) struct Bridge {
 struct Current {
     sequence: u64,
     published: bool,
+    scopes: Vec<ui::ProviderScope>,
     interactions: BTreeMap<String, Interaction>,
 }
 
@@ -44,6 +45,7 @@ impl Bridge {
             current: Mutex::new(Current {
                 sequence: 0,
                 published: false,
+                scopes: vec![],
                 interactions: BTreeMap::new(),
             }),
         })
@@ -76,7 +78,11 @@ impl Bridge {
                 .iter()
                 .find(|entry| entry.id == state.id)
                 .ok_or("contribution is not declared")?;
-            if !state.valid(entry) || states[..index].iter().any(|before| before.id == state.id) {
+            if !state.valid(entry)
+                || states[..index]
+                    .iter()
+                    .any(|before| key(before) == key(state))
+            {
                 return Err("invalid contribution state");
             }
         }
@@ -84,6 +90,14 @@ impl Bridge {
             .current
             .lock()
             .map_err(|_| "contribution state is unavailable")?;
+        if states.iter().any(|state| {
+            state
+                .scope
+                .as_ref()
+                .is_some_and(|scope| !current.scopes.contains(scope))
+        }) {
+            return Err("provider context changed");
+        }
         if states.iter().any(|state| {
             state.reply_to.is_some_and(|reply| {
                 reply == 0
@@ -111,10 +125,27 @@ impl Bridge {
                     }
                     state.enabled &= !interaction.busy;
                 }
-                values.insert(state.id.clone(), state);
+                values.insert(key(&state), state);
             }
         });
         Ok(())
+    }
+
+    pub(crate) fn scopes(&self, scopes: Vec<ui::ProviderScope>) {
+        if let Ok(mut current) = self.current.lock() {
+            if current.scopes == scopes {
+                return;
+            }
+            self.updates.send_modify(|states| {
+                states.retain(|_, state| {
+                    state
+                        .scope
+                        .as_ref()
+                        .is_none_or(|scope| scopes.contains(scope))
+                })
+            });
+            current.scopes = scopes;
+        }
     }
 
     pub fn invoke(&self, id: &str, kind: EventKind, value: Value) -> Result<(), &'static str> {
@@ -202,4 +233,11 @@ impl Bridge {
     pub async fn next(&self) -> Option<Event> {
         self.receiver.lock().await.recv().await
     }
+}
+
+fn key(state: &State) -> String {
+    state.scope.as_ref().map_or_else(
+        || state.id.clone(),
+        |scope| format!("{}:{}", state.id, scope.provider),
+    )
 }

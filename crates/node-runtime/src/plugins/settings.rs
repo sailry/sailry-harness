@@ -86,6 +86,7 @@ pub(super) fn option_schema(value: &serde_json::Value) -> Result<Schema, Fault> 
     if schema.properties.values().any(|field| {
         field.secret.is_some()
             || field.model
+            || field.time
             || field.effort.is_some()
             || field.child_concurrency
             || field

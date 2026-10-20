@@ -1,4 +1,26 @@
 use super::*;
+use sailry_client::{Apply, Projection};
+
+pub(super) async fn changed(
+    subscription: &mut Box<dyn Subscription>,
+    projection: &mut Projection,
+    reference: &CredentialRef,
+    revision: u64,
+) {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let update = subscription.next().await.unwrap();
+            no_secrets(&update);
+            let covered = matches!(&update, Update::Event(envelope)
+                if envelope.cursor <= projection.snapshot().unwrap().cursor);
+            let observed = matches!(&update, Update::Event(envelope)
+                if matches!(&envelope.event, Event::CredentialChanged {credential, revision: current}
+                    if credential == reference && *current == revision));
+            assert_eq!(projection.apply(0, update).unwrap(), if covered {Apply::Ignored} else {Apply::Applied});
+            if observed && !covered {return;}
+        }
+    }).await.expect("credential event deadline");
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn refreshes_expired_access_after_restart() {
@@ -44,8 +66,36 @@ async fn refreshes_expired_access_after_restart() {
         .unwrap();
         drop(db);
         let fixture = restart(fixture, &server, remote).await;
+        let mut subscription = fixture.client.subscribe().await.unwrap();
+        let mut projection = Projection::new(fixture.client.target(), 0);
+        projection
+            .apply(0, subscription.next().await.unwrap())
+            .unwrap();
+        assert!(projection.snapshot().unwrap().provider_quotas.is_empty());
+        let reference = provider.credential.clone().unwrap();
+        let Output::Credentials(credentials) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListCredentials))
+            .await
+            .unwrap()
+        else {
+            panic!("credentials expected")
+        };
+        let revision = credentials
+            .iter()
+            .find(|value| value.id == reference.id)
+            .unwrap()
+            .revision;
         let (_, turn) = submit(&fixture.client, &session).await;
         finished(&fixture.client, &turn, Status::Completed).await;
+        changed(&mut subscription, &mut projection, &reference, revision + 1).await;
+        changed(&mut subscription, &mut projection, &reference, revision + 2).await;
+        assert_eq!(
+            projection.snapshot().unwrap().providers,
+            vec![provider.clone()]
+        );
+        assert!(projection.snapshot().unwrap().provider_quotas.is_empty());
+        drop(subscription);
         assert_eq!(exchanges.load(Ordering::SeqCst), 2);
         assert_eq!(server.requests.lock().unwrap().len(), 6);
         let fixture = restart(fixture, &server, remote).await;

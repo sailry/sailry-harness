@@ -95,8 +95,10 @@ export type ContributionChoice = {
   id: string; label: LocalizedLabel; description?: LocalizedLabel;
   icon?: string; group?: LocalizedLabel; enabled?: boolean;
 };
+/** revision is the opaque providerRevision:credentialRevision context token. */
+export type ProviderScope = {provider:string;revision:string;credential:{node:string;id:string}};
 export type ContributionState = {
-  id: string; enabled?: boolean; visible?: boolean; label?: LocalizedLabel; icon?: string; dropdown?: boolean; value?: string | number | boolean | null;
+  id: string; scope?:ProviderScope; enabled?: boolean; visible?: boolean; label?: LocalizedLabel; icon?: string; dropdown?: boolean; value?: string | number | boolean | null;
   choices?: ContributionChoice[];
   /** Shared metric rows; progress is an optional finite percentage from 0 through 100. */
   details?: { label: LocalizedLabel; value: string; progress?: number }[];

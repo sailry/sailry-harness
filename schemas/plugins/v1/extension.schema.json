@@ -2812,6 +2812,7 @@
         "context",
         "statistics",
         "footer",
+        "provider",
         "status",
         "project",
         "project_menu",
@@ -2930,6 +2931,7 @@
           "enum": [
             "workspace",
             "settings",
+            "provider",
             "composer",
             "project"
           ],

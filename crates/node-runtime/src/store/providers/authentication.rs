@@ -210,6 +210,16 @@ pub(in crate::store) fn put(
     Ok(metadata)
 }
 
+pub(in crate::store) fn changed(node: NodeId, credential: &Credential) -> Event {
+    Event::CredentialChanged {
+        credential: CredentialRef {
+            node,
+            id: credential.id,
+        },
+        revision: credential.revision,
+    }
+}
+
 pub(in crate::store) fn validate_authentication(
     db: &Connection,
     id: CredentialId,

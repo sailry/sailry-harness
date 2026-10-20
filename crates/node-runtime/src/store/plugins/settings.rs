@@ -627,6 +627,14 @@ fn validate_values(schema: &Schema, values: &BTreeMap<String, Value>) -> Result<
 }
 
 fn validate_value(field: &Field, value: &Value) -> Result<(), Fault> {
+    if field.time
+        && value
+            .as_str()
+            .and_then(sailry_protocol::plugin::settings::parse_time)
+            .is_none()
+    {
+        return Err(Fault::invalid("plugin time setting must use HH:mm"));
+    }
     if field.child_concurrency {
         crate::plugins::settings::child_limit(value)?;
     }

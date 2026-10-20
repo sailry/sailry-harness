@@ -4,6 +4,7 @@ use gpui_kit::component::{
     input::{Input, NumberInput},
     select::Select,
     switch::Switch,
+    time_field::TimeField,
 };
 
 impl Setting {
@@ -45,6 +46,9 @@ impl Render for Setting {
                 .aria_label(label.clone())
                 .into_any_element(),
             Control::Number(input) => NumberInput::new(input)
+                .disabled(self.locked)
+                .into_any_element(),
+            Control::Time(time) => TimeField::new(time)
                 .disabled(self.locked)
                 .into_any_element(),
             Control::Bool(value) => h_flex()

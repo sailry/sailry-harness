@@ -33,6 +33,25 @@ fn validates_child_policy_fields() {
     assert!(parse(value).is_err());
 }
 
+#[test]
+fn validates_time_controls() {
+    let parsed = parse(schema(
+        json!({"time":{"type":"string","x-sailry-time":true,"default":"09:05"}}),
+    ))
+    .unwrap();
+    assert!(parsed.properties["time"].time);
+    for field in [
+        json!({"type":"integer","x-sailry-time":true}),
+        json!({"type":"string","x-sailry-time":true,"default":"24:00"}),
+        json!({"type":"string","x-sailry-time":true,"default":"9:05"}),
+        json!({"type":"string","x-sailry-time":true,"enum":["09:05"]}),
+        json!({"type":"string","x-sailry-time":true,"x-sailry-model":true}),
+        json!({"type":"string","x-sailry-time":true,"x-sailry-secret":{"server":"local","env":"TOKEN"}}),
+    ] {
+        assert!(parse(schema(json!({"time":field}))).is_err());
+    }
+}
+
 fn schema(properties: Value) -> Value {
     json!({
         "$schema": SCHEMA, "type": "object", "additionalProperties": false,

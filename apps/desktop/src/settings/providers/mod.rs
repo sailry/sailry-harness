@@ -1,4 +1,5 @@
 mod catalog;
+pub(super) mod contributions;
 mod data;
 mod directory;
 mod editor;
@@ -53,7 +54,8 @@ impl Workspace {
         }
     }
 
-    pub(super) fn providers(&self, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn providers(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        self.sync_provider_contributions(window, cx);
         let category = &self.providers.category;
         let busy = self
             .provider_link

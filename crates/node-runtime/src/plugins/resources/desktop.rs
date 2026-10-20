@@ -60,6 +60,7 @@ impl Host {
                             sailry_protocol::Fault::invalid("plugin has no settings entry")
                         })?,
                     sailry_protocol::plugin::desktop::Surface::Composer
+                    | sailry_protocol::plugin::desktop::Surface::Provider
                     | sailry_protocol::plugin::desktop::Surface::Project => {
                         manifest.ui_entry.ok_or_else(|| {
                             sailry_protocol::Fault::invalid("plugin has no contribution entry")

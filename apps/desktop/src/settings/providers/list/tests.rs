@@ -124,18 +124,30 @@ fn matches_names_and_models() {
 }
 
 #[test]
-fn reports_live_usage_only() {
+fn reports_live_remaining_only() {
     let window = Window {
         used_basis_points: 4_250,
         reset_at_ms: Some(100),
     };
-    assert_eq!(usage(&window, 99), Some(42.5));
-    assert_eq!(usage(&window, 100), None);
+    assert_eq!(remaining(&window, 99), Some(57.5));
+    assert_eq!(remaining(&window, 100), None);
     let over = Window {
         used_basis_points: 10_050,
         reset_at_ms: None,
     };
-    assert_eq!(usage(&over, 0), Some(100.));
+    assert_eq!(remaining(&over, 0), Some(0.));
+    for (used_basis_points, expected) in [(0, 100.), (10_000, 0.)] {
+        assert_eq!(
+            remaining(
+                &Window {
+                    used_basis_points,
+                    reset_at_ms: None
+                },
+                0
+            ),
+            Some(expected)
+        );
+    }
 }
 
 #[test]

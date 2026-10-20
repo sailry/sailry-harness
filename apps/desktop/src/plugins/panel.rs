@@ -23,6 +23,7 @@ pub(crate) struct Panel {
     pub(super) pane_focus: bool,
     entry_pending: Option<Reference>,
     composer: Option<WeakEntity<Chat>>,
+    pub(super) providers: Option<Entity<super::providers::Source>>,
     contributions: Option<std::sync::Arc<super::contributions::bridge::Bridge>>,
     pub(super) content_sized: bool,
     pub(crate) source: Option<Entity<Chat>>,
@@ -289,6 +290,7 @@ impl Panel {
             contributions: None,
             content_sized: false,
             composer: None,
+            providers: None,
             source,
             surface: Default::default(),
             session,
@@ -793,6 +795,7 @@ impl Panel {
                             super::runtime::Scopes {
                                 owner: cx.weak_entity(),
                                 conversation,
+                                providers: panel.providers.clone(),
                                 composer: super::composer::Scope {
                                     source: panel.composer.clone(),
                                     read: actions.contains(

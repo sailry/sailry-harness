@@ -221,6 +221,7 @@ pub enum Surface {
     #[default]
     Workspace,
     Settings,
+    Provider,
     Composer,
     Project,
     Card(super::card::Receipt),

@@ -60,16 +60,18 @@ pub(in crate::store) fn current(
     }
     if matches!(
         surface,
-        plugin::desktop::Surface::Composer | plugin::desktop::Surface::Project
+        plugin::desktop::Surface::Composer
+            | plugin::desktop::Surface::Project
+            | plugin::desktop::Surface::Provider
     ) && !info.extension.as_ref().is_some_and(|extension| {
-        extension
-            .ui
-            .iter()
-            .any(|entry| entry.slot.is_project() == (surface == plugin::desktop::Surface::Project))
-            && extension
-                .desktop
-                .as_ref()
-                .is_some_and(|desktop| desktop.ui_entry.is_some())
+        extension.ui.iter().any(|entry| match surface {
+            plugin::desktop::Surface::Provider => entry.slot == plugin::ui::Slot::Provider,
+            plugin::desktop::Surface::Project => entry.slot.is_project(),
+            _ => !entry.slot.is_project() && entry.slot != plugin::ui::Slot::Provider,
+        }) && extension
+            .desktop
+            .as_ref()
+            .is_some_and(|desktop| desktop.ui_entry.is_some())
     }) {
         return Err(Fault::new(
             ErrorCode::NotConfigured,

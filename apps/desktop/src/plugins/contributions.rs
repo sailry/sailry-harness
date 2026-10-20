@@ -73,10 +73,12 @@ pub(crate) struct ViewState<'a> {
     pub assistant: Option<&'a sailry_protocol::plugin::conversation::Binding>,
     pub snapshot: Option<&'a Snapshot>,
     pub connected: bool,
+    pub credentials: &'a [sailry_protocol::Credential],
 }
 
 pub(crate) struct Registry {
     composer: Option<WeakEntity<crate::conversation::live::View>>,
+    providers: Option<Entity<super::providers::Source>>,
     surface: Surface,
     node: NodeId,
     project: Option<sailry_protocol::ProjectId>,
@@ -134,11 +136,18 @@ impl Registry {
         Self::bind(binding, Surface::Project, cx)
     }
 
+    pub(crate) fn providers(binding: &Binding, cx: &mut Context<Self>) -> Self {
+        let mut registry = Self::bind(binding, Surface::Provider, cx);
+        registry.providers = Some(cx.new(|_| super::providers::Source::new()));
+        registry
+    }
+
     fn bind(binding: &Binding, surface: Surface, cx: &mut Context<Self>) -> Self {
         let metadata = cx.new(|_| Metadata::new(binding.client.clone(), binding.runtime.clone()));
         let observe = cx.observe(&metadata, |_, _, cx| cx.notify());
         Self {
             composer: None,
+            providers: None,
             surface,
             node: binding.client.target(),
             project: binding.project,
@@ -152,7 +161,11 @@ impl Registry {
     }
 
     fn accepts(&self, slot: Slot) -> bool {
-        slot.is_project() == (self.surface == Surface::Project)
+        match self.surface {
+            Surface::Provider => slot == Slot::Provider,
+            Surface::Project => slot.is_project(),
+            _ => !slot.is_project() && slot != Slot::Provider,
+        }
     }
 
     pub(crate) fn renderer_available(
@@ -379,6 +392,7 @@ impl Registry {
             assistant,
             snapshot,
             connected,
+            credentials,
         } = view;
         let session = session.filter(|_| self.surface != Surface::Project);
         let assistant = if self.surface == Surface::Project {
@@ -392,17 +406,45 @@ impl Registry {
             || self.session != id
         {
             let composer = self.composer.clone();
-            *self = Self::bind(binding, self.surface, cx);
+            self.close(cx);
+            *self = if self.surface == Surface::Provider {
+                Self::providers(binding, cx)
+            } else {
+                Self::bind(binding, self.surface, cx)
+            };
             self.composer = composer;
             self.session = id;
         }
         let Some(snapshot) = snapshot.filter(|_| connected) else {
+            if let Some(source) = &self.providers {
+                source.update(cx, |source, cx| source.accept(&[], &[], &[], false, cx));
+            }
+            for mounted in self.mounted.values() {
+                mounted.panel.update(cx, |panel, cx| panel.close(cx));
+            }
             self.mounted.clear();
             return;
         };
         self.metadata
             .update(cx, |metadata, cx| metadata.accept(&snapshot.plugins, cx));
         self.catalog_received = true;
+        if let Some(source) = &self.providers {
+            let metadata = self
+                .metadata
+                .read(cx)
+                .entries
+                .values()
+                .cloned()
+                .collect::<Vec<_>>();
+            source.update(cx, |source, cx| {
+                source.accept(&snapshot.providers, credentials, &metadata, true, cx)
+            });
+            for mounted in self.mounted.values() {
+                mounted
+                    .bridge
+                    .scopes(scopes(&source.read(cx).read(&mounted.package)));
+            }
+        }
         let packages: Vec<_> = self
             .metadata
             .read(cx)
@@ -422,7 +464,14 @@ impl Registry {
                     }))
                 .then_some((
                     info.summary.reference(),
-                    extension.ui.clone(),
+                    extension
+                        .ui
+                        .iter()
+                        .filter(|entry| {
+                            self.surface != Surface::Provider || entry.slot == Slot::Provider
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>(),
                     extension
                         .desktop
                         .as_ref()
@@ -440,6 +489,9 @@ impl Registry {
                 continue;
             }
             let bridge = Bridge::new(declarations);
+            if let Some(source) = &self.providers {
+                bridge.scopes(scopes(&source.read(cx).read(&package)));
+            }
             let content_sized = bridge
                 .declarations
                 .iter()
@@ -453,6 +505,7 @@ impl Registry {
                     self.composer.clone(),
                     cx,
                 );
+                panel.providers = self.providers.clone();
                 panel.content_sized = content_sized;
                 panel
             });
@@ -674,3 +727,74 @@ impl Registry {
 
 #[cfg(test)]
 mod shortcut_tests;
+
+fn scopes(context: &serde_json::Value) -> Vec<ui::ProviderScope> {
+    context["providers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|provider| serde_json::from_value(provider["scope"].clone()).ok())
+        .collect()
+}
+
+impl Registry {
+    pub(crate) fn invalidate_credentials(&mut self, cx: &mut Context<Self>) {
+        if let Some(source) = &self.providers {
+            source.update(cx, |source, cx| source.invalidate(cx));
+        }
+        for mounted in self.mounted.values() {
+            mounted.bridge.scopes(vec![]);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn provider_entries(
+        &self,
+        provider: &sailry_protocol::conversation::Provider,
+        cx: &App,
+    ) -> Vec<Entry> {
+        let Some(scope) = self
+            .providers
+            .as_ref()
+            .and_then(|source| source.read(cx).scope(provider))
+        else {
+            return vec![];
+        };
+        let mut entries = vec![];
+        for mounted in self.mounted.values().filter(|mounted| mounted.active(cx)) {
+            for state in mounted.states.values().filter(|state| {
+                state.visible
+                    && state.enabled
+                    && state.scope.as_ref() == Some(&scope)
+                    && scope.credential.node == self.node
+            }) {
+                if let Some(declaration) = mounted
+                    .bridge
+                    .declarations
+                    .iter()
+                    .find(|entry| entry.id == state.id && entry.slot == Slot::Provider)
+                {
+                    entries.push(Entry {
+                        key: Key {
+                            node: self.node,
+                            worktree: None,
+                            session: None,
+                            package: mounted.package.clone(),
+                            id: state.id.clone(),
+                        },
+                        declaration: declaration.clone(),
+                        state: state.clone(),
+                    });
+                }
+            }
+        }
+        entries.sort_by_key(|entry| {
+            (
+                entry.declaration.order,
+                entry.key.package.name.clone(),
+                entry.key.id.clone(),
+            )
+        });
+        entries
+    }
+}

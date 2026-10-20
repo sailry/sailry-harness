@@ -211,6 +211,7 @@ pub struct Workspace {
     providers: providers::Store,
     provider_query: Entity<gpui_kit::component::input::InputState>,
     provider_link: Option<providers::Live>,
+    provider_contributions: Option<providers::contributions::State>,
     terminal: terminal::State,
     knowledge: knowledge::State,
     runtime: runtime::State,
@@ -310,6 +311,7 @@ impl Workspace {
             providers: providers::Store::default(),
             provider_query: providers::query(window, cx),
             provider_link: None,
+            provider_contributions: None,
             terminal,
             knowledge: knowledge::State::default(),
             runtime: runtime::State::default(),
@@ -367,6 +369,9 @@ impl Workspace {
     }
 
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        if let Some(state) = self.provider_contributions.take() {
+            state.close(cx);
+        }
         self.clear_knowledge(cx);
         self.clear_runtime(cx);
         self.clear_backup(cx);
@@ -388,7 +393,7 @@ impl Render for Workspace {
         }
         let content = match self.section {
             Section::Connections => self.connections.clone().into_any_element(),
-            Section::Providers => self.providers(cx),
+            Section::Providers => self.providers(window, cx),
             Section::Plugin => self.plugin_settings(window, cx),
             Section::General => self.preferences(window, cx),
             Section::Appearance => self.appearance(cx),

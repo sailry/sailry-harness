@@ -7,6 +7,41 @@ mod key;
 #[path = "credentials/ownership.rs"]
 mod ownership;
 
+async fn changed(
+    updates: &mut Box<dyn sailry_link::Subscription>,
+    reference: &CredentialRef,
+    expected: u64,
+) -> u64 {
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let update = updates.next().await.unwrap();
+            assert!(
+                !serde_json::to_string(&update)
+                    .unwrap()
+                    .contains("isolated-test-credential-never-in-projections")
+            );
+            if let Update::Event(envelope) = update
+                && let Event::CredentialChanged {
+                    credential,
+                    revision,
+                } = envelope.event
+            {
+                assert_eq!(&credential, reference);
+                assert_eq!(revision, expected);
+                let value = serde_json::to_value(Event::CredentialChanged {
+                    credential,
+                    revision,
+                })
+                .unwrap();
+                assert_eq!(value["data"].as_object().unwrap().len(), 2);
+                return envelope.cursor;
+            }
+        }
+    })
+    .await
+    .expect("credential event deadline")
+}
+
 async fn lifecycle(remote: bool) {
     let directory = tempfile::tempdir().unwrap();
     let controller = Node::start_empty(directory.path().join("controller"))
@@ -45,7 +80,10 @@ async fn lifecycle(remote: bool) {
         expires_at_ms: None,
     });
     assert!(!format!("{request:?}").contains(marker));
+    let mut updates = client.subscribe().await.unwrap();
+    assert!(matches!(updates.next().await.unwrap(), Update::Snapshot(_)));
     let first = client.execute(request.clone()).await.unwrap();
+    let cursor = changed(&mut updates, &reference, 1).await;
     assert_eq!(client.execute(request.clone()).await.unwrap(), first);
     let mut conflict = request.clone();
     if let Command::PutCredential { secret, .. } = &mut conflict.command {
@@ -54,6 +92,25 @@ async fn lifecycle(remote: bool) {
     assert_eq!(
         client.execute(conflict).await.unwrap_err().code,
         ErrorCode::Conflict
+    );
+    assert_eq!(
+        client
+            .execute(client.prepare(request.command.clone()))
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    let Output::Snapshot(snapshot) = client
+        .execute(client.prepare(Command::Snapshot))
+        .await
+        .unwrap()
+    else {
+        panic!("snapshot expected")
+    };
+    assert_eq!(
+        snapshot.cursor, cursor,
+        "replay and conflict must not publish metadata changes"
     );
     assert_eq!(
         execution
@@ -132,6 +189,7 @@ async fn lifecycle(remote: bool) {
         }))
         .await
         .unwrap();
+    changed(&mut updates, &reference, 2).await;
     assert_eq!(
         client
             .execute(client.prepare(queue()))
@@ -158,6 +216,7 @@ async fn lifecycle(remote: bool) {
         }))
         .await
         .unwrap();
+    changed(&mut updates, &reference, 3).await;
     client.execute(client.prepare(queue())).await.unwrap();
     for command in [Command::Snapshot, Command::ListCredentials] {
         let result = client.execute(client.prepare(command)).await.unwrap();

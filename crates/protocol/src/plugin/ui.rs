@@ -20,6 +20,7 @@ pub enum Slot {
     Context,
     Statistics,
     Footer,
+    Provider,
     Status,
     Project,
     ProjectMenu,
@@ -156,10 +157,22 @@ pub struct Detail {
     pub progress: Option<serde_json::Number>,
 }
 
+/// Public identity captured from the current provider context, never an account secret.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderScope {
+    pub provider: crate::ProviderId,
+    pub revision: String,
+    pub credential: crate::CredentialRef,
+}
+
 /// One state serves the toolbar, the compact menu and standard search overlays.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct State {
     pub id: String,
+    /// Current public identity of a provider-row metric.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<ProviderScope>,
     pub label: Option<Navigation>,
     pub icon: Option<String>,
     #[serde(default)]
@@ -259,13 +272,13 @@ impl Contribution {
             })
             && (self.slot != Slot::ProjectMenu || matches!(self.kind, Kind::Button | Kind::Menu))
             && if self.kind == Kind::Metric {
-                matches!(self.slot, Slot::Statistics | Slot::Footer)
+                matches!(self.slot, Slot::Statistics | Slot::Footer | Slot::Provider)
                     && self.handler.is_none()
                     && self.choices.is_empty()
             } else if self.kind == Kind::Indicator {
                 self.slot == Slot::Composer && self.handler.is_none() && self.choices.is_empty()
             } else {
-                !matches!(self.slot, Slot::Statistics | Slot::Footer)
+                !matches!(self.slot, Slot::Statistics | Slot::Footer | Slot::Provider)
                     && self.handler.as_ref().is_some_and(|name| identifier(name))
                     && choices(&self.choices)
                     && (matches!(self.kind, Kind::Select | Kind::Picker | Kind::Menu)
@@ -313,6 +326,7 @@ impl State {
     pub fn pending(entry: &Contribution) -> Self {
         Self {
             id: entry.id.clone(),
+            scope: None,
             label: None,
             icon: None,
             dropdown: false,
@@ -328,6 +342,19 @@ impl State {
 
     pub fn valid(&self, entry: &Contribution) -> bool {
         self.id == entry.id
+            && (entry.slot == Slot::Provider) == self.scope.is_some()
+            && self.scope.as_ref().is_none_or(|scope| {
+                scope
+                    .revision
+                    .split_once(':')
+                    .is_some_and(|(provider, credential)| {
+                        [provider, credential].iter().all(|revision| {
+                            revision
+                                .parse::<u64>()
+                                .is_ok_and(|value| value.to_string() == *revision)
+                        })
+                    })
+            })
             && self.label.as_ref().is_none_or(Navigation::valid)
             && icon(&self.icon)
             && (!self.dropdown || matches!(entry.kind, Kind::Button | Kind::Popover))

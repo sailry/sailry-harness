@@ -400,7 +400,8 @@ fn save(
     let node = database.node;
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let credential = authentication::put(&transaction, credential, secret)?;
-    let changes = quota::reconcile(&transaction, node)?;
+    let mut changes = vec![authentication::changed(node, &credential)];
+    changes.extend(quota::reconcile(&transaction, node)?);
     let envelopes = record(&transaction, node, changes)?;
     transaction.commit().map_err(storage_error)?;
     for envelope in envelopes {

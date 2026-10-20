@@ -82,3 +82,19 @@ fn distinguishes_configuration_and_access() {
         );
     }
 }
+
+#[test]
+fn rejects_stale_credential_metadata_reads() {
+    let captured = View {
+        connected: true,
+        credential_cursor: 7,
+        ..Default::default()
+    };
+    let mut current = captured.clone();
+    assert!(metadata_current(&captured, &current));
+    current.credential_cursor = 8;
+    assert!(!metadata_current(&captured, &current));
+    current.credential_cursor = 7;
+    current.connected = false;
+    assert!(!metadata_current(&captured, &current));
+}

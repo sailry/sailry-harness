@@ -65,6 +65,12 @@ pub struct Field {
     pub kind: Kind,
     #[serde(
         default,
+        rename = "x-sailry-time",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub time: bool,
+    #[serde(
+        default,
         rename = "x-sailry-child-concurrency",
         skip_serializing_if = "std::ops::Not::not"
     )]
@@ -118,6 +124,21 @@ pub enum Kind {
     Boolean,
 }
 
+/// A local time of day, without a date or implicit time zone conversion.
+pub fn parse_time(value: &str) -> Option<(u32, u32)> {
+    let bytes: &[u8; 5] = value.as_bytes().try_into().ok()?;
+    if bytes[2] != b':'
+        || [bytes[0], bytes[1], bytes[3], bytes[4]]
+            .iter()
+            .any(|byte| !byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let hour = u32::from((bytes[0] - b'0') * 10 + bytes[1] - b'0');
+    let minute = u32::from((bytes[3] - b'0') * 10 + bytes[4] - b'0');
+    (hour < 24 && minute < 60).then_some((hour, minute))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct State {
     pub package: super::Reference,
@@ -134,4 +155,19 @@ pub enum SecretUpdate {
     Keep,
     Replace(crate::Secret),
     Clear,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parses_minute_precision_times() {
+        assert_eq!(super::parse_time("00:00"), Some((0, 0)));
+        assert_eq!(super::parse_time("09:05"), Some((9, 5)));
+        assert_eq!(super::parse_time("23:59"), Some((23, 59)));
+        for value in [
+            "24:00", "12:60", "9:05", "09:5", "09:05:00", " 09:05", "aa:bb",
+        ] {
+            assert_eq!(super::parse_time(value), None);
+        }
+    }
 }

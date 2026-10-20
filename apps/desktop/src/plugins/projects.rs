@@ -96,6 +96,7 @@ impl Shell {
                     assistant: None,
                     snapshot: Some(snapshot),
                     connected: live.view.connected,
+                    credentials: &[],
                 },
                 window,
                 cx,

@@ -163,6 +163,18 @@ pub(super) fn parse(
 }
 
 fn validate_field(field: &Field, raw: &Value) -> Result<(), Fault> {
+    if field.time
+        && (field.kind != Kind::String
+            || field.secret.is_some()
+            || field.choices.is_some()
+            || field.model
+            || field.effort.is_some()
+            || field.child_concurrency)
+    {
+        return Err(Fault::invalid(
+            "time settings must be public strings without other controls",
+        ));
+    }
     if field.model
         && (field.kind != Kind::String || field.secret.is_some() || field.choices.is_some())
     {
@@ -217,6 +229,11 @@ fn validate_field(field: &Field, raw: &Value) -> Result<(), Fault> {
             .as_str()
             .is_some_and(|text| text.chars().count() > MAX_STRING)
             || !validator.is_valid(value)
+            || (field.time
+                && value
+                    .as_str()
+                    .and_then(sailry_protocol::plugin::settings::parse_time)
+                    .is_none())
         {
             return Err(sailry_protocol::Fault::invalid(
                 "invalid settings default or choice",

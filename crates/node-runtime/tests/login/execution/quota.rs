@@ -208,6 +208,13 @@ async fn refreshes_bound_observations() {
             .apply(0, subscription.next().await.unwrap())
             .unwrap();
         let (_, turn) = submit(&fixture.client, &session).await;
+        renewals::changed(
+            &mut subscription,
+            &mut projection,
+            &original.credential,
+            original.revision + 1,
+        )
+        .await;
         assert_eq!(
             changed(&mut subscription, &mut projection, provider.id, false).await,
             None
@@ -216,6 +223,17 @@ async fn refreshes_bound_observations() {
         assert!(projection.snapshot().unwrap().provider_quotas.is_empty());
         release.notify_one();
         finished(&fixture.client, &turn, Status::Completed).await;
+        renewals::changed(
+            &mut subscription,
+            &mut projection,
+            &original.credential,
+            original.revision + 2,
+        )
+        .await;
+        assert_eq!(
+            projection.snapshot().unwrap().providers,
+            vec![provider.clone()]
+        );
         let refreshed = changed(&mut subscription, &mut projection, provider.id, true)
             .await
             .unwrap();

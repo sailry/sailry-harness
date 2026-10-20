@@ -255,3 +255,48 @@ fn terminal_updates_preserve_order() {
         vec![changed, second]
     );
 }
+
+#[test]
+fn invalidates_credentials_on_revision_and_recovery() {
+    let node = NodeId([1; 32]);
+    let mut projection = Projection::new(node, 1);
+    projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
+    let initial = projection.credential_cursor();
+    let credential = sailry_protocol::CredentialRef {
+        node,
+        id: sailry_protocol::CredentialId::new(),
+    };
+    for revision in [7, 8] {
+        let cursor = revision - 6;
+        let event = Update::Event(EventEnvelope {
+            node,
+            cursor,
+            event: Event::CredentialChanged {
+                credential: credential.clone(),
+                revision,
+            },
+        });
+        let before = projection.credential_cursor();
+        assert_eq!(projection.apply(1, event.clone()).unwrap(), Apply::Applied);
+        assert!(projection.credential_cursor() > before);
+        assert_eq!(projection.apply(1, event).unwrap(), Apply::Ignored);
+        assert_eq!(projection.credential_cursor(), before + 1);
+        assert!(projection.snapshot().unwrap().providers.is_empty());
+    }
+    assert!(projection.credential_cursor() > initial);
+    let changed = projection.credential_cursor();
+    assert_eq!(
+        projection.apply(1, Update::ResetRequired).unwrap(),
+        Apply::Recover
+    );
+    assert!(projection.credential_cursor() > changed);
+    let reset = projection.credential_cursor();
+    projection.apply(1, Update::Snapshot(snapshot(2))).unwrap();
+    assert!(projection.credential_cursor() > reset);
+    let recovered = projection.credential_cursor();
+    projection.reconnect(2).unwrap();
+    assert!(projection.credential_cursor() > recovered);
+    let reconnect = projection.credential_cursor();
+    assert_eq!(projection.apply(1, event(3)).unwrap(), Apply::Ignored);
+    assert_eq!(projection.credential_cursor(), reconnect);
+}

@@ -2124,6 +2124,11 @@ pub enum Event {
         id: crate::RoleId,
     },
     ProviderChanged(crate::conversation::Provider),
+    /// Invalidates public credential metadata; authorization values stay on the Node.
+    CredentialChanged {
+        credential: crate::CredentialRef,
+        revision: u64,
+    },
     ProviderQuotaChanged {
         provider: ProviderId,
         quota: Option<crate::conversation::quota::Snapshot>,

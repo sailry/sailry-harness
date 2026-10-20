@@ -256,3 +256,33 @@ mod metric_width {
         );
     }
 }
+
+#[test]
+fn provider_metrics_require_scoped_public_identity() {
+    let mut entry = contribution(Slot::Provider, Kind::Metric);
+    entry.handler = None;
+    assert!(entry.valid());
+    let mut state = State::pending(&entry);
+    assert!(!state.valid(&entry));
+    state.scope = Some(ProviderScope {
+        provider: crate::ProviderId::new(),
+        revision: "9007199254740993:7".into(),
+        credential: crate::CredentialRef {
+            node: crate::NodeId([1; 32]),
+            id: crate::CredentialId::new(),
+        },
+    });
+    state.value = json!("25%");
+    assert!(state.valid(&entry));
+    for revision in ["1", "1:", ":2", "1:2:3", "+1:2", "1:-2", "01:2"] {
+        state.scope.as_mut().unwrap().revision = revision.into();
+        assert!(!state.valid(&entry));
+    }
+    state.scope.as_mut().unwrap().revision = "9007199254740993:7".into();
+    entry.slot = Slot::Footer;
+    assert!(!state.valid(&entry));
+    entry.slot = Slot::Provider;
+    entry.kind = Kind::Button;
+    entry.handler = Some("run".into());
+    assert!(!entry.valid());
+}

@@ -813,12 +813,21 @@ pub(super) fn execute(
             ErrorCode::Internal,
             "resource inspection must bypass the database",
         )),
-        Command::ListCredentials
-        | Command::PutCredential { .. }
-        | Command::RevokeCredential { .. } => Ok((
+        Command::ListCredentials => Ok((
             super::providers::authentication::execute(db, &request.command)?,
             None,
         )),
+        Command::PutCredential { .. } | Command::RevokeCredential { .. } => {
+            let output = super::providers::authentication::execute(db, &request.command)?;
+            let Output::Credential(credential) = &output else {
+                return Err(Fault::new(
+                    ErrorCode::Internal,
+                    "credential metadata expected",
+                ));
+            };
+            let event = super::providers::authentication::changed(node, credential);
+            Ok((output, Some(event)))
+        }
         Command::Snapshot => Ok((Output::Snapshot(snapshot(db, node)?), None)),
         Command::InspectRequest { id, digest } => Ok((
             Output::RequestOutcome {

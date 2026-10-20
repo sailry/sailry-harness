@@ -274,17 +274,22 @@ async fn rejects_invalid_edits() {
 }
 
 #[tokio::test]
-async fn rejects_pattern_mismatches_before_saving() {
-    for remote in [false, true] {
+async fn rejects_invalid_times_before_saving() {
+    for (remote, time_control) in [(false, false), (true, false), (false, true), (true, true)] {
         let (directory, node, controller, client, worktree) = support::empty(remote).await;
         let root = directory.path().join("source/package");
         declare(&root, "Schedule");
+        let mut field = json!({"type":"string","minLength":5,"maxLength":5,"default":"09:05"});
+        if time_control {
+            field["x-sailry-time"] = json!(true);
+        } else {
+            field["pattern"] = json!("^([01][0-9]|2[0-3]):[0-5][0-9]$");
+        }
         fs::write(
             root.join("dev.sailry.platform/settings.json"),
             json!({
                 "$schema":plugin::settings::SCHEMA,"type":"object","additionalProperties":false,
-                "properties":{"time":{"type":"string","minLength":5,"maxLength":5,
-                    "pattern":"^([01][0-9]|2[0-3]):[0-5][0-9]$","default":"09:05"}},
+                "properties":{"time":field},
                 "required":["time"]
             })
             .to_string(),

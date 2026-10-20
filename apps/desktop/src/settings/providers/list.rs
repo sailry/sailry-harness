@@ -140,6 +140,7 @@ impl Workspace {
                 .on_click(cx.listener(move |this, _, _, cx| this.expand_provider(id, cx)))
                 .into_any_element(),
         };
+        let metrics = self.provider_metrics(channel, cx);
         let row = h_flex()
             .py_3()
             .gap(px(GAP))
@@ -151,8 +152,16 @@ impl Workspace {
             )
             .child(details)
             .when_some(
-                channel.quota.as_ref().filter(|_| auth == AuthKind::OAuth),
+                channel
+                    .quota
+                    .as_ref()
+                    .filter(|_| auth == AuthKind::OAuth && metrics.is_empty()),
                 |row, quota| row.child(Self::provider_quota(id, quota, cx)),
+            )
+            .children(
+                metrics
+                    .into_iter()
+                    .map(|entry| Self::provider_metric(entry, cx)),
             )
             .child(summary)
             .child(
@@ -195,51 +204,22 @@ impl Workspace {
             ("provider_usage_5h", quota.five_hour.as_ref()),
             ("provider_usage_7d", quota.seven_day.as_ref()),
         ];
-        v_flex()
-            .debug_selector(move || format!("provider-quota-{id}"))
-            .w(px(120.))
-            .flex_shrink_0()
-            .gap_1()
-            .children(
-                windows
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(|(index, (key, window))| {
-                        let used = summary::usage(window?, now);
-                        let label = tr(key);
-                        Some(
-                            h_flex()
-                                .gap_2()
-                                .items_center()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(
-                                    div()
-                                        .w(px(34.))
-                                        .flex_shrink_0()
-                                        .truncate()
-                                        .child(label.clone()),
-                                )
-                                .child(
-                                    Progress::new(("provider-quota", id * 2 + index))
-                                        .xsmall()
-                                        .flex_1()
-                                        .value(used.unwrap_or(0.))
-                                        .accessibility_label(label)
-                                        .when(used.is_some_and(|used| used > 80.), |bar| {
-                                            bar.color(cx.theme().warning)
-                                        }),
-                                )
-                                .child(div().w(px(30.)).flex_shrink_0().text_right().child(
-                                    used.map_or_else(
-                                        || tr("provider_usage_unknown").to_string(),
-                                        |used| format!("{}%", used.round()),
-                                    ),
-                                )),
-                        )
-                    }),
-            )
-            .into_any_element()
+        let rows = windows
+            .into_iter()
+            .filter_map(|(key, window)| {
+                let remaining = summary::remaining(window?, now)?;
+                Some(sailry_protocol::plugin::ui::Detail {
+                    label: sailry_protocol::plugin::desktop::Navigation {
+                        label: tr(key).to_string(),
+                        icon: None,
+                        locales: Default::default(),
+                    },
+                    value: format!("{}%", remaining.round()),
+                    progress: serde_json::Number::from_f64(f64::from(remaining)),
+                })
+            })
+            .collect::<Vec<_>>();
+        Self::metric_rows(format!("provider-quota-{id}"), &rows, cx)
     }
 
     fn provider_models(channel: &Channel, cx: &App) -> AnyElement {
@@ -291,6 +271,72 @@ impl Workspace {
                         }),
                 )
             })
+            .into_any_element()
+    }
+}
+
+impl Workspace {
+    fn provider_metric(entry: crate::plugins::contributions::Entry, cx: &App) -> AnyElement {
+        let theme = cx.theme();
+        if entry.state.details.is_empty() {
+            return h_flex()
+                .gap_1p5()
+                .flex_shrink_0()
+                .text_sm()
+                .text_color(theme.muted_foreground)
+                .when_some(entry.icon(), |line, icon| line.child(icon.small()))
+                .child(entry.value())
+                .into_any_element();
+        }
+        Self::metric_rows(
+            format!(
+                "provider-metric-{}-{}",
+                entry.key.package.name,
+                entry.state.scope.as_ref().unwrap().provider
+            ),
+            &entry.state.details,
+            cx,
+        )
+    }
+
+    fn metric_rows(
+        id: String,
+        rows: &[sailry_protocol::plugin::ui::Detail],
+        cx: &App,
+    ) -> AnyElement {
+        v_flex()
+            .w_40()
+            .flex_shrink_0()
+            .gap_1()
+            .children(rows.iter().enumerate().map(|(index, detail)| {
+                let label: SharedString =
+                    detail.label.label(&rust_i18n::locale()).to_owned().into();
+                let progress = detail.progress.as_ref().and_then(|value| value.as_f64());
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(div().w_16().flex_shrink_0().truncate().child(label.clone()))
+                    .when_some(progress, |line, value| {
+                        line.child(
+                            Progress::new(SharedString::from(format!("{id}-{index}")))
+                                .xsmall()
+                                .flex_1()
+                                .value(value as f32)
+                                .accessibility_label(label)
+                                .when(value < 20., |bar| bar.color(cx.theme().warning)),
+                        )
+                    })
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_right()
+                            .when(progress.is_some(), |value| value.w(px(30.)))
+                            .when(progress.is_none(), |value| value.flex_1())
+                            .child(detail.value.clone()),
+                    )
+            }))
             .into_any_element()
     }
 }

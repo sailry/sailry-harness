@@ -91,11 +91,11 @@ pub(in crate::settings::providers) fn matches(channel: &Channel, query: &str) ->
             .any(|model| model.id.to_lowercase().contains(&query))
 }
 
-/// Used share in percent, or None once the observed window has reset.
-pub(super) fn usage(window: &quota::Window, now: u64) -> Option<f32> {
+/// Remaining share, or None once the observed window has reset.
+pub(super) fn remaining(window: &quota::Window, now: u64) -> Option<f32> {
     window
         .available_at(now)
-        .then(|| (window.used_basis_points as f32 / 100.).min(100.))
+        .then(|| window.remaining_basis_points() as f32 / 100.)
 }
 
 /// Public account metadata replaces only the login badge, never an API key label.

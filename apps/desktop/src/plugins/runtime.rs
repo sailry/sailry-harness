@@ -13,6 +13,7 @@ pub(super) struct Mounted {
     _cache: Arc<Cache>,
     _activation: Entity<super::window::Activation>,
     _composer: Option<Entity<super::composer::State>>,
+    _providers: Option<Entity<super::providers::Watch>>,
     _location: Entity<super::location::State>,
 }
 
@@ -20,6 +21,7 @@ pub(super) struct Scopes {
     pub owner: gpui_kit::WeakEntity<super::Panel>,
     pub conversation: Option<super::conversation::Scope>,
     pub composer: super::composer::Scope,
+    pub providers: Option<Entity<super::providers::Source>>,
     pub location: super::location::Scope,
     pub terminal: Option<super::terminals::Scope>,
     pub browser: super::browser::Scope,
@@ -72,6 +74,7 @@ impl Mounted {
             owner,
             conversation,
             composer,
+            providers,
             location,
             terminal,
             browser,
@@ -209,6 +212,7 @@ impl Mounted {
         let documents = super::documents::module(documents, host.clone(), cx);
         let artifacts = super::artifact::module(document, host.clone(), window);
         let (ui, composer) = super::composer::extend(ui, composer, host.clone(), window, cx);
+        let (ui, providers) = super::providers::extend(ui, providers, host.clone(), cx);
         let (ui, location) =
             super::location::extend(ui, location, owner.clone(), host.clone(), window, cx);
         let (ui, activation) = super::window::extend(ui, host.stop_token(), window, cx);
@@ -252,6 +256,7 @@ impl Mounted {
             _cache: cache,
             _activation: activation,
             _composer: composer,
+            _providers: providers,
             _location: location,
         })
     }

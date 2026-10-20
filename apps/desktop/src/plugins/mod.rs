@@ -38,6 +38,7 @@ mod picker;
 pub(crate) mod preload;
 mod previews;
 pub(crate) mod projects;
+pub(crate) mod providers;
 mod references;
 pub(crate) mod resource;
 mod runtime;

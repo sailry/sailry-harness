@@ -301,3 +301,102 @@ fn hides_contributions_until_state_arrives() {
         .unwrap();
     assert!(bridge.state("resource").unwrap().visible);
 }
+
+#[test]
+fn fences_replaced_provider_scopes() {
+    let bridge = Bridge::new(vec![
+        serde_json::from_value(
+            json!({"id":"usage","slot":"provider","kind":"metric","label":{"label":"Usage"}}),
+        )
+        .unwrap(),
+    ]);
+    let first = ui::ProviderScope {
+        provider: sailry_protocol::ProviderId::new(),
+        revision: "3:1".into(),
+        credential: sailry_protocol::CredentialRef {
+            node: sailry_protocol::NodeId([1; 32]),
+            id: sailry_protocol::CredentialId::new(),
+        },
+    };
+    let second = ui::ProviderScope {
+        provider: sailry_protocol::ProviderId::new(),
+        ..first.clone()
+    };
+    let metric = |scope: &ui::ProviderScope, value: &str| {
+        state(json!({"id":"usage","scope":scope,"value":value}))
+    };
+    bridge.scopes(vec![first.clone(), second.clone()]);
+    bridge
+        .publish(vec![metric(&first, "10%"), metric(&second, "80%")])
+        .unwrap();
+    assert_eq!(
+        bridge
+            .subscribe()
+            .borrow()
+            .values()
+            .filter(|state| state.scope.is_some())
+            .count(),
+        2
+    );
+    assert!(
+        bridge
+            .publish(vec![metric(&first, "11%"), metric(&first, "12%")])
+            .is_err()
+    );
+    let replaced = ui::ProviderScope {
+        revision: "4:1".into(),
+        credential: sailry_protocol::CredentialRef {
+            node: first.credential.node,
+            id: sailry_protocol::CredentialId::new(),
+        },
+        ..first.clone()
+    };
+    bridge.scopes(vec![replaced.clone(), second.clone()]);
+    assert!(
+        !bridge
+            .subscribe()
+            .borrow()
+            .values()
+            .any(|state| state.scope.as_ref() == Some(&first))
+    );
+    assert!(bridge.publish(vec![metric(&first, "100%")]).is_err());
+    bridge.publish(vec![metric(&replaced, "20%")]).unwrap();
+    assert!(
+        bridge
+            .subscribe()
+            .borrow()
+            .values()
+            .any(|state| state.scope.as_ref() == Some(&replaced) && state.value == json!("20%"))
+    );
+    assert!(
+        bridge
+            .subscribe()
+            .borrow()
+            .values()
+            .any(|state| state.scope.as_ref() == Some(&second) && state.value == json!("80%"))
+    );
+    let renewed = ui::ProviderScope {
+        revision: "4:2".into(),
+        ..replaced.clone()
+    };
+    assert_eq!(renewed.credential, replaced.credential);
+    bridge.scopes(vec![renewed.clone(), second.clone()]);
+    assert!(bridge.publish(vec![metric(&replaced, "99%")]).is_err());
+    bridge.publish(vec![metric(&renewed, "35%")]).unwrap();
+    assert!(
+        bridge
+            .subscribe()
+            .borrow()
+            .values()
+            .any(|state| state.scope.as_ref() == Some(&renewed) && state.value == json!("35%"))
+    );
+    bridge.scopes(vec![]);
+    assert!(bridge.publish(vec![metric(&replaced, "100%")]).is_err());
+    assert!(
+        !bridge
+            .subscribe()
+            .borrow()
+            .values()
+            .any(|state| state.scope.is_some())
+    );
+}

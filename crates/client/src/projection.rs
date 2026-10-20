@@ -18,6 +18,7 @@ pub struct Projection {
     recovery: bool,
     package_cursors: std::collections::BTreeMap<String, u64>,
     package_revision: u64,
+    credential_cursor: u64,
 }
 
 impl Projection {
@@ -29,6 +30,7 @@ impl Projection {
             recovery: true,
             package_cursors: Default::default(),
             package_revision: 0,
+            credential_cursor: 0,
         }
     }
 
@@ -41,10 +43,16 @@ impl Projection {
         &self.package_cursors
     }
 
+    /// Invalidates public credential reads after mutation, recovery or reconnection.
+    pub fn credential_cursor(&self) -> u64 {
+        self.credential_cursor
+    }
+
     pub fn reconnect(&mut self, generation: u64) -> Result<(), Fault> {
         if generation <= self.generation {
             return Err(Fault::invalid("connection generation must increase"));
         }
+        advance_credentials(&mut self.credential_cursor)?;
         self.generation = generation;
         self.recovery = true;
         Ok(())
@@ -72,6 +80,7 @@ impl Projection {
                 Err(Fault::invalid("resource update on Node subscription"))
             }
             Update::ResetRequired => {
+                advance_credentials(&mut self.credential_cursor)?;
                 self.recovery = true;
                 Ok(Apply::Recover)
             }
@@ -85,6 +94,7 @@ impl Projection {
                 {
                     return Ok(Apply::Ignored);
                 }
+                advance_credentials(&mut self.credential_cursor)?;
                 quotas::retain(&mut snapshot);
                 self.package_revision = self.package_revision.checked_add(1).ok_or_else(|| {
                     Fault::new(ErrorCode::Internal, "plugin change revision exhausted")
@@ -101,6 +111,7 @@ impl Projection {
             Update::Event(envelope) => {
                 self.check_target(envelope.node)?;
                 let Some(snapshot) = self.snapshot.as_mut() else {
+                    advance_credentials(&mut self.credential_cursor)?;
                     return Ok(Apply::Recover);
                 };
                 if envelope.cursor <= snapshot.cursor {
@@ -108,6 +119,7 @@ impl Projection {
                 }
                 if self.recovery || snapshot.cursor.checked_add(1) != Some(envelope.cursor) {
                     self.recovery = true;
+                    advance_credentials(&mut self.credential_cursor)?;
                     return Ok(Apply::Recover);
                 }
                 if matches!(
@@ -122,6 +134,15 @@ impl Projection {
                         })?;
                 }
                 match envelope.event {
+                    Event::CredentialChanged { credential, .. } => {
+                        if credential.node != self.node {
+                            return Err(Fault::new(
+                                ErrorCode::WrongTarget,
+                                "credential belongs to another Node",
+                            ));
+                        }
+                        advance_credentials(&mut self.credential_cursor)?;
+                    }
                     Event::PluginChanged(plugin) => {
                         self.package_cursors
                             .insert(plugin.name.clone(), self.package_revision);
@@ -237,6 +258,7 @@ impl Projection {
                         // Project registration also creates its main worktree atomically.
                         // Recover both from the authority rather than inventing a local ID.
                         self.recovery = true;
+                        advance_credentials(&mut self.credential_cursor)?;
                         return Ok(Apply::Recover);
                     }
                     Event::DefaultsChanged(defaults) => snapshot.defaults = defaults,
@@ -255,6 +277,7 @@ impl Projection {
                             .any(|tree| tree.id == session.worktree)
                         {
                             self.recovery = true;
+                            advance_credentials(&mut self.credential_cursor)?;
                             return Ok(Apply::Recover);
                         }
                         update_session(&mut snapshot.sessions, *session);
@@ -271,6 +294,7 @@ impl Projection {
                                 .any(|tree| tree.id == session.worktree)
                         {
                             self.recovery = true;
+                            advance_credentials(&mut self.credential_cursor)?;
                             return Ok(Apply::Recover);
                         }
                         update_session(&mut snapshot.sessions, *session);
@@ -289,6 +313,7 @@ impl Projection {
                                 .any(|session| !positions.contains_key(&session.id))
                         {
                             self.recovery = true;
+                            advance_credentials(&mut self.credential_cursor)?;
                             return Ok(Apply::Recover);
                         }
                         snapshot
@@ -349,4 +374,11 @@ fn update_session(sessions: &mut Vec<Session>, session: Session) {
     } else {
         sessions.insert(0, session);
     }
+}
+
+fn advance_credentials(cursor: &mut u64) -> Result<(), Fault> {
+    *cursor = cursor
+        .checked_add(1)
+        .ok_or_else(|| Fault::new(ErrorCode::Internal, "credential change revision exhausted"))?;
+    Ok(())
 }

@@ -29,6 +29,8 @@ pub(in crate::settings) struct Live {
     pub search_revision: u64,
     pub binding: Binding,
     pub providers: BTreeMap<usize, Provider>,
+    pub snapshot: Option<sailry_protocol::Snapshot>,
+    pub credentials: Vec<sailry_protocol::Credential>,
     ids: BTreeMap<ProviderId, usize>,
     pub connected: bool,
     pub pending: bool,
@@ -116,12 +118,30 @@ impl Workspace {
         let task = cx.spawn(async move |owner, cx| {
             let mut providers = Vec::new();
             let mut credentials = Vec::new();
+            let mut credential_cursor = 0;
+            let mut connected = false;
             loop {
                 let view = receiver.borrow_and_update().clone();
                 if let Some(snapshot) = &view.snapshot
-                    && providers != snapshot.providers
+                    && (providers != snapshot.providers
+                        || credential_cursor != view.credential_cursor
+                        || (!connected && view.connected))
                 {
                     providers = snapshot.providers.clone();
+                    credential_cursor = view.credential_cursor;
+                    credentials.clear();
+                    // Invalidate displayed values before awaiting the public metadata read.
+                    if owner
+                        .update(cx, |owner, cx| {
+                            if let Some(state) = &owner.provider_contributions {
+                                state.invalidate(cx);
+                            }
+                            owner.accept_providers(node, view.clone(), &[], cx)
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
                     let client = client.clone();
                     credentials = match runtime
                         .spawn(async move {
@@ -135,6 +155,10 @@ impl Workspace {
                         _ => Vec::new(),
                     };
                 }
+                if !metadata_current(&view, &receiver.borrow()) {
+                    continue;
+                }
+                connected = view.connected;
                 if owner
                     .update(cx, |owner, cx| {
                         owner.accept_providers(node, view, &credentials, cx)
@@ -154,6 +178,8 @@ impl Workspace {
             search_revision: 0,
             binding,
             providers: BTreeMap::new(),
+            snapshot: None,
+            credentials: vec![],
             ids: BTreeMap::new(),
             connected: false,
             pending: false,
@@ -191,6 +217,8 @@ impl Workspace {
         }
         let refresh =
             !live.connected && view.connected && self.section == super::super::Section::Providers;
+        live.snapshot = view.snapshot.clone();
+        live.credentials = credentials.to_vec();
         live.connected = view.connected;
         if !view.connected {
             self.extensions.clear_resources();
@@ -487,4 +515,17 @@ pub(super) fn error_key(error: &Fault) -> &'static str {
         ErrorCode::InvalidRequest => "provider_configuration_invalid",
         _ => "provider_save_failed",
     }
+}
+
+fn metadata_current(captured: &View, current: &View) -> bool {
+    captured.connected == current.connected
+        && captured.credential_cursor == current.credential_cursor
+        && captured
+            .snapshot
+            .as_ref()
+            .map(|snapshot| (&snapshot.node, &snapshot.providers))
+            == current
+                .snapshot
+                .as_ref()
+                .map(|snapshot| (&snapshot.node, &snapshot.providers))
 }

@@ -400,3 +400,79 @@ async fn settings_only_package_keeps_its_surface() {
         controller.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn provider_surface_uses_declared_contributions() {
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let root = directory.path().join("source/package");
+        declare(&root, b"export default class Workspace {}\n");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
+        let extension = &mut manifest["extensions"]["dev.sailry.platform"];
+        extension["ui"] = serde_json::json!([{"id":"usage","slot":"provider","kind":"metric","label":{"label":"Usage"}}]);
+        extension["desktop"]["ui_entry"] = "dev.sailry.platform/ui/providers.js".into();
+        extension["desktop"]["resources"]
+            .as_array_mut()
+            .unwrap()
+            .push("dev.sailry.platform/ui/providers.js".into());
+        fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
+        fs::write(
+            root.join("dev.sailry.platform/ui/providers.js"),
+            "export default class Providers {}\n",
+        )
+        .unwrap();
+        let installed = info(execute(&client, install(worktree, 0)).await);
+        assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+        let request = Command::ReadPluginView {
+            surface: plugin::desktop::Surface::Provider,
+            package: installed.summary.reference(),
+        };
+        let view = bundle(execute(&client, request.clone()).await);
+        assert_eq!(view.entry, "dev.sailry.platform/ui/providers.js");
+        assert_eq!(
+            view.files[&view.entry],
+            "export default class Providers {}\n"
+        );
+        for surface in [
+            plugin::desktop::Surface::Composer,
+            plugin::desktop::Surface::Settings,
+        ] {
+            assert_eq!(
+                client
+                    .execute(client.prepare(Command::ReadPluginView {
+                        surface,
+                        package: installed.summary.reference()
+                    }))
+                    .await
+                    .unwrap_err()
+                    .code,
+                ErrorCode::NotConfigured
+            );
+        }
+        let disabled = info(
+            execute(
+                &client,
+                Command::SetPluginEnabled {
+                    name: "example".into(),
+                    expected_revision: installed.summary.revision,
+                    enabled: false,
+                },
+            )
+            .await,
+        );
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ReadPluginView {
+                    surface: plugin::desktop::Surface::Provider,
+                    package: disabled.summary.reference()
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotConfigured
+        );
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+    }
+}

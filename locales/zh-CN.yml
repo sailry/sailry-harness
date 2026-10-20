@@ -854,8 +854,8 @@ provider_discovered_reference_incomplete: 请核对参考信息，并填写缺�
 provider_channels: 渠道
 provider_model_count: "%{count} 个模型"
 provider_plan: "套餐"
-provider_usage_5h: "5小时"
-provider_usage_7d: "7天"
+provider_usage_5h: "5小时余量"
+provider_usage_7d: "7天余量"
 provider_usage_unknown: "—"
 provider_quota_remaining: "%{window}剩余"
 provider_enabled: 启用渠道

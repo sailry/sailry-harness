@@ -597,6 +597,7 @@ impl Render for View {
                     assistant: self.assistant.as_ref(),
                     snapshot: self.node.snapshot.as_ref(),
                     connected: self.connected(),
+                    credentials: &[],
                 },
                 window,
                 cx,

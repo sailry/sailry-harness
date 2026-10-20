@@ -15,6 +15,7 @@ pub struct View {
     pub snapshot: Option<Snapshot>,
     pub notifications: Vec<crate::activity::Notice>,
     pub package_cursors: std::collections::BTreeMap<String, u64>,
+    pub credential_cursor: u64,
     pub connected: bool,
     pub connection: sailry_link::ConnectionInfo,
     pub error: Option<Fault>,
@@ -86,6 +87,9 @@ impl Client {
                         Fault::new(ErrorCode::Internal, "subscription generation exhausted")
                     })?;
                     projection.reconnect(generation)?;
+                    updates.send_modify(|view| {
+                        view.credential_cursor = projection.credential_cursor()
+                    });
                     loop {
                         let update = tokio::select! {
                             biased;
@@ -99,6 +103,10 @@ impl Client {
                                 Err(error) => break error,
                             };
                         if applied == Apply::Recover {
+                            // Drop observations of older credentials before waiting for recovery.
+                            updates.send_modify(|view| {
+                                view.credential_cursor = projection.credential_cursor()
+                            });
                             let recovered = tokio::select! {
                                 biased;
                                 _ = stop.cancelled() => return Ok(()),
@@ -119,6 +127,7 @@ impl Client {
                                 snapshot: projection.snapshot().cloned(),
                                 notifications: activity.notices.clone(),
                                 package_cursors: projection.package_cursors().clone(),
+                                credential_cursor: projection.credential_cursor(),
                                 connected: true,
                                 connection,
                                 error: None,
@@ -138,6 +147,7 @@ impl Client {
                 snapshot: projection.snapshot().cloned(),
                 notifications: activity.notices.clone(),
                 package_cursors: projection.package_cursors().clone(),
+                credential_cursor: projection.credential_cursor(),
                 // Backpressure is not evidence that the authenticated transport
                 // or an already-valid projection became unavailable.
                 connected,

@@ -4,6 +4,7 @@ use gpui_kit::component::{
     input::{InputEvent, InputState, NumberInputEvent, StepAction},
     searchable_list::SearchableListItem,
     select::{SelectEvent, SelectState},
+    time_field::{TimeFieldEvent, TimeFieldState, TimePrecision},
 };
 use sailry_protocol::{
     Secret,
@@ -39,6 +40,7 @@ type Choices = Entity<SelectState<Vec<Item>>>;
 enum Control {
     Text(Entity<InputState>),
     Number(Entity<InputState>),
+    Time(Entity<TimeFieldState>),
     Bool(bool),
     Choice(Choices),
     Model {
@@ -153,6 +155,26 @@ impl Setting {
             Control::Choice(choice)
         } else if spec.kind == Kind::Boolean {
             Control::Bool(value.and_then(Json::as_bool).unwrap_or(false))
+        } else if spec.time {
+            let (hour, minute) = value
+                .and_then(Json::as_str)
+                .and_then(sailry_protocol::plugin::settings::parse_time)
+                .unwrap_or((0, 0));
+            let time = cx.new(|cx| {
+                let mut state = TimeFieldState::new(window, cx).precision(TimePrecision::Minute);
+                state.set_time(
+                    chrono::NaiveTime::from_hms_opt(hour, minute, 0).expect("validated time"),
+                    window,
+                    cx,
+                );
+                state
+            });
+            subscriptions.push(cx.subscribe(&time, |field, _, _: &TimeFieldEvent, cx| {
+                if !field.locked {
+                    field.edited(cx);
+                }
+            }));
+            Control::Time(time)
         } else {
             let initial = value
                 .map(|value| {
@@ -208,6 +230,7 @@ impl Setting {
     pub fn compatible(&self, name: &str, spec: &Field) -> bool {
         self.name == name
             && self.spec.kind == spec.kind
+            && self.spec.time == spec.time
             && self.spec.model == spec.model
             && self.spec.effort == spec.effort
             && self.spec.choices == spec.choices
@@ -386,6 +409,7 @@ impl Setting {
         }
         let value = match &self.control {
             Control::Text(input) => Json::String(input.read(cx).value().to_string()),
+            Control::Time(time) => Json::String(time.read(cx).time().format("%H:%M").to_string()),
             Control::Number(input) => {
                 let value: Json = serde_json::from_str(input.read(cx).value().trim())
                     .map_err(|_| "plugins_settings_number")?;
@@ -430,6 +454,11 @@ impl Setting {
                 input.update(cx, |input, cx| input.set_value("", window, cx))
             }
             Control::Bool(value) => *value = false,
+            Control::Time(time) => {
+                time.update(cx, |time, cx| {
+                    time.set_time(chrono::NaiveTime::MIN, window, cx)
+                });
+            }
             Control::Choice(choice) => {
                 choice.update(cx, |choice, cx| choice.set_selected_index(None, window, cx))
             }

@@ -405,6 +405,11 @@ Entering settings can preload bounded immutable resources without running script
 String settings may declare a JSON Schema `pattern` alongside length limits. Invalid
 patterns reject the schema; values that do not match are rejected before saving.
 
+A public string setting may declare `x-sailry-time: true` to use Kit's minute-precision
+time control in the common configuration form. Defaults and saved values use strict
+24-hour `HH:mm` from `00:00` through `23:59`, without an implicit time zone conversion.
+Boolean settings use the same form's switch and ordinary settings save path.
+
 A successful `SavePluginSettings` publishes `settings.changed` in that package's
 dispatch namespace within the same transaction. Its payload contains only the
 public `package` reference and decimal-string `settings_revision`; the reference
@@ -473,7 +478,7 @@ Conversation components are available in workspace and resource panels, includin
 
 ## Contributions and operations
 
-Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `statistics`, `footer`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics popover.
+Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `statistics`, `footer`, `provider`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics popover.
 
 The `footer` slot accepts passive `metric` contributions immediately before the
 conversation usage controls, independently of Sailry session statistics. Supply
@@ -499,6 +504,24 @@ when the context changes and discard HTTP replies for an older selection.
 request through the execution Node; the package receives the public HTTP response
 without receiving its private authorization headers. It does not admit a durable
 command or create a session usage record.
+
+The `provider` slot accepts only passive `metric` contributions in channel rows.
+The host mounts one contribution controller per enabled package for the visible
+channel page using the existing `desktop.ui_entry` (`context().surface` is
+`provider`). `readProviderContexts()` and `nextProviderContexts(cursor)` expose
+`{cursor, connected, providers}` for all current channels matching that package's
+preset or native resource declaration. Each provider has the same public fields
+as `ModelContext.provider` plus `scope: {provider, revision, credential: {node, id}}`.
+The scope revision is the `providerRevision:credentialRevision` token; the provider
+revision used for HTTP remains unchanged. These are public references, not authorization
+values. Publish that exact `scope` with
+its metric state; the host rejects stale scopes and keeps identical contribution
+IDs for different channels separate. Compact row details reuse localized labels,
+values and optional progress. A metric without details renders its icon and value.
+Missing measurements should be hidden. Keep one package refresh loop, discard
+replies for replaced identities, and use `requestProviderHttp` for all reads;
+the execution Node shares matching authorized requests with conversation footers.
+Leaving the page releases its host, subscriptions and outstanding read observers.
 
 The `model` slot places ordinary contribution controls in the model popover.
 Its state segments also appear beside the model label; `accent` uses the semantic
