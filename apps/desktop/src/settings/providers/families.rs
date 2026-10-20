@@ -161,7 +161,7 @@ impl Workspace {
                                     .items_center()
                                     .child(icon.as_ref().map_or_else(
                                         || ModelCategory::Other.icon().into_any_element(),
-                                        |entry| presets::brand_icon(entry, rems(1.)),
+                                        |entry| presets::render_icon(entry, rems(1.)),
                                     ))
                                     .child(text.clone())
                             })

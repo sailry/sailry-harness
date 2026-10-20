@@ -52,45 +52,55 @@ pub(super) fn icon(entry: &Entry) -> Icon {
     }
 }
 
-pub(super) fn render_icon(entry: &Entry, size: Rems) -> AnyElement {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
-    if let Some(data) = entry.icon.as_deref()
-        && let Some((prefix, data)) = data.split_once(',')
-    {
-        let format = match prefix {
-            "data:image/png;base64" => Some(ImageFormat::Png),
-            "data:image/svg+xml;base64" => Some(ImageFormat::Svg),
-            _ => None,
-        };
-        if let Some((format, bytes)) = format.zip(STANDARD.decode(data).ok()) {
-            return img(Arc::new(Image::from_bytes(format, bytes)))
-                .size(size)
-                .into_any_element();
-        }
-    }
-    if let Some(url) = entry
-        .preset
-        .logo
-        .as_ref()
-        .filter(|path| path.starts_with("https://"))
-    {
-        return img(url.clone()).size(size).into_any_element();
-    }
-    icon(entry).size(size).into_any_element()
+/// One directory type's glyph, resolved the same way wherever the type appears.
+#[derive(Debug, PartialEq)]
+enum Glyph<'a> {
+    /// The package's declared brand glyph; monochrome, it follows the text color.
+    Declared(&'a sailry_protocol::plugin::desktop::Icon),
+    Image(ImageFormat, Vec<u8>),
+    Remote(&'a str),
+    Fallback,
 }
 
-pub(super) fn brand_icon(entry: &Entry, size: Rems) -> AnyElement {
+fn glyph(entry: &Entry) -> Glyph<'_> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
     if let Some(icon) = entry
         .preset
         .brand_display
         .as_ref()
         .and_then(|display| display.icon.as_ref())
     {
-        return crate::assets::icons::icon(icon)
-            .size(size)
-            .into_any_element();
+        return Glyph::Declared(icon);
     }
-    render_icon(entry, size)
+    if let Some((prefix, data)) = entry.icon.as_deref().and_then(|data| data.split_once(',')) {
+        let format = match prefix {
+            "data:image/png;base64" => Some(ImageFormat::Png),
+            "data:image/svg+xml;base64" => Some(ImageFormat::Svg),
+            _ => None,
+        };
+        if let Some((format, bytes)) = format.zip(STANDARD.decode(data).ok()) {
+            return Glyph::Image(format, bytes);
+        }
+    }
+    entry
+        .preset
+        .logo
+        .as_deref()
+        .filter(|path| path.starts_with("https://"))
+        .map_or(Glyph::Fallback, Glyph::Remote)
+}
+
+pub(super) fn render_icon(entry: &Entry, size: Rems) -> AnyElement {
+    match glyph(entry) {
+        Glyph::Declared(icon) => crate::assets::icons::icon(icon)
+            .size(size)
+            .into_any_element(),
+        Glyph::Image(format, bytes) => img(Arc::new(Image::from_bytes(format, bytes)))
+            .size(size)
+            .into_any_element(),
+        Glyph::Remote(url) => img(url.to_owned()).size(size).into_any_element(),
+        Glyph::Fallback => icon(entry).size(size).into_any_element(),
+    }
 }
 
 pub(super) fn brand(entry: &Entry) -> String {
@@ -235,5 +245,27 @@ mod tests {
             1
         );
         assert_ne!(key, brand(&entries[0]));
+    }
+
+    #[test]
+    fn prefers_declared_brand_glyphs() {
+        let mut plugin = bundled().remove(0);
+        plugin.source = Source::Package {
+            name: "sample.models".into(),
+        };
+        plugin.preset.logo = None;
+        assert_eq!(glyph(&plugin), Glyph::Fallback);
+        plugin.icon = Some("data:image/svg+xml;base64,PHN2Zy8+".into());
+        assert_eq!(
+            glyph(&plugin),
+            Glyph::Image(ImageFormat::Svg, b"<svg/>".to_vec())
+        );
+        let declared = sailry_protocol::plugin::desktop::Icon::Name("reicon:messages/chat".into());
+        plugin.preset.brand_display = Some(sailry_protocol::plugin::desktop::Navigation {
+            label: "Sample".into(),
+            locales: Default::default(),
+            icon: Some(declared.clone()),
+        });
+        assert_eq!(glyph(&plugin), Glyph::Declared(&declared));
     }
 }

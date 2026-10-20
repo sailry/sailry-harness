@@ -12,7 +12,7 @@ impl Editor {
             .into_iter()
             .map(|(key, entries)| {
                 let first = &entries[0];
-                (key, brand_label(first), presets::brand_icon(first, icon))
+                (key, brand_label(first), presets::render_icon(first, icon))
             })
             .collect()
     }
