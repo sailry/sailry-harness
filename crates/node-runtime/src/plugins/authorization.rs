@@ -183,3 +183,20 @@ fn unavailable(_: impl std::fmt::Display) -> Fault {
 fn invalid_callback() -> Fault {
     Fault::invalid("MCP authorization callback does not match its redirect")
 }
+
+/// Extract the SDK's current access token only inside the Node credential boundary.
+pub(crate) fn access(secret: &Secret) -> Result<Secret, Fault> {
+    let credentials: Credentials = serde_json::from_str(secret.expose()).map_err(unavailable)?;
+    credentials
+        .state
+        .token_response
+        .as_ref()
+        .and_then(|response| serde_json::to_value(response).ok())
+        .and_then(|value| {
+            value
+                .get("access_token")
+                .and_then(serde_json::Value::as_str)
+                .map(|value| Secret::new(value.to_owned()))
+        })
+        .ok_or_else(|| unavailable("MCP access token is unavailable"))
+}

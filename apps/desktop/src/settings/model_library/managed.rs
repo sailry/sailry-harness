@@ -6,13 +6,16 @@ use gpui_kit::component::button::Button;
 use gpui_kit::prelude::FluentBuilder as _;
 
 impl ModelKey {
-    fn selector(self, action: &str) -> String {
+    fn selector(&self, action: &str) -> String {
         match self {
-            Self::Embedding(model) => match action {
-                "row" => format!("knowledge-model-{}", model.key()),
-                "delete" => format!("knowledge-delete-model-{}", model.key()),
-                action => format!("knowledge-{action}-{}", model.key()),
-            },
+            Self::Node(kind, id) => {
+                let prefix = match kind {
+                    Kind::Embedding => "knowledge",
+                    Kind::Ocr => "ocr",
+                    Kind::Speech => unreachable!("speech belongs to the controller"),
+                };
+                format!("{prefix}-{action}-{id}")
+            }
             Self::Speech(Some(id)) => match action {
                 "row" => format!("speech-model-{id}"),
                 action => format!("speech-{action}-{id}"),
@@ -28,7 +31,6 @@ impl ModelKey {
                 "details" => "dictation-model-details".into(),
                 _ => unreachable!("recommended speech model has no removal action"),
             },
-            Self::Ocr(id) => format!("ocr-{action}-{}", blake3::Hash::from(id).to_hex()),
         }
     }
 }
@@ -43,9 +45,9 @@ pub(in crate::settings) fn rows(
     models
         .into_iter()
         .map(|model| {
-            let key = model.key;
+            let selected_key = model.key.clone();
             let selector = move |action| {
-                let value = key.selector(action);
+                let value = selected_key.selector(action);
                 if library {
                     format!("model-library-{value}")
                 } else {
@@ -65,17 +67,21 @@ pub(in crate::settings) fn rows(
                 });
             let mut entry = Entry::new(selector("row"), content);
             let owner = target.clone();
+            let key = model.key.clone();
             let id = selector("details");
             entry = entry.action(
                 Button::new(SharedString::from(id.clone()))
                     .debug_selector(move || id.clone())
                     .icon(IconName::Settings2)
                     .accessibility_label(tr("knowledge_model_details"))
-                    .on_click(move |_, window, cx| details::open(owner.clone(), key, window, cx)),
+                    .on_click(move |_, window, cx| {
+                        details::open(owner.clone(), key.clone(), window, cx)
+                    }),
             );
             match model.status {
                 ModelStatus::Missing | ModelStatus::Failed => {
                     let owner = target.clone();
+                    let key = model.key.clone();
                     let id = selector("install");
                     entry = entry.action(
                         Button::new(SharedString::from(id.clone()))
@@ -83,7 +89,7 @@ pub(in crate::settings) fn rows(
                             .icon(gpui_kit::assets::IconName::Download)
                             .accessibility_label(tr("knowledge_install"))
                             .disabled(locked)
-                            .on_click(move |_, window, cx| owner.install(key, window, cx)),
+                            .on_click(move |_, window, cx| owner.install(key.clone(), window, cx)),
                     );
                 }
                 ModelStatus::Downloading(_) | ModelStatus::Checking => {
@@ -96,6 +102,7 @@ pub(in crate::settings) fn rows(
                     );
                     if matches!(model.status, ModelStatus::Downloading(_)) {
                         let owner = target.clone();
+                        let key = model.key.clone();
                         let id = selector("cancel");
                         entry = entry.action(
                             Button::new(SharedString::from(id.clone()))
@@ -103,7 +110,9 @@ pub(in crate::settings) fn rows(
                                 .icon(IconName::CircleX)
                                 .accessibility_label(tr("settings_cancel"))
                                 .disabled(model.cancelling)
-                                .on_click(move |_, window, cx| owner.cancel(key, window, cx)),
+                                .on_click(move |_, window, cx| {
+                                    owner.cancel(key.clone(), window, cx)
+                                }),
                         );
                     }
                 }
@@ -111,6 +120,7 @@ pub(in crate::settings) fn rows(
             }
             if model.selectable {
                 let owner = target.clone();
+                let key = model.key.clone();
                 let id = selector("select");
                 entry = entry.action(
                     Button::new(SharedString::from(id.clone()))
@@ -122,7 +132,7 @@ pub(in crate::settings) fn rows(
                             "model_library_select"
                         }))
                         .disabled(locked || model.selected)
-                        .on_click(move |_, window, cx| owner.select(key, window, cx)),
+                        .on_click(move |_, window, cx| owner.select(key.clone(), window, cx)),
                 );
             }
             entry
@@ -150,26 +160,19 @@ fn size(bytes: u64) -> String {
 }
 
 impl Target {
-    fn entry(&self, key: ModelKey, cx: &App) -> Option<ManagedModel> {
+    fn entry(&self, key: &ModelKey, cx: &App) -> Option<ManagedModel> {
         let entries = match self {
-            Self::Knowledge(panel) => panel.read(cx).model_entries(cx),
+            Self::Node(panel, kind) => panel.read(cx).model_entries(*kind),
             Self::Speech(panel) => panel.read(cx).model_entries(cx),
-            Self::Ocr(panel) => panel.read(cx).model_entries(cx),
         };
-        entries.into_iter().find(|model| match (model.key, key) {
-            (ModelKey::Embedding(left), ModelKey::Embedding(right)) => left == right,
-            (ModelKey::Speech(left), ModelKey::Speech(right)) => left == right,
-            (ModelKey::Ocr(left), ModelKey::Ocr(right)) => left == right,
-            _ => false,
-        })
+        entries.into_iter().find(|model| &model.key == key)
     }
-    fn definition(&self, key: ModelKey, cx: &App) -> Option<Definition> {
+    fn definition(&self, key: &ModelKey, cx: &App) -> Option<Definition> {
         match (self, key) {
-            (Self::Knowledge(panel), ModelKey::Embedding(model)) => {
-                panel.read(cx).definition_for(model)
+            (Self::Node(panel, kind), ModelKey::Node(owner, id)) if kind == owner => {
+                panel.read(cx).definition_for(id)
             }
-            (Self::Speech(panel), ModelKey::Speech(id)) => panel.read(cx).definition_for(id),
-            (Self::Ocr(panel), ModelKey::Ocr(id)) => panel.read(cx).definition_for(id),
+            (Self::Speech(panel), ModelKey::Speech(id)) => panel.read(cx).definition_for(*id),
             _ => None,
         }
     }

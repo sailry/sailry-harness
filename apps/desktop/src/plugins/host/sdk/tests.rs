@@ -5,7 +5,6 @@ mod knowledge;
 mod model_assets;
 mod notifications;
 mod providers;
-mod registration;
 mod sessions;
 mod transactions;
 mod web;

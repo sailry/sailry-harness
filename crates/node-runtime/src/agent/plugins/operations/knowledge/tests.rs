@@ -88,14 +88,9 @@ fn preserves_queries_and_revision_checks() {
 #[test]
 fn accepts_registered_model_bindings() {
     let context = context();
-    let model = knowledge::Model::Registered {
-        id: sailry_protocol::ModelId::new(),
-    };
-    let encoded = serde_json::to_value(model).unwrap();
-    let knowledge::Model::Registered { id } = model else {
-        unreachable!()
-    };
-    assert_eq!(encoded, json!({"registered":{"id":id}}));
+    let model = format!("model-{}", sailry_protocol::ModelId::new());
+    let encoded = serde_json::to_value(&model).unwrap();
+    assert_eq!(encoded, json!(model));
     let schema = parameters(Operation::KnowledgeCreate);
     let validator = jsonschema::draft202012::options().build(&schema).unwrap();
     let input = json!({
@@ -109,12 +104,14 @@ fn accepts_registered_model_bindings() {
     else {
         panic!("collection command expected")
     };
-    assert_eq!(definition.model, Some(model));
+    assert_eq!(definition.model, Some(model.clone()));
     for invalid in [
         json!({"registered":{}}),
         json!({"registered":{"id":7}}),
-        json!({"registered":{"id":id,"owner":"other"}}),
-        json!({"registered":{"id":id},"owner":"other"}),
+        json!({"registered":{"id":model,"owner":"other"}}),
+        json!({"registered":{"id":model},"owner":"other"}),
+        json!("UPPERCASE"),
+        json!("../outside"),
     ] {
         let mut input = input.clone();
         input["model"] = invalid;

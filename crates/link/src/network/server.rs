@@ -147,8 +147,8 @@ async fn request(
         }
         subscription @ (Call::Subscribe
         | Call::WatchProviderLogin(_)
-        | Call::WatchMcpLogin(_)
-        | Call::WatchPluginLogin(_)
+        | Call::WatchConnectorLogin(_)
+        | Call::WatchConnections
         | Call::WatchFiles(_)
         | Call::WatchCodeServers(_)
         | Call::WatchCodeInstallations
@@ -177,8 +177,8 @@ async fn request(
                     sailry_protocol::Topic::ScopedInstallations(request)
                 }
                 Call::WatchProviderLogin(id) => sailry_protocol::Topic::ProviderLogin(id),
-                Call::WatchMcpLogin(id) => sailry_protocol::Topic::McpLogin(id),
-                Call::WatchPluginLogin(id) => sailry_protocol::Topic::PluginLogin(id),
+                Call::WatchConnectorLogin(id) => sailry_protocol::Topic::ConnectorLogin(id),
+                Call::WatchConnections => sailry_protocol::Topic::Connections,
                 Call::WatchFiles(worktree) => sailry_protocol::Topic::Files(worktree),
                 Call::WatchCodeInstallations => sailry_protocol::Topic::CodeInstallations,
                 Call::WatchCodeServers(worktree) => sailry_protocol::Topic::CodeServers(worktree),

@@ -44,12 +44,32 @@ impl Changes {
                 .collect()
         };
         let actions = |info: &Info| {
-            info.extension
+            let mut actions: BTreeSet<String> = info
+                .extension
                 .iter()
                 .flat_map(|extension| &extension.actions)
                 .filter_map(|action| serde_json::to_value(action).ok())
                 .filter_map(|value| value.as_str().map(str::to_owned))
-                .collect()
+                .collect();
+            for connector in info
+                .extension
+                .iter()
+                .flat_map(|extension| &extension.connectors)
+            {
+                for auth in &connector.auth {
+                    if let sailry_protocol::plugin::connector::Auth::LocalCli { .. } = auth {
+                        actions.insert(
+                            serde_json::json!({
+                                "local_cli": auth,
+                                "origins": connector.origins,
+                                "inject": connector.inject,
+                            })
+                            .to_string(),
+                        );
+                    }
+                }
+            }
+            actions
         };
         Self {
             tools: Delta::between(tools(previous), tools(candidate)),

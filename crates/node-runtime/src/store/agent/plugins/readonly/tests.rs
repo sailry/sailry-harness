@@ -170,7 +170,7 @@ fn permits_observation_without_model_mutation() {
     crate::store::commands::revise_session(&fixture.database.connection, session).unwrap();
     let coding = fixture.queued();
     let db = &fixture.database.connection;
-    let install = Command::InstallOcrModel {
+    let install = Command::InstallLocalModel {
         id: "fixture".into(),
     };
     assert_eq!(

@@ -95,7 +95,18 @@ impl Details {
             .map(|value| value.actions.as_slice())
             .unwrap_or_default();
         let mut items = Vec::new();
-        if actions.is_empty() {
+        let local_commands = info
+            .extension
+            .iter()
+            .flat_map(|extension| &extension.connectors)
+            .flat_map(|connector| &connector.auth)
+            .any(|auth| {
+                matches!(
+                    auth,
+                    sailry_protocol::plugin::connector::Auth::LocalCli { .. }
+                )
+            });
+        if actions.is_empty() && !local_commands {
             items.push(
                 rows::row(
                     "plugin-no-permissions".into(),
@@ -125,6 +136,29 @@ impl Details {
                 )
                 .into_any_element(),
             );
+        }
+        for connector in info
+            .extension
+            .iter()
+            .flat_map(|extension| &extension.connectors)
+        {
+            for auth in &connector.auth {
+                if let sailry_protocol::plugin::connector::Auth::LocalCli { command, .. } = auth {
+                    items.push(
+                        rows::row(
+                            format!("plugin-cli-{}", connector.id),
+                            IconName::SquareTerminal,
+                            tr("connector_cli_capability"),
+                            Some(command.clone()),
+                            Tag::warning()
+                                .small()
+                                .child(tr("market_details_access_operate")),
+                            cx,
+                        )
+                        .into_any_element(),
+                    );
+                }
+            }
         }
         let hosts: std::collections::BTreeSet<_> = info
             .mcp

@@ -1,5 +1,4 @@
 use super::*;
-use sailry_protocol::plugin::settings::SecretUpdate;
 use serde_json::json;
 use std::collections::BTreeMap;
 #[path = "../../plugins/http/server.rs"]
@@ -18,28 +17,11 @@ async fn install_figma(fixture: &process::Fixture, origin: &str) {
     std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
     let manifest = include_str!("../../../../../plugins/figma/plugin.json");
     let source = include_str!("../../../../../plugins/figma/dev.sailry.platform/host/main.js");
-    let mut settings: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../plugins/figma/dev.sailry.platform/settings.json"
-    ))
-    .unwrap();
-    assert_eq!(
-        settings["properties"]["token"]["x-sailry-secret"]["origin"],
-        "https://api.figma.com"
-    );
-    assert_eq!(source.matches("https://api.figma.com").count(), 1);
-    // Only this isolated fixture substitutes the fixed production origin and binding.
-    settings["properties"]["token"]["x-sailry-secret"]["origin"] = json!(origin);
+    fixture
+        .node
+        .set_connector_fixture("https://api.figma.com", origin);
     std::fs::write(root.join("plugin.json"), manifest).unwrap();
-    std::fs::write(
-        root.join("dev.sailry.platform/settings.json"),
-        settings.to_string(),
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("dev.sailry.platform/host/main.js"),
-        source.replace("https://api.figma.com", origin),
-    )
-    .unwrap();
+    std::fs::write(root.join("dev.sailry.platform/host/main.js"), source).unwrap();
     let Output::Plugin(info) = fixture
         .client
         .execute(fixture.client.prepare(Command::InstallPlugin {
@@ -55,23 +37,46 @@ async fn install_figma(fixture: &process::Fixture, origin: &str) {
         panic!("Figma package expected");
     };
     assert!(info.issues.is_empty(), "{:?}", info.issues);
-    let Output::PluginSettings(settings) = fixture
+    let Output::ConnectorLogin(attempt) = fixture
         .client
-        .execute(fixture.client.prepare(Command::SavePluginSettings {
+        .execute(fixture.client.prepare(Command::StartConnectorLogin {
             package: info.summary.reference(),
-            values: BTreeMap::new(),
-            secrets: BTreeMap::from([(
-                "token".into(),
-                SecretUpdate::Replace(Secret::new(PAT.into())),
-            )]),
+            connector: "figma".into(),
+            connection: None,
+            expected_revision: None,
+            method: sailry_protocol::plugin::connector::Kind::Secret,
+            input: sailry_protocol::plugin::connector::Input {
+                secrets: BTreeMap::from([("token".into(), Secret::new(PAT.into()))]),
+                ..Default::default()
+            },
         }))
         .await
         .unwrap()
     else {
-        panic!("settings expected");
+        panic!("connection attempt expected");
     };
-    assert!(settings.ready);
-    assert!(!serde_json::to_string(&settings).unwrap().contains(PAT));
+    let mut progress = fixture
+        .client
+        .subscribe_connector_login(attempt.id)
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let Update::ConnectorLogin(update) = progress.next().await.unwrap() else {
+                panic!("connection update expected");
+            };
+            assert!(!serde_json::to_string(&update).unwrap().contains(PAT));
+            match update.state {
+                sailry_protocol::plugin::connector::LoginState::Connected(_) => break,
+                sailry_protocol::plugin::connector::LoginState::Failed(error) => {
+                    panic!("{error:?}")
+                }
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
 }
 
 #[tokio::test]

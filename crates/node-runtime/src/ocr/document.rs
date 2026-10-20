@@ -15,6 +15,7 @@ pub(crate) fn supported(path: &str) -> bool {
 pub(crate) fn image(
     service: &Service,
     bytes: &[u8],
+    lane: crate::models::runtime::Lane,
     cancel: &CancellationToken,
 ) -> Result<Vec<Part>, Fault> {
     let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
@@ -31,7 +32,7 @@ pub(crate) fn image(
         .map_err(super::failure)?
         .into_rgb8();
     let text = service
-        .recognize(&image, cancel)?
+        .recognize(image, lane, cancel)?
         .into_iter()
         .map(|line| line.text)
         .collect::<Vec<_>>()
@@ -47,6 +48,7 @@ pub(crate) fn pdf(
     service: &Service,
     bytes: &[u8],
     mut parts: Vec<Part>,
+    lane: crate::models::runtime::Lane,
     cancel: &CancellationToken,
 ) -> Result<Vec<Part>, Fault> {
     if parts.iter().all(|part| !part.text.trim().is_empty()) || service.signature() == [0; 32] {
@@ -94,7 +96,7 @@ pub(crate) fn pdf(
             .collect::<Vec<_>>();
         let image = image::RgbImage::from_raw(width, height, rgb)
             .ok_or_else(|| Fault::invalid("PDF rasterization size is invalid"))?;
-        match service.recognize(&image, cancel) {
+        match service.recognize(image, lane, cancel) {
             Ok(lines) => {
                 part.text = lines
                     .into_iter()

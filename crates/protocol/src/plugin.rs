@@ -3,13 +3,12 @@ use serde::{Deserialize, Serialize};
 
 mod action;
 pub use action::{Access, Action};
-pub mod authorization;
 pub mod card;
 pub mod catalog;
 pub mod connection;
+pub mod connector;
 pub mod conversation;
 pub mod desktop;
-pub mod github;
 pub mod host;
 pub mod http;
 pub mod mcp;
@@ -17,8 +16,6 @@ pub mod model_adapter;
 pub mod model_auth;
 pub mod model_tools;
 pub mod models;
-pub mod oauth;
-pub mod registration;
 pub mod schema;
 pub mod settings;
 pub mod skillcatalog;
@@ -107,6 +104,8 @@ pub enum Tint {
 pub struct Extension {
     #[schemars(extend("const" = API_VERSION))]
     pub api_version: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub connectors: Vec<connector::Declaration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<Category>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -135,9 +134,6 @@ pub struct Extension {
     /// Optional exclusive binding between package enablement and a Node service.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled_service: Option<Service>,
-    /// Optional protected account source exposed by the shared settings form.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential_source: Option<CredentialSource>,
     pub desktop: Option<desktop::Manifest>,
     pub host: Option<host::Manifest>,
     #[schemars(transform = schema::resource_path)]
@@ -147,11 +143,6 @@ pub struct Extension {
     pub conversation_options: Option<serde_json::Value>,
     /// Settings navigation and an optional custom desktop entry.
     pub settings_page: Option<desktop::Settings>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oauth: Option<oauth::Declaration>,
-    /// Provider-owned application creation without a pre-registered client.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub registration: Option<registration::Declaration>,
     /// Inline schemas for package-owned Node and conversation values.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<storage::Declaration>,
@@ -180,11 +171,6 @@ pub struct Extension {
 }
 
 /// Protected native account sources; never expose plaintext to package scripts.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum CredentialSource {
-    GithubCli,
-}
 
 /// A service binding grants no command capabilities by itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -203,6 +189,23 @@ impl Extension {
                 .is_some_and(|suffix| !suffix.is_empty())
         };
         self.icon.as_deref().is_none_or(contains)
+            && self
+                .connectors
+                .iter()
+                .flat_map(|connector| &connector.auth)
+                .all(|auth| match auth {
+                    connector::Auth::Application {
+                        registration: Some(registration),
+                        ..
+                    } => match &registration.flow {
+                        model_auth::Flow::Script { script, .. } => {
+                            contains(&script.entry)
+                                && script.resources.iter().all(|path| contains(path))
+                        }
+                        _ => true,
+                    },
+                    _ => true,
+                })
             && self.cards.iter().all(|card| contains(&card.entry))
             && self
                 .continuation_marker

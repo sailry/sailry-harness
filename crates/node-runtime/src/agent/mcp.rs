@@ -43,7 +43,7 @@ struct Connected {
     peer: rmcp::Peer<RoleClient>,
     toolset: adk_tool::McpToolset<Arc<input::Handler>>,
     handler: Arc<input::Handler>,
-    github: Option<crate::plugins::github::login::Binding>,
+    connector: Option<crate::plugins::connectors::mcp::Authorization>,
     python: Option<crate::python::Ready>,
 }
 
@@ -84,17 +84,17 @@ impl Connections {
             }
             let result = async {
                 if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
-                let launch = config.launch?;
-                let github = match &launch { crate::plugins::resources::mcp::Launch::Http {github,..} => github.clone(), _ => None };
+                let mut launch = config.launch?;
+                let context=sailry_protocol::plugin::Context{package:config.reference.clone(),worktree:Some(invocation.worktree),session:Some(invocation.turn.session),turn:Some(invocation.turn.id),invocation:None,surface:Default::default()};
                 let python = match &launch { crate::plugins::resources::mcp::Launch::Stdio {python,..} => python.clone(), _ => None };
-                let authorized = tokio::select! {
+                let connector = tokio::select! {
                     _ = stop.cancelled() => return Err(unavailable()),
-                    result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_client(ingress, &config.plugin, &config.name, &launch)) => result.map_err(|_| unavailable())??,
+                    result = tokio::time::timeout(Duration::from_secs(10), resources.mcp_authorization(ingress, context, &config.name, &mut launch)) => result.map_err(|_| unavailable())??,
                 };
                 let cached = previous.iter().position(|connection| connection.reference == config.reference && connection.name == config.name)
                     .map(|index| previous.remove(index));
                 let cached = match cached {
-                    Some(connection) if connection.toolset.is_closed().await || connection.github != github => {
+                    Some(connection) if connection.toolset.is_closed().await || connection.connector.as_ref().map(|value|value.key()) != connector.as_ref().map(|value|value.key()) => {
                         connection.close().await?;
                         None
                     }
@@ -104,11 +104,11 @@ impl Connections {
                     connection
                 } else {
                     let handler = Arc::new(input::Handler::new());
-                    let (transport, service) = transport::Connection::open(launch, authorized, stop, handler.clone(), &ingress.environment).await?;
+                    let (transport, service) = transport::Connection::open(launch, connector.clone(), stop, handler.clone(), &ingress.environment).await?;
                     let peer = service.peer().clone();
                     let toolset = adk_tool::McpToolset::new(service)
                         .with_task_support(adk_tool::mcp::McpTaskConfig::enabled().no_timeout());
-                    Connected { reference: config.reference, name: config.name.clone(), transport, peer, toolset, handler, github, python }
+                    Connected { reference: config.reference, name: config.name.clone(), transport, peer, toolset, handler, connector, python }
                 };
                 let listed = tokio::select! {
                     _ = stop.cancelled() => Err(unavailable()),
@@ -125,7 +125,7 @@ impl Connections {
                                 description: format!("MCP {}/{}/{}\n{}", config.plugin, config.name, descriptor.name, descriptor.description.as_deref().unwrap_or("")),
                                 descriptor, package: connection.reference.clone(), toolset: connection.toolset.clone(), ingress: ingress.clone(), handler: connection.handler.clone(), poisoned: self.poisoned.clone(),
                                 turn: invocation.turn.id, session: invocation.turn.session.to_string(), stop: stop.clone(),
-                                github: connection.github.clone(),
+                                connector: connection.connector.clone(),
                                 python: connection.python.clone(),
                             }), presentation);
                             registration.grouping = grouping;
@@ -267,7 +267,7 @@ struct Bound {
     session: String,
     stop: CancellationToken,
     poisoned: Arc<AtomicBool>,
-    github: Option<crate::plugins::github::login::Binding>,
+    connector: Option<crate::plugins::connectors::mcp::Authorization>,
     python: Option<crate::python::Ready>,
 }
 
@@ -398,8 +398,13 @@ impl Bound {
         if context.is_cancelled() || self.stop.is_cancelled() {
             return Err(adk_core::AdkError::tool("MCP invocation was cancelled"));
         }
-        if let Some(binding) = &self.github {
-            binding.validate(&self.ingress.environment, &self.stop).await.map_err(|_| adk_core::AdkError::tool("GitHub CLI account is signed out or changed; link the active account again"))?;
+        if let Some(connector) = &self.connector
+            && connector.validate().await.is_err()
+        {
+            self.poisoned.store(true, Ordering::Relaxed);
+            return Err(adk_core::AdkError::tool(
+                "MCP connection is unavailable or changed",
+            ));
         }
         let active = self.handler.begin(
             self.ingress.clone(),
@@ -420,8 +425,8 @@ impl Bound {
             result = active.run(self.toolset.call_tool_value(&self.descriptor.name, args.clone())) => {
                 if !matches!(&result, Ok(Ok(_))) { self.poisoned.store(true, Ordering::Relaxed); }
                 match result {
-                    Ok(Ok(value)) => Ok(value),
-                    Ok(Err(error)) => Ok(json!({"error": {"code": "outcome_unknown", "message": format!("MCP call failed and was not replayed; side effects may be uncertain: {error}")}})),
+                    Ok(Ok(mut value)) => {if let Some(connector)=&self.connector {connector.redact(&mut value);}Ok(value)},
+                    Ok(Err(error)) => {let mut value=json!({"error":{"code":"outcome_unknown","message":format!("MCP call failed and was not replayed; side effects may be uncertain: {error}")}});if let Some(connector)=&self.connector{connector.redact(&mut value);}Ok(value)},
                     _ => Ok(json!({"error": {"code": "outcome_unknown", "message": "MCP result is unavailable; the call was not replayed and side effects may be uncertain"}})),
                 }
             }

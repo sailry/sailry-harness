@@ -34,6 +34,7 @@ pub(in crate::store) fn initialize(
         let mut result = Ok(Output::Plugin(info));
         let mut event = finish(
             db,
+            host.profile(),
             &Command::InstallBundledPlugin {
                 name: name.into(),
                 expected_revision: 0,
@@ -53,10 +54,36 @@ pub(in crate::store) fn initialize(
         }
     }
     refresh(db, host)?;
+    for summary in list(db)? {
+        let mut info = required(db, &summary.name)?;
+        super::connectors::migrate(db, host.profile(), &mut info)?;
+    }
     crate::store::providers::authentication::initialize(db)?;
     db.execute("UPDATE node SET plugin_defaults=1 WHERE singleton=1", [])
         .map_err(storage_error)?;
     Ok(())
+}
+
+pub(in crate::store) fn needs_connections(
+    db: &Connection,
+    host: &crate::plugins::Host,
+) -> Result<bool, Fault> {
+    for summary in list(db)? {
+        let info = required(db, &summary.name)?;
+        if super::connectors::needs_migration(db, &info)? {
+            return Ok(true);
+        }
+        if info.origin == Some(plugin::Origin::Bundled)
+            && crate::plugins::Host::bundled_newer(&summary.name, summary.version.as_deref())
+                .unwrap_or(false)
+        {
+            let candidate = host.install_bundled(&summary.name)?;
+            if super::connectors::needs_migration(db, &candidate)? {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
@@ -80,6 +107,7 @@ fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {
         let mut result = Ok(Output::Plugin(host.install_bundled(name)?));
         let event = finish(
             db,
+            host.profile(),
             &Command::InstallBundledPlugin {
                 name: name.into(),
                 expected_revision: current.summary.revision,

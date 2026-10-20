@@ -3,16 +3,11 @@ use super::*;
 #[tokio::test]
 async fn queues_edits_without_cancelling_current_pass() {
     let directory = tempfile::tempdir().unwrap();
-    let models = models::Models::open(
-        directory.path(),
-        Settings {
-            model: None,
-            ..Default::default()
-        },
-        vec![],
-    )
-    .await
-    .unwrap();
+    let registry = crate::models::registry::Registry::new(
+        Some(directory.path().into()),
+        CancellationToken::new(),
+    );
+    let models = models::Models::new(registry.clone());
     let (sender, receiver) = mpsc::sync_channel(1);
     let stop = CancellationToken::new();
     let owner = Arc::new(Service {
@@ -71,5 +66,6 @@ async fn queues_edits_without_cancelling_current_pass() {
     ));
     drop(watches);
     owner.shutdown().await;
+    registry.shutdown().await;
     assert!(owner.cancel.lock().unwrap().is_cancelled());
 }

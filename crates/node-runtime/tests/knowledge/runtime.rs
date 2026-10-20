@@ -35,29 +35,42 @@ async fn shares_runtime_configuration_and_conflicts() {
             ErrorCode::RevisionConflict
         );
 
-        let Output::OcrSettings(previous) = execute(writer, Command::ReadOcrSettings).await else {
+        let Output::LocalModelSettings(previous) =
+            execute(writer, Command::ReadLocalModelSettings).await
+        else {
             panic!("OCR settings expected")
         };
         let mut changed = previous.clone();
-        changed.enabled = !previous.enabled;
-        let output = execute(writer, Command::SaveOcrSettings(changed)).await;
-        assert_eq!(execute(reader, Command::ReadOcrSettings).await, output);
+        let kind = sailry_protocol::models::Kind::Ocr;
+        changed.choices.get_mut(&kind).unwrap().enabled = !previous.choice(kind).enabled;
+        let output = execute(writer, Command::SaveLocalModelSettings(changed)).await;
+        assert_eq!(
+            execute(reader, Command::ReadLocalModelSettings).await,
+            output
+        );
         assert_eq!(
             writer
-                .execute(writer.prepare(Command::SaveOcrSettings(previous)))
+                .execute(writer.prepare(Command::SaveLocalModelSettings(previous)))
                 .await
                 .unwrap_err()
                 .code,
             ErrorCode::RevisionConflict
         );
-        let Output::OcrModels(models) = execute(reader, Command::ReadOcrModels).await else {
+        let Output::LocalModels(models) = execute(
+            reader,
+            Command::ReadLocalModels {
+                kind: Some(sailry_protocol::models::Kind::Ocr),
+            },
+        )
+        .await
+        else {
             panic!("OCR models expected")
         };
         assert_eq!(models.len(), 3);
         assert!(
             models
                 .iter()
-                .all(|model| model.state == sailry_protocol::ocr::State::Missing)
+                .all(|model| model.state == sailry_protocol::models::State::Missing)
         );
     }
     fixture.close().await;
@@ -71,7 +84,14 @@ async fn reads_images_and_indexes_scanned_sources() {
     );
     let fixture = Fixture::start().await;
     let [local, remote] = fixture.clients();
-    let Output::OcrModels(models) = execute(&local, Command::ReadOcrModels).await else {
+    let Output::LocalModels(models) = execute(
+        &local,
+        Command::ReadLocalModels {
+            kind: Some(sailry_protocol::models::Kind::Ocr),
+        },
+    )
+    .await
+    else {
         panic!("OCR models expected")
     };
     let model = models
@@ -87,7 +107,14 @@ async fn reads_images_and_indexes_scanned_sources() {
         )
         .unwrap();
     }
-    let Output::OcrModels(models) = execute(&remote, Command::ReadOcrModels).await else {
+    let Output::LocalModels(models) = execute(
+        &remote,
+        Command::ReadLocalModels {
+            kind: Some(sailry_protocol::models::Kind::Ocr),
+        },
+    )
+    .await
+    else {
         panic!("OCR models expected")
     };
     assert_eq!(
@@ -96,16 +123,23 @@ async fn reads_images_and_indexes_scanned_sources() {
             .find(|entry| entry.id == model.id)
             .unwrap()
             .state,
-        sailry_protocol::ocr::State::Missing
+        sailry_protocol::models::State::Missing
     );
     execute(
         &remote,
-        Command::InstallOcrModel {
+        Command::InstallLocalModel {
             id: model.id.clone(),
         },
     )
     .await;
-    let Output::OcrModels(models) = execute(&local, Command::ReadOcrModels).await else {
+    let Output::LocalModels(models) = execute(
+        &local,
+        Command::ReadLocalModels {
+            kind: Some(sailry_protocol::models::Kind::Ocr),
+        },
+    )
+    .await
+    else {
         panic!("OCR models expected")
     };
     assert_eq!(
@@ -114,8 +148,21 @@ async fn reads_images_and_indexes_scanned_sources() {
             .find(|entry| entry.id == model.id)
             .unwrap()
             .state,
-        sailry_protocol::ocr::State::Installed
+        sailry_protocol::models::State::Installed
     );
+    let Output::LocalModelSettings(mut settings) =
+        execute(&remote, Command::ReadLocalModelSettings).await
+    else {
+        panic!("local model settings expected")
+    };
+    settings.choices.insert(
+        sailry_protocol::models::Kind::Ocr,
+        sailry_protocol::models::Choice {
+            enabled: true,
+            model: Some(model.id.clone()),
+        },
+    );
+    execute(&remote, Command::SaveLocalModelSettings(settings)).await;
     fs::copy(reference.join("mixed.png"), fixture.root.join("scan.png")).unwrap();
     fixtures::scanned_pdf(&reference.join("mixed.png"), &fixture.root.join("scan.pdf"));
     let mut citations = Vec::new();
@@ -193,11 +240,17 @@ async fn reads_images_and_indexes_scanned_sources() {
         }
         citations.push(input);
     }
-    let Output::OcrSettings(mut settings) = execute(&remote, Command::ReadOcrSettings).await else {
+    let Output::LocalModelSettings(mut settings) =
+        execute(&remote, Command::ReadLocalModelSettings).await
+    else {
         panic!("OCR settings expected")
     };
-    settings.enabled = false;
-    execute(&remote, Command::SaveOcrSettings(settings)).await;
+    settings
+        .choices
+        .get_mut(&sailry_protocol::models::Kind::Ocr)
+        .unwrap()
+        .enabled = false;
+    execute(&remote, Command::SaveLocalModelSettings(settings)).await;
     for client in [&local, &remote] {
         for input in &citations {
             assert_eq!(

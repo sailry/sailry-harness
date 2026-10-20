@@ -61,8 +61,7 @@ pub(crate) fn prepare(
         headers: request.headers().clone(),
         body,
         timeout: Duration::from_secs(30),
-        oauth: None,
-        application: None,
+        connector: None,
         provider: Some(Box::new(provider)),
         cache: None,
     })

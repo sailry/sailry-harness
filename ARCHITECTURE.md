@@ -41,7 +41,7 @@ a controller does not stop already admitted work.
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
 | `crates/embedding` | CPU model loading, token offsets and normalized local vectors | Source grants, indexing and controllers |
 | `crates/ocr` | Shared CPU image recognition and PaddleOCR decoding | Model downloads, source grants and controllers |
-| `crates/model-assets` | Verified, cancellable model downloads shared by speech and retrieval | Model selection and configuration |
+| `crates/model-assets` | Verified, cancellable model downloads and directory receipts | Model selection and configuration |
 | `crates/content` | Reusable GPUI Kit editors, Markdown, diffs and selection | Node, Client, file acquisition and application state |
 | `apps/desktop` | GPUI Kit composition, focus, drafts and native integrations | Duplicate history or request recovery engines |
 | `apps/host` | Service lifecycle and noninteractive control through Client | Desktop dependencies and a prompt loop |
@@ -97,13 +97,24 @@ Role providers are captured on each parent turn as well; delegated work inherits
 that turn's provider declarations rather than resolving the current package.
 Historical turn-role defaults come from their own immutable session revision.
 
-Declared application registration reuses the Node's durable plugin login owner,
-caller-scoped observation and explicit cancellation. The fixed Feishu adapter
-requests only declared tenant scopes. Its verification URL is transient native
-controller state; device codes and issued secrets remain on the execution Node.
-Saving issued application credentials uses the captured package revision and
-the existing settings transaction, preserving unrelated values and credentials.
-Registration does not establish publication, document access or MCP entitlement.
+Service connections are package-declared resources owned by the execution Node.
+One connection record owns its public fields, private credentials, authentication
+method, consent snapshot and revision. Generic OAuth, token exchange, declarative
+application registration, MCP OAuth and fixed local CLI sources share this owner;
+there is no vendor dispatch. Registration uses the existing private flow runner.
+Only declared origins, headers, MCP servers and environment targets receive
+credentials. OAuth permission or actual MCP endpoint changes suspend use until
+revision-checked consent. Sent turns capture connection identities and revisions,
+while live enablement, revocation and consent remain enforced. Private historical
+settings captures stay intact; current authentication reads only connections.
+
+Local CLI connections bind a public account identity and read transient tokens
+when used. Fixed argv runs without a shell in a minimal environment with bounded
+execution and output. Tokens remain in Node memory and protected injection;
+account changes or sign-out stop use. Connectors settings and inline cards share
+the existing controller authorization presentation and local/remote protocol.
+Application registration does not establish publication, document access or MCP
+entitlement.
 
 Beginning an ordinary task, including delegated work, freezes its user-facing
 input on the existing run record. Conversation projections include that input
@@ -161,14 +172,30 @@ knowledge plugin is bundled. Desktop settings configure vector models. Plugins
 such as notes and reminders organize their own collections and expose their
 settings, feature switches and conversation tools through shared plugin APIs.
 
-One lazy CPU model owner per Node serves small indexing batches and prioritizes
-interactive query work. Optional model assets require an explicit install action
-and immutable revision, size and SHA-256 verification. Source watchers request
-incremental updates; pausing retains existing keyword results, and explicit
-rebuilds invalidate only the selected collection's derived data.
+Source watchers request incremental updates; pausing retains existing keyword
+results, and explicit rebuilds invalidate only the selected collection's derived
+data. An explicit installed collection model overrides the global embedding
+selection, including when global vector retrieval is disabled.
+
+One Node-owned local model registry manages OCR and embedding definitions,
+selection, downloads, verified receipts and installation state through the same
+commands and events. Assets require explicit installation and immutable revision,
+size and SHA-256 verification. Existing model IDs, directories and collection
+references survive the centralized, backed-up storage update; derived vector keys
+and source scopes remain unchanged. The settings singleton records completed
+import even after all registered models are removed.
+
+One CPU runtime lazily loads both model kinds and runs one inference at a time.
+Interactive retrieval and document inspection take priority over queued indexing
+and extraction. The runtime releases idle engines after five minutes and evicts
+the least recently used engines against a 2 GiB asset-size estimate. A larger
+individual model may load alone. Cancellation reaches queued work and active
+engine stages; removal invalidates captures and unloads the engine before deleting
+owned assets. Desktop shares one model panel per Node while speech remains local
+to its controller.
 
 Model discovery reads public Hugging Face or ModelScope catalogs through the
-selected Node. Each registered embedding definition binds its supported algorithm
+selected Node. Each registered definition binds its supported algorithm
 and asset hashes to an immutable model identity; branch labels never substitute
 for pinned file revisions. Desktop downloads and selects compatible speech models
 locally, and recording retains its selected model until transcription finishes.
@@ -314,15 +341,16 @@ uncertain and are not replayed automatically with a new identity. Conflicts requ
 fresh inspection, not silent overwrites.
 
 Node shares one bounded installation queue across resource types. Independent
-resources can prepare concurrently; attempts for the same plugin, model-service
-family or language package stay in admission order through durable completion. Caller-scoped transient snapshots expose real
+resources can prepare concurrently; attempts for the same plugin, local model
+kind or language package stay in admission order through durable completion. Caller-scoped transient snapshots expose real
 phases and measured progress through the same local and remote Client subscription.
 Confirmed success removes a task; failures and uncertain outcomes remain until
 explicitly dismissed. Dismissal changes only the observation, not the command ledger
 or active execution. Captured plugin authority stays private. Controllers own installer
 visibility and locally planned batches, not another execution queue.
-OCR, embedding and language installation reuse this queue and their existing native
-drivers. Language removal shares its package lane without appearing as an installation.
+OCR and embedding installation reuse this queue through their shared registry;
+native validation uses the same CPU runtime as inference. Language installation
+keeps its package driver; removal shares that lane without appearing as an installation.
 Speech installation remains with the controller-local speech manager. Public installation
 observations require their model or language capability and expose only explicitly
 owned requests in their original captured plugin scope, never the controller feed.

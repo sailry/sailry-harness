@@ -16,6 +16,7 @@ mod forwarding;
 pub(crate) mod hooks;
 mod installations;
 pub(crate) mod knowledge;
+mod local_models;
 pub(crate) mod login;
 mod mcp;
 pub(crate) mod media;
@@ -23,9 +24,7 @@ mod models;
 mod mutations;
 mod network;
 mod notifications;
-mod ocr;
 mod outcomes;
-mod plugin_oauth;
 mod plugins;
 mod ports;
 mod processes;
@@ -76,11 +75,11 @@ enum Job {
         cancel: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<backup::Source, Fault>>,
     },
-    OcrCatalog {
-        reply: oneshot::Sender<Result<ocr::Catalog, Fault>>,
+    LocalCatalog {
+        reply: oneshot::Sender<Result<local_models::Catalog, Fault>>,
     },
-    OcrModels {
-        models: Vec<sailry_protocol::ocr::Model>,
+    LocalModels {
+        models: Vec<sailry_protocol::models::Model>,
         reply: oneshot::Sender<Result<(), Fault>>,
     },
     PythonSettings {
@@ -102,10 +101,6 @@ enum Job {
         id: sailry_protocol::KnowledgeId,
         generation: u64,
         progress: sailry_protocol::knowledge::Progress,
-        reply: oneshot::Sender<Result<(), Fault>>,
-    },
-    KnowledgeModels {
-        models: Vec<sailry_protocol::knowledge::ModelInfo>,
         reply: oneshot::Sender<Result<(), Fault>>,
     },
     KnowledgeSources {
@@ -153,7 +148,21 @@ enum Job {
         reply: oneshot::Sender<Result<(), Fault>>,
     },
     McpCredentials(mcp::Operation),
-    PluginOAuth(plugin_oauth::Operation),
+    ConnectorState {
+        reply: oneshot::Sender<Result<sailry_protocol::plugin::connector::Changes, Fault>>,
+    },
+    ConnectorTarget {
+        id: sailry_protocol::plugin::connector::Id,
+        revision: u64,
+        reply: oneshot::Sender<Result<crate::plugins::connectors::Target, Fault>>,
+    },
+    ConnectorGrant {
+        id: sailry_protocol::plugin::connector::Id,
+        revision: u64,
+        previous: Option<sailry_protocol::Secret>,
+        grant: Option<crate::providers::login::plugin::Issued>,
+        reply: oneshot::Sender<Result<(), Fault>>,
+    },
     Authorization {
         reference: sailry_protocol::CredentialRef,
         provider: sailry_protocol::ProviderId,
@@ -171,8 +180,7 @@ enum Job {
     SubscribeLogin {
         caller: NodeId,
         id: sailry_protocol::RequestId,
-        mcp: bool,
-        plugin: bool,
+        connector: bool,
         reply: oneshot::Sender<Result<Box<dyn Subscription>, Fault>>,
     },
     Agent(Box<agent::Operation>),
@@ -250,10 +258,6 @@ enum Job {
     },
     SearchPlan {
         reply: oneshot::Sender<Result<crate::web::search::Plan, Fault>>,
-    },
-    GithubTarget {
-        package: sailry_protocol::plugin::Reference,
-        reply: oneshot::Sender<Result<Option<crate::plugins::github::login::Identity>, Fault>>,
     },
     TerminalOpening {
         id: sailry_protocol::TerminalId,
@@ -343,6 +347,7 @@ pub(crate) struct Ingress {
     pub(crate) git: crate::git::Git,
     pub(crate) code: Arc<crate::code::Pool>,
     pub(crate) ocr: Arc<crate::ocr::Service>,
+    pub(crate) local_models: Arc<crate::models::registry::Registry>,
     pub(crate) knowledge: Arc<OnceLock<Arc<crate::knowledge::Service>>>,
     code_queries: Arc<crate::code::Queries>,
     pub(crate) web: Arc<crate::web::Fetcher>,
@@ -360,8 +365,7 @@ pub(crate) struct Ingress {
     pub(crate) dispatch: Arc<crate::dispatch::Controls>,
     pub(crate) plugins: crate::plugins::Host,
     installations: Arc<installations::Registry>,
-    pub(crate) oauth: Arc<crate::plugins::oauth::Service>,
-    pub(crate) registration: Arc<crate::plugins::registration::Service>,
+    pub(crate) login_service: crate::providers::login::Service,
     closed: CancellationToken,
 }
 
@@ -455,7 +459,9 @@ impl Store {
         let terminals = crate::terminal::Terminals::new(node, move |info| {
             let _ = lifecycle.blocking_send(Job::TerminalInfo(info));
         });
-        let ocr = crate::ocr::Service::new(profile.clone(), closed.child_token());
+        let local_models =
+            crate::models::registry::Registry::new(profile.clone(), closed.child_token());
+        let ocr = crate::ocr::Service::new(local_models.clone());
         let ingress = Arc::new(Ingress {
             node,
             profile: profile.clone(),
@@ -465,8 +471,6 @@ impl Store {
             presets: Arc::default(),
             catalog,
             files: crate::files::Files::new().with_ocr(ocr.clone()),
-            oauth: Arc::default(),
-            registration: Arc::default(),
             #[cfg(any(test, feature = "test-support"))]
             authorization_endpoint: authorization.model_endpoint.clone(),
             #[cfg(any(test, feature = "test-support"))]
@@ -483,10 +487,12 @@ impl Store {
             search: Arc::default(),
             code: crate::code::Pool::new(profile.clone(), environment.clone(), closed.clone()),
             ocr,
+            local_models,
             knowledge: Arc::new(OnceLock::new()),
             terminals: terminals.clone(),
             commands: Arc::default(),
             environment: environment.clone(),
+            login_service: authorization.clone(),
             sender,
             events: events.clone(),
             accepting: accepting.clone(),
@@ -573,7 +579,7 @@ impl Store {
         let worker = std::thread::Builder::new()
             .name("sailry-store".into())
             .spawn(move || {
-                let mut database = match Database::open(&path, node, profile) {
+                let mut database = match Database::open_with_plugins(&path, node, profile.clone(), (bundled && profile.is_some()).then_some(&collection)) {
                     Ok(database) => database,
                     Err(error) => {
                         let _ = ready.send(Err(error));
@@ -583,13 +589,6 @@ impl Store {
                 database.feeds = feeds;
                 database.model_clients = model_clients;
                 match search::read(&database.connection) { Ok(settings) => searcher.configure(settings), Err(error) => {let _=ready.send(Err(crate::Error::from(error)));return Ok(());} }
-                if bundled && database.profile.is_some()
-                    && let Err(error) =
-                        database::schema::install_plugins(&mut database.connection, &path, &collection)
-                {
-                    let _ = ready.send(Err(error));
-                    return Ok(());
-                }
                 plugins::collection::run(&mut database.connection, &collection);
                 if let Err(error) = plugins::retain_python(&database.connection, &collection) { let _ = ready.send(Err(crate::Error::from(error))); return Ok(()); }
                 match code::initialize(&mut database.connection) {Ok(settings)=>{cleanup_runtime.spawn(code_pool.configure(settings));},Err(error)=>{let _=ready.send(Err(crate::Error::from(error)));return Ok(());}}
@@ -800,8 +799,8 @@ impl Store {
                         }
                         Job::BackupPlan { expected, reply } => { let _ = reply.send(backup::plan(&database.connection, expected)); }
                         Job::BackupSnapshot { revision, cancel, reply } => { let _ = reply.send(backup::source(&database, revision, &cancel)); }
-                        Job::OcrCatalog { reply } => { let _ = reply.send(ocr::read(&database.connection)); }
-                        Job::OcrModels { models, reply } => { let _ = reply.send(ocr::models(&mut database, models, &events)); }
+                        Job::LocalCatalog { reply } => { let _ = reply.send(local_models::read(&database.connection)); }
+                        Job::LocalModels { models, reply } => { let _ = reply.send(local_models::models(&mut database, models, &events)); }
                         Job::PythonSettings { reply } => {
                             let _ = reply.send(python::read(&database.connection));
                         }
@@ -816,9 +815,6 @@ impl Store {
                         }
                         Job::KnowledgeProgress { id, generation, progress, reply } => {
                             let _ = reply.send(knowledge::runtime::progress(&mut database, id, generation, &progress, &events));
-                        }
-                        Job::KnowledgeModels { models, reply } => {
-                            let _ = reply.send(knowledge::runtime::models(&mut database, models, &events));
                         }
                         Job::KnowledgeSources { stored, after, limit, stop, reply } => {
                             let _ = reply.send(knowledge::storage::page(&database.connection, &stored, after.as_deref(), limit, &stop));
@@ -864,19 +860,25 @@ impl Store {
                         Job::ProviderQuota(observation) => {
                             let _ = providers::quota::observe(&mut database, observation, &events);
                         }
-                        Job::McpCredentials(operation) => mcp::execute(&mut database, operation),
-                        Job::PluginOAuth(operation) => plugin_oauth::execute(&mut database, operation),
+                        Job::McpCredentials(operation) => mcp::execute(&mut database, operation, &events),
+                        Job::ConnectorState { reply } => {
+                            let _ = reply.send(plugins::connectors::watch::snapshot(&database.connection, database.profile.as_deref()));
+                        }
+                        Job::ConnectorTarget { id, revision, reply } => {
+                            let _ = reply.send(plugins::connectors::current_target(&database.connection, database.profile.as_deref(), id, revision));
+                        }
+                        Job::ConnectorGrant { id, revision, previous, grant, reply } => {
+                            let _ = reply.send(plugins::connectors::renew(&mut database, id, revision, previous.as_ref(), grant, &events));
+                        }
                         Job::SubscribeLogin {
                             caller,
                             id,
-                            mcp,
-                            plugin,
+                            connector,
                             reply,
                         } => {
-                            let _ = reply.send(if plugin {
-                                logins.subscribe_plugin(caller, id)
-                            } else if mcp {
-                                logins.subscribe_mcp(caller, id)
+                            let _ = reply.send(if connector {
+                                logins.subscribe_connector(caller, id)
+
                             } else {
                                 logins.subscribe(caller, id)
                             });
@@ -1108,7 +1110,6 @@ impl Store {
                         Job::SearchPlan { reply } => {
                             let _ = reply.send(search::plan(&database.connection));
                         }
-                        Job::GithubTarget {package,reply} => {let _=reply.send(plugins::github::prepare(&database.connection,&collection,&package));}
                         Job::TerminalOpening { id, reply } => {
                             let _ = reply.send(database.terminal_opening(id));
                         }
@@ -1268,7 +1269,7 @@ impl Store {
                                         })
                                     }
                                     external::Work::PluginExecution(execution) => {
-                                        plugin_work.submit(execution).err().map(|execution| {
+                                        plugin_work.submit(*execution).err().map(|execution| {
                                             (execution.caller, execution.request, execution.reply)
                                         })
                                     }
@@ -1278,7 +1279,7 @@ impl Store {
                                     }
                                     external::Work::Resources(execution) => {
                                         if installations::models::handles(&execution.request.command) {
-                                            installations::models::submit(&mut installations, installing.clone(), execution)
+                                            installations::models::submit(&mut installations, &mut database, &events, installing.clone(), execution)
                                                 .err().map(|execution| (execution.caller, execution.request, execution.reply))
                                         } else if installations::language::handles(&execution.request.command) {
                                             installations::language::submit(&mut installations, installing.clone(), execution)
@@ -1409,7 +1410,7 @@ impl Store {
         initialized
             .await
             .map_err(|error| Error::Worker(error.to_string()))??;
-        if let Err(error) = ocr::start(&store.ingress).await {
+        if let Err(error) = local_models::start(&store.ingress).await {
             let _ = store.shutdown().await;
             return Err(Error::from(error));
         }
@@ -1457,7 +1458,6 @@ impl Store {
         self.ingress.accepting.store(false, Ordering::Release);
         self.ingress.closed.cancel();
         self.ingress.model_clients.clear();
-        self.ingress.ocr.shutdown();
         self.ingress.external_browser.stop.cancel();
         self.ingress.computer.stop.cancel();
         self.ingress.watches.shutdown();
@@ -1471,6 +1471,7 @@ impl Store {
         if let Some(knowledge) = self.ingress.knowledge.get() {
             knowledge.shutdown().await;
         }
+        self.ingress.local_models.shutdown().await;
         let browsers = self.ingress.external_browser.shutdown().await;
         self.ingress.computer.shutdown().await;
         self.ingress.ports.join().await;
@@ -1540,17 +1541,18 @@ impl Handler for Ingress {
             if self.closed.is_cancelled() {
                 return Err(unavailable());
             }
+            if matches!(topic, sailry_protocol::Topic::Connections) {
+                return plugins::connectors::watch::subscribe(self.clone(), caller).await;
+            }
             if let sailry_protocol::Topic::ProviderLogin(id)
-            | sailry_protocol::Topic::McpLogin(id)
-            | sailry_protocol::Topic::PluginLogin(id) = topic
+            | sailry_protocol::Topic::ConnectorLogin(id) = topic
             {
                 let (reply, response) = oneshot::channel();
                 self.sender
                     .try_send(Job::SubscribeLogin {
                         caller,
                         id,
-                        mcp: matches!(topic, sailry_protocol::Topic::McpLogin(_)),
-                        plugin: matches!(topic, sailry_protocol::Topic::PluginLogin(_)),
+                        connector: matches!(topic, sailry_protocol::Topic::ConnectorLogin(_)),
                         reply,
                     })
                     .map_err(|_| unavailable())?;
@@ -1660,6 +1662,42 @@ impl Handler for Ingress {
 }
 
 impl Ingress {
+    pub(crate) async fn connector_target(
+        &self,
+        id: sailry_protocol::plugin::connector::Id,
+        revision: u64,
+    ) -> Result<crate::plugins::connectors::Target, Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(Job::ConnectorTarget {
+                id,
+                revision,
+                reply,
+            })
+            .map_err(|_| unavailable())?;
+        response.await.map_err(|_| unavailable())?
+    }
+
+    pub(crate) async fn save_connector_grant(
+        &self,
+        id: sailry_protocol::plugin::connector::Id,
+        revision: u64,
+        previous: Option<sailry_protocol::Secret>,
+        grant: Option<crate::providers::login::plugin::Issued>,
+    ) -> Result<(), Fault> {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(Job::ConnectorGrant {
+                id,
+                revision,
+                previous,
+                grant,
+                reply,
+            })
+            .map_err(|_| unavailable())?;
+        response.await.map_err(|_| unavailable())?
+    }
+
     pub(crate) fn profile(&self) -> Option<&std::path::Path> {
         self.profile.as_deref()
     }

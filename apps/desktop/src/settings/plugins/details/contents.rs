@@ -149,19 +149,26 @@ impl Details {
                         |host| format!("{transport} · {host}"),
                     );
                     let allowed = matches!(self.target, Target::Installed(_))
-                        && self
-                            .authorization
-                            .read(cx)
-                            .allows(&info.summary.reference(), &server.name);
+                        && metadata::has_connector(info, &server.name);
                     let action = div().when(allowed, |view| {
                         view.child(
-                            authorization::action(
-                                self.binding.clone(),
-                                info.summary.reference(),
-                                server.name.clone(),
-                                format!("plugin-mcp-auth-{}", server.name),
-                            )
-                            .disabled(self.pending(cx)),
+                            Button::new(SharedString::from(format!(
+                                "plugin-mcp-auth-{}",
+                                server.name
+                            )))
+                            .ghost()
+                            .small()
+                            .icon(IconName::ExternalLink)
+                            .accessibility_label(tr("settings_connectors"))
+                            .disabled(self.pending(cx))
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(
+                                    Box::new(crate::settings::OpenSection(
+                                        crate::settings::Section::Connectors,
+                                    )),
+                                    cx,
+                                )
+                            }),
                         )
                     });
                     rows::row(

@@ -231,18 +231,18 @@ async fn scopes_real_model_installation() {
             client
                 .execute(
                     client
-                        .prepare(Command::ReadOcrModels)
+                        .prepare(Command::ReadLocalModels { kind: Some(sailry_protocol::models::Kind::Ocr) })
                         .with_plugin(read_only.clone())
                 )
                 .await
                 .unwrap(),
-            Output::OcrModels(_)
+            Output::LocalModels(_)
         ));
         assert_eq!(
             client
                 .execute(
                     client
-                        .prepare(Command::RegisterOcrModel {
+                        .prepare(Command::RegisterLocalModel {
                             definition: definition.clone()
                         })
                         .with_plugin(read_only)
@@ -262,14 +262,14 @@ async fn scopes_real_model_installation() {
         .await;
         context.worktree = None;
         let registration = client
-            .prepare(Command::RegisterOcrModel { definition })
+            .prepare(Command::RegisterLocalModel { definition })
             .with_plugin(context.clone());
-        let Output::OcrModel { id } = client.execute(registration.clone()).await.unwrap() else {
+        let Output::LocalModel { id } = client.execute(registration.clone()).await.unwrap() else {
             panic!("registered OCR model expected")
         };
         assert_eq!(
             client.outcome(&registration).await.unwrap(),
-            RequestOutcome::Completed(Box::new(Ok(Output::OcrModel { id: id.clone() })))
+            RequestOutcome::Completed(Box::new(Ok(Output::LocalModel { id: id.clone() })))
         );
         let assets = directory.path().join("node/models/ocr").join(&id);
         fs::create_dir_all(&assets).unwrap();
@@ -277,7 +277,7 @@ async fn scopes_real_model_installation() {
             fs::write(assets.join(name), bytes).unwrap();
         }
         let request = client
-            .prepare(Command::InstallOcrModel { id: id.clone() })
+            .prepare(Command::InstallLocalModel { id: id.clone() })
             .with_plugin(context.clone());
         let admission = client.dispatch(request.clone()).await.unwrap();
         assert!(admission.receipt.durable);

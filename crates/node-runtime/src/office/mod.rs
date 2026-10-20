@@ -88,7 +88,13 @@ pub(crate) fn inspect(
     cancel: &sailry_link::CancellationToken,
 ) -> Result<Inspection, Fault> {
     let revision = blake3::hash(bytes).to_hex().to_string();
-    let sections = parts_with(path, bytes, ocr, cancel)?;
+    let sections = parts_with(
+        path,
+        bytes,
+        ocr,
+        crate::models::runtime::Lane::Interactive,
+        cancel,
+    )?;
     // Long document parts continue in subsequent offsets instead of losing their tail.
     let mut chunks = Vec::new();
     for part in sections {
@@ -138,6 +144,7 @@ pub(crate) fn parts_with(
     path: &str,
     bytes: &[u8],
     ocr: Option<&crate::ocr::Service>,
+    lane: crate::models::runtime::Lane,
     cancel: &sailry_link::CancellationToken,
 ) -> Result<Vec<Part>, Fault> {
     if bytes.len() > LIMIT {
@@ -152,6 +159,7 @@ pub(crate) fn parts_with(
                 )
             })?,
             bytes,
+            lane,
             cancel,
         );
     }
@@ -159,7 +167,7 @@ pub(crate) fn parts_with(
     if format(path, bytes)? == "pdf"
         && let Some(ocr) = ocr
     {
-        crate::ocr::document::pdf(ocr, bytes, parts, cancel)
+        crate::ocr::document::pdf(ocr, bytes, parts, lane, cancel)
     } else {
         Ok(parts)
     }

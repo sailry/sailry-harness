@@ -35,11 +35,11 @@ pub(crate) struct Service {
 impl Service {
     pub(crate) async fn open(
         profile: &Path,
-        catalog: Catalog,
+        registry: Arc<crate::models::registry::Registry>,
         ingress: Weak<Ingress>,
         stop: CancellationToken,
     ) -> Result<Arc<Self>, Fault> {
-        let models = models::Models::open(profile, catalog.settings, catalog.models).await?;
+        let models = models::Models::new(registry);
         let path = profile.join("storage/knowledge.db");
         let target = path.clone();
         let index = tokio::task::spawn_blocking(move || {
@@ -128,6 +128,7 @@ impl Service {
         let allowed = ingress.knowledge_allowed(request).await?;
         let catalog = ingress.knowledge_catalog().await?;
         self.models
+            .registry
             .configure(catalog.settings.clone(), &catalog.models)?;
         let bindings = allowed
             .iter()
@@ -156,17 +157,17 @@ impl Service {
                         stored.collection.id == binding.id && !stored.collection.paused
                     })
                 })
-                .filter_map(|binding| binding.model.map(|(model, _)| model))
+                .filter_map(|binding| binding.model.as_ref().map(|(model, _)| model.clone()))
                 .collect::<BTreeSet<_>>()
             {
                 match self
                     .models
                     .encode(
-                        model,
+                        &model,
                         catalog.settings.revision,
                         vec![query.query.clone()],
                         sailry_embedding::Input::Query,
-                        models::Lane::Query,
+                        models::Lane::Interactive,
                         cancel,
                     )
                     .await
@@ -210,13 +211,12 @@ impl Service {
         if let Some(worker) = worker {
             let _ = tokio::task::spawn_blocking(move || worker.join()).await;
         }
-        self.models.shutdown().await;
     }
 }
 
 struct Prepared {
     bindings: Vec<index::Binding>,
-    embeddings: Vec<(Model, Vec<f32>)>,
+    embeddings: Vec<(String, Vec<f32>)>,
     indexing: bool,
 }
 
@@ -244,18 +244,17 @@ fn binding(stored: &Stored, catalog: &Catalog) -> index::Binding {
             .collection
             .definition
             .model
-            .or(catalog.settings.model)
-            .and_then(|model| {
-                let dimension = catalog
-                    .models
-                    .iter()
-                    .find(|record| record.model == model)
-                    .map(|record| record.definition.format)
-                    .or_else(|| {
-                        models::catalog::builtin(model).map(|definition| definition.format)
-                    })?
-                    .dimension()?;
-                Some((model, usize::from(dimension)))
+            .as_deref()
+            .or_else(|| {
+                catalog
+                    .settings
+                    .selected(sailry_protocol::models::Kind::Embedding)
+            })
+            .and_then(|id| {
+                let definitions =
+                    crate::models::registry::catalog::definitions(&catalog.models).ok()?;
+                let dimension = definitions.get(id)?.format.dimension()?;
+                Some((id.to_owned(), usize::from(dimension)))
             }),
     }
 }

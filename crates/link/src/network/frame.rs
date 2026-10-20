@@ -33,8 +33,8 @@ pub(super) enum Call {
     WatchCommands(sailry_protocol::SessionId),
     WatchConversation(sailry_protocol::SessionId),
     WatchProviderLogin(sailry_protocol::RequestId),
-    WatchMcpLogin(sailry_protocol::RequestId),
-    WatchPluginLogin(sailry_protocol::RequestId),
+    WatchConnectorLogin(sailry_protocol::RequestId),
+    WatchConnections,
 }
 
 #[derive(Serialize, Deserialize)]

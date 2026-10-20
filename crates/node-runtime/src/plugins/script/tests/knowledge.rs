@@ -31,11 +31,9 @@ fn captures_sources_and_exact_revisions() {
     scope.worktree = Some(WorktreeId::new());
     let captured = Arc::new(Mutex::new(Vec::new()));
     let requests = captured.clone();
-    let model = knowledge::Model::Registered {
-        id: sailry_protocol::ModelId::new(),
-    };
+    let model = format!("model-{}", sailry_protocol::ModelId::new());
     let mut entry = collection();
-    entry.definition.model = Some(model);
+    entry.definition.model = Some(model.clone());
     let result = run(bundle(r#"
         import {listKnowledgeCollections,queryKnowledge,prepareKnowledgeCollection,
           prepareKnowledgeRebuild,prepareKnowledgeRemoval,completeRequest} from 'sailry/sdk';
@@ -79,7 +77,7 @@ fn captures_sources_and_exact_revisions() {
     );
     assert_eq!(requests[2], requests[3]);
     assert!(
-        matches!(&requests[2].command, Command::CreateKnowledgeCollection { definition, plugin: None } if definition.source == knowledge::Source::Worktree { worktree: scope.worktree.unwrap(), path: "notes".into() } && definition.shared_with.is_empty() && definition.model == Some(model))
+        matches!(&requests[2].command, Command::CreateKnowledgeCollection { definition, plugin: None } if definition.source == knowledge::Source::Worktree { worktree: scope.worktree.unwrap(), path: "notes".into() } && definition.shared_with.is_empty() && definition.model == Some(model.clone()))
     );
     assert!(matches!(
         requests[4].command,
@@ -99,9 +97,8 @@ fn captures_sources_and_exact_revisions() {
 
 #[test]
 fn returns_registered_search_models() {
-    let model = knowledge::Model::Registered {
-        id: sailry_protocol::ModelId::new(),
-    };
+    let model = format!("model-{}", sailry_protocol::ModelId::new());
+    let expected = model.clone();
     let result = run(
         bundle(
             r#"
@@ -124,7 +121,7 @@ fn returns_registered_search_models() {
                 next_offset: None,
                 mode: knowledge::Mode::Semantic,
                 indexing: false,
-                model: Some(model),
+                model: Some(model.clone()),
                 untrusted: true,
             }))
         },
@@ -132,7 +129,7 @@ fn returns_registered_search_models() {
     .unwrap();
     assert_eq!(
         result,
-        json!({"model":model,"mode":"semantic","untrusted":true})
+        json!({"model":expected,"mode":"semantic","untrusted":true})
     );
 }
 

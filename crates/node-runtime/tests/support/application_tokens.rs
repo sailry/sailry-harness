@@ -1,6 +1,6 @@
 //! An owned token issuer proxies the finite application's admitted resource origin.
 use sailry_link::CancellationToken;
-use sailry_protocol::plugin::settings::Provider;
+
 use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
@@ -20,7 +20,6 @@ pub type Records = Arc<Mutex<Vec<(String, BTreeMap<String, String>, Value)>>>;
 
 pub struct Server {
     pub origin: String,
-    pub token_url: String,
     pub tokens: Arc<AtomicUsize>,
     pub records: Records,
     pub failed: Arc<AtomicBool>,
@@ -28,7 +27,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub async fn start(provider: Provider, upstream: Option<&str>) -> Self {
+    pub async fn start(upstream: Option<&str>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let tokens = Arc::new(AtomicUsize::new(0));
@@ -36,7 +35,6 @@ impl Server {
         let failed = Arc::new(AtomicBool::new(false));
         let stop = CancellationToken::new();
         let server = Self {
-            token_url: format!("{origin}/token"),
             origin,
             tokens: tokens.clone(),
             records: records.clone(),
@@ -61,9 +59,8 @@ impl Server {
                     failed.clone(),
                     upstream.clone(),
                 );
-                tasks.spawn(async move {
-                    respond(stream, provider, tokens, records, failed, upstream).await
-                });
+                tasks
+                    .spawn(async move { respond(stream, tokens, records, failed, upstream).await });
             }
             tasks.shutdown().await;
         });
@@ -79,7 +76,6 @@ impl Drop for Server {
 
 async fn respond(
     mut stream: TcpStream,
-    provider: Provider,
     tokens: Arc<AtomicUsize>,
     records: Records,
     failed: Arc<AtomicBool>,
@@ -128,36 +124,19 @@ async fn respond(
         .push((path.clone(), headers.clone(), body.clone()));
     assert!(headers.values().all(|value| !value.contains(SECRET)));
     if path == "/token" {
-        match provider {
-            Provider::Feishu => {
-                assert_eq!(body, json!({"app_id":"fixture-app","app_secret":SECRET}))
-            }
-            Provider::Dingtalk => {
-                assert_eq!(body, json!({"appKey":"fixture-app","appSecret":SECRET}))
-            }
-        }
+        assert_eq!(body, json!({"app_id":"fixture-app","app_secret":SECRET}));
         let revision = tokens.fetch_add(1, Ordering::SeqCst) + 1;
         let (status, body) = if failed.load(Ordering::SeqCst) {
             (503, json!({"reason":SECRET}))
         } else {
             (
                 200,
-                match provider {
-                    Provider::Feishu => {
-                        json!({"code":0,"tenant_access_token":format!("application-token-{revision}"),"expire":2})
-                    }
-                    Provider::Dingtalk => {
-                        json!({"accessToken":format!("application-token-{revision}"),"expireIn":2})
-                    }
-                },
+                json!({"access_token":format!("application-token-{revision}"),"expires_in":2}),
             )
         };
         return reply(&mut stream, status, body).await;
     }
-    let header = match provider {
-        Provider::Feishu => "x-lark-mcp-tat",
-        Provider::Dingtalk => "x-acs-dingtalk-access-token",
-    };
+    let header = "x-access-token";
     assert_eq!(
         headers.get(header),
         Some(&format!(

@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 fn database() -> Connection {
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch(include_str!("../../schema.sql")).unwrap();
+    crate::store::local_models::initialize(&db).unwrap();
     db
 }
 

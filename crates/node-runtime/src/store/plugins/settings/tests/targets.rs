@@ -251,63 +251,35 @@ fn keeps_empty_slots_without_binding_credentials() {
 }
 
 #[test]
-fn requires_rebinding_linked_credentials() {
-    for linked in ["github", "authorization", "oauth"] {
-        let (_directory, db, info, mut saved) = fixture();
-        saved.slots.clear();
-        if linked == "github" {
-            saved.github = Some(crate::plugins::github::login::Identity {
-                login: "fixture-user".into(),
-                source: "keyring".into(),
-            });
-        } else if linked == "authorization" {
-            saved.authorizations.insert(
-                "service".into(),
-                super::super::super::grants::Grant {
-                    id: sailry_protocol::CredentialId::new(),
-                    endpoint: "https://original.test/mcp".into(),
-                    revision: 1,
-                    credentials: Some(Secret::new("private-authorization".into())),
-                },
-            );
-        } else {
-            saved.oauth = Some(super::super::super::oauth::Authorized {
-                id: sailry_protocol::CredentialId::new(),
-                revision: 1,
-                grant: Some(crate::plugins::oauth::Grant {
-                    declaration: plugin::oauth::Declaration {
-                        provider: plugin::oauth::Provider::Google,
-                        scopes: vec!["https://www.googleapis.com/auth/drive.readonly".into()],
-                        credentials: vec!["token".into()],
-                    },
-                    configuration: plugin::oauth::Configuration {
-                        client_id: "fixture-client".into(),
-                        client_secret: None,
-                        tenant: None,
-                    },
-                    access_token: Secret::new("private-access".into()),
-                    refresh_token: Some(Secret::new("private-refresh".into())),
-                    expires_at_ms: 1,
-                }),
-            });
-        }
-        replace(&db, &info, &saved);
-        let before = encode(&saved).unwrap();
-        assert!(
-            read(&db, &info.summary.reference())
-                .unwrap()
-                .keepable
-                .is_empty()
-        );
-        assert!(
-            save(
-                &db,
-                &info.summary.reference(),
-                &BTreeMap::new(),
-                &BTreeMap::from([("token".into(), SecretUpdate::Keep)]),
-            )
-            .is_err()
-        );
-        assert_eq!(encode(&stored(&db, &info).unwrap()).unwrap(), before);
-    }
+fn preserves_private_history_without_active_bindings() {
+    let (_directory, db, info, mut saved) = fixture();
+    saved.github = Some(super::super::history::Identity {
+        login: "fixture-user".into(),
+        source: "keyring".into(),
+    });
+    saved.authorizations.insert(
+        "service".into(),
+        super::super::history::McpGrant {
+            id: sailry_protocol::CredentialId::new(),
+            endpoint: "https://original.test/mcp".into(),
+            revision: 1,
+            credentials: Some(Secret::new("private-history".into())),
+        },
+    );
+    replace(&db, &info, &saved);
+    let roundtrip = stored(&db, &info).unwrap();
+    assert_eq!(
+        roundtrip.authorizations["service"]
+            .credentials
+            .as_ref()
+            .unwrap()
+            .expose(),
+        "private-history"
+    );
+    assert_eq!(roundtrip.github.as_ref().unwrap().login, "fixture-user");
+    assert!(
+        !serde_json::to_string(&read(&db, &info.summary.reference()).unwrap())
+            .unwrap()
+            .contains("private-history")
+    );
 }

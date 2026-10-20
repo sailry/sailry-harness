@@ -100,7 +100,7 @@ impl Drop for Connection {
 impl Connection {
     pub(super) async fn open(
         launch: Launch,
-        authorized: Option<rmcp::transport::auth::AuthClient<reqwest::Client>>,
+        connector: Option<crate::plugins::connectors::mcp::Authorization>,
         turn_stop: &CancellationToken,
         handler: Arc<input::Handler>,
         environment: &crate::process::Environment,
@@ -157,11 +157,7 @@ impl Connection {
                 .await
             }
             Launch::Http {
-                url,
-                headers,
-                sse,
-                application,
-                ..
+                url, headers, sse, ..
             } => {
                 let client = reqwest::Client::builder()
                     .redirect(reqwest::redirect::Policy::none())
@@ -173,7 +169,10 @@ impl Connection {
                     .into_iter()
                     .filter(|(name, _)| !crate::plugins::mcp::protocol_header(name))
                     .filter(|(name, _)| {
-                        authorized.is_none() || !name.eq_ignore_ascii_case("authorization")
+                        connector
+                            .as_ref()
+                            .is_none_or(|connector| connector.oauth.is_none())
+                            || !name.eq_ignore_ascii_case("authorization")
                     })
                     .map(|(name, value)| {
                         let mut value = reqwest::header::HeaderValue::from_str(&value)
@@ -186,15 +185,9 @@ impl Connection {
                         ))
                     })
                     .collect::<Result<_, Fault>>()?;
-                if let Some(application) = application {
-                    if authorized.is_some() {
-                        return Err(Fault::new(
-                            ErrorCode::Conflict,
-                            "MCP OAuth conflicts with application authentication",
-                        ));
-                    }
+                if let Some(connector) = connector {
                     Self::http(
-                        application.client(client),
+                        connector.client(client, limits::MAX_MESSAGE),
                         url,
                         headers,
                         sse,
@@ -203,8 +196,6 @@ impl Connection {
                         deadline,
                     )
                     .await
-                } else if let Some(client) = authorized {
-                    Self::http(client, url, headers, sse, turn_stop, handler, deadline).await
                 } else {
                     Self::http(client, url, headers, sse, turn_stop, handler, deadline).await
                 }

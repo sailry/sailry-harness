@@ -1,6 +1,7 @@
 use sailry_client::Client;
 use sailry_link::{Link, NetworkScope};
 use sailry_node_runtime::Node;
+use sailry_protocol::models::{Model as ModelInfo, State as ModelState};
 use sailry_protocol::{
     knowledge::*,
     plugin::{self, Action, Context},
@@ -82,13 +83,13 @@ impl Fixture {
             panic!("snapshot expected")
         };
         let worktree = snapshot.worktrees[0].id;
-        let Output::KnowledgeSettings(mut settings) =
-            execute(&client, Command::ReadKnowledgeSettings).await
+        let Output::LocalModelSettings(mut settings) =
+            execute(&client, Command::ReadLocalModelSettings).await
         else {
             panic!("settings expected")
         };
-        settings.model = None;
-        execute(&client, Command::SaveKnowledgeSettings(settings)).await;
+        select_model(&mut settings, None);
+        execute(&client, Command::SaveLocalModelSettings(settings)).await;
         let controller = Link::controller(temp.path().join("controller"), NetworkScope::default())
             .await
             .unwrap();
@@ -248,4 +249,14 @@ async fn run(client: &Client, context: &Context, command: Command) -> Output {
         .execute(client.prepare(command).with_plugin(context.clone()))
         .await
         .unwrap()
+}
+
+fn select_model(settings: &mut sailry_protocol::models::Settings, model: Option<String>) {
+    settings.choices.insert(
+        sailry_protocol::models::Kind::Embedding,
+        sailry_protocol::models::Choice {
+            enabled: model.is_some(),
+            model,
+        },
+    );
 }

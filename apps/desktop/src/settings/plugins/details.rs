@@ -36,7 +36,6 @@ pub(crate) struct Details {
     target: Target,
     info: Option<Info>,
     external: Option<sailry_protocol::plugin::catalog::Details>,
-    authorization: Entity<authorization::Capabilities>,
     updates: Entity<updates::State>,
     tab: Tab,
     scroll: ScrollHandle,
@@ -121,13 +120,10 @@ fn mount(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Details> {
-    let capabilities = cx.new(|_| authorization::Capabilities::new(binding.clone()));
     let update_state = updates::bind(binding.clone(), cx);
     let details = cx.new(|cx| {
         cx.observe(&update_state, |_, _, cx| cx.notify()).detach();
-        cx.observe(&capabilities, |_, _, cx| cx.notify()).detach();
         Details {
-            authorization: capabilities,
             updates: update_state,
             tab: Tab::Overview,
             scroll: ScrollHandle::new(),
@@ -362,11 +358,6 @@ impl Details {
                             Target::Catalog { entry, .. } => info.summary.name == entry.name,
                         };
                         if matches {
-                            if matches!(details.target, Target::Installed(_)) {
-                                details
-                                    .authorization
-                                    .update(cx, |state, cx| state.accept([&info], cx));
-                            }
                             details.info = Some(info);
                         } else {
                             details.error = Some("plugins_conflict");

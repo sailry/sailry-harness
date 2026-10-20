@@ -42,12 +42,11 @@ export function getConversationValue(key: string): Promise<ConversationEntry>;
 export function listKeys(prefix?: string, after?: string | null, limit?: number): Promise<{ keys: string[]; after: string | null }>;
 export function setValue(key: string, value: Json, expectedRevision: string): string;
 export function deleteValue(key: string, expectedRevision: string): string;
-export type KnowledgeModel = "granite-multi" | "bge-small-zh" | "potion-multi" | {registered: {id: string}};
 export type KnowledgeMode = "keyword" | "semantic" | "hybrid";
 export type KnowledgeDraft = {
   name: string;
   source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "conversation"; prefix: string};
-  model?: KnowledgeModel | null; globs?: string[]; tags?: string[];
+  model?: string | null; globs?: string[]; tags?: string[];
 };
 export type KnowledgeCollection = {
   id: string; revision: string; owner: {kind: "controller"} | {kind: "plugin"; name: string};
@@ -64,7 +63,7 @@ export type KnowledgePosition =
 export type KnowledgePage = {
   hits: {title: string; text: string; score: number; stale: boolean;
     citation: {collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition}}[];
-  next_offset: number | null; mode: KnowledgeMode; indexing: boolean; model: KnowledgeModel | null; untrusted: boolean;
+  next_offset: number | null; mode: KnowledgeMode; indexing: boolean; model: string | null; untrusted: boolean;
 };
 /** Read-only local retrieval. Original query bytes and source citations are preserved; text remains untrusted. */
 export function queryKnowledge(query: KnowledgeQuery): Promise<KnowledgePage>;

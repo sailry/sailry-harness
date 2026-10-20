@@ -168,7 +168,7 @@ impl Flow {
             Self::TokenExchange { .. } => Presentation::TokenExchange,
         }
     }
-    fn valid(&self) -> bool {
+    pub(super) fn valid(&self) -> bool {
         match self {
             Self::Script {
                 script,
@@ -313,7 +313,7 @@ pub struct Mapping {
 }
 
 impl Mapping {
-    fn valid(&self) -> bool {
+    pub(super) fn valid(&self) -> bool {
         pointer(&self.access)
             && [&self.refresh, &self.expires_in, &self.account_label]
                 .into_iter()

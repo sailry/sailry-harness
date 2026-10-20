@@ -7,9 +7,11 @@ async fn lifecycle_keeps_definitions_and_configuration() {
     for remote in [false, true] {
         let server = Server::scripted_tools(vec![]).await;
         let fixture = process::Fixture::packages(remote, &server, &["files"]).await;
-        let Output::OcrModels(before) = fixture
+        let Output::LocalModels(before) = fixture
             .client
-            .execute(fixture.client.prepare(Command::ReadOcrModels))
+            .execute(fixture.client.prepare(Command::ReadLocalModels {
+                kind: Some(sailry_protocol::models::Kind::Ocr),
+            }))
             .await
             .unwrap()
         else {
@@ -19,11 +21,11 @@ async fn lifecycle_keeps_definitions_and_configuration() {
         assert!(
             before
                 .iter()
-                .all(|model| model.state == sailry_protocol::ocr::State::Missing)
+                .all(|model| model.state == sailry_protocol::models::State::Missing)
         );
         let settings = fixture
             .client
-            .execute(fixture.client.prepare(Command::ReadOcrSettings))
+            .execute(fixture.client.prepare(Command::ReadLocalModelSettings))
             .await
             .unwrap();
         server.replace_tools(vec![
@@ -66,13 +68,13 @@ async fn lifecycle_keeps_definitions_and_configuration() {
         assert_eq!(results.len(), 4, "{results:?}");
         assert_eq!(results[0]["models"].as_array().unwrap().len(), before.len());
         assert!(results[1].get("error").is_some(), "{results:?}");
-        assert_eq!(results[2]["kind"], "ocr_model", "{results:?}");
+        assert_eq!(results[2]["kind"], "local_model", "{results:?}");
         assert_eq!(results[2]["data"]["id"], id);
         assert_eq!(results[3]["models"], json!([]));
         assert_eq!(
             fixture
                 .client
-                .execute(fixture.client.prepare(Command::ReadOcrSettings))
+                .execute(fixture.client.prepare(Command::ReadLocalModelSettings))
                 .await
                 .unwrap(),
             settings
@@ -80,10 +82,12 @@ async fn lifecycle_keeps_definitions_and_configuration() {
         assert_eq!(
             fixture
                 .client
-                .execute(fixture.client.prepare(Command::ReadOcrModels))
+                .execute(fixture.client.prepare(Command::ReadLocalModels {
+                    kind: Some(sailry_protocol::models::Kind::Ocr)
+                }))
                 .await
                 .unwrap(),
-            Output::OcrModels(before)
+            Output::LocalModels(before)
         );
         let request = server.requests.lock().unwrap().first().cloned().unwrap();
         for name in [

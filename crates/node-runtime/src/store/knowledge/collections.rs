@@ -10,7 +10,11 @@ pub(super) fn load(db: &Connection) -> Result<Vec<Stored>, Fault> {
         let body: Vec<u8> = row.get(3).map_err(storage_error)?;
         let stored: Stored = serde_json::from_slice(&body).map_err(storage_error)?;
         sources::check(&stored)?;
-        models::require(db, stored.collection.definition.model)?;
+        super::super::local_models::require(
+            db,
+            sailry_protocol::models::Kind::Embedding,
+            stored.collection.definition.model.as_deref(),
+        )?;
         if row.get::<_, String>(0).map_err(storage_error)? != stored.collection.id.to_string()
             || row.get::<_, i64>(1).map_err(storage_error)? != stored.collection.revision as i64
             || row.get::<_, i64>(2).map_err(storage_error)?
@@ -30,7 +34,11 @@ pub(super) fn load(db: &Connection) -> Result<Vec<Stored>, Fault> {
 
 pub(super) fn persist(db: &Connection, stored: &Stored) -> Result<(), Fault> {
     sources::check(stored)?;
-    models::require(db, stored.collection.definition.model)?;
+    super::super::local_models::require(
+        db,
+        sailry_protocol::models::Kind::Embedding,
+        stored.collection.definition.model.as_deref(),
+    )?;
     let collection = &stored.collection;
     db.execute("INSERT INTO knowledge_collections(id,revision,generation,body) VALUES(?1,?2,?3,?4) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,generation=excluded.generation,body=excluded.body",
         params![collection.id.to_string(), collection.revision as i64, collection.progress.generation as i64, encode(stored)?]).map_err(storage_error)?;

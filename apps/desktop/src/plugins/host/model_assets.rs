@@ -42,7 +42,24 @@ impl Host {
         let resolve = self.clone();
         let register = self.clone();
         let prepare = self.clone();
+        let list = self.clone();
         HostModule::new("sailry/models")
+            .async_function("list", move |args| {
+                #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Input {
+                    target: Target,
+                    kind: Option<models::Kind>,
+                }
+                let input: Input = serde_json::from_value(decode(args.value(0)?)?)
+                    .map_err(|error| HostError::new(error.to_string()))?;
+                if input.target != Target::Node || input.kind == Some(models::Kind::Speech) {
+                    return Err(fault(sailry_protocol::Fault::invalid(
+                        "Node local model list required",
+                    )));
+                }
+                list.read_public(Command::ReadLocalModels { kind: input.kind })
+            })
             .async_function("search", move |args| {
                 let query = serde_json::from_value(decode(args.value(0)?)?)
                     .map_err(|error| HostError::new(error.to_string()))?;
@@ -90,7 +107,7 @@ impl Host {
                 let input: ModelRef = serde_json::from_value(decode(args.value(0)?)?)
                     .map_err(|error| HostError::new(error.to_string()))?;
                 input.validate().map_err(fault)?;
-                if let ModelRef::Speech { id, .. } = input {
+                if let ModelRef::Controller { id, .. } = input {
                     prepare.prepare_controller(controller::Operation::Install(id))
                 } else {
                     prepare.prepare_public(input.node_command().map_err(fault)?)

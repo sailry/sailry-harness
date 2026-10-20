@@ -18,7 +18,7 @@ fn preserves_model_scope_and_exact_revisions() {
         import * as installations from 'sailry/installations';
         import {completeRequest,forgetRequest} from 'sailry/sdk';
         export async function run() {
-            const id = models.prepare({target:'node',kind:'embedding',model:'granite-multi'});
+            const id = models.prepare({target:'node',kind:'embedding',id:'granite-multi'});
             await completeRequest(id);
             forgetRequest(id);
             const tasks = await installations.read([id]);
@@ -36,7 +36,7 @@ fn preserves_model_scope_and_exact_revisions() {
             assert_eq!(request.plugin.as_ref(), Some(&expected));
             records.lock().unwrap().push(request.clone());
             match request.command {
-                Command::InstallKnowledgeModel { model } => Ok(Output::KnowledgeModel { model }),
+                Command::InstallLocalModel { id: model } => Ok(Output::LocalModel { id: model }),
                 Command::ReadInstallations { requests } => Ok(Output::Installations(vec![Task {
                     request: requests[0],
                     revision: 9_007_199_254_740_993,
@@ -99,18 +99,28 @@ fn does_not_expose_package_installation() {
 }
 
 #[test]
-fn lists_only_node_ocr_models() {
-    let expected = context();
-    let scope = expected.clone();
-    let result=run(bundle("import * as models from 'sailry/models'; export async function run() { return models.list({target:'node',kind:'ocr'}); }"),"run",json!({}),scope,NodeId([1;32]),CancellationToken::new(),move|request|{
-        assert_eq!(request.plugin.as_ref(),Some(&expected));
-        assert!(matches!(request.command,Command::ReadOcrModels));
-        Ok(Output::OcrModels(vec![]))
-    }).unwrap();
-    assert_eq!(result, json!([]));
+fn lists_node_local_models() {
+    for kind in [
+        Some(sailry_protocol::models::Kind::Ocr),
+        Some(sailry_protocol::models::Kind::Embedding),
+        None,
+    ] {
+        let expected = context();
+        let scope = expected.clone();
+        let input = json!({"target":"node","kind":kind});
+        let source = format!(
+            "import * as models from 'sailry/models'; export async function run() {{ return models.list({input}); }}"
+        );
+        let result=run(bundle(&source),"run",json!({}),scope,NodeId([1;32]),CancellationToken::new(),move|request|{
+            assert_eq!(request.plugin.as_ref(),Some(&expected));
+            assert!(matches!(request.command,Command::ReadLocalModels { kind: current } if current == kind));
+            Ok(Output::LocalModels(vec![]))
+        }).unwrap();
+        assert_eq!(result, json!([]));
+    }
     for input in [
         json!({"target":"controller","kind":"speech"}),
-        json!({"target":"node","kind":"embedding"}),
+        json!({"target":"node","kind":"speech"}),
         json!({"target":"node","kind":"ocr","worktree":"foreign"}),
     ] {
         let source = format!(
@@ -126,14 +136,14 @@ fn lists_only_node_ocr_models() {
 }
 
 #[test]
-fn callbacks_cannot_remove_ocr_assets() {
+fn callbacks_cannot_remove_model_assets() {
     for mode in [
         sailry_protocol::WorkMode::Code,
         sailry_protocol::WorkMode::Plan,
     ] {
         let source = format!(
             "import {{prepareRequest}} from 'sailry/sdk'; export function run() {{ try {{ return prepareRequest({}); }} catch(error) {{ return error.code; }} }}",
-            json!({"kind":"delete_ocr_model","data":{"id":"a".repeat(64)}})
+            json!({"kind":"delete_local_model","data":{"id":"a".repeat(64)}})
         );
         let state = Arc::new(Mutex::new(execution::State {
             call_id: Some(sailry_protocol::RequestId::new()),

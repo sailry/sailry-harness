@@ -1,0 +1,36 @@
+settings_connectors: "Conectores"
+connector_search: "Buscar conectores"
+connector_empty: "Sin conexiones"
+connector_not_connected: "Sin conectar"
+connector_expired: "Caducado"
+connector_confirmation: "Requiere confirmación"
+connector_failed: "Error de conexión"
+connector_unknown: "Comprueba la conexión antes de volver a intentarlo"
+connector_conflict: "La conexión cambió, ábrela de nuevo"
+connector_reconnect: "Volver a iniciar sesión"
+connector_probe: "Comprobar conexión"
+connector_disconnect: "Desconectar"
+connector_consent_effect: "Revisa los cambios de destinos antes de continuar"
+connector_remove_effect: "Eliminar la conexión y las credenciales de %{name}"
+connector_confirm: "Confirmar"
+connector_preview: "Vista previa"
+connector_saved: "Guardado"
+connector_configured: "Configurado"
+connector_browser: "Autorizar en el navegador"
+connector_register: "Crear aplicación"
+connector_authorize: "Autorizar"
+connector_connect: "Conectar"
+connector_add: "Añadir conector"
+connector_token: "Token"
+connector_cli: "CLI local"
+connector_oauth: "OAuth"
+connector_application: "Credenciales de aplicación"
+connector_cli_capability: "Ejecutar comando local"
+
+connector_changed_origins: Orígenes
+connector_changed_scopes: Permisos
+connector_changed_client: Cliente
+connector_changed_flow: Inicio de sesión
+connector_changed_targets: Destinos de credenciales
+connector_changed_mcp: Servidores MCP
+connector_changed_source: Origen del paquete

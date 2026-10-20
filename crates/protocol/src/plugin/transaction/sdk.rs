@@ -53,6 +53,39 @@ pub fn decode(mut value: Value) -> Result<Vec<Operation>, Fault> {
 pub fn output(output: Output) -> Value {
     let mut value = serde_json::to_value(&output).expect("protocol values are serializable");
     match output {
+        Output::ConnectorTypes(types) => {
+            for (value, kind) in value["data"]
+                .as_array_mut()
+                .expect("typed connector types")
+                .iter_mut()
+                .zip(types)
+            {
+                value["package"]["settings_revision"] =
+                    json!(kind.package.settings_revision.to_string());
+            }
+        }
+        Output::Connections(rows) => {
+            for (value, row) in value["data"]
+                .as_array_mut()
+                .expect("typed connections")
+                .iter_mut()
+                .zip(rows)
+            {
+                value["revision"] = json!(row.revision.to_string());
+                value["package"]["settings_revision"] =
+                    json!(row.package.settings_revision.to_string());
+            }
+        }
+        Output::Connection(row) => {
+            value["data"]["revision"] = json!(row.revision.to_string());
+            value["data"]["package"]["settings_revision"] =
+                json!(row.package.settings_revision.to_string());
+        }
+        Output::ConnectorLogin(attempt) => {
+            value["data"]["revision"] = json!(attempt.revision.to_string());
+            value["data"]["package"]["settings_revision"] =
+                json!(attempt.package.settings_revision.to_string());
+        }
         Output::PluginTransaction(outputs) => {
             value["data"] = Value::Array(outputs.into_iter().map(self::output).collect());
         }

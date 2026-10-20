@@ -1,0 +1,36 @@
+settings_connectors: "커넥터"
+connector_search: "커넥터 검색"
+connector_empty: "연결 없음"
+connector_not_connected: "연결 안 됨"
+connector_expired: "만료됨"
+connector_confirmation: "확인 필요"
+connector_failed: "연결 실패"
+connector_unknown: "연결 결과를 확인한 후 다시 시도하세요"
+connector_conflict: "연결이 변경되었습니다. 다시 여세요"
+connector_reconnect: "다시 로그인"
+connector_probe: "연결 확인"
+connector_disconnect: "연결 해제"
+connector_consent_effect: "계속하기 전에 변경된 인증 대상을 확인하세요"
+connector_remove_effect: "%{name} 연결 및 자격 증명 삭제"
+connector_confirm: "확인"
+connector_preview: "미리 보기"
+connector_saved: "저장됨"
+connector_configured: "설정됨"
+connector_browser: "브라우저에서 인증"
+connector_register: "앱 만들기"
+connector_authorize: "인증"
+connector_connect: "연결"
+connector_add: "커넥터 추가"
+connector_token: "토큰"
+connector_cli: "로컬 CLI"
+connector_oauth: "OAuth"
+connector_application: "앱 인증 정보"
+connector_cli_capability: "로컬 명령 실행"
+
+connector_changed_origins: 출처
+connector_changed_scopes: 권한 범위
+connector_changed_client: 클라이언트
+connector_changed_flow: 로그인 방식
+connector_changed_targets: 인증 정보 대상
+connector_changed_mcp: MCP 서버
+connector_changed_source: 패키지 출처

@@ -3,30 +3,39 @@ use crate::store::database::Database;
 use sailry_protocol::{ModelId, models::Definition as ModelDefinition};
 
 fn metadata() -> ModelDefinition {
-    let mut definition = crate::knowledge::models::catalog::builtin(Model::PotionMulti).unwrap();
+    let mut definition = crate::models::registry::catalog::definitions(&[])
+        .unwrap()
+        .remove("potion-multi")
+        .unwrap()
+        .as_ref()
+        .clone();
     definition.name = "Registered static model".into();
     definition.source.repository = "owner/static-model".into();
     definition
 }
 
-fn register(db: &Connection, definition: &ModelDefinition) -> Model {
+fn register(db: &Connection, definition: &ModelDefinition) -> String {
+    let revision = crate::store::local_models::settings(db).unwrap().revision;
     let (output, event) = execute(
         db,
-        &request(Command::RegisterKnowledgeModel {
+        &request(Command::RegisterLocalModel {
             definition: definition.clone(),
         }),
     )
     .unwrap();
-    assert!(event.is_none());
-    let Output::KnowledgeModel { model } = output else {
+    assert!(matches!(
+        event,
+        Some(Event::LocalModelSettingsChanged { revision: current }) if current == revision
+    ));
+    let Output::LocalModel { id: model } = output else {
         panic!("registered model expected")
     };
-    assert!(matches!(model, Model::Registered { .. }));
+    assert!(sailry_protocol::models::valid_id(&model) && model.len() == 64);
     model
 }
 
 fn rows(db: &Connection) -> Vec<(String, String, Vec<u8>)> {
-    db.prepare("SELECT id,digest,body FROM knowledge_models ORDER BY id")
+    db.prepare("SELECT id,digest,body FROM local_models ORDER BY id")
         .unwrap()
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
         .unwrap()
@@ -48,12 +57,15 @@ fn deduplicates_normalized_assets_without_replacing_metadata() {
     }
     assert_eq!(register(&db, &reordered), first);
     assert_eq!(rows(&db), original);
-    let record = models::load(&db).unwrap().remove(0);
+    let record = crate::store::local_models::read(&db)
+        .unwrap()
+        .records
+        .remove(0);
     let mut normalized = definition.clone();
     normalized
         .assets
         .sort_by(|left, right| left.name.cmp(&right.name));
-    assert_eq!(record.model, first);
+    assert_eq!(record.id, first);
     assert_eq!(record.definition, normalized);
     let mut different = definition;
     different.source.revision = "b".repeat(40);
@@ -62,7 +74,10 @@ fn deduplicates_normalized_assets_without_replacing_metadata() {
     }
     let second = register(&db, &different);
     assert_ne!(second, first);
-    assert_eq!(models::load(&db).unwrap().len(), 2);
+    assert_eq!(
+        crate::store::local_models::read(&db).unwrap().records.len(),
+        2
+    );
     assert_eq!(
         rows(&db).iter().find(|row| row.0 == original[0].0).unwrap(),
         &original[0]
@@ -84,7 +99,10 @@ fn separates_prefixes_in_immutable_model_identity() {
     let documents = register(&db, &document);
     assert_ne!(prefixed, documents);
     assert_ne!(plain, documents);
-    assert_eq!(models::load(&db).unwrap().len(), 3);
+    assert_eq!(
+        crate::store::local_models::read(&db).unwrap().records.len(),
+        3
+    );
 }
 
 #[test]
@@ -110,12 +128,9 @@ fn rejects_invalid_definitions_without_writes() {
     speech.validate().unwrap();
     for definition in [traversal, unpinned, duplicate, empty, checksum, speech] {
         assert_eq!(
-            execute(
-                &db,
-                &request(Command::RegisterKnowledgeModel { definition })
-            )
-            .unwrap_err()
-            .code,
+            execute(&db, &request(Command::RegisterLocalModel { definition }))
+                .unwrap_err()
+                .code,
             ErrorCode::InvalidRequest
         );
         assert_eq!(rows(&db), previous);
@@ -140,7 +155,7 @@ fn requires_model_install_grant() {
     );
     let request = captured(
         &owner,
-        Command::RegisterKnowledgeModel {
+        Command::RegisterLocalModel {
             definition: metadata(),
         },
     );
@@ -152,17 +167,20 @@ fn requires_model_install_grant() {
     let owner = package(&db.connection, "owner", 'b', &["models.install"]);
     let request = captured(
         &owner,
-        Command::RegisterKnowledgeModel {
+        Command::RegisterLocalModel {
             definition: metadata(),
         },
     );
     db.check_plugin(node, &request).unwrap();
-    let (Output::KnowledgeModel { model }, event) = execute(&db.connection, &request).unwrap()
+    let (Output::LocalModel { id: model }, event) = execute(&db.connection, &request).unwrap()
     else {
         panic!("registered model expected")
     };
-    assert!(matches!(model, Model::Registered { .. }));
-    assert!(event.is_none());
+    assert!(sailry_protocol::models::valid_id(&model) && model.len() == 64);
+    assert!(matches!(
+        event,
+        Some(Event::LocalModelSettingsChanged { revision: 0 })
+    ));
     assert_eq!(rows(&db.connection).len(), 1);
     db.close().unwrap();
 }
@@ -171,31 +189,34 @@ fn requires_model_install_grant() {
 fn accepts_registered_selections_with_cas() {
     let db = database();
     let model = register(&db, &metadata());
-    let previous = settings(&db, &request(Command::ReadKnowledgeSettings)).unwrap();
+    let previous = settings(&db, &request(Command::ReadLocalModelSettings)).unwrap();
     let mut selected = previous.clone();
-    selected.model = Some(model);
-    let (Output::KnowledgeSettings(saved), event) =
-        execute(&db, &request(Command::SaveKnowledgeSettings(selected))).unwrap()
+    select_model(&mut selected, Some(model.clone()));
+    let (Output::LocalModelSettings(saved), event) =
+        execute(&db, &request(Command::SaveLocalModelSettings(selected))).unwrap()
     else {
         panic!("settings expected")
     };
-    assert_eq!(saved.model, Some(model));
+    assert_eq!(
+        saved.choice(sailry_protocol::models::Kind::Embedding).model,
+        Some(model.clone())
+    );
     assert_eq!(saved.revision, 1);
     assert!(matches!(
         event,
-        Some(Event::KnowledgeSettingsChanged { revision: 1 })
+        Some(Event::LocalModelSettingsChanged { revision: 1 })
     ));
     assert_eq!(
-        execute(&db, &request(Command::SaveKnowledgeSettings(previous)))
+        execute(&db, &request(Command::SaveLocalModelSettings(previous)))
             .unwrap_err()
             .code,
         ErrorCode::RevisionConflict
     );
     let owner = package(&db, "owner", 'a', &["storage.read"]);
     let mut definition = storage();
-    definition.model = Some(model);
+    definition.model = Some(model.clone());
     let collection = insert(&db, &owner, definition);
-    assert_eq!(collection.definition.model, Some(model));
+    assert_eq!(collection.definition.model, Some(model.clone()));
     assert_eq!(catalog(&db).unwrap().settings, saved);
 }
 
@@ -205,18 +226,18 @@ fn refuses_unknown_selections_without_side_effects() {
     let owner = package(&db, "owner", 'a', &["storage.read"]);
     let collection = insert(&db, &owner, storage());
     let previous = catalog(&db).unwrap().settings;
-    let unknown = Model::Registered { id: ModelId::new() };
+    let unknown = format!("model-{}", ModelId::new());
     let mut selected = previous.clone();
-    selected.model = Some(unknown);
+    select_model(&mut selected, Some(unknown.clone()));
     let before = raw(&db);
     assert_eq!(
-        execute(&db, &request(Command::SaveKnowledgeSettings(selected)))
+        execute(&db, &request(Command::SaveLocalModelSettings(selected)))
             .unwrap_err()
             .code,
         ErrorCode::NotFound
     );
     let mut definition = collection.definition.clone();
-    definition.model = Some(unknown);
+    definition.model = Some(unknown.clone());
     for command in [
         Command::CreateKnowledgeCollection {
             definition: definition.clone(),
@@ -246,10 +267,10 @@ fn restores_immutable_metadata_and_selection() {
     let db = Database::open(&path, node, None).unwrap();
     let model = register(&db.connection, &metadata());
     let mut settings = catalog(&db.connection).unwrap().settings;
-    settings.model = Some(model);
+    select_model(&mut settings, Some(model.clone()));
     execute(
         &db.connection,
-        &request(Command::SaveKnowledgeSettings(settings)),
+        &request(Command::SaveLocalModelSettings(settings)),
     )
     .unwrap();
     let records = catalog(&db.connection).unwrap().models;
@@ -258,7 +279,14 @@ fn restores_immutable_metadata_and_selection() {
     let db = Database::open(&path, node, None).unwrap();
     assert_eq!(rows(&db.connection), original);
     assert_eq!(catalog(&db.connection).unwrap().models, records);
-    assert_eq!(catalog(&db.connection).unwrap().settings.model, Some(model));
+    assert_eq!(
+        catalog(&db.connection)
+            .unwrap()
+            .settings
+            .choice(sailry_protocol::models::Kind::Embedding)
+            .model,
+        Some(model.clone())
+    );
     assert_eq!(register(&db.connection, &records[0].definition), model);
     assert_eq!(rows(&db.connection), original);
     db.close().unwrap();
@@ -273,11 +301,11 @@ fn refuses_modified_persisted_definition() {
     changed.name = "Unexpected replacement".into();
     row.2 = serde_json::to_vec(&changed).unwrap();
     db.execute(
-        "UPDATE knowledge_models SET body=?1 WHERE id=?2",
+        "UPDATE local_models SET body=?1 WHERE id=?2",
         params![row.2, row.0],
     )
     .unwrap();
     let before = rows(&db);
-    assert!(models::load(&db).is_err());
+    assert!(crate::store::local_models::read(&db).is_err());
     assert_eq!(rows(&db), before);
 }

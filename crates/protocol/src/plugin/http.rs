@@ -15,6 +15,14 @@ pub struct Request {
     pub body: Option<String>,
     /// A declared secret setting; its value never crosses this boundary.
     pub credential: Option<String>,
+    /// A declared connection; secrets are resolved only on the execution Node.
+    #[serde(default)]
+    pub connector: Option<String>,
+    #[serde(default)]
+    pub connection: Option<super::connector::Id>,
+    /// Allows one authorization recovery before a safe retry.
+    #[serde(default)]
+    pub idempotent: bool,
     #[serde(default = "timeout")]
     pub timeout_ms: u32,
 }

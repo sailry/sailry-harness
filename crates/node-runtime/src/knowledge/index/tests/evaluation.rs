@@ -30,7 +30,7 @@ pub(super) fn engine() -> Engine {
     let root = std::env::var_os("SAILRY_EMBEDDING_REFERENCES")
         .expect("set SAILRY_EMBEDDING_REFERENCES to the isolated verified model cache");
     let descriptor = ModelId::GraniteMulti.descriptor();
-    let directory = PathBuf::from(root).join(Model::GraniteMulti.key().as_ref());
+    let directory = PathBuf::from(root).join("granite-multi");
     let files = descriptor
         .assets
         .iter()
@@ -165,13 +165,13 @@ fn hybrid_improves_bilingual_recall_at_five() {
         scope: [0; 32],
         rebuild: 0,
         paused: false,
-        model: Some((Model::GraniteMulti, dimension)),
+        model: Some(("granite-multi".to_owned(), dimension)),
     };
-    index.bind(binding).unwrap();
+    index.bind(&binding).unwrap();
     for ((source, text), vector) in corpus.documents.iter().zip(&texts).zip(&vectors) {
         index
             .replace(
-                binding,
+                &binding,
                 &Document {
                     locator: format!("corpus/{}.md", source.id),
                     revision: blake3::hash(text.as_bytes()).to_hex().to_string(),
@@ -188,7 +188,7 @@ fn hybrid_improves_bilingual_recall_at_five() {
             )
             .unwrap();
     }
-    assert_eq!(index.counts(binding).unwrap(), (30, 30));
+    assert_eq!(index.counts(&binding).unwrap(), (30, 30));
     let questions = corpus
         .queries
         .iter()
@@ -214,32 +214,38 @@ fn hybrid_improves_bilingual_recall_at_five() {
         query.query = question.text.clone();
         query.mode = Mode::Keyword;
         let lexical = index
-            .search(&query, &[binding], &[], false, &CancellationToken::new())
+            .search(
+                &query,
+                &[binding.clone()],
+                &[],
+                false,
+                &CancellationToken::new(),
+            )
             .unwrap();
         query.mode = Mode::Semantic;
         let encoded = index
             .search(
                 &query,
-                &[binding],
-                &[(Model::GraniteMulti, vector.clone())],
+                &[binding.clone()],
+                &[("granite-multi".to_owned(), vector.clone())],
                 false,
                 &CancellationToken::new(),
             )
             .unwrap();
         assert_eq!(encoded.mode, Mode::Semantic);
-        assert_eq!(encoded.model, Some(Model::GraniteMulti));
+        assert_eq!(encoded.model, Some("granite-multi".to_owned()));
         query.mode = Mode::Hybrid;
         let combined = index
             .search(
                 &query,
-                &[binding],
-                &[(Model::GraniteMulti, vector)],
+                &[binding.clone()],
+                &[("granite-multi".to_owned(), vector)],
                 false,
                 &CancellationToken::new(),
             )
             .unwrap();
         assert_eq!(combined.mode, Mode::Hybrid);
-        assert_eq!(combined.model, Some(Model::GraniteMulti));
+        assert_eq!(combined.model, Some("granite-multi".to_owned()));
         assert!(combined.hits.len() <= 5);
         keyword += recall(question, &lexical);
         semantic += recall(question, &encoded);

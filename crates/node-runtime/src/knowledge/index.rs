@@ -32,11 +32,11 @@ pub(super) struct Part {
     pub vector: Option<Vector>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct Binding {
     pub id: KnowledgeId,
     pub generation: u64,
-    pub model: Option<(Model, usize)>,
+    pub model: Option<(String, usize)>,
     pub scope: [u8; 32],
     pub rebuild: u64,
     pub paused: bool,
@@ -95,15 +95,16 @@ impl Index {
         Ok(Self { db })
     }
 
-    pub(super) fn bind(&mut self, binding: Binding) -> Result<(), Fault> {
+    pub(super) fn bind(&mut self, binding: &Binding) -> Result<(), Fault> {
         let generation = integer(binding.generation)?;
         let rebuild = integer(binding.rebuild)?;
         let dimension = binding
             .model
-            .map(|(_, dimension)| integer(dimension))
+            .as_ref()
+            .map(|(_, dimension)| integer(*dimension))
             .transpose()?;
         let tx = self.db.transaction().map_err(error)?;
-        let model = binding.model.map(|(model, _)| model.key());
+        let model = binding.model.as_ref().map(|(model, _)| model.as_str());
         let previous = tx
             .query_row(
                 "SELECT model,dimension,scope,rebuild FROM collections WHERE id=?1",
@@ -138,7 +139,7 @@ impl Index {
             )
             .map_err(error)?;
         } else if previous.is_some_and(|previous| {
-            (previous.0, previous.1) != (model.map(std::borrow::Cow::into_owned), dimension)
+            (previous.0, previous.1) != (model.map(str::to_owned), dimension)
         }) {
             tx.execute(
                 "UPDATE chunks SET vector=NULL WHERE source IN (SELECT id FROM sources WHERE collection=?1)",
@@ -153,15 +154,15 @@ impl Index {
         tx.commit().map_err(error)
     }
 
-    fn current(&self, binding: Binding) -> Result<bool, Fault> {
+    fn current(&self, binding: &Binding) -> Result<bool, Fault> {
         self.db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM collections WHERE id=?1 AND generation=?2 AND model IS ?3 AND dimension IS ?4 AND scope=?5 AND rebuild=?6)",
                 params![
                     binding.id.to_string(),
                     integer(binding.generation)?,
-                    binding.model.map(|(model, _)| model.key()),
-                    binding.model.map(|(_, dimension)| integer(dimension)).transpose()?,
+                    binding.model.as_ref().map(|(model, _)| model.as_str()),
+                    binding.model.as_ref().map(|(_, dimension)| integer(*dimension)).transpose()?,
                     binding.scope.as_slice(),
                     integer(binding.rebuild)?,
                 ],
@@ -170,7 +171,7 @@ impl Index {
             .map_err(error)
     }
 
-    pub(super) fn unchanged(&self, binding: Binding, document: &Document) -> Result<bool, Fault> {
+    pub(super) fn unchanged(&self, binding: &Binding, document: &Document) -> Result<bool, Fault> {
         if !self.current(binding)? {
             return Ok(false);
         }
@@ -184,7 +185,7 @@ impl Index {
     /// Publish one verified source atomically; stale workers cannot restore deleted collections.
     pub(super) fn replace(
         &mut self,
-        binding: Binding,
+        binding: &Binding,
         document: &Document,
         parts: &[Part],
     ) -> Result<(), Fault> {
@@ -214,8 +215,9 @@ impl Index {
             if let Some(vector) = &part.vector {
                 let (_, dimension) = binding
                     .model
+                    .as_ref()
                     .ok_or_else(|| Fault::invalid("knowledge vector requires a captured model"))?;
-                Vector::decode(&vector.encode(), dimension)?;
+                Vector::decode(&vector.encode(), *dimension)?;
             }
             let key = blake3::hash(
                 &serde_json::to_vec(&(
@@ -242,7 +244,7 @@ impl Index {
         tx.commit().map_err(error)
     }
 
-    pub(super) fn prune(&mut self, binding: Binding, locators: &[String]) -> Result<(), Fault> {
+    pub(super) fn prune(&mut self, binding: &Binding, locators: &[String]) -> Result<(), Fault> {
         if !self.current(binding)? {
             return Err(Fault::new(
                 ErrorCode::Cancelled,
@@ -266,7 +268,7 @@ impl Index {
         Ok(())
     }
 
-    pub(super) fn counts(&self, binding: Binding) -> Result<(u64, u64), Fault> {
+    pub(super) fn counts(&self, binding: &Binding) -> Result<(u64, u64), Fault> {
         if !self.current(binding)? {
             return Ok((0, 0));
         }

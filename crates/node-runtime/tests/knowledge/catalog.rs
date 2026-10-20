@@ -36,9 +36,12 @@ async fn refreshes_the_registered_ocr_profile() {
             for asset in &mut previous.assets {
                 asset.source.revision = "b".repeat(40);
             }
-            let Output::OcrModel { id } = execute(
+            previous
+                .assets
+                .sort_by(|left, right| left.name.cmp(&right.name));
+            let Output::LocalModel { id } = execute(
                 &client,
-                Command::RegisterOcrModel {
+                Command::RegisterLocalModel {
                     definition: previous.clone(),
                 },
             )
@@ -47,7 +50,7 @@ async fn refreshes_the_registered_ocr_profile() {
                 panic!("OCR ID expected")
             };
             let admission = client
-                .dispatch(client.prepare(Command::RefreshOcrModel { id }))
+                .dispatch(client.prepare(Command::RefreshLocalModel { id }))
                 .await
                 .unwrap();
             assert!(!admission.receipt.durable);
@@ -98,14 +101,14 @@ async fn captures_saved_mirror_for_each_controller() {
     let fixture = Fixture::start().await;
     for client in fixture.clients() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let Output::KnowledgeSettings(mut settings) =
-            execute(&client, Command::ReadKnowledgeSettings).await
+        let Output::LocalModelSettings(mut settings) =
+            execute(&client, Command::ReadLocalModelSettings).await
         else {
             panic!("knowledge settings expected");
         };
         settings.mirror = Some(format!("https://{}/cache/", listener.local_addr().unwrap()));
-        let Output::KnowledgeSettings(saved) =
-            execute(&client, Command::SaveKnowledgeSettings(settings.clone())).await
+        let Output::LocalModelSettings(saved) =
+            execute(&client, Command::SaveLocalModelSettings(settings.clone())).await
         else {
             panic!("saved knowledge settings expected");
         };
@@ -249,9 +252,9 @@ async fn shares_compatible_pages_and_immutable_resolution() {
                     .iter()
                     .all(|asset| asset.source.revision == self::fixture::NEWER)
             );
-            let Output::KnowledgeModel { model } = execute(
+            let Output::LocalModel { id: model } = execute(
                 &client,
-                Command::RegisterKnowledgeModel {
+                Command::RegisterLocalModel {
                     definition: selected.clone(),
                 },
             )
@@ -259,8 +262,13 @@ async fn shares_compatible_pages_and_immutable_resolution() {
             else {
                 panic!("registered model expected");
             };
-            let Output::KnowledgeModels(models) =
-                execute(&client, Command::ReadKnowledgeModels).await
+            let Output::LocalModels(models) = execute(
+                &client,
+                Command::ReadLocalModels {
+                    kind: Some(sailry_protocol::models::Kind::Embedding),
+                },
+            )
+            .await
             else {
                 panic!("model registry expected");
             };
@@ -271,7 +279,7 @@ async fn shares_compatible_pages_and_immutable_resolution() {
             assert_eq!(
                 models
                     .iter()
-                    .find(|info| info.model == model)
+                    .find(|info| info.id == model)
                     .unwrap()
                     .definition,
                 expected

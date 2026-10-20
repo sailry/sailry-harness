@@ -6,76 +6,6 @@ pub const DEFAULT_LIMIT: u16 = 5;
 pub const PAGE_LIMIT: u16 = 100;
 pub const MAX_COLLECTIONS: usize = 128;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Model {
-    #[default]
-    GraniteMulti,
-    BgeSmallZh,
-    PotionMulti,
-    Registered {
-        id: crate::ModelId,
-    },
-}
-
-impl Model {
-    pub const ALL: [Self; 3] = [Self::GraniteMulti, Self::BgeSmallZh, Self::PotionMulti];
-
-    pub fn key(self) -> std::borrow::Cow<'static, str> {
-        match self {
-            Self::GraniteMulti => "granite-multi".into(),
-            Self::BgeSmallZh => "bge-small-zh".into(),
-            Self::PotionMulti => "potion-multi".into(),
-            Self::Registered { id } => format!("model-{id}").into(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Settings {
-    pub revision: u64,
-    pub model: Option<Model>,
-    pub mirror: Option<String>,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            revision: 0,
-            model: Some(Model::default()),
-            mirror: None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
-pub enum ModelState {
-    Missing,
-    Downloading { percent: u8, bytes_per_second: u64 },
-    Installed,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelInfo {
-    pub model: Model,
-    pub repository: String,
-    pub revision: String,
-    pub dimension: u16,
-    pub size_bytes: u64,
-    pub license: String,
-    pub state: ModelState,
-    pub definition: crate::models::Definition,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Registration {
-    pub model: Model,
-    pub definition: crate::models::Definition,
-}
-
 /// Plugin sources remain within their captured worktree or private storage.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
@@ -99,7 +29,7 @@ pub struct Definition {
     pub name: String,
     pub source: Source,
     #[serde(default)]
-    pub model: Option<Model>,
+    pub model: Option<String>,
     #[serde(default)]
     pub globs: Vec<String>,
     #[serde(default)]
@@ -116,7 +46,7 @@ pub struct Draft {
     pub name: String,
     pub source: DraftSource,
     #[serde(default)]
-    pub model: Option<Model>,
+    pub model: Option<String>,
     #[serde(default)]
     pub globs: Vec<String>,
     #[serde(default)]
@@ -158,6 +88,10 @@ impl Definition {
     pub fn validate(&self) -> Result<(), Fault> {
         if self.name.trim().is_empty()
             || self.name.contains('\0')
+            || self
+                .model
+                .as_ref()
+                .is_some_and(|id| !crate::models::valid_id(id))
             || !filters(&self.tags)
             || self
                 .globs
@@ -210,7 +144,7 @@ pub struct Progress {
     pub completed: u64,
     pub chunks: u64,
     pub skipped: u64,
-    pub model: Option<Model>,
+    pub model: Option<String>,
     pub generation: u64,
 }
 
@@ -406,7 +340,7 @@ pub struct Page {
     pub next_offset: Option<u32>,
     pub mode: Mode,
     pub indexing: bool,
-    pub model: Option<Model>,
+    pub model: Option<String>,
     pub untrusted: bool,
 }
 
@@ -541,7 +475,7 @@ mod tests {
         };
         assert!(command.durable());
         assert!(!crate::Command::ListKnowledgeCollections.durable());
-        assert!(!crate::Command::ReadKnowledgeSettings.durable());
+        assert!(!crate::Command::ReadLocalModelSettings.durable());
         let encoded = serde_json::to_string(&command).unwrap();
         assert_eq!(
             serde_json::from_str::<crate::Command>(&encoded).unwrap(),

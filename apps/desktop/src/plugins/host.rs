@@ -3,7 +3,6 @@ pub(crate) mod activity;
 mod artifacts;
 mod changes;
 mod model_assets;
-mod registration;
 pub(super) mod sdk;
 mod settings;
 pub(crate) mod usage;

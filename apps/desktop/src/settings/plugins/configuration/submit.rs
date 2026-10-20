@@ -44,7 +44,7 @@ impl Editor {
     }
 
     pub(super) fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.pending || self.closed || self.loading || self.github_busy() {
+        if self.pending || self.closed || self.loading {
             return;
         }
         if self.request.is_none() {

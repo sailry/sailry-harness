@@ -21,13 +21,11 @@ fn preserves_definitions_without_derived_database() {
             plugin: None,
         }),
     );
+    let mut settings = sailry_protocol::models::Settings::default();
+    select_model(&mut settings, None);
     execute(
         &db.connection,
-        &request(Command::SaveKnowledgeSettings(knowledge::Settings {
-            model: None,
-            mirror: None,
-            revision: 0,
-        })),
+        &request(Command::SaveLocalModelSettings(settings)),
     )
     .unwrap();
     db.connection
@@ -46,7 +44,14 @@ fn preserves_definitions_without_derived_database() {
     std::fs::remove_file(&source).unwrap();
     let db = Database::open(&path, node, None).unwrap();
     assert_eq!(raw(&db.connection), metadata);
-    assert_eq!(catalog(&db.connection).unwrap().settings.model, None);
+    assert_eq!(
+        catalog(&db.connection)
+            .unwrap()
+            .settings
+            .choice(sailry_protocol::models::Kind::Embedding)
+            .model,
+        None
+    );
     let original: (i64, Vec<u8>) = db
         .connection
         .query_row(
@@ -97,13 +102,13 @@ fn adds_missing_tables_with_original_backup() {
         )
         .unwrap();
     db.connection
-        .execute_batch("DROP TABLE knowledge_settings; DROP TABLE knowledge_collections;")
+        .execute_batch("DROP TABLE local_model_settings; DROP TABLE knowledge_collections;")
         .unwrap();
     db.close().unwrap();
     let db = Database::open(&path, node, None).unwrap();
     assert_eq!(
         catalog(&db.connection).unwrap().settings,
-        knowledge::Settings::default()
+        sailry_protocol::models::Settings::default()
     );
     assert!(catalog(&db.connection).unwrap().collections.is_empty());
     let original: (i64, Vec<u8>) = db
@@ -132,7 +137,7 @@ fn adds_missing_tables_with_original_backup() {
             .unwrap();
     assert!(
         saved
-            .prepare("SELECT body FROM knowledge_settings")
+            .prepare("SELECT body FROM local_model_settings")
             .is_err()
     );
     let original: (i64, Vec<u8>) = saved
@@ -154,7 +159,7 @@ fn malformed_configuration_preserves_original_profile() {
     let db = Database::open(&path, node, None).unwrap();
     db.connection
         .execute(
-            "INSERT INTO knowledge_settings(singleton,body) VALUES(1,?1)",
+            "UPDATE local_model_settings SET body=?1 WHERE singleton=1",
             [br#"{"private-marker""#.as_slice()],
         )
         .unwrap();
@@ -165,7 +170,7 @@ fn malformed_configuration_preserves_original_profile() {
     let original = std::fs::read(&path).unwrap();
     let error = Database::open(&path, node, None).err().unwrap().to_string();
     assert!(
-        error.contains("invalid stored JSON in knowledge_settings.body"),
+        error.contains("invalid stored JSON in local_model_settings.body"),
         "{error}"
     );
     assert!(!error.contains("private-marker"), "{error}");

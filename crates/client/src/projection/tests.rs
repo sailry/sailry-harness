@@ -109,13 +109,13 @@ fn rejects_unknown_event_updates() {
 }
 
 #[test]
-fn knowledge_changes_advance_shared_cursor() {
+fn resource_changes_advance_shared_cursor() {
     let node = NodeId([1; 32]);
     let mut projection = Projection::new(node, 1);
     projection.apply(1, Update::Snapshot(snapshot(0))).unwrap();
     for (index, event) in [
-        Event::KnowledgeModelsChanged { models: vec![] },
-        Event::KnowledgeSettingsChanged { revision: 3 },
+        Event::LocalModelsChanged { models: vec![] },
+        Event::LocalModelSettingsChanged { revision: 3 },
         Event::KnowledgeCollectionsChanged,
     ]
     .into_iter()

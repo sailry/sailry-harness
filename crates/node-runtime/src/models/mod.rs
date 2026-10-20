@@ -3,7 +3,11 @@ mod http;
 mod huggingface;
 mod modelscope;
 mod refs;
+pub(crate) mod registry;
 mod resolve;
+pub(crate) mod runtime;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 #[cfg(test)]
 mod tests;

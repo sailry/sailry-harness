@@ -1,7 +1,9 @@
 use super::*;
 use futures::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio_tungstenite::tungstenite::{Message, protocol::CloseFrame};
+use tokio_tungstenite::tungstenite::{
+    Message, handshake::server as handshake, protocol::CloseFrame,
+};
 
 #[derive(Clone, Copy)]
 pub enum Mode {
@@ -19,6 +21,28 @@ impl Drop for Closed {
     }
 }
 
+struct Capture(Arc<Mutex<Vec<Request>>>);
+impl handshake::Callback for Capture {
+    fn on_request(
+        self,
+        request: &handshake::Request,
+        response: handshake::Response,
+    ) -> Result<handshake::Response, handshake::ErrorResponse> {
+        self.0.lock().unwrap().push(Request {
+            received: Instant::now(),
+            received_at: SystemTime::now(),
+            path: request.uri().path().to_owned(),
+            headers: request
+                .headers()
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_str().unwrap().to_owned()))
+                .collect(),
+            body: serde_json::Value::Null,
+        });
+        Ok(response)
+    }
+}
+
 pub(super) async fn respond(
     stream: TcpStream,
     records: Arc<Mutex<Vec<Request>>>,
@@ -27,24 +51,7 @@ pub(super) async fn respond(
     reply: Reply,
     mode: Mode,
 ) {
-    let result = tokio_tungstenite::accept_hdr_async(
-        stream,
-        move |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
-            upgrades.lock().unwrap().push(Request {
-                received: Instant::now(),
-                received_at: SystemTime::now(),
-                path: request.uri().path().to_owned(),
-                headers: request
-                    .headers()
-                    .iter()
-                    .map(|(name, value)| (name.to_string(), value.to_str().unwrap().to_owned()))
-                    .collect(),
-                body: serde_json::Value::Null,
-            });
-            Ok(response)
-        },
-    )
-    .await;
+    let result = tokio_tungstenite::accept_hdr_async(stream, Capture(upgrades)).await;
     let Ok(mut socket) = result else {
         return;
     };

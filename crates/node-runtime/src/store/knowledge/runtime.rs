@@ -9,9 +9,9 @@ use crate::store::{
 use sailry_link::{Admission, CancellationToken};
 use sailry_protocol::{
     Command, ErrorCode, Event, EventEnvelope, Fault, KnowledgeId, Output, Request,
-    knowledge::{ModelInfo, ModelState, Progress},
+    knowledge::Progress,
 };
-use std::{collections::BTreeSet, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 
 pub(in crate::store) async fn start(ingress: &Arc<Ingress>) -> Result<(), Fault> {
@@ -19,10 +19,9 @@ pub(in crate::store) async fn start(ingress: &Arc<Ingress>) -> Result<(), Fault>
         return Ok(());
     };
     ingress.knowledge_register(&ingress.closed).await?;
-    let catalog = ingress.knowledge_catalog().await?;
     let service = crate::knowledge::Service::open(
         profile,
-        catalog,
+        ingress.local_models.clone(),
         Arc::downgrade(ingress),
         ingress.closed.child_token(),
     )
@@ -34,48 +33,7 @@ pub(in crate::store) async fn start(ingress: &Arc<Ingress>) -> Result<(), Fault>
             "knowledge service is already initialized",
         ));
     }
-    let mut updates = service.models.subscribe();
-    let mut installed = membership(&updates.borrow_and_update());
-    let weak = Arc::downgrade(ingress);
-    let stop = ingress.closed.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                biased;
-                _ = stop.cancelled() => break,
-                change = updates.changed() => if change.is_err() { break; },
-            }
-            let models = updates.borrow_and_update().clone();
-            let Some(ingress) = weak.upgrade() else { break };
-            if ingress.knowledge_models(models.clone()).await.is_err() {
-                break;
-            }
-            let latest = membership(&models);
-            if latest != installed {
-                if let Some(service) = ingress.knowledge.get() {
-                    service.invalidate();
-                }
-                installed = latest;
-            }
-        }
-    });
     Ok(())
-}
-
-fn membership(models: &[ModelInfo]) -> BTreeSet<sailry_protocol::knowledge::Model> {
-    models
-        .iter()
-        .filter(|model| model.state == ModelState::Installed)
-        .map(|model| model.model)
-        .collect()
-}
-
-pub(in crate::store) fn prepare(request: &Request) -> Result<(), Fault> {
-    if matches!(request.command, Command::InstallKnowledgeModel { .. }) {
-        Ok(())
-    } else {
-        super::controller(request)
-    }
 }
 
 pub(in crate::store) fn changes(command: &Command) -> bool {
@@ -94,15 +52,11 @@ pub(in crate::store) fn changes(command: &Command) -> bool {
 pub(in crate::store) fn invalidates(command: &Command) -> bool {
     matches!(
         command,
-        Command::SaveKnowledgeSettings(_)
-            | Command::RegisterKnowledgeModel { .. }
-            | Command::CreateKnowledgeCollection { .. }
+        Command::CreateKnowledgeCollection { .. }
             | Command::UpdateKnowledgeCollection { .. }
             | Command::DeleteKnowledgeCollection { .. }
             | Command::RebuildKnowledgeCollection { .. }
             | Command::PauseKnowledgeCollection { .. }
-            | Command::InstallKnowledgeModel { .. }
-            | Command::DeleteKnowledgeModel { .. }
     )
 }
 
@@ -129,24 +83,6 @@ pub(in crate::store) fn observe(
         }
     });
     admission
-}
-
-pub(in crate::store) fn models(
-    database: &mut Database,
-    models: Vec<ModelInfo>,
-    events: &broadcast::Sender<EventEnvelope>,
-) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let envelopes = record(
-        &transaction,
-        database.node,
-        vec![Event::KnowledgeModelsChanged { models }],
-    )?;
-    transaction.commit().map_err(storage_error)?;
-    for envelope in envelopes {
-        let _ = events.send(envelope);
-    }
-    Ok(())
 }
 
 pub(in crate::store) fn progress(
@@ -265,13 +201,6 @@ impl Ingress {
         }
     }
 
-    async fn knowledge_models(&self, models: Vec<ModelInfo>) -> Result<(), Fault> {
-        let (reply, response) = oneshot::channel();
-        self.send_internal(Job::KnowledgeModels { models, reply })
-            .await?;
-        response.await.map_err(|_| unavailable())?
-    }
-
     pub(in crate::store) async fn read_knowledge(
         &self,
         request: Request,
@@ -294,18 +223,6 @@ impl Ingress {
                 let _guard = stop.clone().drop_guard();
                 Output::KnowledgeCitation(service.citation(&request, input, &stop).await?)
             }
-            Command::ReadKnowledgeModels => {
-                let catalog = self.knowledge_catalog().await?;
-                service
-                    .models
-                    .configure(catalog.settings, &catalog.models)?;
-                Output::KnowledgeModels(service.models.infos().await?)
-            }
-            Command::CancelKnowledgeModel { model } => {
-                super::controller(&request)?;
-                service.models.cancel(*model);
-                Output::KnowledgeModel { model: *model }
-            }
             _ => return Err(Fault::invalid("knowledge read expected")),
         };
         let (reply, completion) = oneshot::channel();
@@ -317,31 +234,5 @@ impl Ingress {
             },
             completion,
         })
-    }
-
-    pub(in crate::store) async fn change_knowledge(
-        &self,
-        request: &Request,
-        stop: &CancellationToken,
-        reporter: Option<&crate::installation::Reporter>,
-    ) -> Result<Output, Fault> {
-        prepare(request)?;
-        let service = self.knowledge.get().ok_or_else(unavailable)?;
-        let catalog = self.knowledge_catalog().await?;
-        service
-            .models
-            .configure(catalog.settings, &catalog.models)?;
-        let model = match &request.command {
-            Command::InstallKnowledgeModel { model } => {
-                service.models.install(*model, stop, reporter).await?;
-                *model
-            }
-            Command::DeleteKnowledgeModel { model } => {
-                service.models.remove(*model).await?;
-                *model
-            }
-            _ => return Err(Fault::invalid("knowledge model change expected")),
-        };
-        Ok(Output::KnowledgeModel { model })
     }
 }

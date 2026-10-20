@@ -89,6 +89,39 @@ async fn cancellation_closes_listener() {
 }
 
 #[tokio::test]
+async fn preserves_endpoint_after_abandoned_receiver() {
+    let original = Callback::bind("/auth/callback").unwrap();
+    let stop = CancellationToken::new();
+    let abandoned = tokio::spawn(original.duplicate().unwrap().receive(
+        "https://auth.example/authorize?state=expected".into(),
+        async { Reply::Text("Done".into()) },
+        stop.clone(),
+    ));
+    stop.cancel();
+    assert_eq!(
+        abandoned.await.unwrap().unwrap_err().code,
+        ErrorCode::Cancelled
+    );
+
+    let retry = original.duplicate().unwrap();
+    assert_eq!(retry.redirect, original.redirect);
+    let task = tokio::spawn(retry.receive(
+        "https://auth.example/authorize?state=expected".into(),
+        async { Reply::Text("Done".into()) },
+        CancellationToken::new(),
+    ));
+    send(
+        &original.redirect,
+        "/auth/callback?state=expected&code=accepted",
+    )
+    .await;
+    assert_eq!(
+        task.await.unwrap().unwrap().expose(),
+        format!("{}?state=expected&code=accepted", original.redirect)
+    );
+}
+
+#[tokio::test]
 async fn rejects_missing_authorization_state() {
     let listener = Callback::bind("/auth/callback").unwrap();
     let result = listener

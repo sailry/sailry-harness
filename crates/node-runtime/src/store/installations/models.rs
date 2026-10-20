@@ -1,37 +1,43 @@
-//! Existing model services retain catalog, native validation and receipt ownership.
+//! Models share durable installation ordering and the Node's verified registry.
 use super::{Execution, Worker};
-use crate::store::{Ingress, resources};
+use crate::store::{Ingress, database::Database, resources};
 use sailry_protocol::{
-    Command,
+    Command, EventEnvelope,
     installation::{Phase, Resource},
-    models::Kind,
 };
 use std::sync::Arc;
+use tokio::sync::broadcast;
 
 pub(in crate::store) fn handles(command: &Command) -> bool {
     matches!(
         command,
-        Command::InstallOcrModel { .. }
-            | Command::DeleteOcrModel { .. }
-            | Command::InstallKnowledgeModel { .. }
+        Command::InstallLocalModel { .. } | Command::DeleteLocalModel { .. }
     )
 }
 
 pub(in crate::store) fn submit(
     worker: &mut Worker,
+    database: &mut Database,
+    events: &broadcast::Sender<EventEnvelope>,
     ingress: Arc<Ingress>,
     execution: resources::Execution,
 ) -> Result<(), Box<Execution>> {
-    let resource = match &execution.request.command {
-        Command::InstallOcrModel { id } | Command::DeleteOcrModel { id } => Resource::Model {
-            kind: Kind::Ocr,
-            id: id.clone(),
-        },
-        Command::InstallKnowledgeModel { model } => Resource::Model {
-            kind: Kind::Embedding,
-            id: model.key().into_owned(),
-        },
+    let id = match &execution.request.command {
+        Command::InstallLocalModel { id } | Command::DeleteLocalModel { id } => id,
         _ => unreachable!("model installation command expected"),
+    };
+    let definition = match crate::store::local_models::definition(&database.connection, id) {
+        Ok(definition) => definition,
+        Err(error) => {
+            let result =
+                database.finish_external(execution.caller, &execution.request, Err(error), events);
+            let _ = execution.reply.send(result);
+            return Ok(());
+        }
+    };
+    let resource = Resource::Model {
+        kind: definition.format.kind(),
+        id: id.clone(),
     };
     let request = execution.request.clone();
     let execution = Execution {
@@ -39,20 +45,12 @@ pub(in crate::store) fn submit(
         request: execution.request,
         reply: execution.reply,
         operation: true,
-        observe: !matches!(request.command, Command::DeleteOcrModel { .. }),
+        observe: !matches!(request.command, Command::DeleteLocalModel { .. }),
     };
     worker.submit(execution, resource, move |reporter, stop| async move {
         reporter(Phase::Inspecting, None);
-        match &request.command {
-            Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. } => {
-                ingress.change_ocr(&request, &stop, Some(&reporter)).await
-            }
-            Command::InstallKnowledgeModel { .. } => {
-                ingress
-                    .change_knowledge(&request, &stop, Some(&reporter))
-                    .await
-            }
-            _ => unreachable!("model installation command expected"),
-        }
+        ingress
+            .change_local_model(&request, &stop, Some(&reporter))
+            .await
     })
 }

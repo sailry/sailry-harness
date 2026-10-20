@@ -76,7 +76,7 @@ async fn ready(client: &Client, id: KnowledgeId, generation: u64, profile: &Path
                 assert_eq!(state.progress.sources, 500);
                 assert_eq!(state.progress.completed, 500);
                 assert_eq!(state.progress.skipped, 0);
-                assert_eq!(state.progress.model, Some(Model::PotionMulti));
+                assert_eq!(state.progress.model, Some("potion-multi".to_owned()));
                 return state;
             }
             assert_ne!(
@@ -155,14 +155,20 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
             .into_iter()
             .nth(usize::from(remote))
             .unwrap();
-        let Output::KnowledgeModels(models) = execute(&client, Command::ReadKnowledgeModels).await
+        let Output::LocalModels(models) = execute(
+            &client,
+            Command::ReadLocalModels {
+                kind: Some(sailry_protocol::models::Kind::Embedding),
+            },
+        )
+        .await
         else {
             panic!("models expected")
         };
         assert_eq!(
             models
                 .iter()
-                .find(|info| info.model == Model::PotionMulti)
+                .find(|info| info.id == "potion-multi".to_owned())
                 .unwrap()
                 .state,
             ModelState::Installed
@@ -173,7 +179,7 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
             worktree: fixture.worktree,
             path: "mixed".into(),
         });
-        definition.model = Some(Model::PotionMulti);
+        definition.model = Some("potion-multi".to_owned());
         let started = Instant::now();
         let collection = super::saved(
             execute(
@@ -226,7 +232,7 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
         .expect("foreground query waited behind bulk indexing");
         assert!(live.indexing);
         assert!(!live.hits.is_empty());
-        assert_eq!(live.model, Some(Model::PotionMulti));
+        assert_eq!(live.model, Some("potion-multi".to_owned()));
         let foreground_ms = foreground.elapsed().as_millis();
         let profile = fixture.temp.path().join("node");
         let first_state = ready(
@@ -416,7 +422,7 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
             None,
         )
         .await;
-        assert_eq!(restored_query.model, Some(Model::PotionMulti));
+        assert_eq!(restored_query.model, Some("potion-multi".to_owned()));
         assert!(!restored_query.hits.is_empty());
         println!(
             "mixed corpus remote={remote}, sources=500, initial_ms={first_ms}, foreground_ms={foreground_ms}, initial_encoded={encoded}, incremental_encoded=1"

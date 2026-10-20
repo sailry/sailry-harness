@@ -20,7 +20,7 @@ fn vector(state: &mut u64, dimension: usize) -> Vec<f32> {
     values
 }
 
-fn populate(index: &mut Index, binding: Binding, dimension: usize) {
+fn populate(index: &mut Index, binding: &Binding, dimension: usize) {
     // Batched fixture setup uses the actual schema; queries use production search.
     let tx = index.db.transaction().unwrap();
     let mut source = tx.prepare("INSERT INTO sources(collection,locator,revision,modified_ms,tags,embedded) VALUES(?1,?2,?3,?4,?5,1)").unwrap();
@@ -127,18 +127,18 @@ fn measures_full_and_filtered_int8_scans() {
         scope: [0; 32],
         rebuild: 0,
         paused: false,
-        model: Some((Model::GraniteMulti, dimension)),
+        model: Some(("granite-multi".to_owned(), dimension)),
     };
-    index.bind(binding).unwrap();
+    index.bind(&binding).unwrap();
     let started = Instant::now();
-    populate(&mut index, binding, dimension);
+    populate(&mut index, &binding, dimension);
     println!(
         "fixture_sources={SOURCES} dimension={dimension} vector_fixture=deterministic-normalized-synthetic int8_blob_bytes={} setup_ms={:.3}",
         dimension + 4,
         started.elapsed().as_secs_f64() * 1000.
     );
     assert_eq!(
-        index.counts(binding).unwrap(),
+        index.counts(&binding).unwrap(),
         (SOURCES as u64, SOURCES as u64)
     );
     for filtered in [false, true] {
@@ -155,8 +155,8 @@ fn measures_full_and_filtered_int8_scans() {
             index
                 .search(
                     &query,
-                    &[binding],
-                    &[(Model::GraniteMulti, vector.clone())],
+                    &[binding.clone()],
+                    &[("granite-multi".to_owned(), vector.clone())],
                     false,
                     &CancellationToken::new(),
                 )
@@ -168,8 +168,8 @@ fn measures_full_and_filtered_int8_scans() {
             let page = index
                 .search(
                     &query,
-                    &[binding],
-                    &[(Model::GraniteMulti, vector.clone())],
+                    &[binding.clone()],
+                    &[("granite-multi".to_owned(), vector.clone())],
                     false,
                     &CancellationToken::new(),
                 )
@@ -177,7 +177,7 @@ fn measures_full_and_filtered_int8_scans() {
             samples.push(started.elapsed());
             assert_eq!(page.mode, Mode::Semantic);
             assert_eq!(page.hits.len(), 5);
-            assert_eq!(page.model, Some(Model::GraniteMulti));
+            assert_eq!(page.model, Some("granite-multi".to_owned()));
             assert!(
                 page.hits
                     .iter()

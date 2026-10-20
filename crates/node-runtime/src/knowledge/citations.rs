@@ -21,7 +21,7 @@ impl Service {
         let path = self.path.clone();
         let selected = input.clone();
         let indexed = tokio::task::spawn_blocking(move || {
-            index::Index::reader(&path)?.citation(captured, &selected)
+            index::Index::reader(&path)?.citation(&captured, &selected)
         })
         .await
         .map_err(|_| unavailable())?;

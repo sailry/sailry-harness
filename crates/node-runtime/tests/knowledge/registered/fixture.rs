@@ -71,12 +71,9 @@ impl Assets {
         }
     }
 
-    pub(super) fn seed(&self, profile: &Path, model: Model) -> PathBuf {
-        assert!(matches!(model, Model::Registered { .. }));
-        let directory = profile
-            .join("models/embedding")
-            .join(model.key().as_ref())
-            .join("files");
+    pub(super) fn seed(&self, profile: &Path, model: &str) -> PathBuf {
+        assert!(sailry_protocol::models::valid_id(model));
+        let directory = profile.join("models/embedding").join(model).join("files");
         let mut builder = fs::DirBuilder::new();
         builder.recursive(true);
         #[cfg(unix)]

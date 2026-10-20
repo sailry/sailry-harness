@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::{NodeId, knowledge::Model};
+use sailry_protocol::NodeId;
 use serde_json::json;
 
 mod access;
@@ -10,6 +10,7 @@ mod restore;
 fn database() -> Connection {
     let db = Connection::open_in_memory().unwrap();
     db.execute_batch(include_str!("../schema.sql")).unwrap();
+    crate::store::local_models::initialize(&db).unwrap();
     db
 }
 
@@ -123,4 +124,26 @@ fn raw(db: &Connection) -> Vec<(String, i64, i64, Vec<u8>)> {
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap()
+}
+
+fn execute(db: &Connection, request: &Request) -> Result<(Output, Option<Event>), Fault> {
+    crate::store::commands::execute(db, request.target, request.target, None, request)
+}
+fn settings(
+    db: &Connection,
+    request: &Request,
+) -> Result<sailry_protocol::models::Settings, Fault> {
+    let (Output::LocalModelSettings(settings), _) = execute(db, request)? else {
+        panic!("local model settings expected")
+    };
+    Ok(settings)
+}
+fn select_model(settings: &mut sailry_protocol::models::Settings, model: Option<String>) {
+    settings.choices.insert(
+        sailry_protocol::models::Kind::Embedding,
+        sailry_protocol::models::Choice {
+            enabled: model.is_some(),
+            model,
+        },
+    );
 }

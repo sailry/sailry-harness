@@ -131,7 +131,7 @@ pub(in crate::store) fn captured(
 pub(in crate::store) fn check(
     db: &Connection,
     node: NodeId,
-    caller: NodeId,
+    _caller: NodeId,
     request: &Request,
 ) -> Result<(), Fault> {
     let context = request.plugin.as_ref().ok_or_else(denied)?;
@@ -170,41 +170,31 @@ pub(in crate::store) fn check(
         {
             Ok(())
         }
-        Command::ReadMcpAuthorization {
+        Command::ListConnections | Command::ListConnectorTypes => Ok(()),
+        Command::StartConnectorLogin {
             package,
-            server: named,
-        } if *package == context.package && named == server => Ok(()),
-        Command::BeginMcpLogin {
-            package,
-            server: named,
-            client_id: None,
+            connector,
+            method: sailry_protocol::plugin::connector::Kind::McpOauth,
+            input,
+            connection,
             ..
-        } if *package == context.package && named == server && declaration.mcp_authorization() => {
-            Ok(())
-        }
-        Command::CompleteMcpLogin { attempt, .. } | Command::CancelMcpLogin { attempt } => {
-            let body: Option<Vec<u8>> = db
-                .query_row(
-                    "SELECT body FROM requests WHERE caller=?1 AND id=?2",
-                    params![&caller.0[..], attempt.to_string()],
-                    |row| row.get(0),
-                )
-                .optional()
-                .map_err(storage_error)?;
-            let original: Request =
-                serde_json::from_slice(&body.ok_or_else(denied)?).map_err(storage_error)?;
-            if original.plugin.as_ref().is_none_or(|original| {
-                original.surface != context.surface
-                    || original.session != context.session
-                    || original.worktree != context.worktree
-                    || original.package.name != context.package.name
-                    || original.package.digest != context.package.digest
-            }) || !matches!(original.command, Command::BeginMcpLogin { server: named, .. } if named == server)
-            {
-                return Err(denied());
+        } if *package == context.package
+            && input.secrets.is_empty()
+            && input.fields.is_empty()
+            && !input.registration
+            && declaration.mcp_authorization() =>
+        {
+            let connector=super::connectors::declarations(&info).into_iter().find(|item|item.id==*connector
+                && item.auth.iter().any(|auth|matches!(auth,plugin::connector::Auth::McpOauth{server:named,..} if named==server))).ok_or_else(denied)?;
+            if let Some(id) = connection {
+                let record = super::connectors::read(db, *id)?;
+                if record.plugin != info.summary.name || record.connector != connector.id {
+                    return Err(denied());
+                }
             }
             Ok(())
         }
+        Command::SubmitConnectorInput { .. } | Command::CancelConnectorLogin { .. } => Ok(()),
         _ => Err(denied()),
     }
 }

@@ -1,0 +1,36 @@
+settings_connectors: "Konnektoren"
+connector_search: "Konnektoren suchen"
+connector_empty: "Keine Verbindungen"
+connector_not_connected: "Nicht verbunden"
+connector_expired: "Abgelaufen"
+connector_confirmation: "Bestätigung erforderlich"
+connector_failed: "Verbindung fehlgeschlagen"
+connector_unknown: "Verbindung vor dem erneuten Versuch prüfen"
+connector_conflict: "Verbindung geändert, erneut öffnen"
+connector_reconnect: "Erneut anmelden"
+connector_probe: "Verbindung prüfen"
+connector_disconnect: "Trennen"
+connector_consent_effect: "Geänderte Autorisierungsziele vor dem Fortfahren prüfen"
+connector_remove_effect: "Verbindung und Zugangsdaten für %{name} löschen"
+connector_confirm: "Bestätigen"
+connector_preview: "Vorschau"
+connector_saved: "Gespeichert"
+connector_configured: "Gesetzt"
+connector_browser: "Im Browser autorisieren"
+connector_register: "App erstellen"
+connector_authorize: "Autorisieren"
+connector_connect: "Verbinden"
+connector_add: "Konnektor hinzufügen"
+connector_token: "Token"
+connector_cli: "Lokale CLI"
+connector_oauth: "OAuth"
+connector_application: "App-Zugangsdaten"
+connector_cli_capability: "Lokalen Befehl ausführen"
+
+connector_changed_origins: Ursprünge
+connector_changed_scopes: Berechtigungen
+connector_changed_client: Client
+connector_changed_flow: Anmeldeablauf
+connector_changed_targets: Anmeldedatenziele
+connector_changed_mcp: MCP-Server
+connector_changed_source: Paketquelle

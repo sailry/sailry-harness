@@ -2,7 +2,7 @@ use super::*;
 use crate::store::Ingress;
 use rmcp::transport::auth::OAuthClientConfig;
 use rmcp::transport::auth::{AuthClient, AuthError};
-use sailry_protocol::CredentialId;
+use sailry_protocol::plugin::connector::Id;
 use std::{
     collections::BTreeMap,
     sync::{
@@ -17,68 +17,20 @@ pub(crate) struct Target {
     pub plugin: String,
     pub server: String,
     pub endpoint: String,
-    pub id: CredentialId,
+    pub id: Id,
+    pub revision: u64,
 }
 
 type Client = AuthClient<reqwest::Client>;
 type Slot = Arc<OnceCell<Client>>;
 type Registration = (String, Option<Secret>);
-type MetadataKey = (String, String, u64, String, String);
-type MetadataSlot = (std::time::Instant, Arc<OnceCell<(bool, bool)>>);
-
 /// Active transports for one grant share the SDK manager's token refresh lock.
 #[derive(Default)]
 pub(crate) struct Clients {
     active: Mutex<BTreeMap<(Target, Option<String>), Slot>>,
-    metadata: Mutex<BTreeMap<MetadataKey, MetadataSlot>>,
 }
 
 impl Clients {
-    pub(crate) async fn available(
-        &self,
-        package: &sailry_protocol::plugin::Reference,
-        server: &str,
-        endpoint: &str,
-        registered: bool,
-    ) -> bool {
-        let key = (
-            package.name.clone(),
-            package.digest.clone(),
-            package.settings_revision,
-            server.to_owned(),
-            endpoint.to_owned(),
-        );
-        let entry = {
-            let mut metadata = self.metadata.lock().await;
-            metadata.retain(|_, (created, _)| created.elapsed() < Duration::from_secs(60));
-            if metadata.len()
-                >= sailry_protocol::plugin::MAX_INSTALLED * crate::plugins::mcp::MAX_SERVERS
-                && !metadata.contains_key(&key)
-            {
-                return false;
-            }
-            metadata
-                .entry(key)
-                .or_insert_with(|| (std::time::Instant::now(), Arc::new(OnceCell::new())))
-                .1
-                .clone()
-        };
-        let (discovered, dynamic) = entry
-            .get_or_init(|| async {
-                tokio::time::timeout(
-                    Duration::from_secs(20),
-                    discovered_manager(endpoint, InMemoryCredentialStore::new()),
-                )
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .map(|(_, discovered, dynamic)| (discovered, dynamic))
-                .unwrap_or((false, false))
-            })
-            .await;
-        *discovered && (*dynamic || registered)
-    }
-
     pub(crate) async fn client(
         &self,
         ingress: &Arc<Ingress>,
@@ -118,7 +70,8 @@ impl Clients {
                     client: client.clone(),
                     registered: registered.clone(),
                 };
-                let mut manager = manager(&target.endpoint, store).await?;
+                let endpoint = ingress.plugins.connectors.resource(&target.endpoint);
+                let mut manager = manager(&endpoint, store).await?;
                 if !manager.initialize_from_store().await.map_err(unavailable)? {
                     return Err(Fault::new(
                         ErrorCode::NotConfigured,
@@ -139,7 +92,7 @@ impl Clients {
                     if let Some(secret) = secret {
                         manager
                             .configure_client(
-                                OAuthClientConfig::new(id.clone(), &target.endpoint)
+                                OAuthClientConfig::new(id.clone(), &endpoint)
                                     .with_client_secret(secret.expose()),
                             )
                             .map_err(unavailable)?;
@@ -148,6 +101,7 @@ impl Clients {
                 drop(saved);
                 let http = reqwest::Client::builder()
                     .redirect(reqwest::redirect::Policy::none())
+                    .retry(reqwest::retry::never())
                     .connect_timeout(Duration::from_secs(10))
                     .build()
                     .map_err(unavailable)?;
@@ -168,6 +122,26 @@ struct Store {
 
 #[async_trait::async_trait]
 impl CredentialStore for Store {
+    async fn acquire_refresh_guard(
+        &self,
+    ) -> Result<Option<rmcp::transport::auth::CredentialRefreshGuard>, AuthError> {
+        let ingress = self.ingress.upgrade().ok_or_else(storage)?;
+        let lock = ingress
+            .plugins
+            .connectors
+            .lock(self.target.id)
+            .map_err(|_| storage())?;
+        Ok(Some(rmcp::transport::auth::CredentialRefreshGuard::new(
+            lock.lock_owned().await,
+        )))
+    }
+    async fn on_refresh_token_rejected(
+        &self,
+        _credentials: &StoredCredentials,
+    ) -> Result<(), AuthError> {
+        self.clear().await
+    }
+
     async fn load(&self) -> Result<Option<StoredCredentials>, AuthError> {
         let ingress = self.ingress.upgrade().ok_or_else(storage)?;
         let Some((revision, secret)) = ingress
@@ -227,5 +201,5 @@ impl CredentialStore for Store {
 }
 
 fn storage() -> AuthError {
-    AuthError::InternalError("MCP authorization is unavailable or changed".into())
+    AuthError::CredentialStoreError("MCP authorization is unavailable or changed".into())
 }

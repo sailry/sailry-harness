@@ -175,6 +175,7 @@ pub(in crate::store) fn inherit(
         params![turn.id.to_string(), turn.session.to_string(), turn.revision as i64,
             request.id.to_string(), &caller.0[..], encode(&turn.plugins)?, encode(&turn.roles)?, encode(&super::super::super::captures::instructions(db, target.turn)?)?],
     ).map_err(storage_error)?;
+    super::super::super::plugins::connectors::capture(db, turn.id, &turn.plugins)?;
     super::super::super::attachments::turns::bind(db, turn.id, &message.attachments)?;
     runs::inherit(db, &turn, target.turn, Status::Queued, true)?;
     admit(db, &turn, true)?;

@@ -49,7 +49,10 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
             let updated = match table {
                 "agent_approvals" => approval(&mut value),
                 "requests" => receipt(&mut value),
-                "events" => retained(&mut value, "background_settings_changed"),
+                "events" => match value.get("kind").and_then(Value::as_str) {
+                    Some(kind @ ("background_settings_changed" | "ocr_models_changed" | "ocr_settings_changed" | "knowledge_models_changed" | "knowledge_settings_changed")) => { let kind = kind.to_owned(); retained(&mut value, &kind) },
+                    _ => false,
+                },
                 "artifacts" | "artifact_revisions" => artifact(&mut value),
                 "code_settings" => code(&mut value),
                 _ => package(&mut value),
@@ -170,7 +173,7 @@ fn receipt(value: &mut Value) -> bool {
     match output.get("kind").and_then(Value::as_str) {
         Some("approval") => output.get_mut("data").is_some_and(approval),
         Some("plugin") => output.get_mut("data").is_some_and(package),
-        Some("background_settings") => retained(output, "background_settings"),
+        Some(kind @ ("background_settings" | "ocr_models" | "ocr_model" | "ocr_settings" | "knowledge_models" | "knowledge_model" | "knowledge_settings" | "github_login" | "mcp_authorization" | "mcp_login" | "plugin_authorization" | "plugin_login")) => { let kind = kind.to_owned(); retained(output, &kind) },
         _ => false,
     }
 }

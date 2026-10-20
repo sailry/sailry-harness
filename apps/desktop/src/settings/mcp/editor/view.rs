@@ -42,27 +42,23 @@ pub(super) fn open(editor: Entity<Editor>, window: &mut Window, cx: &mut App) {
                         .gap_2()
                         .flex_wrap()
                         .when_some(
-                            state.original.as_ref().filter(|info| {
-                                state
-                                    .authorization
-                                    .read(cx)
-                                    .allows(&info.summary.reference(), "server")
-                            }),
-                            |row, info| {
-                                let binding = state.binding.clone();
-                                let package = info.summary.reference();
+                            state
+                                .original
+                                .as_ref()
+                                .filter(|info| plugins::metadata::has_connector(info, "server")),
+                            |row, _| {
                                 row.child(
                                     Button::new("mcp-authorize")
                                         .ghost()
-                                        .label(tr("mcp_oauth_title"))
+                                        .label(tr("settings_connectors"))
                                         .debug_selector(|| "mcp-authorize".into())
                                         .disabled(state.locked())
                                         .on_click(move |_, window, cx| {
-                                            plugins::authorization::open(
-                                                binding.clone(),
-                                                package.clone(),
-                                                "server".into(),
-                                                window,
+                                            window.close_dialog(cx);
+                                            window.dispatch_action(
+                                                Box::new(crate::settings::OpenSection(
+                                                    crate::settings::Section::Connectors,
+                                                )),
                                                 cx,
                                             );
                                         }),

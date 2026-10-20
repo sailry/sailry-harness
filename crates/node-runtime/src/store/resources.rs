@@ -21,15 +21,9 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     }
     if matches!(
         request.command,
-        Command::InstallKnowledgeModel { .. } | Command::DeleteKnowledgeModel { .. }
+        Command::InstallLocalModel { .. } | Command::DeleteLocalModel { .. }
     ) {
-        return super::knowledge::runtime::prepare(request);
-    }
-    if matches!(
-        request.command,
-        Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. }
-    ) {
-        return super::ocr::approvals::check(&database.connection, request);
+        return super::local_models::approvals::check(&database.connection, request);
     }
     if matches!(
         request.command,
@@ -168,14 +162,6 @@ impl Worker {
                     | Command::RestoreBackupFile { .. } => {
                         ingress
                             .change_backup(execution.caller, &execution.request, &stop)
-                            .await
-                    }
-                    Command::DeleteOcrModel { .. } => {
-                        ingress.change_ocr(&execution.request, &stop, None).await
-                    }
-                    Command::DeleteKnowledgeModel { .. } => {
-                        ingress
-                            .change_knowledge(&execution.request, &stop, None)
                             .await
                     }
                     Command::StartCodeServer { .. }

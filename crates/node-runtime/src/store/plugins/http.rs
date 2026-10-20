@@ -24,35 +24,42 @@ pub(super) fn prepare(
         http,
         info.settings.as_ref(),
         resolved.as_ref(),
-        &info.summary.reference(),
     )?;
-    if let Some(field) = &http.credential {
-        let stored = settings::stored(&db.connection, &info)?;
-        if let Some(authorization) = stored.oauth
-            && let Some(grant) = authorization.grant
-            && grant.declaration.credentials.contains(field)
-            && info
-                .extension
-                .as_ref()
-                .and_then(|extension| extension.oauth.as_ref())
-                == Some(&grant.declaration)
-        {
-            crate::plugins::oauth::validate(&grant.declaration, info.settings.as_ref())?;
-            let binding = info
-                .settings
-                .as_ref()
-                .and_then(|schema| schema.properties.get(field))
-                .and_then(|field| field.secret.as_ref())
-                .ok_or_else(|| Fault::invalid("OAuth credential field is unavailable"))?;
-            let (_, header, prefix) = crate::plugins::http::binding(binding)?;
-            input.oauth = Some(crate::plugins::oauth::Target {
-                plugin: info.summary.name,
-                id: authorization.id,
-                declaration: grant.declaration,
-                header,
-                prefix: prefix.into(),
-            });
+    if let Some(connector) = &http.connector {
+        if http.credential.is_some() {
+            return Err(Fault::invalid(
+                "HTTP request cannot mix credential and connector references",
+            ));
         }
+        let (record, declaration) = super::connectors::resolve(
+            &db.connection,
+            db.profile.as_deref(),
+            context,
+            connector,
+            http.connection,
+        )?;
+        let origin = url::Url::parse(&http.url)
+            .map_err(|_| Fault::invalid("invalid plugin HTTP URL"))?
+            .origin()
+            .ascii_serialization();
+        let injection = declaration
+            .inject
+            .iter()
+            .find(|injection| injection.origin.as_deref() == Some(&origin))
+            .cloned()
+            .ok_or_else(|| {
+                Fault::new(
+                    ErrorCode::PermissionDenied,
+                    "connector does not authorize this HTTP origin",
+                )
+            })?;
+        input.connector = Some((
+            super::connectors::target(&record, declaration, info.summary.reference()),
+            injection,
+            matches!(http.method.as_str(), "GET" | "HEAD") || http.idempotent,
+        ));
+    } else if http.connection.is_some() {
+        return Err(Fault::invalid("connection requires a connector reference"));
     }
     Ok(input)
 }

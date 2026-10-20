@@ -1,5 +1,4 @@
 use super::entry::Entry;
-pub(super) mod authorization;
 mod cards;
 pub(super) mod configuration;
 pub(in crate::settings) mod details;

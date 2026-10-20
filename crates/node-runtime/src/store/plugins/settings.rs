@@ -1,5 +1,6 @@
 //! Immutable configuration revisions share plugin inventory transactions and receipts.
 use super::*;
+pub(in crate::store) mod history;
 pub(super) mod targets;
 use crate::plugins::settings::Resolved;
 use sailry_protocol::{Secret, plugin::settings::*};
@@ -17,14 +18,14 @@ pub(in crate::store) struct Stored {
     pub(super) slots: BTreeMap<String, Option<Secret>>,
     #[serde(default)]
     pub(super) mcp_targets: BTreeMap<String, String>,
-    #[serde(default)]
-    pub(super) authorizations: BTreeMap<String, super::grants::Grant>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) authorizations: BTreeMap<String, history::McpGrant>,
     #[serde(default)]
     pub(super) mcp: Option<plugin::mcp::Configuration>,
-    #[serde(default)]
-    pub(super) github: Option<crate::plugins::github::login::Identity>,
-    #[serde(default)]
-    pub(super) oauth: Option<super::oauth::Authorized>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) github: Option<history::Identity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) oauth: Option<history::Authorized>,
 }
 
 pub(super) fn current(db: &Connection, package: &plugin::Reference) -> Result<Info, Fault> {
@@ -136,28 +137,7 @@ fn can_keep(
     if same_binding(stored, schema, name, targets) {
         return true;
     }
-    let authorized = [stored.schema.as_ref(), Some(schema)]
-        .into_iter()
-        .flatten()
-        .filter_map(|schema| schema.properties.get(name))
-        .filter_map(|field| field.secret.as_ref()?.server.as_ref())
-        .filter_map(|server| stored.authorizations.get(server))
-        .any(|grant| grant.credentials.is_some());
-    let oauth = stored
-        .oauth
-        .as_ref()
-        .and_then(|saved| saved.grant.as_ref())
-        .is_some_and(|grant| {
-            grant
-                .declaration
-                .credentials
-                .iter()
-                .any(|field| field == name)
-        });
     !stored.slots.get(name).is_some_and(Option::is_some)
-        && !(name == "token" && stored.github.is_some())
-        && !authorized
-        && !oauth
 }
 
 fn project(db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault> {
@@ -190,13 +170,6 @@ fn project(db: &Connection, info: &Info, stored: &Stored) -> Result<State, Fault
         if same_binding(stored, schema, name, &targets) && value.is_some() {
             configured.push(name.clone());
         }
-    }
-    if super::github::declared(info)
-        && stored.github.is_some()
-        && same_binding(stored, schema, "token", &targets)
-        && !configured.iter().any(|name| name == "token")
-    {
-        configured.push("token".into());
     }
     let ready = targets_available
         && stored.schema.as_ref() == Some(schema)
@@ -351,9 +324,11 @@ pub(in crate::store) fn save(
                     ));
                 }
                 validate_value(fields[name], &Value::String(value.expose().into()))?;
-                if fields[name].secret.as_ref().is_some_and(|binding| {
-                    binding.header.is_some() && binding.application.is_none()
-                }) {
+                if fields[name]
+                    .secret
+                    .as_ref()
+                    .is_some_and(|binding| binding.header.is_some())
+                {
                     reqwest::header::HeaderValue::from_str(value.expose()).map_err(|_| {
                         sailry_protocol::Fault::invalid("invalid secret header value")
                     })?;
@@ -368,44 +343,10 @@ pub(in crate::store) fn save(
         }
     }
     let mut slots = BTreeMap::new();
-    let mut github = previous.github.clone();
-    let mut oauth = previous.oauth.clone();
-    let mut revoked_fields = Vec::new();
-    if oauth
-        .as_ref()
-        .and_then(|saved| saved.grant.as_ref())
-        .is_some_and(|grant| {
-            info.extension
-                .as_ref()
-                .and_then(|extension| extension.oauth.as_ref())
-                != Some(&grant.declaration)
-                || grant.declaration.credentials.iter().any(|name| {
-                    !same_binding(&previous, schema, name, &targets)
-                        || !matches!(updates.get(name), Some(SecretUpdate::Keep))
-                })
-        })
-    {
-        revoked_fields = oauth
-            .as_ref()
-            .and_then(|saved| saved.grant.as_ref())
-            .map(|grant| grant.declaration.credentials.clone())
-            .unwrap_or_default();
-        super::oauth::clear(db, &package.name)?;
-        oauth = None;
-    }
     for (name, update) in updates {
-        if super::github::declared(&info)
-            && name == "token"
-            && !matches!(update, SecretUpdate::Keep)
-        {
-            github = None;
-            edit_revisions(db, &package.name, |saved| saved.github = None)?;
-        }
         match update {
             SecretUpdate::Keep => {
-                if revoked_fields.contains(name) {
-                    slots.insert(name.clone(), None);
-                } else if let Some(value) = previous.slots.get(name) {
+                if let Some(value) = previous.slots.get(name) {
                     slots.insert(name.clone(), value.clone());
                 }
             }
@@ -429,8 +370,8 @@ pub(in crate::store) fn save(
         mcp_targets: targets,
         authorizations: previous.authorizations,
         mcp: previous.mcp,
-        github,
-        oauth,
+        github: previous.github,
+        oauth: previous.oauth,
     };
     persist(db, &mut info, &saved)?;
     super::super::dispatch::settings_changed(db, &info.summary.reference())?;
@@ -484,9 +425,7 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
         return Ok(Resolved {
             values: BTreeMap::new(),
             secrets: BTreeMap::new(),
-            authorizations: authorizations(&saved),
             mcp: saved.mcp,
-            github: None,
         });
     }
     let state = project(db, info, &saved)?;
@@ -499,7 +438,6 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
     let secrets = state
         .configured
         .iter()
-        .filter(|name| saved.github.is_none() || name.as_str() != "token")
         .map(|name| {
             saved
                 .slots
@@ -515,13 +453,7 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
     Ok(Resolved {
         values: state.values,
         secrets,
-        authorizations: authorizations(&saved),
         mcp: saved.mcp,
-        github: if super::github::declared(info) {
-            saved.github
-        } else {
-            None
-        },
     })
 }
 
@@ -532,15 +464,6 @@ pub(in crate::store) fn capture(
     packages
         .iter()
         .map(|info| (info.summary.name.clone(), resolve(db, info)))
-        .collect()
-}
-
-fn authorizations(saved: &Stored) -> BTreeMap<String, sailry_protocol::CredentialId> {
-    saved
-        .authorizations
-        .iter()
-        .filter(|(_, grant)| grant.credentials.is_some())
-        .map(|(server, grant)| (server.clone(), grant.id))
         .collect()
 }
 

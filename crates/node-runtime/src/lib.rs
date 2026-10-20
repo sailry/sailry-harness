@@ -503,31 +503,9 @@ impl Node {
         self.ingress.web.fixture(host, address);
     }
 
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_plugin_oauth_fixture(
-        &self,
-        provider: sailry_protocol::plugin::oauth::Provider,
-        token_url: &str,
-    ) {
-        self.ingress.oauth.fixture(provider, token_url);
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_plugin_registration_fixture(&self, endpoint: &str) {
-        self.ingress.registration.fixture(endpoint);
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_plugin_application_fixture(
-        &self,
-        provider: sailry_protocol::plugin::settings::Provider,
-        token_url: &str,
-        resource_origin: &str,
-    ) {
-        self.ingress
-            .plugins
-            .applications
-            .fixture(provider, token_url, resource_origin);
+    #[cfg(feature = "test-support")]
+    pub fn set_connector_fixture(&self, origin: &str, endpoint: &str) {
+        self.ingress.plugins.connectors.fixture(origin, endpoint);
     }
 
     #[cfg(any(test, feature = "test-support"))]

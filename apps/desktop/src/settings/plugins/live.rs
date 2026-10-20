@@ -8,7 +8,6 @@ pub(in crate::settings) struct Catalog {
     pub packages: Vec<Summary>,
     pub(in crate::settings) market: Option<Entity<super::market::Market>>,
     pub metadata: Option<Entity<Metadata>>,
-    pub(in crate::settings) authorization: Option<Entity<super::authorization::Capabilities>>,
     pub(in crate::settings) updates: Option<Entity<super::updates::State>>,
     pub(super) inventory: Option<super::inventory::Inventory>,
     action: Option<Action>,

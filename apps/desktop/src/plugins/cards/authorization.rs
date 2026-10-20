@@ -1,10 +1,10 @@
-//! The existing Client login observer and Node OAuth engine remain authoritative.
+//! Package-declared connectors own authorization through the shared Node service.
 use super::*;
 use host::LoginState;
-use sailry_client::{mcp_login, oauth::Callback};
+use sailry_client::{connectors, oauth::Callback};
 use sailry_protocol::{
     ErrorCode, Fault, Request, RequestOutcome,
-    plugin::authorization::{Attempt, State},
+    plugin::connector::{self, Attempt, LoginState as State},
 };
 
 pub(super) struct Login {
@@ -144,7 +144,7 @@ impl Card {
         let Some(server) = host.declaration.mcp_server.clone() else {
             return;
         };
-        let callback = match Callback::bind("/callback") {
+        let callback = match Callback::bind("/auth/callback") {
             Ok(callback) => callback,
             Err(_) => {
                 self.toast(
@@ -156,23 +156,42 @@ impl Card {
                 return;
             }
         };
-        let request = host.package().and_then(|package| {
-            host.request(Command::BeginMcpLogin {
-                package,
-                server,
-                redirect: callback.redirect.clone(),
-                client_id: None,
-            })
-        });
-        let Ok(request) = request else { return };
         self.authorization.stop.cancel();
         self.authorization.stop = CancellationToken::new();
         self.authorization.redirect = Some(callback.redirect.clone());
+        let redirect = callback.redirect.clone();
         self.authorization.callback = Some(callback);
-        self.authorization.request = Some(request);
         self.authorization.state = LoginState::Starting;
+        self.authorization.pending = true;
         self.login_state(LoginState::Starting, false);
-        self.send_login(false, window, cx);
+        let stop = self.authorization.stop.clone();
+        let job=self.binding.runtime.spawn(async move {
+            tokio::select! { _=stop.cancelled()=>None,result=prepare(&host,&server,redirect)=>Some(result) }
+        });
+        self.authorization.task = Some(cx.spawn_in(window, async move |owner, cx| {
+            let result = job.await;
+            let _ = owner.update_in(cx, |card, window, cx| {
+                card.authorization.pending = false;
+                if !card.active(cx) {
+                    return;
+                }
+                match result {
+                    Ok(Some(Ok(request))) => {
+                        card.authorization.request = Some(request);
+                        card.send_login(false, window, cx);
+                    }
+                    Ok(Some(Err(_))) => {
+                        card.authorization.suspend();
+                        card.authorization.state = LoginState::Failed;
+                        card.login_state(LoginState::Failed, false);
+                        card.toast(crate::tr("mcp_oauth_failed").to_string(), true, window, cx);
+                    }
+                    _ => {}
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
 
     fn cancel(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -189,7 +208,7 @@ impl Card {
         let Some(host) = self.mounted.as_ref().map(|mounted| mounted.host.clone()) else {
             return;
         };
-        let Ok(request) = host.request(Command::CancelMcpLogin {
+        let Ok(request) = host.request(Command::CancelConnectorLogin {
             attempt: attempt.id,
         }) else {
             return;
@@ -225,19 +244,19 @@ impl Card {
                     return;
                 }
                 match result {
-                    Ok((Ok(Output::McpLogin(attempt)), _)) => {
+                    Ok((Ok(Output::ConnectorLogin(attempt)), _)) => {
                         card.authorization.request = None;
                         match command {
-                            Command::BeginMcpLogin { .. } => {
+                            Command::StartConnectorLogin { .. } => {
                                 card.observe_login(attempt, window, cx)
                             }
-                            Command::CancelMcpLogin { .. } => {
+                            Command::CancelConnectorLogin { .. } => {
                                 card.authorization.suspend();
                                 card.authorization.attempt = None;
                                 card.authorization.state = LoginState::Cancelled;
                                 card.login_state(LoginState::Cancelled, false);
                             }
-                            Command::CompleteMcpLogin { .. } => {}
+                            Command::SubmitConnectorInput { .. } => {}
                             _ => {}
                         }
                     }
@@ -272,11 +291,11 @@ impl Card {
         if self.authorization.stop.is_cancelled() {
             self.authorization.stop = CancellationToken::new();
         }
-        let (sender, mut receiver) = tokio::sync::watch::channel(mcp_login::View::default());
+        let (sender, mut receiver) = tokio::sync::watch::channel(connectors::View::default());
         let client = self.binding.client.clone();
         let stop = self.authorization.stop.clone();
         self.binding.runtime.spawn(async move {
-            let _ = client.watch_mcp_login(attempt, sender, stop).await;
+            let _ = client.watch_connector_login(attempt, sender, stop).await;
         });
         self.authorization.observer = Some(cx.spawn_in(window, async move |owner, cx| {
             loop {
@@ -290,7 +309,7 @@ impl Card {
                         if let Some(update) = &view.update {
                             match &update.state {
                                 State::Starting => card.login_state(LoginState::Starting, false),
-                                State::Pending { url, expires_at_ms } if view.connected => {
+                                State::Browser { url, expires_at_ms } if view.connected => {
                                     card.authorization.url = Some((url.clone(), *expires_at_ms));
                                     card.authorization.state = LoginState::Pending;
                                     card.login_state(
@@ -317,13 +336,16 @@ impl Card {
                                     card.authorization.request = None;
                                     card.authorization.state = LoginState::Connected;
                                     if let Some(mounted) = &card.mounted {
-                                        mounted.host.reference(reference.clone());
+                                        mounted.host.reference(reference.package.clone());
                                     }
                                     card.login_state(LoginState::Connected, false);
                                     if notify {
-                                        card.toast(
-                                            crate::tr("provider_login_connected").to_string(),
-                                            false,
+                                        crate::ui::authorization::connected(
+                                            &card.summary.package.name,
+                                            reference
+                                                .identity
+                                                .as_ref()
+                                                .map(|identity| identity.name.as_str()),
                                             window,
                                             cx,
                                         );
@@ -401,9 +423,9 @@ impl Card {
                         else {
                             return;
                         };
-                        if let Ok(request) = host.request(Command::CompleteMcpLogin {
+                        if let Ok(request) = host.request(Command::SubmitConnectorInput {
                             attempt: attempt.id,
-                            callback,
+                            input: callback,
                         }) {
                             card.authorization.request = Some(request);
                             card.login_state(card.authorization.state.clone(), false);
@@ -449,4 +471,66 @@ pub(super) fn uncertain(code: ErrorCode) -> bool {
             | ErrorCode::Internal
             | ErrorCode::Cancelled
     )
+}
+
+async fn prepare(host: &host::Host, server: &str, redirect: String) -> Result<Request, Fault> {
+    let package = host
+        .package()
+        .map_err(|error| Fault::new(ErrorCode::Unavailable, error.to_string()))?;
+    let client = &host.binding.client;
+    let Output::Plugin(info) = client
+        .execute(client.prepare(Command::ReadPlugin {
+            name: package.name.clone(),
+        }))
+        .await?
+    else {
+        return Err(Fault::invalid("plugin metadata expected"));
+    };
+    if info.summary.reference() != package || !info.summary.enabled {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "plugin configuration changed",
+        ));
+    }
+    let id = connector_id(&info, server)?;
+    let request = host
+        .request(Command::ListConnections)
+        .map_err(|error| Fault::new(ErrorCode::Unavailable, error.to_string()))?;
+    let Output::Connections(connections) = client.execute(request).await? else {
+        return Err(Fault::invalid("connections expected"));
+    };
+    let connection = connections
+        .into_iter()
+        .find(|connection| connection.package.name == package.name && connection.connector == id);
+    host.request(Command::StartConnectorLogin {
+        package,
+        connector: id,
+        connection: connection.as_ref().map(|connection| connection.id),
+        expected_revision: connection.as_ref().map(|connection| connection.revision),
+        method: connector::Kind::McpOauth,
+        input: connector::Input {
+            redirect: Some(redirect),
+            ..Default::default()
+        },
+    })
+    .map_err(|error| Fault::new(ErrorCode::Unavailable, error.to_string()))
+}
+
+pub(super) fn connector_id(info: &plugin::Info, server: &str) -> Result<String, Fault> {
+    let mut matches = info
+        .extension
+        .iter()
+        .flat_map(|extension| &extension.connectors)
+        .filter(|declaration| {
+            declaration.auth.iter().any(
+                |auth| matches!(auth,connector::Auth::McpOauth { server:name,.. } if name==server),
+            )
+        });
+    let declaration = matches
+        .next()
+        .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "card connector is unavailable"))?;
+    if matches.next().is_some() {
+        return Err(Fault::invalid("card connector is ambiguous"));
+    }
+    Ok(declaration.id.clone())
 }

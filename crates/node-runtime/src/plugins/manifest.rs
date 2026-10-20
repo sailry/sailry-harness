@@ -96,6 +96,8 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                     }
                     Ok(parsed)
                         if parsed.actions.len() <= 32
+                            && parsed.connectors.len() <= 8
+                            && parsed.connectors.iter().enumerate().all(|(index, item)| item.valid() && !parsed.connectors[..index].iter().any(|other| other.id == item.id))
                             && parsed.files_in_namespace()
                             && parsed.model_auth.iter().enumerate().all(|(index,item)| item.valid() && !parsed.model_auth[..index].iter().any(|other|other.id==item.id || (item.authentication.is_some() && other.authentication==item.authentication))
                                 && parsed.actions.contains(&sailry_protocol::plugin::Action::AuthenticateModels)
@@ -128,7 +130,6 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             && sailry_protocol::plugin::ui::valid(&parsed.ui)
                             && cards::valid(&parsed)
                             && parsed.storage.as_ref().is_none_or(|storage| super::storage::validate(storage).is_ok())
-                            && parsed.registration.as_ref().is_none_or(|declaration| declaration.valid() && parsed.oauth.is_none())
                             && parsed.ui.iter().all(|entry| entry.command.as_ref().is_none_or(|command| {
                                 command.kind != sailry_protocol::plugin::ui::CommandKind::Message
                                     || parsed.host.as_ref().is_some_and(|host| host.commands.iter().any(|route| route.name == command.name))
@@ -171,7 +172,6 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                             && parsed.actions.iter().enumerate().all(|(index, action)| {
                                 !parsed.actions[..index].contains(action)
                             })
-                            && parsed.credential_source.is_none_or(|_| parsed.scope == sailry_protocol::plugin::Scope::Host && parsed.settings_schema.is_some())
                             && parsed.enabled_service.is_none_or(|service| match service {
                                 sailry_protocol::plugin::Service::Language => parsed.scope == sailry_protocol::plugin::Scope::Host
                                     && parsed.actions.contains(&sailry_protocol::plugin::Action::SaveCodeSettings),

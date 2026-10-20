@@ -1,0 +1,3 @@
+local_models: "로컬 모델"
+local_models_empty: "설치된 모델 없음"
+local_models_available_empty: "사용 가능한 모델 없음"

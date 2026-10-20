@@ -19,6 +19,7 @@ impl Fixture {
         let mut result = Ok(Output::Plugin(host.install_bundled("code").unwrap()));
         super::super::plugins::finish(
             &database.connection,
+            host.profile(),
             &Command::InstallBundledPlugin {
                 name: "code".into(),
                 expected_revision: 0,

@@ -833,6 +833,7 @@ pub(super) fn install(
     ));
     crate::store::plugins::finish(
         db,
+        Some(&profile),
         &protocol::Command::InstallPlugin {
             name: name.into(),
             worktree: protocol::WorktreeId::new(),

@@ -26,30 +26,87 @@ pub(crate) enum Launch {
         url: String,
         headers: BTreeMap<String, String>,
         sse: bool,
-        authorization: Option<sailry_protocol::CredentialId>,
-        registered: Option<crate::plugins::authorization::Registered>,
-        application: Option<crate::plugins::applications::Authorization>,
-        github: Option<crate::plugins::github::login::Binding>,
     },
 }
 
 impl Resources {
-    pub(crate) async fn mcp_client(
+    pub(crate) async fn mcp_authorization(
+        &self,
+        ingress: &Arc<crate::store::Ingress>,
+        context: sailry_protocol::plugin::Context,
+        server: &str,
+        launch: &mut Launch,
+    ) -> Result<Option<crate::plugins::connectors::mcp::Authorization>, Fault> {
+        let targets = ingress
+            .mcp_connectors(context.clone(), server.into())
+            .await?;
+        let mut authorization = crate::plugins::connectors::mcp::Authorization::new(
+            ingress.clone(),
+            targets,
+            self.stop.clone(),
+        );
+        if let Some(settings) = self
+            .settings
+            .get(&context.package.name)
+            .cloned()
+            .transpose()?
+        {
+            for secret in settings.secrets.values() {
+                authorization.remember(secret.clone())?;
+            }
+        }
+        authorization.oauth = self
+            .mcp_client(
+                ingress,
+                &context.package.name,
+                server,
+                launch,
+                Some(&authorization),
+            )
+            .await?;
+        if let Launch::Stdio { env, .. } = launch {
+            for (target, injection) in &authorization.targets {
+                let name = injection.env.as_deref().ok_or_else(unavailable)?;
+                let secret = ingress
+                    .plugins
+                    .connectors
+                    .access(target, ingress, None, &self.stop)
+                    .await?;
+                env.insert(name.into(), secret.expose().into());
+                authorization.seal(target.id, secret.clone())?;
+                authorization.remember(secret)?;
+            }
+        }
+        if authorization.targets.is_empty()
+            && self
+                .settings
+                .get(&context.package.name)
+                .and_then(|settings| settings.as_ref().ok())
+                .is_none_or(|settings| settings.secrets.is_empty())
+        {
+            Ok(None)
+        } else {
+            Ok(Some(authorization))
+        }
+    }
+    async fn mcp_client(
         &self,
         ingress: &Arc<crate::store::Ingress>,
         plugin: &str,
         server: &str,
         launch: &Launch,
+        authorization: Option<&crate::plugins::connectors::mcp::Authorization>,
     ) -> Result<Option<rmcp::transport::auth::AuthClient<reqwest::Client>>, Fault> {
-        let Launch::Http {
-            url,
-            headers,
-            authorization: Some(id),
-            registered,
-            ..
-        } = launch
-        else {
+        let Some(authorization) = authorization else {
             return Ok(None);
+        };
+        let Some((connector, _)) = authorization.targets.iter().find(|(target, _)| {
+            target.method == sailry_protocol::plugin::connector::Kind::McpOauth
+        }) else {
+            return Ok(None);
+        };
+        let Launch::Http { url, headers, .. } = launch else {
+            return Err(unavailable());
         };
         if headers
             .iter()
@@ -60,21 +117,20 @@ impl Resources {
                 "MCP OAuth conflicts with a configured authorization header",
             ));
         }
+        let registered = crate::plugins::authorization::Registered::connector(connector)?;
         let target = crate::plugins::authorization::Target {
             plugin: plugin.into(),
             server: server.into(),
             endpoint: url.clone(),
-            id: *id,
+            id: connector.id,
+            revision: connector.revision,
         };
         if ingress.mcp_credentials(target.clone()).await?.is_none() {
-            return Err(Fault::new(
-                ErrorCode::NotConfigured,
-                "MCP authorization is unavailable",
-            ));
+            return Err(unavailable());
         }
         self.host
             .authorizations
-            .client(ingress, target, registered.clone())
+            .client(ingress, target, registered)
             .await
             .map(Some)
     }
@@ -130,48 +186,10 @@ impl Resources {
                         Ok(crate::plugins::settings::Resolved {
                             values: BTreeMap::new(),
                             secrets: BTreeMap::new(),
-                            authorizations: BTreeMap::new(),
                             mcp: None,
-                            github: None,
                         })
                     }
                 })?;
-                let mut settings = settings;
-                if settings.github.is_none()
-                    && !settings.secrets.contains_key("token")
-                    && !settings.authorizations.contains_key("github")
-                    && settings
-                        .mcp
-                        .as_ref()
-                        .and_then(|configuration| configuration.servers.get("github"))
-                        .is_none_or(|server| match server {
-                            Server::Http { headers, .. } | Server::Sse { headers, .. } => {
-                                headers.iter().all(|(name, value)| {
-                                    !name.eq_ignore_ascii_case("authorization")
-                                        || value.trim().is_empty()
-                                })
-                            }
-                            Server::Stdio { .. } => true,
-                        })
-                    && package.extension.as_ref().is_some_and(|extension| {
-                        extension.credential_source
-                            == Some(sailry_protocol::plugin::CredentialSource::GithubCli)
-                    })
-                {
-                    settings.github =
-                        crate::plugins::github::login::status(environment, &self.stop)
-                            .await?
-                            .1;
-                }
-                if let Some(identity) = &settings.github {
-                    let token = crate::plugins::github::login::credential(
-                        environment,
-                        identity,
-                        &self.stop,
-                    )
-                    .await?;
-                    settings.secrets.insert("token".into(), token);
-                }
                 let stop = self.stop.clone();
                 tokio::task::spawn_blocking(move || {
                     if stop.is_cancelled() {
@@ -335,43 +353,6 @@ fn prepare(
     let sse = matches!(&server, Server::Sse { .. });
     match server {
         Server::Http { url, mut headers } | Server::Sse { url, mut headers } => {
-            let github = if let Some(identity) = &settings.github {
-                if !info.extension.as_ref().is_some_and(|extension| {
-                    extension.credential_source
-                        == Some(sailry_protocol::plugin::CredentialSource::GithubCli)
-                }) || server_name != "github"
-                    || sse
-                    || url != "https://api.githubcopilot.com/mcp/"
-                {
-                    return Err(Fault::new(
-                        ErrorCode::PermissionDenied,
-                        "GitHub CLI binding requires the official MCP endpoint",
-                    ));
-                }
-                let binding = schema
-                    .and_then(|schema| schema.properties.get("token"))
-                    .and_then(|field| field.secret.as_ref())
-                    .ok_or_else(unavailable)?;
-                if binding.unsupported
-                    || binding.server.as_deref() != Some("github")
-                    || binding.header.as_deref() != Some("Authorization")
-                    || binding.prefix.as_deref() != Some("Bearer ")
-                    || binding.origin.is_some()
-                    || binding.env.is_some()
-                {
-                    return Err(unavailable());
-                }
-                let token = settings.secrets.get("token").ok_or_else(unavailable)?;
-                Some(crate::plugins::github::login::Binding {
-                    identity: identity.clone(),
-                    fingerprint: blake3::hash(token.expose().as_bytes()),
-                })
-            } else {
-                None
-            };
-            let registered =
-                crate::plugins::authorization::Registered::resolve(schema, settings, server_name)?;
-            let mut applications = Vec::new();
             for (field, secret) in &settings.secrets {
                 let binding = schema
                     .and_then(|schema| schema.properties.get(field))
@@ -380,16 +361,6 @@ fn prepare(
                 if binding.server.as_deref() == Some(server_name)
                     && let Some(header) = &binding.header
                 {
-                    if binding.application.is_some() {
-                        applications.push(crate::plugins::applications::Target::resolve(
-                            &info.summary.reference(),
-                            binding,
-                            settings,
-                            &url,
-                            secret,
-                        )?);
-                        continue;
-                    }
                     let value = headers
                         .iter_mut()
                         .find(|(name, _)| name.eq_ignore_ascii_case(header))
@@ -402,18 +373,7 @@ fn prepare(
                     );
                 }
             }
-            Ok(Launch::Http {
-                url,
-                headers,
-                sse,
-                authorization: settings.authorizations.get(server_name).copied(),
-                registered,
-                application: crate::plugins::applications::Authorization::new(
-                    host.applications.clone(),
-                    applications,
-                ),
-                github,
-            })
+            Ok(Launch::Http { url, headers, sse })
         }
         Server::Stdio {
             command,

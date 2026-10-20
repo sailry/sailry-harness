@@ -1,6 +1,7 @@
 //! Defaults for added storage fields; no historical state inference.
 mod instructions;
 mod json;
+mod local_models;
 use crate::Error;
 use rusqlite::Connection;
 use sailry_protocol::hooks::Settings;
@@ -32,10 +33,11 @@ pub(super) fn matches(table: &str, name: &str, value: &[u8]) -> bool {
 }
 
 pub(super) fn retained(kind: &str, name: &str) -> bool {
-    kind == "table" && name == "session_delegations"
+    kind == "table" && matches!(name, "session_delegations" | "ocr_settings" | "knowledge_settings" | "knowledge_models")
 }
 
 pub(super) fn reconcile(db: &Connection, retain_instructions: bool) -> Result<bool, Error> {
+    let models = local_models::reconcile(db)?;
     let changed = json::reconcile(db)?;
     let credentials = crate::store::databases::credentials::reconcile(db)
         .map_err(|error| Error::Worker(error.message))?;
@@ -46,5 +48,5 @@ pub(super) fn reconcile(db: &Connection, retain_instructions: bool) -> Result<bo
         .map_err(|error| Error::Worker(error.message))?;
     crate::store::plugins::storage::search::validate(db)
         .map_err(|error| Error::Worker(error.message))?;
-    Ok(changed || credentials || instructions || captures != 0)
+    Ok(models || changed || credentials || instructions || captures != 0)
 }

@@ -57,7 +57,7 @@ pub(super) fn unchanged(
 pub(super) struct Encoding<'a> {
     pub service: &'a Service,
     pub revision: u64,
-    pub model: Option<Model>,
+    pub model: Option<&'a str>,
     pub cancel: &'a CancellationToken,
     pub runtime: &'a tokio::runtime::Handle,
 }
@@ -113,7 +113,7 @@ impl Encoding<'_> {
                     self.revision,
                     batch.iter().map(|part| part.text.clone()).collect(),
                     sailry_embedding::Input::Document,
-                    models::Lane::Index,
+                    models::Lane::Background,
                     self.cancel,
                 ))?;
                 if vectors.len() != batch.len() {

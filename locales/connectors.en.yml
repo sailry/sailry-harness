@@ -1,0 +1,36 @@
+settings_connectors: "Connectors"
+connector_search: "Search connectors"
+connector_empty: "No connections"
+connector_not_connected: "Not connected"
+connector_expired: "Expired"
+connector_confirmation: "Needs confirmation"
+connector_failed: "Connection failed"
+connector_unknown: "Result unconfirmed, check the connection before retrying"
+connector_conflict: "Connection changed, open it again"
+connector_reconnect: "Sign in again"
+connector_probe: "Check connection"
+connector_disconnect: "Disconnect"
+connector_consent_effect: "Review the changed authorization targets before continuing"
+connector_remove_effect: "Delete the connection and credentials for %{name}"
+connector_confirm: "Confirm"
+connector_preview: "Preview"
+connector_saved: "Saved"
+connector_configured: "Set"
+connector_browser: "Authorize in your browser"
+connector_register: "Create app"
+connector_authorize: "Authorize"
+connector_connect: "Connect"
+connector_add: "Add connector"
+connector_token: "Token"
+connector_cli: "Local CLI"
+connector_oauth: "OAuth"
+connector_application: "App credentials"
+connector_cli_capability: "Run local command"
+
+connector_changed_origins: Origins
+connector_changed_scopes: Scopes
+connector_changed_client: Client
+connector_changed_flow: Sign-in flow
+connector_changed_targets: Credential targets
+connector_changed_mcp: MCP servers
+connector_changed_source: Package source

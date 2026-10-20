@@ -221,8 +221,6 @@ async fn loads_bundled_documents() {
                     header: Some(header.into()),
                     origin: None,
                     prefix,
-                    application: None,
-                    oauth: None,
                     unsupported: false,
                 })
             );

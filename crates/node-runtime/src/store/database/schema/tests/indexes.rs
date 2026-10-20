@@ -150,7 +150,7 @@ fn rolls_back_failed_upgrade_transaction() {
     let mut db = Connection::open(&path).unwrap();
     seed(&db, "example");
     seed(&db, "later");
-    let schema = prepare(&db, &path, node).unwrap();
+    let schema = prepare(&db, &path, node, None).unwrap();
     assert!(matches!(&schema.0, State::Upgrade { .. }));
     db.execute(
         "UPDATE plugin_values SET index_data=?1 WHERE name='later'",
@@ -233,7 +233,7 @@ fn uses_session_lookup_and_preserves_records() {
 fn rolls_back_session_index_on_validation_failure() {
     let (directory, path, node) = startup::fixture("DROP INDEX turns_session");
     let mut db = Connection::open(&path).unwrap();
-    let schema = prepare(&db, &path, node).unwrap();
+    let schema = prepare(&db, &path, node, None).unwrap();
     db.execute(
         "UPDATE requests SET status='completed', result=?1",
         [b"{".as_slice()],

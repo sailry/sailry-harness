@@ -1,5 +1,5 @@
 use super::*;
-use sailry_protocol::installation::{ModelRef, Phase, State as Status, Target};
+use sailry_protocol::installation::{ModelRef, Phase, State as Status};
 
 fn task(manager: &Manager, id: Option<ModelId>) -> RequestId {
     let request = RequestId::new();
@@ -17,8 +17,8 @@ fn task(manager: &Manager, id: Option<ModelId>) -> RequestId {
         sailry_protocol::installation::Task {
             request,
             revision: 1,
-            resource: ModelRef::Speech {
-                target: Target::Controller,
+            resource: ModelRef::Controller {
+                kind: sailry_protocol::models::Kind::Speech,
                 id,
             }
             .resource(),

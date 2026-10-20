@@ -67,3 +67,36 @@ fn retains_only_live_callback_flows() {
     login.suspend();
     assert!(!login.keeps_alive());
 }
+
+#[test]
+fn resolves_only_the_declared_server_connector() {
+    let mut info:plugin::Info=serde_json::from_value(serde_json::json!({
+        "summary":{"name":"arbitrary-package","revision":1,"digest":"a".repeat(64),"settings_revision":0,"enabled":true},
+        "extension":{"api_version":"v1","connectors":[{
+            "id":"service","display":{"label":"Service"},"accounts":"single","origins":["https://example.test"],
+            "auth":[{"kind":"mcp_oauth","server":"target"}],"fields":[],"inject":[]
+        }]},"skills":[],"mcp":[],"issues":[]
+    })).unwrap();
+    assert_eq!(
+        super::super::authorization::connector_id(&info, "target").unwrap(),
+        "service"
+    );
+    assert_eq!(
+        super::super::authorization::connector_id(&info, "other")
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    assert!(crate::plugins::metadata::has_connector(&info, "target"));
+    assert!(!crate::plugins::metadata::has_connector(&info, "other"));
+    let extension = info.extension.as_mut().unwrap();
+    let mut duplicate = extension.connectors[0].clone();
+    duplicate.id = "second".into();
+    extension.connectors.push(duplicate);
+    assert_eq!(
+        super::super::authorization::connector_id(&info, "target")
+            .unwrap_err()
+            .code,
+        ErrorCode::InvalidRequest
+    );
+}

@@ -47,8 +47,8 @@ pub(crate) fn external(
             key,
             Entry {
                 order,
-                resource: sailry_protocol::installation::ModelRef::Speech {
-                    target: sailry_protocol::installation::Target::Controller,
+                resource: sailry_protocol::installation::ModelRef::Controller {
+                    kind: sailry_protocol::models::Kind::Speech,
                     id,
                 }
                 .resource(),

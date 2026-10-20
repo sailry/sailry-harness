@@ -2,6 +2,7 @@ mod appearance;
 mod backup;
 mod catalog;
 mod connections;
+mod connectors;
 pub(crate) use connections::Connections as Pairing;
 pub(crate) use connections::edit::open as edit_host_network;
 mod conversation;
@@ -10,8 +11,8 @@ mod draft;
 mod entry;
 pub(crate) mod group;
 mod hooks;
-mod knowledge;
 mod market;
+mod models;
 mod navigation;
 pub(crate) use navigation::OpenSection;
 mod mcp;
@@ -23,6 +24,7 @@ pub(crate) use plugins::preparation::label as python_stage;
 pub(crate) use plugins::updates::connected as check_plugin_updates;
 mod preferences;
 mod providers;
+mod requests;
 mod resource_card;
 pub(crate) use providers::{Channel, Model, ModelCategory};
 pub(crate) use providers::{
@@ -98,6 +100,7 @@ pub enum Section {
     Providers,
     Skills,
     Connections,
+    Connectors,
     Shortcuts,
     Dictation,
     Permissions,
@@ -122,7 +125,10 @@ impl Section {
                 Self::Dictation,
             ],
         ),
-        ("settings_group_ai", &[Self::Providers, Self::Knowledge]),
+        (
+            "settings_group_ai",
+            &[Self::Providers, Self::Connectors, Self::Knowledge],
+        ),
         (
             "settings_group_tools",
             &[
@@ -145,6 +151,7 @@ impl Section {
             Self::About | Self::Knowledge => 200,
             Self::Backup => 300,
             Self::Appearance | Self::Connections => 200,
+            Self::Connectors => 150,
             Self::Conversation => 300,
             Self::Shortcuts => 400,
             Self::Hooks => 500,
@@ -173,6 +180,7 @@ impl Section {
             Self::Providers => "settings_providers",
             Self::Skills => "settings_skills",
             Self::Connections => "settings_connections",
+            Self::Connectors => "settings_connectors",
             Self::Shortcuts => "settings_shortcuts",
             Self::Dictation => "settings_dictation",
             Self::Permissions => "settings_permissions",
@@ -196,6 +204,7 @@ impl Section {
             Self::Mcp | Self::Providers => IconName::Cpu,
             Self::Skills => IconName::Bot,
             Self::Connections => IconName::Network,
+            Self::Connectors => return gpui_kit::assets::IconName::Plug.into(),
             Self::Shortcuts => IconName::ALargeSmall,
             Self::Dictation => IconName::ALargeSmall,
             Self::Permissions => IconName::Settings2,
@@ -210,13 +219,14 @@ impl EventEmitter<OpenPlugins> for Workspace {}
 
 pub struct Workspace {
     connections: Entity<connections::Connections>,
+    connectors: connectors::State,
     pub section: Section,
     providers: providers::Store,
     provider_query: Entity<gpui_kit::component::input::InputState>,
     provider_link: Option<providers::Live>,
     provider_contributions: Option<providers::contributions::State>,
     terminal: terminal::State,
-    knowledge: knowledge::State,
+    models: models::State,
     runtime: runtime::State,
     backup: backup::State,
     hooks: hooks::State,
@@ -310,13 +320,14 @@ impl Workspace {
             .detach();
         Self {
             connections: cx.new(|cx| connections::Connections::new(window, cx)),
+            connectors: connectors::State::new(window, cx),
             section: Section::General,
             providers: providers::Store::default(),
             provider_query: providers::query(window, cx),
             provider_link: None,
             provider_contributions: None,
             terminal,
-            knowledge: knowledge::State::default(),
+            models: models::State::default(),
             runtime: runtime::State::default(),
             backup: backup::State::default(),
             hooks: hooks::State::default(),
@@ -372,10 +383,11 @@ impl Workspace {
     }
 
     pub fn deactivate(&mut self, cx: &mut Context<Self>) {
+        self.connectors.close();
         if let Some(state) = self.provider_contributions.take() {
             state.close(cx);
         }
-        self.clear_knowledge(cx);
+        self.clear_models(cx);
         self.clear_runtime(cx);
         self.clear_backup(cx);
         self.clear_hooks(cx);
@@ -396,14 +408,18 @@ impl Render for Workspace {
         }
         let content = match self.section {
             Section::Connections => self.connections.clone().into_any_element(),
+            Section::Connectors => self.connectors(window, cx),
             Section::Providers => self.providers(window, cx),
             Section::Plugin => self.plugin_settings(window, cx),
             Section::General => self.preferences(window, cx),
             Section::Appearance => self.appearance(cx),
             Section::Conversation => self.conversation(window, cx),
             Section::Terminal => self.terminal(window, cx),
-            Section::Knowledge => self.knowledge(window, cx),
-            Section::Runtime | Section::Ocr => self.runtime(window, cx),
+            Section::Knowledge => {
+                self.local_models(sailry_protocol::models::Kind::Embedding, window, cx)
+            }
+            Section::Runtime => self.runtime(window, cx),
+            Section::Ocr => self.local_models(sailry_protocol::models::Kind::Ocr, window, cx),
             Section::Backup => self.backup(window, cx),
             Section::Hooks => self.hooks.render(window, cx),
             Section::Shortcuts => self.shortcuts.clone().into_any_element(),

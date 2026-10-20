@@ -26,11 +26,19 @@ impl Database {
                 "Node or protocol version mismatch",
             ));
         }
+        if matches!(request.command,Command::CancelConnectorLogin{..}) {return Ok(());}
         if matches!(
             context.surface,
             sailry_protocol::plugin::desktop::Surface::Card(_)
         ) {
             return super::cards::check(&self.connection, self.node, caller, request);
+        }
+        if super::connectors::check(&self.connection, request)? {
+            let package = self.plugin_package(caller, request)?;
+            if !package.summary.enabled || package.summary.reference() != context.package {
+                return Err(denied("connector package is unavailable or changed"));
+            }
+            return Ok(());
         }
         // Browser provisioning and controller authority follow live package availability,
         // while code and settings retain the admitted package revision.
@@ -43,11 +51,9 @@ impl Database {
                 | Command::InstallCodeServer { .. }
                 | Command::UninstallCodeServer { .. }
                 | Command::StopCodeServer { .. }
-                | Command::RegisterOcrModel { .. }
-                | Command::RegisterKnowledgeModel { .. }
-                | Command::InstallOcrModel { .. }
-                | Command::DeleteOcrModel { .. }
-                | Command::InstallKnowledgeModel { .. }
+                | Command::RegisterLocalModel { .. }
+                | Command::InstallLocalModel { .. }
+                | Command::DeleteLocalModel { .. }
         ) || matches!(request.command, Command::StartCodeServer { .. })
             && super::super::code::startup_action(self, request)? == Action::ManageCode)
             && !context.controller_settings()
@@ -166,23 +172,7 @@ impl Database {
                     super::super::roles::approvals::check(&self.connection, request)?;
                     (Some(Action::WriteRoles), context.worktree, Some(*session))
                 }
-                Command::BeginPluginRegistration { package }
-                    if context.controller_settings() && *package == context.package =>
-                {
-                    super::registration::current(&self.connection, package)?;
-                    (None, None, None)
-                }
-                Command::CancelPluginLogin { .. } if context.controller_settings() => {
-                    super::registration::current(&self.connection, &context.package)?;
-                    (None, None, None)
-                }
                 Command::ReadPluginSecret { .. }
-                | Command::BeginPluginRegistration { .. }
-                | Command::ReadPluginAuthorization { .. }
-                | Command::BeginPluginLogin { .. }
-                | Command::CompletePluginLogin { .. }
-                | Command::CancelPluginLogin { .. }
-                | Command::RevokePluginAuthorization { .. }
                 | Command::ReadPluginMcp { .. }
                 | Command::SavePluginMcp { .. } => {
                     return Err(denied(
@@ -351,19 +341,16 @@ impl Database {
                 Command::SearchModels(_)
                 | Command::ReadModelVersions { .. }
                 | Command::ResolveModel { .. }
-                | Command::RefreshOcrModel { .. }
-                | Command::ReadOcrModels
-                | Command::ReadKnowledgeModels => (Some(Action::ReadModels), None, None),
-                Command::RegisterOcrModel { .. }
-                | Command::RegisterKnowledgeModel { .. }
-                | Command::InstallOcrModel { .. }
-                | Command::DeleteOcrModel { .. }
-                | Command::InstallKnowledgeModel { .. } => {
+                | Command::RefreshLocalModel { .. }
+                | Command::ReadLocalModels { .. } => (Some(Action::ReadModels), None, None),
+                Command::RegisterLocalModel { .. }
+                | Command::InstallLocalModel { .. }
+                | Command::DeleteLocalModel { .. } => {
                     if matches!(
                         request.command,
-                        Command::InstallOcrModel { .. } | Command::DeleteOcrModel { .. }
+                        Command::InstallLocalModel { .. } | Command::DeleteLocalModel { .. }
                     ) {
-                        super::super::ocr::approvals::check(&self.connection, request)?;
+                        super::super::local_models::approvals::check(&self.connection, request)?;
                     }
                     (Some(Action::InstallModels), None, None)
                 }
@@ -656,20 +643,6 @@ impl Database {
                 Command::ReadPluginSettings { package } if *package == context.package => {
                     (None, None, None)
                 }
-                Command::ReadMcpAuthorization { package, server }
-                    if *package == context.package
-                        && context.turn.is_some()
-                        && context.invocation.is_none() =>
-                {
-                    let package = self.plugin_package(caller, request)?;
-                    if !package.mcp.iter().any(|entry| {
-                        entry.name == *server
-                            && entry.transport != sailry_protocol::plugin::McpTransport::Stdio
-                    }) {
-                        return Err(denied("MCP status requires an owned HTTP server"));
-                    }
-                    (None, None, None)
-                }
                 Command::ReadPluginConnection { package, card }
                     if *package == context.package
                         && (context.turn.is_some() || context.invocation.is_some()) =>
@@ -766,13 +739,10 @@ impl Database {
                     | Command::SearchModels(_)
                     | Command::ReadModelVersions { .. }
                     | Command::ResolveModel { .. }
-                    | Command::RefreshOcrModel { .. }
-                    | Command::ReadOcrModels
-                    | Command::ReadKnowledgeModels
-                    | Command::RegisterOcrModel { .. }
-                    | Command::RegisterKnowledgeModel { .. }
-                    | Command::InstallOcrModel { .. }
-                    | Command::InstallKnowledgeModel { .. }
+                    | Command::RefreshLocalModel { .. }
+                    | Command::ReadLocalModels { .. }
+                    | Command::RegisterLocalModel { .. }
+                    | Command::InstallLocalModel { .. }
                     | Command::ReadInstallations { .. }
                     | Command::DismissInstallation { .. }
                     | Command::ReadPluginSettings { .. }

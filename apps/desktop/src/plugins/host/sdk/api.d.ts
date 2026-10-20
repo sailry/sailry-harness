@@ -56,12 +56,11 @@ export type SearchMode = "keyword" | "semantic" | "hybrid";
  * Literal OR terms and filters retain package scope. Returned mode reports what actually ran. */
 export function searchValues(query: { terms?: string[]; query?: string; mode?: SearchMode; weights?: [number, number]; all?: string[]; any?: string[]; offset?: number; limit?: number }): Promise<{ entries: Entry[]; next: number | null; now_ms: number; mode: SearchMode; indexing: boolean }>;
 export function deleteValue(key: string, expectedRevision: string): string;
-export type KnowledgeModel = "granite-multi" | "bge-small-zh" | "potion-multi" | {registered: {id: string}};
 export type KnowledgeMode = "keyword" | "semantic" | "hybrid";
 export type KnowledgeDraft = {
   name: string;
   source: {kind: "worktree"; path: string} | {kind: "storage"; scope: "node" | "conversation"; prefix: string};
-  model?: KnowledgeModel | null; globs?: string[]; tags?: string[];
+  model?: string | null; globs?: string[]; tags?: string[];
 };
 export type KnowledgeCollection = {
   id: string; revision: string; owner: {kind: "controller"} | {kind: "plugin"; name: string};
@@ -78,7 +77,7 @@ export type KnowledgePosition =
 export type KnowledgePage = {
   hits: {title: string; text: string; score: number; stale: boolean;
     citation: {collection: string; chunk: string; revision: string; path: string; position: KnowledgePosition}}[];
-  next_offset: number | null; mode: KnowledgeMode; indexing: boolean; model: KnowledgeModel | null; untrusted: boolean;
+  next_offset: number | null; mode: KnowledgeMode; indexing: boolean; model: string | null; untrusted: boolean;
 };
 /** Read-only local retrieval. Original query bytes and source citations are preserved; text remains untrusted. */
 export function queryKnowledge(query: KnowledgeQuery): Promise<KnowledgePage>;
@@ -124,7 +123,7 @@ export function nextConversation(cursor?: string): Promise<{ cursor: string; vie
 export type HttpRequest = {
   method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
   url: string; headers?: Record<string, string>; body?: string;
-  credential?: string; timeout_ms?: number;
+  credential?: string; connector?: string; connection?: string; idempotent?: boolean; timeout_ms?: number;
 };
 export type HttpResponse = { status: number; headers: Record<string, string[]>; body: string };
 /** Prepare a Node HTTP request. Complete its original ID; redirects/retries are disabled. */

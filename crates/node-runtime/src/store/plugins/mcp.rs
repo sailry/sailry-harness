@@ -34,21 +34,6 @@ pub(super) fn save(
         ));
     }
     let mut saved = settings::stored(db, &info)?;
-    saved.authorizations.retain(|server, grant| {
-        configuration
-            .servers
-            .get(server)
-            .is_some_and(|server| match server {
-                plugin::mcp::Server::Http { url, headers }
-                | plugin::mcp::Server::Sse { url, headers } => {
-                    *url == grant.endpoint
-                        && !headers.iter().any(|(name, value)| {
-                            name.eq_ignore_ascii_case("authorization") && !value.is_empty()
-                        })
-                }
-                plugin::mcp::Server::Stdio { .. } => false,
-            })
-    });
     // Bound form fields remain the sole editor for their declared MCP slots.
     if let Some(schema) = &info.settings {
         for field in schema
@@ -159,7 +144,7 @@ mod tests {
             configuration,
         }));
         assert!(
-            super::super::finish(&db, &command, &mut result)
+            super::super::finish(&db, None, &command, &mut result)
                 .unwrap()
                 .is_none()
         );
@@ -183,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn replacement_preserves_admitted_authorization() {
+    fn replacement_preserves_private_history() {
         for endpoint_changed in [false, true] {
             let directory = tempfile::tempdir().unwrap();
             let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
@@ -199,7 +184,7 @@ mod tests {
             let id = CredentialId::new();
             saved.authorizations.insert(
                 "github".into(),
-                super::super::grants::Grant {
+                super::super::settings::history::McpGrant {
                     id,
                     endpoint: "https://api.githubcopilot.com/mcp/".into(),
                     revision: 1,
@@ -228,28 +213,13 @@ mod tests {
                 )]),
             };
             let latest = save(&db, &info.summary.reference(), &configuration).unwrap();
-            assert!(
-                settings::stored(&db, &latest)
-                    .unwrap()
-                    .authorizations
-                    .is_empty()
+            assert_eq!(
+                settings::stored(&db, &latest).unwrap().authorizations["github"].id,
+                id
             );
             assert_eq!(
                 settings::stored(&db, &admitted).unwrap().authorizations["github"].id,
                 id
-            );
-            assert_eq!(
-                super::super::grants::load(
-                    &db,
-                    "github",
-                    "github",
-                    "https://api.githubcopilot.com/mcp/",
-                    id
-                )
-                .unwrap()
-                .1
-                .expose(),
-                "old-oauth-grant"
             );
         }
     }

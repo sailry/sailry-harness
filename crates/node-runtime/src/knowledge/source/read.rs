@@ -86,14 +86,20 @@ pub(super) fn document(
         if crate::ocr::document::supported(&target.name) && stat.extractor == [0; 32] {
             return Ok(excluded(path, "OCR is unavailable"));
         }
-        crate::office::parts_with(&target.name, &bytes, ocr, cancel)?
-            .into_iter()
-            .map(|part| Part {
-                title: part.name,
-                text: part.text,
-                position: part.position,
-            })
-            .collect()
+        crate::office::parts_with(
+            &target.name,
+            &bytes,
+            ocr,
+            crate::models::runtime::Lane::Background,
+            cancel,
+        )?
+        .into_iter()
+        .map(|part| Part {
+            title: part.name,
+            text: part.text,
+            position: part.position,
+        })
+        .collect()
     } else {
         let text =
             files::text::decode(&bytes).map_err(|error| Fault::invalid(error.to_string()))?;

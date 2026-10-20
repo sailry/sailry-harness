@@ -1,0 +1,36 @@
+settings_connectors: "Коннекторы"
+connector_search: "Поиск коннекторов"
+connector_empty: "Нет подключений"
+connector_not_connected: "Не подключено"
+connector_expired: "Истекло"
+connector_confirmation: "Нужно подтверждение"
+connector_failed: "Ошибка подключения"
+connector_unknown: "Проверьте подключение перед повторной попыткой"
+connector_conflict: "Подключение изменено, откройте его заново"
+connector_reconnect: "Войти снова"
+connector_probe: "Проверить подключение"
+connector_disconnect: "Отключить"
+connector_consent_effect: "Проверьте изменённые адреса авторизации перед продолжением"
+connector_remove_effect: "Удалить подключение и учётные данные %{name}"
+connector_confirm: "Подтвердить"
+connector_preview: "Предпросмотр"
+connector_saved: "Сохранено"
+connector_configured: "Задано"
+connector_browser: "Авторизоваться в браузере"
+connector_register: "Создать приложение"
+connector_authorize: "Авторизоваться"
+connector_connect: "Подключить"
+connector_add: "Добавить коннектор"
+connector_token: "Токен"
+connector_cli: "Локальная CLI"
+connector_oauth: "OAuth"
+connector_application: "Данные приложения"
+connector_cli_capability: "Выполнение локальной команды"
+
+connector_changed_origins: Источники
+connector_changed_scopes: Разрешения
+connector_changed_client: Клиент
+connector_changed_flow: Способ входа
+connector_changed_targets: Получатели учётных данных
+connector_changed_mcp: Серверы MCP
+connector_changed_source: Источник пакета

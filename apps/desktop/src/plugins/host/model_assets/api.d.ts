@@ -12,15 +12,15 @@ export type Definition = {
   source: Source; name: string; license: string; format: Format;
   query_prefix?: string | null; document_prefix?: string | null; assets: Asset[];
 };
-export type KnowledgeModel = "granite-multi" | "bge-small-zh" | "potion-multi" | { registered: { id: string } };
 export type ModelRef =
-  | { target: "node"; kind: "ocr"; id: string }
-  | { target: "node"; kind: "embedding"; model: KnowledgeModel }
+  | { target: "node"; kind: "ocr" | "embedding"; id: string }
   | { target: "controller"; kind: "speech"; id: string | null };
 export type Search = { kind: Kind; hub: Hub; query: string; cursor: string | null };
 export type Entry = { source: Source; name: string; format: Format };
 export type Page = { items: Entry[]; next_cursor: string | null; partial: boolean };
 export type Version = { revision: string; name: string };
+export type Model = { id: string; definition: Definition; state: { kind: "missing" | "installed" } | { kind: "downloading"; percent: number; bytes_per_second: number } };
+export function list(input: { target: "node"; kind?: "ocr" | "embedding" }): Promise<Model[]>;
 export function search(input: Search): Promise<Page>;
 export function versions(input: { hub: Hub; repository: string }): Promise<Version[]>;
 export function resolve(input: { kind: Kind; source: Source }): Promise<Definition>;

@@ -1,0 +1,3 @@
+local_models: "ローカルモデル"
+local_models_empty: "インストール済みのモデルはありません"
+local_models_available_empty: "利用できるモデルはありません"

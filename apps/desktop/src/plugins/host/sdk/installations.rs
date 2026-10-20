@@ -87,9 +87,7 @@ impl Host {
                 .filter(|request| {
                     matches!(
                         request.command,
-                        Command::InstallOcrModel { .. }
-                            | Command::InstallKnowledgeModel { .. }
-                            | Command::InstallCodeServer { .. }
+                        Command::InstallLocalModel { .. } | Command::InstallCodeServer { .. }
                     ) && request.plugin.as_ref() == Some(&scope)
                 })
                 .ok_or_else(|| {

@@ -15,14 +15,18 @@ use std::{collections::BTreeMap, time::Duration};
 pub(crate) mod provider;
 pub(crate) use provider::prepare as prepare_provider;
 
+#[derive(Clone)]
 pub(crate) struct Input {
     url: Url,
     method: Method,
     headers: HeaderMap,
     body: Option<String>,
     timeout: Duration,
-    pub(crate) oauth: Option<super::oauth::Target>,
-    application: Option<super::applications::Target>,
+    pub(crate) connector: Option<(
+        super::connectors::Target,
+        sailry_protocol::plugin::connector::Injection,
+        bool,
+    )>,
     provider: Option<Box<sailry_protocol::conversation::Provider>>,
     cache: Option<provider::cache::Policy>,
 }
@@ -82,13 +86,10 @@ pub(crate) fn binding(binding: &Binding) -> Result<(Url, HeaderName, &str), Faul
             "unsupported protected setting binding",
         ));
     }
-    if binding.server.is_some() || binding.env.is_some() || binding.oauth.is_some() {
+    if binding.server.is_some() || binding.env.is_some() {
         return Err(sailry_protocol::Fault::invalid(
             "HTTP credentials cannot target an MCP slot",
         ));
-    }
-    if let Some(application) = &binding.application {
-        super::applications::validate(application.provider, binding, &BTreeMap::new())?;
     }
     let origin = url(binding
         .origin
@@ -116,7 +117,6 @@ pub(crate) fn prepare(
     request: &http::Request,
     schema: Option<&Schema>,
     settings: Option<&super::settings::Resolved>,
-    reference: &sailry_protocol::plugin::Reference,
 ) -> Result<Input, Fault> {
     let url = url(&request.url)?;
     if !(1..=http::MAX_TIMEOUT_MS).contains(&request.timeout_ms)
@@ -145,7 +145,6 @@ pub(crate) fn prepare(
             ));
         }
     }
-    let mut application = None;
     if let Some(field) = &request.credential {
         let binding = schema
             .and_then(|schema| schema.properties.get(field))
@@ -171,27 +170,12 @@ pub(crate) fn prepare(
                     "HTTP credential is not configured",
                 )
             })?;
-        if binding.application.is_some() {
-            application = Some(super::applications::Target::resolve(
-                reference,
-                binding,
-                settings.ok_or_else(|| {
-                    Fault::new(
-                        ErrorCode::NotConfigured,
-                        "application settings are unavailable",
-                    )
-                })?,
-                &request.url,
-                secret,
-            )?);
-        } else {
-            let mut value = HeaderValue::from_str(&format!("{prefix}{}", secret.expose()))
-                .map_err(|_| {
-                    sailry_protocol::Fault::invalid("HTTP credential is not a valid header value")
-                })?;
-            value.set_sensitive(true);
-            insert(&mut headers, name, value)?;
-        }
+        let mut value =
+            HeaderValue::from_str(&format!("{prefix}{}", secret.expose())).map_err(|_| {
+                sailry_protocol::Fault::invalid("HTTP credential is not a valid header value")
+            })?;
+        value.set_sensitive(true);
+        insert(&mut headers, name, value)?;
     }
     if metadata_size(&url, &headers) > sailry_protocol::MAX_FRAME_BYTES {
         return Err(Fault::invalid(
@@ -204,8 +188,7 @@ pub(crate) fn prepare(
         headers,
         body: request.body.clone(),
         timeout: Duration::from_millis(request.timeout_ms.into()),
-        oauth: None,
-        application,
+        connector: None,
         provider: None,
         cache: None,
     })
@@ -216,26 +199,63 @@ pub(crate) async fn run(
     ingress: &crate::store::Ingress,
     stop: CancellationToken,
 ) -> Result<http::Response, Fault> {
+    if let Some((target, injection, idempotent)) = input.connector.take() {
+        let name = header(
+            injection
+                .header
+                .as_deref()
+                .ok_or_else(|| Fault::invalid("connector HTTP header is unavailable"))?,
+        )?;
+        if input.headers.contains_key(&name) {
+            return Err(Fault::invalid("connector header cannot be overridden"));
+        }
+        let service = &ingress.plugins.connectors;
+        let mut secrets = target.secrets.values().cloned().collect::<Vec<_>>();
+        let mut rejected = None;
+        for attempt in 0..2 {
+            ingress.connector_target(target.id, target.revision).await?;
+            let token = if let Some(field) = &injection.field {
+                target.secrets.get(field).cloned().ok_or_else(|| {
+                    Fault::new(ErrorCode::NotConfigured, "connector secret is unavailable")
+                })?
+            } else {
+                service
+                    .access(&target, ingress, rejected.as_ref(), &stop)
+                    .await?
+            };
+            secrets.push(token.clone());
+            let mut value =
+                HeaderValue::from_str(&format!("{}{}", injection.prefix, token.expose())).map_err(
+                    |_| Fault::invalid("connector credential is not a valid header value"),
+                )?;
+            value.set_sensitive(true);
+            insert(&mut input.headers, name.clone(), value)?;
+            input.url = Url::parse(&service.resource(input.url.as_str()))
+                .map_err(|_| Fault::invalid("invalid connector HTTP URL"))?;
+            let response = send(input.clone(), Some(secrets.clone()), stop.clone()).await?;
+            if response.status != 401 {
+                return Ok(response);
+            }
+            if attempt != 0
+                || !idempotent
+                || target.method == sailry_protocol::plugin::connector::Kind::Secret
+            {
+                let current = ingress.connector_target(target.id, target.revision).await?;
+                ingress
+                    .save_connector_grant(
+                        target.id,
+                        target.revision,
+                        current.grant.as_ref().map(|grant| grant.access.clone()),
+                        None,
+                    )
+                    .await?;
+                return Ok(response);
+            }
+            rejected = Some(token);
+        }
+        unreachable!()
+    }
     let authorization = provider::authorize(&mut input, ingress, &stop).await?;
-    if let Some(target) = &input.application {
-        let value = tokio::select! {
-            biased;
-            _ = stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "application token request cancelled")),
-            result = ingress.plugins.applications.access(target) => result?,
-        };
-        insert(&mut input.headers, target.header.clone(), value)?;
-        input.url = Url::parse(
-            &ingress
-                .plugins
-                .applications
-                .resource(target, input.url.as_str())?,
-        )
-        .map_err(|_| Fault::invalid("invalid application resource URL"))?;
-    }
-    if let Some(target) = &input.oauth {
-        let value = ingress.oauth.access(ingress, target, &stop).await?;
-        insert(&mut input.headers, target.header.clone(), value)?;
-    }
     if let (Some(policy), Some(authorization)) = (input.cache.take(), authorization.as_ref()) {
         let key = policy.key(&authorization.credential);
         let protection = authorization.secrets.clone();
@@ -387,6 +407,9 @@ mod budgets {
     #[test]
     fn preserves_larger_metadata_within_transport() {
         let request = http::Request {
+            connector: None,
+            connection: None,
+            idempotent: false,
             url: format!("https://example.test/?q={}", "x".repeat(4097)),
             method: "GET".into(),
             headers: (0..33)
@@ -396,12 +419,7 @@ mod budgets {
             credential: None,
             timeout_ms: 1000,
         };
-        let reference = sailry_protocol::plugin::Reference {
-            name: "example".into(),
-            digest: "a".repeat(64),
-            settings_revision: 0,
-        };
-        let prepared = prepare(&request, None, None, &reference).unwrap();
+        let prepared = prepare(&request, None, None).unwrap();
         assert_eq!(prepared.url.as_str(), request.url);
         assert_eq!(prepared.headers.len(), request.headers.len());
         for (name, value) in &request.headers {
@@ -421,10 +439,7 @@ mod budgets {
             "x".repeat(sailry_protocol::MAX_FRAME_BYTES),
         );
         assert_eq!(
-            prepare(&oversized, None, None, &reference)
-                .err()
-                .unwrap()
-                .code,
+            prepare(&oversized, None, None).err().unwrap().code,
             ErrorCode::InvalidRequest
         );
         for value in [
@@ -440,10 +455,7 @@ mod budgets {
             .map(|index| (format!("x-fixture-{index}"), "x".into()))
             .collect();
         assert_eq!(
-            prepare(&oversized, None, None, &reference)
-                .err()
-                .unwrap()
-                .code,
+            prepare(&oversized, None, None).err().unwrap().code,
             ErrorCode::InvalidRequest
         );
     }

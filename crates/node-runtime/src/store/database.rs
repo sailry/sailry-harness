@@ -152,10 +152,20 @@ impl Database {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn open(
         path: &Path,
         node: NodeId,
         profile: Option<std::path::PathBuf>,
+    ) -> Result<Self, Error> {
+        Self::open_with_plugins(path, node, profile, None)
+    }
+
+    pub(super) fn open_with_plugins(
+        path: &Path,
+        node: NodeId,
+        profile: Option<std::path::PathBuf>,
+        plugins: Option<&crate::plugins::Host>,
     ) -> Result<Self, Error> {
         #[cfg(windows)]
         crate::profile::windows::prepare_database(path)?;
@@ -185,7 +195,7 @@ impl Database {
                 | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
         connection.busy_timeout(Duration::from_secs(1))?;
-        let schema = schema::prepare(&connection, path, node)?;
+        let schema = schema::prepare(&connection, path, node, plugins)?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "synchronous", "FULL")?;
         connection.pragma_update(None, "foreign_keys", true)?;
@@ -210,6 +220,7 @@ impl Database {
                 [&node.0[..]],
             )?;
         }
+        schema.plugins(&transaction)?;
         // An admission with no committed result is uncertain. Never replay it automatically.
         transaction.execute(
             "UPDATE requests SET status='unknown' WHERE status='admitted'",
@@ -322,14 +333,14 @@ impl Database {
         } else if let Err(error) = plugin_command {
             self.finish_external(caller, &request, Err(error), events)
         } else if let Ok(Some(child)) = plugin_command {
-            return Some(Work::PluginExecution(
+            return Some(Work::PluginExecution(Box::new(
                 super::plugins::execution::Execution {
                     caller,
                     request,
                     input: super::plugins::execution::Input::Command(child),
                     reply: completion,
                 },
-            ));
+            )));
         } else if matches!(
             request.command,
             Command::ReadNetworkSettings | Command::SaveNetworkSettings { .. }
@@ -348,14 +359,11 @@ impl Database {
             Command::BeginProviderLogin { .. }
                 | Command::CompleteProviderLogin { .. }
                 | Command::CancelProviderLogin { .. }
-                | Command::BeginMcpLogin { .. }
-                | Command::CompleteMcpLogin { .. }
-                | Command::CancelMcpLogin { .. }
-                | Command::BeginPluginLogin { .. }
-                | Command::BeginPluginRegistration { .. }
-                | Command::CompletePluginLogin { .. }
-                | Command::CancelPluginLogin { .. }
-                | Command::ImportGithubLogin { .. }
+                | Command::StartConnectorLogin { .. }
+                | Command::SubmitConnectorInput { .. }
+                | Command::CancelConnectorLogin { .. }
+                | Command::ProbeConnection { .. }
+                | Command::InspectConnectorCli { .. }
         ) {
             return Some(Work::Login(super::login::Operation {
                 caller,
@@ -434,14 +442,14 @@ impl Database {
         ) {
             match super::plugins::execution::prepare(self, caller, &request) {
                 Ok(input) => {
-                    return Some(Work::PluginExecution(
+                    return Some(Work::PluginExecution(Box::new(
                         super::plugins::execution::Execution {
                             caller,
                             request,
                             input,
                             reply: completion,
                         },
-                    ));
+                    )));
                 }
                 Err(error) => self.finish_external(caller, &request, Err(error), events),
             }
@@ -453,10 +461,8 @@ impl Database {
                 | Command::RestoreBackup { .. }
                 | Command::StartCodeServer { .. }
                 | Command::StopCodeServer { .. }
-                | Command::InstallKnowledgeModel { .. }
-                | Command::InstallOcrModel { .. }
-                | Command::DeleteOcrModel { .. }
-                | Command::DeleteKnowledgeModel { .. }
+                | Command::InstallLocalModel { .. }
+                | Command::DeleteLocalModel { .. }
                 | Command::InstallCodeServer { .. }
                 | Command::UninstallCodeServer { .. }
                 | Command::UpdateCodeRules
@@ -672,11 +678,11 @@ impl Database {
             Command::PutCredential { .. }
                 | Command::SaveSsh { .. }
                 | Command::SaveDatabase { .. }
-                | Command::CompleteMcpLogin { .. }
                 | Command::CompleteProviderLogin { .. }
-                | Command::BeginPluginLogin { .. }
-                | Command::CompletePluginLogin { .. }
                 | Command::SavePluginSettings { .. }
+                | Command::StartConnectorLogin { .. }
+                | Command::UpdateConnection { .. }
+                | Command::SubmitConnectorInput { .. }
                 | Command::SavePluginMcp { .. }
                 | Command::InstallMcp { .. }
                 | Command::SaveProvider { .. }
@@ -894,6 +900,16 @@ impl Database {
         if !request.command.durable() {
             return result;
         }
+        if let Ok(output) = &result
+            && let Err(error) = schema::prepare_plugin(
+                &self.connection,
+                self.profile.as_deref(),
+                &request.command,
+                output,
+            )
+        {
+            result = Err(storage_error(error));
+        }
         self.end_removal(caller, request);
         self.relocations.remove(&(caller, request.id));
         let mut background = Vec::new();
@@ -915,7 +931,12 @@ impl Database {
             };
             let event = match event {
                 Some(event) => Some(event),
-                None => super::plugins::finish(&transaction, &request.command, &mut result)?,
+                None => super::plugins::finish(
+                    &transaction,
+                    self.profile.as_deref(),
+                    &request.command,
+                    &mut result,
+                )?,
             };
             let event = match event {
                 Some(event) => Some(event),

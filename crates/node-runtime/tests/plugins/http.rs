@@ -3,10 +3,13 @@ use plugin::{Action, Context, http, settings};
 use serde_json::json;
 use std::collections::BTreeMap;
 #[path = "http/server.rs"]
-mod server;
+pub(super) mod server;
 
 fn command(server: &server::Server, path: &str, credential: Option<&str>) -> Command {
     Command::RequestPluginHttp(http::Request {
+        connector: None,
+        connection: None,
+        idempotent: false,
         url: format!("{}{path}", server.origin),
         method: "POST".into(),
         headers: BTreeMap::new(),

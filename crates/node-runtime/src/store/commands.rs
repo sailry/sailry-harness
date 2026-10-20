@@ -11,6 +11,23 @@ pub(super) fn execute(
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
+        Command::ListConnectorTypes
+        | Command::ListConnections
+        | Command::UpdateConnection { .. }
+        | Command::SetConnectionEnabled { .. }
+        | Command::DisconnectConnection { .. }
+        | Command::RemoveConnection { .. }
+        | Command::ConfirmConnectorConsent { .. } => {
+            super::plugins::connectors::execute(db, profile, request)
+        }
+        Command::InspectConnectorCli { .. }
+        | Command::StartConnectorLogin { .. }
+        | Command::SubmitConnectorInput { .. }
+        | Command::CancelConnectorLogin { .. }
+        | Command::ProbeConnection { .. } => Err(Fault::new(
+            ErrorCode::Internal,
+            "connector lifecycle command reached the synchronous handler",
+        )),
         Command::DeliverBackground { .. } => Err(Fault::new(
             ErrorCode::PermissionDenied,
             "background delivery is internal Node input",
@@ -19,27 +36,19 @@ pub(super) fn execute(
         | Command::ReadArtifact { .. }
         | Command::ListArtifacts { .. }
         | Command::ListArtifactRevisions { .. } => super::artifacts::execute(db, profile, request),
-        Command::ReadKnowledgeSettings => super::knowledge::settings(db, request)
-            .map(|settings| (Output::KnowledgeSettings(settings), None)),
         Command::ListKnowledgeCollections => super::knowledge::list(db, request)
             .map(|collections| (Output::KnowledgeCollections(collections), None)),
-        Command::SaveKnowledgeSettings(_)
-        | Command::CreateKnowledgeCollection { .. }
+        Command::CreateKnowledgeCollection { .. }
         | Command::UpdateKnowledgeCollection { .. }
         | Command::DeleteKnowledgeCollection { .. }
         | Command::RebuildKnowledgeCollection { .. }
-        | Command::PauseKnowledgeCollection { .. }
-        | Command::RegisterKnowledgeModel { .. } => super::knowledge::execute(db, request),
-        Command::ReadKnowledgeModels
-        | Command::SearchModels(_)
+        | Command::PauseKnowledgeCollection { .. } => super::knowledge::execute(db, request),
+        Command::SearchModels(_)
         | Command::ReadModelVersions { .. }
         | Command::ResolveModel { .. }
-        | Command::RefreshOcrModel { .. }
-        | Command::CancelKnowledgeModel { .. }
+        | Command::RefreshLocalModel { .. }
         | Command::QueryKnowledge(_)
-        | Command::ReadKnowledgeCitation(_)
-        | Command::InstallKnowledgeModel { .. }
-        | Command::DeleteKnowledgeModel { .. } => Err(Fault::new(
+        | Command::ReadKnowledgeCitation(_) => Err(Fault::new(
             ErrorCode::Internal,
             "knowledge execution must run outside the database",
         )),
@@ -221,13 +230,15 @@ pub(super) fn execute(
             Ok((Output::PythonSettings(super::python::read(db)?), None))
         }
         Command::SavePythonSettings(settings) => super::python::save(db, request, settings),
-        Command::ReadOcrSettings
-        | Command::SaveOcrSettings(_)
-        | Command::RegisterOcrModel { .. } => super::ocr::execute(db, request),
-        Command::ReadOcrModels
-        | Command::CancelOcrModel { .. }
-        | Command::InstallOcrModel { .. }
-        | Command::DeleteOcrModel { .. } => Err(Fault::invalid("OCR resource command expected")),
+        Command::ReadLocalModelSettings
+        | Command::SaveLocalModelSettings(_)
+        | Command::RegisterLocalModel { .. } => super::local_models::execute(db, request),
+        Command::ReadLocalModels { .. }
+        | Command::CancelLocalModel { .. }
+        | Command::InstallLocalModel { .. }
+        | Command::DeleteLocalModel { .. } => {
+            Err(Fault::invalid("local model resource command expected"))
+        }
         Command::SearchWeb(_)
         | Command::CancelWebSearch { .. }
         | Command::TestSearchDriver { .. } => Err(Fault::new(
@@ -345,17 +356,18 @@ pub(super) fn execute(
             };
             Ok((
                 Output::PluginConnection(super::plugins::connection::read_admitted(
-                    db, &info, card,
+                    db, profile, &info, card,
                 )?),
                 None,
             ))
         }
+        Command::ReadPluginConnection { package, card } => Ok((
+            Output::PluginConnection(super::plugins::connection::read(
+                db, profile, package, card,
+            )?),
+            None,
+        )),
         Command::ListPlugins
-        | Command::ReadMcpAuthorization { .. }
-        | Command::ReadPluginConnection { .. }
-        | Command::ReadPluginAuthorization { .. }
-        | Command::RevokePluginAuthorization { .. }
-        | Command::RevokeMcpAuthorization { .. }
         | Command::ReadPluginSettings { .. }
         | Command::ReadPluginSecret { .. }
         | Command::ListPluginModels
@@ -652,14 +664,7 @@ pub(super) fn execute(
         )),
         Command::BeginProviderLogin { .. }
         | Command::CompleteProviderLogin { .. }
-        | Command::CancelProviderLogin { .. }
-        | Command::BeginMcpLogin { .. }
-        | Command::CompleteMcpLogin { .. }
-        | Command::CancelMcpLogin { .. }
-        | Command::BeginPluginLogin { .. }
-        | Command::BeginPluginRegistration { .. }
-        | Command::CompletePluginLogin { .. }
-        | Command::CancelPluginLogin { .. } => Err(Fault::new(
+        | Command::CancelProviderLogin { .. } => Err(Fault::new(
             ErrorCode::Internal,
             "authorization command must use its lifecycle owner",
         )),
@@ -719,8 +724,6 @@ pub(super) fn execute(
         | Command::CancelPluginCall { .. }
         | Command::ReadPluginView { .. }
         | Command::ReadPluginMcp { .. }
-        | Command::ReadGithubLogin { .. }
-        | Command::ImportGithubLogin { .. }
         | Command::DiscoverModels(_)
         | Command::ValidateProvider { .. }
         | Command::RefreshModelCatalog

@@ -79,12 +79,18 @@ fn pass(
     let catalog = runtime.block_on(ingress.knowledge_catalog())?;
     service
         .models
+        .registry
         .configure(catalog.settings.clone(), &catalog.models)?;
     let installed = runtime
-        .block_on(service.models.infos())?
+        .block_on(
+            service
+                .models
+                .registry
+                .models(Some(sailry_protocol::models::Kind::Embedding)),
+        )?
         .into_iter()
-        .filter(|info| info.state == ModelState::Installed)
-        .map(|info| info.model)
+        .filter(|info| info.state == sailry_protocol::models::State::Installed)
+        .map(|info| info.id)
         .collect::<BTreeSet<_>>();
     let current = catalog
         .collections
@@ -111,7 +117,7 @@ fn pass(
                 "knowledge indexing paused for {}: {}",
                 stored.collection.id, error.message
             );
-            let (sources, chunks) = index.counts(binding(stored, &catalog)).unwrap_or_default();
+            let (sources, chunks) = index.counts(&binding(stored, &catalog)).unwrap_or_default();
             let progress = Progress {
                 status: Status::Paused,
                 sources,
@@ -136,9 +142,9 @@ fn pass(
 struct Batch<'a> {
     service: &'a Service,
     ingress: &'a Arc<Ingress>,
-    settings: &'a Settings,
+    settings: &'a sailry_protocol::models::Settings,
     catalog: &'a super::Catalog,
-    installed: &'a BTreeSet<Model>,
+    installed: &'a BTreeSet<String>,
     cancel: &'a CancellationToken,
     runtime: &'a tokio::runtime::Handle,
 }
@@ -159,9 +165,9 @@ fn collection(
         runtime,
     } = *batch;
     let binding = binding(stored, catalog);
-    index.bind(binding)?;
+    index.bind(&binding)?;
     if stored.collection.paused {
-        let (sources, chunks) = index.counts(binding)?;
+        let (sources, chunks) = index.counts(&binding)?;
         let progress = Progress {
             status: Status::Paused,
             sources,
@@ -176,8 +182,9 @@ fn collection(
     }
     let available = binding
         .model
-        .map(|(model, _)| model)
-        .filter(|model| installed.contains(model));
+        .as_ref()
+        .map(|(model, _)| model.as_str())
+        .filter(|model| installed.contains(*model));
     let encoding = documents::Encoding {
         service,
         revision: settings.revision,
@@ -191,7 +198,7 @@ fn collection(
         completed: 0,
         chunks: 0,
         skipped: 0,
-        model: available,
+        model: available.map(str::to_owned),
         generation: binding.generation,
     };
     let mut active = false;
@@ -236,8 +243,8 @@ fn collection(
                     };
                     progress.sources += 1;
                     locators.push(document.locator.clone());
-                    if !index.unchanged(binding, &document)? {
-                        starting(batch, binding, &progress, &mut active)?;
+                    if !index.unchanged(&binding, &document)? {
+                        starting(batch, &binding, &progress, &mut active)?;
                         let parts = encoding.parts(
                             &record.title,
                             &record.body,
@@ -255,7 +262,7 @@ fn collection(
                                 "knowledge storage source changed",
                             ));
                         }
-                        index.replace(binding, &document, &parts)?;
+                        index.replace(&binding, &document, &parts)?;
                     }
                     progress.completed += 1;
                 }
@@ -295,14 +302,14 @@ fn collection(
                             return Ok(true);
                         }
                         let cached = index.cached(
-                            binding,
+                            &binding,
                             path,
                             stat,
                             &stored.collection.definition.tags,
                             available.is_some(),
                         )?;
                         if !cached {
-                            starting(batch, binding, &progress, &mut active)?;
+                            starting(batch, &binding, &progress, &mut active)?;
                         }
                         Ok(cached)
                     },
@@ -342,8 +349,8 @@ fn collection(
                             embedded: available.is_some(),
                             tags: stored.collection.definition.tags.clone(),
                         };
-                        if !index.unchanged(binding, &indexed)? {
-                            starting(batch, binding, &progress, &mut active)?;
+                        if !index.unchanged(&binding, &indexed)? {
+                            starting(batch, &binding, &progress, &mut active)?;
                             let mut parts = Vec::new();
                             for part in &document.parts {
                                 parts.extend(encoding.parts(
@@ -373,14 +380,14 @@ fn collection(
                                     "knowledge worktree moved",
                                 ));
                             }
-                            index.replace(binding, &indexed, &parts)?;
+                            index.replace(&binding, &indexed, &parts)?;
                         }
-                        index.remember(binding, &document.path, document.stat)?;
+                        index.remember(&binding, &document.path, document.stat)?;
                         progress.completed += 1;
                     }
                 }
                 if active && last_progress.elapsed() >= Duration::from_millis(500) {
-                    progress.chunks = index.counts(binding)?.1;
+                    progress.chunks = index.counts(&binding)?.1;
                     runtime.block_on(ingress.knowledge_progress(
                         binding.id,
                         binding.generation,
@@ -398,8 +405,8 @@ fn collection(
         }
     }
     cancelled(cancel)?;
-    index.prune(binding, &locators)?;
-    (progress.sources, progress.chunks) = index.counts(binding)?;
+    index.prune(&binding, &locators)?;
+    (progress.sources, progress.chunks) = index.counts(&binding)?;
     progress.completed = progress.sources;
     progress.status = Status::Ready;
     runtime.block_on(ingress.knowledge_progress(binding.id, binding.generation, &progress))?;
@@ -408,7 +415,7 @@ fn collection(
 
 fn starting(
     batch: &Batch<'_>,
-    binding: index::Binding,
+    binding: &index::Binding,
     progress: &Progress,
     active: &mut bool,
 ) -> Result<(), Fault> {

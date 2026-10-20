@@ -157,9 +157,8 @@ impl Panel {
         self.pending = true;
         self.error = None;
         let runtime = binding.runtime.clone();
-        let job = runtime.spawn(async move {
-            super::super::knowledge::requests::execute(&binding, request).await
-        });
+        let job =
+            runtime.spawn(async move { super::super::requests::execute(&binding, request).await });
         cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
             _ = owner.update_in(cx, |panel, window, cx| {

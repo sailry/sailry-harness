@@ -4,7 +4,7 @@ use crate::knowledge::source::Stat;
 impl Index {
     pub(in crate::knowledge) fn cached(
         &self,
-        binding: Binding,
+        binding: &Binding,
         locator: &str,
         stat: Stat,
         tags: &[String],
@@ -37,7 +37,7 @@ impl Index {
 
     pub(in crate::knowledge) fn remember(
         &self,
-        binding: Binding,
+        binding: &Binding,
         locator: &str,
         stat: Stat,
     ) -> Result<(), Fault> {

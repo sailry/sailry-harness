@@ -259,3 +259,18 @@ pub(crate) fn skill_title(skill: &sailry_protocol::plugin::Skill) -> String {
             .join(" ")
     })
 }
+pub(crate) fn has_connector(info: &sailry_protocol::plugin::Info, server: &str) -> bool {
+    use sailry_protocol::plugin::{connector::Auth, mcp::Definition};
+    info.extension.as_ref().is_some_and(|extension| {
+        extension.connectors.iter().any(|declaration| {
+            declaration
+                .auth
+                .iter()
+                .any(|auth| matches!(auth,Auth::McpOauth { server: name,.. } if name == server))
+        })
+    }) || (server == "server"
+        && matches!(
+            info.mcp_source,
+            Some(Definition::StreamableHttp { .. } | Definition::Sse { .. })
+        ))
+}

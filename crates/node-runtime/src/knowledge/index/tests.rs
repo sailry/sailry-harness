@@ -17,7 +17,7 @@ fn binding() -> Binding {
     Binding {
         id: KnowledgeId::new(),
         generation: 1,
-        model: Some((Model::BgeSmallZh, 2)),
+        model: Some(("bge-small-zh".to_owned(), 2)),
         scope: [0; 32],
         rebuild: 0,
         paused: false,
@@ -38,10 +38,10 @@ fn document(locator: &str) -> Document {
 fn retains_cached_text_when_paused() {
     let (_directory, mut index) = open();
     let original = binding();
-    index.bind(original).unwrap();
+    index.bind(&original).unwrap();
     index
         .replace(
-            original,
+            &original,
             &document("notes.md"),
             &[part("向量数据库", Some(&[1., 0.]))],
         )
@@ -49,20 +49,20 @@ fn retains_cached_text_when_paused() {
     let paused = Binding {
         generation: 2,
         paused: true,
-        ..original
+        ..original.clone()
     };
     let page = index
         .search(
             &query(),
-            &[paused],
-            &[(Model::BgeSmallZh, vec![1., 0.])],
+            &[paused.clone()],
+            &[("bge-small-zh".to_owned(), vec![1., 0.])],
             false,
             &CancellationToken::new(),
         )
         .unwrap();
     assert_eq!(page.mode, Mode::Keyword);
     assert_eq!(page.hits.len(), 1);
-    assert!(!index.current(paused).unwrap());
+    assert!(!index.current(&paused).unwrap());
     let citation = &page.hits[0].citation;
     let request = CitationRequest {
         context: false,
@@ -73,76 +73,94 @@ fn retains_cached_text_when_paused() {
         limit: 1000,
     };
     assert_eq!(
-        index.citation(paused, &request).unwrap().citation,
+        index.citation(&paused, &request).unwrap().citation,
         *citation
     );
     for blocked in [
         Binding {
             scope: [1; 32],
-            ..paused
+            ..paused.clone()
         },
         Binding {
             rebuild: 1,
-            ..paused
+            ..paused.clone()
         },
     ] {
         assert!(
             index
-                .search(&query(), &[blocked], &[], false, &CancellationToken::new())
+                .search(
+                    &query(),
+                    &[blocked.clone()],
+                    &[],
+                    false,
+                    &CancellationToken::new()
+                )
                 .unwrap()
                 .hits
                 .is_empty()
         );
         assert_eq!(
-            index.citation(blocked, &request).err().unwrap().code,
+            index.citation(&blocked, &request).err().unwrap().code,
             ErrorCode::RevisionConflict
         );
     }
-    index.bind(paused).unwrap();
+    index.bind(&paused).unwrap();
     assert_eq!(
         index
-            .replace(original, &document("notes.md"), &[])
+            .replace(&original, &document("notes.md"), &[])
             .unwrap_err()
             .code,
         ErrorCode::Cancelled
     );
     let stale = Binding {
         paused: true,
-        ..original
+        ..original.clone()
     };
     assert!(
         index
-            .search(&query(), &[stale], &[], false, &CancellationToken::new())
+            .search(
+                &query(),
+                &[stale.clone()],
+                &[],
+                false,
+                &CancellationToken::new()
+            )
             .unwrap()
             .hits
             .is_empty()
     );
     assert_eq!(
-        index.citation(stale, &request).err().unwrap().code,
+        index.citation(&stale, &request).err().unwrap().code,
         ErrorCode::RevisionConflict
     );
     let resumed = Binding {
         generation: 3,
         paused: false,
-        ..paused
+        ..paused.clone()
     };
     assert!(
         index
-            .search(&query(), &[resumed], &[], false, &CancellationToken::new())
+            .search(
+                &query(),
+                &[resumed.clone()],
+                &[],
+                false,
+                &CancellationToken::new()
+            )
             .unwrap()
             .hits
             .is_empty()
     );
     assert_eq!(
-        index.citation(resumed, &request).err().unwrap().code,
+        index.citation(&resumed, &request).err().unwrap().code,
         ErrorCode::RevisionConflict
     );
-    index.bind(resumed).unwrap();
+    index.bind(&resumed).unwrap();
     let page = index
         .search(
             &query(),
-            &[resumed],
-            &[(Model::BgeSmallZh, vec![1., 0.])],
+            &[resumed.clone()],
+            &[("bge-small-zh".to_owned(), vec![1., 0.])],
             false,
             &CancellationToken::new(),
         )
@@ -156,10 +174,10 @@ fn clears_changed_sources_and_explicit_rebuilds() {
     for rebuild in [false, true] {
         let (_directory, mut index) = open();
         let original = binding();
-        index.bind(original).unwrap();
+        index.bind(&original).unwrap();
         index
             .replace(
-                original,
+                &original,
                 &document("notes.md"),
                 &[part("向量数据库", Some(&[1., 0.]))],
             )
@@ -168,20 +186,26 @@ fn clears_changed_sources_and_explicit_rebuilds() {
             generation: 2,
             scope: if rebuild { original.scope } else { [1; 32] },
             rebuild: u64::from(rebuild),
-            ..original
+            ..original.clone()
         };
-        index.bind(changed).unwrap();
-        assert_eq!(index.counts(changed).unwrap(), (0, 0));
+        index.bind(&changed).unwrap();
+        assert_eq!(index.counts(&changed).unwrap(), (0, 0));
         assert!(
             index
-                .search(&query(), &[changed], &[], false, &CancellationToken::new())
+                .search(
+                    &query(),
+                    &[changed.clone()],
+                    &[],
+                    false,
+                    &CancellationToken::new()
+                )
                 .unwrap()
                 .hits
                 .is_empty()
         );
         assert_eq!(
             index
-                .replace(original, &document("notes.md"), &[])
+                .replace(&original, &document("notes.md"), &[])
                 .unwrap_err()
                 .code,
             ErrorCode::Cancelled
@@ -193,49 +217,61 @@ fn clears_changed_sources_and_explicit_rebuilds() {
 fn tracks_processed_and_missing_embeddings() {
     let (_directory, mut index) = open();
     let binding = binding();
-    index.bind(binding).unwrap();
+    index.bind(&binding).unwrap();
     let mut document = document("notes.md");
     document.embedded = false;
     index
-        .replace(binding, &document, &[part("向量数据库", None)])
+        .replace(&binding, &document, &[part("向量数据库", None)])
         .unwrap();
-    assert!(index.unchanged(binding, &document).unwrap());
+    assert!(index.unchanged(&binding, &document).unwrap());
     document.embedded = true;
-    assert!(!index.unchanged(binding, &document).unwrap());
+    assert!(!index.unchanged(&binding, &document).unwrap());
     index
-        .replace(binding, &document, &[part("unknown tokens", None)])
+        .replace(&binding, &document, &[part("unknown tokens", None)])
         .unwrap();
-    assert!(index.unchanged(binding, &document).unwrap());
+    assert!(index.unchanged(&binding, &document).unwrap());
     document.embedded = false;
-    assert!(index.unchanged(binding, &document).unwrap());
+    assert!(index.unchanged(&binding, &document).unwrap());
 }
 
 #[test]
 fn invalidates_links_when_chunk_boundaries_change() {
     let (_directory, mut index) = open();
     let original = binding();
-    index.bind(original).unwrap();
+    index.bind(&original).unwrap();
     let document = document("notes.md");
     index
-        .replace(original, &document, &[part("向量数据库", Some(&[1., 0.]))])
+        .replace(&original, &document, &[part("向量数据库", Some(&[1., 0.]))])
         .unwrap();
     let citation = index
-        .search(&query(), &[original], &[], false, &CancellationToken::new())
+        .search(
+            &query(),
+            &[original.clone()],
+            &[],
+            false,
+            &CancellationToken::new(),
+        )
         .unwrap()
         .hits
         .remove(0)
         .citation;
     let changed = Binding {
         generation: 2,
-        model: Some((Model::GraniteMulti, 3)),
-        ..original
+        model: Some(("granite-multi".to_owned(), 3)),
+        ..original.clone()
     };
-    index.bind(changed).unwrap();
+    index.bind(&changed).unwrap();
     let mut chunk = part("向量数据库", Some(&[1., 0., 0.]));
     chunk.position = Position::Lines { start: 5, end: 9 };
-    index.replace(changed, &document, &[chunk]).unwrap();
+    index.replace(&changed, &document, &[chunk]).unwrap();
     let current = index
-        .search(&query(), &[changed], &[], false, &CancellationToken::new())
+        .search(
+            &query(),
+            &[changed.clone()],
+            &[],
+            false,
+            &CancellationToken::new(),
+        )
         .unwrap()
         .hits
         .remove(0)
@@ -251,7 +287,7 @@ fn invalidates_links_when_chunk_boundaries_change() {
         limit: 1000,
     };
     assert_eq!(
-        index.citation(changed, &request).err().unwrap().code,
+        index.citation(&changed, &request).err().unwrap().code,
         ErrorCode::NotFound
     );
 }
@@ -280,15 +316,89 @@ fn query() -> Query {
 }
 
 #[test]
+fn preserves_imported_keys_vectors_and_source_scope() {
+    use crate::{
+        models::test_support,
+        store::knowledge::{Catalog, Stored},
+    };
+    let (directory, mut index) = open();
+    let (mut record, _) = test_support::record(2, &[100., 0., 1., 0., 0., 1.]);
+    let model = format!("model-{}", sailry_protocol::ModelId::new());
+    record.id = model.clone();
+    let id = KnowledgeId::new();
+    let stored: Stored = serde_json::from_value(serde_json::json!({
+        "collection":{"id":id,"revision":5,"rebuild":2,"owner":{"kind":"controller"},
+            "definition":{"name":"Imported source","source":{"kind":"directory","path":directory.path()},"model":model,"globs":[],"tags":["kept"],"shared_with":[]},
+            "paused":false,"progress":{"status":"ready","sources":1,"completed":1,"chunks":1,"skipped":0,"model":model,"generation":8}},
+        "capture":{"package":null,"worktree":null,"session":null},"automatic":false
+    })).unwrap();
+    let catalog = Catalog {
+        settings: Default::default(),
+        models: vec![record],
+        collections: vec![stored.clone()],
+    };
+    let captured = crate::knowledge::binding(&stored, &catalog);
+    assert_eq!(captured.model.as_ref().map(|(id, _)| id), Some(&model));
+    let mut different = stored.clone();
+    different.collection.definition.model = Some("bge-small-zh".into());
+    // Model selection is deliberately excluded from the source scope hash.
+    assert_eq!(
+        crate::knowledge::binding(&different, &catalog).scope,
+        captured.scope
+    );
+    index.bind(&captured).unwrap();
+    index
+        .replace(
+            &captured,
+            &document("kept.md"),
+            &[part("preserved text", Some(&[1., 0.]))],
+        )
+        .unwrap();
+    let saved = index
+        .db
+        .query_row("SELECT key,vector FROM chunks", [], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+        })
+        .unwrap();
+    drop(index);
+    let mut index = Index::open(&directory.path().join("knowledge.db")).unwrap();
+    index
+        .bind(&crate::knowledge::binding(&stored, &catalog))
+        .unwrap();
+    let restored = index
+        .db
+        .query_row("SELECT key,vector FROM chunks", [], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+        })
+        .unwrap();
+    assert_eq!(restored, saved);
+    let metadata = index
+        .db
+        .query_row(
+            "SELECT model,generation,rebuild FROM collections",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(metadata, (model, 8, 2));
+}
+
+#[test]
 fn filters_both_ranks_before_fusion() {
     let (_directory, mut index) = open();
     let selected = binding();
     let foreign = binding();
-    for binding in [selected, foreign] {
-        index.bind(binding).unwrap();
+    for binding in [selected.clone(), foreign] {
+        index.bind(&binding).unwrap();
         index
             .replace(
-                binding,
+                &binding,
                 &document("docs/selected.md"),
                 &[part("我们使用向量数据库", Some(&[1., 0.]))],
             )
@@ -297,7 +407,7 @@ fn filters_both_ranks_before_fusion() {
     let mut excluded = document("docs/excluded.md");
     excluded.tags = vec!["excluded".into()];
     index
-        .replace(selected, &excluded, &[part("向量数据库", Some(&[1., 0.]))])
+        .replace(&selected, &excluded, &[part("向量数据库", Some(&[1., 0.]))])
         .unwrap();
     let mut query = query();
     query.tags = vec!["selected".into()];
@@ -309,8 +419,8 @@ fn filters_both_ranks_before_fusion() {
         let page = index
             .search(
                 &query,
-                &[selected],
-                &[(Model::BgeSmallZh, vec![1., 0.])],
+                &[selected.clone()],
+                &[("bge-small-zh".to_owned(), vec![1., 0.])],
                 false,
                 &CancellationToken::new(),
             )
@@ -331,8 +441,8 @@ fn filters_both_ranks_before_fusion() {
     let page = index
         .search(
             &query,
-            &[selected],
-            &[(Model::BgeSmallZh, vec![1., 0.])],
+            &[selected.clone()],
+            &[("bge-small-zh".to_owned(), vec![1., 0.])],
             false,
             &CancellationToken::new(),
         )
@@ -344,24 +454,24 @@ fn filters_both_ranks_before_fusion() {
 fn falls_back_without_mixing_models() {
     let (_directory, mut index) = open();
     let original = binding();
-    index.bind(original).unwrap();
+    index.bind(&original).unwrap();
     let document = document("note.md");
     index
-        .replace(original, &document, &[part("向量数据库", Some(&[1., 0.]))])
+        .replace(&original, &document, &[part("向量数据库", Some(&[1., 0.]))])
         .unwrap();
-    assert!(index.unchanged(original, &document).unwrap());
+    assert!(index.unchanged(&original, &document).unwrap());
     let changed = Binding {
         generation: 2,
-        model: Some((Model::GraniteMulti, 3)),
-        ..original
+        model: Some(("granite-multi".to_owned(), 3)),
+        ..original.clone()
     };
-    index.bind(changed).unwrap();
-    assert!(!index.unchanged(changed, &document).unwrap());
+    index.bind(&changed).unwrap();
+    assert!(!index.unchanged(&changed, &document).unwrap());
     let page = index
         .search(
             &query(),
-            &[changed],
-            &[(Model::GraniteMulti, vec![1., 0., 0.])],
+            &[changed.clone()],
+            &[("granite-multi".to_owned(), vec![1., 0., 0.])],
             true,
             &CancellationToken::new(),
         )
@@ -371,17 +481,23 @@ fn falls_back_without_mixing_models() {
     assert!(page.indexing);
     assert_eq!(page.hits.len(), 1);
     assert_eq!(
-        index.replace(original, &document, &[]).unwrap_err().code,
+        index.replace(&original, &document, &[]).unwrap_err().code,
         ErrorCode::Cancelled
     );
     index.retain(&[]).unwrap();
     assert_eq!(
-        index.replace(changed, &document, &[]).unwrap_err().code,
+        index.replace(&changed, &document, &[]).unwrap_err().code,
         ErrorCode::Cancelled
     );
     assert!(
         index
-            .search(&query(), &[changed], &[], false, &CancellationToken::new())
+            .search(
+                &query(),
+                &[changed.clone()],
+                &[],
+                false,
+                &CancellationToken::new()
+            )
             .unwrap()
             .hits
             .is_empty()
@@ -392,45 +508,67 @@ fn falls_back_without_mixing_models() {
 fn replaces_source_and_rolls_back_invalid_vectors() {
     let (_directory, mut index) = open();
     let binding = binding();
-    index.bind(binding).unwrap();
+    index.bind(&binding).unwrap();
     let mut first = document("first.md");
     let second = document("second.md");
     index
-        .replace(binding, &first, &[part("向量 first", Some(&[1., 0.]))])
+        .replace(&binding, &first, &[part("向量 first", Some(&[1., 0.]))])
         .unwrap();
     index
-        .replace(binding, &second, &[part("向量 second", Some(&[0., 1.]))])
+        .replace(&binding, &second, &[part("向量 second", Some(&[0., 1.]))])
         .unwrap();
     first.revision = "changed-content".into();
     assert_eq!(
         index
-            .replace(binding, &first, &[part("replacement", Some(&[1., 0., 0.]))])
+            .replace(
+                &binding,
+                &first,
+                &[part("replacement", Some(&[1., 0., 0.]))]
+            )
             .unwrap_err()
             .code,
         ErrorCode::InvalidRequest
     );
-    assert_eq!(index.counts(binding).unwrap(), (2, 2));
+    assert_eq!(index.counts(&binding).unwrap(), (2, 2));
     assert_eq!(
         index
-            .search(&query(), &[binding], &[], false, &CancellationToken::new())
+            .search(
+                &query(),
+                &[binding.clone()],
+                &[],
+                false,
+                &CancellationToken::new()
+            )
             .unwrap()
             .hits
             .len(),
         2
     );
     index
-        .replace(binding, &first, &[part("replacement", Some(&[1., 0.]))])
+        .replace(&binding, &first, &[part("replacement", Some(&[1., 0.]))])
         .unwrap();
     let page = index
-        .search(&query(), &[binding], &[], false, &CancellationToken::new())
+        .search(
+            &query(),
+            &[binding.clone()],
+            &[],
+            false,
+            &CancellationToken::new(),
+        )
         .unwrap();
     assert_eq!(page.hits.len(), 1);
     assert_eq!(page.hits[0].citation.path, second.locator);
-    index.prune(binding, &[first.locator]).unwrap();
-    assert_eq!(index.counts(binding).unwrap(), (1, 1));
+    index.prune(&binding, &[first.locator]).unwrap();
+    assert_eq!(index.counts(&binding).unwrap(), (1, 1));
     assert!(
         index
-            .search(&query(), &[binding], &[], false, &CancellationToken::new())
+            .search(
+                &query(),
+                &[binding.clone()],
+                &[],
+                false,
+                &CancellationToken::new()
+            )
             .unwrap()
             .hits
             .is_empty()
@@ -467,13 +605,16 @@ fn removes_unregistered_collections_after_reopening() {
     let kept = binding();
     let removed = Binding {
         id: KnowledgeId::new(),
-        ..kept
+        ..kept.clone()
     };
-    for (binding, text) in [(kept, "向量 kept source"), (removed, "向量 deleted source")] {
-        index.bind(binding).unwrap();
+    for (binding, text) in [
+        (&kept, "向量 kept source"),
+        (&removed, "向量 deleted source"),
+    ] {
+        index.bind(&binding).unwrap();
         index
             .replace(
-                binding,
+                &binding,
                 &document("notes.md"),
                 &[part(text, Some(&[1., 0.]))],
             )
@@ -499,7 +640,7 @@ fn removes_unregistered_collections_after_reopening() {
     let page = index
         .search(
             &query(),
-            &[kept, removed],
+            &[kept.clone(), removed.clone()],
             &[],
             false,
             &CancellationToken::new(),
@@ -510,7 +651,7 @@ fn removes_unregistered_collections_after_reopening() {
     assert_eq!(page.hits[0].citation.collection, kept.id);
     assert_eq!(
         index
-            .replace(removed, &document("notes.md"), &[])
+            .replace(&removed, &document("notes.md"), &[])
             .unwrap_err()
             .code,
         ErrorCode::Cancelled,
@@ -536,11 +677,11 @@ fn pages_stable_candidates_and_observes_cancel() {
         model: None,
         ..binding()
     };
-    index.bind(binding).unwrap();
+    index.bind(&binding).unwrap();
     for number in 0..3 {
         index
             .replace(
-                binding,
+                &binding,
                 &document(&format!("{number}.md")),
                 &[part("向量", None)],
             )
@@ -550,17 +691,17 @@ fn pages_stable_candidates_and_observes_cancel() {
     query.limit = 1;
     let cancel = CancellationToken::new();
     let first = index
-        .search(&query, &[binding], &[], false, &cancel)
+        .search(&query, &[binding.clone()], &[], false, &cancel)
         .unwrap();
     query.offset = first.next_offset.unwrap();
     let second = index
-        .search(&query, &[binding], &[], false, &cancel)
+        .search(&query, &[binding.clone()], &[], false, &cancel)
         .unwrap();
     assert_ne!(first.hits[0].citation.chunk, second.hits[0].citation.chunk);
     query.offset = second.next_offset.unwrap();
     assert!(
         index
-            .search(&query, &[binding], &[], false, &cancel)
+            .search(&query, &[binding.clone()], &[], false, &cancel)
             .unwrap()
             .next_offset
             .is_none()
@@ -568,14 +709,14 @@ fn pages_stable_candidates_and_observes_cancel() {
     query.limit = u16::MAX;
     query.offset = 0;
     let expanded = index
-        .search(&query, &[binding], &[], false, &cancel)
+        .search(&query, &[binding.clone()], &[], false, &cancel)
         .unwrap();
     assert_eq!(expanded.hits.len(), 3);
     assert_eq!(expanded.next_offset, None);
     query.offset = 10_001;
     assert!(
         index
-            .search(&query, &[binding], &[], false, &cancel)
+            .search(&query, &[binding.clone()], &[], false, &cancel)
             .unwrap()
             .hits
             .is_empty()
@@ -584,7 +725,7 @@ fn pages_stable_candidates_and_observes_cancel() {
     query.offset = 0;
     assert_eq!(
         index
-            .search(&query, &[binding], &[], false, &cancel)
+            .search(&query, &[binding.clone()], &[], false, &cancel)
             .unwrap_err()
             .code,
         ErrorCode::Cancelled

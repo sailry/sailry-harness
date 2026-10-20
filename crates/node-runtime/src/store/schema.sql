@@ -89,15 +89,6 @@ CREATE TABLE IF NOT EXISTS media_settings (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     body BLOB NOT NULL
 );
-CREATE TABLE knowledge_settings (
-    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
-    body BLOB NOT NULL
-);
-CREATE TABLE knowledge_models (
-    id TEXT PRIMARY KEY,
-    digest TEXT NOT NULL UNIQUE,
-    body BLOB NOT NULL
-);
 CREATE TABLE knowledge_collections (
     id TEXT PRIMARY KEY,
     revision INTEGER NOT NULL CHECK(revision>0),
@@ -146,6 +137,22 @@ CREATE TABLE IF NOT EXISTS plugin_settings (
     revision INTEGER NOT NULL,
     body BLOB NOT NULL,
     PRIMARY KEY(plugin,revision)
+);
+CREATE TABLE plugin_connections (
+    id TEXT PRIMARY KEY,
+    plugin TEXT NOT NULL,
+    connector TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    body BLOB NOT NULL
+);
+CREATE INDEX plugin_connections_owner ON plugin_connections(plugin,connector);
+CREATE TABLE turn_connections (
+    turn TEXT NOT NULL REFERENCES turns(id),
+    plugin TEXT NOT NULL,
+    connector TEXT NOT NULL,
+    connection TEXT NOT NULL,
+    revision INTEGER NOT NULL CHECK(revision>0),
+    PRIMARY KEY(turn,plugin,connector)
 );
 CREATE TABLE plugin_values (
     name TEXT NOT NULL,
@@ -406,7 +413,6 @@ CREATE TABLE code_startups (
 
 CREATE TABLE code_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
 CREATE TABLE python_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
-CREATE TABLE ocr_settings (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
 
 CREATE TABLE hook_settings (
     worktree TEXT PRIMARY KEY REFERENCES worktrees(id) ON DELETE CASCADE,
@@ -457,3 +463,14 @@ CREATE INDEX IF NOT EXISTS agent_background_state ON agent_background(state);
 CREATE INDEX IF NOT EXISTS dispatch_jobs_status ON dispatch_jobs(status);
 
 CREATE TABLE channel_presets (singleton INTEGER PRIMARY KEY CHECK(singleton=1),body BLOB NOT NULL);
+
+CREATE TABLE local_models (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    digest TEXT NOT NULL UNIQUE,
+    body BLOB NOT NULL
+);
+CREATE TABLE local_model_settings (
+    singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+    body BLOB NOT NULL
+);

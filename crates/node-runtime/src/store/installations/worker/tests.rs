@@ -423,7 +423,7 @@ async fn holds_turn_until_durable_completion() {
                 },
                 |report, _| async move {
                     report(Phase::Validating, None);
-                    Ok(Output::OcrModel {
+                    Ok(Output::LocalModel {
                         id: "fixture".into(),
                     })
                 }

@@ -1,8 +1,5 @@
 //! Provider authorization shares durable admission and the Node's credential transaction owner.
-#[path = "login/plugin.rs"]
-mod account;
-mod github;
-mod mcp;
+mod connectors;
 pub(in crate::store) mod model_auth;
 mod models;
 mod persistence;
@@ -30,9 +27,7 @@ pub(super) struct Operation {
 }
 
 pub(super) enum Progress {
-    Github(Box<github::Completed>),
-    Mcp(mcp::Progress),
-    Plugin(account::Progress),
+    Connector(Box<connectors::Progress>),
     Registered {
         caller: NodeId,
         id: RequestId,
@@ -74,10 +69,8 @@ struct Entry {
 pub(super) struct Worker {
     pub pending: usize,
     entries: BTreeMap<(NodeId, RequestId), Entry>,
-    mcp: BTreeMap<(NodeId, RequestId), mcp::Entry>,
-    plugin: BTreeMap<(NodeId, RequestId), account::Entry>,
-    oauth: std::sync::Arc<crate::plugins::oauth::Service>,
-    registration: std::sync::Arc<crate::plugins::registration::Service>,
+    connectors: BTreeMap<(NodeId, RequestId), connectors::Entry>,
+    ingress: std::sync::Arc<Ingress>,
     plugins: crate::plugins::Host,
     environment: std::sync::Arc<crate::process::Environment>,
     renewals: renewals::Renewals,
@@ -98,10 +91,8 @@ impl Worker {
         Self {
             pending: 0,
             entries: BTreeMap::new(),
-            mcp: BTreeMap::new(),
-            plugin: BTreeMap::new(),
-            oauth: ingress.oauth.clone(),
-            registration: ingress.registration.clone(),
+            connectors: BTreeMap::new(),
+            ingress: std::sync::Arc::new(ingress.clone()),
             plugins: ingress.plugins.clone(),
             environment: ingress.environment.clone(),
             renewals: Default::default(),
@@ -125,21 +116,19 @@ impl Worker {
             request,
             reply,
         } = operation;
-        if matches!(request.command, Command::ImportGithubLogin { .. }) {
-            self.import_github(database, caller, request, reply, events);
+        if matches!(request.command, Command::ProbeConnection { .. }) {
+            self.probe_connector(database, caller, request, reply, events);
+            return;
+        }
+        if matches!(request.command, Command::InspectConnectorCli { .. }) {
+            self.inspect_connector(database, caller, request, reply, events);
             return;
         }
         let result = match request.command {
-            Command::BeginPluginLogin { .. }
-            | Command::BeginPluginRegistration { .. }
-            | Command::CompletePluginLogin { .. }
-            | Command::CancelPluginLogin { .. } => {
-                self.plugin_command(database, caller, &request, events)
-            }
-            Command::BeginMcpLogin { .. }
-            | Command::CompleteMcpLogin { .. }
-            | Command::CancelMcpLogin { .. } => {
-                self.mcp_command(database, caller, &request, events)
+            Command::StartConnectorLogin { .. }
+            | Command::SubmitConnectorInput { .. }
+            | Command::CancelConnectorLogin { .. } => {
+                self.connector_command(database, caller, &request, events)
             }
             Command::BeginProviderLogin { .. } => self.begin(database, caller, &request, events),
             Command::CompleteProviderLogin {
@@ -481,9 +470,7 @@ impl Worker {
         events: &broadcast::Sender<EventEnvelope>,
     ) {
         match progress {
-            Progress::Github(completed) => self.github_progress(database, *completed, events),
-            Progress::Mcp(progress) => self.mcp_progress(database, progress, events),
-            Progress::Plugin(progress) => self.plugin_progress(database, progress, events),
+            Progress::Connector(progress) => self.connector_progress(database, *progress, events),
             Progress::Registered {
                 caller,
                 id,

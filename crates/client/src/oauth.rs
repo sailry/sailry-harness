@@ -29,6 +29,14 @@ impl Callback {
         Ok(Self { listener, redirect })
     }
 
+    /// Preserve the endpoint while a request with an uncertain outcome is retried.
+    pub fn duplicate(&self) -> Result<Self, Fault> {
+        Ok(Self {
+            listener: self.listener.try_clone().map_err(failed)?,
+            redirect: self.redirect.clone(),
+        })
+    }
+
     pub async fn receive<R>(
         self,
         authorization: String,

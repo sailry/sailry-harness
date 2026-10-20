@@ -13,28 +13,25 @@ fn preserves_captured_sources_and_cas_receipts() {
         let package = fixture.install(0);
         assert!(package.issues.is_empty(), "{:?}", package.issues);
         let client = &fixture.binding.client;
-        let Output::KnowledgeModels(models) = fixture
+        let Output::LocalModels(models) = fixture
             .runtime
-            .block_on(client.execute(client.prepare(Command::ReadKnowledgeModels)))
+            .block_on(client.execute(client.prepare(Command::ReadLocalModels {
+                kind: Some(sailry_protocol::models::Kind::Embedding),
+            })))
             .unwrap()
         else {
             panic!("knowledge models expected")
         };
-        let Output::KnowledgeModel { model } = fixture
+        let Output::LocalModel { id: model } = fixture
             .runtime
-            .block_on(
-                client.execute(client.prepare(Command::RegisterKnowledgeModel {
-                    definition: models[0].definition.clone(),
-                })),
-            )
+            .block_on(client.execute(client.prepare(Command::RegisterLocalModel {
+                definition: models[0].definition.clone(),
+            })))
             .unwrap()
         else {
             panic!("registered model expected")
         };
-        assert!(matches!(
-            model,
-            sailry_protocol::knowledge::Model::Registered { .. }
-        ));
+        assert!(sailry_protocol::models::valid_id(&model));
         let context = Context {
             invocation: None,
             turn: None,

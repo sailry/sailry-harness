@@ -70,6 +70,19 @@ pub(in crate::plugins::host) fn command(
         };
         *revision = Value::from(exact);
     }
+    if let Some(revision) = value
+        .pointer_mut("/data/expected_revision")
+        .filter(|value| !value.is_null())
+    {
+        if let Some(text) = revision.as_str() {
+            *revision = Value::from(self::revision(text)?);
+        } else if revision
+            .as_u64()
+            .is_none_or(|number| number > 9_007_199_254_740_991)
+        {
+            return Err(HostError::new("revision must be exact"));
+        }
+    }
     serde_json::from_value(value).map_err(|_| HostError::new("invalid plugin command"))
 }
 

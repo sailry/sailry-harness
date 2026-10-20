@@ -30,6 +30,12 @@ enum Location {
 type Key = (Location, RequestId);
 type Retry = Rc<dyn Fn(Attempt, &mut Window, &mut App)>;
 
+pub(crate) struct Capture<'a> {
+    pub request: &'a Request,
+    pub resource: Option<Resource>,
+    pub waiting: bool,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum Attempt {
     New,
@@ -150,9 +156,6 @@ pub(crate) fn connected(client: Arc<Client>, runtime: Arc<tokio::runtime::Runtim
 }
 
 fn resource(command: &Command) -> Option<Resource> {
-    if let Some(resource) = models::resource(command) {
-        return Some(resource);
-    }
     if let Command::InstallCodeServer { install } = command {
         return Some(Resource::Language {
             package: install.package.clone(),
@@ -188,7 +191,35 @@ pub(crate) fn track(
     window: &mut Window,
     cx: &mut App,
 ) -> Option<Ticket> {
-    let resource = resource(&request.command)?;
+    track_resource(
+        client,
+        runtime,
+        Capture {
+            request,
+            resource: resource(&request.command),
+            waiting,
+        },
+        retry,
+        window,
+        cx,
+    )
+}
+
+/// Model IDs resolve through Node metadata; their command carries no kind.
+pub(crate) fn track_resource(
+    client: Arc<Client>,
+    runtime: Arc<tokio::runtime::Runtime>,
+    capture: Capture<'_>,
+    retry: impl Fn(Attempt, &mut Window, &mut App) + 'static,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<Ticket> {
+    let Capture {
+        request,
+        resource,
+        waiting,
+    } = capture;
+    let resource = resource?;
     let queue = registry(cx);
     let key = (Location::Node(client.target()), request.id);
     queue.update(cx, |queue, cx| {

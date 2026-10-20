@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 mod startup_tests;
 
 /// Complete validation remains mandatory for upgrades and backup acceptance.
-pub(super) fn stored(db: &Connection) -> Result<(), Error> {
+pub(in crate::store) fn stored(db: &Connection) -> Result<(), Error> {
     validate(db, true)
 }
 
@@ -94,11 +94,8 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
         "sandbox_settings.body",
         "SELECT body FROM sandbox_settings",
     )?;
-    records::<sailry_protocol::knowledge::Settings>(
-        db,
-        "knowledge_settings.body",
-        "SELECT body FROM knowledge_settings",
-    )?;
+    records::<sailry_protocol::models::Settings>(db,"local_model_settings.body","SELECT body FROM local_model_settings")?;
+    crate::store::local_models::read(db).map_err(|_|Error::Worker("incompatible stored local model configuration; existing data was not changed".into()))?;
     records::<crate::store::knowledge::Stored>(
         db,
         "knowledge_collections.body",
@@ -235,6 +232,12 @@ fn validate(db: &Connection, archives: bool) -> Result<(), Error> {
             "SELECT p.body FROM plugin_settings p JOIN plugins c ON c.name=p.plugin AND json_extract(c.body,'$.summary.settings_revision')=p.revision WHERE c.installed=1"
         },
     )?;
+    for record in crate::store::plugins::connectors::records(db)
+        .map_err(|error| crate::Error::Worker(error.message))?
+    {
+        crate::store::plugins::connectors::validate(&record)
+            .map_err(|error| crate::Error::Worker(error.message))?;
+    }
     records::<crate::store::agent::background::Record>(
         db,
         "agent_background.body",

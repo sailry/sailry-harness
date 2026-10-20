@@ -8,7 +8,7 @@ pub(in crate::knowledge) struct Record {
 impl Index {
     pub(in crate::knowledge) fn citation(
         &self,
-        binding: Binding,
+        binding: &Binding,
         input: &CitationRequest,
     ) -> Result<Record, Fault> {
         if binding.id != input.collection || !self.readable(binding)? {
@@ -46,7 +46,7 @@ impl Index {
         Ok(Record { citation, title })
     }
 
-    fn readable(&self, binding: Binding) -> Result<bool, Fault> {
+    fn readable(&self, binding: &Binding) -> Result<bool, Fault> {
         if !binding.paused {
             return self.current(binding);
         }

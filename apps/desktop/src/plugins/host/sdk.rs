@@ -2,6 +2,7 @@
 mod code;
 mod computer;
 mod connections;
+mod connectors;
 pub(super) mod conversation;
 mod files;
 mod git;
@@ -245,14 +246,6 @@ impl Host {
 
     pub(super) fn prepare_public(&self, command: Command) -> Result<HostValue, HostError> {
         self.check()?;
-        if matches!(
-            command,
-            Command::BeginPluginRegistration { .. } | Command::CancelPluginLogin { .. }
-        ) {
-            return Err(HostError::new(
-                "application registration requires a native user action",
-            ));
-        }
         if serde_json::to_vec(&command)
             .map_err(|error| HostError::new(error.to_string()))?
             .len()
@@ -374,9 +367,7 @@ impl Host {
                                     crate::installations::language::completion(&captured, &result)
                                 } else {
                                     match &result {
-                                        Ok(
-                                            Output::OcrModel { .. } | Output::KnowledgeModel { .. },
-                                        ) => Ok(()),
+                                        Ok(Output::LocalModel { .. }) => Ok(()),
                                         Err(error) => Err(error.clone()),
                                         _ => Err(sailry_protocol::Fault::invalid(
                                             "unexpected model installation response",
@@ -443,6 +434,10 @@ pub(in crate::plugins) fn public_output(output: Output) -> Result<Value, HostErr
             | Output::PluginSearch(_)
             | Output::KnowledgeCollection(_)
             | Output::KnowledgeCollections(_)
+            | Output::ConnectorTypes(_)
+            | Output::Connections(_)
+            | Output::Connection(_)
+            | Output::ConnectorLogin(_)
     ) {
         return Ok(sailry_protocol::plugin::transaction::sdk::output(output));
     }

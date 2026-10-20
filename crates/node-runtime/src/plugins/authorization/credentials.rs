@@ -1,5 +1,4 @@
 use super::*;
-use sailry_protocol::plugin::settings::Schema;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -17,49 +16,35 @@ pub(crate) struct Registered {
 }
 
 impl Registered {
-    pub(crate) fn resolve(
-        schema: Option<&Schema>,
-        settings: &crate::plugins::settings::Resolved,
-        server: &str,
+    pub(crate) fn connector(
+        target: &crate::plugins::connectors::Target,
     ) -> Result<Option<Self>, Fault> {
-        let Some(schema) = schema else {
+        use sailry_protocol::plugin::connector::{Auth, Client};
+        let Some(Auth::McpOauth {
+            client: Some(Client::Fields { fields }),
+            ..
+        }) = target
+            .declaration
+            .auth
+            .iter()
+            .find(|auth| auth.kind() == target.method)
+        else {
             return Ok(None);
         };
-        for (name, field) in &schema.properties {
-            let Some(binding) = &field.secret else {
-                continue;
-            };
-            let Some(oauth) = &binding.oauth else {
-                continue;
-            };
-            if binding.server.as_deref() != Some(server) {
-                continue;
-            }
-            let id = settings
-                .values
-                .get(&oauth.client_id)
-                .and_then(serde_json::Value::as_str)
-                .filter(|id| {
-                    !id.is_empty() && id.len() <= 2048 && !id.chars().any(char::is_control)
-                })
-                .ok_or_else(|| {
-                    Fault::new(
-                        ErrorCode::NotConfigured,
-                        "MCP OAuth client ID is not configured",
-                    )
-                })?;
-            let secret = settings.secrets.get(name).ok_or_else(|| {
-                Fault::new(
-                    ErrorCode::NotConfigured,
-                    "MCP OAuth client secret is not configured",
-                )
-            })?;
-            return Ok(Some(Self {
-                id: id.into(),
-                secret: secret.clone(),
-            }));
-        }
-        Ok(None)
+        let Some(name) = &fields.client_secret else {
+            return Ok(None);
+        };
+        let id = target
+            .fields
+            .get(&fields.client_id)
+            .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "MCP client ID is unavailable"))?;
+        let secret = target.secrets.get(name).ok_or_else(|| {
+            Fault::new(ErrorCode::NotConfigured, "MCP client secret is unavailable")
+        })?;
+        Ok(Some(Self {
+            id: id.clone(),
+            secret: secret.clone(),
+        }))
     }
 
     pub(super) fn fingerprint(&self) -> String {

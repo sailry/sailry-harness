@@ -36,10 +36,7 @@ pub(super) fn form_bound(info: &Info) -> bool {
     info.settings.as_ref().is_some_and(|schema| {
         schema.properties.values().any(|field| {
             field.secret.as_ref().is_some_and(|binding| {
-                binding.server.is_some()
-                    && (binding.env.is_some()
-                        || binding.header.is_some()
-                        || binding.oauth.is_some())
+                binding.server.is_some() && (binding.env.is_some() || binding.header.is_some())
             })
         })
     })
@@ -184,24 +181,23 @@ impl Workspace {
             .children(
                 info.mcp
                     .iter()
-                    .filter(|server| {
-                        self.plugin_catalog
-                            .authorization
-                            .as_ref()
-                            .is_some_and(|state| {
-                                state
-                                    .read(cx)
-                                    .allows(&info.summary.reference(), &server.name)
-                            })
-                    })
+                    .filter(|server| plugins::metadata::has_connector(info, &server.name))
                     .map(|server| {
-                        plugins::authorization::action(
-                            live.binding.clone(),
-                            info.summary.reference(),
-                            server.name.clone(),
-                            format!("mcp-login-{name}-{}", server.name),
-                        )
+                        Button::new(SharedString::from(format!(
+                            "mcp-login-{name}-{}",
+                            server.name
+                        )))
+                        .ghost()
+                        .small()
+                        .icon(IconName::ExternalLink)
+                        .accessibility_label(tr("settings_connectors"))
                         .disabled(busy)
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(
+                                Box::new(super::OpenSection(super::Section::Connectors)),
+                                cx,
+                            )
+                        })
                     }),
             )
             .child(

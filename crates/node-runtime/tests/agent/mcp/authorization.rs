@@ -1,91 +1,125 @@
+//! MCP authorization shares declared connection records and scoped SDK credentials.
 use super::*;
-use sailry_protocol::plugin::authorization::{Attempt, State};
-use std::sync::atomic::Ordering;
-mod confidential;
 use crate::oauth_server as issuer;
-
-async fn state(client: &Client, attempt: &Attempt, ready: impl Fn(&State) -> bool) -> State {
-    let mut stream = client.subscribe_mcp_login(attempt.id).await.unwrap();
+use sailry_protocol::plugin::connector::{Attempt, Input, Kind, LoginState};
+use std::{collections::BTreeMap, sync::atomic::Ordering};
+mod confidential;
+const ORIGIN: &str = "https://mcp.example.com";
+fn configure(fixture: &process::Fixture, endpoint: &str, sse: bool, confidential: bool) {
+    fixture.node.set_connector_fixture(ORIGIN, endpoint);
+    package(
+        &fixture.root,
+        json!({"input":{"type":if sse{"sse"}else{"streamable-http"},"url":format!("{ORIGIN}/mcp")}}),
+        "0.1.0",
+    );
+    let path = fixture.root.join("package/plugin.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let auth = if confidential {
+        json!({"kind":"mcp_oauth","server":"input","client":{"fields":{"client_id":"client_id","client_secret":"client_secret"}}})
+    } else {
+        json!({"kind":"mcp_oauth","server":"input"})
+    };
+    manifest["extensions"] = json!({"dev.sailry.platform":{"api_version":"v1","connectors":[{
+        "id":"service","display":{"label":"Service"},"accounts":"single","origins":[ORIGIN],"auth":[auth],
+        "fields":if confidential{json!([{"name":"client_id","title":"Client ID"},{"name":"client_secret","title":"Client secret","secret":true}])}else{json!([])},
+        "inject":[{"server":"input","header":"Authorization","prefix":"Bearer "}]
+    }]}});
+    fs::write(path, manifest.to_string()).unwrap();
+}
+async fn state(
+    client: &Client,
+    attempt: &Attempt,
+    ready: impl Fn(&LoginState) -> bool,
+) -> LoginState {
+    let mut stream = client.subscribe_connector_login(attempt.id).await.unwrap();
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
-            let Update::McpLogin(update) = stream.next().await.unwrap() else {
+            let Update::ConnectorLogin(update) = stream.next().await.unwrap() else {
                 panic!("login update expected")
             };
             if ready(&update.state) {
                 return update.state;
             }
-            assert!(
-                update.state.active(),
-                "unexpected state: {:?}",
-                update.state
-            );
+            assert!(update.state.active(), "{:?}", update.state);
         }
     })
     .await
-    .expect("authorization deadline")
+    .unwrap()
 }
-
-async fn begin(client: &Client, package: plugin::Reference) -> (Request, Attempt, String) {
-    let request = client.prepare(Command::BeginMcpLogin {
+async fn begin(
+    client: &Client,
+    package: plugin::Reference,
+    confidential: bool,
+) -> (Request, Attempt, String) {
+    let request = client.prepare(Command::StartConnectorLogin {
         package,
-        server: "input".into(),
-        redirect: "http://127.0.0.1:43191/callback".into(),
-        client_id: None,
+        connector: "service".into(),
+        connection: None,
+        expected_revision: None,
+        method: Kind::McpOauth,
+        input: Input {
+            redirect: Some("http://127.0.0.1:43191/auth/callback".into()),
+            fields: if confidential {
+                BTreeMap::from([("client_id".into(), "fixture-client".into())])
+            } else {
+                BTreeMap::new()
+            },
+            secrets: if confidential {
+                BTreeMap::from([(
+                    "client_secret".into(),
+                    Secret::new("client-private-marker".into()),
+                )])
+            } else {
+                BTreeMap::new()
+            },
+            ..Default::default()
+        },
     });
-    let Output::McpLogin(attempt) = client.execute(request.clone()).await.unwrap() else {
-        panic!("attempt expected")
+    let Output::ConnectorLogin(attempt) = client.execute(request.clone()).await.unwrap() else {
+        panic!("login attempt expected")
     };
-    let State::Pending { url, .. } =
-        state(client, &attempt, |s| matches!(s, State::Pending { .. })).await
+    let LoginState::Browser { url, .. } = state(client, &attempt, |state| {
+        matches!(state, LoginState::Browser { .. })
+    })
+    .await
     else {
         unreachable!()
     };
     (request, attempt, url)
 }
-
-async fn setup(
-    remote: bool,
-    sse: bool,
-) -> (
-    process::Fixture,
-    Server,
-    input::Server,
-    issuer::Server,
-    plugin::Reference,
-) {
-    let input = input::Server::with_transport(input::form_schema(), sse).await;
-    let issuer = issuer::Server::start(&input.endpoint).await;
-    let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
-    let fixture = process::Fixture::packages(remote, &model, &[]).await;
-    package(
-        &fixture.root,
-        json!({"input":{"type": if sse {"sse"} else {"streamable-http"}, "url":issuer.endpoint}}),
-        "1.0.0",
-    );
-    let package = install(&fixture, 0).await.summary.reference();
-    (fixture, model, input, issuer, package)
+async fn complete(client: &Client, attempt: &Attempt, url: &str) -> plugin::connector::Connection {
+    let request = client.prepare(Command::SubmitConnectorInput {
+        attempt: attempt.id,
+        input: Secret::new(issuer::Server::callback(url).await),
+    });
+    let receipt = client.execute(request.clone()).await.unwrap();
+    assert_eq!(client.execute(request).await.unwrap(), receipt);
+    let LoginState::Connected(row) = state(client, attempt, |state| {
+        matches!(state, LoginState::Connected(_))
+    })
+    .await
+    else {
+        unreachable!()
+    };
+    row
 }
-
 #[tokio::test]
 async fn resumes_authorized_tools() {
     for remote in [false, true] {
         for sse in [false, true] {
-            let (fixture, model, input, issuer, package) = setup(remote, sse).await;
-            let Output::McpAuthorization(available) = execute(
-                &fixture.client,
-                Command::ReadMcpAuthorization {
-                    package: package.clone(),
-                    server: "input".into(),
-                },
-            )
-            .await
-            else {
-                panic!("authorization status expected")
-            };
-            assert!(available.can_authorize);
-            assert!(!available.configured);
-            assert_eq!(issuer.registrations.load(Ordering::SeqCst), 0);
-            let (begin_request, attempt, url) = begin(&fixture.client, package.clone()).await;
+            let peer = input::Server::url("https://example.invalid/continue", sse).await;
+            let issuer = issuer::Server::start(&peer.endpoint).await;
+            let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
+            let fixture = process::Fixture::packages(remote, &model, &[]).await;
+            configure(&fixture, &issuer.endpoint, sse, false);
+            let info = install(&fixture, 0).await;
+            assert!(info.issues.is_empty(), "{:?}", info.issues);
+            let (request, attempt, url) =
+                begin(&fixture.client, info.summary.reference(), false).await;
+            assert_eq!(
+                fixture.client.execute(request).await.unwrap(),
+                Output::ConnectorLogin(attempt.clone())
+            );
             let other = Client::new(if remote {
                 fixture.node.local()
             } else {
@@ -94,307 +128,59 @@ async fn resumes_authorized_tools() {
                     .handle()
                     .remote(fixture.node.link().address())
             });
-            let denied = match other.subscribe_mcp_login(attempt.id).await {
+            let denied = match other.subscribe_connector_login(attempt.id).await {
                 Ok(mut stream) => stream.next().await.unwrap_err(),
                 Err(error) => error,
             };
             assert_eq!(denied.code, ErrorCode::NotFound);
-            fixture
-                .controller
-                .handle()
-                .disconnect(fixture.node.id())
+            let row = complete(&fixture.client, &attempt, &url).await;
+            for _ in 0..2 {
+                let (_, turn) = submit(&fixture, false).await;
+                let (_, pending) = questions::pending(&fixture.client, fixture.session.id).await;
+                execute(
+                    &fixture.client,
+                    Command::ResolveQuestion {
+                        session: fixture.session.id,
+                        question: pending.id,
+                        response: question::Response::Decline,
+                    },
+                )
                 .await;
-            let callback = issuer::Server::callback(&url).await;
-            let complete = fixture.client.prepare(Command::CompleteMcpLogin {
-                attempt: attempt.id,
-                callback: Secret::new(callback.clone()),
-            });
-            let receipt = fixture.client.execute(complete.clone()).await.unwrap();
-            let State::Connected(connected) = state(&fixture.client, &attempt, |s| {
-                matches!(s, State::Connected(_))
-            })
-            .await
-            else {
-                unreachable!()
-            };
-            assert_ne!(package, connected);
-            let Output::McpAuthorization(status) = execute(
-                &fixture.client,
-                Command::ReadMcpAuthorization {
-                    package: connected.clone(),
-                    server: "input".into(),
-                },
-            )
-            .await
-            else {
-                panic!("status expected")
-            };
-            assert!(status.configured);
-            assert!(status.can_authorize);
-
-            let (request, turn) = submit(&fixture, false).await;
-            let (_, pending) = questions::pending(&fixture.client, fixture.session.id).await;
-            // Force an HTTP 401 during a long tool call. The SDK refreshes the same grant.
-            issuer.expire();
-            execute(
-                &fixture.client,
-                Command::ResolveQuestion {
-                    session: fixture.session.id,
-                    question: pending.id,
-                    response: question::Response::Decline,
-                },
-            )
-            .await;
-            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
-            assert_eq!(page.runs[0].status, Status::Completed);
-            assert_eq!(input.calls.load(Ordering::SeqCst), 1);
+                let page = finished(&fixture.client, fixture.session.id, turn.id).await;
+                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+                let public = serde_json::to_string(&page).unwrap();
+                for secret in [
+                    "access-private-marker",
+                    "refresh-private-marker",
+                    "client-private-marker",
+                ] {
+                    assert!(!public.contains(secret));
+                }
+            }
+            assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
             assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
+            issuer.expire();
+            let (_, turn) = submit(&fixture, false).await;
+            let page = finished(&fixture.client, fixture.session.id, turn.id).await;
             assert_eq!(issuer.refreshes.load(Ordering::SeqCst), 1);
             assert_eq!(
-                fixture.client.execute(complete.clone()).await.unwrap(),
-                receipt
+                peer.calls.load(Ordering::SeqCst),
+                2,
+                "expired POST must not be replayed"
             );
-            assert_eq!(
-                fixture.client.execute(begin_request.clone()).await.unwrap(),
-                Output::McpLogin(attempt.clone())
+            assert!(
+                !serde_json::to_string(&page)
+                    .unwrap()
+                    .contains("refresh-initial")
             );
-            let public = serde_json::to_string(&(
-                page.clone(),
-                model.requests.lock().unwrap().clone(),
-                status,
-            ))
-            .unwrap();
-            for secret in [
-                "access-initial",
-                "refresh-initial",
-                "access-1",
-                "refresh-1",
-                &callback,
-            ] {
-                assert!(!public.contains(secret));
-            }
-            let process::Fixture {
-                directory,
-                node,
-                controller,
-                client,
-                session,
-                ..
-            } = fixture;
-            drop(client);
-            node.shutdown().await.unwrap();
-            let database = rusqlite::Connection::open_with_flags(
-                directory.path().join("node/storage/node.sqlite3"),
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )
-            .unwrap();
-            let body: Vec<u8> = database
-                .query_row(
-                    "SELECT body FROM requests WHERE id=?1",
-                    [complete.id.to_string()],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert!(body.starts_with(b"credential-v1:"));
-            assert!(!String::from_utf8(body).unwrap().contains(&callback));
-            drop(database);
-            let node = Node::start_empty(directory.path().join("node"))
-                .await
-                .unwrap();
-            let client = Client::new(if remote {
-                controller.handle().remote(node.link().address())
-            } else {
-                node.local()
-            });
-            assert_eq!(client.execute(complete).await.unwrap(), receipt);
-            assert_eq!(
-                client.execute(begin_request).await.unwrap(),
-                Output::McpLogin(attempt.clone())
-            );
-            let missing = match client.subscribe_mcp_login(attempt.id).await {
-                Ok(mut stream) => stream.next().await.unwrap_err(),
-                Err(error) => error,
-            };
-            assert_eq!(missing.code, ErrorCode::NotFound);
-            assert_eq!(
-                client.execute(request).await.unwrap(),
-                Output::QueuedTurn(turn)
-            );
-            assert_eq!(history(&client, session.id).await, page);
-            let Output::McpAuthorization(restored) = execute(
-                &client,
-                Command::ReadMcpAuthorization {
-                    package: connected.clone(),
-                    server: "input".into(),
-                },
-            )
-            .await
-            else {
-                panic!("authorization status expected")
-            };
-            assert!(restored.configured);
             execute(
-                &client,
-                Command::RevokeMcpAuthorization {
-                    package: connected,
-                    server: "input".into(),
+                &fixture.client,
+                Command::DisconnectConnection {
+                    connection: row.id,
+                    expected_revision: row.revision,
                 },
             )
             .await;
-            assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
-            assert_eq!(input.calls.load(Ordering::SeqCst), 1);
-            node.shutdown().await.unwrap();
-            controller.close().await.unwrap();
-        }
-    }
-}
-
-#[tokio::test]
-async fn hides_unconfirmed_authorization() {
-    for remote in [false, true] {
-        let peer = input::Server::with_transport(input::form_schema(), false).await;
-        let model = Server::tools(vec![(alias("input", "read"), json!({}))]).await;
-        let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        package(
-            &fixture.root,
-            json!({"input":{"type":"streamable-http","url":peer.endpoint}}),
-            "0.1.0",
-        );
-        let reference = install(&fixture, 0).await.summary.reference();
-        let Output::McpAuthorization(status) = execute(
-            &fixture.client,
-            Command::ReadMcpAuthorization {
-                package: reference,
-                server: "input".into(),
-            },
-        )
-        .await
-        else {
-            panic!("authorization status expected")
-        };
-        assert!(!status.can_authorize);
-        assert!(!status.configured);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn discards_stale_grants() {
-    for remote in [false, true] {
-        let (fixture, _, _, issuer, package) = setup(remote, false).await;
-        let (_, attempt, url) = begin(&fixture.client, package.clone()).await;
-        let Output::McpAuthorization(changed) = execute(
-            &fixture.client,
-            Command::RevokeMcpAuthorization {
-                package,
-                server: "input".into(),
-            },
-        )
-        .await
-        else {
-            panic!("authorization status expected")
-        };
-        execute(
-            &fixture.client,
-            Command::CompleteMcpLogin {
-                attempt: attempt.id,
-                callback: Secret::new(issuer::Server::callback(&url).await),
-            },
-        )
-        .await;
-        let failed = state(&fixture.client, &attempt, |state| {
-            matches!(state, State::Failed(_))
-        })
-        .await;
-        assert!(
-            matches!(failed, State::Failed(error) if error.code == ErrorCode::RevisionConflict)
-        );
-        assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
-        let Output::McpAuthorization(status) = execute(
-            &fixture.client,
-            Command::ReadMcpAuthorization {
-                package: changed.package,
-                server: "input".into(),
-            },
-        )
-        .await
-        else {
-            panic!("authorization status expected")
-        };
-        assert!(!status.configured);
-        fixture.node.shutdown().await.unwrap();
-        fixture.controller.close().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn rejects_invalid_callbacks() {
-    for remote in [false, true] {
-        for cancel in [false, true] {
-            let (fixture, _, _, issuer, package) = setup(remote, false).await;
-            let (request, attempt, url) = begin(&fixture.client, package.clone()).await;
-            let mut callback = reqwest::Url::parse(&issuer::Server::callback(&url).await).unwrap();
-            callback
-                .query_pairs_mut()
-                .append_pair("state", "wrong-state");
-            if cancel {
-                execute(
-                    &fixture.client,
-                    Command::CancelMcpLogin {
-                        attempt: attempt.id,
-                    },
-                )
-                .await;
-                assert_eq!(
-                    state(&fixture.client, &attempt, |s| matches!(s, State::Cancelled)).await,
-                    State::Cancelled
-                );
-                assert_eq!(
-                    fixture
-                        .client
-                        .execute(fixture.client.prepare(Command::CompleteMcpLogin {
-                            attempt: attempt.id,
-                            callback: Secret::new(callback.to_string())
-                        }))
-                        .await
-                        .unwrap_err()
-                        .code,
-                    ErrorCode::Conflict
-                );
-            } else {
-                // The callback route is bound to the original controller's listener.
-                callback.set_path("/different-callback");
-                execute(
-                    &fixture.client,
-                    Command::CompleteMcpLogin {
-                        attempt: attempt.id,
-                        callback: Secret::new(callback.to_string()),
-                    },
-                )
-                .await;
-                assert!(matches!(
-                    state(&fixture.client, &attempt, |s| matches!(s, State::Failed(_))).await,
-                    State::Failed(_)
-                ));
-            }
-            assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 0);
-            assert_eq!(
-                fixture.client.execute(request).await.unwrap(),
-                Output::McpLogin(attempt)
-            );
-            let Output::McpAuthorization(status) = execute(
-                &fixture.client,
-                Command::ReadMcpAuthorization {
-                    package,
-                    server: "input".into(),
-                },
-            )
-            .await
-            else {
-                panic!("status expected")
-            };
-            assert!(!status.configured);
             fixture.node.shutdown().await.unwrap();
             fixture.controller.close().await.unwrap();
         }

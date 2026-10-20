@@ -1,0 +1,36 @@
+settings_connectors: "连接器"
+connector_search: "搜索连接器"
+connector_empty: "暂无连接"
+connector_not_connected: "未连接"
+connector_expired: "已过期"
+connector_confirmation: "需要确认"
+connector_failed: "连接失败"
+connector_unknown: "结果尚未确认，请先检查连接再重试"
+connector_conflict: "连接已更改，请重新打开"
+connector_reconnect: "重新登录"
+connector_probe: "检查连接"
+connector_disconnect: "断开连接"
+connector_consent_effect: "继续前请确认授权目标的变化"
+connector_remove_effect: "删除 %{name} 的连接及凭据"
+connector_confirm: "确认"
+connector_preview: "预览"
+connector_saved: "已保存"
+connector_configured: "已设置"
+connector_browser: "在浏览器中授权"
+connector_register: "创建应用"
+connector_authorize: "授权"
+connector_connect: "连接"
+connector_add: "添加连接器"
+connector_token: "令牌"
+connector_cli: "本地 CLI"
+connector_oauth: "OAuth"
+connector_application: "应用凭据"
+connector_cli_capability: "运行本地命令"
+
+connector_changed_origins: 来源
+connector_changed_scopes: 权限范围
+connector_changed_client: 客户端
+connector_changed_flow: 登录流程
+connector_changed_targets: 凭据目标
+connector_changed_mcp: MCP 服务
+connector_changed_source: 插件来源

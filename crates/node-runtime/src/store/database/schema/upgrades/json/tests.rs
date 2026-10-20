@@ -948,3 +948,5 @@ fn legacy_package(prepared: bool) -> Value {
         "issues":[{"path":"plugin.json.optional","kind":"ignored_manifest_field"}]
     })
 }
+
+mod connectors;

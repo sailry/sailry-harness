@@ -1,0 +1,3 @@
+local_models: "本地模型"
+local_models_empty: "暂无已安装模型"
+local_models_available_empty: "暂无可用模型"

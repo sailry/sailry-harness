@@ -19,8 +19,8 @@ impl Prepared {
                 | Command::RunSsh { .. }
                 | Command::TransferSsh { .. }
                 | Command::SaveDatabase { .. }
-                | Command::InstallOcrModel { .. }
-                | Command::DeleteOcrModel { .. }
+                | Command::InstallLocalModel { .. }
+                | Command::DeleteLocalModel { .. }
                 | Command::SaveSsh { .. }
                 | Command::PutRole { .. }
                 | Command::RemoveRole { .. }

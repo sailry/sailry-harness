@@ -39,7 +39,7 @@ impl Server {
                         assert!(bytes.len() < 32 * 1024);
                     }
                     let header = String::from_utf8(bytes).unwrap();
-                    assert!(header.starts_with("POST /registration HTTP/1.1"));
+                    assert!(header.starts_with("POST "));
                     let size: usize = header
                         .lines()
                         .find_map(|line| {
@@ -58,6 +58,13 @@ impl Server {
                         .lock()
                         .unwrap()
                         .push((Instant::now(), body.clone()));
+                    if header.starts_with("POST /open-apis/auth/") {
+                        let response =
+                            json!({"tenant_access_token":"private-tenant-marker","expire":7200})
+                                .to_string();
+                        socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}",response.len()).as_bytes()).await.unwrap();
+                        return;
+                    }
                     let fields: std::collections::BTreeMap<_, _> =
                         url::form_urlencoded::parse(body.as_bytes())
                             .into_owned()

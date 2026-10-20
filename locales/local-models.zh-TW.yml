@@ -1,0 +1,3 @@
+local_models: "本機模型"
+local_models_empty: "尚無已安裝模型"
+local_models_available_empty: "尚無可用模型"

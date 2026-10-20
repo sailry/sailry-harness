@@ -1,0 +1,36 @@
+settings_connectors: "Connecteurs"
+connector_search: "Rechercher des connecteurs"
+connector_empty: "Aucune connexion"
+connector_not_connected: "Non connecté"
+connector_expired: "Expiré"
+connector_confirmation: "Confirmation requise"
+connector_failed: "Échec de connexion"
+connector_unknown: "Vérifiez la connexion avant de réessayer"
+connector_conflict: "Connexion modifiée, rouvrez-la"
+connector_reconnect: "Se reconnecter"
+connector_probe: "Vérifier la connexion"
+connector_disconnect: "Déconnecter"
+connector_consent_effect: "Vérifiez les changements de destinations avant de continuer"
+connector_remove_effect: "Supprimer la connexion et les identifiants de %{name}"
+connector_confirm: "Confirmer"
+connector_preview: "Aperçu"
+connector_saved: "Enregistré"
+connector_configured: "Défini"
+connector_browser: "Autoriser dans le navigateur"
+connector_register: "Créer une application"
+connector_authorize: "Autoriser"
+connector_connect: "Connecter"
+connector_add: "Ajouter un connecteur"
+connector_token: "Jeton"
+connector_cli: "CLI locale"
+connector_oauth: "OAuth"
+connector_application: "Identifiants d’application"
+connector_cli_capability: "Exécuter une commande locale"
+
+connector_changed_origins: Origines
+connector_changed_scopes: Autorisations
+connector_changed_client: Client
+connector_changed_flow: Connexion
+connector_changed_targets: Destinations des identifiants
+connector_changed_mcp: Serveurs MCP
+connector_changed_source: Source du paquet

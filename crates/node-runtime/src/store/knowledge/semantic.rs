@@ -69,7 +69,7 @@ pub(in crate::store) fn prepare(
         collections,
         keyword,
         eligible,
-        settings_revision: settings::read(db)?.revision,
+        settings_revision: super::super::local_models::settings(db)?.revision,
     })
 }
 
@@ -504,7 +504,7 @@ pub(in crate::store) fn materialize(
         return Err(denied("semantic plan belongs to another capture"));
     }
     if selection.mode != knowledge::Mode::Keyword
-        && settings::read(db)?.revision != plan.settings_revision
+        && super::super::local_models::settings(db)?.revision != plan.settings_revision
     {
         return fallback(db, request);
     }

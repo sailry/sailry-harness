@@ -1,9 +1,7 @@
 //! Durable configuration remains in Node storage; retrieval indexes are derived.
 mod collections;
-mod models;
 pub(super) mod runtime;
 pub(crate) mod semantic;
-mod settings;
 mod sources;
 pub(crate) mod storage;
 
@@ -38,15 +36,16 @@ pub(crate) struct Stored {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Catalog {
-    pub(crate) settings: knowledge::Settings,
-    pub(crate) models: Vec<knowledge::Registration>,
+    pub(crate) settings: sailry_protocol::models::Settings,
+    pub(crate) models: Vec<crate::models::registry::Registration>,
     pub(crate) collections: Vec<Stored>,
 }
 
 pub(super) fn catalog(db: &Connection) -> Result<Catalog, Fault> {
+    let local = super::local_models::read(db)?;
     Ok(Catalog {
-        settings: settings::read(db)?,
-        models: models::load(db)?,
+        settings: local.settings,
+        models: local.records,
         collections: collections::load(db)?,
     })
 }
@@ -114,21 +113,11 @@ fn visible(stored: &Stored, request: &Request) -> bool {
     }
 }
 
-pub(super) fn settings(db: &Connection, request: &Request) -> Result<knowledge::Settings, Fault> {
-    controller(request)?;
-    settings::read(db)
-}
-
 pub(super) fn execute(
     db: &Connection,
     request: &Request,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
-        Command::RegisterKnowledgeModel { definition } => models::register(db, definition),
-        Command::SaveKnowledgeSettings(settings) => {
-            controller(request)?;
-            settings::save(db, settings)
-        }
         Command::CreateKnowledgeCollection { definition, plugin } => {
             collections::create(db, request, definition, plugin.as_deref())
         }
@@ -154,14 +143,6 @@ pub(super) fn execute(
     }
 }
 
-fn controller(request: &Request) -> Result<(), Fault> {
-    if request.plugin.is_some() {
-        Err(denied("knowledge model settings require a controller"))
-    } else {
-        Ok(())
-    }
-}
-
 fn denied(message: &str) -> Fault {
     Fault::new(ErrorCode::PermissionDenied, message)
 }
@@ -174,8 +155,6 @@ fn next(value: u64) -> Result<u64, Fault> {
 }
 
 pub(super) fn validate_stored(db: &Connection) -> Result<(), Fault> {
-    models::load(db)?;
-    settings::read(db)?;
     collections::load(db)?;
     Ok(())
 }
@@ -196,11 +175,12 @@ pub(super) fn progress(
             "knowledge collection generation changed",
         ));
     }
-    let model = stored
-        .collection
-        .definition
-        .model
-        .or(settings::read(db)?.model);
+    let settings = super::local_models::settings(db)?;
+    let model = stored.collection.definition.model.clone().or_else(|| {
+        settings
+            .selected(sailry_protocol::models::Kind::Embedding)
+            .map(str::to_owned)
+    });
     if progress.model.is_some() && progress.model != model {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -213,4 +193,19 @@ pub(super) fn progress(
     stored.collection.progress = progress.clone();
     collections::persist(db, &stored)?;
     Ok(Some(Event::KnowledgeCollectionsChanged))
+}
+
+pub(in crate::store) fn selection_changed(db: &Connection) -> Result<(), Fault> {
+    let mut entries = collections::load(db)?;
+    for stored in &mut entries {
+        if stored.collection.definition.model.is_none() {
+            collections::advance(stored)?;
+        }
+    }
+    for stored in &entries {
+        if stored.collection.definition.model.is_none() {
+            collections::persist(db, stored)?;
+        }
+    }
+    Ok(())
 }

@@ -91,6 +91,7 @@ fn capture(
         ],
     )
     .map_err(storage_error)?;
+    super::super::plugins::connectors::capture(db, turn.id, &turn.plugins)?;
     super::admit(db, &turn, ready)?;
     Ok(turn)
 }

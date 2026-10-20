@@ -6,7 +6,7 @@ mod rows;
 mod view;
 pub(super) use managed::rows as model_rows;
 
-use super::{dictation, knowledge, providers::Binding, runtime};
+use super::{dictation, models, providers::Binding};
 use crate::{theme::DialogStyle as _, tr};
 use gpui_kit::component::list::ListState;
 use gpui_kit::{
@@ -20,77 +20,63 @@ use gpui_kit::{
 };
 use sailry_protocol::{
     Command, ModelId, NodeId,
-    knowledge::Model,
     models::{Definition, Hub, Item, Kind, Source, Version},
 };
 use std::collections::BTreeSet;
 
 #[derive(Clone)]
 pub(super) enum Target {
-    Knowledge(Entity<knowledge::Panel>),
+    Node(Entity<models::Panel>, Kind),
     Speech(Entity<dictation::Panel>),
-    Ocr(Entity<runtime::Panel>),
 }
 
 impl Target {
     fn kind(&self) -> Kind {
         match self {
-            Self::Knowledge(_) => Kind::Embedding,
+            Self::Node(_, kind) => *kind,
             Self::Speech(_) => Kind::Speech,
-            Self::Ocr(_) => Kind::Ocr,
         }
     }
     fn available(&self, node: NodeId, cx: &App) -> bool {
         match self {
-            Self::Knowledge(panel) => panel.read(cx).admits(node),
+            Self::Node(panel, _) => panel.read(cx).admits(node),
             Self::Speech(panel) => panel.read(cx).admits(node),
-            Self::Ocr(panel) => panel.read(cx).admits(node),
         }
     }
     fn busy(&self, cx: &App) -> bool {
         match self {
-            Self::Knowledge(panel) => panel.read(cx).locked(),
+            Self::Node(panel, _) => panel.read(cx).locked(),
             Self::Speech(_) => false,
-            Self::Ocr(panel) => panel.read(cx).locked(),
         }
     }
-
     fn model_status(&self, definition: &Definition, cx: &App) -> ModelStatus {
         match self {
-            Self::Knowledge(panel) => panel.read(cx).model_status(definition),
+            Self::Node(panel, _) => panel.read(cx).model_status(definition),
             Self::Speech(panel) => panel.read(cx).model_status(definition),
-            Self::Ocr(panel) => panel.read(cx).model_status(definition),
         }
     }
-
     fn source_status(&self, source: &Source, cx: &App) -> ModelStatus {
         match self {
-            Self::Knowledge(panel) => panel.read(cx).source_status(source, self.kind()),
-            Self::Speech(panel) => panel.read(cx).source_status(source, self.kind()),
-            Self::Ocr(panel) => panel.read(cx).source_status(source, self.kind()),
+            Self::Node(panel, kind) => panel.read(cx).source_status(source, *kind),
+            Self::Speech(panel) => panel.read(cx).source_status(source, Kind::Speech),
         }
     }
-
     fn download(&self, definition: Definition, window: &mut Window, cx: &mut App) {
         match self {
-            Self::Knowledge(panel) => panel.update(cx, |panel, cx| {
-                panel.submit(Command::RegisterKnowledgeModel { definition }, window, cx)
+            Self::Node(panel, _) => panel.update(cx, |panel, cx| {
+                panel.submit(Command::RegisterLocalModel { definition }, window, cx)
             }),
             Self::Speech(panel) => {
                 panel.update(cx, |panel, cx| panel.register(definition, window, cx))
             }
-            Self::Ocr(panel) => panel.update(cx, |panel, cx| {
-                panel.submit(Command::RegisterOcrModel { definition }, window, cx)
-            }),
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) enum ModelKey {
-    Embedding(Model),
+    Node(Kind, String),
     Speech(Option<ModelId>),
-    Ocr([u8; 32]),
 }
 
 #[derive(Clone, Copy)]
@@ -126,30 +112,24 @@ pub(super) fn equivalent(left: &Definition, right: &Definition) -> bool {
 impl Target {
     fn install(&self, key: ModelKey, window: &mut Window, cx: &mut App) {
         match (self, key) {
-            (Self::Knowledge(panel), ModelKey::Embedding(model)) => {
-                panel.update(cx, |panel, cx| panel.install(model, window, cx))
+            (Self::Node(panel, kind), ModelKey::Node(owner, id)) if *kind == owner => {
+                panel.update(cx, |panel, cx| panel.install(id, window, cx))
             }
             (Self::Speech(panel), ModelKey::Speech(Some(id))) => {
-                panel.update(cx, |panel, cx| panel.update_model(id, window, cx));
+                panel.update(cx, |panel, cx| panel.update_model(id, window, cx))
             }
             (Self::Speech(panel), ModelKey::Speech(None)) => {
-                panel.update(cx, |panel, cx| panel.install(None, window, cx));
-            }
-            (Self::Ocr(panel), ModelKey::Ocr(id)) => {
-                panel.update(cx, |panel, cx| panel.install(id, window, cx))
+                panel.update(cx, |panel, cx| panel.install(None, window, cx))
             }
             _ => unreachable!("model row belongs to its target"),
         }
     }
     fn update(&self, key: ModelKey, window: &mut Window, cx: &mut App) {
         match (self, key) {
-            (Self::Knowledge(panel), ModelKey::Embedding(model)) => {
-                panel.update(cx, |panel, cx| panel.install(model, window, cx));
+            (Self::Node(panel, kind), ModelKey::Node(owner, id)) if *kind == owner => {
+                panel.update(cx, |panel, cx| panel.update_model(id, window, cx))
             }
             (Self::Speech(panel), ModelKey::Speech(Some(id))) => {
-                panel.update(cx, |panel, cx| panel.update_model(id, window, cx));
-            }
-            (Self::Ocr(panel), ModelKey::Ocr(id)) => {
                 panel.update(cx, |panel, cx| panel.update_model(id, window, cx))
             }
             _ => unreachable!("only registered models can be updated"),
@@ -157,14 +137,11 @@ impl Target {
     }
     fn cancel(&self, key: ModelKey, window: &mut Window, cx: &mut App) {
         match (self, key) {
-            (Self::Knowledge(panel), ModelKey::Embedding(model)) => {
-                panel.update(cx, |panel, cx| panel.cancel(model, window, cx));
+            (Self::Node(panel, kind), ModelKey::Node(owner, id)) if *kind == owner => {
+                panel.update(cx, |panel, cx| panel.cancel(id, window, cx))
             }
             (Self::Speech(panel), ModelKey::Speech(id)) => {
-                panel.update(cx, |panel, cx| panel.cancel(id, cx));
-            }
-            (Self::Ocr(panel), ModelKey::Ocr(id)) => {
-                panel.update(cx, |panel, cx| panel.cancel(id, window, cx))
+                panel.update(cx, |panel, cx| panel.cancel(id, cx))
             }
             _ => unreachable!("model row belongs to its target"),
         }
@@ -172,32 +149,36 @@ impl Target {
     fn select(&self, key: ModelKey, window: &mut Window, cx: &mut App) {
         match (self, key) {
             (Self::Speech(panel), ModelKey::Speech(id)) => {
-                panel.update(cx, |panel, cx| panel.select(id, window, cx));
+                panel.update(cx, |panel, cx| panel.select(id, window, cx))
             }
             _ => unreachable!("only speech rows select controller models"),
         }
     }
     fn remove(&self, key: ModelKey, name: SharedString, window: &mut Window, cx: &mut App) {
+        let title = tr("knowledge_delete");
         match (self, key) {
-            (Self::Knowledge(panel), ModelKey::Embedding(model)) => {
-                knowledge::Panel::remove_model(panel.clone(), model, window, cx);
-            }
-            (Self::Speech(panel), ModelKey::Speech(Some(id))) => {
+            (Self::Node(panel, kind), ModelKey::Node(owner, id)) if *kind == owner => {
                 let panel = panel.clone();
-                let title = tr("knowledge_delete");
+                let detail = if *kind == Kind::Embedding {
+                    rust_i18n::t!("knowledge_delete_model_effect", name = name).into()
+                } else {
+                    name
+                };
                 crate::prompts::confirm(
                     &title,
-                    &name,
+                    &detail,
                     tr("knowledge_delete"),
                     window,
                     cx,
-                    move |window, cx| panel.update(cx, |panel, cx| panel.remove(id, window, cx)),
+                    move |window, cx| {
+                        panel.update(cx, |panel, cx| panel.remove(id.clone(), window, cx))
+                    },
                 );
             }
-            (Self::Ocr(panel), ModelKey::Ocr(id)) => {
+            (Self::Speech(panel), ModelKey::Speech(Some(id))) => {
                 let panel = panel.clone();
                 crate::prompts::confirm(
-                    &tr("knowledge_delete"),
+                    &title,
                     &name,
                     tr("knowledge_delete"),
                     window,
@@ -349,13 +330,10 @@ pub(super) fn open(
         )
         .detach();
         match &target {
-            Target::Knowledge(panel) => cx
-                .observe(panel, |library: &mut Library, _, cx| library.changed(cx))
-                .detach(),
             Target::Speech(panel) => cx
                 .observe(panel, |library: &mut Library, _, cx| library.changed(cx))
                 .detach(),
-            Target::Ocr(panel) => cx
+            Target::Node(panel, _) => cx
                 .observe(panel, |library: &mut Library, _, cx| library.changed(cx))
                 .detach(),
         }

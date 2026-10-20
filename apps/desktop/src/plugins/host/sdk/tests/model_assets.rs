@@ -1,6 +1,6 @@
 use super::*;
 use sailry_protocol::{
-    installation::{ModelRef, Target},
+    installation::ModelRef,
     models::{Asset, Definition, Format, Hub, Source},
 };
 
@@ -65,13 +65,15 @@ fn captures_node_registration_before_installation() {
         let tasks = host.installations_module();
         models.validate().unwrap();
         tasks.validate().unwrap();
-        let Output::KnowledgeModels(current) = fixture
+        let Output::LocalModels(current) = fixture
             .runtime
             .block_on(
                 fixture
                     .binding
                     .client
-                    .execute(fixture.binding.client.prepare(Command::ReadKnowledgeModels)),
+                    .execute(fixture.binding.client.prepare(Command::ReadLocalModels {
+                        kind: Some(sailry_protocol::models::Kind::Embedding),
+                    })),
             )
             .unwrap()
         else {
@@ -83,19 +85,18 @@ fn captures_node_registration_before_installation() {
             json!([{"target":"node","definition":current[0].definition}]),
         );
         let registered = complete(&fixture, &sdk, "completeRequest", json!([id]));
-        assert_eq!(registered["Ok"]["kind"], "knowledge_model");
+        assert_eq!(registered["Ok"]["kind"], "local_model");
         assert_eq!(
             complete(&fixture, &sdk, "completeRequest", json!([id])),
             registered
         );
-        let model: sailry_protocol::knowledge::Model =
-            serde_json::from_value(registered["Ok"]["data"]["model"].clone()).unwrap();
+        let model: String = serde_json::from_value(registered["Ok"]["data"]["id"].clone()).unwrap();
         let prepared = call(
             &models,
             "prepare",
-            json!([ModelRef::Embedding {
-                target: Target::Node,
-                model
+            json!([ModelRef::Node {
+                kind: sailry_protocol::models::Kind::Embedding,
+                id: model.clone()
             }]),
         );
         let request = host
@@ -104,7 +105,7 @@ fn captures_node_registration_before_installation() {
         assert_eq!(request.target, fixture.binding.client.target());
         assert_eq!(request.plugin, Some(host.context()));
         assert!(
-            matches!(request.command, Command::InstallKnowledgeModel { model: captured } if captured == model)
+            matches!(request.command, Command::InstallLocalModel { id: captured } if captured == model)
         );
         assert!(
             !fixture
@@ -113,7 +114,7 @@ fn captures_node_registration_before_installation() {
                 .lock()
                 .unwrap()
                 .iter()
-                .any(|request| matches!(request.command, Command::InstallKnowledgeModel { .. }))
+                .any(|request| matches!(request.command, Command::InstallLocalModel { .. }))
         );
         assert!(
             tasks
@@ -126,13 +127,56 @@ fn captures_node_registration_before_installation() {
             models
                 .call(
                     "prepare",
-                    &args(json!([ModelRef::Embedding {
-                        target: Target::Node,
-                        model
+                    &args(json!([ModelRef::Node {
+                        kind: sailry_protocol::models::Kind::Embedding,
+                        id: model.clone()
                     }]))
                 )
                 .is_err()
         );
+        fixture.close();
+    }
+}
+
+#[test]
+fn lists_node_kinds_in_the_captured_scope() {
+    for remote in [false, true] {
+        let fixture = Fixture::new(remote);
+        let host = host(&fixture);
+        let module = host.models_module();
+        for kind in [
+            None,
+            Some(sailry_protocol::models::Kind::Embedding),
+            Some(sailry_protocol::models::Kind::Ocr),
+        ] {
+            let Output::LocalModels(expected) = fixture
+                .runtime
+                .block_on(
+                    fixture.binding.client.execute(
+                        fixture
+                            .binding
+                            .client
+                            .prepare(Command::ReadLocalModels { kind }),
+                    ),
+                )
+                .unwrap()
+            else {
+                panic!("local catalog expected")
+            };
+            let listed = complete(
+                &fixture,
+                &module,
+                "list",
+                json!([{"target":"node","kind":kind}]),
+            );
+            assert_eq!(listed, serde_json::to_value(expected).unwrap());
+        }
+        assert!(
+            module
+                .begin("list", &args(json!([{"target":"node","kind":"speech"}])))
+                .is_err()
+        );
+        host.close();
         fixture.close();
     }
 }
@@ -170,8 +214,8 @@ fn controller_registration_stays_on_this_device() {
         let prepared = call(
             &models,
             "prepare",
-            json!([ModelRef::Speech {
-                target: Target::Controller,
+            json!([ModelRef::Controller {
+                kind: sailry_protocol::models::Kind::Speech,
                 id: Some(model)
             }]),
         );
@@ -201,8 +245,8 @@ fn missing_controller_and_denied_grant_are_distinct() {
     let host = host(&fixture);
     let models = host.models_module();
     host.model_services(None, fixture.runtime.clone(), true);
-    let input = json!([ModelRef::Speech {
-        target: Target::Controller,
+    let input = json!([ModelRef::Controller {
+        kind: sailry_protocol::models::Kind::Speech,
         id: None
     }]);
     let error = models.call("prepare", &args(input.clone())).unwrap_err();

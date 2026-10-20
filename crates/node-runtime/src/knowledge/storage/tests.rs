@@ -105,12 +105,12 @@ fn filters_any_tags_before_bounded_vector_ranks() {
     let binding = Binding {
         id: KnowledgeId::new(),
         generation: 1,
-        model: Some((Model::BgeSmallZh, 2)),
+        model: Some(("bge-small-zh".to_owned(), 2)),
         scope: [0; 32],
         rebuild: 0,
         paused: false,
     };
-    index.bind(binding).unwrap();
+    index.bind(&binding).unwrap();
     for number in 0..121 {
         let selected = number == 120;
         let document = Document {
@@ -128,7 +128,7 @@ fn filters_any_tags_before_bounded_vector_ranks() {
                 vector::Vector::quantize(if selected { &[0.9, 0.1] } else { &[1., 0.] }).unwrap(),
             ),
         };
-        index.replace(binding, &document, &[part]).unwrap();
+        index.replace(&binding, &document, &[part]).unwrap();
     }
     let query = Query {
         query: "vector".into(),
@@ -141,17 +141,17 @@ fn filters_any_tags_before_bounded_vector_ranks() {
         limit: 5,
         offset: 0,
     };
-    let embeddings = [(Model::BgeSmallZh, vec![1., 0.])];
+    let embeddings = [("bge-small-zh".to_owned(), vec![1., 0.])];
     let stop = CancellationToken::new();
     let unfiltered = index
-        .candidates(&query, &[binding], &embeddings, &[], &stop)
+        .candidates(&query, &[binding.clone()], &embeddings, &[], &stop)
         .unwrap();
     assert_eq!(unfiltered.len(), 100);
     assert!(unfiltered.iter().all(|hit| hit.citation.path != "meta/120"));
     let filtered = index
         .candidates(
             &query,
-            &[binding],
+            &[binding.clone()],
             &embeddings,
             &["project".into(), "global".into()],
             &stop,
@@ -165,7 +165,7 @@ fn filters_any_tags_before_bounded_vector_ranks() {
         index
             .candidates(
                 &wrong_all,
-                &[binding],
+                &[binding.clone()],
                 &embeddings,
                 &["project".into()],
                 &stop

@@ -1,13 +1,13 @@
 //! Node-owned immutable packages. Behavioral references: Code 67ae9fa0
 //! production/storage/packages.rs, production/mcp.rs and Platform 727ce0a harbor-agent-plugins
 //! (Apache-2.0). No historical UI or parallel execution host is imported.
-pub(crate) mod applications;
 mod archive;
 pub(crate) mod authorization;
 mod bundled;
 pub(crate) mod cards;
 pub(crate) mod catalog;
 mod collection;
+pub(crate) mod connectors;
 pub(crate) mod conversation;
 pub(crate) mod github;
 pub(crate) mod http;
@@ -15,11 +15,9 @@ pub(crate) mod icon;
 mod manifest;
 pub(crate) mod mcp;
 mod notes;
-pub(crate) mod oauth;
 pub(crate) mod options;
 mod package;
 mod query;
-pub(crate) mod registration;
 pub(crate) mod registry;
 mod repository;
 pub(crate) mod resources;
@@ -48,7 +46,7 @@ pub(crate) struct Host {
     pub(crate) scripts: std::sync::Arc<tokio::sync::Semaphore>,
     reads: std::sync::Arc<tokio::sync::Semaphore>,
     pub(crate) authorizations: std::sync::Arc<authorization::Clients>,
-    pub(crate) applications: std::sync::Arc<applications::Service>,
+    pub(crate) connectors: std::sync::Arc<connectors::Service>,
     github: github::Github,
     pub(crate) registry: registry::Registry,
     official_catalog: std::sync::Arc<catalog::official::Cache>,
@@ -69,6 +67,9 @@ pub(crate) struct Host {
 }
 
 impl Host {
+    pub(crate) fn profile(&self) -> Option<&std::path::Path> {
+        self.profile.as_deref()
+    }
     async fn read_permit(
         &self,
         stop: &sailry_link::CancellationToken,
@@ -121,7 +122,7 @@ impl Host {
             scripts: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             reads: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             authorizations: Default::default(),
-            applications: Default::default(),
+            connectors: Default::default(),
             github: Default::default(),
             registry: Default::default(),
             official_catalog: Default::default(),
@@ -405,6 +406,17 @@ fn describe(
         &servers,
         &mut manifest.issues,
     );
+    if manifest
+        .extension
+        .as_ref()
+        .is_some_and(|extension| !connectors::validate(extension, &servers, settings.as_ref()))
+    {
+        manifest.issues.push(sailry_protocol::plugin::Issue {
+            path: "plugin.json.extensions.dev.sailry.platform.connectors".into(),
+            kind: sailry_protocol::plugin::IssueKind::InvalidExtensions,
+        });
+        manifest.extension = None;
+    }
     let mcp = servers
         .iter()
         .map(|(name, server)| sailry_protocol::plugin::Mcp {

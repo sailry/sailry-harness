@@ -86,8 +86,8 @@ impl Manager {
                 sailry_protocol::installation::Task {
                     request,
                     revision: 1,
-                    resource: sailry_protocol::installation::ModelRef::Speech {
-                        target: sailry_protocol::installation::Target::Controller,
+                    resource: sailry_protocol::installation::ModelRef::Controller {
+                        kind: sailry_protocol::models::Kind::Speech,
                         id,
                     }
                     .resource(),

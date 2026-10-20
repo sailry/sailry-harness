@@ -156,6 +156,7 @@ pub(in crate::store::agent) fn package(database: &Database, profile: &std::path:
     let mut result = Ok(Output::Plugin(package));
     crate::store::plugins::finish(
         &database.connection,
+        Some(profile),
         &Command::InstallBundledPlugin {
             name: name.into(),
             expected_revision: 0,

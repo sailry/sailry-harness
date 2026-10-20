@@ -7,8 +7,6 @@ use sailry_protocol::{
     plugin::{Info, Summary, settings::State},
 };
 mod fields;
-#[path = "github.rs"]
-mod github;
 mod submit;
 mod tabs;
 mod view;
@@ -22,7 +20,6 @@ pub(in crate::settings) struct Editor {
     expected: Summary,
     info: Option<Info>,
     fields: Vec<Entity<Setting>>,
-    github: Option<github::Login>,
     models: sailry_protocol::plugin::models::Catalog,
     observers: Vec<Subscription>,
     loading: bool,
@@ -79,7 +76,6 @@ pub(in crate::settings) fn page(
         expected,
         info: None,
         fields: Vec::new(),
-        github: None,
         models: Default::default(),
         observers: Vec::new(),
         loading: false,
@@ -105,9 +101,6 @@ impl Editor {
         self.closed = true;
         self.stop.cancel();
         self.request = None;
-        if let Some(github) = &mut self.github {
-            github.stop.cancel();
-        }
         for field in &self.fields {
             field.update(cx, |field, cx| field.clear_secret(window, cx));
         }
@@ -267,7 +260,6 @@ impl Editor {
         self.sync_efforts(window, cx);
         self.expected = info.summary.clone();
         self.info = Some(info);
-        self.read_github(window, cx);
     }
 
     fn sync_efforts(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -296,12 +288,6 @@ impl Editor {
                 cx.notify();
             });
         }
-    }
-
-    fn github_busy(&self) -> bool {
-        self.github
-            .as_ref()
-            .is_some_and(|login| login.pending || login.request.is_some())
     }
 
     fn failure(&mut self, error: sailry_protocol::Fault) {

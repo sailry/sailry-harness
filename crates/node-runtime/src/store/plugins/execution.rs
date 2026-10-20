@@ -17,7 +17,7 @@ pub(in crate::store) enum Input {
         config: SessionConfig,
         prompt: String,
     },
-    Http(crate::plugins::http::Input),
+    Http(Box<crate::plugins::http::Input>),
     Script(Box<plugin::Info>),
     Command(Request),
     Cancel(RequestId),
@@ -64,10 +64,11 @@ pub(in crate::store) fn prepare(
         return Ok(Input::Script(Box::new(info)));
     }
     if let Command::RequestPluginHttp(http) = &request.command {
-        return super::http::prepare(db, request, http).map(Input::Http);
+        return super::http::prepare(db, request, http).map(|input| Input::Http(Box::new(input)));
     }
     if matches!(request.command, Command::ExecuteProviderHttp { .. }) {
-        return super::super::providers::resources::prepare(db, caller, request).map(Input::Http);
+        return super::super::providers::resources::prepare(db, caller, request)
+            .map(|input| Input::Http(Box::new(input)));
     }
     let Command::GeneratePluginText {
         prompt,
@@ -179,7 +180,7 @@ impl Worker {
                         result = crate::agent::completion::generate(
                             &ingress, &provider, &config, prompt, &stop) => result.map(Output::PluginText),
                     },
-                    Input::Http(input) => crate::plugins::http::run(input, &ingress, stop.clone()).await.map(Output::PluginHttp),
+                    Input::Http(input) => crate::plugins::http::run(*input, &ingress, stop.clone()).await.map(Output::PluginHttp),
                     Input::Script(info) => {
                         // Wait for a VM slot without allocating
                         // a VM or failing a valid dispatch group merely because two VMs are busy.

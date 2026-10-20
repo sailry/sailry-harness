@@ -1,6 +1,6 @@
 //! Transient installation observation, separate from durable request outcomes.
 use crate::{
-    Command, ErrorCode, Fault, ModelId, RequestId, knowledge,
+    Command, ErrorCode, Fault, ModelId, RequestId,
     models::{Definition, Kind},
 };
 use serde::{Deserialize, Serialize};
@@ -16,36 +16,20 @@ pub enum Target {
 
 /// A registered model in the profile that owns its actual execution service.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[serde(tag = "target", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ModelRef {
-    Ocr {
-        target: Target,
-        id: String,
-    },
-    Embedding {
-        target: Target,
-        model: knowledge::Model,
-    },
-    Speech {
-        target: Target,
-        id: Option<ModelId>,
-    },
+    Node { kind: Kind, id: String },
+    Controller { kind: Kind, id: Option<ModelId> },
 }
 
 impl ModelRef {
     pub fn validate(&self) -> Result<(), Fault> {
         match self {
-            Self::Ocr {
-                target: Target::Node,
-                id,
-            } if crate::ocr::valid_id(id) => Ok(()),
-            Self::Embedding {
-                target: Target::Node,
-                ..
+            Self::Node { kind, id } if *kind != Kind::Speech && crate::models::valid_id(id) => {
+                Ok(())
             }
-            | Self::Speech {
-                target: Target::Controller,
-                ..
+            Self::Controller {
+                kind: Kind::Speech, ..
             } => Ok(()),
             _ => Err(Fault::invalid(
                 "model installation target or identity is invalid",
@@ -55,10 +39,9 @@ impl ModelRef {
 
     pub fn resource(&self) -> Resource {
         let (kind, id) = match self {
-            Self::Ocr { id, .. } => (Kind::Ocr, id.clone()),
-            Self::Embedding { model, .. } => (Kind::Embedding, model.key().into_owned()),
-            Self::Speech { id, .. } => (
-                Kind::Speech,
+            Self::Node { kind, id } => (*kind, id.clone()),
+            Self::Controller { kind, id } => (
+                *kind,
                 id.map(|id| id.to_string())
                     .unwrap_or_else(|| "sensevoice-int8".into()),
             ),
@@ -69,9 +52,8 @@ impl ModelRef {
     pub fn node_command(&self) -> Result<Command, Fault> {
         self.validate()?;
         match self {
-            Self::Ocr { id, .. } => Ok(Command::InstallOcrModel { id: id.clone() }),
-            Self::Embedding { model, .. } => Ok(Command::InstallKnowledgeModel { model: *model }),
-            Self::Speech { .. } => Err(Fault::new(
+            Self::Node { id, .. } => Ok(Command::InstallLocalModel { id: id.clone() }),
+            Self::Controller { .. } => Err(Fault::new(
                 ErrorCode::Unavailable,
                 "speech installation requires a controller",
             )),
@@ -99,14 +81,11 @@ impl Registration {
 
     pub fn node_command(&self) -> Result<Command, Fault> {
         self.validate()?;
-        match self.definition.format.kind() {
-            Kind::Ocr => Ok(Command::RegisterOcrModel {
+        match self.target {
+            Target::Node => Ok(Command::RegisterLocalModel {
                 definition: self.definition.clone(),
             }),
-            Kind::Embedding => Ok(Command::RegisterKnowledgeModel {
-                definition: self.definition.clone(),
-            }),
-            Kind::Speech => Err(Fault::new(
+            Target::Controller => Err(Fault::new(
                 ErrorCode::Unavailable,
                 "speech registration requires a controller",
             )),

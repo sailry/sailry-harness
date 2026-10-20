@@ -17,7 +17,7 @@ use std::{
 
 const DDL: &str = include_str!("../schema.sql");
 
-pub(super) struct Schema(State);
+pub(super) struct Schema(State, Option<crate::plugins::Host>);
 
 enum State {
     Fresh,
@@ -31,6 +31,8 @@ impl Schema {
             State::Fresh => {
                 connection.execute_batch(DDL)?;
                 crate::store::roles::initialize(connection)?;
+                crate::store::local_models::initialize(connection)
+                    .map_err(|error| Error::Worker(error.message))?;
             }
             State::Current => {
                 crate::store::providers::presets::discard_invalid_cache(connection).map_err(
@@ -50,18 +52,42 @@ impl Schema {
         }
         Ok(())
     }
+
+    pub(super) fn plugins(&self, connection: &Connection) -> Result<(), Error> {
+        if let Some(host) = &self.1 {
+            crate::store::plugins::distribution::initialize(connection, host)?;
+            super::validation::stored(connection)?;
+        }
+        Ok(())
+    }
 }
 
-pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Result<Schema, Error> {
+pub(super) fn prepare(
+    connection: &Connection,
+    path: &Path,
+    node: NodeId,
+    plugins: Option<&crate::plugins::Host>,
+) -> Result<Schema, Error> {
     if ownership(connection, path)? {
-        return Ok(Schema(State::Fresh));
+        return Ok(Schema(State::Fresh, plugins.cloned()));
     }
     identity(connection, path, node)?;
     if verify(connection, path, DDL).is_ok()
         && super::validation::startup(connection).is_ok()
         && crate::store::plugins::storage::search::validate(connection).is_ok()
+        && !plugins
+            .map(|host| {
+                Ok::<_, Error>(
+                    crate::store::providers::authentication::needs_binding(connection)?
+                        || crate::store::plugins::distribution::needs_connections(
+                            connection, host,
+                        )?,
+                )
+            })
+            .transpose()?
+            .unwrap_or(false)
     {
-        return Ok(Schema(State::Current));
+        return Ok(Schema(State::Current, plugins.cloned()));
     }
     let mut preview = backup::preview(connection, path)?;
     let transaction = preview.connection.transaction()?;
@@ -69,38 +95,54 @@ pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Res
     plan.apply(&transaction)?;
     verify_owned(&transaction, path, DDL)?;
     upgrades::reconcile(&transaction, plan.instructions)?;
+    if let Some(host) = plugins {
+        crate::store::plugins::distribution::initialize(&transaction, host)?;
+    }
     verify(&transaction, path, DDL)?;
     super::validation::stored(&transaction)?;
     identity(&transaction, path, node)?;
     transaction.commit()?;
     backup::save(connection, path)?;
-    Ok(Schema(State::Upgrade {
-        plan,
-        path: path.to_owned(),
-    }))
+    Ok(Schema(
+        State::Upgrade {
+            plan,
+            path: path.to_owned(),
+        },
+        plugins.cloned(),
+    ))
 }
 
-/// Initialization of new private ownership metadata follows the existing upgrade safeguards.
-pub(in crate::store) fn install_plugins(
-    connection: &mut Connection,
-    path: &Path,
-    host: &crate::plugins::Host,
+pub(in crate::store) fn prepare_plugin(
+    connection: &Connection,
+    profile: Option<&Path>,
+    command: &sailry_protocol::Command,
+    output: &sailry_protocol::Output,
 ) -> Result<(), Error> {
-    let updating = crate::store::providers::authentication::needs_binding(connection)?;
-    if updating {
-        let mut preview = backup::preview(connection, path)?;
-        let transaction = preview.connection.transaction()?;
-        crate::store::plugins::distribution::initialize(&transaction, host)?;
-        super::validation::stored(&transaction)?;
-        transaction.commit()?;
-        backup::save(connection, path)?;
+    let sailry_protocol::Output::Plugin(info) = output else {
+        return Ok(());
+    };
+    if !crate::store::plugins::connectors::needs_migration(connection, info)? {
+        return Ok(());
     }
-    let transaction = connection.transaction()?;
-    crate::store::plugins::distribution::initialize(&transaction, host)?;
-    if updating {
-        super::validation::stored(&transaction)?;
+    let file: String = connection.query_row(
+        "SELECT file FROM pragma_database_list WHERE name='main'",
+        [],
+        |row| row.get(0),
+    )?;
+    if file.is_empty() {
+        return Err(Error::Worker(
+            "connection upgrades require a persistent Node profile".into(),
+        ));
     }
+    let path = Path::new(&file);
+    let mut preview = backup::preview(connection, path)?;
+    let transaction = preview.connection.transaction()?;
+    let mut result = Ok(output.clone());
+    crate::store::plugins::finish(&transaction, profile, command, &mut result)?;
+    result?;
+    super::validation::stored(&transaction)?;
     transaction.commit()?;
+    backup::save(connection, path)?;
     Ok(())
 }
 

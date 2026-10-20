@@ -136,20 +136,6 @@ pub(super) fn parse(
                 ));
             }
             let target = validate_binding(binding, servers)?;
-            if let Some(name) = binding
-                .application
-                .as_ref()
-                .map(|value| &value.client_id)
-                .or_else(|| binding.oauth.as_ref().map(|value| &value.client_id))
-                && !schema
-                    .properties
-                    .get(name)
-                    .is_some_and(|field| field.kind == Kind::String && field.secret.is_none())
-            {
-                return Err(Fault::invalid(
-                    "credential client ID must reference a public string setting",
-                ));
-            }
             if !targets.insert(target) {
                 return Err(sailry_protocol::Fault::invalid(
                     "secret settings must target distinct slots",
@@ -251,30 +237,6 @@ fn validate_binding(
         return Err(sailry_protocol::Fault::invalid(
             "unsupported protected setting binding",
         ));
-    }
-    if binding.oauth.is_some() {
-        let name = binding
-            .server
-            .as_deref()
-            .ok_or_else(|| Fault::invalid("OAuth credentials require an MCP server"))?;
-        if binding.env.is_some()
-            || binding.header.is_some()
-            || binding.origin.is_some()
-            || binding.prefix.is_some()
-            || binding.application.is_some()
-            || !matches!(
-                servers.get(name),
-                Some(mcp::Server::Http { .. } | mcp::Server::Sse { .. })
-            )
-        {
-            return Err(Fault::invalid(
-                "OAuth client secrets require one HTTP MCP server",
-            ));
-        }
-        return Ok((name.into(), "oauth".into()));
-    }
-    if let Some(application) = &binding.application {
-        super::super::applications::validate(application.provider, binding, servers)?;
     }
     if binding.origin.is_some() {
         let (origin, header, _) = super::super::http::binding(binding)?;

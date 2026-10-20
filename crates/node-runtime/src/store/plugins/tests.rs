@@ -19,9 +19,9 @@ fn refreshes_reinstalled_metadata() {
         expected_revision,
     };
     let mut result = Ok(Output::Plugin(stale));
-    finish(&db, &command(0), &mut result).unwrap();
+    finish(&db, None, &command(0), &mut result).unwrap();
     let mut result = Ok(Output::Plugin(package.clone()));
-    finish(&db, &command(1), &mut result).unwrap();
+    finish(&db, None, &command(1), &mut result).unwrap();
     let installed = required(&db, "code-review").unwrap();
     assert_eq!(installed.summary.revision, 2);
     assert_eq!(installed.summary.digest, package.summary.digest);
@@ -117,7 +117,7 @@ fn derives_origin_from_admitted_command() {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch(include_str!("../schema.sql")).unwrap();
         let mut result = Ok(Output::Plugin(package.clone()));
-        finish(&db, &command, &mut result).unwrap();
+        finish(&db, None, &command, &mut result).unwrap();
         let installed = required(&db, "files").unwrap();
         assert_eq!(installed.origin, Some(origin));
         assert_eq!(result, Ok(Output::Plugin(installed)));
@@ -143,6 +143,7 @@ fn derives_origin_from_admitted_command() {
         let mut result = Ok(Output::Plugin(package.clone()));
         finish(
             &db,
+            None,
             &Command::InstallPluginUpload {
                 stream: sailry_protocol::StreamId::new(),
                 source: plugin::UploadSource::Directory,

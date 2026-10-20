@@ -1,0 +1,36 @@
+settings_connectors: "コネクター"
+connector_search: "コネクターを検索"
+connector_empty: "接続なし"
+connector_not_connected: "未接続"
+connector_expired: "期限切れ"
+connector_confirmation: "確認が必要"
+connector_failed: "接続に失敗"
+connector_unknown: "結果を確認してから再試行してください"
+connector_conflict: "接続が変更されました。開き直してください"
+connector_reconnect: "再ログイン"
+connector_probe: "接続を確認"
+connector_disconnect: "接続を解除"
+connector_consent_effect: "続行する前に認可先の変更を確認してください"
+connector_remove_effect: "%{name} の接続と認証情報を削除"
+connector_confirm: "確認"
+connector_preview: "プレビュー"
+connector_saved: "保存しました"
+connector_configured: "設定済み"
+connector_browser: "ブラウザーで認可"
+connector_register: "アプリを作成"
+connector_authorize: "認可"
+connector_connect: "接続"
+connector_add: "コネクターを追加"
+connector_token: "トークン"
+connector_cli: "ローカル CLI"
+connector_oauth: "OAuth"
+connector_application: "アプリ認証情報"
+connector_cli_capability: "ローカルコマンドを実行"
+
+connector_changed_origins: オリジン
+connector_changed_scopes: 権限範囲
+connector_changed_client: クライアント
+connector_changed_flow: ログイン方式
+connector_changed_targets: 認証情報の送信先
+connector_changed_mcp: MCP サーバー
+connector_changed_source: パッケージの取得元

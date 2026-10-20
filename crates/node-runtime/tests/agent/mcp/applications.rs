@@ -1,6 +1,8 @@
 use super::*;
-use plugin::settings::{Provider, SecretUpdate};
-use std::{collections::BTreeMap, sync::atomic::Ordering};
+use plugin::connector::Kind;
+#[path = "../../support/connectors.rs"]
+mod connectors;
+use std::sync::atomic::Ordering;
 #[path = "../../support/application_tokens.rs"]
 mod issuer;
 
@@ -8,42 +10,28 @@ mod issuer;
 async fn refreshes_persistent_application_transport() {
     for remote in [false, true] {
         let peer = input::Server::url("https://example.invalid/continue", false).await;
-        let issuer = issuer::Server::start(Provider::Feishu, Some(&peer.endpoint)).await;
+        let issuer = issuer::Server::start(Some(&peer.endpoint)).await;
         let model = Server::turn_tools(vec![(alias("input", "read"), json!({}))]).await;
         let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        fixture.node.set_plugin_application_fixture(
-            Provider::Feishu,
-            &issuer.token_url,
-            &issuer.origin,
-        );
+        fixture
+            .node
+            .set_connector_fixture(connectors::ORIGIN, &issuer.origin);
         package(
             &fixture.root,
-            json!({"input":{"type":"streamable-http","url":"https://mcp.feishu.cn/mcp","headers":{"X-Lark-MCP-TAT":""}}}),
+            json!({"input":{"type":"streamable-http","url":format!("{}/mcp",connectors::ORIGIN),"headers":{"X-Access-Token":""}}}),
             "0.1.0",
         );
-        let root = fixture.root.join("package");
-        let mut manifest: Value =
-            serde_json::from_slice(&fs::read(root.join("plugin.json")).unwrap()).unwrap();
-        manifest["extensions"] = json!({"dev.sailry.platform":{"api_version":"v1","settings_schema":"dev.sailry.platform/settings.json"}});
-        fs::write(root.join("plugin.json"), manifest.to_string()).unwrap();
-        fs::write(root.join("dev.sailry.platform/settings.json"), json!({
-            "$schema":plugin::settings::SCHEMA,"type":"object","additionalProperties":false,
-            "properties":{"app_id":{"type":"string"},"app_secret":{"type":"string","x-sailry-secret":{
-                "server":"input","header":"X-Lark-MCP-TAT","application":{"provider":"feishu","client_id":"app_id"}
-            }}},"required":["app_id","app_secret"]
-        }).to_string()).unwrap();
+        connectors::configure(&fixture.root.join("package"), connectors::application(true));
         let package = install(&fixture, 0).await;
         assert!(package.issues.is_empty(), "{:?}", package.issues);
-        execute(
+        connectors::connected(
             &fixture.client,
-            Command::SavePluginSettings {
-                package: package.summary.reference(),
-                values: BTreeMap::from([("app_id".into(), json!("fixture-app"))]),
-                secrets: BTreeMap::from([(
-                    "app_secret".into(),
-                    SecretUpdate::Replace(Secret::new(issuer::SECRET.into())),
-                )]),
-            },
+            connectors::start(
+                &fixture.client,
+                package.summary.reference(),
+                Kind::Application,
+                false,
+            ),
         )
         .await;
         for index in 0..2 {
@@ -80,8 +68,8 @@ async fn refreshes_persistent_application_transport() {
                 .filter(|(_, _, body)| body["method"] == "tools/call")
                 .collect::<Vec<_>>();
             assert_eq!(calls.len(), 2);
-            assert_eq!(calls[0].1["x-lark-mcp-tat"], "application-token-1");
-            assert_eq!(calls[1].1["x-lark-mcp-tat"], "application-token-2");
+            assert_eq!(calls[0].1["x-access-token"], "application-token-1");
+            assert_eq!(calls[1].1["x-access-token"], "application-token-2");
         }
         assert!(
             !serde_json::to_string(&*model.requests.lock().unwrap())

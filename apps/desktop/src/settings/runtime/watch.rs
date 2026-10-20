@@ -19,8 +19,8 @@ impl Panel {
                     loop {
                         let update = tokio::select! { _ = stop.cancelled() => return, update = stream.next() => update };
                         let update = match update {
-                            Ok(Update::Event(envelope)) => match envelope.event { Event::OcrModelsChanged { models } => Some(Some(models)), Event::OcrSettingsChanged { .. } | Event::PythonSettingsChanged { .. } => Some(None), _ => None },
-                            Ok(Update::Snapshot(_)) | Ok(Update::ResetRequired) => Some(None),
+                            Ok(Update::Event(envelope)) => match envelope.event { Event::PythonSettingsChanged { .. } => Some(()), _ => None },
+                            Ok(Update::Snapshot(_)) | Ok(Update::ResetRequired) => Some(()),
                             Ok(_) => None, Err(_) => break,
                         };
                         if let Some(update) = update { tokio::select! { _ = stop.cancelled() => return, result = sender.send(update) => if result.is_err() { return } } }
@@ -30,18 +30,13 @@ impl Panel {
             }
         });
         cx.spawn_in(window, async move |owner, cx| {
-            while let Some(update) = receiver.recv().await {
+            while let Some(()) = receiver.recv().await {
                 if owner
                     .update_in(cx, |panel, window, cx| {
                         if !panel.active || panel.generation != generation {
                             return;
                         }
-                        if let Some(models) = update {
-                            panel.models = models;
-                            panel.choices(window, cx);
-                        } else {
-                            panel.load(window, cx);
-                        }
+                        panel.load(window, cx);
                         cx.notify();
                     })
                     .is_err()

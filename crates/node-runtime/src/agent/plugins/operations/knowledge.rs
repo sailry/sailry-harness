@@ -50,10 +50,8 @@ pub(super) fn description(operation: Operation) -> &'static str {
 pub(super) fn parameters(operation: Operation) -> Value {
     let identifier = json!({"type":"string","format":"uuid"});
     let strings = json!({"type":"array","items":{"type":"string","minLength":1},"default":[]});
-    let model = json!({"oneOf":[
-        {"type":["string","null"],"enum":["granite-multi","bge-small-zh","potion-multi",null]},
-        {"type":"object","properties":{"registered":{"type":"object","properties":{"id":identifier},"required":["id"],"additionalProperties":false}},"required":["registered"],"additionalProperties":false}
-    ]});
+    let model =
+        json!({"type":["string","null"],"minLength":1,"maxLength":128,"pattern":"^[a-z0-9-]+$"});
     let (properties, required) = match operation {
         Operation::KnowledgeQuery => (
             json!({

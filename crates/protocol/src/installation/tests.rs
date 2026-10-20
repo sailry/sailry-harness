@@ -77,24 +77,24 @@ fn keeps_future_models_in_the_common_contract() {
 
 #[test]
 fn routes_only_to_execution_owners() {
-    let ocr = ModelRef::Ocr {
-        target: Target::Node,
+    let ocr = ModelRef::Node {
+        kind: Kind::Ocr,
         id: "a".repeat(64),
     };
     assert!(matches!(
         ocr.node_command().unwrap(),
-        Command::InstallOcrModel { .. }
+        Command::InstallLocalModel { .. }
     ));
-    let embedding = ModelRef::Embedding {
-        target: Target::Node,
-        model: knowledge::Model::GraniteMulti,
+    let embedding = ModelRef::Node {
+        kind: Kind::Embedding,
+        id: "granite-multi".into(),
     };
     assert!(matches!(
         embedding.node_command().unwrap(),
-        Command::InstallKnowledgeModel { .. }
+        Command::InstallLocalModel { .. }
     ));
-    let speech = ModelRef::Speech {
-        target: Target::Controller,
+    let speech = ModelRef::Controller {
+        kind: Kind::Speech,
         id: None,
     };
     speech.validate().unwrap();
@@ -103,13 +103,17 @@ fn routes_only_to_execution_owners() {
         ErrorCode::Unavailable
     );
     for invalid in [
-        ModelRef::Ocr {
-            target: Target::Controller,
-            id: "a".repeat(64),
+        ModelRef::Node {
+            kind: Kind::Speech,
+            id: "sensevoice-int8".into(),
         },
-        ModelRef::Speech {
-            target: Target::Node,
+        ModelRef::Controller {
+            kind: Kind::Ocr,
             id: None,
+        },
+        ModelRef::Node {
+            kind: Kind::Embedding,
+            id: "../outside".into(),
         },
     ] {
         assert_eq!(

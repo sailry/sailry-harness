@@ -1,36 +1,25 @@
 use super::*;
-use sailry_protocol::{RequestOutcome, models::Kind};
-
-pub(super) fn resource(command: &Command) -> Option<Resource> {
-    match command {
-        Command::InstallOcrModel { id } => Some(Resource::Model {
-            kind: Kind::Ocr,
-            id: id.clone(),
-        }),
-        Command::InstallKnowledgeModel { model } => Some(Resource::Model {
-            kind: Kind::Embedding,
-            id: model.key().into_owned(),
-        }),
-        _ => None,
-    }
-}
+use sailry_protocol::RequestOutcome;
 
 pub(crate) fn model(
     client: Arc<Client>,
     runtime: Arc<tokio::runtime::Runtime>,
     request: &Request,
+    resource: Resource,
     window: &mut Window,
     cx: &mut App,
 ) -> Option<Ticket> {
-    resource(&request.command)?;
     let captured = request.clone();
     let retry_client = client.clone();
     let retry_runtime = runtime.clone();
-    track(
+    track_resource(
         client,
         runtime,
-        request,
-        false,
+        Capture {
+            request,
+            resource: Some(resource),
+            waiting: false,
+        },
         move |attempt, window, cx| {
             let request = attempt.request(&retry_client, &captured);
             dispatch(
@@ -50,7 +39,7 @@ pub(crate) fn completion(
     result: &Result<(Result<Output, Fault>, bool), tokio::task::JoinError>,
 ) -> Result<(), Fault> {
     match result {
-        Ok((Ok(Output::OcrModel { .. } | Output::KnowledgeModel { .. }), _)) => Ok(()),
+        Ok((Ok(Output::LocalModel { .. }), _)) => Ok(()),
         Ok((Err(error), true)) => Err(error.clone()),
         _ => Err(Fault::new(
             ErrorCode::OutcomeUnknown,
@@ -66,7 +55,7 @@ fn dispatch(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let ticket = model(client.clone(), runtime.clone(), &request, window, cx);
+    let feedback = external(client.clone(), runtime.clone(), &request, window, cx);
     let job = runtime.spawn(async move {
         let result = client.execute(request.clone()).await;
         if result.is_err() {
@@ -82,16 +71,11 @@ fn dispatch(
     cx.spawn(async move |cx| {
         let result = job.await;
         let outcome = completion(&result);
-        cx.update(|cx| {
-            if let Some(ticket) = &ticket {
-                ticket.record_outcome(outcome.clone(), cx);
-            }
-        });
+        if let Some(feedback) = feedback {
+            let _ = feedback.send(outcome.clone());
+        }
         if let Some(target) = cx.update(|cx| target(origin, cx)) {
             let _ = target.update(cx, |_, window, cx| {
-                if let Some(ticket) = &ticket {
-                    ticket.close_empty(window, cx);
-                }
                 crate::feedback::info(
                     "",
                     tr(if outcome.is_ok() {
@@ -131,19 +115,61 @@ pub(crate) fn external(
     window: &mut Window,
     cx: &mut App,
 ) -> Option<tokio::sync::oneshot::Sender<Result<(), Fault>>> {
-    let ticket = model(client, runtime, request, window, cx)?;
+    let Command::InstallLocalModel { id } = &request.command else {
+        return None;
+    };
+    let id = id.clone();
+    let request = request.clone();
+    let read = client.clone();
+    let job =
+        runtime.spawn(async move {
+            match read
+                .execute(read.prepare(Command::ReadLocalModels { kind: None }))
+                .await
+            {
+                Ok(Output::LocalModels(models)) => models
+                    .into_iter()
+                    .find(|model| model.id == id)
+                    .map(|model| Resource::Model {
+                        kind: model.definition.format.kind(),
+                        id,
+                    }),
+                _ => None,
+            }
+        });
     let origin = window.window_handle();
     let (sender, receive) = tokio::sync::oneshot::channel();
     cx.spawn(async move |cx| {
+        let resource = job.await.ok().flatten();
+        let ticket = if let Some(resource) = resource {
+            cx.update(|cx| target(origin, cx)).and_then(|target| {
+                target
+                    .update(cx, |_, window, cx| {
+                        model(client, runtime, &request, resource, window, cx)
+                    })
+                    .ok()
+                    .flatten()
+            })
+        } else {
+            None
+        };
         let outcome = receive.await.unwrap_or_else(|_| {
             Err(Fault::new(
                 ErrorCode::OutcomeUnknown,
                 "installation result is unconfirmed",
             ))
         });
-        cx.update(|cx| ticket.record_outcome(outcome, cx));
+        cx.update(|cx| {
+            if let Some(ticket) = &ticket {
+                ticket.record_outcome(outcome, cx);
+            }
+        });
         if let Some(target) = cx.update(|cx| target(origin, cx)) {
-            let _ = target.update(cx, |_, window, cx| ticket.close_empty(window, cx));
+            let _ = target.update(cx, |_, window, cx| {
+                if let Some(ticket) = &ticket {
+                    ticket.close_empty(window, cx);
+                }
+            });
         }
     })
     .detach();

@@ -488,11 +488,52 @@ pub enum Command {
     ReadPluginMcp {
         package: crate::plugin::Reference,
     },
-    ReadGithubLogin {
+    ListConnectorTypes,
+    InspectConnectorCli {
         package: crate::plugin::Reference,
+        connector: String,
     },
-    ImportGithubLogin {
+    ListConnections,
+    StartConnectorLogin {
         package: crate::plugin::Reference,
+        connector: String,
+        connection: Option<crate::plugin::connector::Id>,
+        expected_revision: Option<u64>,
+        method: crate::plugin::connector::Kind,
+        input: crate::plugin::connector::Input,
+    },
+    SubmitConnectorInput {
+        attempt: RequestId,
+        input: Secret,
+    },
+    CancelConnectorLogin {
+        attempt: RequestId,
+    },
+    UpdateConnection {
+        connection: crate::plugin::connector::Id,
+        expected_revision: u64,
+        input: crate::plugin::connector::Input,
+    },
+    SetConnectionEnabled {
+        connection: crate::plugin::connector::Id,
+        expected_revision: u64,
+        enabled: bool,
+    },
+    DisconnectConnection {
+        connection: crate::plugin::connector::Id,
+        expected_revision: u64,
+    },
+    RemoveConnection {
+        connection: crate::plugin::connector::Id,
+        expected_revision: u64,
+    },
+    ConfirmConnectorConsent {
+        connection: crate::plugin::connector::Id,
+        expected_revision: u64,
+        accept: bool,
+    },
+    ProbeConnection {
+        connection: crate::plugin::connector::Id,
     },
     SavePluginMcp {
         package: crate::plugin::Reference,
@@ -503,51 +544,9 @@ pub enum Command {
         package: crate::plugin::Reference,
         field: String,
     },
-    ReadMcpAuthorization {
-        package: crate::plugin::Reference,
-        server: String,
-    },
     ReadPluginConnection {
         package: crate::plugin::Reference,
         card: String,
-    },
-    ReadPluginAuthorization {
-        package: crate::plugin::Reference,
-    },
-    BeginPluginLogin {
-        package: crate::plugin::Reference,
-        redirect: String,
-        configuration: crate::plugin::oauth::Configuration,
-    },
-    BeginPluginRegistration {
-        package: crate::plugin::Reference,
-    },
-    CompletePluginLogin {
-        attempt: RequestId,
-        callback: Secret,
-    },
-    CancelPluginLogin {
-        attempt: RequestId,
-    },
-    RevokePluginAuthorization {
-        package: crate::plugin::Reference,
-    },
-    BeginMcpLogin {
-        package: crate::plugin::Reference,
-        server: String,
-        redirect: String,
-        client_id: Option<String>,
-    },
-    CompleteMcpLogin {
-        attempt: RequestId,
-        callback: Secret,
-    },
-    CancelMcpLogin {
-        attempt: RequestId,
-    },
-    RevokeMcpAuthorization {
-        package: crate::plugin::Reference,
-        server: String,
     },
     SavePluginSettings {
         package: crate::plugin::Reference,
@@ -876,22 +875,24 @@ pub enum Command {
     },
     ReadPythonSettings,
     SavePythonSettings(crate::python::Settings),
-    ReadOcrSettings,
-    SaveOcrSettings(crate::ocr::Settings),
-    ReadOcrModels,
-    RefreshOcrModel {
+    ReadLocalModelSettings,
+    SaveLocalModelSettings(crate::models::Settings),
+    ReadLocalModels {
+        kind: Option<crate::models::Kind>,
+    },
+    RefreshLocalModel {
         id: String,
     },
-    RegisterOcrModel {
+    RegisterLocalModel {
         definition: crate::models::Definition,
     },
-    InstallOcrModel {
+    InstallLocalModel {
         id: String,
     },
-    DeleteOcrModel {
+    DeleteLocalModel {
         id: String,
     },
-    CancelOcrModel {
+    CancelLocalModel {
         id: String,
     },
     ListShells,
@@ -899,8 +900,6 @@ pub enum Command {
     ListMediaModels,
     ReadMediaSettings,
     SaveMediaSettings(crate::media::Settings),
-    ReadKnowledgeSettings,
-    ReadKnowledgeModels,
     SearchModels(crate::models::Search),
     ReadModelVersions {
         hub: crate::models::Hub,
@@ -910,21 +909,8 @@ pub enum Command {
         kind: crate::models::Kind,
         source: crate::models::Source,
     },
-    RegisterKnowledgeModel {
-        definition: crate::models::Definition,
-    },
-    InstallKnowledgeModel {
-        model: crate::knowledge::Model,
-    },
-    CancelKnowledgeModel {
-        model: crate::knowledge::Model,
-    },
-    DeleteKnowledgeModel {
-        model: crate::knowledge::Model,
-    },
     QueryKnowledge(crate::knowledge::Query),
     ReadKnowledgeCitation(crate::knowledge::CitationRequest),
-    SaveKnowledgeSettings(crate::knowledge::Settings),
     ListKnowledgeCollections,
     CreateKnowledgeCollection {
         definition: crate::knowledge::Definition,
@@ -1546,6 +1532,9 @@ impl Command {
                 | Self::ListSshTerminals { .. }
                 | Self::ListDatabases
                 | Self::ListPlugins
+                | Self::ListConnectorTypes
+                | Self::InspectConnectorCli { .. }
+                | Self::ListConnections
                 | Self::ReadSkillDocument { .. }
                 | Self::DiscoverSkills { .. }
                 | Self::DiscoverRegistrySkill { .. }
@@ -1565,16 +1554,13 @@ impl Command {
                 | Self::ReadPluginVersion { .. }
                 | Self::ReadPluginSettings { .. }
                 | Self::ReadPluginMcp { .. }
-                | Self::ReadGithubLogin { .. }
                 | Self::ReadPluginValue { .. }
                 | Self::ReadPluginConversationValue { .. }
                 | Self::ListPluginKeys { .. }
                 | Self::SearchPluginValues(_)
                 | Self::ListPluginModels
                 | Self::ResolvePluginModel { .. }
-                | Self::ReadMcpAuthorization { .. }
                 | Self::ReadPluginConnection { .. }
-                | Self::ReadPluginAuthorization { .. }
                 | Self::ReadPluginView { .. }
                 | Self::ListRoles
                 | Self::ListProviders
@@ -1614,20 +1600,17 @@ impl Command {
                 | Self::ReadPythonSettings
                 | Self::DismissInstallation { .. }
                 | Self::ReadInstallations { .. }
-                | Self::ReadOcrSettings
-                | Self::ReadOcrModels
-                | Self::RefreshOcrModel { .. }
-                | Self::CancelOcrModel { .. }
+                | Self::ReadLocalModelSettings
+                | Self::ReadLocalModels { .. }
+                | Self::RefreshLocalModel { .. }
+                | Self::CancelLocalModel { .. }
                 | Self::ListShells
                 | Self::ReadPluginSecret { .. }
                 | Self::ListMediaModels
                 | Self::ReadMediaSettings
-                | Self::ReadKnowledgeSettings
-                | Self::ReadKnowledgeModels
                 | Self::SearchModels(_)
                 | Self::ReadModelVersions { .. }
                 | Self::ResolveModel { .. }
-                | Self::CancelKnowledgeModel { .. }
                 | Self::QueryKnowledge(_)
                 | Self::ReadKnowledgeCitation(_)
                 | Self::ListKnowledgeCollections
@@ -1772,13 +1755,8 @@ pub enum Output {
     ModelSearch(crate::models::Page),
     ModelVersions(Vec<crate::models::Version>),
     ModelDefinition(crate::models::Definition),
-    KnowledgeModels(Vec<crate::knowledge::ModelInfo>),
-    KnowledgeModel {
-        model: crate::knowledge::Model,
-    },
     KnowledgeSearch(crate::knowledge::Page),
     KnowledgeCitation(crate::knowledge::CitationPage),
-    KnowledgeSettings(crate::knowledge::Settings),
     KnowledgeCollections(Vec<crate::knowledge::Collection>),
     KnowledgeCollection(crate::knowledge::Collection),
     KnowledgeCollectionDeleted {
@@ -1850,11 +1828,12 @@ pub enum Output {
     SshCancelled {
         request: RequestId,
     },
-    McpAuthorization(crate::plugin::authorization::Status),
     PluginConnection(crate::plugin::connection::Status),
-    McpLogin(crate::plugin::authorization::Attempt),
-    PluginAuthorization(crate::plugin::oauth::Status),
-    PluginLogin(crate::plugin::oauth::Attempt),
+    ConnectorTypes(Vec<crate::plugin::connector::Type>),
+    ConnectorIdentity(crate::plugin::connector::Identity),
+    Connections(Vec<crate::plugin::connector::Connection>),
+    Connection(crate::plugin::connector::Connection),
+    ConnectorLogin(crate::plugin::connector::Attempt),
     Plugin(crate::plugin::Info),
     CatalogDetails(crate::plugin::catalog::Details),
     SkillDocument(crate::plugin::skills::Document),
@@ -1870,7 +1849,6 @@ pub enum Output {
     PluginUpload(crate::plugin::Upload),
     PluginSettings(crate::plugin::settings::State),
     PluginMcp(crate::plugin::mcp::State),
-    GithubLogin(crate::plugin::github::Status),
     PluginSecret(Option<crate::Secret>),
     PluginView(crate::plugin::desktop::Bundle),
     Plugins(Vec<crate::plugin::Summary>),
@@ -1931,9 +1909,9 @@ pub enum Output {
         target: String,
     },
     PythonSettings(crate::python::Settings),
-    OcrSettings(crate::ocr::Settings),
-    OcrModels(Vec<crate::ocr::Model>),
-    OcrModel {
+    LocalModelSettings(crate::models::Settings),
+    LocalModels(Vec<crate::models::Model>),
+    LocalModel {
         id: String,
     },
     Shells(Vec<String>),
@@ -2062,10 +2040,10 @@ pub enum RequestOutcome {
 pub enum Event {
     /// Historical metadata whose original feature no longer has a live API.
     RetainedRecord(RetainedRecord),
-    KnowledgeModelsChanged {
-        models: Vec<crate::knowledge::ModelInfo>,
+    LocalModelsChanged {
+        models: Vec<crate::models::Model>,
     },
-    KnowledgeSettingsChanged {
+    LocalModelSettingsChanged {
         revision: u64,
     },
     /// Invalidates collection metadata without exposing source paths or values.
@@ -2096,12 +2074,6 @@ pub enum Event {
     },
     PythonSettingsChanged {
         revision: u64,
-    },
-    OcrSettingsChanged {
-        revision: u64,
-    },
-    OcrModelsChanged {
-        models: Vec<crate::ocr::Model>,
     },
     PluginChanged(crate::plugin::Summary),
     /// Invalidates private package data without broadcasting its keys or values.
@@ -2202,8 +2174,8 @@ pub enum Update {
         items: Vec<crate::process::Info>,
     },
     BrowserCall(crate::browser::Call),
-    McpLogin(crate::plugin::authorization::Update),
-    PluginLogin(crate::plugin::oauth::Update),
+    ConnectorLogin(crate::plugin::connector::LoginUpdate),
+    ConnectionsChanged(crate::plugin::connector::Changes),
     ProviderLogin(crate::conversation::login::Update),
     ConversationSnapshot(crate::conversation::Snapshot),
     ConversationFrame(crate::conversation::Frame),
@@ -2230,8 +2202,8 @@ pub enum Topic {
     CodeInstallations,
     Commands(SessionId),
     Browser,
-    McpLogin(RequestId),
-    PluginLogin(RequestId),
+    ConnectorLogin(RequestId),
+    Connections,
     ProviderLogin(RequestId),
     Conversation(crate::SessionId),
     Terminal(crate::TerminalId),

@@ -56,10 +56,13 @@ without another settings sidebar or a package-specific renderer.
 Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
 
 Use `sailry/models` for public `search`, `versions` and `resolve` with `models.read`.
+`list({target:'node', kind?})` reads OCR and embedding definitions with their
+installation state from the captured Node. Node model identities are opaque strings.
 `register({target, definition})` and `prepare(model)` require `models.install` and
 return ordinary prepared request IDs. Complete registration first, then prepare
-installation with its returned model identity. Definitions retain pinned asset
-digests; OCR and embedding target `node`, while speech targets `controller`.
+installation with `{target:'node', kind, id}` and its returned model identity.
+Definitions retain pinned asset digests; OCR and embedding target `node`, while
+speech uses `{target:'controller', kind:'speech', id}` on its controller.
 Headless callbacks cannot install controller-local speech models.
 
 `sailry/installations.read(ids)` observes only owned model or language installation
@@ -667,13 +670,13 @@ The runnable [tool-content MCP example](../plugins/examples/tool-content) return
 
 ## Boundaries
 
-Headless `sailry/models.list({target:'node', kind:'ocr'})` returns available OCR
-definitions and installation state under `models.read`. Package handlers use
-the native `models.install` and `models.remove` operations for explicit OCR
-lifecycle tools. Removal requires the original claimed command approval and
-keeps definitions and settings. It shares the existing OCR installation lane
-without producing a separate installer card. Plan turns cannot mutate models;
-callbacks cannot directly dispatch OCR removal.
+Headless `sailry/models.list({target:'node', kind:'ocr'})` reads the same Node model
+registry as embedding discovery and installation. Package handlers use the native
+`models.install` and `models.remove` operations for explicit Node model lifecycle
+tools. Removal requires the original claimed command approval and keeps definitions
+and settings. Model installation shares the existing bounded queue; inference
+shares one CPU runtime. Plan turns cannot mutate models; callbacks cannot directly
+dispatch model removal.
 
 Headless `listRoles()` requires `roles.read` and returns public catalog profiles,
 with decimal-string revisions and model identifiers, not session provider
@@ -693,7 +696,48 @@ Plugin commands retain the existing declaration, exact installed-package, Node, 
 
 The current development schema remains v1. Startup fills missing schema objects and storage fields with their defaults, validates the update on an isolated snapshot, saves a private backup and applies it transactionally. Invalid updates preserve the existing profile; startup never resets or deletes user data.
 
-`credential_source: "github_cli"` opts a schema form into the protected GitHub CLI account source. The execution Node verifies the token field, Bearer header and official GitHub MCP endpoint before linking; changing the package name grants no access. The shared native credential form keeps account secrets outside plugin JavaScript.
+## Service connections
+
+Declare `connectors` in the v1 extension. Each declaration has a stable `id`,
+`display`, `accounts: "single"`, canonical HTTPS `origins`, bounded `fields`,
+authentication `auth` methods, and explicit `inject` targets. Methods are
+`secret`, `oauth2` (PKCE or device code), `application` (declared token exchange
+and optional private registration flow), `mcp_oauth`, and `local_cli`.
+Bundled OAuth clients contain only public client IDs. Secret fields never have
+manifest defaults and are entered through the protected native form.
+
+For HTTP, use `requestHttp({connector: "service", connection: optionalId, ...})`.
+`connection` selects a captured instance; omitting it selects the package's single
+connection. Node injects credentials only into declared headers at declared
+origins. Request headers cannot override protected headers. Redirects are disabled.
+A 401 may refresh credentials once; only GET, HEAD, or an explicitly
+`idempotent: true` request may be sent again. An ordinary `credential` slot
+remains available for non-connector services and cannot be combined with
+`connector`. MCP injection uses a declared `server` plus `header` or `env`.
+Actual server URLs and configuration stay private on the Node.
+
+The `sailry/connectors` module exposes scoped `list`, `types`, and `status(id)`
+public reads. Native surfaces prepare `login` and `cancel` drafts; headless
+callbacks cannot authenticate. Connections use stable IDs and revision-checked
+changes through durable admission. `ConnectionsChanged` supplies a snapshot and
+cursor; caller-scoped login subscriptions expose transient authorization progress.
+Replaying an uncertain command uses its original request ID.
+
+OAuth scopes, client, flow, source or credential target changes suspend use for
+consent. Public differences contain declaration data and MCP server names, never
+private MCP configuration. Changed CLI or secret declarations do not require OAuth
+consent, but their current target and revision fences still apply. A local CLI
+source declares a fixed executable, argv, account JSON pointer and optional
+status condition, minimal constant environment, timeout and output limit. Its
+transient token is never persisted. Installation and updates disclose the CLI.
+
+Application registration is an optional method-owned declaration using the
+existing private `model_auth::Flow` runner and a token mapping that issues the
+method's declared client fields. The package owns the registration script and
+requests. Issued credentials are saved only against the captured connection
+revision. Cancellation remains available after package changes; public snapshots,
+JavaScript and history never contain registration secrets or private callback URLs.
+
 ## Inline conversation cards
 
 Declare `cards` in the v1 extension. Each card has a unique `key`, a JavaScript
@@ -703,18 +747,19 @@ are bounded strings, booleans, or integers, not nested data. Set
 Credentials, callback addresses, OAuth URLs, scripts and commands are not public
 card properties. A card-only package does not need a workspace navigation entry.
 
-An admitted host tool imports `card` and `status` from `sailry/cards` and loads
+An admitted host tool imports `card` from `sailry/cards` and `status` from
+`sailry/connectors`, then loads
 `connectionLabels` from its package's i18n resources:
 
 ```javascript
-const props = await status("owned-server");
+const connection = await status("owned-connector");
+const props = {configured: connection?.state === "connected"};
 return {sailry_content: {version: 1, blocks: [
   card("connection", props, {label: "Connect", locales: connectionLabels})
 ]}};
 ```
 
-`status` reads only the configured boolean of an HTTP MCP server owned by the
-captured package. Headless tools cannot begin login. Node stamps the canonical
+`status` reads only public connection metadata owned by the captured package. Headless tools cannot begin login. Node stamps the canonical
 block with its package digest, Node, session, worktree, turn, stable call and
 block position. Invalid drafts lose their presentation without changing the
 original tool result. A failed result may keep its validated card and original
@@ -772,30 +817,6 @@ settings while immutable captured code remains available under the same digest.
 Uncertain side effects retain their original request and require outcome
 inspection, never automatic replay. These contracts do not establish real
 Notion account or embedded sign-in acceptance.
-
-An optional `registration` declaration binds application creation to the existing
-settings schema: `{provider:"feishu", client_id:"app_id",
-client_secret:"app_secret", tenant_scopes:[...]}`. The ID must be a public string
-field; the secret must use a protected Feishu application binding whose
-`client_id` is that same field. Account OAuth and application registration are
-distinct declarations and cannot coexist on one package.
-
-`BeginPluginRegistration` is a native controller settings action, not a headless
-callback or generic JavaScript command. It shares plugin login attempt IDs,
-durable admission, caller-scoped observation and cancellation. Constructors
-observe only; creation and refresh require an explicit native user action.
-The execution Node polls the fixed provider endpoint with provider backoff and
-no automatic restart. Verification URLs remain transient native controller
-state; device codes, application secrets and unused provider identity fields do
-not enter plugin JavaScript, model results or public snapshots.
-
-Completion saves issued credentials through the existing revision-checked
-settings transaction. Configuration changes during registration preserve the
-newer settings and fail the old attempt. Native cleanup retains its original
-attempt identity and can cancel it after a settings change or package removal.
-An unknown result must be inspected using the original request identity, not
-replayed as a new application creation. Configured fields do not establish
-provider publication, document access or MCP entitlement.
 
 ## Package tests
 

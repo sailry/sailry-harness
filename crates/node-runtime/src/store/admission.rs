@@ -215,12 +215,6 @@ impl Ingress {
             }
             if matches!(
                 request.command,
-                sailry_protocol::Command::ReadMcpAuthorization { .. }
-            ) {
-                return self.read_mcp_authorization(request).await;
-            }
-            if matches!(
-                request.command,
                 sailry_protocol::Command::DismissInstallation { .. }
             ) {
                 return self.dismiss_installation(caller, request);
@@ -260,7 +254,7 @@ impl Ingress {
                 sailry_protocol::Command::SearchModels(_)
                     | sailry_protocol::Command::ReadModelVersions { .. }
                     | sailry_protocol::Command::ResolveModel { .. }
-                    | sailry_protocol::Command::RefreshOcrModel { .. }
+                    | sailry_protocol::Command::RefreshLocalModel { .. }
             ) {
                 return self.model_catalog(request).await;
             }
@@ -275,17 +269,15 @@ impl Ingress {
                 request.command,
                 sailry_protocol::Command::QueryKnowledge(_)
                     | sailry_protocol::Command::ReadKnowledgeCitation(_)
-                    | sailry_protocol::Command::ReadKnowledgeModels
-                    | sailry_protocol::Command::CancelKnowledgeModel { .. }
             ) {
                 return self.read_knowledge(request).await;
             }
             if matches!(
                 request.command,
-                sailry_protocol::Command::ReadOcrModels
-                    | sailry_protocol::Command::CancelOcrModel { .. }
+                sailry_protocol::Command::ReadLocalModels { .. }
+                    | sailry_protocol::Command::CancelLocalModel { .. }
             ) {
-                return self.read_ocr(request).await;
+                return self.read_local_models(request).await;
             }
             if matches!(
                 request.command,
@@ -337,12 +329,6 @@ impl Ingress {
                 sailry_protocol::Command::ReadPluginMcp { .. }
             ) {
                 return self.read_plugin_mcp(request).await;
-            }
-            if matches!(
-                request.command,
-                sailry_protocol::Command::ReadGithubLogin { .. }
-            ) {
-                return self.read_github_login(request).await;
             }
             if matches!(
                 request.command,
@@ -521,10 +507,10 @@ impl Ingress {
                 request.command,
                 sailry_protocol::Command::SavePythonSettings(_)
             );
-            let ocr_change = matches!(
+            let local_change = matches!(
                 request.command,
-                sailry_protocol::Command::SaveOcrSettings(_)
-                    | sailry_protocol::Command::RegisterOcrModel { .. }
+                sailry_protocol::Command::SaveLocalModelSettings(_)
+                    | sailry_protocol::Command::RegisterLocalModel { .. }
             );
             let job = Job::Request {
                 access: crate::files::Access::request(&request, internal),
@@ -545,8 +531,8 @@ impl Ingress {
             let result = response.await.map_err(|_| unavailable())?;
             self.dispatch.wake.notify_one();
             result.map(|admission| {
-                if ocr_change {
-                    super::ocr::observe(self, admission)
+                if local_change {
+                    super::local_models::observe(self, admission)
                 } else if python_change {
                     super::python::observe(self, admission)
                 } else if knowledge_change {

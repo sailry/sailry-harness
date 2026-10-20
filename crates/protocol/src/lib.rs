@@ -28,7 +28,6 @@ pub mod models;
 pub mod network;
 pub mod notebook;
 pub mod notification;
-pub mod ocr;
 pub mod office;
 pub mod plugin;
 pub mod process;

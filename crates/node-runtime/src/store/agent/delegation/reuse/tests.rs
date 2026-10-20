@@ -61,6 +61,7 @@ fn settings_package(fixture: &Fixture) -> plugin::Info {
     let mut result = Ok(Output::Plugin(info));
     crate::store::plugins::finish(
         &fixture.database.connection,
+        Some(fixture._root.path()),
         &Command::InstallPluginUpload {
             stream: StreamId::new(),
             source: plugin::UploadSource::Directory,

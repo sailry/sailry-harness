@@ -14,9 +14,7 @@ use sailry_protocol::{
 pub(crate) struct Resolved {
     pub(crate) values: std::collections::BTreeMap<String, serde_json::Value>,
     pub(crate) secrets: std::collections::BTreeMap<String, sailry_protocol::Secret>,
-    pub(crate) authorizations: std::collections::BTreeMap<String, sailry_protocol::CredentialId>,
     pub(crate) mcp: Option<sailry_protocol::plugin::mcp::Configuration>,
-    pub(crate) github: Option<super::github::login::Identity>,
 }
 
 pub(super) fn discover(

@@ -341,6 +341,7 @@ pub(super) fn admit(
         ],
     )
     .map_err(storage_error)?;
+    super::super::plugins::connectors::capture(&tx, turn.id, &turn.plugins)?;
     insert(&tx, turn.id, &origin)?;
     // The supervisor owns the waiter before admission. Only the child claim may
     // start execution; root workers can be waiting for these children.

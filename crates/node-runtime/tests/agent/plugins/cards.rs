@@ -1,21 +1,25 @@
-#![cfg(unix)]
+#![cfg(all(unix, feature = "test-support"))]
 use super::*;
 use crate::oauth_server as issuer;
 use sailry_protocol::{
-    plugin::{self, authorization, card},
+    plugin::{self, card, connector as authorization},
     tool,
 };
 use serde_json::json;
 use std::sync::atomic::Ordering;
 
 async fn install(fixture: &process::Fixture, endpoint: &str) -> plugin::Info {
+    fixture
+        .node
+        .set_connector_fixture("https://mcp.example.com", endpoint);
     let root = fixture.root.join("card-package");
     std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
     std::fs::create_dir_all(root.join("dev.sailry.platform/desktop")).unwrap();
     std::fs::write(root.join("dev.sailry.platform/host/main.js"), r#"
-import {card,status} from 'sailry/cards';
+import {card} from 'sailry/cards';
+import {status} from 'sailry/connectors';
 export async function connection(){
-  const props=await status('input');
+  const props={configured:(await status('service'))?.state==='connected'};
   return {isError:!props.configured,error:props.configured?null:{code:'not_configured',message:'Connect'},
     sailry_content:{version:1,blocks:[card('connection',props,{label:'Connect'})]}};
 }
@@ -23,12 +27,12 @@ export async function connection(){
     std::fs::write(root.join("dev.sailry.platform/desktop/card.js"), "import {View,div} from 'gpui-kit'; export default class Card extends View {render(){return div().child('Connect');}};").unwrap();
     std::fs::write(
         root.join("mcp.json"),
-        json!({"$schema":plugin::mcp::SCHEMA,"mcpServers":{"input":{"type":"streamable-http","url":endpoint}}}).to_string(),
+        json!({"$schema":plugin::mcp::SCHEMA,"mcpServers":{"input":{"type":"streamable-http","url":"https://mcp.example.com/mcp"}}}).to_string(),
     )
     .unwrap();
     std::fs::write(root.join("plugin.json"), json!({
         "$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"card-fixture","version":"0.1.0","extensions":{"dev.sailry.platform":{
-            "api_version":"v1","actions":[],
+            "api_version":"v1","actions":[],"connectors":[{"id":"service","display":{"label":"Service"},"accounts":"single","origins":["https://mcp.example.com"],"auth":[{"kind":"mcp_oauth","server":"input"}],"inject":[{"server":"input","header":"Authorization","prefix":"Bearer "}]}],
             "host":{"entry":"dev.sailry.platform/host/main.js","resources":["dev.sailry.platform/host/main.js"],"handlers":["connection"]},
             "desktop":{"resources":["dev.sailry.platform/desktop/card.js"]},
             "tools":[{"name":"connection","description":"Read connection","contexts":["workspace"],"presentation":"content","handler":{"name":"connection","read_only":true,"parameters":{"type":"object","properties":{},"additionalProperties":false}}}],
@@ -81,16 +85,16 @@ fn context(card: &card::Summary, package: plugin::Reference) -> plugin::Context 
     }
 }
 
-async fn ready(client: &Client, attempt: &authorization::Attempt) -> authorization::State {
-    let mut stream = client.subscribe_mcp_login(attempt.id).await.unwrap();
+async fn ready(client: &Client, attempt: &authorization::Attempt) -> authorization::LoginState {
+    let mut stream = client.subscribe_connector_login(attempt.id).await.unwrap();
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let Update::McpLogin(update) = stream.next().await.unwrap() else {
+            let Update::ConnectorLogin(update) = stream.next().await.unwrap() else {
                 panic!("login update expected")
             };
             if !matches!(
                 update.state,
-                authorization::State::Starting | authorization::State::Exchanging
+                authorization::LoginState::Starting | authorization::LoginState::Exchanging
             ) {
                 return update.state;
             }
@@ -170,39 +174,47 @@ async fn keeps_login_private_and_does_not_replay() {
         ));
         let request = fixture
             .client
-            .prepare(Command::BeginMcpLogin {
+            .prepare(Command::StartConnectorLogin {
                 package: card.package.clone(),
-                server: "input".into(),
-                redirect: "http://127.0.0.1:43191/callback".into(),
-                client_id: None,
+                connector: "service".into(),
+                connection: None,
+                expected_revision: None,
+                method: authorization::Kind::McpOauth,
+                input: authorization::Input {
+                    redirect: Some("http://127.0.0.1:43191/auth/callback".into()),
+                    ..Default::default()
+                },
             })
             .with_plugin(scope.clone());
-        let Output::McpLogin(attempt) = fixture.client.execute(request.clone()).await.unwrap()
+        let Output::ConnectorLogin(attempt) =
+            fixture.client.execute(request.clone()).await.unwrap()
         else {
             panic!("attempt expected")
         };
         assert_eq!(
             fixture.client.execute(request.clone()).await.unwrap(),
-            Output::McpLogin(attempt.clone())
+            Output::ConnectorLogin(attempt.clone())
         );
-        let authorization::State::Pending { url, .. } = ready(&fixture.client, &attempt).await
+        let authorization::LoginState::Browser { url, .. } = ready(&fixture.client, &attempt).await
         else {
             panic!("pending login expected")
         };
         let callback = issuer::Server::callback(&url).await;
         let complete = fixture
             .client
-            .prepare(Command::CompleteMcpLogin {
+            .prepare(Command::SubmitConnectorInput {
                 attempt: attempt.id,
-                callback: sailry_protocol::Secret::new(callback),
+                input: sailry_protocol::Secret::new(callback),
             })
             .with_plugin(scope);
         fixture.client.execute(complete.clone()).await.unwrap();
         fixture.client.execute(complete).await.unwrap();
-        let authorization::State::Connected(current) = ready(&fixture.client, &attempt).await
+        let authorization::LoginState::Connected(connection) =
+            ready(&fixture.client, &attempt).await
         else {
             panic!("connected login expected")
         };
+        let current = connection.package;
         assert_eq!(issuer.registrations.load(Ordering::SeqCst), 1);
         assert_eq!(issuer.exchanges.load(Ordering::SeqCst), 1);
         assert_eq!(
@@ -210,20 +222,6 @@ async fn keeps_login_private_and_does_not_replay() {
             count,
             "login must not replay the blocked model turn"
         );
-        let status = fixture
-            .client
-            .prepare(Command::ReadMcpAuthorization {
-                package: current.clone(),
-                server: "input".into(),
-            })
-            .with_plugin(context(&card, current.clone()));
-        assert!(matches!(
-            fixture.client.execute(status).await.unwrap(),
-            Output::McpAuthorization(authorization::Status {
-                configured: true,
-                ..
-            })
-        ));
         let status = fixture
             .client
             .prepare(Command::ReadPluginConnection {
@@ -279,9 +277,9 @@ async fn rejects_stale_and_foreign_scopes() {
         let card = summary(&view.calls);
         for change in 0..6 {
             let mut scope = context(&card, card.package.clone());
-            let mut command = Command::ReadMcpAuthorization {
+            let mut command = Command::ReadPluginConnection {
                 package: card.package.clone(),
-                server: "input".into(),
+                card: "connection".into(),
             };
             match change {
                 0 => scope.session = Some(SessionId::new()),
@@ -290,9 +288,9 @@ async fn rejects_stale_and_foreign_scopes() {
                 3 => scope.invocation = Some(sailry_protocol::RequestId::new()),
                 4 => scope.package.digest = "b".repeat(64),
                 5 => {
-                    command = Command::ReadMcpAuthorization {
+                    command = Command::ReadPluginConnection {
                         package: card.package.clone(),
-                        server: "other".into(),
+                        card: "other".into(),
                     }
                 }
                 _ => unreachable!(),

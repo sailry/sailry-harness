@@ -11,18 +11,15 @@ struct Details {
 }
 
 pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut App) {
-    if target.entry(key, cx).is_none() {
+    if target.entry(&key, cx).is_none() {
         return;
     }
     let details = cx.new(|cx| {
         match &target {
-            Target::Knowledge(owner) => {
-                cx.observe(owner, |_, _, cx| cx.notify()).detach();
-            }
             Target::Speech(owner) => {
                 cx.observe(owner, |_, _, cx| cx.notify()).detach();
             }
-            Target::Ocr(owner) => {
+            Target::Node(owner, _) => {
                 cx.observe(owner, |_, _, cx| cx.notify()).detach();
             }
         }
@@ -30,7 +27,7 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
     });
     window.open_dialog(cx, move |dialog, window, cx| {
         let state = details.read(cx);
-        let model = state.target.entry(state.key, cx);
+        let model = state.target.entry(&state.key, cx);
         let mut footer = DialogFooter::new()
             .gap_2()
             // Kit's close wrapper is full-width; an intrinsic slot keeps this
@@ -48,17 +45,17 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
         if let Some(model) = &model {
             if matches!(model.status, ModelStatus::Downloading(_)) {
                 let target = state.target.clone();
-                let key = state.key;
+                let key = state.key.clone();
                 footer = footer.child(
                     Button::new("model-details-cancel")
                         .debug_selector(|| "model-details-cancel".into())
                         .label(tr("settings_cancel"))
                         .disabled(model.cancelling)
-                        .on_click(move |_, window, cx| target.cancel(key, window, cx)),
+                        .on_click(move |_, window, cx| target.cancel(key.clone(), window, cx)),
                 );
             } else if model.removable && matches!(model.status, ModelStatus::Installed) {
                 let target = state.target.clone();
-                let key = state.key;
+                let key = state.key.clone();
                 footer = footer.child(
                     Button::new("model-details-update")
                         .debug_selector(|| "model-details-update".into())
@@ -66,7 +63,7 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
                         .disabled(state.target.busy(cx))
                         .on_click(move |_, window, cx| {
                             window.close_dialog(cx);
-                            target.update(key, window, cx);
+                            target.update(key.clone(), window, cx);
                         }),
                 );
             }
@@ -77,7 +74,7 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
                 )
             {
                 let target = state.target.clone();
-                let key = state.key;
+                let key = state.key.clone();
                 let name = model.name.clone();
                 footer = footer.child(
                     Button::new("model-details-delete")
@@ -86,7 +83,7 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
                         .disabled(state.target.busy(cx))
                         .on_click(move |_, window, cx| {
                             window.close_dialog(cx);
-                            target.remove(key, name.clone(), window, cx);
+                            target.remove(key.clone(), name.clone(), window, cx);
                         }),
                 );
             }
@@ -104,7 +101,7 @@ pub(super) fn open(target: Target, key: ModelKey, window: &mut Window, cx: &mut 
 
 impl Render for Details {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(model) = self.target.entry(self.key, cx) else {
+        let Some(model) = self.target.entry(&self.key, cx) else {
             return v_flex();
         };
         let status_id = self.key.selector("status");
@@ -117,7 +114,7 @@ impl Render for Details {
                     .debug_selector(move || status_id.clone())
                     .child(tr(label(model.status))),
             ));
-        if let Some(definition) = self.target.definition(self.key, cx) {
+        if let Some(definition) = self.target.definition(&self.key, cx) {
             information = information
                 .child(
                     Entry::new("model-detail-source", tr("model_library_source")).control(

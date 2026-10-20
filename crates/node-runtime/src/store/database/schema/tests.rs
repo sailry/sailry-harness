@@ -2,6 +2,7 @@ use super::*;
 use crate::store::database::Database;
 
 mod indexes;
+mod local_models;
 
 mod comparison {
     use super::*;
@@ -274,7 +275,7 @@ mod startup {
         let before = std::fs::read(&path).unwrap();
         let files = entries(directory.path());
         let changes = connection.total_changes();
-        let schema = prepare(&connection, &path, node).unwrap();
+        let schema = prepare(&connection, &path, node, None).unwrap();
         assert!(matches!(&schema.0, State::Current));
         schema.initialize(&connection).unwrap();
         assert_eq!(connection.total_changes(), changes);
@@ -314,7 +315,7 @@ mod startup {
                 .unwrap();
             // Unused completed receipts validate when read, and always during upgrades.
             assert!(matches!(
-                prepare(&connection, &path, node).unwrap().0,
+                prepare(&connection, &path, node, None).unwrap().0,
                 State::Current
             ));
             assert!(crate::store::outcomes::decode(&receipt.to_string()).is_err());
@@ -322,7 +323,10 @@ mod startup {
             let before = std::fs::read(&path).unwrap();
             let files = entries(directory.path());
             let changes = connection.total_changes();
-            let error = prepare(&connection, &path, node).err().unwrap().to_string();
+            let error = prepare(&connection, &path, node, None)
+                .err()
+                .unwrap()
+                .to_string();
             assert!(
                 error.contains("invalid stored JSON in requests.result"),
                 "{error}"

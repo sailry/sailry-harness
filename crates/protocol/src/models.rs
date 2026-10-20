@@ -1,4 +1,7 @@
 //! Public model discovery metadata and pinned installation definitions.
+mod local;
+pub use local::{Choice, Model, Settings, State};
+
 use crate::Fault;
 use serde::{Deserialize, Serialize};
 

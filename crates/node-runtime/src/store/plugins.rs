@@ -1,24 +1,20 @@
 //! Plugin inventory shares durable admission, configuration transactions and Node events.
 mod actions;
-pub(super) mod authorization;
 pub(in crate::store) mod cards;
 mod catalog;
 pub(super) mod collection;
 pub(in crate::store) mod command;
 pub(in crate::store) mod connection;
 pub(in crate::store) mod connections;
+pub(in crate::store) mod connectors;
 pub(super) mod distribution;
-pub(in crate::store) mod github;
-pub(in crate::store) mod grants;
 mod http;
 pub(in crate::store) mod installing;
 pub(super) mod invocations;
 pub(in crate::store) mod mcp;
 pub(super) mod models;
-pub(in crate::store) mod oauth;
 pub(in crate::store) mod options;
 pub(in crate::store) mod policy;
-pub(in crate::store) mod registration;
 mod repository;
 mod script;
 pub(super) mod services;
@@ -163,6 +159,7 @@ pub(super) fn retain_python(db: &Connection, host: &crate::plugins::Host) -> Res
 
 pub(super) fn finish(
     db: &Connection,
+    profile: Option<&std::path::Path>,
     command: &Command,
     result: &mut sailry_link::Response,
 ) -> Result<Option<Event>, Fault> {
@@ -231,7 +228,7 @@ pub(super) fn finish(
     if matches!(command, Command::InstallMcp { .. }) {
         db.execute_batch("SAVEPOINT mcp_install")
             .map_err(storage_error)?;
-        return match finish_package(db, command, result) {
+        return match finish_package(db, profile, command, result) {
             Ok(event) => {
                 db.execute_batch("RELEASE mcp_install")
                     .map_err(storage_error)?;
@@ -245,11 +242,12 @@ pub(super) fn finish(
             }
         };
     }
-    finish_package(db, command, result)
+    finish_package(db, profile, command, result)
 }
 
 fn finish_package(
     db: &Connection,
+    profile: Option<&std::path::Path>,
     command: &Command,
     result: &mut sailry_link::Response,
 ) -> Result<Option<Event>, Fault> {
@@ -364,6 +362,9 @@ fn finish_package(
         services::apply(db, previous, false)?;
     }
     save(db, info, true)?;
+    if connectors::migrate(db, profile, info)? {
+        super::database::validation::stored(db).map_err(storage_error)?;
+    }
     policy::migrate(db, info)?;
     services::apply(db, info, info.summary.enabled)?;
     super::agent::continuation::invalidate(db, name)?;
@@ -385,16 +386,6 @@ pub(super) fn execute(
     command: &Command,
 ) -> Result<(Output, Option<Event>), Fault> {
     match command {
-        Command::ReadPluginAuthorization { package } => {
-            Ok((Output::PluginAuthorization(oauth::read(db, package)?), None))
-        }
-        Command::RevokePluginAuthorization { package } => {
-            let info = oauth::revoke(db, package)?;
-            Ok((
-                Output::PluginAuthorization(oauth::read(db, &info.summary.reference())?),
-                Some(Event::PluginChanged(info.summary)),
-            ))
-        }
         Command::ListPluginModels => Ok((Output::PluginModels(models::catalog(db)?), None)),
         Command::ResolvePluginModel {
             model,
@@ -404,25 +395,6 @@ pub(super) fn execute(
             Output::SessionConfig(models::session(db, model, *effort, config.as_ref())?),
             None,
         )),
-        Command::ReadMcpAuthorization { package, server } => Ok((
-            Output::McpAuthorization(authorization::read(db, package, server)?),
-            None,
-        )),
-        Command::ReadPluginConnection { package, card } => Ok((
-            Output::PluginConnection(connection::read(db, package, card)?),
-            None,
-        )),
-        Command::RevokeMcpAuthorization { package, server } => {
-            let info = authorization::revoke(db, package, server)?;
-            Ok((
-                Output::McpAuthorization(authorization::read(
-                    db,
-                    &info.summary.reference(),
-                    server,
-                )?),
-                Some(Event::PluginChanged(info.summary)),
-            ))
-        }
         Command::ReadPluginSettings { package } => {
             Ok((Output::PluginSettings(settings::read(db, package)?), None))
         }

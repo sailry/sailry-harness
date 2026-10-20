@@ -643,11 +643,11 @@ mod removed_defaults {
             ErrorCode::NotFound
         );
         assert!(matches!(
-            execute(client, Command::ReadKnowledgeSettings).await,
-            Output::KnowledgeSettings(_)
+            execute(client, Command::ReadLocalModelSettings).await,
+            Output::LocalModelSettings(_)
         ));
         assert!(
-            matches!(execute(client, Command::ReadKnowledgeModels).await, Output::KnowledgeModels(models) if !models.is_empty())
+            matches!(execute(client, Command::ReadLocalModels { kind: Some(sailry_protocol::models::Kind::Embedding) }).await, Output::LocalModels(models) if !models.is_empty())
         );
     }
 

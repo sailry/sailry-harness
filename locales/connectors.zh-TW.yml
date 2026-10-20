@@ -1,0 +1,36 @@
+settings_connectors: "連接器"
+connector_search: "搜尋連接器"
+connector_empty: "暫無連線"
+connector_not_connected: "未連線"
+connector_expired: "已過期"
+connector_confirmation: "需要確認"
+connector_failed: "連線失敗"
+connector_unknown: "結果尚未確認，請先檢查連線再重試"
+connector_conflict: "連線已變更，請重新開啟"
+connector_reconnect: "重新登入"
+connector_probe: "檢查連線"
+connector_disconnect: "中斷連線"
+connector_consent_effect: "繼續前請確認授權目標的變更"
+connector_remove_effect: "刪除 %{name} 的連線及憑證"
+connector_confirm: "確認"
+connector_preview: "預覽"
+connector_saved: "已儲存"
+connector_configured: "已設定"
+connector_browser: "在瀏覽器中授權"
+connector_register: "建立應用程式"
+connector_authorize: "授權"
+connector_connect: "連線"
+connector_add: "新增連接器"
+connector_token: "權杖"
+connector_cli: "本機 CLI"
+connector_oauth: "OAuth"
+connector_application: "應用程式憑證"
+connector_cli_capability: "執行本機命令"
+
+connector_changed_origins: 來源
+connector_changed_scopes: 權限範圍
+connector_changed_client: 用戶端
+connector_changed_flow: 登入流程
+connector_changed_targets: 憑證目標
+connector_changed_mcp: MCP 服務
+connector_changed_source: 外掛來源

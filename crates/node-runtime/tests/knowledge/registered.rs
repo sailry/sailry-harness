@@ -2,9 +2,10 @@ use super::*;
 use sailry_protocol::models::Definition as ModelDefinition;
 
 mod fixture;
+mod upgrade;
 
-async fn register(client: &Client, definition: &ModelDefinition) -> Model {
-    let request = client.prepare(Command::RegisterKnowledgeModel {
+async fn register(client: &Client, definition: &ModelDefinition) -> String {
+    let request = client.prepare(Command::RegisterLocalModel {
         definition: definition.clone(),
     });
     let admission = client.dispatch(request.clone()).await.unwrap();
@@ -15,15 +16,15 @@ async fn register(client: &Client, definition: &ModelDefinition) -> Model {
         client.outcome(&request).await.unwrap(),
         RequestOutcome::Completed(Box::new(Ok(output.clone())))
     );
-    let Output::KnowledgeModel { model } = output else {
+    let Output::LocalModel { id: model } = output else {
         panic!("registered model expected")
     };
-    assert!(matches!(model, Model::Registered { .. }));
+    assert!(sailry_protocol::models::valid_id(&model) && model.len() == 64);
     // Read immediately rather than waiting for the background catalog observer.
     let info = models(client)
         .await
         .into_iter()
-        .find(|info| info.model == model)
+        .find(|info| info.id == model)
         .unwrap();
     let mut normalized = definition.clone();
     normalized
@@ -34,14 +35,20 @@ async fn register(client: &Client, definition: &ModelDefinition) -> Model {
 }
 
 async fn models(client: &Client) -> Vec<ModelInfo> {
-    let Output::KnowledgeModels(models) = execute(client, Command::ReadKnowledgeModels).await
+    let Output::LocalModels(models) = execute(
+        client,
+        Command::ReadLocalModels {
+            kind: Some(sailry_protocol::models::Kind::Embedding),
+        },
+    )
+    .await
     else {
         panic!("models expected")
     };
     models
 }
 
-async fn ready(client: &Client, id: KnowledgeId, model: Option<Model>) -> Collection {
+async fn ready(client: &Client, id: KnowledgeId, model: Option<String>) -> Collection {
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
             let collection = list(client)
@@ -67,12 +74,12 @@ async fn ready(client: &Client, id: KnowledgeId, model: Option<Model>) -> Collec
     .expect("registered model corpus reached ready state")
 }
 
-async fn semantic(client: &Client, id: KnowledgeId, model: Model) {
+async fn semantic(client: &Client, id: KnowledgeId, model: String) {
     let mut input = query("alpha", id);
     input.mode = Mode::Semantic;
     let page = search(client, None, input).await;
     assert_eq!(page.mode, Mode::Semantic);
-    assert_eq!(page.model, Some(model));
+    assert_eq!(page.model, Some(model.clone()));
     assert!(!page.indexing);
     assert!(!page.hits.is_empty());
     let first = &page.hits[0];
@@ -95,12 +102,12 @@ async fn shares_installation_restore_and_isolated_removal() {
         let mut reordered = first.definition.clone();
         reordered.assets.reverse();
         assert_eq!(register(&client, &reordered).await, first_model);
-        assert_eq!(models(&client).await.len(), Model::ALL.len() + 1);
+        assert_eq!(models(&client).await.len(), 3 + 1);
         assert_eq!(
             models(&client)
                 .await
                 .iter()
-                .find(|info| info.model == first_model)
+                .find(|info| info.id == first_model)
                 .unwrap()
                 .state,
             ModelState::Missing
@@ -109,14 +116,17 @@ async fn shares_installation_restore_and_isolated_removal() {
         let second_model = register(&client, &second.definition).await;
         assert_ne!(first_model, second_model);
         let profile = fixture.temp.path().join("node");
-        let first_path = first.seed(&profile, first_model);
-        let second_path = second.seed(&profile, second_model);
-        for (model, path) in [(first_model, &first_path), (second_model, &second_path)] {
-            let request = client.prepare(Command::InstallKnowledgeModel { model });
+        let first_path = first.seed(&profile, &first_model);
+        let second_path = second.seed(&profile, &second_model);
+        for (model, path) in [
+            (first_model.clone(), &first_path),
+            (second_model.clone(), &second_path),
+        ] {
+            let request = client.prepare(Command::InstallLocalModel { id: model.clone() });
             let admission = client.dispatch(request.clone()).await.unwrap();
             assert!(admission.receipt.durable);
             let output = admission.completion.await.unwrap().unwrap();
-            assert_eq!(output, Output::KnowledgeModel { model });
+            assert_eq!(output, Output::LocalModel { id: model.clone() });
             assert_eq!(client.execute(request).await.unwrap(), output);
             let Output::Installations(tasks) = execute(
                 &client,
@@ -137,28 +147,33 @@ async fn shares_installation_restore_and_isolated_removal() {
                 models(&client)
                     .await
                     .iter()
-                    .find(|info| info.model == model)
+                    .find(|info| info.id.as_str() == model.as_str())
                     .unwrap()
                     .state,
                 ModelState::Installed
             );
         }
-        let Output::KnowledgeSettings(previous) =
-            execute(&client, Command::ReadKnowledgeSettings).await
+        let Output::LocalModelSettings(previous) =
+            execute(&client, Command::ReadLocalModelSettings).await
         else {
             panic!("settings expected")
         };
         let mut selected = previous.clone();
-        selected.model = Some(first_model);
-        let Output::KnowledgeSettings(selected) =
-            execute(&client, Command::SaveKnowledgeSettings(selected)).await
+        select_model(&mut selected, Some(first_model.clone()));
+        let Output::LocalModelSettings(selected) =
+            execute(&client, Command::SaveLocalModelSettings(selected)).await
         else {
             panic!("settings expected")
         };
-        assert_eq!(selected.model, Some(first_model));
+        assert_eq!(
+            selected
+                .choice(sailry_protocol::models::Kind::Embedding)
+                .model,
+            Some(first_model.clone())
+        );
         assert_eq!(
             client
-                .execute(client.prepare(Command::SaveKnowledgeSettings(previous)))
+                .execute(client.prepare(Command::SaveLocalModelSettings(previous)))
                 .await
                 .unwrap_err()
                 .code,
@@ -183,7 +198,7 @@ async fn shares_installation_restore_and_isolated_removal() {
         );
         let mut pinned = following.definition.clone();
         pinned.name = "Second registered model".into();
-        pinned.model = Some(second_model);
+        pinned.model = Some(second_model.clone());
         let pinned = saved(
             execute(
                 &client,
@@ -194,10 +209,10 @@ async fn shares_installation_restore_and_isolated_removal() {
             )
             .await,
         );
-        ready(&client, following.id, Some(first_model)).await;
-        ready(&client, pinned.id, Some(second_model)).await;
-        semantic(&client, following.id, first_model).await;
-        semantic(&client, pinned.id, second_model).await;
+        ready(&client, following.id, Some(first_model.clone())).await;
+        ready(&client, pinned.id, Some(second_model.clone())).await;
+        semantic(&client, following.id, first_model.clone()).await;
+        semantic(&client, pinned.id, second_model.clone()).await;
         let context = install(
             &client,
             &fixture.root,
@@ -208,13 +223,19 @@ async fn shares_installation_restore_and_isolated_removal() {
         )
         .await;
         for command in [
-            Command::RegisterKnowledgeModel {
+            Command::RegisterLocalModel {
                 definition: first.definition.clone(),
             },
-            Command::InstallKnowledgeModel { model: first_model },
-            Command::DeleteKnowledgeModel { model: first_model },
-            Command::CancelKnowledgeModel { model: first_model },
-            Command::SaveKnowledgeSettings(selected.clone()),
+            Command::InstallLocalModel {
+                id: first_model.clone(),
+            },
+            Command::DeleteLocalModel {
+                id: first_model.clone(),
+            },
+            Command::CancelLocalModel {
+                id: first_model.clone(),
+            },
+            Command::SaveLocalModelSettings(selected.clone()),
         ] {
             assert_eq!(
                 client
@@ -246,33 +267,45 @@ async fn shares_installation_restore_and_isolated_removal() {
         };
         assert_eq!(models(&client).await, before);
         assert_eq!(
-            execute(&client, Command::ReadKnowledgeSettings).await,
-            Output::KnowledgeSettings(selected)
+            execute(&client, Command::ReadLocalModelSettings).await,
+            Output::LocalModelSettings(selected)
         );
         assert_eq!(register(&client, &first.definition).await, first_model);
-        ready(&client, following.id, Some(first_model)).await;
-        ready(&client, pinned.id, Some(second_model)).await;
-        semantic(&client, following.id, first_model).await;
-        let request = client.prepare(Command::DeleteKnowledgeModel { model: first_model });
+        ready(&client, following.id, Some(first_model.clone())).await;
+        ready(&client, pinned.id, Some(second_model.clone())).await;
+        semantic(&client, following.id, first_model.clone()).await;
+        let request = client.prepare(Command::DeleteLocalModel {
+            id: first_model.clone(),
+        });
         let admission = client.dispatch(request.clone()).await.unwrap();
         assert!(admission.receipt.durable);
         assert_eq!(
             admission.completion.await.unwrap().unwrap(),
-            Output::KnowledgeModel { model: first_model }
+            Output::LocalModel {
+                id: first_model.clone()
+            }
         );
         assert_eq!(
             client.execute(request).await.unwrap(),
-            Output::KnowledgeModel { model: first_model }
+            Output::LocalModel {
+                id: first_model.clone()
+            }
         );
         let after = models(&client).await;
         assert_eq!(after.len(), before.len());
-        for model in [first_model, second_model] {
-            let old = before.iter().find(|info| info.model == model).unwrap();
-            let new = after.iter().find(|info| info.model == model).unwrap();
+        for model in [&first_model, &second_model] {
+            let old = before
+                .iter()
+                .find(|info| info.id.as_str() == model.as_str())
+                .unwrap();
+            let new = after
+                .iter()
+                .find(|info| info.id.as_str() == model.as_str())
+                .unwrap();
             assert_eq!(new.definition, old.definition);
             assert_eq!(
                 new.state,
-                if model == first_model {
+                if model == &first_model {
                     ModelState::Missing
                 } else {
                     ModelState::Installed
@@ -286,8 +319,8 @@ async fn shares_installation_restore_and_isolated_removal() {
         assert_eq!(fallback.mode, Mode::Keyword);
         assert_eq!(fallback.model, None);
         assert!(fallback.hits.iter().any(|hit| hit.text.contains("alpha")));
-        ready(&client, pinned.id, Some(second_model)).await;
-        semantic(&client, pinned.id, second_model).await;
+        ready(&client, pinned.id, Some(second_model.clone())).await;
+        semantic(&client, pinned.id, second_model.clone()).await;
         assert_eq!(
             fs::read_to_string(root.join("corpus/alpha.txt")).unwrap(),
             "alpha"
@@ -318,10 +351,10 @@ async fn preserves_prefixes_through_registration_and_retrieval() {
         other.query_prefix = None;
         assert_ne!(register(&client, &other).await, model);
         let profile = fixture.temp.path().join("node");
-        assets.seed(&profile, model);
+        assets.seed(&profile, &model);
         assert_eq!(
-            execute(&client, Command::InstallKnowledgeModel { model }).await,
-            Output::KnowledgeModel { model }
+            execute(&client, Command::InstallLocalModel { id: model.clone() }).await,
+            Output::LocalModel { id: model.clone() }
         );
         let corpus = fixture.root.join("prefixes");
         fs::create_dir(&corpus).unwrap();
@@ -331,7 +364,7 @@ async fn preserves_prefixes_through_registration_and_retrieval() {
             worktree: fixture.worktree,
             path: "prefixes".into(),
         });
-        definition.model = Some(model);
+        definition.model = Some(model.clone());
         let collection = saved(
             execute(
                 &client,
@@ -342,12 +375,12 @@ async fn preserves_prefixes_through_registration_and_retrieval() {
             )
             .await,
         );
-        ready(&client, collection.id, Some(model)).await;
+        ready(&client, collection.id, Some(model.clone())).await;
         let mut input = query("alpha", collection.id);
         input.mode = Mode::Semantic;
         let page = search(&client, None, input).await;
         assert_eq!(page.mode, Mode::Semantic);
-        assert_eq!(page.model, Some(model));
+        assert_eq!(page.model, Some(model.clone()));
         assert_eq!(page.hits.len(), 2);
         assert_eq!(page.hits[0].text, "beta");
         assert_eq!(page.hits[0].score, 1_000_000);

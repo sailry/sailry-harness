@@ -70,8 +70,8 @@ impl Projection {
             | Update::Commands { .. }
             | Update::BrowserCall(_)
             | Update::ProviderLogin(_)
-            | Update::McpLogin(_)
-            | Update::PluginLogin(_)
+            | Update::ConnectorLogin(_)
+            | Update::ConnectionsChanged(_)
             | Update::FilesChanged { .. }
             | Update::ConversationSnapshot(_)
             | Update::ConversationFrame(_)
@@ -157,12 +157,10 @@ impl Projection {
                             *cursor = self.package_revision;
                         }
                     }
-                    Event::KnowledgeModelsChanged { .. }
-                    | Event::KnowledgeSettingsChanged { .. }
+                    Event::LocalModelsChanged { .. }
+                    | Event::LocalModelSettingsChanged { .. }
                     | Event::BackupSettingsChanged { .. }
                     | Event::PythonSettingsChanged { .. }
-                    | Event::OcrSettingsChanged { .. }
-                    | Event::OcrModelsChanged { .. }
                     | Event::KnowledgeCollectionsChanged => {}
                     Event::PluginRemoved { name } => {
                         self.package_cursors.remove(&name);

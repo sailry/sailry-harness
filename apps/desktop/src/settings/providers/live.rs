@@ -77,7 +77,7 @@ impl Workspace {
         {
             return;
         }
-        self.clear_knowledge(cx);
+        self.clear_models(cx);
         crate::installations::connected(binding.client.clone(), binding.runtime.clone(), cx);
         self.clear_backup(cx);
         self.extensions.release(cx);
@@ -93,17 +93,7 @@ impl Workspace {
         let metadata = cx.new(|_| {
             super::super::plugins::Metadata::new(binding.client.clone(), binding.runtime.clone())
         });
-        let authorization =
-            cx.new(|_| super::super::plugins::authorization::Capabilities::new(binding.clone()));
-        cx.observe(&authorization, |_, _, cx| cx.notify()).detach();
-        let capabilities = authorization.clone();
-        cx.observe(&metadata, move |_, metadata, cx| {
-            let entries: Vec<_> = metadata.read(cx).entries.values().cloned().collect();
-            capabilities.update(cx, |state, cx| state.accept(&entries, cx));
-            cx.notify();
-        })
-        .detach();
-        self.plugin_catalog.authorization = Some(authorization);
+        cx.observe(&metadata, |_, _, cx| cx.notify()).detach();
         self.plugin_catalog.metadata = Some(metadata);
         let stop = CancellationToken::new();
         let python = super::super::plugins::preparation::watch(&binding, &stop, cx);

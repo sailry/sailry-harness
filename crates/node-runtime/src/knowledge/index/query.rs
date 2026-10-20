@@ -9,7 +9,7 @@ impl Index {
         &self,
         query: &Query,
         allowed: &[Binding],
-        embeddings: &[(Model, Vec<f32>)],
+        embeddings: &[(String, Vec<f32>)],
         indexing: bool,
         cancel: &CancellationToken,
     ) -> Result<Page, Fault> {
@@ -30,7 +30,8 @@ impl Index {
             next_offset,
             mode,
             indexing,
-            model: (mode != Mode::Keyword && embeddings.len() == 1).then(|| embeddings[0].0),
+            model: (mode != Mode::Keyword && embeddings.len() == 1)
+                .then(|| embeddings[0].0.clone()),
             untrusted: true,
         })
     }
@@ -38,7 +39,7 @@ impl Index {
         &self,
         query: &Query,
         allowed: &[Binding],
-        embeddings: &[(Model, Vec<f32>)],
+        embeddings: &[(String, Vec<f32>)],
         any: &[String],
         cancel: &CancellationToken,
     ) -> Result<Vec<Hit>, Fault> {
@@ -55,7 +56,7 @@ impl Index {
         &self,
         query: &Query,
         allowed: &[Binding],
-        embeddings: &[(Model, Vec<f32>)],
+        embeddings: &[(String, Vec<f32>)],
         any: &[String],
         cancel: &CancellationToken,
     ) -> Result<(Vec<(String, f32)>, Mode), Fault> {
@@ -133,7 +134,7 @@ impl Index {
                         modified_after,
                         modified_before,
                         Option::<String>::None,
-                        model.key(),
+                        model.as_str(),
                         integer(values.len())?,
                         any
                     ],

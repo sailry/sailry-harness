@@ -83,16 +83,16 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     #[serde(deny_unknown_fields)]
                     struct Input {
                         target: sailry_protocol::installation::Target,
-                        kind: sailry_protocol::models::Kind,
+                        kind: Option<sailry_protocol::models::Kind>,
                     }
                     let input: Input = serde_json::from_value(value)
                         .map_err(|_| Fault::invalid("invalid model list"))?;
                     if input.target != sailry_protocol::installation::Target::Node
-                        || input.kind != sailry_protocol::models::Kind::Ocr
+                        || input.kind == Some(sailry_protocol::models::Kind::Speech)
                     {
-                        return Err(Fault::invalid("Node OCR model list required"));
+                        return Err(Fault::invalid("Node local model list required"));
                     }
-                    value = json!(Command::ReadOcrModels);
+                    value = json!(Command::ReadLocalModels { kind: input.kind });
                 }
                 if operation == "knowledge.create" {
                     let draft: sailry_protocol::knowledge::Draft = serde_json::from_value(value)
@@ -151,8 +151,11 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             | "continue_turn"
                             | "rebuild_knowledge_collection"
                             | "delete_knowledge_collection"
+                            | "start_connector_login"
                     )
-                ) && let Some(revision) = value.pointer_mut("/data/expected_revision")
+                ) && let Some(revision) = value
+                    .pointer_mut("/data/expected_revision")
+                    .filter(|value| !value.is_null())
                 {
                     let parsed = if let Some(text) = revision.as_str() {
                         text.parse::<u64>()
@@ -218,10 +221,8 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                             | Command::RemovePluginValue { .. }
                             | Command::WritePluginConversationValue { .. }
                             | Command::RemovePluginConversationValue { .. }
-                            | Command::RegisterOcrModel { .. }
-                            | Command::RegisterKnowledgeModel { .. }
-                            | Command::InstallOcrModel { .. }
-                            | Command::InstallKnowledgeModel { .. }
+                            | Command::RegisterLocalModel { .. }
+                            | Command::InstallLocalModel { .. }
                     )
                     && !matches!(&command, Command::PluginTransaction { operations }
                         if operations.iter().all(|operation| matches!(operation,
@@ -306,7 +307,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                 // Business faults remain explicit outcomes, matching the desktop SDK.
                 if matches!(
                     request.command,
-                    Command::InstallOcrModel { .. } | Command::InstallKnowledgeModel { .. }
+                    Command::InstallLocalModel { .. }
                 ) {
                     if !self.installations.contains(&request.id)
                         && self.installations.len() >= sailry_protocol::installation::MAX_REQUESTS
@@ -365,6 +366,10 @@ fn allowed(command: &Command) -> bool {
     matches!(
         command,
         Command::RequestProviderHttp { .. }
+            | Command::ListConnectorTypes
+            | Command::ListConnections
+            | Command::StartConnectorLogin { .. }
+            | Command::CancelConnectorLogin { .. }
             | Command::ExecuteProviderHttp { .. }
             | Command::PluginTransaction { .. }
             | Command::ListRoles
@@ -384,11 +389,9 @@ fn allowed(command: &Command) -> bool {
             | Command::SearchModels(_)
             | Command::ReadModelVersions { .. }
             | Command::ResolveModel { .. }
-            | Command::ReadOcrModels
-            | Command::RegisterOcrModel { .. }
-            | Command::RegisterKnowledgeModel { .. }
-            | Command::InstallOcrModel { .. }
-            | Command::InstallKnowledgeModel { .. }
+            | Command::ReadLocalModels { .. }
+            | Command::RegisterLocalModel { .. }
+            | Command::InstallLocalModel { .. }
             | Command::ReadInstallations { .. }
             | Command::DismissInstallation { .. }
             | Command::ReadPluginValue { .. }
@@ -408,7 +411,6 @@ fn allowed(command: &Command) -> bool {
             | Command::RemovePluginValue { .. }
             | Command::RemovePluginConversationValue { .. }
             | Command::ReadPluginSettings { .. }
-            | Command::ReadMcpAuthorization { .. }
             | Command::ReadPluginConnection { .. }
             | Command::PublishNotification { .. }
             | Command::Dispatch { .. }

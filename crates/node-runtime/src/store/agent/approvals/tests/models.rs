@@ -42,7 +42,7 @@ fn fixture(mode: WorkMode) -> (Fixture, Binding, Command) {
     (
         fixture,
         binding,
-        Command::DeleteOcrModel { id: "a".repeat(64) },
+        Command::DeleteLocalModel { id: "a".repeat(64) },
     )
 }
 
@@ -61,7 +61,7 @@ fn removal_consumes_exact_claimed_command() {
             session: Some(run.session),
         });
     assert_eq!(
-        crate::store::ocr::approvals::check(&fixture.database.connection, &request)
+        crate::store::local_models::approvals::check(&fixture.database.connection, &request)
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -82,12 +82,15 @@ fn removal_consumes_exact_claimed_command() {
         Some(&command),
     )
     .unwrap();
-    assert!(crate::store::ocr::approvals::check(&fixture.database.connection, &request).is_ok());
+    assert!(
+        crate::store::local_models::approvals::check(&fixture.database.connection, &request)
+            .is_ok()
+    );
     assert!(crate::store::resources::prepare(&fixture.database, &request).is_ok());
     let mut changed = request.clone();
-    changed.command = Command::DeleteOcrModel { id: "b".repeat(64) };
+    changed.command = Command::DeleteLocalModel { id: "b".repeat(64) };
     assert_eq!(
-        crate::store::ocr::approvals::check(&fixture.database.connection, &changed)
+        crate::store::local_models::approvals::check(&fixture.database.connection, &changed)
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -95,7 +98,7 @@ fn removal_consumes_exact_claimed_command() {
     changed = request.clone();
     changed.id = RequestId::new();
     assert_eq!(
-        crate::store::ocr::approvals::check(&fixture.database.connection, &changed)
+        crate::store::local_models::approvals::check(&fixture.database.connection, &changed)
             .unwrap_err()
             .code,
         ErrorCode::PermissionDenied
@@ -111,7 +114,7 @@ fn removal_consumes_exact_claimed_command() {
             _ => unreachable!(),
         }
         assert_eq!(
-            crate::store::ocr::approvals::check(&fixture.database.connection, &changed)
+            crate::store::local_models::approvals::check(&fixture.database.connection, &changed)
                 .unwrap_err()
                 .code,
             ErrorCode::PermissionDenied
@@ -121,7 +124,7 @@ fn removal_consumes_exact_claimed_command() {
     assert!(canonical.matches(&command).unwrap());
     assert!(
         !canonical
-            .matches(&Command::DeleteOcrModel { id: "c".repeat(64) })
+            .matches(&Command::DeleteLocalModel { id: "c".repeat(64) })
             .unwrap()
     );
 }
@@ -148,7 +151,7 @@ fn preserves_installation_policy() {
     let (fixture, binding, _) = fixture(WorkMode::Code);
     let request = Request::new(
         fixture.database.node,
-        Command::InstallOcrModel { id: "a".repeat(64) },
+        Command::InstallLocalModel { id: "a".repeat(64) },
     )
     .with_plugin(plugin::Context {
         invocation: None,
@@ -158,12 +161,15 @@ fn preserves_installation_policy() {
         worktree: None,
         session: None,
     });
-    assert!(crate::store::ocr::approvals::check(&fixture.database.connection, &request).is_ok());
+    assert!(
+        crate::store::local_models::approvals::check(&fixture.database.connection, &request)
+            .is_ok()
+    );
     let prepared = Prepared::new(&request.command).unwrap().unwrap();
     assert!(prepared.matches(&request.command).unwrap());
     assert!(
         !prepared
-            .matches(&Command::InstallOcrModel { id: "b".repeat(64) })
+            .matches(&Command::InstallLocalModel { id: "b".repeat(64) })
             .unwrap()
     );
 }
