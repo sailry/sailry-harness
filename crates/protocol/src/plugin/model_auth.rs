@@ -349,6 +349,10 @@ pub struct Transformation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Endpoint {
+    /// Shared freshness for an explicitly cached read-only provider resource.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 900000))]
+    pub cache_ttl_ms: Option<u32>,
     pub url: String,
     #[serde(default)]
     pub method: Method,
@@ -363,6 +367,9 @@ pub struct Endpoint {
 impl Endpoint {
     pub fn valid(&self) -> bool {
         endpoint(&self.url)
+            && self
+                .cache_ttl_ms
+                .is_none_or(|ttl| (1..=900_000).contains(&ttl))
     }
 }
 
@@ -550,5 +557,26 @@ mod tests {
             .clear();
         declaration.mutations.get_mut("claim").unwrap().url = "https://{input.host}/claim".into();
         assert!(!declaration.valid());
+    }
+    #[test]
+    fn preserves_uncached_endpoint_shape() {
+        let value = json!({"url":"https://example.test/usage","method":"GET","headers":{},"query":{},"body":null});
+        let endpoint: Endpoint = serde_json::from_value(value.clone()).unwrap();
+        assert!(endpoint.valid());
+        assert_eq!(serde_json::to_value(endpoint).unwrap(), value);
+        for ttl in [1, 60000, 180000, 900000] {
+            let endpoint: Endpoint = serde_json::from_value(
+                json!({"url":"https://example.test/usage","cache_ttl_ms":ttl}),
+            )
+            .unwrap();
+            assert!(endpoint.valid());
+        }
+        for ttl in [0, 900001] {
+            let endpoint: Endpoint = serde_json::from_value(
+                json!({"url":"https://example.test/usage","cache_ttl_ms":ttl}),
+            )
+            .unwrap();
+            assert!(!endpoint.valid());
+        }
     }
 }

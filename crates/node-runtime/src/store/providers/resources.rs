@@ -55,7 +55,7 @@ pub(in crate::store) fn prepare(
         if !crate::providers::login::resource_endpoint(provider.authentication, &endpoint.url) {
             return Err(denied());
         }
-        return prepare_endpoint(endpoint, input, provider);
+        return prepare_endpoint(endpoint, input, provider, Some((&context.package, name)));
     }
     let binding = provider.binding.as_ref().ok_or_else(denied)?;
     let package = binding.package.as_ref().ok_or_else(denied)?;
@@ -91,13 +91,19 @@ pub(in crate::store) fn prepare(
             "provider resource is not declared",
         )
     })?;
-    prepare_endpoint(endpoint, input, provider)
+    prepare_endpoint(
+        endpoint,
+        input,
+        provider,
+        (!mutation).then_some((&context.package, name)),
+    )
 }
 
 fn prepare_endpoint(
     endpoint: &plugin::model_auth::Endpoint,
     input: &std::collections::BTreeMap<String, String>,
     provider: Provider,
+    cache: Option<(&plugin::Reference, &str)>,
 ) -> Result<crate::plugins::http::Input, Fault> {
     let fields = input
         .iter()
@@ -108,7 +114,11 @@ fn prepare_endpoint(
             Ok((format!("input.{name}"), Secret::new(value.clone())))
         })
         .collect::<Result<_, Fault>>()?;
-    crate::plugins::http::prepare_provider(endpoint, &fields, provider)
+    let mut prepared = crate::plugins::http::prepare_provider(endpoint, &fields, provider)?;
+    if let Some((package, name)) = cache {
+        crate::plugins::http::provider::cache(&mut prepared, package, name, endpoint.cache_ttl_ms)?;
+    }
+    Ok(prepared)
 }
 
 fn denied() -> Fault {

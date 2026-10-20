@@ -12,7 +12,7 @@ use sailry_protocol::{
     },
 };
 use std::{collections::BTreeMap, time::Duration};
-mod provider;
+pub(crate) mod provider;
 pub(crate) use provider::prepare as prepare_provider;
 
 pub(crate) struct Input {
@@ -24,6 +24,7 @@ pub(crate) struct Input {
     pub(crate) oauth: Option<super::oauth::Target>,
     application: Option<super::applications::Target>,
     provider: Option<Box<sailry_protocol::conversation::Provider>>,
+    cache: Option<provider::cache::Policy>,
 }
 
 fn unknown(message: &str) -> Fault {
@@ -206,6 +207,7 @@ pub(crate) fn prepare(
         oauth: None,
         application,
         provider: None,
+        cache: None,
     })
 }
 
@@ -214,7 +216,7 @@ pub(crate) async fn run(
     ingress: &crate::store::Ingress,
     stop: CancellationToken,
 ) -> Result<http::Response, Fault> {
-    let protection = provider::authorize(&mut input, ingress, &stop).await?;
+    let authorization = provider::authorize(&mut input, ingress, &stop).await?;
     if let Some(target) = &input.application {
         let value = tokio::select! {
             biased;
@@ -234,7 +236,23 @@ pub(crate) async fn run(
         let value = ingress.oauth.access(ingress, target, &stop).await?;
         insert(&mut input.headers, target.header.clone(), value)?;
     }
-    send(input, protection, stop).await
+    if let (Some(policy), Some(authorization)) = (input.cache.take(), authorization.as_ref()) {
+        let key = policy.key(&authorization.credential);
+        let protection = authorization.secrets.clone();
+        return ingress
+            .plugins
+            .provider_reads
+            .fetch(key, policy, &stop, || {
+                send(input, Some(protection), stop.clone())
+            })
+            .await;
+    }
+    send(
+        input,
+        authorization.map(|authorization| authorization.secrets),
+        stop,
+    )
+    .await
 }
 
 async fn send(

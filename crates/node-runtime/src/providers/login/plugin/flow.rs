@@ -88,6 +88,7 @@ where
                 let state = text(&started, &state)?.ok_or_else(invalid)?;
                 let url = text(&started, &verification_url)?.ok_or_else(invalid)?;
                 if !(model_auth::Endpoint {
+                    cache_ttl_ms: None,
                     url: url.expose().into(),
                     method: model_auth::Method::Get,
                     headers: BTreeMap::new(),
@@ -489,6 +490,7 @@ impl Device {
             .ok_or_else(invalid)?
             .to_string();
         if !(model_auth::Endpoint {
+            cache_ttl_ms: None,
             url: url.clone(),
             method: model_auth::Method::Get,
             headers: BTreeMap::new(),

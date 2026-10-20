@@ -2,6 +2,13 @@
 use super::*;
 use sailry_protocol::{Secret, conversation::Provider, plugin::model_auth};
 
+pub(crate) mod cache;
+
+pub(super) struct Authorized {
+    pub(super) secrets: Vec<Secret>,
+    pub(super) credential: sailry_protocol::Credential,
+}
+
 pub(crate) fn prepare(
     endpoint: &model_auth::Endpoint,
     fields: &BTreeMap<String, Secret>,
@@ -57,14 +64,51 @@ pub(crate) fn prepare(
         oauth: None,
         application: None,
         provider: Some(Box::new(provider)),
+        cache: None,
     })
+}
+
+pub(crate) fn cache(
+    input: &mut Input,
+    package: &sailry_protocol::plugin::Reference,
+    name: &str,
+    ttl_ms: Option<u32>,
+) -> Result<(), Fault> {
+    let Some(ttl_ms) = ttl_ms else { return Ok(()) };
+    if input.provider.is_none() {
+        return Err(Fault::invalid("provider resource is not bound"));
+    }
+    let headers = input
+        .headers
+        .iter()
+        .map(|(name, value)| {
+            value
+                .to_str()
+                .map(|value| (name.as_str(), value))
+                .map_err(|_| Fault::invalid("provider resource header is invalid"))
+        })
+        .collect::<Result<BTreeMap<_, _>, _>>()?;
+    let document = serde_json::to_vec(&(
+        package,
+        name,
+        input.url.as_str(),
+        input.method.as_str(),
+        headers,
+        &input.body,
+    ))
+    .map_err(|_| Fault::invalid("provider resource cache identity is invalid"))?;
+    input.cache = Some(cache::Policy::new(
+        *blake3::hash(&document).as_bytes(),
+        ttl_ms,
+    ));
+    Ok(())
 }
 
 pub(super) async fn authorize(
     input: &mut Input,
     ingress: &crate::store::Ingress,
     stop: &CancellationToken,
-) -> Result<Option<Vec<Secret>>, Fault> {
+) -> Result<Option<Authorized>, Fault> {
     let Some(provider) = input.provider.take() else {
         return Ok(None);
     };
@@ -73,7 +117,7 @@ pub(super) async fn authorize(
         .clone()
         .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "provider sign-in is required"))?;
     let options = crate::providers::login::effective(&provider)?;
-    let grant = ingress
+    let authorization = ingress
         .authorization(
             reference,
             provider.id,
@@ -81,8 +125,8 @@ pub(super) async fn authorize(
             &options,
             stop,
         )
-        .await?
-        .grant;
+        .await?;
+    let grant = authorization.grant;
     let headers = if provider.authentication == sailry_protocol::Authentication::Plugin {
         grant.headers(&options)?
     } else {
@@ -114,7 +158,10 @@ pub(super) async fn authorize(
         routed.set_query(input.url.query());
         input.url = routed;
     }
-    Ok(Some(secrets))
+    Ok(Some(Authorized {
+        secrets,
+        credential: authorization.credential,
+    }))
 }
 
 pub(super) fn protect(response: &mut http::Response, secrets: &[Secret]) -> Result<(), Fault> {

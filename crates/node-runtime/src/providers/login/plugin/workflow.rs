@@ -208,6 +208,7 @@ where
                     state: next,
                 } => {
                     if !(model_auth::Endpoint {
+                        cache_ttl_ms: None,
                         url: url.clone(),
                         method: model_auth::Method::Get,
                         headers: BTreeMap::new(),

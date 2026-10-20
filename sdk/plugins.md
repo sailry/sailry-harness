@@ -287,6 +287,15 @@ expose its protected credential values. This does not impose a public-IP-only
 policy on explicitly configured self-hosted endpoints. These reads do not retain
 durable request receipts and must not be used for state-changing operations.
 
+A read-only resource endpoint may declare `cache_ttl_ms` from 1 to 900000.
+The execution Node shares protected results and in-flight acquisition across
+controllers and conversations, keyed by the effective credential revision,
+calling package and resolved request. Authorization still runs on every read.
+Only successful HTTP responses remain fresh for that interval; overlapping
+failures are shared without replacing them with a prior success or delaying a
+later recheck. Omit the field for live status checks. This policy never caches
+mutations or general HTTP requests.
+
 State-changing endpoints belong in the declaration’s optional `mutations` map.
 `prepareProviderHttp(provider, revision, name, input)` prepares a stable request ID;
 `completeRequest(id)` uses the ordinary durable admission and completion path.

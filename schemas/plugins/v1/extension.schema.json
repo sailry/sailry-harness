@@ -1246,6 +1246,16 @@
           ],
           "default": null
         },
+        "cache_ttl_ms": {
+          "description": "Shared freshness for an explicitly cached read-only provider resource.",
+          "format": "uint32",
+          "maximum": 900000,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "headers": {
           "additionalProperties": {
             "type": "string"

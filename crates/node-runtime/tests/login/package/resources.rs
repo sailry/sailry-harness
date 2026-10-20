@@ -385,7 +385,7 @@ async fn executes_declared_mutations_once() {
             .as_array_mut()
             .unwrap()
             .push(json!("http.request"));
-        manifest["extensions"]["dev.sailry.platform"]["model_auth"][0]["mutations"] = json!({"claim":{"url":"https://resource.example.test/claim","method":"POST","headers":{"Content-Type":"application/json"},"body":{"kind":"json","value":{"date":"{input.date}"}}}});
+        manifest["extensions"]["dev.sailry.platform"]["model_auth"][0]["mutations"] = json!({"claim":{"url":"https://resource.example.test/claim","cache_ttl_ms":60000,"method":"POST","headers":{"Content-Type":"application/json"},"body":{"kind":"json","value":{"date":"{input.date}"}}}});
         std::fs::write(path, manifest.to_string()).unwrap();
         let Output::Snapshot(snapshot) = execute(&fixture.client, Command::Snapshot).await else {
             panic!("snapshot expected")
@@ -453,6 +453,21 @@ async fn executes_declared_mutations_once() {
             result
         );
         assert_eq!(effects.load(Ordering::SeqCst), 1);
+        // A new durable identity is a new operation, even with a cache hint.
+        assert_eq!(
+            fixture
+                .client
+                .execute(
+                    fixture
+                        .client
+                        .prepare(command(provider.revision))
+                        .with_plugin(context.clone())
+                )
+                .await
+                .unwrap(),
+            result
+        );
+        assert_eq!(effects.load(Ordering::SeqCst), 2);
         let stale = fixture
             .client
             .prepare(command(provider.revision + 1))
@@ -506,7 +521,7 @@ async fn executes_declared_mutations_once() {
                 .code,
             ErrorCode::PermissionDenied
         );
-        assert_eq!(effects.load(Ordering::SeqCst), 1);
+        assert_eq!(effects.load(Ordering::SeqCst), 2);
         let unsafe_request = fixture
             .client
             .prepare(Command::ExecuteProviderHttp {
@@ -527,7 +542,7 @@ async fn executes_declared_mutations_once() {
             fixture.client.execute(unsafe_request).await.unwrap_err(),
             error
         );
-        assert_eq!(effects.load(Ordering::SeqCst), 2);
+        assert_eq!(effects.load(Ordering::SeqCst), 3);
         let db = rusqlite::Connection::open_with_flags(
             fixture.node.profile().join("storage/node.sqlite3"),
             rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,

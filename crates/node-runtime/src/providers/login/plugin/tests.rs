@@ -196,6 +196,7 @@ fn retains_refresh_and_extra_when_omitted() {
 #[test]
 fn retains_accounts_only_for_the_same_contract() {
     let endpoint = model_auth::Endpoint {
+        cache_ttl_ms: None,
         url: "https://auth.example.test/token".into(),
         method: model_auth::Method::Post,
         headers: BTreeMap::new(),
@@ -272,6 +273,7 @@ fn retains_accounts_only_for_the_same_contract() {
         Target {
             authorization: model_auth::Flow::TokenExchange {
                 token: model_auth::Endpoint {
+                    cache_ttl_ms: None,
                     url: "https://other.example.test/token".into(),
                     ..target.refresh.clone().unwrap()
                 },
@@ -302,6 +304,7 @@ fn retains_accounts_only_for_the_same_contract() {
 fn prepares_header_refresh_without_exposing_query_values() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let endpoint = model_auth::Endpoint {
+        cache_ttl_ms: None,
         url: "https://example.test/refresh".into(),
         method: model_auth::Method::Post,
         headers: BTreeMap::from([("X-Refresh-Token".into(), "{refresh}".into())]),
@@ -361,6 +364,7 @@ async fn distinguishes_an_undelivered_refresh() {
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     drop(listener);
     let request = model_auth::Endpoint {
+        cache_ttl_ms: None,
         url: "https://auth.example.test/refresh".into(),
         method: model_auth::Method::Post,
         headers: BTreeMap::new(),

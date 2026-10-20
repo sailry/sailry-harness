@@ -89,6 +89,7 @@ fn validates_device_progress_without_private_code() {
 fn preserves_declared_body_and_private_substitution() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let endpoint = model_auth::Endpoint {
+        cache_ttl_ms: None,
         url: "https://auth.example.test/token".into(),
         method: model_auth::Method::Post,
         headers: BTreeMap::new(),
