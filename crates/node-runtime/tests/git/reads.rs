@@ -13,7 +13,8 @@ async fn serves_concurrent_controllers() {
     let node = Node::start_empty(directory.path().join("node"))
         .await
         .unwrap();
-    let local = Client::new(node.local());
+    let reads = std::sync::Arc::new(sailry_client::git::Reads::default());
+    let local = Client::new(node.local()).with_git_reads(reads.clone());
     let worktree = worktree(&local, &root).await;
     let controller = Link::controller(directory.path().join("client"), NetworkScope::default())
         .await
@@ -23,11 +24,24 @@ async fn serves_concurrent_controllers() {
         .pair(node.link().invite().unwrap().ticket())
         .await
         .unwrap();
-    let remote = Client::new(controller.handle().remote(peer));
-    let (local, remote) = tokio::join!(read(&local, worktree), read(&remote, worktree));
+    let remote = Client::new(controller.handle().remote(peer)).with_git_reads(reads);
+    let other_root = directory.path().join("other-repository");
+    let other_repository = Repository::init(&other_root).unwrap();
+    other_repository.set_head("refs/heads/main").unwrap();
+    std::fs::write(other_root.join("note.txt"), "original").unwrap();
+    commit(&other_repository);
+    std::fs::write(other_root.join("note.txt"), "changed").unwrap();
+    let other_index = std::fs::read(other_repository.path().join("index")).unwrap();
+    let other_worktree = super::worktree(&local, &other_root).await;
+    let (local, remote, other_local, other_remote) = tokio::join!(
+        read(&local, worktree),
+        read(&remote, worktree),
+        read(&local, other_worktree),
+        read(&remote, other_worktree)
+    );
     node.shutdown().await.unwrap();
     controller.close().await.unwrap();
-    for [status, branches, log] in [local, remote] {
+    for [status, branches, log] in [local, remote, other_local, other_remote] {
         let Output::GitStatus(status) = status.unwrap() else {
             panic!("status expected")
         };
@@ -47,6 +61,14 @@ async fn serves_concurrent_controllers() {
     );
     assert_eq!(
         std::fs::read_to_string(root.join("note.txt")).unwrap(),
+        "changed"
+    );
+    assert_eq!(
+        std::fs::read(other_repository.path().join("index")).unwrap(),
+        other_index
+    );
+    assert_eq!(
+        std::fs::read_to_string(other_root.join("note.txt")).unwrap(),
         "changed"
     );
 }

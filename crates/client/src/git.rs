@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, Weak},
     time::Duration,
 };
-use tokio::sync::{Semaphore, watch};
+use tokio::sync::watch;
 
 type Response = Result<Output, Fault>;
 
@@ -17,7 +17,6 @@ pub struct Reads {
 
 struct Node {
     pending: Mutex<Vec<Weak<Flight>>>,
-    capacity: Semaphore,
 }
 
 struct Flight {
@@ -39,8 +38,6 @@ impl Reads {
             .or_insert_with(|| {
                 Arc::new(Node {
                     pending: Default::default(),
-                    // Queue distinct reads so views do not compete for the Node's worker slots.
-                    capacity: Semaphore::new(1),
                 })
             })
             .clone();
@@ -70,7 +67,7 @@ impl Reads {
                 let result = tokio::select! {
                     biased;
                     _ = sender.closed() => None,
-                    result = read(&node, &*transport, request) => Some(result),
+                    result = read(&*transport, request) => Some(result),
                 };
                 node.pending
                     .lock()
@@ -101,17 +98,10 @@ impl Reads {
     }
 }
 
-async fn read(node: &Node, transport: &dyn Transport, request: Request) -> Response {
+async fn read(transport: &dyn Transport, request: Request) -> Response {
     let mut delay = Duration::from_millis(250);
     loop {
-        let result = {
-            let _permit = node
-                .capacity
-                .acquire()
-                .await
-                .map_err(|_| Fault::new(ErrorCode::Unavailable, "Git reader closed"))?;
-            super::execute(transport, request.clone()).await
-        };
+        let result = super::execute(transport, request.clone()).await;
         if !matches!(&result, Err(error) if matches!(error.code, ErrorCode::Busy | ErrorCode::Unavailable))
         {
             return result;

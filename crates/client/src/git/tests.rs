@@ -7,6 +7,7 @@ use std::{
     future::{Future, poll_fn},
     task::Poll,
 };
+use tokio::sync::Semaphore;
 
 struct Backend {
     node: NodeId,
@@ -105,33 +106,34 @@ async fn coalesces_pending_reads() {
 }
 
 #[tokio::test]
-async fn queues_distinct_worktree_reads() {
-    let backend = Backend::new();
-    let client = backend.client(&Arc::default());
-    let first = Command::InspectGit {
-        worktree: WorktreeId::new(),
-    };
-    let second = Command::InspectGit {
-        worktree: WorktreeId::new(),
-    };
-    let (left, right, _) = tokio::join!(
-        client.execute(client.prepare(first)),
-        client.execute(client.prepare(second)),
-        async {
-            backend.entered().await;
-            tokio::task::yield_now().await;
-            assert_eq!(
-                backend.calls.lock().unwrap().len(),
-                1,
-                "distinct reads queue at the shared owner"
-            );
-            backend.release.add_permits(1);
-            backend.entered().await;
-            backend.release.add_permits(1);
-        }
-    );
-    assert_ne!(left.unwrap(), right.unwrap());
-    assert_eq!(backend.calls.lock().unwrap().len(), 2);
+async fn runs_distinct_reads_concurrently() {
+    let worktree = WorktreeId::new();
+    for second in [
+        Command::ListGitBranches { worktree },
+        Command::InspectGit {
+            worktree: WorktreeId::new(),
+        },
+    ] {
+        let backend = Backend::new();
+        let client = backend.client(&Arc::default());
+        let first = Command::InspectGit { worktree };
+        let (left, right, _) = tokio::join!(
+            client.execute(client.prepare(first)),
+            client.execute(client.prepare(second)),
+            async {
+                tokio::time::timeout(Duration::from_secs(1), async {
+                    backend.entered().await;
+                    backend.entered().await;
+                })
+                .await
+                .expect("distinct reads must enter before either finishes");
+                assert_eq!(backend.calls.lock().unwrap().len(), 2);
+                backend.release.add_permits(2);
+            }
+        );
+        assert_ne!(left.unwrap(), right.unwrap());
+        assert_eq!(backend.calls.lock().unwrap().len(), 2);
+    }
 }
 
 #[tokio::test]
@@ -237,7 +239,7 @@ async fn shares_read_lifetime() {
 }
 
 #[tokio::test]
-async fn cancellation_releases_queue() {
+async fn cancellation_releases_pending_reads() {
     let backend = Backend::new();
     let reads = Arc::default();
     let client = backend.client(&reads);
