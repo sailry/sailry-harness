@@ -8,6 +8,28 @@ use serde_json::{Value, json};
 mod claude;
 mod codex;
 
+// Adapters and observers consume the same immutable request capture, even when
+// another helper refreshes the credential while this request is in flight.
+#[derive(Clone)]
+struct Scope {
+    adapter: RequestAdapter,
+    observer: Option<ResponseObserver>,
+}
+tokio::task_local! { static REQUEST: Scope; }
+
+fn adapter(body: &mut Value, headers: &mut HeaderMap) -> Result<(), AdkError> {
+    REQUEST
+        .try_with(|scope| (scope.adapter)(body, headers))
+        .map_err(|_| invalid())?
+}
+fn observe(headers: &HeaderMap) {
+    let _ = REQUEST.try_with(|scope| {
+        if let Some(observer) = &scope.observer {
+            observer(headers);
+        }
+    });
+}
+
 pub(super) struct Model {
     pub(super) ingress: Arc<Ingress>,
     pub(super) provider: Provider,
@@ -47,6 +69,22 @@ impl Llm for Model {
             )
             .await
             .map_err(failure)?;
+        let mut provider = self.provider.clone();
+        provider.endpoint = authorized.grant.endpoint().to_owned();
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(endpoint) = &self.ingress.authorization_endpoint {
+            provider.endpoint = endpoint.clone();
+        }
+        let entry = pooled(
+            &self.ingress.model_clients,
+            &provider,
+            &self.config,
+            self.session,
+            self.effort,
+            &authorized,
+        )
+        .map_err(failure)?;
+        let authorized = entry.authorize(authorized);
         let observer = matches!(&authorized.grant, Grant::ChatGpt { .. }).then(|| {
             self.ingress
                 .quota_observer(self.provider.id, reference, authorized.credential.revision)
@@ -54,11 +92,9 @@ impl Llm for Model {
         let grant = authorized.grant;
         let claude_tools = matches!(&grant, Grant::ClaudeOAuth { .. })
             .then(|| request.tools.keys().cloned().collect::<Vec<_>>());
-        let mut provider = self.provider.clone();
-        provider.endpoint = grant.endpoint().to_owned();
         let base = grant.headers(&options).map_err(failure)?;
-        let secrets = grant.secrets(&base);
-        let (access, adapter, stream) = match grant {
+        let secrets = entry.protect(grant.secrets(&base));
+        let (_, adapter, stream) = match grant {
             Grant::Plugin { record, .. } => {
                 let adapter: RequestAdapter = Arc::new(move |_, headers| {
                     headers.extend(base.clone());
@@ -109,27 +145,67 @@ impl Llm for Model {
                 (access, adapter, stream)
             }
         };
-        // Test-only routing never changes persisted endpoints or production validation.
-        #[cfg(any(test, feature = "test-support"))]
-        if let Some(endpoint) = &self.ingress.authorization_endpoint {
-            provider.endpoint = endpoint.clone();
-        }
-        let model = native(
-            &provider,
-            &self.config,
-            access.expose(),
-            self.effort,
-            Some(adapter),
-            observer,
-        )
-        .map_err(failure)?;
-        let model = super::errors::wrap(model, secrets);
-        let responses = model.generate_content(request, stream).await?;
+        let model = super::errors::wrap(entry.inner.clone(), secrets);
+        let responses = scoped(Scope { adapter, observer }, model, request, stream).await?;
         Ok(match claude_tools {
             Some(tools) => claude::restore(responses, tools),
             None => responses,
         })
     }
+}
+
+fn pooled(
+    registry: &registry::Registry,
+    provider: &Provider,
+    config: &SessionConfig,
+    session: sailry_protocol::SessionId,
+    effort: Effort,
+    authorization: &crate::store::login::Authorization,
+) -> Result<Arc<registry::Entry>, Fault> {
+    let adapted = matches!(
+        provider.api,
+        ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::Anthropic
+    );
+    let fingerprint = registry::fingerprint(
+        provider,
+        config,
+        effort,
+        (!adapted).then_some(authorization.credential.revision),
+    )?;
+    // These native SDKs accept authorization only in their constructor.
+    let key = if adapted {
+        "oauth-placeholder"
+    } else {
+        authorization.grant.access().expose()
+    };
+    registry.get(session, fingerprint, || {
+        native(
+            provider,
+            config,
+            key,
+            effort,
+            Some(Arc::new(adapter)),
+            Some(Arc::new(observe)),
+        )
+    })
+}
+
+async fn scoped(
+    scope: Scope,
+    model: Arc<dyn Llm>,
+    request: LlmRequest,
+    stream: bool,
+) -> Result<LlmResponseStream, AdkError> {
+    let responses = REQUEST
+        .scope(scope.clone(), model.generate_content(request, stream))
+        .await?;
+    Ok(Box::pin(futures::stream::unfold(
+        (responses, scope),
+        |(mut responses, scope)| async move {
+            let response = REQUEST.scope(scope.clone(), responses.next()).await;
+            response.map(|response| (response, (responses, scope)))
+        },
+    )))
 }
 
 fn chatgpt(body: &mut Value) -> Result<(), AdkError> {

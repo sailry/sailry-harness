@@ -3,7 +3,45 @@ use adk_model::{
     gemini::{ThinkingConfig, ThinkingLevel},
     openai::OpenAIReasoningEffort,
 };
-use sailry_protocol::{Effort, Fault};
+use sailry_protocol::{
+    Effort, Fault,
+    conversation::{Model, ModelApi},
+};
+
+#[derive(Clone, Copy)]
+pub(super) struct Resolved {
+    pub effort: Effort,
+    pub summary: bool,
+}
+
+pub(super) fn resolve(
+    model: Option<&Model>,
+    api: ModelApi,
+    selected: Effort,
+) -> Result<Resolved, Fault> {
+    let known = model
+        .and_then(|model| model.capabilities.as_ref())
+        .and_then(|value| value.reasoning);
+    let effort = if known == Some(false) {
+        Effort::Default
+    } else if selected == Effort::Default {
+        model
+            .filter(|model| {
+                model.default_effort != Effort::Default
+                    && model.validate_effort(api, model.default_effort).is_ok()
+            })
+            .map_or(selected, |model| model.default_effort)
+    } else {
+        selected
+    };
+    effort.validate(api, model.map_or(0, |model| model.output))?;
+    Ok(Resolved {
+        effort,
+        summary: effort != Effort::Disabled
+            && known != Some(false)
+            && (model.is_some_and(|model| model.reasoning) || effort != Effort::Default),
+    })
+}
 
 fn unsupported() -> Fault {
     Fault::invalid("reasoning choice is unsupported by this API")
@@ -82,6 +120,38 @@ pub(super) fn gemini(effort: Effort) -> Result<Option<ThinkingConfig>, Fault> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolves_catalog_and_capability() {
+        let mut model: Model = serde_json::from_value(serde_json::json!({
+            "id":"fixture", "context":32000, "output":8192,
+            "efforts":["low","high"], "default_effort":"high"
+        }))
+        .unwrap();
+        let resolved = resolve(Some(&model), ModelApi::Responses, Effort::Default).unwrap();
+        assert_eq!(resolved.effort, Effort::High);
+        assert!(resolved.summary);
+        model.capabilities =
+            Some(serde_json::from_value(serde_json::json!({"reasoning":false})).unwrap());
+        let resolved = resolve(Some(&model), ModelApi::Responses, Effort::High).unwrap();
+        assert_eq!(resolved.effort, Effort::Default);
+        assert!(!resolved.summary);
+        assert!(
+            !resolve(None, ModelApi::Responses, Effort::Default)
+                .unwrap()
+                .summary
+        );
+        assert!(
+            resolve(None, ModelApi::Responses, Effort::High)
+                .unwrap()
+                .summary
+        );
+        assert!(
+            !resolve(None, ModelApi::Responses, Effort::Disabled)
+                .unwrap()
+                .summary
+        );
+    }
 
     #[test]
     fn deepseek_limits_effort() {

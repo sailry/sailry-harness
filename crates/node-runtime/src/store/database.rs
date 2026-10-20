@@ -19,6 +19,7 @@ pub(super) struct Database {
     pub(super) connection: Connection,
     pub(super) node: NodeId,
     pub(super) feeds: super::agent::Feeds,
+    pub(super) model_clients: std::sync::Arc<crate::agent::model::registry::Registry>,
     pub(super) approvals: super::agent::approvals::Waiting,
     pub(super) questions: super::agent::questions::Waiting,
     pub(super) profile: Option<std::path::PathBuf>,
@@ -246,6 +247,7 @@ impl Database {
             network_link: None,
             network_request: None,
             feeds: Default::default(),
+            model_clients: Default::default(),
             approvals: Default::default(),
             questions: Default::default(),
         })
@@ -846,6 +848,14 @@ impl Database {
         }
         for event in envelopes {
             match &event.event {
+                Event::SessionChanged(session) if session.archived => {
+                    self.model_clients.evict(session.id)
+                }
+                Event::SessionsRemoved(ids) => {
+                    for id in ids {
+                        self.model_clients.evict(*id);
+                    }
+                }
                 Event::PluginChanged(package) => {
                     super::agent::invalidate_package(self, &package.name)
                 }

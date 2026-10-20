@@ -16,7 +16,7 @@ mod forwarding;
 pub(crate) mod hooks;
 mod installations;
 pub(crate) mod knowledge;
-mod login;
+pub(crate) mod login;
 mod mcp;
 pub(crate) mod media;
 mod models;
@@ -281,7 +281,8 @@ enum Job {
     ResolveCredential {
         reference: sailry_protocol::CredentialRef,
         provider: sailry_protocol::ProviderId,
-        reply: oneshot::Sender<Result<sailry_protocol::Secret, Fault>>,
+        reply:
+            oneshot::Sender<Result<(sailry_protocol::Credential, sailry_protocol::Secret), Fault>>,
     },
     Provider {
         id: sailry_protocol::ProviderId,
@@ -354,6 +355,7 @@ pub(crate) struct Ingress {
     accepting: Arc<AtomicBool>,
     closing: Arc<AtomicBool>,
     pub(crate) agents: Arc<crate::agent::Controls>,
+    pub(crate) model_clients: Arc<crate::agent::model::registry::Registry>,
     feeds: agent::Feeds,
     pub(crate) dispatch: Arc<crate::dispatch::Controls>,
     pub(crate) plugins: crate::plugins::Host,
@@ -490,6 +492,7 @@ impl Store {
             accepting: accepting.clone(),
             closing: closing.clone(),
             agents: agents.clone(),
+            model_clients: Arc::default(),
             feeds: Default::default(),
             plugins: crate::plugins::Host::new(profile.clone()).with_github(skills),
             installations: Arc::default(),
@@ -565,6 +568,7 @@ impl Store {
         let code_pool = ingress.code.clone();
         let searcher = ingress.search.clone();
         let feeds = ingress.feeds.clone();
+        let model_clients = ingress.model_clients.clone();
         let dispatch_controls = ingress.dispatch.clone();
         let worker = std::thread::Builder::new()
             .name("sailry-store".into())
@@ -577,6 +581,7 @@ impl Store {
                     }
                 };
                 database.feeds = feeds;
+                database.model_clients = model_clients;
                 match search::read(&database.connection) { Ok(settings) => searcher.configure(settings), Err(error) => {let _=ready.send(Err(crate::Error::from(error)));return Ok(());} }
                 if bundled && database.profile.is_some()
                     && let Err(error) =
@@ -1135,7 +1140,7 @@ impl Store {
                             reply,
                         } => {
                             let result = if accepting.load(Ordering::Acquire) {
-                                database.resolve_credential(
+                                database.credential(
                                     &reference,
                                     provider,
                                     sailry_protocol::Authentication::ApiKey,
@@ -1451,6 +1456,7 @@ impl Store {
         self.ingress.dispatch.stop.cancel();
         self.ingress.accepting.store(false, Ordering::Release);
         self.ingress.closed.cancel();
+        self.ingress.model_clients.clear();
         self.ingress.ocr.shutdown();
         self.ingress.external_browser.stop.cancel();
         self.ingress.computer.stop.cancel();
@@ -1663,6 +1669,16 @@ impl Ingress {
         reference: sailry_protocol::CredentialRef,
         provider: sailry_protocol::ProviderId,
     ) -> Result<sailry_protocol::Secret, Fault> {
+        self.model_credential(reference, provider)
+            .await
+            .map(|(_, secret)| secret)
+    }
+
+    pub(crate) async fn model_credential(
+        &self,
+        reference: sailry_protocol::CredentialRef,
+        provider: sailry_protocol::ProviderId,
+    ) -> Result<(sailry_protocol::Credential, sailry_protocol::Secret), Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .try_send(Job::ResolveCredential {

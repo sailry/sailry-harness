@@ -240,11 +240,12 @@ async fn preserves_openai_effort() {
                 } else {
                     &body["reasoning_effort"]
                 };
-                if effort == Effort::Default {
-                    assert!(value.is_null());
+                let effective = if effort == Effort::Default {
+                    fixture.provider.models[0].default_effort
                 } else {
-                    assert_eq!(*value, serde_json::to_value(effort).unwrap());
-                }
+                    effort
+                };
+                assert_eq!(*value, serde_json::to_value(effective).unwrap());
             }
             fixture.controller.close().await.unwrap();
             fixture.node.shutdown().await.unwrap();
@@ -394,6 +395,11 @@ async fn restores_native_choices() {
             let requests = server.requests.lock().unwrap().clone();
             assert_eq!(requests.len(), choices.len());
             for (request, effort) in requests.iter().zip(choices) {
+                let effort = if effort == Effort::Default {
+                    fixture.provider.models[0].default_effort
+                } else {
+                    effort
+                };
                 let body = &request.body;
                 match api {
                     ModelApi::Anthropic => {

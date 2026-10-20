@@ -188,7 +188,7 @@ mod cache {
         for api in [ModelApi::Responses, ModelApi::ChatCompletions] {
             let mut provider = provider();
             provider.api = api;
-            let adapter = session_adapter(&provider, "fixture", session).unwrap();
+            let adapter = session_adapter(&provider, "fixture", session, false).unwrap();
             let mut original = json!({"model":"fixture", "stream":true, "temperature":0.2});
             let field = if api == ModelApi::Responses {
                 "input"
@@ -206,6 +206,7 @@ mod cache {
                 assert_eq!(headers["session-id"], session.to_string());
                 assert_eq!(headers["session_id"], session.to_string());
                 body.as_object_mut().unwrap().remove("prompt_cache_key");
+                body.as_object_mut().unwrap().remove("store");
                 headers.remove("session-id");
                 headers.remove("session_id");
                 assert_eq!(body, original);
@@ -221,7 +222,7 @@ mod cache {
         for session in [SessionId::new(), SessionId::new()] {
             let mut body = json!({"model":"fixture"});
             let mut headers = HeaderMap::new();
-            session_adapter(&provider, "fixture", session).unwrap()(&mut body, &mut headers)
+            session_adapter(&provider, "fixture", session, false).unwrap()(&mut body, &mut headers)
                 .unwrap();
             keys.push(body["prompt_cache_key"].clone());
             assert_eq!(headers["session-id"], session.to_string());
@@ -236,8 +237,11 @@ mod cache {
         let session = SessionId::new();
         for model in ["qwen3.6-plus", "glm-5.2"] {
             let mut body = json!({"model":model, "thinking":{"type":"disabled"}});
-            session_adapter(&provider, model, session).unwrap()(&mut body, &mut HeaderMap::new())
-                .unwrap();
+            session_adapter(&provider, model, session, false).unwrap()(
+                &mut body,
+                &mut HeaderMap::new(),
+            )
+            .unwrap();
             assert_eq!(body["prompt_cache_key"], session.to_string());
             assert_eq!(body["thinking"]["type"], "disabled");
             if model.starts_with("qwen") {
@@ -259,7 +263,7 @@ mod cache {
             Authentication::Copilot,
         ] {
             provider.authentication = authentication;
-            assert!(session_adapter(&provider, "fixture", session).is_none());
+            assert!(session_adapter(&provider, "fixture", session, false).is_none());
         }
         provider.authentication = Authentication::ApiKey;
         for api in [
@@ -272,14 +276,14 @@ mod cache {
             ModelApi::AzureAi,
         ] {
             provider.api = api;
-            assert!(session_adapter(&provider, "fixture", session).is_none());
+            assert!(session_adapter(&provider, "fixture", session, false).is_none());
         }
     }
 
     #[test]
     fn rejects_invalid_body() {
         let provider = provider();
-        let adapter = session_adapter(&provider, "fixture", SessionId::new()).unwrap();
+        let adapter = session_adapter(&provider, "fixture", SessionId::new(), false).unwrap();
         assert!(adapter(&mut Value::Null, &mut HeaderMap::new()).is_err());
     }
 }
@@ -336,4 +340,23 @@ fn freezes_policy_and_preserves_builtin_scope() {
         body,
         json!({"model":"qwen3.6-plus","messages":[],"stream":false,"custom":7,"preserve_thinking":false})
     );
+}
+
+#[test]
+fn captures_stateless_reasoning() {
+    let mut provider = provider();
+    provider.api = ModelApi::Responses;
+    let adapter = session_adapter(&provider, "fixture", SessionId::new(), true).unwrap();
+    let mut body = json!({"input":[],"include":["web_search_call.action.sources"],"previous_response_id":"untrusted"});
+    adapter(&mut body, &mut HeaderMap::new()).unwrap();
+    adapter(&mut body, &mut HeaderMap::new()).unwrap();
+    assert_eq!(body["store"], false);
+    assert_eq!(
+        body["include"],
+        json!([
+            "web_search_call.action.sources",
+            "reasoning.encrypted_content"
+        ])
+    );
+    assert!(body.get("previous_response_id").is_none());
 }

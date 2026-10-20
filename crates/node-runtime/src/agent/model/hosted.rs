@@ -23,6 +23,7 @@ pub(super) fn session_adapter(
     provider: &Provider,
     model: &str,
     session: SessionId,
+    summary: bool,
 ) -> Option<RequestAdapter> {
     if provider.authentication != Authentication::ApiKey
         || !matches!(
@@ -33,14 +34,35 @@ pub(super) fn session_adapter(
         return None;
     }
     let reasoning = adapter(provider, model);
+    let responses = provider.api == ModelApi::Responses;
     let session = session.to_string();
     Some(Arc::new(move |body, headers| {
-        if let Some(adapter) = &reasoning {
-            adapter(body, headers)?;
-        }
         let fields = body.as_object_mut().ok_or_else(|| {
             adk_core::AdkError::model("compatible request body must be an object")
         })?;
+        if responses {
+            fields.remove("previous_response_id");
+            fields.insert("store".into(), json!(false));
+            if summary {
+                let include = fields
+                    .entry("include")
+                    .or_insert_with(|| json!([]))
+                    .as_array_mut()
+                    .ok_or_else(|| {
+                        adk_core::AdkError::model("Responses include must be an array")
+                    })?;
+                if !include
+                    .iter()
+                    .any(|item| item == "reasoning.encrypted_content")
+                {
+                    include.push(json!("reasoning.encrypted_content"));
+                }
+            }
+        }
+        if let Some(adapter) = &reasoning {
+            adapter(body, headers)?;
+        }
+        let fields = body.as_object_mut().expect("validated object");
         fields.insert("prompt_cache_key".into(), json!(session));
         let value = HeaderValue::from_str(&session)
             .map_err(|_| adk_core::AdkError::model("session ID is not a valid HTTP header"))?;

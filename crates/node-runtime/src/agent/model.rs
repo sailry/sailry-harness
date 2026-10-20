@@ -9,6 +9,7 @@ mod hosted;
 mod opencode;
 pub(super) mod plugin;
 mod reasoning;
+pub(crate) mod registry;
 mod retry;
 pub(super) mod timing;
 use adk_core::Llm;
@@ -128,18 +129,8 @@ pub(super) async fn configured(
             "model feature choices require an advertised model",
         ));
     }
-    let effort = if metadata.is_none_or(|model| {
-        model
-            .capabilities
-            .as_ref()
-            .and_then(|value| value.reasoning)
-            != Some(false)
-    }) {
-        config.effort
-    } else {
-        Effort::Default
-    };
-    effort.validate(api, metadata.map_or(0, |model| model.output))?;
+    let resolved = reasoning::resolve(metadata, api, config.effort)?;
+    let effort = resolved.effort;
     let inner = if provider.api == ModelApi::Plugin {
         Arc::new(plugin::Model::new(ingress, provider, config, session, stop).await?)
             as Arc<dyn Llm>
@@ -147,26 +138,40 @@ pub(super) async fn configured(
         let credential = match &config.credential {
             Some(reference) => Some(
                 ingress
-                    .resolve_credential(reference.clone(), config.provider)
+                    .model_credential(reference.clone(), config.provider)
                     .await?,
             ),
             None => None,
         };
         // Explicit local endpoints may be credential-free; never read controller defaults.
-        let key = credential.as_ref().map_or("", |secret| secret.expose());
-        let model = if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
-            opencode::build(provider, config, key, effort, session)?
-        } else {
-            native(
-                provider,
-                config,
-                key,
-                effort,
-                hosted::session_adapter(provider, &config.model, session),
-                None,
-            )?
-        };
-        errors::wrap(model, credential.into_iter().collect())
+        let key = credential
+            .as_ref()
+            .map_or("", |(_, secret)| secret.expose());
+        let fingerprint = registry::fingerprint(
+            provider,
+            config,
+            effort,
+            credential.as_ref().map(|(value, _)| value.revision),
+        )?;
+        let entry = ingress.model_clients.get(session, fingerprint, || {
+            let model = if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
+                opencode::build(provider, config, key, effort, session)?
+            } else {
+                native(
+                    provider,
+                    config,
+                    key,
+                    effort,
+                    hosted::session_adapter(provider, &config.model, session, resolved.summary),
+                    None,
+                )?
+            };
+            Ok(model)
+        })?;
+        errors::wrap(
+            entry.inner.clone(),
+            credential.into_iter().map(|(_, secret)| secret).collect(),
+        )
     } else {
         crate::providers::login::validate(provider)?;
         Arc::new(authorization::Model {
@@ -289,17 +294,16 @@ pub(super) fn native(
                     config.credential.is_none()
                         || provider.endpoint.trim_end_matches('/') != "https://api.openai.com/v1",
                 );
-            let config = if effort != Effort::Disabled
-                && provider.models.iter().any(|model| {
-                    model.id == config.model
-                        && (model.reasoning
-                            || (effort != Effort::Default
-                                && model
-                                    .capabilities
-                                    .as_ref()
-                                    .and_then(|value| value.reasoning)
-                                    != Some(false)))
-                }) {
+            let config = if reasoning::resolve(
+                provider
+                    .models
+                    .iter()
+                    .find(|model| model.id == config.model),
+                ModelApi::Responses,
+                effort,
+            )?
+            .summary
+            {
                 config.with_reasoning_summary(ReasoningSummary::Auto)
             } else {
                 config

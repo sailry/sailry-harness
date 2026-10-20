@@ -3,6 +3,7 @@ use adk_core::{ErrorCategory, ErrorComponent};
 use futures::StreamExt;
 
 mod live;
+mod pool;
 
 struct Failure {
     message: String,
