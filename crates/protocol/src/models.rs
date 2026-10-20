@@ -6,6 +6,14 @@ pub const MAX_ASSETS: usize = 8;
 pub const MAX_ASSET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub const MAX_PREFIX_BYTES: usize = 1024;
 
+pub fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 128
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Hub {

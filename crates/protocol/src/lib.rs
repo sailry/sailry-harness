@@ -11,6 +11,7 @@ pub mod connection;
 pub mod conversation;
 mod credential;
 pub mod database;
+pub mod decision;
 pub mod dispatch;
 pub mod external_browser;
 pub mod file_browser;
