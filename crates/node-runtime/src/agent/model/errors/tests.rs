@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 const KEY: &str = "fixture-private-access-token";
 
-fn upstream(details: ProviderErrorDetails) -> AdkError {
+fn upstream() -> AdkError {
     AdkError::new(
         ErrorComponent::Model,
         ErrorCategory::InvalidInput,
@@ -12,24 +12,24 @@ fn upstream(details: ProviderErrorDetails) -> AdkError {
         "OpenAI Responses API request failed",
     )
     .with_upstream_status(400)
-    .with_source(details)
 }
 
 #[test]
 fn redacts_captured_values_in_all_fields() {
-    let mut error = upstream(ProviderErrorDetails {
+    let details = ProviderErrorDetails {
         message: Some(format!("Unsupported input 中文; Bearer {KEY}")),
         code: Some(format!("invalid_{KEY}")),
         kind: Some(format!("type_{KEY}")),
         param: Some(format!("input_{KEY}")),
         request_id: Some(format!("request_{KEY}")),
         status: Some(400),
-    });
+    };
+    let mut error = upstream();
     error
         .details
         .metadata
         .insert("provider_error_code".into(), json!(KEY));
-    let error = redact(error, &[Secret::new(KEY.into())]);
+    let error = redact(error, &[Secret::new(KEY.into())], Some(&details));
     assert!(!format!("{error:?}").contains(KEY));
     assert!(!error.to_problem_json().to_string().contains(KEY));
     let mut entry =
@@ -83,16 +83,17 @@ fn bounds_unicode_after_secret_redaction() {
 
 #[test]
 fn protects_authorization_values() {
-    let error = upstream(ProviderErrorDetails {
+    let details = ProviderErrorDetails {
         message: Some(format!("Account fixture-account; Bearer {KEY}")),
         ..Default::default()
-    });
+    };
     let error = redact(
-        error,
+        upstream(),
         &[
             Secret::new(KEY.into()),
             Secret::new("fixture-account".into()),
         ],
+        Some(&details),
     );
     let fault = super::super::error(error);
     assert!(!fault.message.contains(KEY));
@@ -102,4 +103,21 @@ fn protects_authorization_values() {
             .message
             .contains("Account [redacted]; Bearer [redacted]")
     );
+}
+
+#[test]
+fn protects_errors_without_provider_fields() {
+    let mut error = upstream();
+    error.message = format!("Transport rejected {KEY}");
+    error.details.request_id = Some(format!("request_{KEY}"));
+    error.details.metadata.insert("private".into(), json!(KEY));
+    let error = redact(error, &[Secret::new(KEY.into())], None);
+    assert_eq!(error.message, "Transport rejected [redacted]");
+    assert_eq!(
+        error.details.request_id.as_deref(),
+        Some("request_[redacted]")
+    );
+    assert!(error.details.metadata.is_empty());
+    assert!(!format!("{error:?}").contains(KEY));
+    assert!(!error.to_problem_json().to_string().contains(KEY));
 }

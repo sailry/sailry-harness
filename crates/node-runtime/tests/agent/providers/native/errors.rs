@@ -109,7 +109,7 @@ async fn retains_shared_usage_causes_without_replay() {
 async fn retains_upstream_stream_causes() {
     for remote in [false, true] {
         for kind in ["nested", "flat", "failed"] {
-            let server = completion::server(vec![failure("fixture_limit", kind)]).await;
+            let server = completion::server(vec![failure("invalid_prompt", kind)]).await;
             let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
             let turn = fixture.submit("Answer this task").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
@@ -127,7 +127,7 @@ async fn retains_upstream_stream_causes() {
                 "Agent execution failed (model.openai_responses.response_failed)"
             );
             let detail: Value = serde_json::from_str(body).unwrap();
-            assert_eq!(detail["code"], "fixture_limit");
+            assert_eq!(detail["code"], "invalid_prompt");
             assert_eq!(
                 detail["message"],
                 format!("{MESSAGE}; authorization [redacted]")

@@ -7,6 +7,7 @@ mod live;
 struct Failure {
     message: String,
     opening: bool,
+    adapter: adk_model::ErrorAdapter,
 }
 
 impl Failure {
@@ -17,20 +18,20 @@ impl Failure {
             "model.openai_responses.invalid_request",
             "OpenAI Responses API request failed",
         )
-        .with_upstream_status(400)
-        .with_source(adk_model::openai::ProviderErrorDetails {
+        .with_upstream_status(400);
+        let details = adk_model::ProviderErrorDetails {
             message: Some(self.message.clone()),
             code: Some(self.message.clone()),
             kind: Some(self.message.clone()),
             param: Some(self.message.clone()),
             request_id: Some(self.message.clone()),
             status: Some(400),
-        });
+        };
         error
             .details
             .metadata
             .insert("provider_error_code".into(), json!(self.message));
-        error
+        (self.adapter)(error, details)
     }
 }
 
@@ -103,6 +104,7 @@ async fn captures_private_grant_fields_for_redaction() {
                         actual.iter().cloned().collect::<Vec<_>>().join(" | ")
                     ),
                     opening,
+                    adapter: super::super::errors::adapter(secrets.clone()),
                 }),
                 secrets.clone(),
             );

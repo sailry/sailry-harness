@@ -694,3 +694,64 @@ async fn continues_without_repeating_completed_tools() {
         fixture.node.shutdown().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn bounds_classified_response_failures() {
+    for remote in [false, true] {
+        for (code, retries) in [
+            (Some("server_error"), 5),
+            (Some("stream_timeout"), 2),
+            (Some("future_backend_failure"), 5),
+            (None, 5),
+        ] {
+            let message = format!(
+                "Our servers are currently overloaded. Please try again later. authorization {}",
+                server::KEY
+            );
+            let failed = json!({"type":"response.failed","sequence_number":1,"response":{
+                "id":"failure","object":"response","created_at":1,"model":"fixture-a","status":"failed","output":[],
+                "error":{"code":code,"message":message,"param":format!("Bearer {}", server::KEY)},
+            }});
+            let server = Server::start(
+                ModelApi::Responses,
+                Reply::Scripted(Arc::new(vec![Script {
+                    bytes: wire(&[failed], false, true),
+                    ending: Ending::Close,
+                }])),
+            )
+            .await;
+            let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            let turn = fixture.submit("Bound the response failure retries").await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(page.runs.last().unwrap().status, Status::Failed);
+            assert_eq!(attempts(&page), (1..=retries).collect::<Vec<_>>());
+            let failure = page.runs.last().unwrap().error.as_ref().unwrap();
+            assert!(
+                failure
+                    .message
+                    .contains("model.openai_responses.response_failed")
+            );
+            assert!(failure.message.contains("Our servers are currently overloaded. Please try again later. authorization [redacted]"));
+            assert!(failure.message.contains("Bearer [redacted]"));
+            assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+            {
+                let requests = server.requests.lock().unwrap();
+                assert_eq!(requests.len(), retries as usize + 1);
+                assert!(
+                    requests
+                        .iter()
+                        .all(|request| request.body == requests[0].body)
+                );
+            }
+            assert!(
+                page.entries
+                    .iter()
+                    .flat_map(|entry| &entry.parts)
+                    .all(|part| !matches!(part, Part::ToolCall { .. } | Part::ToolResult { .. }))
+            );
+            unique_entries(&page);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}

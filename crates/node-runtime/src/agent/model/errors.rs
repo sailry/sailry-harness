@@ -1,7 +1,7 @@
 //! Provider diagnostics become public only after captured-credential redaction.
 use super::*;
 use adk_core::{AdkError, LlmRequest, LlmResponseStream, SchemaAdapter};
-use adk_model::openai::ProviderErrorDetails;
+use adk_model::{ErrorAdapter, ProviderErrorDetails, inspect_errors};
 use async_trait::async_trait;
 use futures::StreamExt;
 use sailry_protocol::Secret;
@@ -37,22 +37,59 @@ impl Llm for Model {
         stream: bool,
     ) -> adk_core::Result<LlmResponseStream> {
         let secrets = self.secrets.clone();
-        let response = self
-            .inner
-            .generate_content(request, stream)
-            .await
-            .map_err(|error| redact(error, &secrets))?;
+        let response = inspect_errors(
+            adapter(secrets.clone()),
+            self.inner.generate_content(request, stream),
+        )
+        .await
+        .map_err(|error| redact(error, &secrets, None))?;
         Ok(protect(response, secrets))
     }
 }
 
 fn protect(response: LlmResponseStream, secrets: Vec<Secret>) -> LlmResponseStream {
-    Box::pin(response.map(move |result| result.map_err(|error| redact(error, &secrets))))
+    Box::pin(response.map(move |result| result.map_err(|error| redact(error, &secrets, None))))
 }
 
-fn redact(mut error: AdkError, secrets: &[Secret]) -> AdkError {
-    let source = std::error::Error::source(&error);
-    if let Some(details) = source.and_then(|source| source.downcast_ref::<ProviderErrorDetails>()) {
+pub(super) fn adapter(secrets: Vec<Secret>) -> ErrorAdapter {
+    Arc::new(move |error, details| redact(error, &secrets, Some(&details)))
+}
+
+fn redact(
+    mut error: AdkError,
+    secrets: &[Secret],
+    details: Option<&ProviderErrorDetails>,
+) -> AdkError {
+    error.message = safe(&error.message, secrets, 8192);
+    if let Some(request_id) = &mut error.details.request_id {
+        *request_id = safe(request_id, secrets, 256);
+    }
+    error.details.metadata.retain(|_, value| {
+        let value = value.to_string();
+        !secrets
+            .iter()
+            .any(|secret| !secret.expose().is_empty() && value.contains(secret.expose()))
+    });
+    if let Some(details) = details {
+        // Subscription policy failures are terminal even when upstream treats unknown codes as transient.
+        if error.code.starts_with("model.openai_responses.") {
+            let policy = match details.code.as_deref() {
+                Some("subscription_sharing_usage_limit_exceeded") => Some((
+                    adk_core::ErrorCategory::RateLimited,
+                    "model.openai_responses.subscription_sharing_usage_limit_exceeded",
+                )),
+                Some("subscription_sharing_usage_unavailable") => Some((
+                    adk_core::ErrorCategory::Unavailable,
+                    "model.openai_responses.subscription_sharing_usage_unavailable",
+                )),
+                _ => None,
+            };
+            if let Some((category, code)) = policy {
+                error.category = category;
+                error.code = code;
+                error.retry = adk_core::RetryHint::default();
+            }
+        }
         let mut fields = serde_json::Map::new();
         for (name, value, limit) in [
             ("message", details.message.as_deref(), 8192),
@@ -74,12 +111,6 @@ fn redact(mut error: AdkError, secrets: &[Secret]) -> AdkError {
                 ErrorCode::Unavailable,
                 format!("{}\n\n{body}", summary(&error)),
             );
-            error.details.metadata.retain(|_, value| {
-                let value = value.to_string();
-                !secrets
-                    .iter()
-                    .any(|secret| !secret.expose().is_empty() && value.contains(secret.expose()))
-            });
             return error.with_source(fault);
         }
     }

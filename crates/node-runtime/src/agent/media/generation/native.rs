@@ -64,7 +64,8 @@ pub(super) async fn generate(
 }
 
 fn request(api: ModelApi, model: &str, output: u32, prompt: String) -> LlmRequest {
-    let mut extensions = serde_json::Map::new();
+    let response_modalities =
+        (api != ModelApi::Responses).then(|| vec!["TEXT".into(), "IMAGE".into()]);
     let mut tools = Default::default();
     if api == ModelApi::Responses {
         tools = std::collections::HashMap::from([(
@@ -73,18 +74,13 @@ fn request(api: ModelApi, model: &str, output: u32, prompt: String) -> LlmReques
                 "x-adk-openai-tool":{"type":"image_generation","output_format":"png"}
             }),
         )]);
-    } else {
-        extensions.insert(
-            "gemini".into(),
-            json!({"response_modalities":["TEXT","IMAGE"]}),
-        );
     }
     LlmRequest {
         model: model.into(),
         contents: vec![Content::new("user").with_text(prompt)],
         config: Some(GenerateContentConfig {
             max_output_tokens: Some(output.min(i32::MAX as u32) as i32),
-            extensions,
+            response_modalities,
             ..Default::default()
         }),
         tools,
@@ -198,8 +194,8 @@ mod tests {
         let config = request.config.unwrap();
         assert_eq!(config.max_output_tokens, Some(4096));
         assert_eq!(
-            config.extensions["gemini"]["response_modalities"],
-            json!(["TEXT", "IMAGE"])
+            config.response_modalities,
+            Some(vec!["TEXT".to_owned(), "IMAGE".to_owned()])
         );
     }
 
