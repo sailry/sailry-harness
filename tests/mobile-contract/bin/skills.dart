@@ -229,9 +229,17 @@ Future<void> main() async {
     'lost answer receipt recovers',
   );
   final snapshot = (await execute(connection, 'snapshot', null))['data'];
+  final turn = jsonDecode(admitted)['Ok']['data']['id'];
   check(
-    jsonEncode((snapshot['turns'] as List).single['plugins']) ==
-        jsonEncode(references),
+    (snapshot['turns'] as List).single['id'] == turn,
+    'snapshot retains the admitted turn identity',
+  );
+  final capture = (await execute(connection, 'read_turn_capture', {
+    'session': session,
+    'turn': turn,
+  }))['data'];
+  check(
+    jsonEncode(capture['plugins']) == jsonEncode(references),
     'admitted turn retains host plugin references',
   );
   await updates.close();

@@ -213,10 +213,16 @@ Future<void> main() async {
     (snapshot) =>
         (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
   );
+  final interrupted = approvals.part(
+    cancelled,
+    cancelled['calls'][1]['response'],
+  )['result'];
   check(
-    cancelled['calls'][1]['state'] == 'cancelled' &&
-        cancelled['calls'][1]['approval']['state'] == 'cancelled',
-    'stop closes the pending call and approval',
+    cancelled['calls'][1]['state'] == 'returned' &&
+        cancelled['calls'][1]['approval']['state'] == 'cancelled' &&
+        interrupted['status'] == 'outcome_unknown' &&
+        (interrupted['detail'] as String).isNotEmpty,
+    'stop retains the interrupted outcome and closes the pending approval',
   );
   final late = await connection.prepare(
     command: jsonEncode({

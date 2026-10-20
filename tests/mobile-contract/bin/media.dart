@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute, until;
+import 'conversation.dart' show check, execute, observe, until;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -74,9 +74,7 @@ Future<void> main() async {
     },
   }))['data'];
   final updates = await connection.watch();
-  final projected = jsonDecode(
-    await updates.next().timeout(const Duration(seconds: 10)),
-  );
+  final projected = await observe(updates.next, (_) => true);
   check(
     projected['snapshot']['media_settings']['revision'] == 1,
     'shared Client projects media settings',

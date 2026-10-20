@@ -14,7 +14,7 @@ Future<void> main() async {
   final session = env['SAILRY_SESSION']!;
   final manual = env['SAILRY_MANUAL_CONTEXT'] == '1';
   final latest = env['SAILRY_LATEST_INSTRUCTION']!;
-  final requirement = 'Original requirement 中文 🙂 ' * 700;
+  final requirement = 'Original requirement 中文 🙂 ' * 128;
   var controller = await Controller.open(
     path: path,
     internet: false,

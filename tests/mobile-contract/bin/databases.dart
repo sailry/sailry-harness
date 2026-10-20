@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute;
+import 'conversation.dart' show check, execute, observe;
 
 Future<void> main() async {
   final env = Platform.environment;
@@ -94,9 +94,7 @@ Future<void> main() async {
     );
     check(denied['Err'] != null, 'read-only profile denies mutation');
     final updates = await connection.watch();
-    final view = jsonDecode(
-      await updates.next().timeout(const Duration(seconds: 10)),
-    );
+    final view = await observe(updates.next, (_) => true);
     check(
       view['snapshot']['databases'].single['read_only'] == true,
       'shared projection carries the saved profile',

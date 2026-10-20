@@ -291,10 +291,12 @@ Future<void> main() async {
     updates,
     (snapshot) => snapshot['page']['runs'].single['status'] == 'cancelled',
   );
+  final interrupted = part(stopped, stopped['calls'][0]['response'])['result'];
   check(
-    stopped['calls'][0]['state'] == 'interrupted' &&
-        stopped['calls'][0]['response'] == null,
-    'stop does not invent a canonical tool result',
+    stopped['calls'][0]['state'] == 'returned' &&
+        interrupted['status'] == 'outcome_unknown' &&
+        (interrupted['detail'] as String).isNotEmpty,
+    'stop retains the interrupted outcome without claiming success',
   );
   check(
     stopped['calls'][0]['approval']['state'] == 'approved',

@@ -200,10 +200,16 @@ Future<void> main() async {
     (snapshot) =>
         (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
   );
+  final interrupted = part(
+    cancelled,
+    cancelled['calls'][0]['response'],
+  )['result'];
   check(
-    cancelled['calls'][0]['state'] == 'cancelled' &&
-        cancelled['calls'][0]['approval']['state'] == 'cancelled',
-    'stop closes both the shared call and its pending approval',
+    cancelled['calls'][0]['state'] == 'returned' &&
+        cancelled['calls'][0]['approval']['state'] == 'cancelled' &&
+        interrupted['status'] == 'outcome_unknown' &&
+        (interrupted['detail'] as String).isNotEmpty,
+    'stop retains the interrupted outcome and closes its pending approval',
   );
   final late = await connection.prepare(
     command: jsonEncode({

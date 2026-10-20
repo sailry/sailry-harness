@@ -245,11 +245,13 @@ Future<void> main() async {
         (snapshot['page']['runs'] as List).single['status'] == 'cancelled',
   );
   final closed = (cancelled['calls'] as List).single;
+  final interrupted = part(cancelled, closed['response'])['result'];
   check(
-    closed['state'] == 'cancelled' &&
+    closed['state'] == 'returned' &&
         closed['question']['state']['kind'] == 'cancelled' &&
-        closed['response'] == null,
-    'stop closes the question without inventing a tool result',
+        interrupted['status'] == 'outcome_unknown' &&
+        (interrupted['detail'] as String).isNotEmpty,
+    'stop retains the interrupted outcome and closes the question',
   );
   await reject(stopped['id'], text('too late'), 'conflict');
   await close();

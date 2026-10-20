@@ -106,7 +106,7 @@ Future<void> main() async {
   await rejects('put_role', {
     'role': {
       ...role,
-      'skills': ['one', 'two', 'three', 'four'],
+      'skills': ['one', 'one'],
     },
     'expected_revision': 1,
   }, 'invalid_request');

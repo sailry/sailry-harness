@@ -148,7 +148,45 @@ fn recovers_and_stops_children() {
             .iter()
             .map(|session| session.id)
             .collect::<Vec<_>>();
-        assert_eq!(tools::pages(&client, &ids).await, pages);
+        let mut expected = pages.clone();
+        let mut recovered = 0;
+        let mut cancelled = 0;
+        for page in &mut expected {
+            for task in &mut page.background {
+                assert_ne!(task.state, conversation::background::State::Running);
+                if task.outcome == Some(conversation::background::Outcome::Cancelled) {
+                    let conversation::background::Kind::Agent { session, turn } = &task.kind else {
+                        panic!("child task expected")
+                    };
+                    assert!(pages.iter().flat_map(|page| &page.runs).any(|run| {
+                        run.session == *session
+                            && run.turn == *turn
+                            && run.status == Status::Cancelled
+                    }));
+                    assert!(matches!(
+                        task.state,
+                        conversation::background::State::Pending
+                            | conversation::background::State::Consumed
+                    ));
+                    cancelled += 1;
+                }
+                if task.state == conversation::background::State::Pending {
+                    assert_eq!(
+                        task.outcome,
+                        Some(conversation::background::Outcome::Cancelled)
+                    );
+                    assert!(task.delivery.is_none());
+                    assert!(!task.recovered && !task.suppressed);
+                    task.revision = task.revision.checked_add(1).unwrap();
+                    task.recovered = true;
+                    task.suppressed = true;
+                    recovered += 1;
+                }
+            }
+        }
+        assert_eq!(cancelled, 2);
+        assert!((1..=2).contains(&recovered));
+        assert_eq!(tools::pages(&client, &ids).await, expected);
         let Output::Snapshot(restored) = client
             .execute(client.prepare(Command::Snapshot))
             .await

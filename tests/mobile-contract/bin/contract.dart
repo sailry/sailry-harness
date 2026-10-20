@@ -115,9 +115,7 @@ Future<void> main() async {
 
   for (var index = 0; index < 3; index++) {
     final updates = await connection.watch();
-    final view = jsonDecode(
-      await updates.next().timeout(const Duration(seconds: 10)),
-    );
+    final view = await conversation.observe(updates.next, (_) => true);
     check(view['snapshot']['projects'].length == 1, 'shared Client snapshot');
     // Attach the error observer before cancellation to avoid unhandled Futures.
     final pending = updates.next().then((_) => false, onError: (_) => true);
@@ -144,13 +142,13 @@ Future<void> main() async {
     'reopen restores pairing',
   );
   // A closed controller invalidates existing connection handles.
-  var closed = false;
-  try {
-    await connection.execute(request: request);
-  } catch (_) {
-    closed = true;
-  }
-  check(closed, 'old connection is closed');
+  final closed = jsonDecode(await connection.execute(request: request));
+  check(
+    closed['Ok'] == null &&
+        closed['Err']?['code'] == 'unavailable' &&
+        closed['Err']?['message'] == 'connection is closed',
+    'old connection is closed',
+  );
   connection.dispose();
   connection = await controller.connect(address: address);
   await terminal.restore(connection, terminalId, worktree);

@@ -209,7 +209,7 @@ async fn exercise_transport(
                     .execute(client.prepare(Command::TestDatabase {
                         profile: draft,
                         expected_revision: profile.revision,
-                        password: None,
+                        password: password.clone(),
                     }))
                     .await
                     .unwrap_err();

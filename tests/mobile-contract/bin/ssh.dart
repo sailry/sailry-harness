@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:sailry_bridge/api.dart';
 import 'package:sailry_bridge/frb_generated.dart';
-import 'conversation.dart' show check, execute;
+import 'conversation.dart' show check, execute, observe;
 import 'terminal.dart' as terminal;
 import 'ssh_transfer.dart' as transfer;
 
@@ -52,9 +52,7 @@ Future<void> main() async {
     'key': probe['key'],
   }))['data'];
   final updates = await connection.watch();
-  final view = jsonDecode(
-    await updates.next().timeout(const Duration(seconds: 10)),
-  );
+  final view = await observe(updates.next, (_) => true);
   check(
     view['snapshot']['ssh'].single['host_key'] != null,
     'shared Client projects trusted profiles',

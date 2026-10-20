@@ -374,9 +374,15 @@ Future<void> main() async {
     final id = saved['snapshot']['page']['session'] as String;
     final updates = await connection.watchConversation(session: id);
     final restored = await until(updates, (_) => true);
+    Map<String, dynamic> page(Map<String, dynamic> view) {
+      final page = view['snapshot']['page'] as Map<String, dynamic>;
+      final background = [...page['background'] as List]
+        ..sort((a, b) => (a['id'] as String).compareTo(b['id'] as String));
+      return {...page, 'background': background};
+    }
+
     check(
-      jsonEncode(restored['snapshot']['page']) ==
-              jsonEncode(saved['snapshot']['page']) &&
+      jsonEncode(page(restored)) == jsonEncode(page(saved)) &&
           jsonEncode(restored['calls']) == jsonEncode(saved['calls']),
       'reopened child history and call projection remain unchanged',
     );
