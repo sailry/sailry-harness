@@ -33,6 +33,12 @@ jq -n --arg revision "$(git -C "$task_root" rev-parse HEAD)" --argjson dirty "$t
   --arg profile "$task_profile" --arg target "$task_target" --arg version "$task_version" \
   '{version:1,source_revision:$revision,source_dirty:$dirty,profile:$profile,target:$target,application_version:$version}' \
   > "$task_output/host/build.json"
-tar -czf "$task_output/sailry-host-$task_target.tar.gz" -C "$task_output/host" .
+# Write directory entries last so GNU tar restores read-only modes after contents.
+# Linux packages do not carry macOS resource forks, extended attributes or ACLs.
+(
+  cd "$task_output/host"
+  find . -depth -print0 | COPYFILE_DISABLE=1 tar --no-acls --no-xattrs \
+    --no-recursion --null -czf "$task_output/sailry-host-$task_target.tar.gz" -T -
+)
 (cd "$task_output" && shasum -a 256 ./*.tar.gz > "SHA256SUMS-$task_target")
 printf 'Host package: %s\n' "$task_output"
