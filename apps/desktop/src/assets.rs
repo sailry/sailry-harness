@@ -131,7 +131,7 @@ gpui_kit::assets::icon_assets!(
         MessageCircleQuestionMark
     ]
 );
-gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare]);
+gpui_kit::assets::icon_assets!(UsageAssets, [Gauge, DollarSign, MessagesSquare, Coins]);
 gpui_kit::assets::icon_assets!(
     PickerAssets,
     [Monitor, List, LayoutGrid, FolderInput, FileArchive]

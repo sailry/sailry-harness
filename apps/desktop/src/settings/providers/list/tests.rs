@@ -169,60 +169,93 @@ fn displays_current_account_label() {
     );
 }
 
-mod primary {
+mod lines {
     use super::*;
-    use sailry_protocol::plugin::{desktop::Navigation, ui::Detail};
+    use gpui_kit::AssetSource as _;
+    use sailry_protocol::plugin::ui::Detail;
     use serde_json::json;
 
     fn details(value: serde_json::Value) -> Vec<Detail> {
         serde_json::from_value(value).unwrap()
     }
 
-    fn label(text: &str) -> Navigation {
-        serde_json::from_value(json!({"label": text, "locales": {"zh-CN": "积分"}})).unwrap()
+    fn labels(lines: &[Line]) -> Vec<Option<&str>> {
+        lines.iter().map(|line| line.label.as_deref()).collect()
     }
 
     #[test]
-    fn leads_with_first_detail_meter() {
-        let rows = details(json!([
-            {"label":{"label":"7d left"},"value":"91%","progress":91},
-            {"label":{"label":"Credits"},"value":"41205.37"}
-        ]));
-        let primary = Primary::of(&rows, Some((&label("Usage"), "64%".into())), "en").unwrap();
-        assert_eq!(primary.value.as_ref(), "91%");
-        assert_eq!(primary.label.as_deref(), Some("7d left"));
-        assert_eq!(primary.progress, Some(91.));
-    }
-
-    #[test]
-    fn plain_values_have_no_meter() {
-        let rows = details(json!([{"label":{"label":"Credits"},"value":"12"}]));
-        let primary = Primary::of(&rows, None, "en").unwrap();
-        assert_eq!(primary.progress, None);
-        let clamped = details(json!([{"label":{"label":"Left"},"value":"0%","progress":-4}]));
+    fn one_meter_one_line() {
+        let rows = details(json!([{"label":{"label":"5h"},"value":"90%","progress":90}]));
+        let lines = lines(&rows, Some("64%".into()), "en");
         assert_eq!(
-            Primary::of(&clamped, None, "en").unwrap().progress,
-            Some(0.)
+            lines,
+            [Line {
+                value: "90%".into(),
+                label: Some("5h".into()),
+                progress: Some(90.),
+            }]
         );
     }
 
     #[test]
-    fn falls_back_to_localized_metric() {
-        let primary =
-            Primary::of(&[], Some((&label("Credits"), "2550.59".into())), "zh-CN").unwrap();
-        assert_eq!(primary.value.as_ref(), "2550.59");
-        assert_eq!(primary.label.as_deref(), Some("积分"));
-        assert_eq!(primary.progress, None);
+    fn caps_meters_at_two() {
+        let rows = details(json!([
+            {"label":{"label":"5h"},"value":"90%","progress":90},
+            {"label":{"label":"7d"},"value":"40%","progress":40},
+            {"label":{"label":"Month"},"value":"10%","progress":10}
+        ]));
+        let lines = lines(&rows, None, "en");
+        assert_eq!(labels(&lines), [Some("5h"), Some("7d")]);
+        assert_eq!(lines.len(), METERS);
     }
 
     #[test]
-    fn omits_blank_labels() {
-        let rows = details(json!([{"label":{"label":"  "},"value":"3"}]));
-        assert_eq!(Primary::of(&rows, None, "en").unwrap().label, None);
+    fn meters_take_precedence() {
+        let rows = details(json!([
+            {"label":{"label":"Credits"},"value":"41205.37"},
+            {"label":{"label":"7d left"},"value":"91%","progress":91},
+            {"label":{"label":"Low"},"value":"0%","progress":-4}
+        ]));
+        let lines = lines(&rows, Some("888.00".into()), "en");
+        let values: Vec<_> = lines.iter().map(|line| line.value.as_ref()).collect();
+        assert_eq!(values, ["91%", "0%"]);
+        assert_eq!(lines[1].progress, Some(0.));
+    }
+
+    #[test]
+    fn values_show_first_value() {
+        let rows = details(json!([
+            {"label":{"label":"Credits"},"value":"2550.59"},
+            {"label":{"label":"Spent"},"value":"12"}
+        ]));
+        let expected = [Line {
+            value: "2550.59".into(),
+            label: None,
+            progress: None,
+        }];
+        assert_eq!(lines(&rows, Some("888.00".into()), "en"), expected);
+        let fallback = lines(&[], Some("888.00".into()), "en");
+        assert_eq!(fallback[0].value.as_ref(), "888.00");
+        assert_eq!(fallback[0].label, None);
+    }
+
+    #[test]
+    fn localizes_and_omits_blank_labels() {
+        let rows = details(json!([
+            {"label":{"label":"7d","locales":{"zh-CN":"7天"}},"value":"9%","progress":9},
+            {"label":{"label":"  "},"value":"3%","progress":3}
+        ]));
+        assert_eq!(labels(&lines(&rows, None, "zh-CN")), [Some("7天"), None]);
     }
 
     #[test]
     fn empty_without_usage() {
-        assert_eq!(Primary::of(&[], None, "en"), None);
+        assert!(lines(&[], None, "en").is_empty());
+    }
+
+    #[test]
+    fn credits_icon_is_bundled() {
+        let path = gpui_kit::assets::IconName::Coins.path();
+        assert!(crate::assets::Assets.load(&path).unwrap().is_some());
     }
 }

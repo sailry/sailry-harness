@@ -10,7 +10,7 @@ mod summary;
 mod tests;
 
 pub(super) use summary::matches;
-use summary::{AuthKind, Primary, Status};
+use summary::{AuthKind, Line, Status};
 
 const TILE: f32 = 36.;
 const GAP: f32 = 12.;
@@ -18,6 +18,11 @@ const GAP: f32 = 12.;
 const USAGE: f32 = 156.;
 /// Width of the meter preceding a percentage value.
 const METER: f32 = 44.;
+/// Minimum meter value width so bars align between "90%" and "100%".
+const PERCENT: f32 = 36.;
+/// Popover and compact labels for the 5-hour and 7-day login quota windows.
+const WINDOWS: [&str; 2] = ["provider_usage_5h", "provider_usage_7d"];
+const SPANS: [&str; 2] = ["provider_window_5h", "provider_window_7d"];
 
 type Details = Rc<dyn Fn(&App) -> AnyElement>;
 
@@ -201,15 +206,11 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// Login quota windows as shared metric details.
-    fn quota_rows(quota: &quota::Snapshot) -> Vec<Detail> {
+    /// Login quota windows as shared metric details labelled by `keys`.
+    fn quota_rows(quota: &quota::Snapshot, keys: [&str; 2]) -> Vec<Detail> {
         let now = live::quota::now();
-        let windows = [
-            ("provider_usage_5h", quota.five_hour.as_ref()),
-            ("provider_usage_7d", quota.seven_day.as_ref()),
-        ];
-        windows
-            .into_iter()
+        keys.into_iter()
+            .zip([quota.five_hour.as_ref(), quota.seven_day.as_ref()])
             .filter_map(|(key, window)| {
                 let remaining = summary::remaining(window?, now)?;
                 Some(Detail {
@@ -279,8 +280,9 @@ impl Workspace {
 }
 
 impl Workspace {
-    /// The primary metric in two lines matching the name and type lines; every metric
-    /// appears in the shared metric popover on hover. Plugin metrics replace login quota.
+    /// Up to two meter lines, or one value line, in a fixed right-aligned column; every
+    /// metric appears in the shared metric popover on hover. Plugin metrics replace login
+    /// quota.
     fn provider_usage(
         id: usize,
         entries: Vec<crate::plugins::contributions::Entry>,
@@ -295,67 +297,86 @@ impl Workspace {
             .items_end()
             .gap_0p5();
         let locale = rust_i18n::locale();
-        let (primary, content): (_, Details) = if let Some(entry) = entries.first() {
-            let label = entry
-                .state
-                .label
-                .as_ref()
-                .unwrap_or(&entry.declaration.label);
-            let primary = Primary::of(&entry.state.details, Some((label, entry.value())), &locale);
-            (primary, Rc::new(move |cx| external::panel(&entries, cx)))
+        let (lines, icon, content): (_, _, Details) = if let Some(entry) = entries.first() {
+            let lines = summary::lines(&entry.state.details, Some(entry.value()), &locale);
+            let icon = entry.icon();
+            (
+                lines,
+                icon,
+                Rc::new(move |cx| external::panel(&entries, cx)),
+            )
         } else {
-            let rows = quota.map(Self::quota_rows).unwrap_or_default();
-            let primary = Primary::of(&rows, None, &locale);
+            let lines = quota
+                .map(|quota| summary::lines(&Self::quota_rows(quota, SPANS), None, &locale))
+                .unwrap_or_default();
+            let rows = quota
+                .map(|quota| Self::quota_rows(quota, WINDOWS))
+                .unwrap_or_default();
             let key = format!("provider-quota-{id}");
             (
-                primary,
+                lines,
+                None,
                 Rc::new(move |cx| external::rows(key.clone(), &rows, cx)),
             )
         };
-        let Some(primary) = primary else {
+        if lines.is_empty() {
             return column.into_any_element();
-        };
+        }
         let theme = cx.theme();
-        let name = primary
-            .label
-            .clone()
-            .unwrap_or_else(|| primary.value.clone());
+        // Value metrics without a declared icon are credits.
+        let icon = icon.unwrap_or_else(|| Icon::new(gpui_kit::assets::IconName::Coins));
         column
             .tooltip(move |window, cx| usage::popover(content.clone(), window, cx))
-            .child(
-                h_flex()
+            .children(lines.into_iter().enumerate().map(|(index, line)| {
+                let Line {
+                    value: text,
+                    label,
+                    progress,
+                } = line;
+                let value = div()
+                    .min_w_0()
+                    .truncate()
+                    .font_features(external::tabular())
+                    .text_color(theme.foreground)
+                    .child(text.clone());
+                let row = h_flex()
+                    .w_full()
                     .h_5()
                     .gap_2()
                     .items_center()
-                    .text_sm()
-                    .when_some(primary.progress, |line, value| {
-                        line.child(
-                            Progress::new(("provider-usage-meter", id))
-                                .xsmall()
-                                .w(px(METER))
-                                .value(value)
-                                .accessibility_label(name)
-                                .when(value < 20., |bar| bar.color(theme.warning)),
+                    .justify_end()
+                    .text_sm();
+                let Some(progress) = progress else {
+                    return row
+                        .gap_1p5()
+                        .child(
+                            icon.clone()
+                                .small()
+                                .flex_shrink_0()
+                                .text_color(theme.muted_foreground),
                         )
-                    })
-                    .child(
-                        div()
-                            .whitespace_nowrap()
-                            .font_features(external::tabular())
-                            .text_color(theme.foreground)
-                            .child(primary.value),
-                    ),
-            )
-            .when_some(primary.label, |column, label| {
-                column.child(
+                        .child(value);
+                };
+                row.child(
                     div()
-                        .max_w_full()
+                        .flex_1()
+                        .min_w_0()
                         .truncate()
-                        .text_sm()
+                        .text_right()
                         .text_color(theme.muted_foreground)
-                        .child(label),
+                        .children(label.clone()),
                 )
-            })
+                .child(
+                    Progress::new(SharedString::from(format!("provider-usage-{id}-{index}")))
+                        .xsmall()
+                        .flex_shrink_0()
+                        .w(px(METER))
+                        .value(progress)
+                        .accessibility_label(label.unwrap_or(text))
+                        .when(progress < 20., |bar| bar.color(theme.warning)),
+                )
+                .child(value.flex_shrink_0().min_w(px(PERCENT)).text_right())
+            }))
             .into_any_element()
     }
 }

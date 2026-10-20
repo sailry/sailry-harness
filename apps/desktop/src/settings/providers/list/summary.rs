@@ -3,7 +3,7 @@ use super::super::data::{Channel, Model, Preset};
 use sailry_protocol::{
     Authentication,
     conversation::{presets::Source, quota},
-    plugin::{desktop::Navigation, ui::Detail},
+    plugin::ui::Detail,
 };
 
 /// Models shown before the expansion collapses the rest into a count.
@@ -112,38 +112,50 @@ pub(super) fn badge(channel: &Channel, kind: AuthKind) -> gpui_kit::SharedString
     crate::tr(kind.key())
 }
 
-/// The usage column's leading metric; the remaining details appear on hover.
+/// One usage column line; the remaining details appear on hover.
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct Primary {
+pub(super) struct Line {
     pub value: gpui_kit::SharedString,
-    /// Omitted when the plugin gives none.
+    /// Meters only; omitted when blank.
     pub label: Option<gpui_kit::SharedString>,
     /// A meter precedes the value when present.
     pub progress: Option<f32>,
 }
 
-impl Primary {
-    /// The first detail leads; without details, the metric's own label and value.
-    pub fn of(
-        details: &[Detail],
-        fallback: Option<(&Navigation, gpui_kit::SharedString)>,
-        locale: &str,
-    ) -> Option<Self> {
-        let caption = |label: &Navigation| {
-            let text = label.label(locale).trim();
-            (!text.is_empty()).then(|| gpui_kit::SharedString::from(text.to_owned()))
-        };
-        match details.first() {
-            Some(detail) => Some(Self {
+/// Meter lines shown before the rest move to the popover.
+pub(super) const METERS: usize = 2;
+
+/// Up to two meter lines; without meters, the first value or the metric's own value.
+pub(super) fn lines(
+    details: &[Detail],
+    fallback: Option<gpui_kit::SharedString>,
+    locale: &str,
+) -> Vec<Line> {
+    let meters: Vec<_> = details
+        .iter()
+        .filter_map(|detail| {
+            let progress = crate::conversation::usage::external::progress(detail)?;
+            let text = detail.label.label(locale).trim();
+            Some(Line {
                 value: detail.value.clone().into(),
-                label: caption(&detail.label),
-                progress: crate::conversation::usage::external::progress(detail),
-            }),
-            None => fallback.map(|(label, value)| Self {
-                value,
-                label: caption(label),
-                progress: None,
-            }),
-        }
+                label: (!text.is_empty()).then(|| text.to_owned().into()),
+                progress: Some(progress),
+            })
+        })
+        .take(METERS)
+        .collect();
+    if !meters.is_empty() {
+        return meters;
     }
+    details
+        .first()
+        .map(|detail| detail.value.clone().into())
+        .or(fallback)
+        .map(|value| Line {
+            value,
+            label: None,
+            progress: None,
+        })
+        .into_iter()
+        .collect()
 }
