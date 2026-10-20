@@ -80,6 +80,30 @@ pub(super) fn prepare(connection: &Connection, path: &Path, node: NodeId) -> Res
     }))
 }
 
+/// Initialization of new private ownership metadata follows the existing upgrade safeguards.
+pub(in crate::store) fn install_plugins(
+    connection: &mut Connection,
+    path: &Path,
+    host: &crate::plugins::Host,
+) -> Result<(), Error> {
+    let updating = crate::store::providers::authentication::needs_binding(connection)?;
+    if updating {
+        let mut preview = backup::preview(connection, path)?;
+        let transaction = preview.connection.transaction()?;
+        crate::store::plugins::distribution::initialize(&transaction, host)?;
+        super::validation::stored(&transaction)?;
+        transaction.commit()?;
+        backup::save(connection, path)?;
+    }
+    let transaction = connection.transaction()?;
+    crate::store::plugins::distribution::initialize(&transaction, host)?;
+    if updating {
+        super::validation::stored(&transaction)?;
+    }
+    transaction.commit()?;
+    Ok(())
+}
+
 fn identity(connection: &Connection, path: &Path, node: NodeId) -> Result<(), Error> {
     let identity: Option<Vec<u8>> = connection
         .query_row("SELECT identity FROM node WHERE singleton=1", [], |row| {

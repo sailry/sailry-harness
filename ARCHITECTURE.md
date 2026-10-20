@@ -234,18 +234,24 @@ a known-full window permits one further summary attempt before failing clearly.
 Request checkpoints are changed only after persistence succeeds and are local
 projections, not another history writer.
 
-ChatGPT OAuth uses device-code authorization and the account-scoped Codex backend
-catalog and Responses endpoint. ChatGPT SIWC uses the official browser flow,
-issued client registration and public OpenAI catalog and Responses endpoint.
-Their credentials and request adapters are distinct; neither silently changes
-authentication contracts or substitutes an API key. Model capabilities resolve
-automatically from native and cached metadata; unknown capabilities use the
-configured API contract.
-Claude subscription OAuth uses Pi-compatible browser or pasted-code authorization
-and native Anthropic Messages requests. The existing execution Node owns its
-PKCE attempt, rotating credential grant, catalog access and request adaptation;
-controllers receive only shared login state. Regional vendor endpoints and
-metered/coding product choices are explicit provider settings. Editing unrelated
+Account authorization workflows belong to model authentication packages.
+The default `openai-auth` package retains ChatGPT OAuth's device-code flow and
+account-scoped Codex backend, and ChatGPT SIWC's browser registration flow and
+public OpenAI catalog and Responses endpoint. The default `claude-auth` package
+retains Claude subscription OAuth's browser or pasted-code flow. Controllers use
+the common login interaction; packages supply their endpoints, scopes, polling,
+request composition and verified claim mappings. The execution Node runs those
+pure steps through its existing private HTTP, PKCE callback, OIDC verification,
+registration, cancellation and persistence services. It alone owns rotating-grant
+fences and credential revision checks.
+Stable authentication IDs and private credential codecs preserve existing accounts
+and immutable sent-turn captures. Private account bindings retain the owning
+package and flow across ordinary code updates; changed or ambiguous ownership
+fails explicitly. Model catalogs, request adapters and account usage retain their
+existing owners rather than being duplicated by authentication packages. Model
+capabilities resolve automatically from native and cached metadata; unknown
+capabilities use the configured API contract. Regional vendor endpoints and
+metered/coding product choices remain explicit provider settings. Editing unrelated
 fields does not rewrite an existing endpoint or infer a product from its key.
 Media operations try the admitted model and credential first. Only a definite
 unsupported capability may use an explicitly configured, session-captured fallback;

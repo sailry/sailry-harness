@@ -34,7 +34,7 @@ impl Worker {
         options: sailry_protocol::conversation::oauth::Options,
         reply: oneshot::Sender<Result<Authorization, Fault>>,
     ) {
-        let plugin = if authentication == Authentication::Plugin {
+        let plugin = if super::model_auth::managed(authentication) {
             let prepared = crate::store::agent::providers::get(&database.connection, provider)
                 .and_then(|value| {
                     value.ok_or_else(|| Fault::new(ErrorCode::NotFound, "provider does not exist"))
@@ -60,6 +60,20 @@ impl Worker {
         let authorization = (|| {
             let (credential, secret) = database.credential(&reference, provider, authentication)?;
             let grant = Grant::decode(authentication, &secret)?;
+            if authentication != Authentication::Plugin
+                && super::model_auth::managed(authentication)
+            {
+                super::model_auth::check_binding(
+                    &database.connection,
+                    &credential,
+                    &plugin
+                        .as_ref()
+                        .ok_or_else(|| {
+                            Fault::new(ErrorCode::NotConfigured, "channel plugin is not captured")
+                        })?
+                        .target,
+                )?;
+            }
             if let Grant::Plugin { record, .. } = &grant {
                 record.matches(
                     &plugin
@@ -79,6 +93,22 @@ impl Worker {
                 return;
             }
         };
+        if authorization.grant.expires_at_ms()
+            <= SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|time| time.as_millis() as u64)
+                .unwrap_or(u64::MAX)
+                .saturating_add(60_000)
+            && plugin
+                .as_ref()
+                .is_some_and(|plugin| !plugin.target.refreshable())
+        {
+            let _ = reply.send(Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "model sign-in expired; sign in again",
+            )));
+            return;
+        }
         let Some((id, grant)) = self
             .renewals
             .begin(database, authorization, reply, &self.events)
@@ -92,7 +122,31 @@ impl Worker {
         let sender = self.sender.clone();
         self.runtime.spawn(async move {
             let operation = async {
-                if let (Grant::Plugin { record, .. }, Some(plugin)) = (&grant, plugin) {
+                if let Some(plugin) = plugin
+                    .as_ref()
+                    .filter(|plugin| plugin.declaration.authentication.is_some())
+                {
+                    let bundle = plugin.bundle(&plugins, &stop).await?;
+                    let mut fields = plugin.target.fields.clone();
+                    fields.insert(
+                        "user_agent".into(),
+                        Secret::new(options.user_agent().into()),
+                    );
+                    crate::providers::login::plugin::flow::renew(
+                        crate::providers::login::plugin::flow::Input {
+                            service: service.clone(),
+                            declaration: plugin.declaration.clone(),
+                            fields,
+                            redirect: None,
+                            callback: None,
+                            exchange: bundle,
+                            context: None,
+                        },
+                        &grant,
+                        stop.clone(),
+                    )
+                    .await
+                } else if let (Grant::Plugin { record, .. }, Some(plugin)) = (&grant, plugin) {
                     let bundle = plugin.bundle(&plugins, &stop).await?;
                     let issued = crate::providers::login::plugin::flow::refresh(
                         &service,
@@ -200,7 +254,7 @@ impl Renewals {
             return None;
         }
         if let Grant::Plugin { record, .. } = &grant
-            && (record.issued.refresh.is_none() || record.target.refresh.is_none())
+            && (record.issued.refresh.is_none() || !record.target.refreshable())
         {
             let _ = reply.send(Err(Fault::new(
                 ErrorCode::NotConfigured,

@@ -10,7 +10,7 @@ use crate::Error;
 
 mod relocation;
 mod removal;
-mod schema;
+pub(super) mod schema;
 pub(super) mod validation;
 
 const APPLICATION_ID: i64 = 0x5341_494c;

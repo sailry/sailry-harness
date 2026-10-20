@@ -217,14 +217,46 @@ an issuer, client, flow, injection or account scope requires sign-in again.
 Historical captures and stored approval metadata remain intact.
 
 `model_auth` owns declarative PKCE, device-code, token-exchange or start-and-poll
-flows. The Node owns HTTP, callback state, deadlines, credentials, refresh and
+flows. A `script` flow composes the same services with a pure package step
+function; it does not install an SDK, network client or another runtime in the
+transformation sandbox. Declare its immutable `script`, exported `handler`,
+fixed named `requests`, optional OIDC `issuer` and public `callback` metadata.
+A callback declares its exact loopback `path`, optional pasted `redirect_uri`,
+`manual` support and optional `allow_localhost`. `refresh: true` explicitly enables
+the refresh event. Named requests retain the existing endpoint templates and
+private substitution rules.
+
+The step receives `{context, now_ms, event, state}`. The Node supplies the
+private prior credential, configured fields, callback address, registration and
+PKCE proofs in `context`. Initial events are `start` or `refresh`; subsequent
+events are `response` (HTTP status and document), `presented`, `callback`
+(validated fields), `elapsed`, `identity` (verified OIDC claims) or `registered`.
+A step returns one effect: `request` (declared name and private fields), `prompt`,
+`callback`, `wait`, `verify`, `registered`, `finish` or `reject`. Effects carry
+only their next private `state`; it never becomes a controller projection. HTTP
+redirect refusal, response budgets, PKCE proof validation, OIDC signature,
+issuer, audience, expiry and nonce checks remain in the shared Node owner.
+The existing absolute login deadline and cancellation cover every step and wait.
+
+The stable `chat_gpt`, `chat_gpt_oauth` and `claude_oauth` authentication IDs can
+be declared through optional `authentication`. Their existing private credential
+codecs stay unchanged. Default inventory metadata binds existing accounts to
+their authorization package without rewriting credentials or sent-turn captures.
+Later admission checks the bound package, origin and authentication contract;
+ambiguous declarations or changed bindings fail rather than silently changing
+account ownership. Ordinary package code updates preserve accounts. Other model
+authentication flows use the same interface with a `token` mapping and `inject`
+declarations; native aliases finish with their retained credential representation.
+
+The Node owns HTTP, callback state, deadlines, private persistence, refresh and
 uncertain outcomes. The public login presentation selects the existing common
 controller interaction. An optional `exchange` pure transformation may normalize
-a private token response inside its dedicated authentication sandbox. Do not implement login
+a private token response inside its dedicated authentication sandbox. Script
+flows and credential transformations require `credentials.inspect` alongside
+`models.authenticate`; they use ordinary package trust. Do not implement login
 through an ordinary host callback, import another application's profile or retry
-an uncertain token rotation. A failed connection before delivery can be retried;
-a rejected refresh requires sign-in, while a possibly delivered rotation remains
-uncertain and is never replayed automatically.
+an uncertain token rotation. A possibly delivered rotation remains uncertain and
+is never replayed automatically.
 
 An authentication declaration may add named read-only `requests`, using the
 existing endpoint format. `requestProviderHttp(provider, revision, name, input)`

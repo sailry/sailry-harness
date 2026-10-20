@@ -157,8 +157,13 @@ impl Login {
         if self.pending || (self.closed && !self.cancelling) {
             return;
         }
-        if self.provider.authentication == sailry_protocol::Authentication::Plugin
-            && self.presentation.is_none()
+        if matches!(
+            self.provider.authentication,
+            sailry_protocol::Authentication::Plugin
+                | sailry_protocol::Authentication::ChatGpt
+                | sailry_protocol::Authentication::ChatGptOAuth
+                | sailry_protocol::Authentication::ClaudeOAuth
+        ) && self.presentation.is_none()
         {
             self.load_declaration(window, cx);
             return;
@@ -168,21 +173,20 @@ impl Login {
             return;
         }
         if self.fresh {
-            let callback = if let Some((path, required)) =
-                declaration::listener(self.provider.authentication, self.presentation)
-            {
-                match Callback::bind(path) {
-                    Ok(callback) => Some(callback),
-                    Err(_) if required => {
-                        self.error = Some("provider_login_failed");
-                        cx.notify();
-                        return;
+            let callback =
+                if let Some((path, required)) = declaration::listener(self.presentation.as_ref()) {
+                    match Callback::bind(&path) {
+                        Ok(callback) => Some(callback),
+                        Err(_) if required => {
+                            self.error = Some("provider_login_failed");
+                            cx.notify();
+                            return;
+                        }
+                        Err(_) => None,
                     }
-                    Err(_) => None,
-                }
-            } else {
-                None
-            };
+                } else {
+                    None
+                };
             self.attempt = None;
             self.request = self.binding.client.prepare(Command::BeginProviderLogin {
                 provider: self.provider.id,

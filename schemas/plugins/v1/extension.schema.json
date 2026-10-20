@@ -290,6 +290,32 @@
       ],
       "type": "string"
     },
+    "Callback": {
+      "additionalProperties": false,
+      "description": "Public interaction metadata; callback values and proof keys remain private.",
+      "properties": {
+        "allow_localhost": {
+          "type": "boolean"
+        },
+        "manual": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string"
+        },
+        "redirect_uri": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "manual"
+      ],
+      "type": "object"
+    },
     "Capabilities": {
       "additionalProperties": false,
       "properties": {
@@ -979,6 +1005,17 @@
     "Declaration6": {
       "additionalProperties": false,
       "properties": {
+        "authentication": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Authentication"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Stable account kind handled by this flow; private credential formats remain unchanged."
+        },
         "client": {
           "$ref": "#/$defs/Client",
           "default": {
@@ -1008,6 +1045,7 @@
           "type": "string"
         },
         "inject": {
+          "default": [],
           "items": {
             "$ref": "#/$defs/Injection"
           },
@@ -1048,15 +1086,20 @@
           "type": "array"
         },
         "token": {
-          "$ref": "#/$defs/Mapping"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Mapping"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
         "id",
         "display",
-        "flow",
-        "token",
-        "inject"
+        "flow"
       ],
       "type": "object"
     },
@@ -1297,6 +1340,54 @@
     },
     "Flow2": {
       "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Pure package steps use the existing private login HTTP, callback and cancellation owners.",
+          "properties": {
+            "callback": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Callback"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "handler": {
+              "type": "string"
+            },
+            "issuer": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "script",
+              "type": "string"
+            },
+            "refresh": {
+              "type": "boolean"
+            },
+            "requests": {
+              "additionalProperties": {
+                "$ref": "#/$defs/Endpoint"
+              },
+              "type": "object"
+            },
+            "script": {
+              "$ref": "#/$defs/Script"
+            }
+          },
+          "required": [
+            "kind",
+            "script",
+            "handler",
+            "requests"
+          ],
+          "type": "object"
+        },
         {
           "additionalProperties": false,
           "description": "A fixed start-and-poll challenge. State remains private to the Node.",

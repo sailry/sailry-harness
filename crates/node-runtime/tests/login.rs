@@ -26,6 +26,8 @@ mod execution;
 mod identity;
 #[path = "login/lifecycle.rs"]
 mod lifecycle;
+#[path = "login/migration.rs"]
+mod migration;
 #[path = "login/oauth.rs"]
 mod oauth;
 #[path = "login/package.rs"]
@@ -89,6 +91,19 @@ impl Fixture {
         } else {
             node.local()
         }));
+        for name in ["openai-auth", "claude-auth"] {
+            let Output::Plugin(package) = client
+                .execute(client.prepare(Command::InstallBundledPlugin {
+                    name: name.into(),
+                    expected_revision: 0,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("authentication package expected")
+            };
+            assert!(package.issues.is_empty(), "{:?}", package.issues);
+        }
         Self {
             directory,
             node,

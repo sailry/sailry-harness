@@ -1,18 +1,14 @@
-use super::*;
+//! OIDC proof validation shared by package-declared account flows.
+use super::super::*;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode_header, jwk::JwkSet};
 use reqwest::Url;
 use serde::Deserialize;
+use serde_json::Value;
 
 #[derive(Deserialize)]
 struct Discovery {
     issuer: String,
     jwks_uri: String,
-}
-
-pub(in crate::providers::login) struct Identity {
-    pub sub: String,
-    pub email: Option<String>,
-    pub account_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -23,23 +19,15 @@ struct Claims {
     iat: u64,
     aud: serde_json::Value,
     azp: Option<String>,
-    chatgpt_account_id: Option<String>,
-    #[serde(rename = "https://api.openai.com/auth")]
-    auth: Option<Account>,
 }
 
-#[derive(Deserialize)]
-struct Account {
-    chatgpt_account_id: Option<String>,
-}
-
-pub(in crate::providers::login) async fn verify(
+pub(super) async fn verify(
     client: &Client,
     auth: &str,
     token: &Secret,
     client_id: &str,
     nonce: Option<&str>,
-) -> Result<Identity, Fault> {
+) -> Result<Value, Fault> {
     let discovery: Discovery =
         json(client.get(format!("{auth}/.well-known/openid-configuration"))).await?;
     discovery.validate(auth)?;
@@ -80,7 +68,7 @@ fn verified(
     nonce: Option<&str>,
     issuer: &str,
     keys: &JwkSet,
-) -> Result<Identity, Fault> {
+) -> Result<Value, Fault> {
     let header = decode_header(token.expose())
         .map_err(|_| sailry_protocol::Fault::invalid("authorization identity token is invalid"))?;
     if !matches!(
@@ -128,11 +116,11 @@ fn verified(
     validation.set_audience(&[client_id]);
     validation.set_issuer(&[issuer]);
     validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
-    let claims = jsonwebtoken::decode::<Claims>(token.expose(), &key, &validation)
-        .map_err(|_| {
-            sailry_protocol::Fault::invalid("authorization identity token could not be verified")
-        })?
+    let document = jsonwebtoken::decode::<Value>(token.expose(), &key, &validation)
+        .map_err(|_| Fault::invalid("authorization identity token could not be verified"))?
         .claims;
+    let claims: Claims = serde_json::from_value(document.clone())
+        .map_err(|_| Fault::invalid("authorization identity claims are invalid"))?;
     let now = now_ms()? / 1000;
     if claims.sub.is_empty()
         || claims.sub.len() > 2048
@@ -156,13 +144,7 @@ fn verified(
             "authorization identity claims did not match",
         ));
     }
-    Ok(Identity {
-        sub: claims.sub,
-        email: claims.email,
-        account_id: claims
-            .chatgpt_account_id
-            .or_else(|| claims.auth.and_then(|auth| auth.chatgpt_account_id)),
-    })
+    Ok(document)
 }
 
 #[cfg(test)]

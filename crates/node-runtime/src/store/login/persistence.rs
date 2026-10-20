@@ -58,6 +58,9 @@ pub(super) fn save(
         value,
         &authorized.grant.encode()?,
     )?;
+    if let Some(binding) = authorized.binding {
+        crate::store::providers::authentication::bind(&transaction, &value, *binding)?;
+    }
     provider.credential = Some(CredentialRef {
         node: database.node,
         id: value.id,

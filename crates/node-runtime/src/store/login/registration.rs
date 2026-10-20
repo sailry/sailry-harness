@@ -1,11 +1,13 @@
 //! Persist host and registration identity independently from an unfinished code exchange.
 use super::*;
-use crate::{providers::login::Authorization, store::database::storage_error};
+use crate::{
+    providers::login::plugin::{Target, workflow::Context},
+    store::database::storage_error,
+};
 use rusqlite::{Connection, OptionalExtension};
 
 pub(super) struct Prepared {
-    pub authorization: Authorization,
-    pub callback: oneshot::Sender<Secret>,
+    pub context: Context,
     pub registered: oneshot::Receiver<(String, oneshot::Sender<Result<(), Fault>>)>,
 }
 
@@ -13,46 +15,22 @@ pub(super) fn prepare(
     database: &Database,
     provider: &Provider,
     credential: Option<&Credential>,
-    redirect: Option<&str>,
-) -> Result<Option<Prepared>, Fault> {
-    if provider.authentication == Authentication::ClaudeOAuth {
-        let (callback, returned) = oneshot::channel();
-        let (issued, registered) = oneshot::channel();
-        return Ok(Some(Prepared {
-            authorization: Authorization {
-                redirect: redirect
-                    .unwrap_or("https://platform.claude.com/oauth/code/callback")
-                    .into(),
-                host_id: String::new(),
-                previous: None,
-                registration: None,
-                issued,
-                callback: returned,
-            },
-            callback,
-            registered,
-        }));
-    }
-    if provider.authentication != Authentication::ChatGpt {
-        if redirect.is_some() {
-            return Err(Fault::invalid(
-                "device authorization does not use a callback",
-            ));
-        }
-        return Ok(None);
-    }
-    let redirect = redirect
-        .ok_or_else(|| Fault::invalid("ChatGPT authorization requires a controller callback"))?;
-    let previous = provider
-        .credential
-        .as_ref()
-        .filter(|_| !credential.is_some_and(|value| value.revoked))
-        .map(|reference| {
-            let value =
-                database.resolve_credential(reference, provider.id, Authentication::ChatGpt)?;
-            Grant::decode(Authentication::ChatGpt, &value)
-        })
-        .transpose()?;
+    target: &Target,
+) -> Result<Prepared, Fault> {
+    let previous = if let Some(credential) = credential.filter(|value| !value.revoked)
+        && provider.authentication != Authentication::Plugin
+        && super::model_auth::check_binding(&database.connection, credential, target).is_ok()
+    {
+        let (_, secret) = crate::store::providers::authentication::resolve(
+            &database.connection,
+            credential.id,
+            provider.id,
+            provider.authentication,
+        )?;
+        Some(Grant::decode(provider.authentication, &secret)?)
+    } else {
+        None
+    };
     let registration = database
         .connection
         .query_row(
@@ -62,20 +40,16 @@ pub(super) fn prepare(
         )
         .optional()
         .map_err(storage_error)?;
-    let (callback, returned) = oneshot::channel();
     let (issued, registered) = oneshot::channel();
-    Ok(Some(Prepared {
-        authorization: Authorization {
-            redirect: redirect.into(),
-            host_id: host_id(&database.connection)?,
+    Ok(Prepared {
+        context: Context {
             previous,
+            host_id: host_id(&database.connection)?,
             registration,
-            issued,
-            callback: returned,
+            issued: Some(issued),
         },
-        callback,
         registered,
-    }))
+    })
 }
 
 fn host_id(database: &Connection) -> Result<String, Fault> {

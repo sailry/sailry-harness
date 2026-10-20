@@ -41,13 +41,13 @@ fn claims() -> Value {
 #[test]
 fn validates_signed_identity_and_nonce() {
     let identity = verified(&signed(&claims()), CLIENT, Some("nonce"), ISSUER, &keys()).unwrap();
-    assert_eq!(identity.sub, "verified-subject");
-    assert_eq!(identity.email.as_deref(), Some("user@example.com"));
-    assert_eq!(identity.account_id, None);
+    assert_eq!(identity["sub"], "verified-subject");
+    assert_eq!(identity["email"].as_str(), Some("user@example.com"));
+    assert!(identity.get("chatgpt_account_id").is_none());
 }
 
 #[test]
-fn extracts_signed_codex_workspace() {
+fn retains_verified_custom_claims() {
     let client = "app_EMoamEEZ73f0CkXaXp7hrann";
     for nested in [false, true] {
         let mut claims = claims();
@@ -60,8 +60,17 @@ fn extracts_signed_codex_workspace() {
         }
         let token = signed(&claims);
         let identity = verified(&token, client, None, ISSUER, &keys()).unwrap();
-        assert_eq!(identity.sub, "verified-subject");
-        assert_eq!(identity.account_id.as_deref(), Some("workspace"));
+        assert_eq!(identity["sub"], "verified-subject");
+        assert_eq!(
+            identity
+                .pointer(if nested {
+                    "/https:~1~1api.openai.com~1auth/chatgpt_account_id"
+                } else {
+                    "/chatgpt_account_id"
+                })
+                .and_then(Value::as_str),
+            Some("workspace")
+        );
         assert!(verified(&token, CLIENT, None, ISSUER, &keys()).is_err());
         assert!(verified(&token, client, Some("nonce"), ISSUER, &keys()).is_err());
     }

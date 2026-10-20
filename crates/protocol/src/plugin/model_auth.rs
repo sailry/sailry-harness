@@ -13,13 +13,18 @@ pub struct Binding {
 #[serde(deny_unknown_fields)]
 pub struct Declaration {
     pub id: String,
+    /// Stable account kind handled by this flow; private credential formats remain unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<crate::Authentication>,
     pub display: Navigation,
     pub flow: Flow,
     #[serde(default)]
     pub client: Client,
     #[serde(default)]
     pub scopes: Vec<String>,
-    pub token: Mapping,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<Mapping>,
+    #[serde(default)]
     pub inject: Vec<Injection>,
     #[serde(default)]
     pub refresh: Option<Refresh>,
@@ -74,8 +79,24 @@ impl Declaration {
             && !self.display.label.trim().is_empty()
             && self.flow.valid()
             && self.client.valid()
-            && self.token.valid()
-            && !self.inject.is_empty()
+            && match &self.flow {
+                Flow::Script { .. } => match self.authentication {
+                    Some(
+                        crate::Authentication::ChatGpt
+                        | crate::Authentication::ChatGptOAuth
+                        | crate::Authentication::ClaudeOAuth,
+                    ) => self.token.is_none() && self.inject.is_empty(),
+                    None => {
+                        self.token.as_ref().is_some_and(Mapping::valid) && !self.inject.is_empty()
+                    }
+                    _ => false,
+                },
+                _ => {
+                    self.authentication.is_none()
+                        && self.token.as_ref().is_some_and(Mapping::valid)
+                        && !self.inject.is_empty()
+                }
+            }
             && self
                 .inject
                 .iter()
@@ -98,6 +119,16 @@ impl Declaration {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Flow {
+    /// Pure package steps use the existing private login HTTP, callback and cancellation owners.
+    Script {
+        script: Script,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        refresh: bool,
+        handler: String,
+        requests: BTreeMap<String, Endpoint>,
+        callback: Option<Callback>,
+        issuer: Option<String>,
+    },
     /// A fixed start-and-poll challenge. State remains private to the Node.
     Polling {
         start: Endpoint,
@@ -126,6 +157,9 @@ pub enum Flow {
 impl Flow {
     pub fn presentation(&self) -> Presentation {
         match self {
+            Self::Script { callback, .. } => Presentation::Script {
+                callback: callback.clone(),
+            },
             Self::Pkce { redirect, .. } => Presentation::Pkce {
                 redirect: *redirect,
             },
@@ -136,6 +170,30 @@ impl Flow {
     }
     fn valid(&self) -> bool {
         match self {
+            Self::Script {
+                script,
+                refresh: _,
+                handler,
+                requests,
+                callback,
+                issuer,
+            } => {
+                script.valid()
+                    && super::host::valid_handler(handler)
+                    && !requests.is_empty()
+                    && requests.len() <= 32
+                    && requests.iter().all(|(name, request)| {
+                        super::host::valid_handler(name)
+                            && request.valid()
+                            && !request.url.contains(['{', '}'])
+                    })
+                    && callback.as_ref().is_none_or(Callback::valid)
+                    && issuer.as_ref().is_none_or(|value| {
+                        endpoint(value)
+                            && url::Url::parse(value)
+                                .is_ok_and(|url| url.path() == "/" && url.query().is_none())
+                    })
+            }
             Self::Polling {
                 start,
                 state,
@@ -172,13 +230,38 @@ impl Flow {
 }
 
 /// Only the interaction needed by a controller, without private login state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Presentation {
+    Script { callback: Option<Callback> },
     Pkce { redirect: Redirect },
     Polling,
     DeviceCode,
     TokenExchange,
+}
+
+/// Public interaction metadata; callback values and proof keys remain private.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Callback {
+    pub path: String,
+    pub redirect_uri: Option<String>,
+    pub manual: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_localhost: bool,
+}
+
+impl Callback {
+    fn valid(&self) -> bool {
+        self.path.starts_with('/')
+            && self.path.len() <= 256
+            && !self.path.contains(['?', '#', '\\'])
+            && !self.path.chars().any(char::is_control)
+            && self
+                .redirect_uri
+                .as_ref()
+                .is_none_or(|value| self.manual && endpoint(value))
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -319,6 +402,65 @@ fn pointer(value: &str) -> bool {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn validates_private_script_declarations() {
+        let declaration:Declaration=serde_json::from_value(json!({
+            "id":"account","authentication":"chat_gpt_oauth","display":{"label":"Account"},
+            "flow":{"kind":"script","script":{"entry":"dev.sailry.platform/auth.js"},"handler":"authorize",
+                "requests":{"token":{"url":"https://issuer.example/token"}},"callback":null,"issuer":"https://issuer.example"}
+        })).unwrap();
+        assert!(declaration.valid());
+        assert!(
+            !serde_json::to_value(&declaration)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .contains_key("token")
+        );
+        for authentication in [
+            crate::Authentication::ApiKey,
+            crate::Authentication::Copilot,
+            crate::Authentication::Plugin,
+        ] {
+            let mut invalid = declaration.clone();
+            invalid.authentication = Some(authentication);
+            assert!(!invalid.valid());
+        }
+        let mut invalid = declaration.clone();
+        if let Flow::Script { requests, .. } = &mut invalid.flow {
+            requests.get_mut("token").unwrap().url = "https://{host}/token".into();
+        }
+        assert!(!invalid.valid());
+        let mut plugin = declaration.clone();
+        plugin.authentication = None;
+        assert!(!plugin.valid());
+        plugin.token = Some(Mapping {
+            access: "/access".into(),
+            refresh: None,
+            expires_in: None,
+            extra: BTreeMap::new(),
+        });
+        plugin.inject = vec![Injection {
+            header: "Authorization".into(),
+            template: "Bearer {access}".into(),
+        }];
+        assert!(plugin.valid());
+    }
+
+    #[test]
+    fn preserves_omitted_alias_fields() {
+        let document = json!({"id":"account","display":{"label":"Account"},"flow":{"kind":"token_exchange","token":{"url":"https://example.test/token"}},"token":{"access":"/access","refresh":null,"expires_in":null},"inject":[{"header":"Authorization","template":"Bearer {access}"}]});
+        let declaration: Declaration = serde_json::from_value(document).unwrap();
+        assert!(declaration.authentication.is_none());
+        assert!(declaration.valid());
+        assert!(
+            serde_json::to_value(declaration)
+                .unwrap()
+                .get("authentication")
+                .is_none()
+        );
+    }
 
     #[test]
     fn bounds_native_resource_declarations() {

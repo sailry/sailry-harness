@@ -97,9 +97,9 @@ pub(super) fn parse(bytes: &[u8]) -> Result<Manifest, Fault> {
                     Ok(parsed)
                         if parsed.actions.len() <= 32
                             && parsed.files_in_namespace()
-                            && parsed.model_auth.iter().enumerate().all(|(index,item)| item.valid() && !parsed.model_auth[..index].iter().any(|other|other.id==item.id)
+                            && parsed.model_auth.iter().enumerate().all(|(index,item)| item.valid() && !parsed.model_auth[..index].iter().any(|other|other.id==item.id || (item.authentication.is_some() && other.authentication==item.authentication))
                                 && parsed.actions.contains(&sailry_protocol::plugin::Action::AuthenticateModels)
-                                && (item.exchange.is_none() || parsed.actions.contains(&sailry_protocol::plugin::Action::InspectCredentials)))
+                                && ((item.exchange.is_none() && !matches!(item.flow, sailry_protocol::plugin::model_auth::Flow::Script{..})) || parsed.actions.contains(&sailry_protocol::plugin::Action::InspectCredentials)))
                             && parsed.model_resources.iter().enumerate().all(|(index,item)| item.valid()
                                 && !parsed.model_resources[..index].iter().any(|other| other.authentication == item.authentication)
                                 && parsed.actions.contains(&sailry_protocol::plugin::Action::Http))

@@ -246,7 +246,7 @@ impl Grant {
                 scopes,
                 ..
             } => {
-                chatgpt::flow::issued_client(client_id)?;
+                registration(client_id)?;
                 if account_id.as_ref().is_some_and(|value| {
                     value.is_empty()
                         || value.len() > 2048
@@ -346,3 +346,20 @@ fn token(value: &Secret) -> Result<(), Fault> {
     }
     Ok(())
 }
+
+// This is validation of the retained private credential format, not an OAuth workflow.
+fn registration(value: &str) -> Result<(), Fault> {
+    if value.is_empty()
+        || value.len() > 256
+        || value == "dynamic_agent_client"
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(Fault::invalid("authorization client identifier is invalid"));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

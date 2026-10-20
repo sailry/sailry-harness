@@ -1,9 +1,6 @@
 //! Controller interaction follows the public declaration; the Node owns authentication.
 use super::*;
-use sailry_protocol::{
-    Authentication,
-    plugin::model_auth::{Presentation, Redirect},
-};
+use sailry_protocol::plugin::model_auth::{Presentation, Redirect};
 
 impl Login {
     pub(super) fn load_declaration(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -12,6 +9,7 @@ impl Login {
         }
         let client = self.binding.client.clone();
         let reference = self.provider.preset.clone();
+        let authentication = self.provider.authentication;
         self.pending = true;
         self.error = None;
         let job = self.binding.runtime.spawn(async move {
@@ -29,14 +27,11 @@ impl Login {
                     return;
                 }
                 login.presentation = match result {
-                    Ok(Ok(Output::ChannelPresets(listing))) => reference
-                        .as_ref()
-                        .and_then(|reference| {
-                            listing.entries.into_iter().find(|entry| {
-                                entry.source == reference.source && entry.preset.id == reference.id
-                            })
-                        })
-                        .and_then(|entry| entry.login),
+                    Ok(Ok(Output::ChannelPresets(listing))) => listing.entries.into_iter()
+                        .find(|entry| match &reference {
+                            Some(reference) => entry.source == reference.source && entry.preset.id == reference.id,
+                            None => matches!(entry.preset.auth, sailry_protocol::conversation::presets::Auth::Builtin { authentication: current } if current == authentication),
+                        }).and_then(|entry| entry.login),
                     Ok(Err(error)) => {
                         login.error = Some(super::super::live::error_key(&error));
                         cx.notify();
@@ -60,38 +55,27 @@ impl Login {
     }
 
     pub(super) fn accepts_callback(&self) -> bool {
-        manual(self.provider.authentication, self.presentation)
+        manual(self.presentation.as_ref())
     }
 }
 
-fn manual(authentication: Authentication, presentation: Option<Presentation>) -> bool {
-    authentication == Authentication::ClaudeOAuth
-        || (authentication == Authentication::Plugin
-            && matches!(
-                presentation,
-                Some(Presentation::Pkce {
-                    redirect: Redirect::Paste
-                })
-            ))
+fn manual(presentation: Option<&Presentation>) -> bool {
+    matches!(
+        presentation,
+        Some(Presentation::Pkce {
+            redirect: Redirect::Paste
+        })
+    ) || matches!(presentation, Some(Presentation::Script { callback: Some(callback) }) if callback.manual)
 }
 
-pub(super) fn listener(
-    authentication: Authentication,
-    presentation: Option<Presentation>,
-) -> Option<(&'static str, bool)> {
-    match authentication {
-        Authentication::ChatGpt => Some(("/auth/callback", true)),
-        Authentication::ClaudeOAuth => Some(("/callback", false)),
-        Authentication::Plugin
-            if matches!(
-                presentation,
-                Some(Presentation::Pkce {
-                    redirect: Redirect::Loopback
-                })
-            ) =>
-        {
-            Some(("/callback", true))
-        }
+pub(super) fn listener(presentation: Option<&Presentation>) -> Option<(String, bool)> {
+    match presentation {
+        Some(Presentation::Pkce {
+            redirect: Redirect::Loopback,
+        }) => Some(("/callback".into(), true)),
+        Some(Presentation::Script {
+            callback: Some(callback),
+        }) => Some((callback.path.clone(), !callback.manual)),
         _ => None,
     }
 }
@@ -121,26 +105,27 @@ mod tests {
             (Presentation::Polling, false, false),
             (Presentation::DeviceCode, false, false),
             (Presentation::TokenExchange, false, false),
+            (Presentation::Script { callback: None }, false, false),
         ] {
-            assert_eq!(
-                listener(Authentication::Plugin, Some(presentation)).is_some(),
-                needs_listener
-            );
-            assert_eq!(
-                manual(Authentication::Plugin, Some(presentation)),
-                needs_manual
-            );
+            assert_eq!(listener(Some(&presentation)).is_some(), needs_listener);
+            assert_eq!(manual(Some(&presentation)), needs_manual);
         }
-        assert_eq!(
-            listener(Authentication::ChatGpt, None),
-            Some(("/auth/callback", true))
-        );
-        assert_eq!(
-            listener(Authentication::ClaudeOAuth, None),
-            Some(("/callback", false))
-        );
-        assert!(manual(Authentication::ClaudeOAuth, None));
-        assert!(!manual(Authentication::Copilot, None));
-        assert_eq!(listener(Authentication::ChatGptOAuth, None), None);
+        for (path, manual_callback) in [("/auth/callback", false), ("/callback", true)] {
+            let presentation = Presentation::Script {
+                callback: Some(sailry_protocol::plugin::model_auth::Callback {
+                    path: path.into(),
+                    redirect_uri: None,
+                    manual: manual_callback,
+                    allow_localhost: manual_callback,
+                }),
+            };
+            assert_eq!(
+                listener(Some(&presentation)),
+                Some((path.into(), !manual_callback))
+            );
+            assert_eq!(manual(Some(&presentation)), manual_callback);
+        }
+        assert_eq!(listener(None), None);
+        assert!(!manual(None));
     }
 }

@@ -45,6 +45,11 @@ pub(in crate::store) fn list(
             login: None,
         })
         .collect::<Vec<_>>();
+    for entry in &mut entries {
+        if let Auth::Builtin { authentication } = entry.preset.auth {
+            entry.login = crate::store::login::model_auth::presentation(db, authentication)?;
+        }
+    }
     entries.extend(cached(db)?.into_iter().map(|preset| Entry {
         source: Source::Partner,
         preset,

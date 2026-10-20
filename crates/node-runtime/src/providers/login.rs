@@ -1,13 +1,9 @@
 //! Node-owned provider authorization and protected credential renewal.
-mod chatgpt;
-mod claude;
-mod codex;
 mod copilot;
 mod grant;
 mod headers;
 mod options;
 pub(crate) mod plugin;
-pub(crate) use chatgpt::Authorization;
 pub(crate) use grant::Grant;
 pub(crate) use headers::resource_endpoint;
 pub(crate) use options::capture;
@@ -43,11 +39,8 @@ fn random() -> Secret {
 
 #[derive(Clone)]
 pub(crate) struct Service {
-    auth: String,
     github: String,
     github_api: String,
-    claude_auth: String,
-    claude_token: String,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) model_endpoint: Option<String>,
 }
@@ -55,11 +48,8 @@ pub(crate) struct Service {
 impl Default for Service {
     fn default() -> Self {
         Self {
-            auth: "https://auth.openai.com".into(),
             github: "https://github.com".into(),
             github_api: "https://api.github.com".into(),
-            claude_auth: "https://claude.ai".into(),
-            claude_token: "https://platform.claude.com/v1/oauth/token".into(),
             #[cfg(any(test, feature = "test-support"))]
             model_endpoint: None,
         }
@@ -76,21 +66,15 @@ impl Service {
         let operation = async {
             options::validate(grant.authentication(), api(grant.authentication()), options)?;
             let client = client(options)?;
-            let refreshed = match grant {
-                Grant::Plugin { .. } => {
-                    return Err(Fault::new(
-                        ErrorCode::NotConfigured,
-                        "model authorization requires its captured plugin flow",
-                    ));
-                }
-                Grant::ChatGpt { .. } => self.refresh_chatgpt(&client, grant).await?,
-                Grant::ChatGptOAuth { .. } => self.refresh_codex(&client, grant).await?,
-                Grant::ClaudeOAuth { .. } => self.refresh_claude(&client, grant).await?,
-                Grant::Copilot { github, .. } => {
-                    self.exchange_copilot(&client, github.clone(), options)
-                        .await?
-                }
+            let Grant::Copilot { github, .. } = grant else {
+                return Err(Fault::new(
+                    ErrorCode::NotConfigured,
+                    "model authorization requires its captured plugin flow",
+                ));
             };
+            let refreshed = self
+                .exchange_copilot(&client, github.clone(), options)
+                .await?;
             refreshed.validate(grant.authentication())?;
             if !refreshed.same_account(grant) {
                 return Err(sailry_protocol::Fault::invalid(
@@ -112,11 +96,8 @@ impl Service {
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn fixture(endpoint: &str) -> Self {
         Self {
-            auth: endpoint.into(),
             github: endpoint.into(),
             github_api: endpoint.into(),
-            claude_auth: endpoint.into(),
-            claude_token: format!("{endpoint}/v1/oauth/token"),
             model_endpoint: Some(endpoint.into()),
         }
     }
@@ -125,7 +106,6 @@ impl Service {
         &self,
         authentication: Authentication,
         options: &Options,
-        authorization: Option<Authorization>,
         progress: P,
         stop: &CancellationToken,
     ) -> Result<Grant, Fault>
@@ -151,52 +131,13 @@ impl Service {
         let operation = async {
             options::validate(authentication, api(authentication), options)?;
             let client = client(options)?;
-            let grant = match authentication {
-                Authentication::ChatGpt => {
-                    self.chatgpt(
-                        &client,
-                        authorization.ok_or_else(|| {
-                            sailry_protocol::Fault::invalid(
-                                "ChatGPT authorization context is required",
-                            )
-                        })?,
-                        progress,
-                    )
-                    .await?
-                }
-                Authentication::ChatGptOAuth => {
-                    if authorization.is_some() {
-                        return Err(sailry_protocol::Fault::invalid(
-                            "device authorization does not use a callback",
-                        ));
-                    }
-                    self.codex(&client, progress).await?
-                }
-                Authentication::ClaudeOAuth => {
-                    self.claude(
-                        &client,
-                        authorization.ok_or_else(|| {
-                            sailry_protocol::Fault::invalid(
-                                "Claude authorization context is required",
-                            )
-                        })?,
-                        progress,
-                    )
-                    .await?
-                }
-                Authentication::Copilot => self.copilot(&client, options, progress).await?,
-                Authentication::ApiKey => {
-                    return Err(sailry_protocol::Fault::invalid(
-                        "provider does not use device authorization",
-                    ));
-                }
-                Authentication::Plugin => {
-                    return Err(Fault::new(
-                        ErrorCode::NotConfigured,
-                        "model authorization requires its captured plugin flow",
-                    ));
-                }
-            };
+            if authentication != Authentication::Copilot {
+                return Err(Fault::new(
+                    ErrorCode::NotConfigured,
+                    "model authorization requires its captured plugin flow",
+                ));
+            }
+            let grant = self.copilot(&client, options, progress).await?;
             grant.validate(authentication)?;
             if grant.expires_at_ms() <= now_ms()? {
                 return Err(expired());

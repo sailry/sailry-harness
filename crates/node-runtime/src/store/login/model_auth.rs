@@ -32,17 +32,32 @@ pub(super) fn configuration(
         .cloned()
         .map(Ok)
         .unwrap_or_else(|| crate::providers::login::effective(&captured))?;
-    let sailry_protocol::conversation::oauth::Options::Plugin {
-        ref package,
-        ref flow,
-        ref endpoint,
-        consent: _,
-        ref origin,
-    } = options
-    else {
-        return Err(missing());
+    let (package, flow, endpoint, origin) = match &options {
+        sailry_protocol::conversation::oauth::Options::Plugin {
+            package,
+            flow,
+            endpoint,
+            origin,
+            ..
+        } => (
+            package.clone(),
+            flow.clone(),
+            endpoint.clone(),
+            origin.clone().ok_or_else(missing)?,
+        ),
+        _ if managed(provider.authentication) => {
+            let (info, declaration) = alias(db, provider.authentication)?;
+            let origin = crate::store::providers::consent::origin(&info);
+            (
+                info.summary.reference(),
+                declaration.id,
+                provider.endpoint.clone(),
+                origin,
+            )
+        }
+        _ => return Err(missing()),
     };
-    let info = crate::store::agent::plugins::packages(db, std::slice::from_ref(package))?
+    let info = crate::store::agent::plugins::packages(db, std::slice::from_ref(&package))?
         .pop()
         .ok_or_else(missing)?;
     let extension = info.extension.as_ref().ok_or_else(missing)?;
@@ -52,11 +67,14 @@ pub(super) fn configuration(
     let declaration = extension
         .model_auth
         .iter()
-        .find(|declaration| declaration.id == *flow)
+        .find(|declaration| declaration.id == flow)
         .cloned()
         .filter(model_auth::Declaration::valid)
         .ok_or_else(missing)?;
-    if declaration.exchange.is_some() && !extension.actions.contains(&Action::InspectCredentials) {
+    if (declaration.exchange.is_some()
+        || matches!(declaration.flow, model_auth::Flow::Script { .. }))
+        && !extension.actions.contains(&Action::InspectCredentials)
+    {
         return Err(missing());
     }
     let resolved = crate::store::plugins::settings::resolve(db, &info)?;
@@ -85,11 +103,8 @@ pub(super) fn configuration(
     let target = Target {
         provider: provider.id,
         package: package.name.clone(),
-        digest: origin
-            .as_ref()
-            .filter(|origin| origin.requires_digest())
-            .map(|_| package.digest.clone()),
-        origin: origin.clone().ok_or_else(missing)?,
+        digest: origin.requires_digest().then(|| package.digest.clone()),
+        origin: origin.clone(),
         flow: flow.clone(),
         endpoint: endpoint.clone(),
         authorization: declaration.flow.clone(),
@@ -107,7 +122,7 @@ pub(super) fn configuration(
             provider: provider.id,
             revision: provider.revision,
             package: package.clone(),
-            origin: origin.clone().ok_or_else(missing)?,
+            origin: origin.clone(),
             flow: flow.clone(),
         },
         target,
@@ -147,6 +162,22 @@ pub(super) fn prepare(
             let (returned, callback) = oneshot::channel();
             (Some(redirect), Some(callback), Some(returned))
         }
+        model_auth::Flow::Script {
+            callback: Some(mode),
+            ..
+        } => {
+            let redirect = match redirect {
+                Some(value) => value.to_string(),
+                None if mode.manual => mode.redirect_uri.clone().ok_or_else(missing)?,
+                None => {
+                    return Err(Fault::invalid(
+                        "model authorization requires a controller callback",
+                    ));
+                }
+            };
+            let (returned, callback) = oneshot::channel();
+            (Some(redirect), Some(callback), Some(returned))
+        }
         _ => {
             if redirect.is_some() {
                 return Err(Fault::invalid(
@@ -170,12 +201,15 @@ impl Configuration {
         host: &crate::plugins::Host,
         stop: &CancellationToken,
     ) -> Result<Option<crate::plugins::script::Bundle>, Fault> {
-        let Some(exchange) = &self.declaration.exchange else {
-            return Ok(None);
+        let script = match &self.declaration.flow {
+            model_auth::Flow::Script { script, .. } => script.clone(),
+            _ => match &self.declaration.exchange {
+                Some(exchange) => exchange.script.clone(),
+                None => return Ok(None),
+            },
         };
         let host = host.clone();
         let reference = self.capture.package.clone();
-        let script = exchange.script.clone();
         let stop = stop.clone();
         tokio::task::spawn_blocking(move || {
             host.read_translation(&reference, &script, stop).map(Some)
@@ -189,6 +223,7 @@ pub(super) async fn authorize<P, F>(
     prepared: Prepared,
     service: crate::providers::login::Service,
     host: &crate::plugins::Host,
+    context: Option<crate::providers::login::plugin::workflow::Context>,
     progress: P,
     stop: CancellationToken,
 ) -> Result<Grant, Fault>
@@ -198,11 +233,20 @@ where
 {
     let configuration = prepared.configuration;
     let exchange = configuration.bundle(host, &stop).await?;
+    let mut fields = configuration.target.fields.clone();
+    if configuration.declaration.authentication.is_some() {
+        fields.insert(
+            "user_agent".into(),
+            Secret::new(configuration.options.user_agent().into()),
+        );
+    }
+    let authentication = configuration.declaration.authentication;
     let issued = flow::authorize(
         flow::Input {
             service,
             declaration: configuration.declaration,
-            fields: configuration.target.fields.clone(),
+            fields,
+            context,
             redirect: prepared.redirect,
             callback: prepared.callback,
             exchange,
@@ -211,6 +255,13 @@ where
         stop,
     )
     .await?;
+    if let flow::Authorized::Grant(grant) = issued {
+        grant.validate(authentication.ok_or_else(missing)?)?;
+        return Ok(grant);
+    }
+    let flow::Authorized::Tokens(issued) = issued else {
+        unreachable!()
+    };
     let grant = Grant::Plugin {
         record: Box::new(crate::providers::login::plugin::Record {
             target: configuration.target,
@@ -237,6 +288,96 @@ pub(super) fn complete(
         &current.capture.origin,
         &current.capture.flow,
     )
+}
+
+pub(in crate::store) fn managed(authentication: Authentication) -> bool {
+    matches!(
+        authentication,
+        Authentication::ChatGpt
+            | Authentication::ChatGptOAuth
+            | Authentication::ClaudeOAuth
+            | Authentication::Plugin
+    )
+}
+
+fn alias(
+    db: &Connection,
+    authentication: Authentication,
+) -> Result<(sailry_protocol::plugin::Info, model_auth::Declaration), Fault> {
+    let mut found = None;
+    for summary in crate::store::plugins::list(db)? {
+        if !summary.enabled {
+            continue;
+        }
+        let Some(info) = crate::store::plugins::get(db, &summary.name)? else {
+            continue;
+        };
+        if !info.issues.is_empty() {
+            continue;
+        }
+        for declaration in info
+            .extension
+            .as_ref()
+            .into_iter()
+            .flat_map(|extension| &extension.model_auth)
+        {
+            if declaration.authentication != Some(authentication) || !declaration.valid() {
+                continue;
+            }
+            if found.is_some() {
+                return Err(Fault::new(
+                    ErrorCode::Conflict,
+                    "model authentication alias is ambiguous",
+                ));
+            }
+            found = Some((info.clone(), declaration.clone()));
+        }
+    }
+    found.ok_or_else(missing)
+}
+
+pub(in crate::store) fn presentation(
+    db: &Connection,
+    authentication: Authentication,
+) -> Result<Option<model_auth::Presentation>, Fault> {
+    if !managed(authentication) || authentication == Authentication::Plugin {
+        return Ok(None);
+    }
+    match alias(db, authentication) {
+        Ok((_, declaration)) => Ok(Some(declaration.flow.presentation())),
+        Err(error) if error.code == ErrorCode::NotConfigured => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+pub(in crate::store) fn legacy_target(
+    db: &Connection,
+    provider: &Provider,
+    package: &str,
+    flow: &str,
+) -> Result<Target, Fault> {
+    let current = configuration(db, provider, RequestId::new(), None)?;
+    if current.target.package != package
+        || current.target.flow != flow
+        || current.target.origin != sailry_protocol::conversation::consent::Origin::Bundled
+    {
+        return Err(missing());
+    }
+    Ok(current.target)
+}
+
+pub(in crate::store) fn check_binding(
+    db: &Connection,
+    credential: &Credential,
+    target: &Target,
+) -> Result<(), Fault> {
+    let saved =
+        crate::store::providers::authentication::binding(db, credential.id, credential.provider)?
+            .ok_or_else(missing)?;
+    if saved.origin != target.origin {
+        return Err(missing());
+    }
+    saved.matches(target)
 }
 
 fn missing() -> Fault {

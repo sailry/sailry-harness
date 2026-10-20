@@ -580,9 +580,9 @@ impl Store {
                 match search::read(&database.connection) { Ok(settings) => searcher.configure(settings), Err(error) => {let _=ready.send(Err(crate::Error::from(error)));return Ok(());} }
                 if bundled && database.profile.is_some()
                     && let Err(error) =
-                        plugins::distribution::install(&mut database.connection, &collection)
+                        database::schema::install_plugins(&mut database.connection, &path, &collection)
                 {
-                    let _ = ready.send(Err(crate::Error::from(error)));
+                    let _ = ready.send(Err(error));
                     return Ok(());
                 }
                 plugins::collection::run(&mut database.connection, &collection);

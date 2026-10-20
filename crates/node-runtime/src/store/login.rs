@@ -3,7 +3,7 @@
 mod account;
 mod github;
 mod mcp;
-mod model_auth;
+pub(in crate::store) mod model_auth;
 mod models;
 mod persistence;
 mod registration;
@@ -58,6 +58,7 @@ pub(super) enum Progress {
 pub(super) struct Authorized {
     grant: Grant,
     models: Result<Vec<discovery::Model>, Fault>,
+    binding: Option<Box<crate::providers::login::plugin::Target>>,
 }
 
 struct Entry {
@@ -204,7 +205,7 @@ impl Worker {
                 })
                 .transpose()?
                 .flatten();
-            let plugin = (provider.authentication == Authentication::Plugin)
+            let plugin = model_auth::managed(provider.authentication)
                 .then(|| {
                     model_auth::prepare(
                         &database.connection,
@@ -218,16 +219,17 @@ impl Worker {
                 Some(plugin) => plugin.configuration.options.clone(),
                 None => crate::providers::login::effective(&provider)?,
             };
-            let context = if plugin.is_some() {
-                None
-            } else {
-                registration::prepare(
-                    database,
-                    &provider,
-                    credential.as_ref(),
-                    redirect.as_deref(),
-                )?
-            };
+            let context = plugin
+                .as_ref()
+                .map(|plugin| {
+                    registration::prepare(
+                        database,
+                        &provider,
+                        credential.as_ref(),
+                        &plugin.configuration.target,
+                    )
+                })
+                .transpose()?;
             let adapter = if provider.api == sailry_protocol::conversation::ModelApi::Plugin {
                 let mut captured = provider.clone();
                 super::providers::presets::capture_read(&database.connection, &mut captured)?;
@@ -274,10 +276,9 @@ impl Worker {
         let stop = self.closed.child_token();
         let authentication = provider.authentication;
         let api = provider.api;
-        let (authorization, callback) = match context {
+        let context = match context {
             Some(registration::Prepared {
-                authorization,
-                callback,
+                context,
                 registered,
             }) => {
                 let sender = self.sender.clone();
@@ -294,13 +295,15 @@ impl Worker {
                             .await;
                     }
                 });
-                (Some(authorization), Some(callback))
+                Some(context)
             }
-            None => (
-                None,
-                plugin.as_mut().and_then(|plugin| plugin.returned.take()),
-            ),
+            None => None,
         };
+        let callback = plugin.as_mut().and_then(|plugin| plugin.returned.take());
+        let binding = plugin
+            .as_ref()
+            .filter(|_| authentication != Authentication::Plugin)
+            .map(|plugin| Box::new(plugin.configuration.target.clone()));
         self.entries.insert(
             (caller, request.id),
             Entry {
@@ -328,6 +331,7 @@ impl Worker {
                         plugin,
                         service.clone(),
                         &plugins,
+                        context,
                         |state| async {
                             sender
                                 .send(Job::Login(Box::new(Progress::Prompt { caller, id, state })))
@@ -342,7 +346,6 @@ impl Worker {
                         .authorize(
                             authentication,
                             &options,
-                            authorization,
                             |state| async {
                                 sender
                                     .send(Job::Login(Box::new(Progress::Prompt {
@@ -376,7 +379,11 @@ impl Worker {
                         .authorized(api, endpoint, &grant, &options, stop.clone())
                         .await
                 };
-                Ok(Authorized { grant, models })
+                Ok(Authorized {
+                    grant,
+                    models,
+                    binding,
+                })
             };
             let result = AssertUnwindSafe(operation)
                 .catch_unwind()
@@ -486,6 +493,9 @@ impl Worker {
                 let result = self.entries.get(&(caller, id)).ok_or_else(missing).and_then(|entry| {
                     if entry.stop.is_cancelled() {
                         return Err(Fault::new(ErrorCode::Cancelled, "provider authorization was cancelled"));
+                    }
+                    if let Some(capture) = &entry.plugin {
+                        model_auth::complete(&database.connection, &entry.provider, capture)?;
                     }
                     database.connection.execute(
                         "INSERT INTO oauth_registrations(provider,client_id) VALUES(?1,?2) ON CONFLICT(provider) DO UPDATE SET client_id=excluded.client_id",

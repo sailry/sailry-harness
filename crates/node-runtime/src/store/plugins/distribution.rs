@@ -4,13 +4,22 @@ use super::*;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 pub(in crate::store) fn install(
     db: &mut Connection,
     host: &crate::plugins::Host,
 ) -> Result<(), Fault> {
     let transaction = db.transaction().map_err(storage_error)?;
+    initialize(&transaction, host)?;
+    transaction.commit().map_err(storage_error)
+}
+
+pub(in crate::store) fn initialize(
+    db: &Connection,
+    host: &crate::plugins::Host,
+) -> Result<(), Fault> {
     for &(name, enabled) in crate::plugins::DEFAULTS {
-        let recorded: bool = transaction
+        let recorded: bool = db
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM plugins WHERE name=?1)",
                 [name],
@@ -21,10 +30,10 @@ pub(in crate::store) fn install(
             continue;
         }
         let info = host.install_bundled(name)?;
-        let enabled = services::initial(&transaction, &info)?.unwrap_or(enabled);
+        let enabled = services::initial(db, &info)?.unwrap_or(enabled);
         let mut result = Ok(Output::Plugin(info));
         let mut event = finish(
-            &transaction,
+            db,
             &Command::InstallBundledPlugin {
                 name: name.into(),
                 expected_revision: 0,
@@ -35,20 +44,19 @@ pub(in crate::store) fn install(
             && info.summary.enabled != enabled
         {
             info.summary.enabled = enabled;
-            save(&transaction, &info, true)?;
+            save(db, &info, true)?;
             event = Some(Event::PluginChanged(info.summary));
         }
         if let Some(event) = event {
-            transaction
-                .execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
+            db.execute("INSERT INTO events(body) VALUES(?1)", [encode(&event)?])
                 .map_err(storage_error)?;
         }
     }
-    refresh(&transaction, host)?;
-    transaction
-        .execute("UPDATE node SET plugin_defaults=1 WHERE singleton=1", [])
+    refresh(db, host)?;
+    crate::store::providers::authentication::initialize(db)?;
+    db.execute("UPDATE node SET plugin_defaults=1 WHERE singleton=1", [])
         .map_err(storage_error)?;
-    transaction.commit().map_err(storage_error)
+    Ok(())
 }
 
 fn refresh(db: &Connection, host: &crate::plugins::Host) -> Result<(), Fault> {

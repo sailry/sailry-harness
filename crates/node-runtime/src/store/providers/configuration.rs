@@ -44,7 +44,7 @@ impl Stored {
             return Err(invalid());
         }
         for value in self.authorizations.values() {
-            value.validate()?;
+            value.validate(self.id)?;
         }
         if let Some(quota) = &self.quota {
             super::quota::validate(self.id, quota)?;

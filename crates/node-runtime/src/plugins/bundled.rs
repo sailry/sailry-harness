@@ -20,6 +20,8 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("delegation", true),
     ("statistics", true),
     ("provider-status", true),
+    ("openai-auth", true),
+    ("claude-auth", true),
     ("databases", true),
     ("ssh", true),
     ("worktrees", true),
@@ -28,6 +30,25 @@ pub(crate) const DEFAULTS: &[(&str, bool)] = &[
     ("github", true),
     ("code-review", true),
     ("office", true),
+];
+
+/// Default ownership for credentials saved before package authentication bindings.
+pub(crate) const AUTHENTICATIONS: &[(sailry_protocol::Authentication, &str, &str)] = &[
+    (
+        sailry_protocol::Authentication::ChatGpt,
+        "openai-auth",
+        "siwc",
+    ),
+    (
+        sailry_protocol::Authentication::ChatGptOAuth,
+        "openai-auth",
+        "codex",
+    ),
+    (
+        sailry_protocol::Authentication::ClaudeOAuth,
+        "claude-auth",
+        "subscription",
+    ),
 ];
 
 pub(super) fn entries() -> Result<Vec<sailry_protocol::plugin::catalog::Entry>, Fault> {

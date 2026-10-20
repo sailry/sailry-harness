@@ -14,6 +14,8 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 pub(crate) mod flow;
+mod identity;
+pub(crate) mod workflow;
 
 #[cfg(test)]
 mod tests;
@@ -115,7 +117,21 @@ impl Record {
     }
 
     pub(crate) fn matches(&self, target: &Target) -> Result<(), Fault> {
-        let previous = &self.target;
+        self.target.matches(target)
+    }
+}
+
+impl Target {
+    pub(crate) fn refreshable(&self) -> bool {
+        self.refresh.is_some()
+            || matches!(
+                self.authorization,
+                model_auth::Flow::Script { refresh: true, .. }
+            )
+    }
+
+    pub(crate) fn matches(&self, target: &Target) -> Result<(), Fault> {
+        let previous = self;
         if previous.provider != target.provider
             || previous.package != target.package
             || previous.flow != target.flow
@@ -239,7 +255,7 @@ async fn refresh_request(
     fields: &BTreeMap<String, Secret>,
     stop: &CancellationToken,
 ) -> Result<Value, Fault> {
-    let (status, document) = response_with(service, endpoint, fields, stop, true).await?;
+    let (status, document) = response_with(service, endpoint, fields, stop, true, false).await?;
     if matches!(status.as_u16(), 401 | 403)
         || document.get("error").and_then(Value::as_str) == Some("invalid_grant")
     {
@@ -267,7 +283,7 @@ async fn response(
     fields: &BTreeMap<String, Secret>,
     stop: &CancellationToken,
 ) -> Result<(reqwest::StatusCode, Value), Fault> {
-    response_with(service, endpoint, fields, stop, false).await
+    response_with(service, endpoint, fields, stop, false, false).await
 }
 
 async fn response_with(
@@ -276,6 +292,7 @@ async fn response_with(
     fields: &BTreeMap<String, Secret>,
     stop: &CancellationToken,
     renewal: bool,
+    error_document: bool,
 ) -> Result<(reqwest::StatusCode, Value), Fault> {
     if !endpoint.valid() {
         return Err(invalid());
@@ -320,7 +337,7 @@ async fn response_with(
         } => {
             let (status, body) = result?;
             if renewal && matches!(status.as_u16(),401|403) {return Ok((status,Value::Null))}
-            serde_json::from_slice(&body).map(|document| (status, document)).map_err(|_| invalid())
+            match serde_json::from_slice(&body) { Ok(document)=>Ok((status,document)), Err(_) if error_document && !status.is_success()=>Ok((status,Value::Null)), Err(_)=>Err(invalid()) }
         }
     }
 }

@@ -9,7 +9,13 @@ use tokio::sync::oneshot;
 #[cfg(test)]
 mod tests;
 
+pub(crate) enum Authorized {
+    Tokens(Issued),
+    Grant(super::super::Grant),
+}
+
 pub(crate) struct Input {
+    pub context: Option<super::workflow::Context>,
     pub service: super::super::Service,
     pub declaration: model_auth::Declaration,
     pub fields: BTreeMap<String, Secret>,
@@ -22,7 +28,7 @@ pub(crate) async fn authorize<P, F>(
     mut input: Input,
     progress: P,
     stop: CancellationToken,
-) -> Result<Issued, Fault>
+) -> Result<Authorized, Fault>
 where
     P: FnOnce(State) -> F,
     F: Future<Output = Result<(), Fault>>,
@@ -32,6 +38,26 @@ where
     }
     let operation = async {
         let document = match input.declaration.flow.clone() {
+            model_auth::Flow::Script { .. } => {
+                let document =
+                    super::workflow::run(&mut input, None, progress, stop.clone()).await?;
+                if let Some(authentication) = input.declaration.authentication {
+                    let grant: super::super::Grant =
+                        serde_json::from_value(document).map_err(|_| invalid())?;
+                    grant.validate(authentication)?;
+                    if grant.expires_at_ms() <= super::super::now_ms()? {
+                        return Err(super::super::expired());
+                    }
+                    return Ok(Authorized::Grant(grant));
+                }
+                let issued = Issued::parse(
+                    &document,
+                    input.declaration.token.as_ref().ok_or_else(invalid)?,
+                    super::super::now_ms()?,
+                    None,
+                )?;
+                return Ok(Authorized::Tokens(issued));
+            }
             model_auth::Flow::Polling {
                 start,
                 state,
@@ -180,11 +206,51 @@ where
             stop.clone(),
         )
         .await
+        .map(Authorized::Tokens)
     };
     tokio::select! {
         biased;
         _ = stop.cancelled() => Err(cancelled()),
         result = tokio::time::timeout(super::super::DEADLINE, operation) => result.map_err(|_| super::super::expired())?,
+    }
+}
+
+/// Refresh uses the same private steps; the existing renewal owner retains the durable fence.
+pub(crate) async fn renew(
+    mut input: Input,
+    previous: &super::super::Grant,
+    stop: CancellationToken,
+) -> Result<super::super::Grant, Fault> {
+    let operation = async {
+        if input.declaration.authentication != Some(previous.authentication())
+            || !matches!(
+                input.declaration.flow,
+                model_auth::Flow::Script { refresh: true, .. }
+            )
+        {
+            return Err(invalid());
+        }
+        let document = super::workflow::run(
+            &mut input,
+            Some(serde_json::to_value(previous).map_err(|_| invalid())?),
+            |_| async { Err(invalid()) },
+            stop.clone(),
+        )
+        .await?;
+        let grant: super::super::Grant = serde_json::from_value(document).map_err(|_| invalid())?;
+        grant.validate(previous.authentication())?;
+        if !grant.same_account(previous) {
+            return Err(Fault::invalid("authorization refresh changed its account"));
+        }
+        if grant.expires_at_ms() <= super::super::now_ms()? {
+            return Err(super::super::expired());
+        }
+        Ok(grant)
+    };
+    tokio::select! {
+        biased;
+        _=stop.cancelled()=>Err(cancelled()),
+        result=tokio::time::timeout(super::super::DEADLINE,operation)=>result.map_err(|_|super::super::expired())?,
     }
 }
 
@@ -196,6 +262,39 @@ pub(crate) async fn refresh(
     exchange: Option<crate::plugins::script::Bundle>,
     stop: CancellationToken,
 ) -> Result<Issued, Fault> {
+    if matches!(declaration.flow, model_auth::Flow::Script { .. }) {
+        if !matches!(
+            declaration.flow,
+            model_auth::Flow::Script { refresh: true, .. }
+        ) {
+            return Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "model sign-in cannot be refreshed; sign in again",
+            ));
+        }
+        let mut input = Input {
+            context: None,
+            service: service.clone(),
+            declaration: declaration.clone(),
+            fields: fields.clone(),
+            redirect: None,
+            callback: None,
+            exchange,
+        };
+        let document = super::workflow::run(
+            &mut input,
+            Some(serde_json::to_value(previous).map_err(|_| invalid())?),
+            |_| async { Err(invalid()) },
+            stop.clone(),
+        )
+        .await?;
+        return Issued::parse(
+            &document,
+            declaration.token.as_ref().ok_or_else(invalid)?,
+            super::super::now_ms()?,
+            Some(previous),
+        );
+    }
     let refresh = declaration.refresh.as_ref().ok_or_else(|| {
         Fault::new(
             ErrorCode::NotConfigured,
@@ -224,7 +323,7 @@ pub(crate) async fn refresh(
     };
     let document = refresh_request(service, &endpoint, &fields, &stop).await?;
     let mut declaration = declaration.clone();
-    declaration.token = refresh.token.clone();
+    declaration.token = Some(refresh.token.clone());
     decode(document, &declaration, exchange, Some(previous), stop).await
 }
 
@@ -252,7 +351,7 @@ async fn decode(
     };
     Issued::parse(
         &document,
-        &declaration.token,
+        declaration.token.as_ref().ok_or_else(invalid)?,
         super::super::now_ms()?,
         previous,
     )
@@ -455,7 +554,15 @@ async fn poll(
 
 fn validate_redirect(value: &str, redirect: model_auth::Redirect) -> Result<(), Fault> {
     match redirect {
-        model_auth::Redirect::Loopback => super::super::chatgpt::flow::loopback(value),
+        model_auth::Redirect::Loopback => super::workflow::validate_redirect(
+            value,
+            &model_auth::Callback {
+                path: "/auth/callback".into(),
+                redirect_uri: None,
+                manual: false,
+                allow_localhost: false,
+            },
+        ),
         model_auth::Redirect::Paste => {
             let url = Url::parse(value).map_err(|_| invalid())?;
             if url.scheme() != "https"
