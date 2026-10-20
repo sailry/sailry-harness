@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -29,7 +30,7 @@ class Compatibility(unittest.TestCase):
                 HOST.subprocess, "run") as run:
             run.return_value.stdout = f"GLIBC_2.2.5 GLIBC_{version} GLIBCXX_3.4.30"
             HOST.check_linux(self.binary)
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 3)
 
     def test_accepts_baseline(self):
         self.check("2.34")
@@ -42,6 +43,15 @@ class Compatibility(unittest.TestCase):
         (self.directory / "libextra.so.1").write_bytes(b"library")
         with self.assertRaisesRegex(ValueError, "no manifest entry"):
             HOST.check_linux(self.binary)
+
+    def test_rejects_unbundled_dependency(self):
+        with patch.object(HOST.shutil, "which", return_value="readelf"), patch.object(
+                HOST.subprocess, "run", side_effect=[
+                    SimpleNamespace(stdout="GLIBC_2.34"), SimpleNamespace(stdout="GLIBC_2.34"),
+                    SimpleNamespace(stdout="Shared library: [libcuda.so.1]"),
+                ]):
+            with self.assertRaisesRegex(ValueError, "unbundled library"):
+                HOST.check_linux(self.binary)
 
     def test_rejects_symlink(self):
         self.library.unlink()

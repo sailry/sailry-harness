@@ -112,6 +112,13 @@ foreach ($task_directory in @($task_build) + $DependencyDirectories) {
 & python (Join-Path $task_root 'scripts/package/onnx-runtime.py') --target $Target `
     --output $task_app --source $task_build --speech --cache (Join-Path $task_root 'target/sherpa-onnx-prebuilt')
 if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the pinned native runtime' }
+& python (Join-Path $task_root 'scripts/package/llama-runtime.py') --target $Target `
+    --output $task_app --source $task_build --cache (Join-Path $task_root 'target/llama-prebuilt')
+if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the pinned decision runtime' }
+$task_decision = Get-Content -LiteralPath (Join-Path $task_app 'llama-runtime.json') -Raw | ConvertFrom-Json
+foreach ($task_file in $task_decision.files) {
+    Assert-PeTarget (Join-Path $task_app $task_file.name)
+}
 foreach ($task_name in @('onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'sherpa-onnx-c-api.dll')) {
     Assert-PeTarget (Join-Path $task_app $task_name)
 }

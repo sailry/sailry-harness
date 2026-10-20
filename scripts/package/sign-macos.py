@@ -20,6 +20,9 @@ MAGIC = {
 runtime_spec = importlib.util.spec_from_file_location("onnx_runtime", Path(__file__).with_name("onnx-runtime.py"))
 runtime = importlib.util.module_from_spec(runtime_spec)
 runtime_spec.loader.exec_module(runtime)
+llama_spec = importlib.util.spec_from_file_location("llama_runtime", Path(__file__).with_name("llama-runtime.py"))
+llama_runtime = importlib.util.module_from_spec(llama_spec)
+llama_spec.loader.exec_module(llama_runtime)
 python_spec = importlib.util.spec_from_file_location("python_runtime", Path(__file__).with_name("python-runtime.py"))
 python_runtime = importlib.util.module_from_spec(python_spec)
 python_spec.loader.exec_module(python_runtime)
@@ -116,6 +119,7 @@ def sign(app, host, target, identity, team, keychain=None):
             for path in objects:
                 run("codesign", *options, *python_runtime.signing_options(path, app / "Contents/MacOS"), path)
                 verify(path, team)
+            llama_runtime.finalize(target, app / "Contents/MacOS")
             runtime.finalize(target, app / "Contents/MacOS", speech=True)
             python_runtime.finalize(target, app / "Contents/MacOS")
             run("codesign", *options, "--entitlements", ROOT / "apps/desktop/macos/entitlements.plist", app)
@@ -126,6 +130,7 @@ def sign(app, host, target, identity, team, keychain=None):
             for path in mach_objects(host):
                 run("codesign", *options, *python_runtime.signing_options(path, host), path)
                 verify(path, team)
+            llama_runtime.finalize(target, host)
             runtime.finalize(target, host, speech=False)
             python_runtime.finalize(target, host)
         print("Developer ID signing verified")

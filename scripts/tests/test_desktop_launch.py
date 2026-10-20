@@ -14,6 +14,7 @@ import tempfile
 import unittest
 
 from test_python_runtime import archive as python_archive
+from test_llama_runtime import fixture as llama_fixture
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,7 +64,7 @@ class NativeAssets(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         for name in ("run-desktop.sh", "python.sh", "package/onnx-runtime.py",
-                     "package/python-runtime.py", "package/python.entitlements.plist"):
+                     "package/python-runtime.py", "package/python.entitlements.plist", "package/llama-runtime.py"):
             destination = self.project / "scripts" / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / "scripts" / name, destination)
@@ -111,6 +112,7 @@ printf '%s' 'signature fixture' >> "$task_target"
         self.contents = {"libonnxruntime.dylib": b"runtime fixture",
                          "libsherpa-onnx-c-api.dylib": b"speech fixture"}
         self.archive()
+        llama_fixture(self.project / "scripts/package", self.target / "llama-prebuilt")
         self.python_contents = {"bin/python3.12": b"\xcf\xfa\xed\xfeinterpreter fixture",
                                 "lib/python3.12/fixture.so": b"\xcf\xfa\xed\xfeextension fixture"}
         data = python_archive(
@@ -165,22 +167,22 @@ printf '%s' 'signature fixture' >> "$task_target"
         result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
                                 env=environment, capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 73, result.stderr)
-        self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * 7)
         calls = self.arguments(self.calls)
         native = self.target / "onnx-native/aarch64-apple-darwin"
         debug = self.target / "debug"
         app = debug / "Sailry.app"
-        stages = [("python-runtime.py", debug), ("onnx-runtime.py", native),
-                  ("onnx-runtime.py", debug), ("python-runtime.py", app / "Contents/MacOS"),
+        stages = [("python-runtime.py", debug), ("onnx-runtime.py", native), ("llama-runtime.py", native),
+                  ("onnx-runtime.py", debug), ("llama-runtime.py", debug), ("python-runtime.py", app / "Contents/MacOS"),
                   ("python-runtime.py", app / "Contents/MacOS"),
-                  ("onnx-runtime.py", app / "Contents/MacOS"),
-                  ("onnx-runtime.py", app / "Contents/MacOS")]
+                  ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS"),
+                  ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS")]
+        self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * len(stages))
         self.assertEqual(len(calls), len(stages))
         for arguments, (script, output) in zip(calls, stages):
             self.assertEqual(arguments[0], str(self.project / "scripts/package" / script))
             self.assertEqual(arguments[arguments.index("--output") + 1], str(output))
-        self.assertEqual(calls[4][calls[4].index("--sign") + 1], "FIXTURE")
-        self.assertIn("--finalize", calls[-1])
+        self.assertEqual(calls[6][calls[6].index("--sign") + 1], "FIXTURE")
+        self.assertIn("--finalize", calls[-2])
         self.assertEqual(json.loads(self.build.read_text()), {
             "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native)})
         signatures = self.arguments(self.signatures)
@@ -191,7 +193,8 @@ printf '%s' 'signature fixture' >> "$task_target"
         self.assertEqual([arguments[-1] for arguments in signatures], [
             str(python / "lib/python3.12/fixture.so"), str(python / "bin/python3.12"),
         ] + [
-            str(app / "Contents/MacOS" / name) for name in self.contents] + [str(app)])
+            str(app / "Contents/MacOS" / name) for name in self.contents] + [
+            str(app / "Contents/MacOS/libllama.0.dylib"), str(app)])
         self.assertTrue(all(arguments[arguments.index("--sign") + 1] == "FIXTURE"
                             for arguments in signatures))
         child = next(arguments for arguments in signatures

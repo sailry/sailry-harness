@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 from test_python_runtime import archive as python_archive
+from test_llama_runtime import fixture as llama_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -43,10 +44,12 @@ class CodeSigning(unittest.TestCase):
                         patch.object(signing.python_runtime, "signing_options", return_value=[]), \
                         patch.object(signing.python_runtime, "finalize") as python_finalize, \
                         patch.object(signing.runtime, "finalize") as finalize, \
+                        patch.object(signing.llama_runtime, "finalize") as llama_finalize, \
                         patch.object(signing, "run") as run, patch.object(signing, "verify") as verify:
                     signing.sign(app, host, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
                 unlock.assert_called_once_with(output)
                 finalize.assert_called_once_with("aarch64-apple-darwin", output, speech=desktop)
+                llama_finalize.assert_called_once_with("aarch64-apple-darwin", output)
                 python_finalize.assert_called_once_with("aarch64-apple-darwin", output)
                 verify.assert_any_call(executable, "FIXTURE")
                 self.assertEqual(run.call_count, 2 if desktop else 1)
@@ -183,6 +186,7 @@ class CodeSigning(unittest.TestCase):
                 "aarch64-apple-darwin": {"url": "https://release.invalid/python.tar.gz",
                                           "archive": "python.tar.gz", "size": len(data),
                                           "sha256": digest}}}))
+            llama_lock, _, _ = llama_fixture(root / "llama", root / "llama-cache")
             outputs = [app / "Contents/MacOS", host]
             python_objects = [signing.python_runtime.runtime_output(output) / "python" / name for output in outputs
                               for name in ["bin/python3.12", "lib/python3.12/fixture.so"]]
@@ -199,11 +203,13 @@ class CodeSigning(unittest.TestCase):
                 return ""
             with patch.object(signing, "keychain_scope", return_value=nullcontext()), \
                     patch.object(signing.python_runtime, "LOCK", lock), \
+                    patch.object(signing.llama_runtime, "LOCK", llama_lock), \
                     patch.object(signing.python_runtime, "urlopen") as request, \
                     patch.object(signing, "run", side_effect=command) as run, \
                     patch.object(signing, "verify") as verify:
                 for output in outputs:
                     signing.python_runtime.prepare("aarch64-apple-darwin", output, cache)
+                    signing.llama_runtime.prepare("aarch64-apple-darwin", output, root / "llama-cache")
                 signing.sign(app, host, "aarch64-apple-darwin", "Fixture identity", "FIXTURE", root / "keychain")
             request.assert_not_called()
             calls = [call.args for call in run.call_args_list]

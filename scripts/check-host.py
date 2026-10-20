@@ -17,12 +17,16 @@ def check_linux(binary):
         if stream.read(4) != b"\x7fELF":
             return
     recorded = set()
+    decision = set()
     for name in ("onnx-runtime.json", "llama-runtime.json"):
         manifest = binary.parent / name
         if manifest.is_symlink():
             raise ValueError("Runtime manifest must be an ordinary file")
         if manifest.is_file():
-            recorded.update(file["name"] for file in json.loads(manifest.read_text())["files"])
+            files = {file["name"] for file in json.loads(manifest.read_text())["files"]}
+            recorded.update(files)
+            if name == "llama-runtime.json":
+                decision.update(files)
     libraries = sorted(binary.parent.glob("*.so*"))
     for library in libraries:
         if library.is_symlink() or not library.is_file():
@@ -44,6 +48,14 @@ def check_linux(binary):
                     for match in re.findall(r"\bGLIBC_(\d+(?:\.\d+)+)\b", output)]
         if any(version > (2, 34) for version in versions):
             raise ValueError(f"Linux binary requires glibc newer than 2.34: {path.name}")
+        if path.name in decision:
+            dynamic = subprocess.run([tool, "-d" if arguments[1] == "--version-info" else "-p", str(path)],
+                                     check=True, capture_output=True, text=True).stdout
+            needed = re.findall(r"Shared library: \[(.+?)\]", dynamic) if arguments[1] == "--version-info" else re.findall(r"NEEDED\s+(\S+)", dynamic)
+            system = {"libc.so.6", "libm.so.6", "libstdc++.so.6", "libgcc_s.so.1", "libgomp.so.1",
+                      "ld-linux-x86-64.so.2", "ld-linux-aarch64.so.1"}
+            if any(name not in system | recorded for name in needed):
+                raise ValueError(f"Decision runtime requires an unbundled library: {path.name}")
 
 
 def check(binary):

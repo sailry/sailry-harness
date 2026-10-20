@@ -26,7 +26,7 @@ PRODUCTS = {
 FIXTURES = {
     "shared": {
         "test_ci_local", "test_ci_resources", "test_ci_selection", "test_desktop_adhoc", "test_desktop_build", "test_desktop_recovery", "test_locales", "test_macos_package",
-        "test_names", "test_onnx_runtime", "test_public_source", "test_publish_packages",
+        "test_names", "test_onnx_runtime", "test_llama_runtime", "test_public_source", "test_publish_packages",
         "test_python_launcher", "test_python_runtime", "test_release_notes", "test_source_cache",
         "test_release_versions", "test_suites",
     },
@@ -36,7 +36,7 @@ FIXTURES = {
     },
     "host": {
         "test_acp_wrapper", "test_host_install", "test_host_service", "test_host_tasks",
-        "test_linux_sysroot",
+        "test_linux_sysroot", "test_host_compatibility",
     },
     "mobile": {"test_android_package"},
 }

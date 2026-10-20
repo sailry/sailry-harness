@@ -1,0 +1,383 @@
+{
+  "version": 1,
+  "build": "b11756",
+  "runtime_version": "0.7.0",
+  "source": "https://github.com/ggml-org/llama.cpp/releases/download/b11756/",
+  "targets": {
+    "aarch64-apple-darwin": {
+      "archive": "llama-b11756-bin-macos-arm64.tar.gz",
+      "size": 16103382,
+      "sha256": "f86b5eb838b985a17587e794dee9c6b34193aca6dceec018031a4ba7951fb7e6",
+      "available": true,
+      "files": [
+        {
+          "name": "libggml-base.0.dylib",
+          "member": "llama-b11756/libggml-base.0.27.0.dylib",
+          "size": 751240,
+          "sha256": "e45d1976e7852f0ce5a2bf45814e3b7ae506e922fccc8e435ec9171a14bddbb7"
+        },
+        {
+          "name": "libggml-blas.0.dylib",
+          "member": "llama-b11756/libggml-blas.0.27.0.dylib",
+          "size": 58776,
+          "sha256": "12aefdc8dd4873d69554dc85a0dd09fffef9828e1fc9ecf6b48913ef2106b33a"
+        },
+        {
+          "name": "libggml-cpu.0.dylib",
+          "member": "llama-b11756/libggml-cpu.0.27.0.dylib",
+          "size": 957408,
+          "sha256": "13af8d091b0ae1d23adffbf2d11bbb64e8909532ab2cb2ab3cfbc102871c441f"
+        },
+        {
+          "name": "libggml-metal.0.dylib",
+          "member": "llama-b11756/libggml-metal.0.27.0.dylib",
+          "size": 5587704,
+          "sha256": "eae5a10e67c38470b8dc59f5bdcefe9d4dec308aa2da391bc96a6d855fb2a0e8"
+        },
+        {
+          "name": "libggml-rpc.0.dylib",
+          "member": "llama-b11756/libggml-rpc.0.27.0.dylib",
+          "size": 242800,
+          "sha256": "547ac08b705a96e82ddb9fcfc2529472f97f5da1957984b3a7652cd5875d452d"
+        },
+        {
+          "name": "libggml.0.dylib",
+          "member": "llama-b11756/libggml.0.27.0.dylib",
+          "size": 60016,
+          "sha256": "a97bc40525aea78834fdf28197b5b21f149b6d5ac2d3b615b95b86f775a69477"
+        },
+        {
+          "name": "libllama.0.dylib",
+          "member": "llama-b11756/libllama.0.7.0.dylib",
+          "size": 3529408,
+          "sha256": "c6bb251b49aa0c1b022a67434df60af2c5e02862a9317132dbecd179d4e8023f"
+        }
+      ],
+      "minimum_macos": "13.3",
+      "entry": "libllama.0.dylib"
+    },
+    "x86_64-apple-darwin": {
+      "archive": "llama-b11756-bin-macos-x64.tar.gz",
+      "size": 11809449,
+      "sha256": "6d71968268a01ae975acde18441a70b2c7ba128b7a127f46b5ced4e8c5dd4eca",
+      "available": true,
+      "files": [
+        {
+          "name": "libggml-base.0.dylib",
+          "member": "llama-b11756/libggml-base.0.27.0.dylib",
+          "size": 735264,
+          "sha256": "196a8886eadded7811072b85abe6fd792f9d2035aa128d4d800e72567092069c"
+        },
+        {
+          "name": "libggml-blas.0.dylib",
+          "member": "llama-b11756/libggml-blas.0.27.0.dylib",
+          "size": 33688,
+          "sha256": "921ecedc49456589898ea38c56a15e317201c3733975ca00441c89b0008339da"
+        },
+        {
+          "name": "libggml-cpu.0.dylib",
+          "member": "llama-b11756/libggml-cpu.0.27.0.dylib",
+          "size": 1551792,
+          "sha256": "773670cc9dc1f18c3f68b6f1c09c90cc9291c9f35b6c5ed711e22a1f8cff0055"
+        },
+        {
+          "name": "libggml-rpc.0.dylib",
+          "member": "llama-b11756/libggml-rpc.0.27.0.dylib",
+          "size": 220112,
+          "sha256": "28add6aca12e233e5ee374bcf5d46bf185c465f304035a716693231bd1ed1e7c"
+        },
+        {
+          "name": "libggml.0.dylib",
+          "member": "llama-b11756/libggml.0.27.0.dylib",
+          "size": 43216,
+          "sha256": "34616f7086aeae55ff96abf48c01d696334066e0f2fcb7df4b3794ec942f0092"
+        },
+        {
+          "name": "libllama.0.dylib",
+          "member": "llama-b11756/libllama.0.7.0.dylib",
+          "size": 3835224,
+          "sha256": "631b1a65e2e2a85b937f8009fb4804639484dfab35833907505eabfe0d8cf3f1"
+        }
+      ],
+      "minimum_macos": "13.3",
+      "entry": "libllama.0.dylib"
+    },
+    "aarch64-unknown-linux-gnu": {
+      "archive": "llama-b11756-bin-ubuntu-arm64.tar.gz",
+      "size": 18034586,
+      "sha256": "42bb5ef275743e0183fa53e3c93b2b54796997d49a9d0d540d0a8cc945f1ed43",
+      "available": false,
+      "files": [],
+      "minimum_glibc": "2.38",
+      "reason": "Official ARM64 runtime requires glibc 2.38"
+    },
+    "x86_64-unknown-linux-gnu": {
+      "archive": "llama-b11756-bin-ubuntu-x64.tar.gz",
+      "size": 22240705,
+      "sha256": "9def57d9e9b0149979a9ceba40896a4e2bf88c94734069a5567d2f487ceab551",
+      "available": true,
+      "files": [
+        {
+          "name": "libggml-base.so.0",
+          "member": "llama-b11756/libggml-base.so.0.27.0",
+          "size": 897792,
+          "sha256": "7c59d3a77e365a5af059e6c57f79cc65a9c285cace329f3f891c4c19d9313e94"
+        },
+        {
+          "name": "libggml-cpu-alderlake.so",
+          "member": "llama-b11756/libggml-cpu-alderlake.so",
+          "size": 1412200,
+          "sha256": "147bafeeb86639404750bcd20823cfd46520790dcffe72b03ae92211adc4a0a1"
+        },
+        {
+          "name": "libggml-cpu-cannonlake.so",
+          "member": "llama-b11756/libggml-cpu-cannonlake.so",
+          "size": 1561576,
+          "sha256": "ecf0a02e19adc1e9996cd0bc0dde60de132470a2ecd326aa53223951705757ef"
+        },
+        {
+          "name": "libggml-cpu-cascadelake.so",
+          "member": "llama-b11756/libggml-cpu-cascadelake.so",
+          "size": 1577664,
+          "sha256": "81cafe6a6ce3023f12a0d6bfea5581ba21bfaaf31ce2404a9e81bca874497b6b"
+        },
+        {
+          "name": "libggml-cpu-cooperlake.so",
+          "member": "llama-b11756/libggml-cpu-cooperlake.so",
+          "size": 1577736,
+          "sha256": "3a7cc9d0711ce5699a4b7941fef6031ebc52bc6735200cd80848f8b7f029f4df"
+        },
+        {
+          "name": "libggml-cpu-haswell.so",
+          "member": "llama-b11756/libggml-cpu-haswell.so",
+          "size": 1416296,
+          "sha256": "476b43e924d1b956a8e0b41b399d57a1a52cadfb8b6d4e23efa9e2806389d356"
+        },
+        {
+          "name": "libggml-cpu-icelake.so",
+          "member": "llama-b11756/libggml-cpu-icelake.so",
+          "size": 1577664,
+          "sha256": "aec99e3c63c781ecc33a4531933781c2eeeac30178eb480c79c5d76aeb715623"
+        },
+        {
+          "name": "libggml-cpu-ivybridge.so",
+          "member": "llama-b11756/libggml-cpu-ivybridge.so",
+          "size": 1351944,
+          "sha256": "a4f945a8472a47259d2995cac73bb7f9616cf24003e7a0e7a7470e4f7d345c53"
+        },
+        {
+          "name": "libggml-cpu-piledriver.so",
+          "member": "llama-b11756/libggml-cpu-piledriver.so",
+          "size": 1347848,
+          "sha256": "ffe1ff67e508a82a796174ee8179ddabaf0796fc433bab5c866942987da3cd83"
+        },
+        {
+          "name": "libggml-cpu-sandybridge.so",
+          "member": "llama-b11756/libggml-cpu-sandybridge.so",
+          "size": 1350944,
+          "sha256": "e30b3764002a27237c3fdca7daff26459e4545e904a443ed0eee998348aad08b"
+        },
+        {
+          "name": "libggml-cpu-sapphirerapids.so",
+          "member": "llama-b11756/libggml-cpu-sapphirerapids.so",
+          "size": 1839968,
+          "sha256": "084aa87d46db0b252416b10ce82248441408b0617c8d302610c732ad38fb22d2"
+        },
+        {
+          "name": "libggml-cpu-skylakex.so",
+          "member": "llama-b11756/libggml-cpu-skylakex.so",
+          "size": 1561576,
+          "sha256": "89b02a4e0eaa40a165d1ac30b2e6342f3dd302cc17dca07188c6e02795e37d07"
+        },
+        {
+          "name": "libggml-cpu-sse42.so",
+          "member": "llama-b11756/libggml-cpu-sse42.so",
+          "size": 954496,
+          "sha256": "ca3dd82f297aa34907cb6f979c17af240bcd9e4eb886da7319a1a1394a736bdd"
+        },
+        {
+          "name": "libggml-cpu-x64.so",
+          "member": "llama-b11756/libggml-cpu-x64.so",
+          "size": 950536,
+          "sha256": "6643e910752ae8724d967824c1834bf8bcfa3b08ff614f6826085f07bc6cc96d"
+        },
+        {
+          "name": "libggml-cpu-zen4.so",
+          "member": "llama-b11756/libggml-cpu-zen4.so",
+          "size": 1577736,
+          "sha256": "65f7908e0fa582ef863a629e3b450f48e604a57ed69fc9f62cb3c74d7afef475"
+        },
+        {
+          "name": "libggml.so.0",
+          "member": "llama-b11756/libggml.so.0.27.0",
+          "size": 51040,
+          "sha256": "8643a58bb37af6fb153e2ea98b48efa227855725ee51c05f4ca76b9867956463"
+        },
+        {
+          "name": "libllama.so.0",
+          "member": "llama-b11756/libllama.so.0.7.0",
+          "size": 5151064,
+          "sha256": "983e1a2a037c6e6a393848e3be9f5e6e00d7ee3022aca4c2f17ed093de819fb6"
+        }
+      ],
+      "minimum_glibc": "2.34",
+      "entry": "libllama.so.0"
+    },
+    "aarch64-pc-windows-msvc": {
+      "archive": "llama-b11756-bin-win-cpu-arm64.zip",
+      "size": 12609658,
+      "sha256": "ba47a12a87d45a3a717d717e81334e65b725df051c8adf8f68accd824d05a126",
+      "available": true,
+      "files": [
+        {
+          "name": "ggml-base.dll",
+          "member": "ggml-base.dll",
+          "size": 667136,
+          "sha256": "1ec767849b8bd1abf1ee81f538e0e2254c617aed0070701e69566910e3f642e9"
+        },
+        {
+          "name": "ggml-cpu.dll",
+          "member": "ggml-cpu.dll",
+          "size": 835072,
+          "sha256": "ce0be367a52d366260a5b9ce63a737e6c233754d2505344ffd758891fee8c8bb"
+        },
+        {
+          "name": "ggml.dll",
+          "member": "ggml.dll",
+          "size": 69120,
+          "sha256": "8151b72ac028674e9f93b8dcc3cf5836332a1edf808c726ee52fa73708f7e5cd"
+        },
+        {
+          "name": "libomp.dll",
+          "member": "libomp.dll",
+          "size": 764928,
+          "sha256": "26caae17f29aaf2238f664375b663cd306d596bc9e36e780fa88356c51fe876a"
+        },
+        {
+          "name": "llama.dll",
+          "member": "llama.dll",
+          "size": 3140096,
+          "sha256": "ea1958b4f95f68529ee7c44ca4ac22987b7e9a9e9422d20fd8956586077cbef3"
+        }
+      ],
+      "entry": "llama.dll"
+    },
+    "x86_64-pc-windows-msvc": {
+      "archive": "llama-b11756-bin-win-cpu-x64.zip",
+      "size": 23959301,
+      "sha256": "d164195b8f3e92f8fd92bc3a5c0eeaef8707b2f1a979e36360ce8192ebf4fbb3",
+      "available": true,
+      "files": [
+        {
+          "name": "ggml-base.dll",
+          "member": "ggml-base.dll",
+          "size": 803840,
+          "sha256": "417b7dc4e759e28f7cc0af6e0440b9c3b2fa7befa1a64ecd2780319c64c52f97"
+        },
+        {
+          "name": "ggml-cpu-alderlake.dll",
+          "member": "ggml-cpu-alderlake.dll",
+          "size": 1415680,
+          "sha256": "cdef64cf300ee07a192f1af617e73a9fbd19d3ea343264f39f204f248b0e9704"
+        },
+        {
+          "name": "ggml-cpu-cannonlake.dll",
+          "member": "ggml-cpu-cannonlake.dll",
+          "size": 1611264,
+          "sha256": "b1a1db4b9cd9851854eb1208ad07c1f519fcb92f6ed516c21698dc3471474678"
+        },
+        {
+          "name": "ggml-cpu-cascadelake.dll",
+          "member": "ggml-cpu-cascadelake.dll",
+          "size": 1584128,
+          "sha256": "945afde6ecbff4a50aaa9b0ba0a4618f9419808b1b0f62dbacc2f882bb0a6ea1"
+        },
+        {
+          "name": "ggml-cpu-cooperlake.dll",
+          "member": "ggml-cpu-cooperlake.dll",
+          "size": 1593856,
+          "sha256": "1e02189eda0bd84ede363511f63c2108fff81b36c7015814fe335cb8b7473d7b"
+        },
+        {
+          "name": "ggml-cpu-haswell.dll",
+          "member": "ggml-cpu-haswell.dll",
+          "size": 1420800,
+          "sha256": "166b8f54d8781576e7e44c31a7fe7518d3f0e7c7b7e907c15f714b680314124d"
+        },
+        {
+          "name": "ggml-cpu-icelake.dll",
+          "member": "ggml-cpu-icelake.dll",
+          "size": 1590784,
+          "sha256": "5257db78c5d740444c70f8085a1510fdfb2daaddaaac84cd2f6b25b1c25ceef0"
+        },
+        {
+          "name": "ggml-cpu-ivybridge.dll",
+          "member": "ggml-cpu-ivybridge.dll",
+          "size": 1302016,
+          "sha256": "113f1a81614d5f06d475726518506fc0d41c1f1cd8a17fdfa586d02e69d9bcda"
+        },
+        {
+          "name": "ggml-cpu-piledriver.dll",
+          "member": "ggml-cpu-piledriver.dll",
+          "size": 1294848,
+          "sha256": "6e738eabad28c27d3769c4f7980fb43de0e8974223dd0556640aea860e39717f"
+        },
+        {
+          "name": "ggml-cpu-sandybridge.dll",
+          "member": "ggml-cpu-sandybridge.dll",
+          "size": 1291776,
+          "sha256": "3277c4d72db31896c5459cf69e80495679f6642991ccc6c8bd3d9147f484ef92"
+        },
+        {
+          "name": "ggml-cpu-sapphirerapids.dll",
+          "member": "ggml-cpu-sapphirerapids.dll",
+          "size": 1870336,
+          "sha256": "7b0d97435ccb4f5ece86ee6bd74e369a700476b1f722318c4b8cbcef3b0f58c5"
+        },
+        {
+          "name": "ggml-cpu-skylakex.dll",
+          "member": "ggml-cpu-skylakex.dll",
+          "size": 1604096,
+          "sha256": "f78b8cde4e3ad4d64cf47aa85d7b1a6023bbfd9c7a05aa1819a01fe2e9f50281"
+        },
+        {
+          "name": "ggml-cpu-sse42.dll",
+          "member": "ggml-cpu-sse42.dll",
+          "size": 917504,
+          "sha256": "e8ae8a5e3c429e6e5d183c8dec5a4e2b4f89576e90c3178b44774b7f71599229"
+        },
+        {
+          "name": "ggml-cpu-x64.dll",
+          "member": "ggml-cpu-x64.dll",
+          "size": 910336,
+          "sha256": "34f23f4645aef121aead38afefae78f6431bcfea7843ac4396f7b00f9e8d720d"
+        },
+        {
+          "name": "ggml-cpu-zen4.dll",
+          "member": "ggml-cpu-zen4.dll",
+          "size": 1600512,
+          "sha256": "ff46d36924aae1174a66693916accd066975d2a0091a6cb4471c656512b2e5ae"
+        },
+        {
+          "name": "ggml.dll",
+          "member": "ggml.dll",
+          "size": 78848,
+          "sha256": "7e2a6a321aa28a0d2f76e3904cfeb23b99d8ebd5669f55b158160dc632d24775"
+        },
+        {
+          "name": "libomp.dll",
+          "member": "libomp.dll",
+          "size": 768000,
+          "sha256": "a12116ba72d1d6820407cf30be23da04ce79d6bb8a71a5ee71759c5a1faa6f1c"
+        },
+        {
+          "name": "llama.dll",
+          "member": "llama.dll",
+          "size": 3587584,
+          "sha256": "87814f651079f434608c52ebda4de2a04fe59c8321c13e87b9c7d65f43d2e455"
+        }
+      ],
+      "entry": "llama.dll"
+    }
+  }
+}

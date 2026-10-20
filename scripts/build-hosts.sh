@@ -56,5 +56,11 @@ for task_target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu "$task_nat
   fi
   "$task_llvm_strip" --strip-debug "$task_output/sailry-host"
   if [[ "$task_target" == *apple-darwin ]]; then codesign --force --sign - "$task_output/sailry-host"; fi
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
+    --output "$task_output" --cache "$task_root/target/llama-prebuilt"
+  if [[ "$task_target" == *apple-darwin ]]; then
+    bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
+      --output "$task_output" --sign -
+  fi
   chmod 755 "$task_output/sailry-host"
 done

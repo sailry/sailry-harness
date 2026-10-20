@@ -42,6 +42,8 @@ mkdir -p "$task_output"
 cp "$task_binary" "$task_output/sailry-host"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
   --output "$task_output" --cache "$task_root/target/sherpa-onnx-prebuilt"
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
+  --output "$task_output" --cache "$task_root/target/llama-prebuilt"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/python-runtime.py" --target "$task_target" \
   --output "$task_output" --cache "$task_root/target/python-cache"
 if [[ "$task_target" == *linux-gnu ]]; then
@@ -54,6 +56,8 @@ else
     --output "$task_output" --sign -
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
     --output "$task_output" --finalize
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
+    --output "$task_output" --sign -
 fi
 chmod 755 "$task_output/sailry-host"
 printf 'Host build: %s\n' "$task_output"

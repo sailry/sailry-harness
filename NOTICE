@@ -104,3 +104,11 @@ Offline conversation export
 html2canvas 1.4.1 (MIT) and Apache ECharts 6.0.0 (Apache-2.0) retain their
 licenses and source checksums in apps/desktop/assets/export/. The existing
 MathJax and Mermaid assets retain their notices in crates/content/assets/visuals/.
+
+Local decision inference
+Sailry bundles unmodified official llama.cpp b11756 shared libraries and their ggml
+runtime dependencies from https://github.com/ggml-org/llama.cpp.
+Pinned archive and member checksums are in scripts/package/llama-runtime.lock.json.
+The original MIT license and provenance remain in third_party_licenses/llama-LICENSE
+and third_party_licenses/llama.md. The Windows OpenMP runtime retains its license
+in third_party_licenses/llvm-OpenMP-LICENSE.

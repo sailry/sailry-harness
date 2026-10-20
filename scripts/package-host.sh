@@ -18,6 +18,9 @@ bash "$task_root/scripts/python.sh" "$task_root/scripts/package/python-runtime.p
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
   --output "$task_output/host" --source "$task_root/target/host-artifacts/$task_target" \
   --cache "$task_root/target/sherpa-onnx-prebuilt"
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
+  --output "$task_output/host" --source "$task_root/target/host-artifacts/$task_target" \
+  --cache "$task_root/target/llama-prebuilt"
 cp "$task_root/scripts/host-command.sh" "$task_output/host/sailry"
 cp "$task_root/scripts/install-host.sh" "$task_output/host/install-host.sh"
 cp "$task_root/crates/node-runtime/src/ssh/install/service.sh" "$task_output/host/service.sh"

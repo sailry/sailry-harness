@@ -11,8 +11,12 @@ bash "$task_root/scripts/python.sh" "$task_root/scripts/package/python-runtime.p
   --output "$task_build" --cache "$task_target/python-cache"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
   --output "$task_native" --cache "$task_target/sherpa-onnx-prebuilt" --speech --link
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_triple" \
+  --output "$task_native" --cache "$task_target/llama-prebuilt"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
   --output "$task_build" --source "$task_native" --speech --link --cargo
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_triple" \
+  --output "$task_build" --source "$task_native" --cargo
 
 if test "$(uname -s)" != Darwin; then
   SHERPA_ONNX_LIB_DIR="$task_native" exec cargo run --locked -p sailry-desktop -- "$@"
@@ -52,11 +56,15 @@ bash "$task_root/scripts/python.sh" "$task_root/scripts/package/python-runtime.p
   --output "$task_app/Contents/MacOS" --sign "$task_identity"
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
   --output "$task_app/Contents/MacOS" --source "$task_build" --speech
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_triple" \
+  --output "$task_app/Contents/MacOS" --source "$task_build"
 for task_library in libonnxruntime.dylib libsherpa-onnx-c-api.dylib; do
   codesign --force --timestamp=none --sign "$task_identity" "$task_app/Contents/MacOS/$task_library"
 done
 bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_triple" \
   --output "$task_app/Contents/MacOS" --speech --finalize
+bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_triple" \
+  --output "$task_app/Contents/MacOS" --sign "$task_identity"
 codesign --force --timestamp=none --sign "$task_identity" "$task_app"
 # LaunchServices gives Sailry its own TCC identity. Direct execution attributes
 # microphone requests to the terminal's parent app, which may prohibit them.
