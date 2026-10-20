@@ -5,7 +5,7 @@ already accepted by that Host. Its projects, models and credentials stay there.
 
 ## Before connecting
 
-- Use macOS 13+ on Apple silicon or Intel, or Linux with glibc 2.28+ on ARM64 or
+- Use macOS 13+ on Apple silicon or Intel, or Linux with glibc 2.34+ on ARM64 or
   x64. The installer does not support Windows.
 - The matching Sailry release must include Host packages for the target machine.
   **Add host** installs the Host version expected by your Desktop build; it
@@ -15,6 +15,10 @@ already accepted by that Host. Its projects, models and credentials stay there.
 - The target needs `bash`, `curl` and `tar`, plus HTTPS access to GitHub downloads.
   Linux needs systemd. Non-root installs require a working user service manager
   and permission to enable lingering. macOS needs a signed-in user's launchd GUI session.
+
+Linux also needs the libX11 and libXi runtime libraries, including on headless
+servers. Before installing Host, install `libX11` and `libXi` on RHEL 9 compatible
+systems, or `libx11-6` and `libxi6` on Debian/Ubuntu.
 
 ## Install and pair
 
