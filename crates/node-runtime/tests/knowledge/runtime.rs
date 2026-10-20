@@ -56,7 +56,7 @@ async fn shares_runtime_configuration_and_conflicts() {
                 .code,
             ErrorCode::RevisionConflict
         );
-        let Output::LocalModels(models) = execute(
+        let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = execute(
             reader,
             Command::ReadLocalModels {
                 kind: Some(sailry_protocol::models::Kind::Ocr),
@@ -84,7 +84,7 @@ async fn reads_images_and_indexes_scanned_sources() {
     );
     let fixture = Fixture::start().await;
     let [local, remote] = fixture.clients();
-    let Output::LocalModels(models) = execute(
+    let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = execute(
         &local,
         Command::ReadLocalModels {
             kind: Some(sailry_protocol::models::Kind::Ocr),
@@ -107,7 +107,7 @@ async fn reads_images_and_indexes_scanned_sources() {
         )
         .unwrap();
     }
-    let Output::LocalModels(models) = execute(
+    let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = execute(
         &remote,
         Command::ReadLocalModels {
             kind: Some(sailry_protocol::models::Kind::Ocr),
@@ -132,7 +132,7 @@ async fn reads_images_and_indexes_scanned_sources() {
         },
     )
     .await;
-    let Output::LocalModels(models) = execute(
+    let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = execute(
         &local,
         Command::ReadLocalModels {
             kind: Some(sailry_protocol::models::Kind::Ocr),

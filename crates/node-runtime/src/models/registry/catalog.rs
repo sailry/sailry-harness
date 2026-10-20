@@ -57,7 +57,7 @@ pub(crate) fn definitions(
             return Err(Fault::invalid("model identity has conflicting definitions"));
         }
     }
-    for kind in [Kind::Embedding, Kind::Ocr] {
+    for kind in [Kind::Embedding, Kind::Ocr, Kind::Decision] {
         if records
             .iter()
             .filter(|record| record.definition.format.kind() == kind)

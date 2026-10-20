@@ -14469,6 +14469,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "sailry-client",
+ "sailry-decision",
  "sailry-embedding",
  "sailry-link",
  "sailry-model-assets",

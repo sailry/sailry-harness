@@ -103,6 +103,7 @@ fn lists_node_local_models() {
     for kind in [
         Some(sailry_protocol::models::Kind::Ocr),
         Some(sailry_protocol::models::Kind::Embedding),
+        Some(sailry_protocol::models::Kind::Decision),
         None,
     ] {
         let expected = context();
@@ -114,7 +115,7 @@ fn lists_node_local_models() {
         let result=run(bundle(&source),"run",json!({}),scope,NodeId([1;32]),CancellationToken::new(),move|request|{
             assert_eq!(request.plugin.as_ref(),Some(&expected));
             assert!(matches!(request.command,Command::ReadLocalModels { kind: current } if current == kind));
-            Ok(Output::LocalModels(vec![]))
+            Ok(Output::LocalModels(sailry_protocol::models::Catalog::default()))
         }).unwrap();
         assert_eq!(result, json!([]));
     }

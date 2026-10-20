@@ -11,6 +11,7 @@ fn definition(format: Format) -> Definition {
         Format::Transformer { .. } => &["config.json", "model.onnx", "tokenizer.json"],
         Format::Static { .. } => &["config.json", "model.safetensors", "tokenizer.json"],
         Format::SenseVoice {} => &["model.onnx", "tokens.txt"],
+        Format::Decision {} => &["model.gguf"],
         Format::PaddleOcr {
             orientation: false, ..
         } => &["detector.onnx", "recognizer.onnx", "dictionary.txt"],
@@ -131,6 +132,7 @@ fn binds_each_format_to_its_assets() {
         transformer(),
         Format::Static { dimension: 256 },
         Format::SenseVoice {},
+        Format::Decision {},
     ] {
         let mut missing = definition(format);
         missing.validate().unwrap();
@@ -254,4 +256,13 @@ fn permits_default_discovery_and_bounds_queries() {
         search.validate().unwrap_err().code,
         ErrorCode::InvalidRequest
     );
+}
+
+#[test]
+fn binds_decisions_to_one_gguf() {
+    let mut model = definition(Format::Decision {});
+    model.validate().unwrap();
+    assert_eq!(model.format.kind(), Kind::Decision);
+    model.query_prefix = Some("query".into());
+    assert!(model.validate().is_err());
 }

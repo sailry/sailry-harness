@@ -27,6 +27,7 @@ pub(crate) enum Lane {
 pub(crate) enum Engine {
     Embedding(Box<sailry_embedding::Engine>),
     Ocr(Box<sailry_ocr::Engine>),
+    Decision(Box<sailry_decision::Engine>),
 }
 
 impl Engine {
@@ -40,6 +41,11 @@ impl Engine {
             Kind::Ocr => sailry_ocr::Engine::load(&resource.definition, &resource.directory)
                 .map(|engine| Self::Ocr(Box::new(engine)))
                 .map_err(failure),
+            Kind::Decision => {
+                sailry_decision::Engine::load(&resource.definition, &resource.directory)
+                    .map(|engine| Self::Decision(Box::new(engine)))
+                    .map_err(crate::decision::error)
+            }
             Kind::Speech => Err(Fault::invalid("speech belongs to the controller")),
         }
     }

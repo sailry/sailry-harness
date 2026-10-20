@@ -7,6 +7,7 @@ mod backup;
 mod browser;
 mod code;
 mod computer;
+mod decision;
 mod hooks;
 #[cfg(all(target_os = "macos", feature = "computer-worker"))]
 pub use computer::worker_host as computer_worker;

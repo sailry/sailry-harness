@@ -47,6 +47,7 @@ impl Registry {
         }
         let definition = self.definition(id)?;
         let kind = definition.format.kind();
+        super::super::availability::ensure(kind)?;
         let _mutation = self
             .mutations
             .get(&kind)
@@ -159,7 +160,7 @@ impl Registry {
                                 }
                             }
                         }
-                        Engine::Ocr(_) => {}
+                        Engine::Ocr(_) | Engine::Decision(_) => {}
                     }
                     files::mark(&path, &model, &definition, &resource.stamp)
                 })

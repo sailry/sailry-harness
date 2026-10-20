@@ -71,7 +71,7 @@ impl Registry {
             profile,
             state: Mutex::new(state),
             updates,
-            mutations: [Kind::Embedding, Kind::Ocr]
+            mutations: [Kind::Embedding, Kind::Ocr, Kind::Decision]
                 .into_iter()
                 .map(|kind| (kind, tokio::sync::Mutex::new(())))
                 .collect(),

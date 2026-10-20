@@ -111,9 +111,13 @@ impl Panel {
                     return;
                 }
                 match result {
-                    Ok(Ok((Output::LocalModelSettings(settings), Output::LocalModels(models)))) => {
+                    Ok(Ok((
+                        Output::LocalModelSettings(settings),
+                        Output::LocalModels(catalog),
+                    ))) => {
                         panel.settings = Some(settings);
-                        panel.models = models;
+                        panel.models = catalog.models;
+                        panel.availability = catalog.availability;
                         panel.choices(window, cx);
                         panel.error = None;
                         panel.fault = None;

@@ -12,7 +12,7 @@ pub(in crate::models) fn root(profile: &Path) -> Result<PathBuf, Fault> {
     crate::profile::private_directory(&profile.join("models")).map_err(super::failure)?;
     let root = profile.join("models");
     crate::files::path::root(&root)?;
-    for name in ["ocr", "embedding"] {
+    for name in ["ocr", "embedding", "decision"] {
         crate::profile::private_directory(&root.join(name)).map_err(super::failure)?;
         crate::files::path::root(&root.join(name))?;
     }
@@ -29,6 +29,7 @@ pub(in crate::models) fn directory(
     }
     Ok(match definition.format.kind() {
         Kind::Ocr => root.join("ocr").join(id),
+        Kind::Decision => root.join("decision").join(id),
         Kind::Embedding => root
             .join("embedding")
             .join(id)

@@ -72,9 +72,8 @@ impl Registration {
     pub fn validate(&self) -> Result<(), Fault> {
         self.definition.validate()?;
         match (self.target, self.definition.format.kind()) {
-            (Target::Node, Kind::Ocr | Kind::Embedding) | (Target::Controller, Kind::Speech) => {
-                Ok(())
-            }
+            (Target::Node, Kind::Ocr | Kind::Embedding | Kind::Decision)
+            | (Target::Controller, Kind::Speech) => Ok(()),
             _ => Err(Fault::invalid("model registration target is invalid")),
         }
     }

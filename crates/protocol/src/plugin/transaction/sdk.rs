@@ -53,6 +53,10 @@ pub fn decode(mut value: Value) -> Result<Vec<Operation>, Fault> {
 pub fn output(output: Output) -> Value {
     let mut value = serde_json::to_value(&output).expect("protocol values are serializable");
     match output {
+        // The model SDK lists definitions; execution availability stays in Node metadata.
+        Output::LocalModels(catalog) => {
+            value["data"] = json!(catalog.models);
+        }
         Output::ConnectorTypes(types) => {
             for (value, kind) in value["data"]
                 .as_array_mut()

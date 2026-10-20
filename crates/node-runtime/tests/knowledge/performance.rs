@@ -155,7 +155,7 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
             .into_iter()
             .nth(usize::from(remote))
             .unwrap();
-        let Output::LocalModels(models) = execute(
+        let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = execute(
             &client,
             Command::ReadLocalModels {
                 kind: Some(sailry_protocol::models::Kind::Embedding),
@@ -168,7 +168,7 @@ async fn indexes_mixed_corpus_and_reuses_unchanged_sources() {
         assert_eq!(
             models
                 .iter()
-                .find(|info| info.id == "potion-multi".to_owned())
+                .find(|info| info.id == "potion-multi")
                 .unwrap()
                 .state,
             ModelState::Installed

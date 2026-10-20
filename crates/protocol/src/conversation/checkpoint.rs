@@ -10,7 +10,7 @@ pub struct Version {
     pub size: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct File {
     pub id: CheckpointId,
     pub turn: TurnId,
@@ -23,7 +23,7 @@ pub struct File {
     pub outcome: RequestOutcome,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Page {
     pub session: SessionId,
     pub turn: TurnId,
@@ -41,7 +41,7 @@ pub struct TurnDiff {
     pub partial: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Content {
     pub session: SessionId,
     pub file: File,

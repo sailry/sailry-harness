@@ -56,14 +56,35 @@ without another settings sidebar or a package-specific renderer.
 Model prompts and response parsing belong to the package. `resolveModel` validates the selected model and reasoning effort against the Node catalog; credentials remain on that Node.
 
 Use `sailry/models` for public `search`, `versions` and `resolve` with `models.read`.
-`list({target:'node', kind?})` reads OCR and embedding definitions with their
+`list({target:'node', kind?})` reads OCR, embedding and decision definitions with their
 installation state from the captured Node. Node model identities are opaque strings.
 `register({target, definition})` and `prepare(model)` require `models.install` and
 return ordinary prepared request IDs. Complete registration first, then prepare
 installation with `{target:'node', kind, id}` and its returned model identity.
-Definitions retain pinned asset digests; OCR and embedding target `node`, while
+Definitions retain pinned asset digests; OCR, embedding and decision target `node`, while
 speech uses `{target:'controller', kind:'speech', id}` on its controller.
 Headless callbacks cannot install controller-local speech models.
+
+Node tools and callbacks import `decide` from `sailry/decisions` with the
+`decisions.run` action. This read-only call accepts `{model?, state, questions}`;
+`model` is an optional registered Node model ID. It uses the saved decision
+selection when omitted and requires an explicitly installed model. Global decision
+disablement also applies to explicit IDs. It does not generate conversation text
+or download a model.
+
+Questions use `type: "noul"`, `"choice"`, or `"score"`, with `instructions` and
+optional binary criteria, named choices, or an ordered score legend. Binary answers
+contain only their true probability as `noul`; choice and score answers include
+normalized probabilities and their algorithm's confidence. Input is limited to
+16 KiB of state, 16 questions, 16 choice options, 1 KiB of instructions and
+256 bytes per option. Tokenized prompts must also fit the installed model context.
+
+```javascript
+import {decide} from 'sailry/decisions';
+const result = await decide({state: pageText, questions: {
+  save: {type: 'noul', instructions: 'Is Save available?'}
+}});
+```
 
 `sailry/installations.read(ids)` observes only owned model or language installation
 requests in their original captured scope. Language observations require `code.read`

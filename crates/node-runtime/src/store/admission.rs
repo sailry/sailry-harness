@@ -272,6 +272,9 @@ impl Ingress {
             ) {
                 return self.read_knowledge(request).await;
             }
+            if matches!(request.command, sailry_protocol::Command::Decide(_)) {
+                return self.decide(request).await;
+            }
             if matches!(
                 request.command,
                 sailry_protocol::Command::ReadLocalModels { .. }

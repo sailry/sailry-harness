@@ -12,6 +12,7 @@ impl ModelKey {
                 let prefix = match kind {
                     Kind::Embedding => "knowledge",
                     Kind::Ocr => "ocr",
+                    Kind::Decision => "decision",
                     Kind::Speech => unreachable!("speech belongs to the controller"),
                 };
                 format!("{prefix}-{action}-{id}")

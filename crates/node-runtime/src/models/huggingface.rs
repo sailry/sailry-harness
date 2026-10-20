@@ -14,8 +14,13 @@ pub(super) async fn search(
     let mut url = http.url(&["api", "models"]);
     {
         let mut query = url.query_pairs_mut();
+        if request.kind == sailry_protocol::models::Kind::Decision {
+            query.append_pair("filter", "gguf");
+        }
         if request.query.trim().is_empty() {
-            query.append_pair("filter", "onnx");
+            if request.kind != sailry_protocol::models::Kind::Decision {
+                query.append_pair("filter", "onnx");
+            }
             query.append_pair("sort", "downloads");
             query.append_pair("direction", "-1");
             if request.kind == sailry_protocol::models::Kind::Speech {
@@ -27,7 +32,7 @@ pub(super) async fn search(
             query.append_pair("search", request.query.trim());
         }
         query.append_pair("limit", &PAGE_SIZE.to_string());
-        // Compatible ONNX and static exports can lack pipeline metadata.
+        // Compatible exports can lack pipeline metadata.
         // Compatibility is established by resolution and installation.
         if let Some(cursor) = &request.cursor {
             query.append_pair("cursor", cursor);

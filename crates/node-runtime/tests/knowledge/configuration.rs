@@ -152,7 +152,7 @@ async fn shares_cas_receipts_and_canonical_events() {
 async fn confines_model_lifecycle_to_controller() {
     let fixture = Fixture::start().await;
     for (index, client) in fixture.clients().into_iter().enumerate() {
-        let Output::LocalModels(models) = execute(
+        let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = execute(
             &client,
             Command::ReadLocalModels {
                 kind: Some(sailry_protocol::models::Kind::Embedding),

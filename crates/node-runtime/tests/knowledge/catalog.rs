@@ -262,7 +262,7 @@ async fn shares_compatible_pages_and_immutable_resolution() {
             else {
                 panic!("registered model expected");
             };
-            let Output::LocalModels(models) = execute(
+            let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = execute(
                 &client,
                 Command::ReadLocalModels {
                     kind: Some(sailry_protocol::models::Kind::Embedding),

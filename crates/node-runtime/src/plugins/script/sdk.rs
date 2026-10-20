@@ -305,10 +305,7 @@ impl<F: FnMut(Request) -> sailry_link::Response> Bridge<F> {
                     })?
                     .clone();
                 // Business faults remain explicit outcomes, matching the desktop SDK.
-                if matches!(
-                    request.command,
-                    Command::InstallLocalModel { .. }
-                ) {
+                if matches!(request.command, Command::InstallLocalModel { .. }) {
                     if !self.installations.contains(&request.id)
                         && self.installations.len() >= sailry_protocol::installation::MAX_REQUESTS
                     {
@@ -390,6 +387,7 @@ fn allowed(command: &Command) -> bool {
             | Command::ReadModelVersions { .. }
             | Command::ResolveModel { .. }
             | Command::ReadLocalModels { .. }
+            | Command::Decide(_)
             | Command::RegisterLocalModel { .. }
             | Command::InstallLocalModel { .. }
             | Command::ReadInstallations { .. }

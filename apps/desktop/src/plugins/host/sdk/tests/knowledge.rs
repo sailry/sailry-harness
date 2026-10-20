@@ -13,7 +13,7 @@ fn preserves_captured_sources_and_cas_receipts() {
         let package = fixture.install(0);
         assert!(package.issues.is_empty(), "{:?}", package.issues);
         let client = &fixture.binding.client;
-        let Output::LocalModels(models) = fixture
+        let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = fixture
             .runtime
             .block_on(client.execute(client.prepare(Command::ReadLocalModels {
                 kind: Some(sailry_protocol::models::Kind::Embedding),

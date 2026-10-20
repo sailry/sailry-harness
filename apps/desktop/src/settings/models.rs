@@ -19,7 +19,10 @@ use gpui_kit::{
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Command, NodeId, Request,
-    models::{Choice as Selection, Definition, Kind, Model, Settings, Source, State as Status},
+    models::{
+        Availability, Choice as Selection, Definition, Kind, Model, Settings, Source,
+        State as Status,
+    },
 };
 use std::collections::BTreeMap;
 
@@ -36,7 +39,8 @@ pub(super) struct Panel {
     settings: Option<Settings>,
     selectors: BTreeMap<Kind, Entity<SelectState<Vec<Choice>>>>,
     models: Vec<Model>,
-    tab: usize,
+    availability: BTreeMap<Kind, Availability>,
+    tabs: BTreeMap<Kind, usize>,
     pending: bool,
     loading: bool,
     refresh: bool,
@@ -105,7 +109,7 @@ impl Panel {
                 })
             },
         );
-        let selectors = [Kind::Embedding, Kind::Ocr]
+        let selectors = [Kind::Embedding, Kind::Ocr, Kind::Decision]
             .into_iter()
             .map(|kind| {
                 let selector =
@@ -151,7 +155,8 @@ impl Panel {
             settings: None,
             selectors,
             models: Vec::new(),
-            tab: 0,
+            availability: BTreeMap::new(),
+            tabs: BTreeMap::new(),
             pending: false,
             loading: false,
             refresh: false,
@@ -167,6 +172,12 @@ impl Panel {
     pub(in crate::settings) fn locked(&self) -> bool {
         !self.active || self.pending || self.request.is_some()
     }
+    pub(in crate::settings) fn available(&self, kind: Kind) -> bool {
+        self.availability
+            .get(&kind)
+            .is_some_and(Availability::available)
+    }
+
     pub(in crate::settings) fn admits(&self, node: NodeId) -> bool {
         self.active && self.binding.client.target() == node
     }
@@ -181,6 +192,8 @@ impl Panel {
                 value: None,
                 label: crate::tr(if *kind == Kind::Embedding {
                     "knowledge_keyword_only"
+                } else if *kind == Kind::Decision {
+                    "local_models_none"
                 } else {
                     "search_driver_auto"
                 }),

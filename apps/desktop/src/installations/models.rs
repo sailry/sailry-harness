@@ -121,22 +121,21 @@ pub(crate) fn external(
     let id = id.clone();
     let request = request.clone();
     let read = client.clone();
-    let job =
-        runtime.spawn(async move {
-            match read
-                .execute(read.prepare(Command::ReadLocalModels { kind: None }))
-                .await
-            {
-                Ok(Output::LocalModels(models)) => models
-                    .into_iter()
-                    .find(|model| model.id == id)
-                    .map(|model| Resource::Model {
-                        kind: model.definition.format.kind(),
-                        id,
-                    }),
-                _ => None,
-            }
-        });
+    let job = runtime.spawn(async move {
+        match read
+            .execute(read.prepare(Command::ReadLocalModels { kind: None }))
+            .await
+        {
+            Ok(Output::LocalModels(sailry_protocol::models::Catalog { models, .. })) => models
+                .into_iter()
+                .find(|model| model.id == id)
+                .map(|model| Resource::Model {
+                    kind: model.definition.format.kind(),
+                    id,
+                }),
+            _ => None,
+        }
+    });
     let origin = window.window_handle();
     let (sender, receive) = tokio::sync::oneshot::channel();
     cx.spawn(async move |cx| {

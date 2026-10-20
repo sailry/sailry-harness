@@ -875,6 +875,7 @@ pub enum Command {
     },
     ReadPythonSettings,
     SavePythonSettings(crate::python::Settings),
+    Decide(crate::decision::Request),
     ReadLocalModelSettings,
     SaveLocalModelSettings(crate::models::Settings),
     ReadLocalModels {
@@ -1600,6 +1601,7 @@ impl Command {
                 | Self::ReadPythonSettings
                 | Self::DismissInstallation { .. }
                 | Self::ReadInstallations { .. }
+                | Self::Decide(_)
                 | Self::ReadLocalModelSettings
                 | Self::ReadLocalModels { .. }
                 | Self::RefreshLocalModel { .. }
@@ -1737,7 +1739,7 @@ pub struct RetainedRecord {
     pub data: serde_json::Value,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum Output {
     RetainedRecord(RetainedRecord),
@@ -1910,7 +1912,8 @@ pub enum Output {
     },
     PythonSettings(crate::python::Settings),
     LocalModelSettings(crate::models::Settings),
-    LocalModels(Vec<crate::models::Model>),
+    LocalModels(crate::models::Catalog),
+    Decision(crate::decision::Response),
     LocalModel {
         id: String,
     },
@@ -2024,7 +2027,7 @@ pub enum Output {
 }
 
 /// A read-only observation of the original durable admission, not a new receipt.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum RequestOutcome {
     /// No matching admission exists for this authenticated caller at the time of the read.

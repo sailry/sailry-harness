@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 mod callbacks;
 mod cards;
 mod conversation;
+mod decisions;
 mod errors;
 mod knowledge;
 mod models;

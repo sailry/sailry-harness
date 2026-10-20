@@ -1,4 +1,5 @@
 //! Anonymous Hub discovery and immutable, data-only model definitions.
+pub(crate) mod availability;
 mod http;
 mod huggingface;
 mod modelscope;

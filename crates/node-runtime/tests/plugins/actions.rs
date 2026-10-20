@@ -8,6 +8,8 @@ mod browser;
 mod computer;
 #[path = "actions/connections.rs"]
 mod connections;
+#[path = "actions/decisions.rs"]
+mod decisions;
 #[path = "actions/external_browser.rs"]
 mod external_browser;
 #[path = "actions/files.rs"]

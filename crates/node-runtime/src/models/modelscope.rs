@@ -35,6 +35,7 @@ pub(super) async fn search(
                     sailry_protocol::models::Kind::Embedding => "onnx",
                     sailry_protocol::models::Kind::Speech => "sensevoice",
                     sailry_protocol::models::Kind::Ocr => "oar-ocr",
+                    sailry_protocol::models::Kind::Decision => "gguf",
                 }
             } else {
                 request.query.trim()

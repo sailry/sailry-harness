@@ -50,6 +50,7 @@ market_permission_agents_delegate: "Делегирование субагент�
 market_permission_roles_read: "Чтение ролей"
 market_permission_roles_write: "Изменение ролей"
 market_permission_models_read: "Чтение моделей"
+market_permission_decisions_run: "Выполнять локальные решения"
 market_permission_models_provide: "Предоставление моделей"
 market_permission_models_authenticate: "Вход в сервисы моделей"
 market_permission_credentials_inspect: "Проверка учётных данных"

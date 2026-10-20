@@ -233,7 +233,8 @@ pub(super) fn execute(
         Command::ReadLocalModelSettings
         | Command::SaveLocalModelSettings(_)
         | Command::RegisterLocalModel { .. } => super::local_models::execute(db, request),
-        Command::ReadLocalModels { .. }
+        Command::Decide(_)
+        | Command::ReadLocalModels { .. }
         | Command::CancelLocalModel { .. }
         | Command::InstallLocalModel { .. }
         | Command::DeleteLocalModel { .. } => {

@@ -41,6 +41,7 @@ a controller does not stop already admitted work.
 | `crates/speech` | Shared speech capability and native audio integration | Conversation ownership |
 | `crates/embedding` | CPU model loading, token offsets and normalized local vectors | Source grants, indexing and controllers |
 | `crates/ocr` | Shared CPU image recognition and PaddleOCR decoding | Model downloads, source grants and controllers |
+| `crates/decision` | Validated GGUF files and pinned llama.cpp CPU decision inference | Downloads, model selection and Agent orchestration |
 | `crates/model-assets` | Verified, cancellable model downloads and directory receipts | Model selection and configuration |
 | `crates/content` | Reusable GPUI Kit editors, Markdown, diffs and selection | Node, Client, file acquisition and application state |
 | `apps/desktop` | GPUI Kit composition, focus, drafts and native integrations | Duplicate history or request recovery engines |
@@ -177,7 +178,7 @@ results, and explicit rebuilds invalidate only the selected collection's derived
 data. An explicit installed collection model overrides the global embedding
 selection, including when global vector retrieval is disabled.
 
-One Node-owned local model registry manages OCR and embedding definitions,
+One Node-owned local model registry manages OCR, embedding and decision definitions,
 selection, downloads, verified receipts and installation state through the same
 commands and events. Assets require explicit installation and immutable revision,
 size and SHA-256 verification. Existing model IDs, directories and collection
@@ -185,7 +186,7 @@ references survive the centralized, backed-up storage update; derived vector key
 and source scopes remain unchanged. The settings singleton records completed
 import even after all registered models are removed.
 
-One CPU runtime lazily loads both model kinds and runs one inference at a time.
+One CPU runtime lazily loads local model engines and runs one inference at a time.
 Interactive retrieval and document inspection take priority over queued indexing
 and extraction. The runtime releases idle engines after five minutes and evicts
 the least recently used engines against a 2 GiB asset-size estimate. A larger
@@ -193,6 +194,31 @@ individual model may load alone. Cancellation reaches queued work and active
 engine stages; removal invalidates captures and unloads the engine before deleting
 owned assets. Desktop shares one model panel per Node while speech remains local
 to its controller.
+
+Local decision requests use typed binary, choice and score questions through the
+same nondurable local and remote protocol. The `decisions.run` action permits
+read-only tools and Node callbacks to call `sailry/decisions`. Requests are bounded
+before inference; oversized tokenized prompts fail against the model context.
+No decision model is selected, recommended or downloaded automatically. Plugins
+own workflows that use these answers; ADK remains the Agent execution engine.
+
+Decision engines use the packaged llama.cpp b11756 C API, checked GGUF metadata
+and its `systemone` template. Laya and OpenJev follow that revision's decision
+algorithms. One runtime owner performs loading, validation, inference and unloading;
+CPU weights and request contexts share the scheduler with OCR and embedding.
+Model metadata carries the selected Node's execution availability, so a remote
+controller never infers support from its own operating system.
+
+| Target | Decision runtime |
+| --- | --- |
+| macOS x64 and ARM64 | macOS 13.3 or later; the application minimum remains 13.0 |
+| Linux x64 | glibc 2.34 or later |
+| Linux ARM64 | Unavailable; the pinned official runtime requires a newer glibc |
+| Windows x64 and ARM64 | Packaged official CPU runtime |
+
+Unsupported decision targets retain OCR and embedding. Ordinary metadata remains
+readable, while decision registration, installation and execution report
+`Unavailable`; there is no alternate runtime or silent fallback.
 
 Model discovery reads public Hugging Face or ModelScope catalogs through the
 selected Node. Each registered definition binds its supported algorithm
@@ -348,7 +374,7 @@ Confirmed success removes a task; failures and uncertain outcomes remain until
 explicitly dismissed. Dismissal changes only the observation, not the command ledger
 or active execution. Captured plugin authority stays private. Controllers own installer
 visibility and locally planned batches, not another execution queue.
-OCR and embedding installation reuse this queue through their shared registry;
+OCR, embedding and decision installation reuse this queue through their shared registry;
 native validation uses the same CPU runtime as inference. Language installation
 keeps its package driver; removal shares that lane without appearing as an installation.
 Speech installation remains with the controller-local speech manager. Public installation

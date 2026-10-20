@@ -24,6 +24,7 @@ pub(super) fn label(action: &Action) -> &'static str {
         Action::ReadRoles => "market_permission_roles_read",
         Action::WriteRoles => "market_permission_roles_write",
         Action::ReadModels => "market_permission_models_read",
+        Action::RunDecisions => "market_permission_decisions_run",
         Action::ProvideModels => "market_permission_models_provide",
         Action::AuthenticateModels => "market_permission_models_authenticate",
         Action::InspectCredentials => "market_permission_credentials_inspect",

@@ -39,13 +39,15 @@ impl Target {
     }
     fn available(&self, node: NodeId, cx: &App) -> bool {
         match self {
-            Self::Node(panel, _) => panel.read(cx).admits(node),
+            Self::Node(panel, kind) => {
+                panel.read(cx).admits(node) && panel.read(cx).available(*kind)
+            }
             Self::Speech(panel) => panel.read(cx).admits(node),
         }
     }
     fn busy(&self, cx: &App) -> bool {
         match self {
-            Self::Node(panel, _) => panel.read(cx).locked(),
+            Self::Node(panel, kind) => panel.read(cx).locked() || !panel.read(cx).available(*kind),
             Self::Speech(_) => false,
         }
     }
@@ -368,6 +370,7 @@ pub(super) fn open(
                     Kind::Embedding => "model_library_embedding",
                     Kind::Speech => "model_library_speech",
                     Kind::Ocr => "model_library_ocr",
+                    Kind::Decision => "model_library_decision",
                 }),
                 cx,
             )

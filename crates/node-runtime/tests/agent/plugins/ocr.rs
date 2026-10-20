@@ -17,9 +17,10 @@ async fn lifecycle_keeps_definitions_and_configuration() {
         else {
             panic!("OCR models expected")
         };
-        let id = before.first().unwrap().id.clone();
+        let id = before.models.first().unwrap().id.clone();
         assert!(
             before
+                .models
                 .iter()
                 .all(|model| model.state == sailry_protocol::models::State::Missing)
         );
@@ -66,7 +67,10 @@ async fn lifecycle_keeps_definitions_and_configuration() {
             })
             .collect();
         assert_eq!(results.len(), 4, "{results:?}");
-        assert_eq!(results[0]["models"].as_array().unwrap().len(), before.len());
+        assert_eq!(
+            results[0]["models"].as_array().unwrap().len(),
+            before.models.len()
+        );
         assert!(results[1].get("error").is_some(), "{results:?}");
         assert_eq!(results[2]["kind"], "local_model", "{results:?}");
         assert_eq!(results[2]["data"]["id"], id);

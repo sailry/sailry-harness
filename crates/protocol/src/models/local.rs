@@ -43,7 +43,7 @@ impl Default for Settings {
 
 impl Settings {
     pub fn fill_defaults(&mut self) {
-        for kind in [Kind::Embedding, Kind::Ocr] {
+        for kind in [Kind::Embedding, Kind::Ocr, Kind::Decision] {
             self.choices
                 .entry(kind)
                 .or_insert_with(|| Choice::initial(kind));
@@ -128,6 +128,14 @@ mod tests {
             Settings::default().selected(Kind::Embedding),
             Some("granite-multi")
         );
+        assert_eq!(
+            settings.choice(Kind::Decision),
+            Choice {
+                enabled: true,
+                model: None
+            }
+        );
+        assert_eq!(Settings::default().selected(Kind::Decision), None);
         settings.validate().unwrap();
     }
 

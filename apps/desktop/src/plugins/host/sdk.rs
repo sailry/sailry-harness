@@ -434,6 +434,7 @@ pub(in crate::plugins) fn public_output(output: Output) -> Result<Value, HostErr
             | Output::PluginSearch(_)
             | Output::KnowledgeCollection(_)
             | Output::KnowledgeCollections(_)
+            | Output::LocalModels(_)
             | Output::ConnectorTypes(_)
             | Output::Connections(_)
             | Output::Connection(_)

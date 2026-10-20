@@ -7,6 +7,7 @@ use sailry_protocol::{
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+mod decision;
 pub(super) mod ocr;
 mod prefixes;
 
@@ -19,7 +20,7 @@ pub(super) async fn definition(
     let repository = repository(http, source, cancel).await?;
     let (query_prefix, document_prefix) = match kind {
         Kind::Embedding => prefixes::read(http, &repository, cancel).await?,
-        Kind::Speech | Kind::Ocr => (None, None),
+        Kind::Speech | Kind::Ocr | Kind::Decision => (None, None),
     };
     let has_prefix = [&query_prefix, &document_prefix]
         .into_iter()
@@ -29,6 +30,10 @@ pub(super) async fn definition(
         Kind::Embedding => embedding(http, &repository, has_prefix, cancel).await?,
         Kind::Speech => speech(http, &repository, cancel).await?,
         Kind::Ocr => ocr::definition(http, &repository, cancel).await?,
+        Kind::Decision => (
+            Format::Decision {},
+            decision::definition(http, &repository, cancel).await?,
+        ),
     };
     let definition = Definition {
         source: repository.source,
@@ -84,7 +89,7 @@ async fn embedding(
     let file = match format {
         Format::Static { .. } => required(repository, "model.safetensors")?,
         Format::Transformer { .. } => graph(repository, false)?,
-        Format::SenseVoice {} | Format::PaddleOcr { .. } => unreachable!(),
+        Format::SenseVoice {} | Format::PaddleOcr { .. } | Format::Decision {} => unreachable!(),
     };
     let name = if matches!(format, Format::Static { .. }) {
         "model.safetensors"
@@ -208,11 +213,12 @@ pub(super) async fn inspect(
     }
     // Listing inspection never downloads tokenizer, token tables or model weights.
     for file in repository.files.values().filter(|file| {
-        file.path.ends_with("config.json")
-            || matches!(
-                file.path.as_str(),
-                "modules.json" | "config_sentence_transformers.json"
-            )
+        kind != Kind::Decision
+            && (file.path.ends_with("config.json")
+                || matches!(
+                    file.path.as_str(),
+                    "modules.json" | "config_sentence_transformers.json"
+                ))
     }) {
         if file.bytes > super::METADATA_BYTES as u64 {
             return Err(Fault::invalid(
@@ -235,7 +241,9 @@ pub(super) async fn inspect(
             let weights = match format {
                 Format::Static { .. } => required(&repository, "model.safetensors")?,
                 Format::Transformer { .. } => graph(&repository, false)?,
-                Format::SenseVoice {} | Format::PaddleOcr { .. } => unreachable!(),
+                Format::SenseVoice {} | Format::PaddleOcr { .. } | Format::Decision {} => {
+                    unreachable!()
+                }
             };
             if weights.bytes == 0 || weights.bytes > MAX_ASSET_BYTES {
                 return Err(Fault::invalid("model asset exceeds its size limit"));
@@ -256,6 +264,10 @@ pub(super) async fn inspect(
             Format::SenseVoice {}
         }
         Kind::Ocr => ocr::profile(http, &repository, cancel).await?.0,
+        Kind::Decision => {
+            decision::select(&repository.files)?;
+            Format::Decision {}
+        }
     };
     Ok(sailry_protocol::models::Item {
         source: repository.source,

@@ -65,7 +65,9 @@ fn captures_node_registration_before_installation() {
         let tasks = host.installations_module();
         models.validate().unwrap();
         tasks.validate().unwrap();
-        let Output::LocalModels(current) = fixture
+        let Output::LocalModels(sailry_protocol::models::Catalog {
+            models: current, ..
+        }) = fixture
             .runtime
             .block_on(
                 fixture
@@ -148,8 +150,11 @@ fn lists_node_kinds_in_the_captured_scope() {
             None,
             Some(sailry_protocol::models::Kind::Embedding),
             Some(sailry_protocol::models::Kind::Ocr),
+            Some(sailry_protocol::models::Kind::Decision),
         ] {
-            let Output::LocalModels(expected) = fixture
+            let Output::LocalModels(sailry_protocol::models::Catalog {
+                models: expected, ..
+            }) = fixture
                 .runtime
                 .block_on(
                     fixture.binding.client.execute(

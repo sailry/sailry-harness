@@ -43,6 +43,8 @@ pub enum Action {
     WriteRoles,
     #[serde(rename = "models.read")]
     ReadModels,
+    #[serde(rename = "decisions.run")]
+    RunDecisions,
     #[serde(rename = "models.provide")]
     ProvideModels,
     #[serde(rename = "models.authenticate")]
@@ -144,6 +146,7 @@ impl Action {
             | Self::ReadSsh
             | Self::ReadRoles
             | Self::ReadModels
+            | Self::RunDecisions
             | Self::InspectMedia
             | Self::ReadMediaSettings
             | Self::ReadComputer
@@ -208,6 +211,7 @@ impl Action {
                 | Self::ReadSsh
                 | Self::ReadRoles
                 | Self::ReadModels
+                | Self::RunDecisions
                 | Self::InspectMedia
                 | Self::ReadMediaSettings
                 | Self::ReadComputer
@@ -237,6 +241,7 @@ mod tests {
         for (name, action) in [
             ("files.read", Action::ReadFiles),
             ("models.read", Action::ReadModels),
+            ("decisions.run", Action::RunDecisions),
             ("models.install", Action::InstallModels),
             ("models.generate", Action::GenerateText),
             ("knowledge.read", Action::ReadKnowledge),

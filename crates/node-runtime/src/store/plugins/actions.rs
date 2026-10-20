@@ -26,7 +26,9 @@ impl Database {
                 "Node or protocol version mismatch",
             ));
         }
-        if matches!(request.command,Command::CancelConnectorLogin{..}) {return Ok(());}
+        if matches!(request.command, Command::CancelConnectorLogin { .. }) {
+            return Ok(());
+        }
         if matches!(
             context.surface,
             sailry_protocol::plugin::desktop::Surface::Card(_)
@@ -338,6 +340,7 @@ impl Database {
                     (Some(Action::GenerateText), None, None)
                 }
                 Command::ResolvePluginModel { .. } => (Some(Action::ReadModels), None, None),
+                Command::Decide(_) => (Some(Action::RunDecisions), None, None),
                 Command::SearchModels(_)
                 | Command::ReadModelVersions { .. }
                 | Command::ResolveModel { .. }
@@ -741,6 +744,7 @@ impl Database {
                     | Command::ResolveModel { .. }
                     | Command::RefreshLocalModel { .. }
                     | Command::ReadLocalModels { .. }
+                    | Command::Decide(_)
                     | Command::RegisterLocalModel { .. }
                     | Command::InstallLocalModel { .. }
                     | Command::ReadInstallations { .. }

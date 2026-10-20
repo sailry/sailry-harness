@@ -35,7 +35,7 @@ async fn register(client: &Client, definition: &ModelDefinition) -> String {
 }
 
 async fn models(client: &Client) -> Vec<ModelInfo> {
-    let Output::LocalModels(models) = execute(
+    let Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) = execute(
         client,
         Command::ReadLocalModels {
             kind: Some(sailry_protocol::models::Kind::Embedding),

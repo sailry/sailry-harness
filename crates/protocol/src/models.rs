@@ -1,5 +1,7 @@
 //! Public model discovery metadata and pinned installation definitions.
+mod catalog;
 mod local;
+pub use catalog::{Availability, Catalog};
 pub use local::{Choice, Model, Settings, State};
 
 use crate::Fault;
@@ -31,6 +33,7 @@ pub enum Kind {
     Embedding,
     Speech,
     Ocr,
+    Decision,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +62,7 @@ pub enum Format {
         dimension: u16,
     },
     SenseVoice {},
+    Decision {},
     PaddleOcr {
         family: PaddleFamily,
         orientation: bool,
@@ -70,6 +74,7 @@ impl Format {
         match self {
             Self::Transformer { .. } | Self::Static { .. } => Kind::Embedding,
             Self::SenseVoice {} => Kind::Speech,
+            Self::Decision {} => Kind::Decision,
             Self::PaddleOcr { .. } => Kind::Ocr,
         }
     }
@@ -77,7 +82,7 @@ impl Format {
     pub fn dimension(self) -> Option<u16> {
         match self {
             Self::Transformer { dimension, .. } | Self::Static { dimension } => Some(dimension),
-            Self::SenseVoice {} | Self::PaddleOcr { .. } => None,
+            Self::SenseVoice {} | Self::PaddleOcr { .. } | Self::Decision {} => None,
         }
     }
 }
@@ -165,6 +170,7 @@ impl Definition {
             Format::Transformer { .. } => &["config.json", "tokenizer.json", "model.onnx"],
             Format::Static { .. } => &["config.json", "tokenizer.json", "model.safetensors"],
             Format::SenseVoice {} => &["model.onnx", "tokens.txt"],
+            Format::Decision {} => &["model.gguf"],
             Format::PaddleOcr {
                 orientation: false, ..
             } => &["detector.onnx", "recognizer.onnx", "dictionary.txt"],

@@ -647,7 +647,7 @@ mod removed_defaults {
             Output::LocalModelSettings(_)
         ));
         assert!(
-            matches!(execute(client, Command::ReadLocalModels { kind: Some(sailry_protocol::models::Kind::Embedding) }).await, Output::LocalModels(models) if !models.is_empty())
+            matches!(execute(client, Command::ReadLocalModels { kind: Some(sailry_protocol::models::Kind::Embedding) }).await, Output::LocalModels(sailry_protocol::models::Catalog { models, .. }) if !models.is_empty())
         );
     }
 

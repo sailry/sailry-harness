@@ -113,6 +113,7 @@ pub(in crate::store) fn kind_name(kind: Kind) -> &'static str {
     match kind {
         Kind::Embedding => "embedding",
         Kind::Ocr => "ocr",
+        Kind::Decision => "decision",
         Kind::Speech => "speech",
     }
 }
@@ -143,6 +144,13 @@ fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>),
     updated.validate()?;
     for (kind, choice) in &updated.choices {
         require(db, *kind, choice.model.as_deref())?;
+        if *kind == Kind::Decision
+            && choice.enabled
+            && choice.model.is_some()
+            && previous.choice(*kind) != *choice
+        {
+            crate::models::availability::ensure(*kind)?;
+        }
     }
     updated.revision = updated
         .revision
@@ -170,6 +178,7 @@ fn register(db: &Connection, definition: &Definition) -> Result<(Output, Option<
     if definition.format.kind() == Kind::Speech {
         return Err(Fault::invalid("speech belongs to the controller"));
     }
+    crate::models::availability::ensure(definition.format.kind())?;
     let mut definition = definition.clone();
     definition
         .assets
@@ -299,7 +308,13 @@ impl Ingress {
         }
         let output = match &request.command {
             Command::ReadLocalModels { kind } => {
-                Output::LocalModels(self.local_models.models(*kind).await?)
+                let models = self.local_models.models(*kind).await?;
+                let catalog = tokio::task::spawn_blocking(move || {
+                    crate::models::availability::catalog(models)
+                })
+                .await
+                .map_err(storage_error)?;
+                Output::LocalModels(catalog)
             }
             Command::CancelLocalModel { id } => {
                 controller(&request)?;
@@ -311,6 +326,30 @@ impl Ingress {
         };
         let (reply, completion) = oneshot::channel();
         let _ = reply.send(Ok(output));
+        Ok(Admission {
+            receipt: sailry_protocol::Receipt {
+                id: request.id,
+                durable: false,
+            },
+            completion,
+        })
+    }
+
+    pub(in crate::store) async fn decide(&self, request: Request) -> Result<Admission, Fault> {
+        if request.target != self.node || request.version != sailry_protocol::VERSION {
+            return Err(Fault::new(
+                ErrorCode::WrongTarget,
+                "Node or protocol version mismatch",
+            ));
+        }
+        let Command::Decide(input) = request.command else {
+            return Err(Fault::invalid("decision request expected"));
+        };
+        let stop = self.closed.child_token();
+        let _guard = stop.clone().drop_guard();
+        let output = crate::decision::decide(&self.local_models, input, &stop).await?;
+        let (reply, completion) = oneshot::channel();
+        let _ = reply.send(Ok(Output::Decision(output)));
         Ok(Admission {
             receipt: sailry_protocol::Receipt {
                 id: request.id,
