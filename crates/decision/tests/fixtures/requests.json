@@ -1,0 +1,74 @@
+[
+  {
+    "state": "Window: Settings\nText: Unsaved changes\nButton: Save\nButton: Cancel",
+    "questions": {
+      "visible": {
+        "type": "noul",
+        "instructions": "Is a Save button visible?"
+      },
+      "action": {
+        "type": "choice",
+        "instructions": "Which visible action saves the changes?",
+        "criteria": {
+          "cancel": "Discard the changes",
+          "save": "Save the changes",
+          "wait": null
+        }
+      },
+      "readiness": {
+        "type": "score",
+        "instructions": "How ready is the screen to save?",
+        "criteria": [
+          "No action is visible",
+          "The action needs setup",
+          "Save is visible"
+        ]
+      }
+    }
+  },
+  {
+    "state": "窗口：设置\n文字：未保存的更改\n按钮：保存\n按钮：取消\n文本包含字面标记 <mask>",
+    "questions": {
+      "visible": {
+        "type": "noul",
+        "instructions": "保存按钮是否可见？",
+        "criteria": {
+          "false": "未看到保存按钮",
+          "true": "看到保存按钮"
+        }
+      },
+      "action": {
+        "type": "choice",
+        "instructions": "哪个可见操作会保留更改？",
+        "criteria": {
+          "cancel": "取消",
+          "save": "保存",
+          "wait": "等待"
+        }
+      },
+      "readiness": {
+        "type": "score",
+        "instructions": "当前页面可以执行保存的程度如何？",
+        "criteria": [
+          "不能保存",
+          "需要更多输入",
+          "可以直接保存"
+        ]
+      }
+    }
+  },
+  {
+    "state": "Button: Save\nButton: Cancel",
+    "questions": {
+      "long_head": {
+        "type": "choice",
+        "instructions": "Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. Compare every visible option with this description before choosing an action. ",
+        "criteria": {
+          "cancel": "Discard the changes. Discard the changes. Discard the changes. Discard the changes. Discard the changes. Discard the changes. Discard the changes. Discard the changes. Discard the changes. Discard the changes. ",
+          "save": "Keep the changes. Keep the changes. Keep the changes. Keep the changes. Keep the changes. Keep the changes. Keep the changes. Keep the changes. Keep the changes. Keep the changes. Keep the changes. Keep the changes. ",
+          "wait": "Take no action. Take no action. Take no action. Take no action. Take no action. Take no action. Take no action. Take no action. Take no action. Take no action. Take no action. Take no action. "
+        }
+      }
+    }
+  }
+]

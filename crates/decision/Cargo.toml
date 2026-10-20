@@ -1,0 +1,22 @@
+[package]
+name = "sailry-decision"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+libc.workspace = true
+libloading.workspace = true
+minijinja.workspace = true
+sailry-model-assets.workspace = true
+sailry-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+ort.workspace = true
+sailry-model-assets = { workspace = true, features = ["onnx"] }
+tempfile.workspace = true

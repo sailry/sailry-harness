@@ -3,7 +3,6 @@
 pub mod onnx;
 mod resume;
 pub mod runtime;
-#[cfg(feature = "onnx")]
 pub mod session;
 mod storage;
 mod transfer;

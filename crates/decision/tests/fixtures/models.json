@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "llama_build": "b11756",
+  "llama_revision": "d80619397c2ba5cf1366c29f7d43699ca3a159b9",
+  "models": {
+    "julia": {
+      "repository": "ggml-org/Julia-1-GGUF",
+      "revision": "1e6b48a6983d7467f8eedc2cb0d21267b5fc052d",
+      "file": "Julia-1-Q8_0.gguf",
+      "size": 168166496,
+      "sha256": "1ea6a7e87156eeeda88cb7a36a61265b37ba7b993897b7289b99aea5b5e47069",
+      "license": "Apache-2.0",
+      "algorithm": "laya"
+    },
+    "synthetic-openjev": {
+      "repository": "bartowski/SmolLM2-135M-Instruct-GGUF",
+      "revision": "09816acd5d99df7be770d85ea30822623dab342c",
+      "file": "SmolLM2-135M-Instruct-Q8_0.gguf",
+      "size": 144811360,
+      "sha256": "5a1395716f7913741cc51d98581b9b1228d80987a9f7d3664106742eb06bba83",
+      "license": "Apache-2.0",
+      "algorithm": "openjev",
+      "base_model": "HuggingFaceTB/SmolLM2-135M-Instruct",
+      "base_revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac",
+      "purpose": "Synthetic compatibility fixture; no trained openjev semantics or model-quality claim"
+    }
+  }
+}

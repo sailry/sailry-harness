@@ -1,8 +1,10 @@
 //! Bounded CPU inference sessions shared by local model algorithms.
+#[cfg(feature = "onnx")]
 use ort::{
     environment::ThreadManager,
     session::{Session, builder::SessionBuilder},
 };
+#[cfg(feature = "onnx")]
 use std::thread::JoinHandle;
 
 pub fn threads() -> usize {
@@ -11,6 +13,7 @@ pub fn threads() -> usize {
 }
 
 /// Runtime initialization and model validation remain explicit at each loader.
+#[cfg(feature = "onnx")]
 pub fn builder() -> ort::Result<SessionBuilder> {
     Session::builder()?
         .with_independent_thread_pool()
@@ -33,8 +36,10 @@ pub fn builder() -> ort::Result<SessionBuilder> {
         .map_err(ort::Error::<()>::from)
 }
 
+#[cfg(feature = "onnx")]
 struct Threads;
 
+#[cfg(feature = "onnx")]
 impl ThreadManager for Threads {
     type Thread = JoinHandle<()>;
 
@@ -80,8 +85,10 @@ pub fn background() {}
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "onnx")]
     use super::*;
 
+    #[cfg(feature = "onnx")]
     #[test]
     fn joins_owned_workers() {
         let (sender, receiver) = std::sync::mpsc::channel();

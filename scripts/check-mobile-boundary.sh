@@ -32,7 +32,7 @@ case "$task_target" in
 esac
 
 task_dependencies="$(cargo tree --locked -p "$task_package" --target "$task_target" --edges normal --prefix none --format '{p}')"
-if printf '%s\n' "$task_dependencies" | rg '^(sailry-node-runtime|sysinfo|russh|adk[-_][^ ]*|gpui[^ ]*|git2|libgit2-sys|portable-pty|process-wrap|libghostty[^ ]*|ghostty[^ ]*) v'; then
+if printf '%s\n' "$task_dependencies" | rg '^(sailry-node-runtime|sailry-decision|sysinfo|russh|adk[-_][^ ]*|gpui[^ ]*|git2|libgit2-sys|portable-pty|process-wrap|libghostty[^ ]*|ghostty[^ ]*) v'; then
   echo "Execution or desktop dependency leaked into the mobile client" >&2
   exit 1
 fi
