@@ -19,6 +19,8 @@ const USAGE: f32 = 156.;
 /// Width of the meter preceding a percentage value.
 const METER: f32 = 44.;
 
+type Details = Rc<dyn Fn(&App) -> AnyElement>;
+
 /// The channel's type icon on its gradient tile, as in the type picker; monochrome icons
 /// inherit the white text color.
 pub(super) fn tile(channel: &Channel, size: f32) -> Div {
@@ -293,9 +295,7 @@ impl Workspace {
             .items_end()
             .gap_0p5();
         let locale = rust_i18n::locale();
-        let (primary, content): (_, Rc<dyn Fn(&App) -> AnyElement>) = if let Some(entry) =
-            entries.first()
-        {
+        let (primary, content): (_, Details) = if let Some(entry) = entries.first() {
             let label = entry
                 .state
                 .label
