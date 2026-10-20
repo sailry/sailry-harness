@@ -18,6 +18,7 @@ mod notes;
 pub(crate) mod oauth;
 pub(crate) mod options;
 mod package;
+mod query;
 pub(crate) mod registration;
 pub(crate) mod registry;
 mod repository;
@@ -53,6 +54,7 @@ pub(crate) struct Host {
     official_catalog: std::sync::Arc<catalog::official::Cache>,
     pub(crate) provider_reads: std::sync::Arc<http::provider::cache::Cache>,
     external_skill_catalog: std::sync::Arc<catalog::skills::Directory>,
+    registry_reads: std::sync::Arc<registry::Cache>,
     python: std::sync::Arc<tokio::sync::OnceCell<std::sync::Arc<crate::python::Manager>>>,
     python_index: std::sync::Arc<std::sync::Mutex<Option<String>>>,
     python_progress:
@@ -125,6 +127,7 @@ impl Host {
             official_catalog: Default::default(),
             provider_reads: Default::default(),
             external_skill_catalog: Default::default(),
+            registry_reads: Default::default(),
             python: Default::default(),
             python_index: Default::default(),
             python_progress: std::sync::Arc::new(tokio::sync::watch::channel(Vec::new()).0),

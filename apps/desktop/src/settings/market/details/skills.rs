@@ -19,9 +19,17 @@ pub(super) struct Details {
     scroll: ScrollHandle,
 }
 
+#[derive(Clone)]
 enum Resolved {
     Git(protocol::Discovery),
     Registry(protocol::RegistryDiscovery),
+}
+
+#[derive(Clone)]
+pub(in crate::settings::market) struct Snapshot {
+    entry: skillcatalog::Entry,
+    resolved: Option<Resolved>,
+    document: Option<protocol::Document>,
 }
 
 impl Drop for Details {
@@ -41,6 +49,12 @@ pub(in crate::settings) fn open(
         return;
     }
     let binding = market.read(cx).binding.clone();
+    let cached = market
+        .read(cx)
+        .skill_details
+        .iter()
+        .find(|cached| cached.entry == entry)
+        .cloned();
     let details = cx.new(|cx| {
         crate::feedback::observe(window, cx, |state: &Details, _| {
             state.error.into_iter().collect()
@@ -50,8 +64,8 @@ pub(in crate::settings) fn open(
             market: market.downgrade(),
             binding,
             entry,
-            resolved: None,
-            document: None,
+            resolved: cached.as_ref().and_then(|cached| cached.resolved.clone()),
+            document: cached.and_then(|cached| cached.document),
             loading: false,
             error: None,
             selection: selection_stop,
@@ -199,6 +213,21 @@ impl Details {
                 state.loading = false;
                 match result {
                     Ok(Some(Ok((resolved, document)))) => {
+                        if let Some(market) = state.market.upgrade() {
+                            market.update(cx, |market, _| {
+                                market
+                                    .skill_details
+                                    .retain(|cached| cached.entry != state.entry);
+                                if market.skill_details.len() == 12 {
+                                    market.skill_details.remove(0);
+                                }
+                                market.skill_details.push(Snapshot {
+                                    entry: state.entry.clone(),
+                                    resolved: resolved.clone(),
+                                    document: document.clone(),
+                                });
+                            });
+                        }
                         state.resolved = resolved;
                         state.document = document;
                     }
@@ -358,11 +387,6 @@ impl Render for Details {
                 choices,
                 cx,
             ));
-        } else if self.error.is_some() {
-            content = content.child(
-                crate::feedback::retry("skill-details-retry")
-                    .on_click(cx.listener(|state, _, _, cx| state.load(cx))),
-            );
         } else if self.loading {
             content = content.child(
                 Skeleton::new()

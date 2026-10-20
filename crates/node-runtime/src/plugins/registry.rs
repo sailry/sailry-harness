@@ -10,11 +10,32 @@ use sailry_protocol::{
 };
 use std::fs::File;
 mod client;
+pub(in crate::plugins) mod document;
 #[cfg(test)]
 mod tests;
 mod verification;
 
 pub(crate) use client::Registry;
+
+#[derive(Default)]
+pub(in crate::plugins) struct Cache {
+    discoveries: super::query::Cache<[u8; 32], Snapshot>,
+    documents: super::query::Cache<[u8; 32], sailry_protocol::plugin::skills::Document>,
+}
+
+#[derive(Clone)]
+struct Snapshot {
+    discovery: RegistryDiscovery,
+    document: sailry_protocol::plugin::skills::Document,
+}
+
+impl Host {
+    fn registry_key(&self, value: &impl serde::Serialize) -> Result<[u8; 32], Fault> {
+        let bytes =
+            serde_json::to_vec(&(self.registry.url(&[]).as_str(), value)).map_err(|_| invalid())?;
+        Ok(*blake3::hash(&bytes).as_bytes())
+    }
+}
 
 fn invalid() -> Fault {
     Fault::invalid("invalid Skillhub package identity or signature")
@@ -103,23 +124,36 @@ impl Host {
         source: &RegistryResolved,
         stop: CancellationToken,
     ) -> Result<sailry_protocol::plugin::skills::Document, Fault> {
-        let (file, _) = self
-            .registry
-            .acquire(
-                &RegistrySource {
-                    namespace: Some(source.namespace.clone()),
-                    slug: source.slug.clone(),
-                    version: Some(source.version.clone()),
-                },
-                Some(source),
+        let key = self.registry_key(source)?;
+        self.registry_reads
+            .documents
+            .fetch(
+                key,
+                std::time::Duration::from_secs(15 * 60),
+                false,
                 &stop,
+                || async {
+                    let _permit = self.read_permit(&stop).await?;
+                    let (file, _) = self
+                        .registry
+                        .acquire(
+                            &RegistrySource {
+                                namespace: Some(source.namespace.clone()),
+                                slug: source.slug.clone(),
+                                version: Some(source.version.clone()),
+                            },
+                            Some(source),
+                            &stop,
+                        )
+                        .await?;
+                    let stop = stop.clone();
+                    let source = source.clone();
+                    tokio::task::spawn_blocking(move || document::archive(file, &source, &stop))
+                        .await
+                        .map_err(|_| client::unavailable())?
+                },
             )
-            .await?;
-        tokio::task::spawn_blocking(move || {
-            super::skill_sources::document::archive(file, "", &stop)
-        })
-        .await
-        .map_err(|_| client::unavailable())?
+            .await
     }
 
     pub(crate) async fn discover_registry_skill(
@@ -127,33 +161,44 @@ impl Host {
         source: &RegistrySource,
         stop: CancellationToken,
     ) -> Result<RegistryDiscovery, Fault> {
-        let _permit = self.read_permit(&stop).await?;
-        let (file, source) = self.registry.acquire(source, None, &stop).await?;
-        let resolved = source.clone();
-        let candidate = tokio::task::spawn_blocking(move || {
-            let (temporary, root, links) = super::archive::unpack_source(file, &stop, 10_000)?;
-            if !links.is_empty() {
-                return Err(invalid());
-            }
-            let root = crate::files::path::root(&root)?;
-            let bytes = super::package::read(&root, "SKILL.md", super::skills::MAX_BYTES)?
-                .ok_or_else(invalid)?;
-            let skill =
-                super::skills::parse_document(std::str::from_utf8(&bytes).map_err(|_| invalid())?)?;
-            let candidate = Candidate {
-                name: name(&resolved),
-                path: String::new(),
-                skill,
-            };
-            temporary.close().map_err(io_error)?;
-            Ok(candidate)
-        })
-        .await
-        .map_err(|_| client::unavailable())??;
-        Ok(RegistryDiscovery {
-            source,
-            skills: vec![candidate],
-        })
+        validate(source)?;
+        let key = self.registry_key(source)?;
+        // Explicit inspection still revalidates; overlapping inspections share acquisition.
+        let snapshot = self
+            .registry_reads
+            .discoveries
+            .fetch(key, std::time::Duration::ZERO, true, &stop, || async {
+                let _permit = self.read_permit(&stop).await?;
+                let (file, source) = self.registry.acquire(source, None, &stop).await?;
+                let resolved = source.clone();
+                let document_source = source.clone();
+                let stop = stop.clone();
+                let document = tokio::task::spawn_blocking(move || {
+                    document::archive(file, &document_source, &stop).inspect_err(|error| {
+                        client::diagnostic("document", "invalid_document", None, error.code);
+                    })
+                })
+                .await
+                .map_err(|_| client::unavailable())??;
+                let candidate = Candidate {
+                    name: name(&resolved),
+                    path: String::new(),
+                    skill: document.skill.clone(),
+                };
+                Ok(Snapshot {
+                    discovery: RegistryDiscovery {
+                        source,
+                        skills: vec![candidate],
+                    },
+                    document,
+                })
+            })
+            .await?;
+        self.registry_reads.documents.insert(
+            self.registry_key(&snapshot.discovery.source)?,
+            snapshot.document,
+        )?;
+        Ok(snapshot.discovery)
     }
 
     pub(crate) async fn install_registry_skill(

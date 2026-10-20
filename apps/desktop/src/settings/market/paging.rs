@@ -123,20 +123,6 @@ impl Market {
         }
     }
 
-    fn retry_page(&mut self, cx: &mut Context<Self>) {
-        if self.pending.is_some() {
-            return;
-        }
-        let Some(page) = self.paging.failed else {
-            return;
-        };
-        match self.kind {
-            Kind::Plugins => self.load_plugins(page, true, cx),
-            Kind::Skills => self.load_skills(page, true, cx),
-            Kind::Themes => self.load_themes(true, cx),
-        }
-    }
-
     pub(super) fn footer(&self, cx: &Context<Self>) -> AnyElement {
         let owner = cx.weak_entity();
         let scroll = self.scroll.clone();
@@ -145,13 +131,6 @@ impl Market {
             .w_full()
             .items_center()
             .gap_2()
-            .when(self.paging.failed.is_some(), |view| {
-                view.child(
-                    crate::feedback::retry("market-page-retry")
-                        .disabled(self.pending.is_some())
-                        .on_click(cx.listener(|state, _, _, cx| state.retry_page(cx))),
-                )
-            })
             .when(self.paging.paused && self.next_page().is_some(), |view| {
                 view.child(
                     Button::new("market-load-more")

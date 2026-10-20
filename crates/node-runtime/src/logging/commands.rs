@@ -12,6 +12,9 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         Command::StopTurn { turn } => ("stop_turn", None, Some(*turn)),
         Command::ResolveQuestion { session, .. } => ("resolve_question", Some(*session), None),
         Command::ResolveApproval { session, .. } => ("resolve_approval", Some(*session), None),
+        Command::SearchSkillCatalog { .. } => ("search_skill_catalog", None, None),
+        Command::DiscoverRegistrySkill { .. } => ("discover_registry_skill", None, None),
+        Command::ReadSkillDocument { .. } => ("read_skill_document", None, None),
         Command::ReadConversation { session, .. } => ("read_conversation", Some(*session), None),
         Command::ReadTurnCapture { session, turn } => {
             ("read_turn_capture", Some(*session), Some(*turn))

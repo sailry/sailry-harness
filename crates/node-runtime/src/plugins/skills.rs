@@ -117,7 +117,7 @@ pub(super) fn body(text: &str) -> &str {
     frontmatter(text).map_or(text, |(_, body)| body)
 }
 
-pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
+pub(super) fn header(text: &str) -> Result<Value, Fault> {
     let (header, _) = frontmatter(text).ok_or_else(|| {
         sailry_protocol::Fault::invalid("skill frontmatter is missing or incomplete")
     })?;
@@ -132,20 +132,28 @@ pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
     };
     let value: Value = serde_saphyr::from_str_with_options(header, options)
         .map_err(|_| sailry_protocol::Fault::invalid("invalid skill YAML frontmatter"))?;
+    Ok(value)
+}
+
+pub(super) fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.chars().count() <= 64
+        && name
+            .chars()
+            .all(|value| value == '-' || (value.is_alphanumeric() && !value.is_uppercase()))
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && !name.contains("--")
+}
+
+pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
+    let value = header(text)?;
     let object = value
         .as_object()
         .ok_or_else(|| sailry_protocol::Fault::invalid("skill frontmatter must be a mapping"))?;
     let name = string(object, "name")?
         .ok_or_else(|| sailry_protocol::Fault::invalid("skill name is required"))?;
-    if name.is_empty()
-        || name.chars().count() > 64
-        || !name
-            .chars()
-            .all(|value| value == '-' || (value.is_alphanumeric() && !value.is_uppercase()))
-        || name.starts_with('-')
-        || name.ends_with('-')
-        || name.contains("--")
-    {
+    if !valid_name(name) {
         return Err(sailry_protocol::Fault::invalid(
             "skill name must match its directory",
         ));

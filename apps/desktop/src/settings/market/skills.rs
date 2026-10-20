@@ -1,4 +1,5 @@
 use super::*;
+pub(super) mod cache;
 use crate::settings::skills::install;
 use gpui_kit::{assets::IconName as Glyph, component::avatar::Avatar};
 use sailry_protocol::plugin::{Info, skillcatalog};
@@ -48,10 +49,24 @@ impl Market {
         let stop = self.begin(Loading::Catalog);
         let cancelled = stop.clone();
         let binding = self.binding.clone();
+        let through = if requested == 1 {
+            self.skills.as_ref().map_or(1, |page| page.page)
+        } else {
+            requested
+        };
         let job=binding.runtime.spawn(async move {
             tokio::select! {biased;
                 _=cancelled.cancelled()=>None,
-                result=binding.client.execute(binding.client.prepare(Command::SearchSkillCatalog {source,query,page: requested,force}))=>Some(result),
+                result=refresh(requested, through, |page| {
+                    let client = binding.client.clone();
+                    let query = query.clone();
+                    async move {
+                        match client.execute(client.prepare(Command::SearchSkillCatalog {source,query,page,force})).await? {
+                            Output::SkillCatalog(page) => Ok(page),
+                            _ => Err(sailry_protocol::Fault::new(sailry_protocol::ErrorCode::Internal, "unexpected skill catalog response")),
+                        }
+                    }
+                })=>Some(result.map(Output::SkillCatalog)),
             }
         });
         self.task = Some(cx.spawn(async move |state, cx| {
@@ -70,7 +85,9 @@ impl Market {
                             state.paging.received(requested);
                         }
                         if requested == 1 {
-                            state.skills = Some(page);
+                            if !page.unavailable || state.skills.is_none() {
+                                state.skills = Some(page);
+                            }
                         } else if !page.unavailable
                             && let Some(current) = &mut state.skills
                         {
@@ -224,6 +241,44 @@ impl Market {
     }
 }
 
+async fn refresh<F, T>(
+    requested: u32,
+    through: u32,
+    mut load: F,
+) -> Result<skillcatalog::Page, sailry_protocol::Fault>
+where
+    F: FnMut(u32) -> T,
+    T: std::future::Future<Output = Result<skillcatalog::Page, sailry_protocol::Fault>>,
+{
+    let mut current = load(requested).await?;
+    while !current.unavailable
+        && let Some(next) = current
+            .next
+            .filter(|next| *next > current.page && *next <= through)
+    {
+        let mut page = load(next).await?;
+        if page.unavailable {
+            current.unavailable = true;
+            break;
+        }
+        if page.page != next {
+            return Err(sailry_protocol::Fault::invalid(
+                "skill catalog page did not advance",
+            ));
+        }
+        paging::append(
+            &mut current.entries,
+            std::mem::take(&mut page.entries),
+            |entry| &entry.id,
+        );
+        current.page = page.page;
+        current.next = page.next;
+        current.total = page.total;
+        current.query_scope = page.query_scope;
+    }
+    Ok(current)
+}
+
 fn icon(id: &str, source: Option<String>, cx: &App) -> AnyElement {
     let foreground = cx.theme().muted_foreground;
     let placeholder = move || {
@@ -329,5 +384,31 @@ mod tests {
                 "https://github.com/example/skills"
             ));
         }
+    }
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn retains_visible_page_boundaries() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let page = refresh(1, 3, |page| {
+            calls.borrow_mut().push(page);
+            std::future::ready(Ok(skillcatalog::Page {
+                entries: vec![],
+                page,
+                next: Some(page + 1),
+                total: Some(100),
+                query_scope: skillcatalog::QueryScope::Catalog,
+                unavailable: false,
+            }))
+        })
+        .await
+        .unwrap();
+        assert_eq!(*calls.borrow(), [1, 2, 3]);
+        assert_eq!(page.page, 3);
+        assert_eq!(page.next, Some(4));
     }
 }

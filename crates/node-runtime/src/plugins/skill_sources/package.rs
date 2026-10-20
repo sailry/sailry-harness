@@ -156,10 +156,17 @@ pub(in crate::plugins) fn with_package(
     )?;
     let bytes = super::super::package::read(&selected, "SKILL.md", skills::MAX_BYTES)?
         .ok_or_else(|| sailry_protocol::Fault::invalid("selected directory has no SKILL.md"))?;
-    let skill = skills::parse_document(
-        std::str::from_utf8(&bytes)
-            .map_err(|_| sailry_protocol::Fault::invalid("SKILL.md must be UTF-8 text"))?,
-    )?;
+    let projection = if let Provenance::Registry { registry } = &provenance {
+        Some(super::super::registry::document::normalize(
+            &bytes, registry,
+        )?)
+    } else {
+        None
+    };
+    let skill = skills::parse_document(projection.as_deref().map_or_else(
+        || std::str::from_utf8(&bytes).map_err(|_| Fault::invalid("SKILL.md must be UTF-8 text")),
+        Ok,
+    )?)?;
     let normalized = tempfile::tempdir().map_err(io_error)?;
     let normalized_root = normalized.path().canonicalize().map_err(io_error)?;
     let destination = crate::files::path::root(&normalized_root)?;
@@ -173,6 +180,15 @@ pub(in crate::plugins) fn with_package(
         return Err(sailry_protocol::Fault::invalid(
             "skill contains unsupported files",
         ));
+    }
+    if let Some(projection) = projection {
+        // Preserve the authenticated source separately from the generated standard document.
+        destination
+            .write("SOURCE-SKILL.md", &bytes)
+            .map_err(io_error)?;
+        skill_root
+            .write("SKILL.md", projection.as_bytes())
+            .map_err(io_error)?;
     }
     let mut manifest = serde_json::json!({
         "$schema": manifest::SCHEMA,

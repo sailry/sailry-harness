@@ -594,8 +594,12 @@ inventory; those entries remain identified as bundled and resolve their public
 source through ordinary discovery before installation. Plugin listings choose an entire newer bundled entry over an older online version,
 including its actual installation source; metadata is never grafted onto an older
 remote package. Public skills.sh and Skillhub lists use Node-owned read-only pages,
-search and short-lived caches, then reuse Git discovery or signed registry
-installation. Web-hosted entries remain visible with their actual origin and
+search and bounded caches keyed by source, query and page. Identical network reads
+share acquisition without serializing other keys. Signed registry details reuse
+verified immutable documents; installation independently verifies the archive.
+Verified registry imports project legacy metadata into the standard skill format
+and retain the original document as `SOURCE-SKILL.md` alongside their provenance.
+Web-hosted entries remain visible with their actual origin and
 directory link when no supported installation source is known. Skill details read
 real SKILL.md text from the resolved Git path, signed registry archive or shipped
 package; inspection neither installs the skill nor executes its instructions.

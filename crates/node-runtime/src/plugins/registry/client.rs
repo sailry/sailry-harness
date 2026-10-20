@@ -71,9 +71,13 @@ impl Registry {
         url: Url,
         stop: &CancellationToken,
     ) -> Result<T, Fault> {
+        let stage = stage(url.path());
         let mut file = self.download(url, 1024 * 1024, false, stop).await?;
         file.rewind().map_err(io_error)?;
-        serde_json::from_reader(file).map_err(|_| invalid())
+        serde_json::from_reader(file).map_err(|_| {
+            diagnostic(stage, "invalid_json", None, ErrorCode::InvalidRequest);
+            invalid()
+        })
     }
 
     async fn download(
@@ -89,6 +93,12 @@ impl Registry {
             .user_agent("Sailry")
             .build()
             .map_err(|_| unavailable())?;
+        let mut entry =
+            crate::logging::Entry::new(crate::logging::Area::Plugin, crate::logging::Phase::Begin);
+        entry.operation = Some("skill_registry");
+        entry.stage = Some(stage(url.path()));
+        entry.source_kind = Some("skillhub");
+        let mut span = crate::logging::Span::new(entry);
         let operation = async {
             for hop in 0..=5 {
                 let mut response = client
@@ -96,6 +106,7 @@ impl Registry {
                     .send()
                     .await
                     .map_err(|_| unavailable())?;
+                span.entry.upstream_status = Some(u64::from(response.status().as_u16()));
                 if response.status().is_redirection() && redirects && hop < 5 {
                     let location = response
                         .headers()
@@ -136,7 +147,12 @@ impl Registry {
             }
             Err(invalid())
         };
-        tokio::select! { _ = stop.cancelled() => Err(super::super::github::cancelled()), result = tokio::time::timeout(Duration::from_secs(60), operation) => result.map_err(|_| unavailable())? }
+        let result = tokio::select! { _ = stop.cancelled() => Err(super::super::github::cancelled()), result = tokio::time::timeout(Duration::from_secs(60), operation) => result.unwrap_or_else(|_| Err(unavailable())) };
+        match &result {
+            Ok(_) => span.finish(crate::logging::Phase::Completed, None),
+            Err(error) => span.finish(crate::logging::Phase::Failed, Some(error.code)),
+        }
+        result
     }
 
     fn download_url(&self, url: &Url) -> bool {
@@ -203,7 +219,10 @@ impl Registry {
         let keys: verification::Keys = self
             .json(self.url(&["api", "v1", "open", "platform", "keys"]), stop)
             .await?;
-        let payload = verification::signature(&signature, &keys, &source.slug, &version)?;
+        let payload = verification::signature(&signature, &keys, &source.slug, &version)
+            .inspect_err(|error| {
+                diagnostic("signature", "verification_failed", None, error.code);
+            })?;
         let mut url = self.url(&["api", "v1", "download"]);
         url.query_pairs_mut()
             .append_pair("slug", &source.slug)
@@ -223,7 +242,9 @@ impl Registry {
             archive_sha256: String::new(),
         };
         let (file, resolved) = tokio::task::spawn_blocking(move || {
-            verification::archive(file, resolved, &payload, &stop)
+            verification::archive(file, resolved, &payload, &stop).inspect_err(|error| {
+                diagnostic("archive", "verification_failed", None, error.code);
+            })
         })
         .await
         .map_err(|_| unavailable())??;
@@ -239,4 +260,35 @@ impl Registry {
 
 pub(super) fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "Skillhub source is unavailable")
+}
+
+fn stage(path: &str) -> &'static str {
+    if path == "/api/skills" {
+        "catalog"
+    } else if path.ends_with("/signature") {
+        "signature"
+    } else if path == "/api/v1/open/platform/keys" {
+        "keys"
+    } else if path.starts_with("/api/v1/skills/") {
+        "detail"
+    } else {
+        "archive"
+    }
+}
+
+pub(super) fn diagnostic(
+    stage: &'static str,
+    reason: &'static str,
+    status: Option<u64>,
+    code: ErrorCode,
+) {
+    let mut entry =
+        crate::logging::Entry::new(crate::logging::Area::Plugin, crate::logging::Phase::Failed);
+    entry.operation = Some("skill_registry");
+    entry.source_kind = Some("skillhub");
+    entry.stage = Some(stage);
+    entry.reason = Some(reason);
+    entry.upstream_status = status;
+    entry.code = Some(code);
+    entry.emit();
 }

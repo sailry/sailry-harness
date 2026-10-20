@@ -4,21 +4,13 @@ use sailry_protocol::plugin::{
     skillcatalog::{Entry, InstallSource, Page, QueryScope, Source as DirectorySource},
     skills::RegistrySource,
 };
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const PAGE_SIZE: usize = 24;
 const SEARCH_SIZE: usize = 100;
 
 #[derive(Default)]
-pub(in crate::plugins) struct Directory(tokio::sync::Mutex<Option<Document>>);
-
-struct Document {
-    source: DirectorySource,
-    query: String,
-    page: u32,
-    value: Page,
-    attempted: Instant,
-}
+pub(in crate::plugins) struct Directory(super::super::super::query::Cache<[u8; 32], Page>);
 
 #[derive(Deserialize)]
 struct DirectoryPage {
@@ -133,66 +125,58 @@ impl Host {
         force: bool,
         stop: CancellationToken,
     ) -> Result<Page, Fault> {
-        let mut cache = tokio::select! {
-            biased;
-            _ = stop.cancelled() => return Err(github::cancelled()),
-            cache = self.external_skill_catalog.0.lock() => cache,
+        let location = if source == DirectorySource::Skillhub {
+            self.registry.url(&["api", "skills"]).to_string()
+        } else {
+            #[cfg(any(test, feature = "test-support"))]
+            let endpoint = self
+                .github
+                .endpoint
+                .as_ref()
+                .map(|url| url.join("skills-sh/").unwrap().to_string());
+            #[cfg(not(any(test, feature = "test-support")))]
+            let endpoint: Option<String> = None;
+            endpoint.unwrap_or_else(|| "https://skills.sh/".into())
         };
-        let matches =
-            |entry: &Document| entry.source == source && entry.query == query && entry.page == page;
-        if !force && let Some(entry) = cache.as_ref().filter(|entry| matches(entry)) {
-            let ttl = if entry.value.unavailable { 30 } else { 15 * 60 };
-            if entry.attempted.elapsed() < Duration::from_secs(ttl) {
-                return Ok(entry.value.clone());
-            }
-        }
-        let _permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "skill catalog is busy"))?;
-        let result = match source {
-            DirectorySource::SkillsSh => self.directory_page(query, page, &stop).await,
-            DirectorySource::Skillhub => self.hub_page(query, page, &stop).await,
-            DirectorySource::Official => unreachable!("official pages have their own cache"),
-        };
-        if stop.is_cancelled() {
-            return Err(github::cancelled());
-        }
-        let value = match result {
-            Ok(value) => value,
+        let bytes = serde_json::to_vec(&(location, query, page))
+            .map_err(|_| Fault::invalid("invalid skill query"))?;
+        let key = *blake3::hash(&bytes).as_bytes();
+        let result = self
+            .external_skill_catalog
+            .0
+            .fetch(key, Duration::from_secs(15 * 60), force, &stop, || async {
+                let _permit = self.read_permit(&stop).await?;
+                match source {
+                    DirectorySource::SkillsSh => self.directory_page(query, page, &stop).await,
+                    DirectorySource::Skillhub => self.hub_page(query, page, &stop).await,
+                    DirectorySource::Official => {
+                        unreachable!("official pages have their own cache")
+                    }
+                }
+            })
+            .await;
+        match result {
+            Ok(value) => Ok(value),
             Err(error) if official::unavailable(&error) => {
-                let mut value = cache
-                    .as_ref()
-                    .filter(|entry| matches(entry))
-                    .map(|entry| entry.value.clone())
-                    .unwrap_or(Page {
-                        query_scope: if source == DirectorySource::SkillsSh
-                            && query.chars().count() == 1
-                        {
-                            QueryScope::Page
-                        } else {
-                            QueryScope::Catalog
-                        },
-                        entries: vec![],
-                        page,
-                        next: None,
-                        total: None,
-                        unavailable: true,
-                    });
+                let mut value = self.external_skill_catalog.0.peek(&key).unwrap_or(Page {
+                    query_scope: if source == DirectorySource::SkillsSh
+                        && query.chars().count() == 1
+                    {
+                        QueryScope::Page
+                    } else {
+                        QueryScope::Catalog
+                    },
+                    entries: vec![],
+                    page,
+                    next: None,
+                    total: None,
+                    unavailable: false,
+                });
                 value.unavailable = true;
-                value
+                Ok(value)
             }
-            Err(error) => return Err(error),
-        };
-        *cache = Some(Document {
-            source,
-            query: query.into(),
-            page,
-            value: value.clone(),
-            attempted: Instant::now(),
-        });
-        Ok(value)
+            Err(error) => Err(error),
+        }
     }
 
     async fn directory_page(

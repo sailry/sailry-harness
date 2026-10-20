@@ -140,3 +140,33 @@ fn validates_coordinates_without_git_revisions() {
     second.namespace = "another".into();
     assert_ne!(name(&first), name(&second));
 }
+
+#[test]
+fn projects_verified_legacy_metadata() {
+    let source = resolved();
+    let raw = "---\nname: Analysis / Review\nslug: analysis\ndescription: Inspect a sample\nmetadata:\n  clawdbot: {requires: {bins: [python3]}}\n---\nBody\n";
+    assert!(super::super::skills::parse_document(raw).is_err());
+    let projected = document::normalize(raw.as_bytes(), &source).unwrap();
+    let parsed = super::super::skills::parse("analysis", &projected).unwrap();
+    assert_eq!(parsed.name, "analysis");
+    assert_eq!(parsed.display_name.as_deref(), Some("Analysis / Review"));
+    assert_eq!(super::super::skills::body(&projected), "Body\n");
+    let header = super::super::skills::header(&projected).unwrap();
+    assert_eq!(
+        header["metadata"]["clawdbot"],
+        "{\"requires\":{\"bins\":[\"python3\"]}}"
+    );
+    for fields in [
+        "name: other",
+        "name: Analysis / Review\nslug: other",
+        "name: analysis\nmetadata: []",
+        "name: analysis\nmetadata: {display-name: {invalid: value}}",
+        "name: analysis\nname: analysis",
+    ] {
+        let raw = format!("---\n{fields}\ndescription: Inspect a sample\n---\nBody");
+        assert!(
+            document::normalize(raw.as_bytes(), &source).is_err(),
+            "{fields}"
+        );
+    }
+}

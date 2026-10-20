@@ -9,6 +9,9 @@ impl Host {
         source: &DocumentSource,
         stop: CancellationToken,
     ) -> Result<Document, Fault> {
+        if let DocumentSource::Registry(source) = source {
+            return self.registry_document(source, stop).await;
+        }
         let _permit = self.read_permit(&stop).await?;
         match source {
             DocumentSource::Bundled { package, skill } => {
@@ -17,7 +20,9 @@ impl Host {
                 }
                 super::super::bundled::document(package, skill)
             }
-            DocumentSource::Registry(source) => self.registry_document(source, stop).await,
+            DocumentSource::Registry(_) => {
+                unreachable!("registry documents use their shared cache")
+            }
             DocumentSource::Git { source, path } => {
                 let selected = source::Selection::resolved(source, path)?;
                 let (file, _) = self

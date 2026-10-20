@@ -54,6 +54,9 @@ pub(in crate::settings) struct Market {
     paging: paging::State,
     scroll: ScrollHandle,
     skills: Option<sailry_protocol::plugin::skillcatalog::Page>,
+    skill_query: Option<skills::cache::Key>,
+    skill_cache: skills::cache::Cache,
+    skill_details: Vec<details::skills::Snapshot>,
     themes: themes::State,
     pending: Option<Loading>,
     stop: CancellationToken,
@@ -103,6 +106,9 @@ pub(super) fn create(
             kind: Kind::Plugins,
             filter: Default::default(),
             skills: None,
+            skill_query: None,
+            skill_cache: Default::default(),
+            skill_details: Vec::new(),
             themes: themes::State::new(cx),
             page: None,
             paging: Default::default(),
@@ -135,6 +141,16 @@ impl Market {
     }
 
     fn search(&mut self, page: u32, force: bool, cx: &mut Context<Self>) {
+        if let (Some(key), Some(page)) = (self.skill_query.take(), &self.skills) {
+            self.skill_cache.remember(
+                key,
+                skills::cache::Snapshot {
+                    page: page.clone(),
+                    limit: self.paging.limit,
+                    offset: self.scroll.offset(),
+                },
+            );
+        }
         self.paging.reset();
         self.stop.cancel();
         self.task = None;
@@ -143,7 +159,21 @@ impl Market {
         self.scroll.set_offset(point(px(0.), px(0.)));
         match self.kind {
             Kind::Plugins => self.page = None,
-            Kind::Skills => self.skills = None,
+            Kind::Skills => {
+                let key = skills::cache::Key {
+                    node: self.binding.client.target(),
+                    source: self.filter.skills.source(),
+                    query: self.query.read(cx).value().trim().to_owned(),
+                    installed: self.filter.installed,
+                };
+                let cached = self.skill_cache.get(&key);
+                self.skills = cached.as_ref().map(|cached| cached.page.clone());
+                if let Some(cached) = cached {
+                    self.paging.limit = cached.limit;
+                    self.scroll.set_offset(cached.offset);
+                }
+                self.skill_query = Some(key);
+            }
             Kind::Themes if !force && self.themes.listing.is_some() => {
                 cx.notify();
                 return;

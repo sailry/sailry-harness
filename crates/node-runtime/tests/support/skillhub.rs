@@ -20,20 +20,25 @@ pub struct Registry {
 #[derive(Default)]
 pub struct State {
     pub newer: bool,
+    pub legacy: bool,
     pub corrupt_archive: bool,
     pub unsigned: bool,
     pub requests: Vec<String>,
     pub hold: Option<Arc<tokio::sync::Semaphore>>,
 }
 
-pub fn package(version: &str) -> (Vec<u8>, String, usize) {
+pub fn document(version: &str, legacy: bool) -> String {
+    let fields = if legacy {
+        "name: Analysis / Review\nslug: analysis\nmetadata:\n  clawdbot: {requires: {bins: [python3]}}\n"
+    } else {
+        "name: analysis\n"
+    };
+    format!("---\n{fields}description: Inspect a sample\n---\nRevision {version}\n")
+}
+
+pub fn package(version: &str, legacy: bool) -> (Vec<u8>, String, usize) {
     let files = [
-        (
-            "SKILL.md",
-            format!(
-                "---\nname: analysis\ndescription: Inspect a sample\n---\nRevision {version}\n"
-            ),
-        ),
+        ("SKILL.md", document(version, legacy)),
         ("references/guide.md", "Fixture content".into()),
         ("LICENSE", "Fixture source license".into()),
         ("_meta.json", "{\"fixture\":true}".into()),
@@ -118,7 +123,7 @@ impl Registry {
                         state.requests.push(path.into());
                         let version = if state.newer { "1.1.0" } else { "1.0.0" };
                         let selected = query.get("version").map_or(version, |value| value.as_ref());
-                        let (mut archive, hash, count) = package(selected);
+                        let (mut archive, hash, count) = package(selected, state.legacy);
                         let (_, keys) = signed(selected, &archive, &hash, count);
                         if state.corrupt_archive {
                             archive[0] ^= 1;
@@ -136,7 +141,7 @@ impl Registry {
                             path if path.ends_with("/signature") => {
                                 assert_eq!(query.get("namespace").unwrap(), "example");
                                 let version = path.split('/').nth(7).unwrap();
-                                let (archive, hash, count) = package(version);
+                                let (archive, hash, count) = package(version, state.legacy);
                                 let (mut signature, _) = signed(version, &archive, &hash, count);
                                 if state.unsigned { signature["signed"] = false.into(); }
                                 ("200 OK", String::new(), signature.to_string().into_bytes())

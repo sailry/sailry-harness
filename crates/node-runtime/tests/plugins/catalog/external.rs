@@ -106,8 +106,13 @@ async fn browses_sources_and_installs_selected_skills() {
             listing(&client, Source::SkillsSh, "review & analysis", 1, false).await,
             unavailable
         );
-        assert_eq!(catalog.requests.lock().unwrap().len(), requests);
+        assert_eq!(catalog.requests.lock().unwrap().len(), requests + 1);
         catalog.status.store(200, Ordering::SeqCst);
+        assert!(
+            !listing(&client, Source::SkillsSh, "review & analysis", 1, false)
+                .await
+                .unavailable
+        );
         let hub = listing(&client, Source::Skillhub, "", 1, false).await;
         assert_eq!(hub.query_scope, QueryScope::Catalog);
         assert_eq!(hub.next, Some(2));
@@ -123,6 +128,9 @@ async fn browses_sources_and_installs_selected_skills() {
         assert_ne!(next.entries[0].display_name, hub.entries[0].display_name);
         let found = listing(&client, Source::Skillhub, "analysis & review", 1, false).await;
         assert_eq!(found.entries, hub.entries);
+        let requests = registry.state.lock().unwrap().requests.len();
+        assert_eq!(listing(&client, Source::Skillhub, "", 1, false).await, hub);
+        assert_eq!(registry.state.lock().unwrap().requests.len(), requests);
         assert_eq!(retained(&node), before);
         let Some(InstallSource::Git(source)) = first.entries[0].source.clone() else {
             panic!("Git source expected")
@@ -330,11 +338,13 @@ async fn reads_immutable_documents_without_installation() {
         else {
             panic!("registry discovery expected")
         };
+        let requests = registry.state.lock().unwrap().requests.len();
         let read = document(
             &client,
             plugin::skills::DocumentSource::Registry(discovery.source.clone()),
         )
         .await;
+        assert_eq!(registry.state.lock().unwrap().requests.len(), requests);
         assert_eq!(read.skill, discovery.skills[0].skill);
         assert_eq!(read.content, "Revision 1.0.0\n");
         let mut changed = discovery.source;
