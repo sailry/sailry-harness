@@ -407,6 +407,8 @@ impl Ingress {
             if matches!(
                 request.command,
                 sailry_protocol::Command::DownloadFile { .. }
+                    | sailry_protocol::Command::DownloadBackup { .. }
+                    | sailry_protocol::Command::UploadBackup { .. }
                     | sailry_protocol::Command::UploadPlugin(_)
                     | sailry_protocol::Command::DiscoverSkillUpload { .. }
                     | sailry_protocol::Command::DiscoverLocalSkills { .. }

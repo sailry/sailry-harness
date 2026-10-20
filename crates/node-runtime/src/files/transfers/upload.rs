@@ -6,6 +6,7 @@ use crate::files::{io_error, path, save};
 use sailry_protocol::{FileUpload, FileUploadSpec, FileWritten, attachment};
 use std::path::Path;
 
+mod backup;
 mod io;
 mod plugin;
 mod ssh;
@@ -21,6 +22,7 @@ pub(super) struct Prepared {
 }
 
 enum Scope {
+    Backup,
     Ssh(sailry_protocol::ssh::UploadSpec),
     Plugin,
     Skill {

@@ -31,6 +31,12 @@ impl Upload for sailry_protocol::attachment::Upload {
     }
 }
 
+impl Upload for sailry_protocol::backup::Upload {
+    fn descriptor(&self) -> (sailry_protocol::StreamId, u64, &str) {
+        (self.stream, self.size, &self.revision)
+    }
+}
+
 impl Client {
     /// Stages verified bytes; the resource's durable finish command publishes them.
     /// Retain that command's request ID across reconnects. Failed streams are not replayed.

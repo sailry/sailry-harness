@@ -289,6 +289,7 @@ async fn restores_new_profiles_without_external_mutation() {
             fs::write(busy.join("user.txt"), b"must remain").unwrap();
             let error = client
                 .execute(client.prepare(Command::RestoreBackup {
+                    location: sailry_protocol::backup::Location::Online,
                     passphrase: None,
                     id: record.id.clone(),
                     expected_revision: saved.revision,
@@ -302,6 +303,7 @@ async fn restores_new_profiles_without_external_mutation() {
             let wrong_target = root.join("wrong-passphrase");
             let error = client
                 .execute(client.prepare(Command::RestoreBackup {
+                    location: sailry_protocol::backup::Location::Online,
                     id: record.id.clone(),
                     expected_revision: saved.revision,
                     target: wrong_target.to_str().unwrap().into(),
@@ -312,6 +314,7 @@ async fn restores_new_profiles_without_external_mutation() {
             assert_eq!(error.code, ErrorCode::InvalidRequest);
             assert!(!wrong_target.exists());
             let restore = client.prepare(Command::RestoreBackup {
+                location: sailry_protocol::backup::Location::Online,
                 passphrase: None,
                 id: record.id.clone(),
                 expected_revision: saved.revision,
@@ -387,6 +390,7 @@ async fn restores_new_profiles_without_external_mutation() {
             let rejected = root.join("corrupt-restore");
             let error = client
                 .execute(client.prepare(Command::RestoreBackup {
+                    location: sailry_protocol::backup::Location::Online,
                     passphrase: None,
                     id: record.id.clone(),
                     expected_revision: saved.revision,
@@ -620,6 +624,7 @@ async fn restores_independent_managed_git_checkouts() {
         execute(
             &client,
             Command::RestoreBackup {
+                location: sailry_protocol::backup::Location::Online,
                 passphrase: None,
                 id: record.id,
                 expected_revision: settings.revision,
@@ -723,4 +728,382 @@ fn files(root: &Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>
     let mut files = std::collections::BTreeMap::new();
     collect(root, Path::new(""), &mut files);
     files
+}
+
+#[tokio::test]
+async fn transfers_archives_to_controller_files() {
+    use tokio::io::AsyncWriteExt as _;
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let profile = root.join("node");
+        let node = Node::start_empty(&profile).await.unwrap();
+        let controller = Link::controller(root.join("controller"), NetworkScope::default())
+            .await
+            .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let local = Client::new(node.local());
+        let paired = Client::new(controller.handle().remote(address));
+        let (client, other) = if remote {
+            (&paired, &local)
+        } else {
+            (&local, &paired)
+        };
+        let Output::BackupSettings(saved) = execute(
+            client,
+            Command::SaveBackupSettings(Update {
+                settings: Settings {
+                    local: Some(backup::Local {
+                        directory: profile.to_str().unwrap().into(),
+                        enabled: true,
+                    }),
+                    schedule: Some(backup::Schedule {
+                        enabled: false,
+                        timezone: "Asia/Shanghai".into(),
+                        hour: 9,
+                        minute: 5,
+                    }),
+                    ..Settings::default()
+                },
+                identity: SecretUpdate::Keep,
+                secret: SecretUpdate::Keep,
+                session_token: SecretUpdate::Keep,
+                passphrase: SecretUpdate::Replace(Secret::new(
+                    "controller-archive-passphrase".into(),
+                )),
+            }),
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ExportBackup {
+                    expected_revision: saved.revision,
+                }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        let mut desired = saved;
+        desired.local.as_mut().unwrap().enabled = false;
+        let Output::BackupSettings(saved) = execute(
+            client,
+            Command::SaveBackupSettings(Update {
+                settings: desired,
+                identity: SecretUpdate::Keep,
+                secret: SecretUpdate::Keep,
+                session_token: SecretUpdate::Keep,
+                passphrase: SecretUpdate::Keep,
+            }),
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        let Output::BackupDownload(download) = execute(
+            client,
+            Command::DownloadBackup {
+                expected_revision: saved.revision,
+            },
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        assert_eq!(download.record.node, node.id());
+        assert_eq!(settings(other).await, saved);
+        assert!(other.open(download.stream).await.is_err());
+        let path = root.join("controller-backup.age");
+        let mut writer = tokio::fs::File::create(&path).await.unwrap();
+        client
+            .download_backup(
+                &download,
+                &mut writer,
+                sailry_link::CancellationToken::new(),
+                |_| {},
+            )
+            .await
+            .unwrap();
+        writer.flush().await.unwrap();
+        drop(writer);
+        assert_eq!(fs::metadata(&path).unwrap().len(), download.size);
+        let bytes = fs::read(&path).unwrap();
+        assert!(bytes.starts_with(b"age-encryption.org/v1\n"));
+        assert!(
+            !bytes
+                .windows(b"controller-archive-passphrase".len())
+                .any(|part| part == b"controller-archive-passphrase")
+        );
+        assert!(client.open(download.stream).await.is_err());
+        let Output::BackupUpload(upload) = execute(
+            client,
+            Command::UploadBackup {
+                size: bytes.len() as u64,
+                revision: blake3::hash(&bytes).to_hex().to_string(),
+            },
+        )
+        .await
+        else {
+            unreachable!()
+        };
+        let mut input = std::io::Cursor::new(bytes);
+        client
+            .upload(
+                &upload,
+                &mut input,
+                sailry_link::CancellationToken::new(),
+                |_| {},
+            )
+            .await
+            .unwrap();
+        let target = root.join("restored");
+        let command = Command::RestoreBackupFile {
+            stream: upload.stream,
+            expected_revision: saved.revision,
+            target: target.to_str().unwrap().into(),
+            passphrase: None,
+        };
+        let request = client.prepare(command);
+        // Another authenticated controller cannot consume this caller's staged archive.
+        assert_eq!(
+            other.execute(request.clone()).await.unwrap_err().code,
+            ErrorCode::NotFound
+        );
+        assert!(!target.exists());
+        let admission = client.dispatch(request.clone()).await.unwrap();
+        assert!(admission.receipt.durable);
+        let result = admission.completion.await.unwrap().unwrap();
+        assert_eq!(client.execute(request).await.unwrap(), result);
+        let Output::BackupRestored { record, .. } = result else {
+            unreachable!()
+        };
+        assert_eq!(record.node, node.id());
+        assert_eq!(
+            fs::read(profile.join("link.key")).unwrap(),
+            fs::read(target.join("link.key")).unwrap()
+        );
+        let id = node.id();
+        node.shutdown().await.unwrap();
+        controller.close().await.unwrap();
+        let restored = Node::start_empty(&target).await.unwrap();
+        assert_eq!(restored.id(), id);
+        restored.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn executes_overdue_backup_after_restart() {
+    use chrono::Timelike as _;
+    for remote in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().canonicalize().unwrap();
+        let profile = root.join("node");
+        let destination = root.join("automatic-backups");
+        let scheduled = chrono::Utc::now() - chrono::Duration::minutes(5);
+        let hour = scheduled.hour() as u8;
+        let minute = scheduled.minute() as u8;
+        let node = Node::start_empty(&profile).await.unwrap();
+        let identity = node.id();
+        let controller = Link::controller(root.join("controller"), NetworkScope::default())
+            .await
+            .unwrap();
+        let address = controller
+            .handle()
+            .pair(node.link().invite().unwrap().ticket())
+            .await
+            .unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(address)
+        } else {
+            node.local()
+        });
+        let Output::BackupSettings(saved) = execute(
+            &client,
+            Command::SaveBackupSettings(Update {
+                settings: Settings {
+                    local: Some(backup::Local {
+                        directory: destination.to_str().unwrap().into(),
+                        enabled: true,
+                    }),
+                    online_enabled: false,
+                    schedule: Some(backup::Schedule {
+                        enabled: true,
+                        timezone: "UTC".into(),
+                        hour,
+                        minute,
+                    }),
+                    ..Settings::default()
+                },
+                identity: SecretUpdate::Clear,
+                secret: SecretUpdate::Clear,
+                session_token: SecretUpdate::Clear,
+                passphrase: SecretUpdate::Replace(Secret::new(
+                    "automatic-backup-passphrase".into(),
+                )),
+            }),
+        )
+        .await
+        else {
+            panic!("backup settings expected")
+        };
+        drop(client);
+        node.shutdown().await.unwrap();
+
+        // Reuse the calendar service fixture's isolated downtime setup. Keep
+        // the registered handler, weekly rule, identity, and revision unchanged.
+        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let body: Vec<u8> = database
+            .query_row(
+                "SELECT body FROM dispatch_schedules WHERE package=''",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let mut schedule: dispatch::Schedule = serde_json::from_slice(&body).unwrap();
+        let original = schedule.clone();
+        let due = (chrono::Utc::now() - chrono::Duration::days(1))
+            .date_naive()
+            .and_hms_opt(u32::from(hour), u32::from(minute), 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
+        assert!(original.next_ms.unwrap() > chrono::Utc::now().timestamp_millis());
+        schedule.next_ms = Some(due);
+        assert_eq!(
+            database
+                .execute(
+                    "UPDATE dispatch_schedules SET next_ms=?1,body=?2 WHERE package='' AND id=?3",
+                    rusqlite::params![
+                        due,
+                        serde_json::to_vec(&schedule).unwrap(),
+                        schedule.id.to_string()
+                    ],
+                )
+                .unwrap(),
+            1
+        );
+        database.close().unwrap();
+
+        let node = Node::start_empty(&profile).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        // No controller submits ExportBackup: the original global worker must
+        // deliver the due native callback and publish the encrypted archive.
+        let record = tokio::time::timeout(Duration::from_secs(90), async {
+            loop {
+                let Output::Backups(page) = execute(&client, Command::ListBackups).await else {
+                    panic!("backup page expected")
+                };
+                assert!(page.records.len() <= 1);
+                if let Some(record) = page.records.first() {
+                    assert_eq!(
+                        page.locations[&record.id],
+                        backup::Locations {
+                            local: true,
+                            online: false
+                        }
+                    );
+                    break record.clone();
+                }
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+        })
+        .await
+        .expect("automatic backup deadline");
+        assert_eq!(record.node, identity);
+        let manifest = destination.join(format!("{}.json", record.id));
+        let bytes = fs::read(&manifest).unwrap();
+        let manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(manifest["record"], serde_json::to_value(&record).unwrap());
+        assert!(!manifest["parts"].as_array().unwrap().is_empty());
+        assert!(destination.join(&record.id).is_dir());
+
+        let database = rusqlite::Connection::open_with_flags(
+            profile.join("storage/node.sqlite3"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let body: Vec<u8> = database
+            .query_row(
+                "SELECT body FROM dispatch_jobs WHERE package=''",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let job: dispatch::Job = serde_json::from_slice(&body).unwrap();
+        database.close().unwrap();
+        assert_eq!(job.event.schedule, Some(schedule.id));
+        assert!(job.event.scheduled_ms.unwrap() >= due);
+        let mut request = Request::new(
+            identity,
+            Command::ExportBackup {
+                expected_revision: saved.revision,
+            },
+        );
+        request.id = job.request;
+        let local = Client::new(node.local());
+        let completed = tokio::time::timeout(Duration::from_secs(90), async {
+            loop {
+                match local.outcome(&request).await.unwrap() {
+                    RequestOutcome::Completed(output) => break *output,
+                    RequestOutcome::Unknown => panic!("automatic backup outcome is unknown"),
+                    _ => tokio::time::sleep(Duration::from_millis(250)).await,
+                }
+            }
+        })
+        .await
+        .expect("automatic backup completion deadline");
+        assert_eq!(completed, Ok(Output::Backup(record.clone())));
+        drop(local);
+        drop(client);
+        node.shutdown().await.unwrap();
+
+        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let body: Vec<u8> = database
+            .query_row(
+                "SELECT body FROM dispatch_schedules WHERE package=''",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let advanced: dispatch::Schedule = serde_json::from_slice(&body).unwrap();
+        assert_eq!(advanced.id, original.id);
+        assert_eq!(advanced.revision, original.revision);
+        assert_eq!(advanced.timing, original.timing);
+        assert!(advanced.next_ms.unwrap() > chrono::Utc::now().timestamp_millis());
+        database.close().unwrap();
+        let node = Node::start_empty(&profile).await.unwrap();
+        let client = Client::new(if remote {
+            controller.handle().remote(node.link().address())
+        } else {
+            node.local()
+        });
+        let Output::Backups(page) = execute(&client, Command::ListBackups).await else {
+            panic!("backup page expected")
+        };
+        assert_eq!(page.records, vec![record]);
+        drop(client);
+        node.shutdown().await.unwrap();
+        let database = rusqlite::Connection::open(profile.join("storage/node.sqlite3")).unwrap();
+        let count: i64 = database
+            .query_row(
+                "SELECT count(*) FROM dispatch_jobs WHERE package=''",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+        database.close().unwrap();
+        controller.close().await.unwrap();
+    }
 }

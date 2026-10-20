@@ -16,14 +16,25 @@ pub(super) fn publish(
     let mut packages = vec![event.source.package.clone()];
     for (body, reference) in handlers {
         let handler: Handler = serde_json::from_slice(&body).map_err(storage_error)?;
-        let reference: Reference = serde_json::from_slice(&reference).map_err(storage_error)?;
-        if handler.enabled
-            && let Some(installed) = super::super::plugins::get(db, &reference.name)?
-            && installed.summary.enabled
-        {
-            let reference = installed.summary.reference();
-            jobs.push(enqueue(db, &reference, &handler, event)?.id);
-            packages.push(reference.name);
+        let reference: Option<Reference> =
+            serde_json::from_slice(&reference).map_err(storage_error)?;
+        if !handler.enabled {
+            continue;
+        }
+        match reference {
+            Some(reference) => {
+                if let Some(installed) = super::super::plugins::get(db, &reference.name)?
+                    && installed.summary.enabled
+                {
+                    let reference = installed.summary.reference();
+                    jobs.push(enqueue(db, Some(&reference), &handler, event)?.id);
+                    packages.push(reference.name);
+                }
+            }
+            None => {
+                native::handler(&handler)?;
+                jobs.push(enqueue(db, None, &handler, event)?.id);
+            }
         }
     }
     db.execute(
@@ -41,7 +52,7 @@ pub(super) fn publish(
 
 pub(super) fn enqueue(
     db: &Connection,
-    package: &Reference,
+    package: Option<&Reference>,
     handler: &Handler,
     event: &Event,
 ) -> Result<Job, Fault> {
@@ -70,6 +81,6 @@ pub(super) fn enqueue(
         finished_ms: None,
         error: None,
     };
-    db.execute("INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference) VALUES(?1,?2,?3,'queued',?4,?5,?6)", params![job.id.to_string(), package.name, job.queue, encode(&job)?, encode(&handler.callback)?, encode(package)?]).map_err(storage_error)?;
+    db.execute("INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference) VALUES(?1,?2,?3,'queued',?4,?5,?6)", params![job.id.to_string(), package.map_or(native::OWNER, |reference| reference.name.as_str()), job.queue, encode(&job)?, encode(&handler.callback)?, encode(&package)?]).map_err(storage_error)?;
     Ok(job)
 }

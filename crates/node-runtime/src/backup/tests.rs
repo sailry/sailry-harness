@@ -174,9 +174,15 @@ async fn roundtrips_segmented_storage_adapters() {
         assert_eq!(page.records, vec![record.clone()]);
         assert!(!page.partial);
         let temporary = tempfile::tempdir().unwrap();
-        let (restored, file) = restore(&plan, &id, temporary.path(), &CancellationToken::new())
-            .await
-            .unwrap();
+        let (restored, file) = restore(
+            &plan,
+            &id,
+            sailry_protocol::backup::Location::Online,
+            temporary.path(),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
         assert_eq!(record, restored);
         assert_eq!(
             archive::hash(
@@ -188,10 +194,16 @@ async fn roundtrips_segmented_storage_adapters() {
             expected
         );
         server.corrupt(&id);
-        let error = restore(&plan, &id, temporary.path(), &CancellationToken::new())
-            .await
-            .err()
-            .unwrap();
+        let error = restore(
+            &plan,
+            &id,
+            sailry_protocol::backup::Location::Online,
+            temporary.path(),
+            &CancellationToken::new(),
+        )
+        .await
+        .err()
+        .unwrap();
         assert_eq!(error.code, ErrorCode::InvalidRequest);
     }
 }
@@ -213,7 +225,9 @@ async fn cancellation_never_publishes_manifest() {
 
 fn plan(server: &server::Server) -> Plan {
     Plan {
-        destination: server.destination(),
+        destination: Some(server.destination()),
+        local: None,
+        online_enabled: true,
         auth: Auth {
             identity: Some(sailry_protocol::Secret::new("fixture-user".into())),
             secret: Some(sailry_protocol::Secret::new("fixture-password".into())),
@@ -223,4 +237,59 @@ fn plan(server: &server::Server) -> Plan {
             )),
         },
     }
+}
+
+#[tokio::test]
+async fn publishes_identical_copies_from_one_capture() {
+    let server = server::Server::start(sailry_protocol::backup::Kind::Webdav).await;
+    let (_parent, snapshot) = snapshot();
+    let packed = snapshot.pack(&CancellationToken::new()).unwrap();
+    let local = tempfile::tempdir().unwrap();
+    let mut plan = plan(&server);
+    plan.local = Some(sailry_protocol::backup::Local {
+        directory: local
+            .path()
+            .canonicalize()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .into(),
+        enabled: true,
+    });
+    let id = uuid::Uuid::new_v4().to_string();
+    let cancel = CancellationToken::new();
+    let record = export(&plan, packed, id.clone(), &cancel).await.unwrap();
+    let page = list(&plan, &cancel).await.unwrap();
+    assert_eq!(page.records, vec![record.clone()]);
+    assert_eq!(
+        page.locations[&id],
+        sailry_protocol::backup::Locations {
+            local: true,
+            online: true
+        }
+    );
+    let temporary = tempfile::tempdir().unwrap();
+    let (_, local_file) = restore(
+        &plan,
+        &id,
+        sailry_protocol::backup::Location::Local,
+        temporary.path(),
+        &cancel,
+    )
+    .await
+    .unwrap();
+    let (_, online_file) = restore(
+        &plan,
+        &id,
+        sailry_protocol::backup::Location::Online,
+        temporary.path(),
+        &cancel,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        std::fs::read(local_file.path()).unwrap(),
+        std::fs::read(online_file.path()).unwrap()
+    );
+    assert!(record.size_bytes > 0);
 }

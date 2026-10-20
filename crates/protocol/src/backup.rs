@@ -1,6 +1,7 @@
 //! Explicit profile exports and restores to separately selected empty directories.
-use crate::{Fault, NodeId, plugin::settings::SecretUpdate};
+use crate::{Fault, NodeId, StreamId, plugin::settings::SecretUpdate};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// Validate a newly chosen passphrase without restricting existing archive recovery.
 pub fn validate_passphrase(value: &str) -> Result<(), Fault> {
@@ -73,7 +74,7 @@ impl Destination {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Settings {
     pub revision: u64,
@@ -81,6 +82,90 @@ pub struct Settings {
     pub credentials_configured: bool,
     #[serde(default)]
     pub passphrase_configured: bool,
+    /// A directory on the execution Node, independent of the online destination.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local: Option<Local>,
+    #[serde(default = "enabled", skip_serializing_if = "is_enabled")]
+    pub online_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<Schedule>,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            revision: 0,
+            destination: None,
+            credentials_configured: false,
+            passphrase_configured: false,
+            local: None,
+            online_enabled: true,
+            schedule: None,
+        }
+    }
+}
+
+fn enabled() -> bool {
+    true
+}
+
+fn is_enabled(value: &bool) -> bool {
+    *value
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Local {
+    pub directory: String,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Schedule {
+    pub enabled: bool,
+    pub timezone: String,
+    pub hour: u8,
+    pub minute: u8,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Location {
+    Local,
+    #[default]
+    Online,
+}
+
+impl Location {
+    pub(crate) fn is_online(&self) -> bool {
+        matches!(self, Self::Online)
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Locations {
+    pub local: bool,
+    pub online: bool,
+}
+
+/// A caller-owned encrypted archive stream; no Node storage path is exposed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Download {
+    pub stream: StreamId,
+    pub record: Record,
+    pub size: u64,
+    pub revision: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Upload {
+    pub stream: StreamId,
+    pub size: u64,
+    pub revision: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -131,6 +216,8 @@ impl Record {
 pub struct Page {
     pub records: Vec<Record>,
     pub partial: bool,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub locations: BTreeMap<String, Locations>,
 }
 
 #[cfg(test)]
@@ -154,6 +241,28 @@ mod tests {
         .unwrap();
         assert_eq!(update.passphrase, SecretUpdate::Keep);
     }
+    #[test]
+    fn preserves_omitted_defaults() {
+        let original = serde_json::json!({"revision":0,"destination":null,"credentials_configured":false,"passphrase_configured":false});
+        let settings: Settings = serde_json::from_value(original.clone()).unwrap();
+        assert!(settings.online_enabled);
+        assert!(settings.schedule.is_none());
+        assert_eq!(serde_json::to_value(settings).unwrap(), original);
+        let command: crate::Command = serde_json::from_value(serde_json::json!({"kind":"restore_backup","data":{"id":"fixture","expected_revision":0,"target":"/restored","passphrase":null}})).unwrap();
+        assert!(
+            serde_json::to_value(&command).unwrap()["data"]
+                .get("location")
+                .is_none()
+        );
+        assert!(matches!(
+            command,
+            crate::Command::RestoreBackup {
+                location: Location::Online,
+                ..
+            }
+        ));
+    }
+
     #[test]
     fn validates_storage_targets() {
         let mut destination = Destination {

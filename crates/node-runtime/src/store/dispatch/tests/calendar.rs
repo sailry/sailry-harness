@@ -121,8 +121,13 @@ fn full_queue_preserves_due_cursor() {
     .unwrap();
     let mut first_job = None;
     for _ in 0..MAX_PENDING {
-        let job =
-            events::enqueue(db, &fixture.package, &handler, &fixture.event("weekday")).unwrap();
+        let job = events::enqueue(
+            db,
+            Some(&fixture.package),
+            &handler,
+            &fixture.event("weekday"),
+        )
+        .unwrap();
         first_job.get_or_insert(job.id);
     }
     assert!(schedules::due(db, first).unwrap().is_empty());

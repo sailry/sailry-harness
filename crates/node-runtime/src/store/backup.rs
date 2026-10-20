@@ -8,7 +8,7 @@ use crate::backup::{self, Auth, Plan, archive::Snapshot};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use sailry_link::{Admission, CancellationToken};
 use sailry_protocol::{
-    Command, ErrorCode, Event, Fault, Output, Request, Secret,
+    Command, ErrorCode, Event, Fault, Output, Request, RequestId, Secret,
     backup::{Kind, Settings, Update},
     plugin::settings::SecretUpdate,
 };
@@ -58,6 +58,41 @@ fn validate(stored: &Stored) -> Result<(), Fault> {
         destination.validate()?;
         if destination.kind != Kind::S3 && stored.auth.session_token.is_some() {
             return Err(Fault::invalid("backup session token requires S3"));
+        }
+    }
+    if let Some(local) = &stored.settings.local {
+        let path = Path::new(&local.directory);
+        if !path.is_absolute()
+            || local.directory.len() > 4096
+            || local.directory.chars().any(char::is_control)
+            || path.components().any(|part| {
+                matches!(
+                    part,
+                    std::path::Component::ParentDir | std::path::Component::CurDir
+                )
+            })
+        {
+            return Err(Fault::invalid(
+                "local backup directory must be an absolute path",
+            ));
+        }
+    }
+    if let Some(schedule) = &stored.settings.schedule {
+        super::dispatch::native::validate_time(schedule)?;
+        if schedule.enabled
+            && !(stored
+                .settings
+                .local
+                .as_ref()
+                .is_some_and(|local| local.enabled)
+                || stored.settings.online_enabled && stored.settings.destination.is_some())
+        {
+            return Err(Fault::invalid(
+                "automatic backup requires an enabled destination",
+            ));
+        }
+        if schedule.enabled {
+            backup::encryption::passphrase(stored.auth.passphrase.as_ref())?;
         }
     }
     for value in [
@@ -140,6 +175,7 @@ pub(super) fn execute(
             stored.settings.credentials_configured = configured(&stored.auth);
             stored.settings.passphrase_configured = stored.auth.passphrase.is_some();
             validate(&stored)?;
+            super::dispatch::native::configure(db, &stored.settings)?;
             db.execute("INSERT INTO backup_settings(singleton,body) VALUES(1,?1) ON CONFLICT(singleton) DO UPDATE SET body=excluded.body", [encode(&stored)?]).map_err(storage_error)?;
             Ok((
                 Output::BackupSettings(stored.settings.clone()),
@@ -165,14 +201,10 @@ pub(super) fn plan(db: &Connection, expected: Option<u64>) -> Result<Plan, Fault
     if let Some(expected) = expected {
         super::commands::check_revision(stored.settings.revision, expected)?;
     }
-    let destination = stored.settings.destination.ok_or_else(|| {
-        Fault::new(
-            ErrorCode::NotConfigured,
-            "backup destination is not configured",
-        )
-    })?;
     Ok(Plan {
-        destination,
+        destination: stored.settings.destination,
+        local: stored.settings.local,
+        online_enabled: stored.settings.online_enabled,
         auth: stored.auth,
     })
 }
@@ -322,18 +354,33 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
         Command::ExportBackup { expected_revision }
         | Command::RestoreBackup {
             expected_revision, ..
+        }
+        | Command::RestoreBackupFile {
+            expected_revision, ..
         } => *expected_revision,
         _ => return Err(Fault::invalid("backup operation expected")),
     };
     let plan = plan(&database.connection, Some(revision))?;
     match &request.command {
         Command::ExportBackup { .. } => {
+            if !(plan.online_enabled && plan.destination.is_some()
+                || plan.local.as_ref().is_some_and(|local| local.enabled))
+            {
+                return Err(Fault::new(
+                    ErrorCode::NotConfigured,
+                    "backup destination is not configured",
+                ));
+            }
             backup::encryption::passphrase(plan.auth.passphrase.as_ref())?;
         }
-        Command::RestoreBackup { passphrase, .. } => {
+        Command::RestoreBackup { passphrase, .. }
+        | Command::RestoreBackupFile { passphrase, .. } => {
             backup::encryption::passphrase(passphrase.as_ref().or(plan.auth.passphrase.as_ref()))?;
         }
         _ => unreachable!(),
+    }
+    if let Command::RestoreBackupFile { target, .. } = &request.command {
+        target_path(target, database.profile.as_deref())?;
     }
     if let Command::RestoreBackup { id, target, .. } = &request.command {
         if !uuid::Uuid::parse_str(id).is_ok_and(|value| value.to_string() == *id) {
@@ -373,36 +420,90 @@ impl Ingress {
         })
     }
 
+    async fn capture_backup(
+        &self,
+        revision: u64,
+        cancel: &CancellationToken,
+    ) -> Result<(Plan, backup::archive::Packed), Fault> {
+        let resources = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Err(Fault::new(ErrorCode::Cancelled,"profile backup cancelled")),
+            resources = self.backup_resources.clone().read_owned() => resources,
+        };
+        let (reply, result) = oneshot::channel();
+        self.send_internal(Job::BackupSnapshot {
+            revision,
+            cancel: cancel.clone(),
+            reply,
+        })
+        .await?;
+        let source = result.await.map_err(|_| unavailable())??;
+        let stop = cancel.clone();
+        tokio::task::spawn_blocking(move || {
+            let (plan, mut snapshot, roots) = capture(source, &stop)?;
+            snapshot.capture(&roots, &stop)?;
+            drop(resources);
+            Ok((plan, snapshot.pack(&stop)?))
+        })
+        .await
+        .map_err(io_fault)?
+    }
+
+    pub(super) async fn download_backup(
+        &self,
+        caller: sailry_protocol::NodeId,
+        revision: u64,
+        id: RequestId,
+    ) -> Result<Output, Fault> {
+        let stop = self.closed.child_token();
+        let preparation = stop.clone().drop_guard();
+        let (plan, packed) = self.capture_backup(revision, &stop).await?;
+        let passphrase = backup::encryption::passphrase(plan.auth.passphrase.as_ref())?.clone();
+        let cancel = stop.clone();
+        let (packed, record, digest) = tokio::task::spawn_blocking(move || {
+            use std::io::Read;
+            let packed = backup::encryption::seal(packed, &passphrase, &cancel)?;
+            let record = backup::record(&packed, id.to_string())?;
+            let mut input = packed.file.reopen().map_err(backup::io)?;
+            let mut hash = blake3::Hasher::new();
+            let mut bytes = [0; 64 * 1024];
+            loop {
+                backup::cancelled(&cancel)?;
+                let count = input.read(&mut bytes).map_err(backup::io)?;
+                if count == 0 {
+                    break;
+                }
+                hash.update(&bytes[..count]);
+            }
+            Ok::<_, Fault>((packed, record, hash.finalize().to_hex().to_string()))
+        })
+        .await
+        .map_err(io_fault)??;
+        let output = Output::BackupDownload(self.transfers.download_backup(
+            caller,
+            packed.file,
+            packed.snapshot.directory,
+            record,
+            digest,
+            stop,
+        )?);
+        preparation.disarm();
+        Ok(output)
+    }
+
     pub(super) async fn change_backup(
         &self,
+        caller: sailry_protocol::NodeId,
         request: &Request,
         cancel: &CancellationToken,
     ) -> Result<Output, Fault> {
         controller(request)?;
         match &request.command {
             Command::ExportBackup { expected_revision } => {
-                let resources = tokio::select! {
-                    biased;
-                    _ = cancel.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "profile backup cancelled")),
-                    resources = self.backup_resources.clone().read_owned() => resources,
-                };
-                let (reply, result) = oneshot::channel();
-                self.send_internal(Job::BackupSnapshot {
-                    revision: *expected_revision,
-                    cancel: cancel.clone(),
-                    reply,
-                })
-                .await?;
-                let source = result.await.map_err(|_| unavailable())??;
-                let stop = cancel.clone();
-                let (plan, packed) = tokio::task::spawn_blocking(move || {
-                    let (plan, mut snapshot, roots) = capture(source, &stop)?;
-                    snapshot.capture(&roots, &stop)?;
-                    drop(resources);
-                    Ok::<_, Fault>((plan, snapshot.pack(&stop)?))
-                })
-                .await
-                .map_err(io_fault)??;
+                let (plan, packed) = self.capture_backup(*expected_revision, cancel).await?;
+                if let Some(local) = plan.local.as_ref().filter(|local| local.enabled) {
+                    local_target(&local.directory, &packed.snapshot.manifest.original_profile)?;
+                }
                 Ok(Output::Backup(
                     backup::export(&plan, packed, request.id.to_string(), cancel).await?,
                 ))
@@ -412,6 +513,7 @@ impl Ingress {
                 expected_revision,
                 target,
                 passphrase,
+                location,
             } => {
                 let mut plan = self.backup_plan(Some(*expected_revision)).await?;
                 if let Some(passphrase) = passphrase {
@@ -422,14 +524,61 @@ impl Ingress {
                 })?;
                 let target = target_path(target, Some(profile))?;
                 let temporary = crate::profile::temporary(profile)?;
-                let (record, archive) = backup::restore(&plan, id, &temporary, cancel).await?;
+                let (record, archive) =
+                    backup::restore(&plan, id, *location, &temporary, cancel).await?;
                 let stop = cancel.clone();
                 let restored = record.clone();
                 let passphrase =
                     backup::encryption::passphrase(plan.auth.passphrase.as_ref())?.clone();
                 let path = tokio::task::spawn_blocking(move || {
                     let archive = backup::encryption::open(&archive, &passphrase, &stop)?;
-                    publish(archive, &target, &restored, &stop)
+                    publish(archive, &target, RecordSource::Known(restored), &stop)
+                })
+                .await
+                .map_err(io_fault)??;
+                Ok(Output::BackupRestored {
+                    record,
+                    target: path.1.to_string_lossy().into_owned(),
+                })
+            }
+            Command::RestoreBackupFile {
+                stream,
+                expected_revision,
+                target,
+                passphrase,
+            } => {
+                let plan = self.backup_plan(Some(*expected_revision)).await?;
+                let passphrase = backup::encryption::passphrase(
+                    passphrase.as_ref().or(plan.auth.passphrase.as_ref()),
+                )?
+                .clone();
+                let profile = self.profile.as_deref().ok_or_else(|| {
+                    Fault::new(ErrorCode::NotConfigured, "backup requires a Node profile")
+                })?;
+                let target = target_path(target, Some(profile))?;
+                let temporary = crate::profile::temporary(profile)?;
+                let uploaded = self.transfers.claim_backup(caller, *stream)?;
+                let stop = cancel.clone();
+                let id = request.id.to_string();
+                let (record, path) = tokio::task::spawn_blocking(move || {
+                    use std::io::Seek;
+                    let mut input = uploaded.file.try_clone().map_err(backup::io)?;
+                    let sha256 = backup::archive::hash(&mut input, uploaded.size, &stop)?;
+                    input.rewind().map_err(backup::io)?;
+                    let archive =
+                        backup::encryption::open_file(input, &temporary, &passphrase, &stop)?;
+                    let result = publish(
+                        archive,
+                        &target,
+                        RecordSource::Imported {
+                            id,
+                            size: uploaded.size,
+                            sha256,
+                        },
+                        &stop,
+                    );
+                    drop(uploaded);
+                    result
                 })
                 .await
                 .map_err(io_fault)??;
@@ -441,6 +590,26 @@ impl Ingress {
             _ => Err(Fault::invalid("backup operation expected")),
         }
     }
+}
+
+fn local_target(value: &str, profile: &Path) -> Result<(), Fault> {
+    let path = Path::new(value);
+    let mut existing = path;
+    while !existing.try_exists().map_err(backup::io)? {
+        existing = existing
+            .parent()
+            .ok_or_else(|| Fault::invalid("backup parent is missing"))?;
+    }
+    crate::files::path::root(existing)?;
+    let parent = existing.canonicalize().map_err(backup::io)?;
+    let resolved = parent.join(path.strip_prefix(existing).map_err(backup::io)?);
+    if resolved.starts_with(profile) || profile.starts_with(&resolved) {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "local backup destination overlaps the active profile",
+        ));
+    }
+    Ok(())
 }
 
 fn target_path(value: &str, profile: Option<&Path>) -> Result<PathBuf, Fault> {
@@ -491,12 +660,21 @@ fn target_path(value: &str, profile: Option<&Path>) -> Result<PathBuf, Fault> {
     Ok(path)
 }
 
+enum RecordSource {
+    Known(sailry_protocol::backup::Record),
+    Imported {
+        id: String,
+        size: u64,
+        sha256: String,
+    },
+}
+
 fn publish(
     archive: tempfile::NamedTempFile,
     target: &Path,
-    record: &sailry_protocol::backup::Record,
+    source: RecordSource,
     cancel: &CancellationToken,
-) -> Result<PathBuf, Fault> {
+) -> Result<(sailry_protocol::backup::Record, PathBuf), Fault> {
     use cap_fs_ext::DirExt;
     target_path(
         target
@@ -514,6 +692,17 @@ fn publish(
         staging.path(),
         cancel,
     )?;
+    let record = match source {
+        RecordSource::Known(record) => record,
+        RecordSource::Imported { id, size, sha256 } => sailry_protocol::backup::Record {
+            id,
+            node: manifest.node,
+            created_ms: chrono::Utc::now().timestamp_millis().max(0) as u64,
+            size_bytes: size,
+            files: manifest.files.len() as u32,
+            sha256,
+        },
+    };
     if manifest.node != record.node || manifest.files.len() != record.files as usize {
         return Err(Fault::invalid(
             "restored profile differs from remote metadata",
@@ -573,7 +762,7 @@ fn publish(
         .rename(&name, &parent_cap, target_name)
         .map_err(backup::io)?;
     drop(destination.directory.take());
-    Ok(target.to_owned())
+    Ok((record, target.to_owned()))
 }
 
 struct Target {

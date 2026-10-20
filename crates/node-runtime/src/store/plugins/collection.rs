@@ -30,9 +30,11 @@ fn metadata(db: &mut Connection) -> Result<BTreeSet<String>, Fault> {
             .query_map([], |row| row.get::<_, Vec<u8>>(0))
             .map_err(storage_error)?
         {
-            let reference: plugin::Reference =
+            let reference: Option<plugin::Reference> =
                 serde_json::from_slice(&body.map_err(storage_error)?).map_err(storage_error)?;
-            retain(reference);
+            if let Some(reference) = reference {
+                retain(reference);
+            }
         }
         let mut query = transaction
             .prepare("SELECT plugins FROM turns")

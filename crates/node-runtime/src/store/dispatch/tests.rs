@@ -130,13 +130,19 @@ fn claims_same_group_beyond_previous_limits() {
     let mut first_ids = Vec::new();
     for _ in 0..24 {
         first_ids.push(
-            events::enqueue(db, &fixture.package, &first, &fixture.event("first"))
+            events::enqueue(db, Some(&fixture.package), &first, &fixture.event("first"))
                 .unwrap()
                 .id,
         );
     }
     for _ in 0..20 {
-        events::enqueue(db, &fixture.package, &second, &fixture.event("second")).unwrap();
+        events::enqueue(
+            db,
+            Some(&fixture.package),
+            &second,
+            &fixture.event("second"),
+        )
+        .unwrap();
     }
     let (work, _) = jobs::claim(db, fixture.database.node, 200).unwrap();
     assert_eq!(work.len(), 44);
@@ -147,7 +153,8 @@ fn claims_same_group_beyond_previous_limits() {
             .0
             .is_empty()
     );
-    let next = events::enqueue(db, &fixture.package, &first, &fixture.event("first")).unwrap();
+    let next =
+        events::enqueue(db, Some(&fixture.package), &first, &fixture.event("first")).unwrap();
     let (work, _) = jobs::claim(db, fixture.database.node, 202).unwrap();
     assert_eq!(work.len(), 1);
     assert_eq!(work[0].job, next.id);
@@ -168,7 +175,13 @@ fn claims_drain_during_callbacks() {
     let handler = fixture.setup("batch");
     let db = &fixture.database.connection;
     for _ in 0..MAX_PENDING {
-        events::enqueue(db, &fixture.package, &handler, &fixture.event("batch")).unwrap();
+        events::enqueue(
+            db,
+            Some(&fixture.package),
+            &handler,
+            &fixture.event("batch"),
+        )
+        .unwrap();
     }
     let (events, _) = tokio::sync::broadcast::channel(16);
     for batch in 0..8 {
@@ -178,7 +191,7 @@ fn claims_drain_during_callbacks() {
     }
     let last = events::enqueue(
         &fixture.database.connection,
-        &fixture.package,
+        Some(&fixture.package),
         &handler,
         &fixture.event("batch"),
     )
@@ -204,7 +217,13 @@ fn cancels_only_unstarted_jobs() {
     let fixture = Fixture::new();
     let handler = fixture.setup("queue");
     let db = &fixture.database.connection;
-    let queued = events::enqueue(db, &fixture.package, &handler, &fixture.event("queue")).unwrap();
+    let queued = events::enqueue(
+        db,
+        Some(&fixture.package),
+        &handler,
+        &fixture.event("queue"),
+    )
+    .unwrap();
     assert_eq!(
         jobs::cancel(db, &fixture.package.name, queued.id)
             .unwrap()
@@ -217,7 +236,13 @@ fn cancels_only_unstarted_jobs() {
             .code,
         ErrorCode::Conflict
     );
-    let running = events::enqueue(db, &fixture.package, &handler, &fixture.event("queue")).unwrap();
+    let running = events::enqueue(
+        db,
+        Some(&fixture.package),
+        &handler,
+        &fixture.event("queue"),
+    )
+    .unwrap();
     assert_eq!(
         jobs::claim(db, fixture.database.node, 200).unwrap().0.len(),
         1
@@ -394,7 +419,13 @@ fn callbacks_preserve_event_data_and_request_identity() {
         .insert("/data/key".into(), "/payload/key".into());
     let db = &fixture.database.connection;
     let handler = handlers::save(db, &fixture.package, &handler).unwrap();
-    let job = events::enqueue(db, &fixture.package, &handler, &fixture.event("bound")).unwrap();
+    let job = events::enqueue(
+        db,
+        Some(&fixture.package),
+        &handler,
+        &fixture.event("bound"),
+    )
+    .unwrap();
     let (mut work, _) = jobs::claim(db, fixture.database.node, 200).unwrap();
     let request = work.remove(0).request;
     assert_eq!(request.id, job.request);
@@ -412,7 +443,13 @@ fn recovery_does_not_replay_interrupted_effects() {
     let fixture = Fixture::new();
     let handler = fixture.setup("recover");
     let db = &fixture.database.connection;
-    let job = events::enqueue(db, &fixture.package, &handler, &fixture.event("recover")).unwrap();
+    let job = events::enqueue(
+        db,
+        Some(&fixture.package),
+        &handler,
+        &fixture.event("recover"),
+    )
+    .unwrap();
     jobs::claim(db, fixture.database.node, 200).unwrap();
     jobs::recover(db, fixture.database.node).unwrap();
     let recovered: Job = required(
@@ -470,7 +507,13 @@ fn recovery_uses_committed_receipts() {
     let fixture = Fixture::new();
     let handler = fixture.setup("receipt");
     let db = &fixture.database.connection;
-    let job = events::enqueue(db, &fixture.package, &handler, &fixture.event("receipt")).unwrap();
+    let job = events::enqueue(
+        db,
+        Some(&fixture.package),
+        &handler,
+        &fixture.event("receipt"),
+    )
+    .unwrap();
     let (work, _) = jobs::claim(db, fixture.database.node, 200).unwrap();
     let result: Result<protocol::Output, Fault> = Ok(protocol::Output::Dispatch(Output::Removed));
     db.execute(
@@ -514,8 +557,13 @@ fn recovery_rejects_unknown_receipts() {
             handler.callback.completion = completion;
             let db = &fixture.database.connection;
             let handler = handlers::save(db, &fixture.package, &handler).unwrap();
-            let job =
-                events::enqueue(db, &fixture.package, &handler, &fixture.event("invalid")).unwrap();
+            let job = events::enqueue(
+                db,
+                Some(&fixture.package),
+                &handler,
+                &fixture.event("invalid"),
+            )
+            .unwrap();
             let (work, _) = jobs::claim(db, fixture.database.node, 200).unwrap();
             let request = encode(&work[0].request).unwrap();
             let receipt = receipt.to_string();
@@ -598,9 +646,14 @@ fn full_queue_rolls_back_fanout_preserving_schedule() {
     let mut ids = Vec::new();
     for _ in 0..MAX_PENDING - 1 {
         ids.push(
-            events::enqueue(db, &fixture.package, &handler, &fixture.event("fanout"))
-                .unwrap()
-                .id,
+            events::enqueue(
+                db,
+                Some(&fixture.package),
+                &handler,
+                &fixture.event("fanout"),
+            )
+            .unwrap()
+            .id,
         );
     }
     db.execute_batch("COMMIT").unwrap();
@@ -907,4 +960,79 @@ fn storage_failure_preserves_the_schedule_cursor() {
     )
     .unwrap();
     assert_eq!(saved, schedule);
+}
+
+#[test]
+fn backup_schedule_keeps_native_authority() {
+    let fixture = Fixture::new();
+    let db = &fixture.database.connection;
+    let mut settings = protocol::backup::Settings::default();
+    native::configure(db, &settings).unwrap();
+    assert!(
+        list::<Schedule>(db, "dispatch_schedules", native::OWNER)
+            .unwrap()
+            .is_empty()
+    );
+    settings.revision = 7;
+    settings.schedule = Some(protocol::backup::Schedule {
+        enabled: true,
+        timezone: "Asia/Shanghai".into(),
+        hour: 9,
+        minute: 5,
+    });
+    native::configure(db, &settings).unwrap();
+    let first: Vec<Schedule> = list(db, "dispatch_schedules", native::OWNER).unwrap();
+    assert_eq!(first.len(), 1);
+    let original = first[0].clone();
+    let due = original.next_ms.unwrap();
+    schedules::due(db, due).unwrap();
+    let queued = jobs::list(db, native::OWNER, None, 10).unwrap();
+    assert_eq!(queued.jobs.len(), 1);
+    let id = queued.jobs[0].id;
+    assert_eq!(
+        jobs::cancel(db, &fixture.package.name, id)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotFound
+    );
+    let (work, _) = jobs::claim(db, fixture.database.node, due).unwrap();
+    assert_eq!(work.len(), 1);
+    assert!(work[0].request.plugin.is_none());
+    assert_eq!(
+        work[0].request.command,
+        protocol::Command::ExportBackup {
+            expected_revision: 7
+        }
+    );
+    assert_eq!(work[0].request.id, queued.jobs[0].request);
+    assert!(
+        jobs::package(
+            db,
+            fixture.database.node,
+            fixture.database.node,
+            &work[0].request
+        )
+        .unwrap()
+        .is_none()
+    );
+    let mut handler: Handler = required(
+        db,
+        "dispatch_handlers",
+        native::OWNER,
+        "name",
+        "profile-backup",
+    )
+    .unwrap();
+    handler.name = "borrowed".into();
+    assert!(handlers::save(db, &fixture.package, &handler).is_err());
+    settings.revision += 1;
+    settings.schedule.as_mut().unwrap().minute = 6;
+    native::configure(db, &settings).unwrap();
+    let changed: Vec<Schedule> = list(db, "dispatch_schedules", native::OWNER).unwrap();
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].id, original.id);
+    assert_ne!(changed[0].timing, original.timing);
+    settings.schedule.as_mut().unwrap().enabled = false;
+    native::configure(db, &settings).unwrap();
+    assert!(!list::<Schedule>(db, "dispatch_schedules", native::OWNER).unwrap()[0].enabled);
 }

@@ -13,6 +13,31 @@ pub use moving::FileMove;
 pub use upload::Upload;
 
 impl Client {
+    /// Receives an encrypted profile archive through the same verified download stream.
+    /// The caller publishes its staging file only after this method succeeds.
+    pub async fn download_backup(
+        &self,
+        download: &sailry_protocol::backup::Download,
+        writer: &mut (impl AsyncWrite + Unpin),
+        cancel: CancellationToken,
+        mut progress: impl FnMut(u64),
+    ) -> Result<(), Fault> {
+        let result = self
+            .receive(
+                download.stream,
+                download.size,
+                &download.revision,
+                writer,
+                &cancel,
+                &mut progress,
+            )
+            .await;
+        if result.is_err() {
+            self.cancel_transfer(download.stream).await;
+        }
+        result
+    }
+
     /// Receives a verified SSH download into caller-owned staging.
     pub async fn download_ssh(
         &self,

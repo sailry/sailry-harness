@@ -73,7 +73,7 @@ fn retained(callback: Callback) {
         schedule: None,
         scheduled_ms: None,
     };
-    let job = events::enqueue(&db, &reference, &handler, &event).unwrap();
+    let job = events::enqueue(&db, Some(&reference), &handler, &event).unwrap();
     let node = protocol::NodeId([91; 32]);
     let (mut work, _) = claim(&db, node, 2).unwrap();
     let original = work.pop().unwrap().request;

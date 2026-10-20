@@ -1245,6 +1245,7 @@ async fn restores_revisions_and_removes_session_files() {
         fixture
             .client
             .execute(fixture.client.prepare(Command::RestoreBackup {
+                location: sailry_protocol::backup::Location::Online,
                 id: record.id,
                 expected_revision: settings.revision,
                 target: target.to_str().unwrap().into(),

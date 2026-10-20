@@ -1,5 +1,6 @@
 use super::*;
 use crate::{theme::DialogStyle as _, tr};
+use chrono::Timelike as _;
 use gpui_kit::{
     component::{
         button::{Button, ButtonVariants},
@@ -9,17 +10,30 @@ use gpui_kit::{
         scroll::ScrollableElement,
         searchable_list::SearchableListItem,
         select::{Select, SelectEvent, SelectState},
+        switch::Switch,
+        time_field::{TimeField, TimeFieldEvent, TimeFieldState},
     },
     prelude::FluentBuilder as _,
 };
 use sailry_protocol::{
     Secret,
-    backup::{Destination, Kind, Update},
+    backup::{Destination, Kind, Local, Schedule, Update},
     plugin::settings::SecretUpdate,
 };
 
 #[derive(Clone)]
 struct Choice(Kind);
+
+fn destination(settings: &Settings) -> Destination {
+    settings.destination.clone().unwrap_or(Destination {
+        kind: Kind::Webdav,
+        endpoint: String::new(),
+        root: "sailry-backups".into(),
+        bucket: String::new(),
+        region: String::new(),
+    })
+}
+
 impl SearchableListItem for Choice {
     type Value = Kind;
     fn title(&self) -> SharedString {
@@ -37,6 +51,10 @@ pub(super) struct Editor {
     owner: Entity<Panel>,
     settings: Settings,
     kind: Entity<SelectState<Vec<Choice>>>,
+    time: Entity<TimeFieldState>,
+    local_enabled: bool,
+    online_enabled: bool,
+    schedule_enabled: bool,
     pub(super) fields: Vec<(&'static str, Entity<InputState>)>,
     remove_credentials: bool,
     task: Option<Task<()>>,
@@ -49,14 +67,7 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
     let Some(settings) = owner.read(cx).settings.clone() else {
         return;
     };
-    let destination = settings.destination.clone();
-    let value = destination.clone().unwrap_or(Destination {
-        kind: Kind::Webdav,
-        endpoint: String::new(),
-        root: "sailry-backups".into(),
-        bucket: String::new(),
-        region: String::new(),
-    });
+    let value = destination(&settings);
     let editor = cx.new(|cx| {
         crate::feedback::observe_with(
             window,
@@ -99,6 +110,22 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
             ("backup_session_token", String::new()),
             ("backup_passphrase", String::new()),
             ("backup_confirm_passphrase", String::new()),
+            (
+                "backup_local_directory",
+                settings
+                    .local
+                    .as_ref()
+                    .map(|local| local.directory.clone())
+                    .unwrap_or_default(),
+            ),
+            (
+                "backup_timezone",
+                settings
+                    .schedule
+                    .as_ref()
+                    .map(|schedule| schedule.timezone.clone())
+                    .unwrap_or_else(|| "UTC".into()),
+            ),
         ]
         .into_iter()
         .enumerate()
@@ -108,7 +135,7 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
                 cx.new(|cx| {
                     InputState::new(window, cx)
                         .default_value(value)
-                        .masked(index >= 4)
+                        .masked((4..9).contains(&index))
                         .placeholder(tr(
                             if (index == 7 && settings.passphrase_configured)
                                 || ((4..7).contains(&index) && settings.credentials_configured)
@@ -144,10 +171,37 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
             },
         )
         .detach();
+        let time = cx.new(|cx| {
+            let mut state = TimeFieldState::new(window, cx);
+            let (hour, minute) = settings
+                .schedule
+                .as_ref()
+                .map(|schedule| (schedule.hour, schedule.minute))
+                .unwrap_or((3, 0));
+            state.set_time(
+                chrono::NaiveTime::from_hms_opt(hour.into(), minute.into(), 0).unwrap_or_default(),
+                window,
+                cx,
+            );
+            state
+        });
+        cx.subscribe_in(
+            &time,
+            window,
+            |editor: &mut Editor, _, _: &TimeFieldEvent, window, cx| editor.changed(window, cx),
+        )
+        .detach();
         Editor {
             owner,
+            local_enabled: settings.local.as_ref().is_some_and(|local| local.enabled),
+            online_enabled: settings.online_enabled,
+            schedule_enabled: settings
+                .schedule
+                .as_ref()
+                .is_some_and(|schedule| schedule.enabled),
             settings,
             kind,
+            time,
             fields,
             remove_credentials: false,
             task: None,
@@ -213,7 +267,29 @@ impl Editor {
             bucket: values[2].trim().into(),
             region: values[3].trim().into(),
         };
-        destination.validate().map_err(|_| "backup_invalid")?;
+        let destination = if destination.endpoint.is_empty() {
+            if self.online_enabled && self.settings.destination.is_some() {
+                return Err("backup_invalid");
+            }
+            None
+        } else {
+            destination.validate().map_err(|_| "backup_invalid")?;
+            Some(destination)
+        };
+        let directory = values[9].trim();
+        if self.local_enabled && directory.is_empty() {
+            return Err("backup_invalid_target");
+        }
+        let time = self.time.read(cx).time();
+        let schedule = Schedule {
+            enabled: self.schedule_enabled,
+            timezone: values[10].trim().to_owned(),
+            hour: time.hour() as u8,
+            minute: time.minute() as u8,
+        };
+        if self.schedule_enabled && schedule.timezone.is_empty() {
+            return Err("backup_invalid");
+        }
         let credential = |value: &str| {
             if !value.is_empty() {
                 SecretUpdate::Replace(Secret::new(value.into()))
@@ -224,7 +300,18 @@ impl Editor {
             }
         };
         let mut settings = self.settings.clone();
-        settings.destination = Some(destination);
+        settings.destination = destination;
+        settings.online_enabled = self.online_enabled;
+        settings.local = (!directory.is_empty() || self.local_enabled).then(|| Local {
+            directory: directory.to_owned(),
+            enabled: self.local_enabled,
+        });
+        settings.schedule = (self.settings.schedule.is_some()
+            || schedule.enabled
+            || schedule.timezone != "UTC"
+            || schedule.hour != 3
+            || schedule.minute != 0)
+            .then_some(schedule);
         Ok(Update {
             settings,
             identity: credential(&values[4]),
@@ -242,13 +329,51 @@ impl Editor {
         })
     }
     fn dirty(&self, cx: &App) -> bool {
+        let values = self.values(cx);
+        let destination = destination(&self.settings);
+        let schedule = self.settings.schedule.clone().unwrap_or(Schedule {
+            enabled: false,
+            timezone: "UTC".into(),
+            hour: 3,
+            minute: 0,
+        });
+        let time = self.time.read(cx).time();
         self.remove_credentials
-            || self.fields[4..]
-                .iter()
-                .any(|(_, input)| !input.read(cx).value().is_empty())
+            || values[4..9].iter().any(|value| !value.is_empty())
             || self
-                .update(cx)
-                .is_ok_and(|update| update.settings.destination != self.settings.destination)
+                .kind
+                .read(cx)
+                .selected_value()
+                .copied()
+                .unwrap_or_default()
+                != destination.kind
+            || values[..4]
+                .iter()
+                .zip([
+                    destination.endpoint,
+                    destination.root,
+                    destination.bucket,
+                    destination.region,
+                ])
+                .any(|(value, saved)| value.trim() != saved)
+            || self.local_enabled
+                != self
+                    .settings
+                    .local
+                    .as_ref()
+                    .is_some_and(|local| local.enabled)
+            || values[9].trim()
+                != self
+                    .settings
+                    .local
+                    .as_ref()
+                    .map(|local| local.directory.as_str())
+                    .unwrap_or_default()
+            || self.online_enabled != self.settings.online_enabled
+            || self.schedule_enabled != schedule.enabled
+            || values[10].trim() != schedule.timezone
+            || time.hour() != u32::from(schedule.hour)
+            || time.minute() != u32::from(schedule.minute)
     }
     fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.closed {
@@ -282,12 +407,6 @@ impl Editor {
         let update = match self.update(cx) {
             Ok(update) => update,
             Err(key) => {
-                if report
-                    && self.fields[0].1.read(cx).value().is_empty()
-                    && self.settings.destination.is_none()
-                {
-                    return true;
-                }
                 if report {
                     self.error = Some(key);
                     cx.notify();
@@ -295,7 +414,13 @@ impl Editor {
                 return false;
             }
         };
-        if !self.dirty(cx) {
+        if !self.dirty(cx)
+            || (update.settings == self.settings
+                && !self.remove_credentials
+                && self.fields[4..9]
+                    .iter()
+                    .all(|(_, input)| input.read(cx).value().is_empty()))
+        {
             return true;
         }
         self.owner.update(cx, |panel, cx| {
@@ -331,10 +456,13 @@ impl Editor {
         self.conflict = false;
         self.error = None;
         self.erase(window, cx);
+        if self.dirty(cx) {
+            self.changed(window, cx);
+        }
         cx.notify();
     }
     fn erase(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        for (_, input) in &self.fields[4..] {
+        for (_, input) in &self.fields[4..9] {
             input.update(cx, |input, cx| input.set_value("", window, cx));
         }
     }
@@ -349,7 +477,8 @@ impl Editor {
             return;
         }
         if !self.dirty(cx) {
-            if let Some(destination) = &settings.destination {
+            {
+                let destination = destination(settings);
                 for (index, value) in [
                     destination.endpoint.clone(),
                     destination.root.clone(),
@@ -367,6 +496,41 @@ impl Editor {
                     state.set_selected_value(&destination.kind, window, cx)
                 });
             }
+            self.local_enabled = settings.local.as_ref().is_some_and(|local| local.enabled);
+            self.online_enabled = settings.online_enabled;
+            self.schedule_enabled = settings
+                .schedule
+                .as_ref()
+                .is_some_and(|schedule| schedule.enabled);
+            let directory = settings
+                .local
+                .as_ref()
+                .map(|local| local.directory.clone())
+                .unwrap_or_default();
+            let timezone = settings
+                .schedule
+                .as_ref()
+                .map(|schedule| schedule.timezone.clone())
+                .unwrap_or_else(|| "UTC".into());
+            self.fields[9]
+                .1
+                .update(cx, |input, cx| input.set_value(directory, window, cx));
+            self.fields[10]
+                .1
+                .update(cx, |input, cx| input.set_value(timezone, window, cx));
+            let (hour, minute) = settings
+                .schedule
+                .as_ref()
+                .map(|schedule| (schedule.hour, schedule.minute))
+                .unwrap_or((3, 0));
+            self.time.update(cx, |time, cx| {
+                time.set_time(
+                    chrono::NaiveTime::from_hms_opt(hour.into(), minute.into(), 0)
+                        .unwrap_or_default(),
+                    window,
+                    cx,
+                )
+            });
             self.settings = settings.clone();
             self.conflict = false;
             self.error = None;
@@ -392,18 +556,56 @@ impl Render for Editor {
         v_flex()
             .gap_4()
             .child(
-                Field::new().label(tr("backup_storage")).child(
-                    Select::new(&self.kind)
-                        .id("backup-kind")
+                Field::new().label(tr("backup_local_enabled")).child(
+                    Switch::new("backup-local-enabled")
+                        .checked(self.local_enabled)
+                        .accessibility_label(tr("backup_local_enabled"))
                         .disabled(locked)
-                        .w_full(),
+                        .on_click(cx.listener(|editor, value, window, cx| {
+                            editor.local_enabled = *value;
+                            editor.changed(window, cx);
+                        })),
                 ),
             )
+            .when(self.local_enabled, |view| {
+                view.child(
+                    Field::new()
+                        .label(tr("backup_local_directory"))
+                        .child(Input::new(&self.fields[9].1).disabled(locked)),
+                )
+            })
+            .child(
+                Field::new().label(tr("backup_online_enabled")).child(
+                    Switch::new("backup-online-enabled")
+                        .checked(self.online_enabled)
+                        .accessibility_label(tr("backup_online_enabled"))
+                        .disabled(locked)
+                        .on_click(cx.listener(|editor, value, window, cx| {
+                            editor.online_enabled = *value;
+                            editor.changed(window, cx);
+                        })),
+                ),
+            )
+            .when(self.online_enabled, |view| {
+                view.child(
+                    Field::new().label(tr("backup_storage")).child(
+                        Select::new(&self.kind)
+                            .id("backup-kind")
+                            .disabled(locked)
+                            .w_full(),
+                    ),
+                )
+            })
             .children(
                 self.fields
                     .iter()
                     .enumerate()
-                    .filter(|(index, _)| s3 || !matches!(index, 2 | 3 | 6))
+                    .filter(|(index, _)| {
+                        (7..9).contains(index)
+                            || (self.online_enabled
+                                && *index < 7
+                                && (s3 || !matches!(index, 2 | 3 | 6)))
+                    })
                     .map(|(_, (key, input))| {
                         let key = *key;
                         Field::new().label(tr(key)).child(
@@ -413,6 +615,34 @@ impl Render for Editor {
                         )
                     }),
             )
+            .child(
+                Field::new().label(tr("backup_schedule_enabled")).child(
+                    Switch::new("backup-schedule-enabled")
+                        .checked(self.schedule_enabled)
+                        .accessibility_label(tr("backup_schedule_enabled"))
+                        .disabled(locked)
+                        .on_click(cx.listener(|editor, value, window, cx| {
+                            editor.schedule_enabled = *value;
+                            editor.changed(window, cx);
+                        })),
+                ),
+            )
+            .when(self.schedule_enabled, |view| {
+                view.child(
+                    Field::new().label(tr("backup_schedule_time")).child(
+                        div()
+                            .id("backup-schedule-time")
+                            .role(Role::Group)
+                            .aria_label(tr("backup_schedule_time"))
+                            .child(TimeField::new(&self.time).disabled(locked)),
+                    ),
+                )
+                .child(
+                    Field::new()
+                        .label(tr("backup_timezone"))
+                        .child(Input::new(&self.fields[10].1).disabled(locked)),
+                )
+            })
             .when(self.settings.credentials_configured, |view| {
                 view.child(
                     Button::new("backup-clear-credentials")

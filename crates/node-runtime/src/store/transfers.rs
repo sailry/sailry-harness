@@ -17,7 +17,21 @@ impl Ingress {
                 "Node or protocol version mismatch",
             ));
         }
+        if matches!(
+            &request.command,
+            Command::DownloadBackup { .. } | Command::UploadBackup { .. }
+        ) {
+            super::backup::controller(&request)?;
+        }
         let output = match request.command {
+            Command::DownloadBackup { expected_revision } => {
+                self.download_backup(caller, expected_revision, request.id)
+                    .await?
+            }
+            Command::UploadBackup { size, revision } => Output::BackupUpload(
+                self.transfers
+                    .upload_backup(caller, size, &revision, self.closed.clone())?,
+            ),
             Command::StageSshUpload(spec) => {
                 let admission = self
                     .dispatch_request(caller, Request::new(self.node, Command::ListSsh), internal)

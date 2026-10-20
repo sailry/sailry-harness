@@ -82,6 +82,7 @@ impl Transfers {
         self.ready(
             &mut lease,
             Resource::Download(super::super::Prepared {
+                _staging: None,
                 source: super::super::Source::File(file),
                 size,
                 revision,

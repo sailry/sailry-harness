@@ -5,7 +5,7 @@ use opendal::{Operator, layers::HttpClientLayer, raw::HttpClient, services};
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault,
-    backup::{Kind, Page, Record},
+    backup::{Kind, Location, Page, Record},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -31,8 +31,38 @@ struct Manifest {
 }
 
 impl Plan {
-    fn operator(&self) -> Result<Operator, Fault> {
-        self.destination.validate()?;
+    fn operator(&self, location: Location) -> Result<Operator, Fault> {
+        if location == Location::Local {
+            let local = self.local.as_ref().ok_or_else(|| {
+                Fault::new(
+                    ErrorCode::NotConfigured,
+                    "local backup destination is not configured",
+                )
+            })?;
+            let path = Path::new(&local.directory);
+            if !path.is_absolute() {
+                return Err(Fault::invalid("local backup directory must be absolute"));
+            }
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            builder.create(path).map_err(io)?;
+            crate::files::path::root(path)?;
+            return Operator::new(services::Fs::default().root(&local.directory))
+                .map_err(storage)
+                .map(|operator| operator.finish());
+        }
+        let destination = self.destination.as_ref().ok_or_else(|| {
+            Fault::new(
+                ErrorCode::NotConfigured,
+                "online backup destination is not configured",
+            )
+        })?;
+        destination.validate()?;
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(30))
@@ -41,17 +71,17 @@ impl Plan {
             .build()
             .map_err(io)?;
         let client = HttpClientLayer::new(HttpClient::with(client));
-        let root = format!("/{}/", self.destination.root.trim_matches('/'));
+        let root = format!("/{}/", destination.root.trim_matches('/'));
         let identity = self
             .auth
             .identity
             .as_ref()
             .map_or("", |value| value.expose());
         let secret = self.auth.secret.as_ref().map_or("", |value| value.expose());
-        let operator = match self.destination.kind {
+        let operator = match destination.kind {
             Kind::Webdav => Operator::new(
                 services::Webdav::default()
-                    .endpoint(&self.destination.endpoint)
+                    .endpoint(&destination.endpoint)
                     .root(&root)
                     .username(identity)
                     .password(secret),
@@ -67,10 +97,10 @@ impl Plan {
                     ));
                 }
                 let mut builder = services::S3::default()
-                    .endpoint(&self.destination.endpoint)
+                    .endpoint(&destination.endpoint)
                     .root(&root)
-                    .bucket(&self.destination.bucket)
-                    .region(&self.destination.region)
+                    .bucket(&destination.bucket)
+                    .region(&destination.region)
                     .disable_config_load()
                     .disable_ec2_metadata()
                     .access_key_id(identity)
@@ -119,20 +149,16 @@ impl Manifest {
     }
 }
 
-pub(crate) async fn export(
+pub(crate) async fn publish(
     plan: &Plan,
-    packed: archive::Packed,
-    id: String,
+    location: Location,
+    packed: &archive::Packed,
+    record: &Record,
     cancel: &CancellationToken,
-) -> Result<Record, Fault> {
+) -> Result<(), Fault> {
     cancelled(cancel)?;
-    let passphrase = super::encryption::passphrase(plan.auth.passphrase.as_ref())?.clone();
-    let stop = cancel.clone();
-    let packed =
-        tokio::task::spawn_blocking(move || super::encryption::seal(packed, &passphrase, &stop))
-            .await
-            .map_err(io)??;
-    let op = plan.operator()?;
+    let id = record.id.as_str();
+    let op = plan.operator(location)?;
     // A request-derived directory is owned by this one export; no shared object is replaced.
     let directory = format!("{id}/");
     step(cancel, op.create_dir(&directory)).await?;
@@ -141,7 +167,7 @@ pub(crate) async fn export(
     let mut buffer = vec![0u8; PART_BYTES];
     loop {
         if let Err(error) = cancelled(cancel) {
-            cleanup(&op, &id, parts.len()).await;
+            cleanup(&op, id, parts.len()).await;
             return Err(error);
         }
         let mut length = 0;
@@ -155,7 +181,7 @@ pub(crate) async fn export(
         if length == 0 {
             break;
         }
-        let path = part_path(&id, parts.len());
+        let path = part_path(id, parts.len());
         let result = step(cancel, op.write(&path, buffer[..length].to_vec())).await;
         match result {
             Ok(_) => parts.push(Part {
@@ -163,47 +189,39 @@ pub(crate) async fn export(
                 sha256: format!("{:x}", Sha256::digest(&buffer[..length])),
             }),
             Err(error) if error.code == ErrorCode::Cancelled => {
-                cleanup(&op, &id, parts.len() + 1).await;
+                cleanup(&op, id, parts.len() + 1).await;
                 return Err(error);
             }
             Err(error) => {
-                cleanup(&op, &id, parts.len() + 1).await;
+                cleanup(&op, id, parts.len() + 1).await;
                 return Err(uncertain(error));
             }
         }
     }
-    let record = Record {
-        id: id.clone(),
-        node: packed.snapshot.manifest.node,
-        created_ms: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_err(io)?
-            .as_millis()
-            .min(u64::MAX as u128) as u64,
-        size_bytes: packed.size,
-        files: packed.snapshot.manifest.files.len() as u32,
-        sha256: packed.sha256,
-    };
     let manifest = Manifest {
         version: 1,
         record: record.clone(),
         parts,
     };
-    manifest.validate(&id)?;
+    manifest.validate(id)?;
     let bytes = serde_json::to_vec(&manifest).map_err(io)?;
     if bytes.len() > MAX_MANIFEST {
-        cleanup(&op, &id, manifest.parts.len()).await;
+        cleanup(&op, id, manifest.parts.len()).await;
         return Err(Fault::invalid("backup manifest exceeds the limit"));
     }
     // The manifest is the commit marker. An uncertain write is never repeated or deleted.
     step(cancel, op.write(&format!("{id}.json"), bytes))
         .await
         .map_err(uncertain)?;
-    Ok(record)
+    Ok(())
 }
 
-pub(crate) async fn list(plan: &Plan, cancel: &CancellationToken) -> Result<Page, Fault> {
-    let op = plan.operator()?;
+pub(crate) async fn list(
+    plan: &Plan,
+    location: Location,
+    cancel: &CancellationToken,
+) -> Result<Page, Fault> {
+    let op = plan.operator(location)?;
     let mut entries = step(cancel, op.lister("/")).await?;
     let mut records = Vec::new();
     let mut partial = false;
@@ -234,16 +252,21 @@ pub(crate) async fn list(plan: &Plan, cancel: &CancellationToken) -> Result<Page
             .cmp(&left.created_ms)
             .then_with(|| left.id.cmp(&right.id))
     });
-    Ok(Page { records, partial })
+    Ok(Page {
+        records,
+        partial,
+        locations: Default::default(),
+    })
 }
 
 pub(crate) async fn restore(
     plan: &Plan,
     id: &str,
+    location: Location,
     temporary: &Path,
     cancel: &CancellationToken,
 ) -> Result<(Record, tempfile::NamedTempFile), Fault> {
-    let op = plan.operator()?;
+    let op = plan.operator(location)?;
     let manifest = read_manifest(&op, id, cancel).await?;
     let file = tempfile::NamedTempFile::new_in(temporary).map_err(io)?;
     let mut output = tokio::fs::File::from_std(file.reopen().map_err(io)?);

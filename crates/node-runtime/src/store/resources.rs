@@ -13,7 +13,9 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
     }
     if matches!(
         request.command,
-        Command::ExportBackup { .. } | Command::RestoreBackup { .. }
+        Command::ExportBackup { .. }
+            | Command::RestoreBackup { .. }
+            | Command::RestoreBackupFile { .. }
     ) {
         return super::backup::prepare(database, request);
     }
@@ -161,8 +163,12 @@ impl Worker {
                             })?
                             .map(Output::Terminal)
                     }
-                    Command::ExportBackup { .. } | Command::RestoreBackup { .. } => {
-                        ingress.change_backup(&execution.request, &stop).await
+                    Command::ExportBackup { .. }
+                    | Command::RestoreBackup { .. }
+                    | Command::RestoreBackupFile { .. } => {
+                        ingress
+                            .change_backup(execution.caller, &execution.request, &stop)
+                            .await
                     }
                     Command::DeleteOcrModel { .. } => {
                         ingress.change_ocr(&execution.request, &stop, None).await

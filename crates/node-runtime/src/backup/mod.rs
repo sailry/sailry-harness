@@ -26,11 +26,116 @@ pub(crate) struct Auth {
 
 #[derive(Clone)]
 pub(crate) struct Plan {
-    pub destination: Destination,
+    pub destination: Option<Destination>,
+    pub local: Option<sailry_protocol::backup::Local>,
+    pub online_enabled: bool,
     pub auth: Auth,
 }
 
-pub(crate) use remote::{export, list, restore};
+pub(crate) async fn export(
+    plan: &Plan,
+    packed: archive::Packed,
+    id: String,
+    cancel: &CancellationToken,
+) -> Result<sailry_protocol::backup::Record, Fault> {
+    let passphrase = encryption::passphrase(plan.auth.passphrase.as_ref())?.clone();
+    let stop = cancel.clone();
+    let packed = tokio::task::spawn_blocking(move || encryption::seal(packed, &passphrase, &stop))
+        .await
+        .map_err(io)??;
+    let record = record(&packed, id)?;
+    let mut exported = false;
+    for location in [
+        sailry_protocol::backup::Location::Local,
+        sailry_protocol::backup::Location::Online,
+    ] {
+        let enabled = match location {
+            sailry_protocol::backup::Location::Local => {
+                plan.local.as_ref().is_some_and(|local| local.enabled)
+            }
+            sailry_protocol::backup::Location::Online => {
+                plan.online_enabled && plan.destination.is_some()
+            }
+        };
+        if enabled {
+            remote::publish(plan, location, &packed, &record, cancel).await?;
+            exported = true;
+        }
+    }
+    if !exported {
+        return Err(Fault::new(
+            ErrorCode::NotConfigured,
+            "backup destination is not configured",
+        ));
+    }
+    Ok(record)
+}
+
+pub(crate) fn record(
+    packed: &archive::Packed,
+    id: String,
+) -> Result<sailry_protocol::backup::Record, Fault> {
+    Ok(sailry_protocol::backup::Record {
+        id,
+        node: packed.snapshot.manifest.node,
+        created_ms: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(io)?
+            .as_millis()
+            .min(u64::MAX as u128) as u64,
+        size_bytes: packed.size,
+        files: packed.snapshot.manifest.files.len() as u32,
+        sha256: packed.sha256.clone(),
+    })
+}
+
+pub(crate) async fn list(
+    plan: &Plan,
+    cancel: &CancellationToken,
+) -> Result<sailry_protocol::backup::Page, Fault> {
+    use sailry_protocol::backup::{Location, Locations, Page};
+    let mut records = std::collections::BTreeMap::new();
+    let mut locations = std::collections::BTreeMap::<String, Locations>::new();
+    let mut partial = false;
+    for location in [Location::Local, Location::Online] {
+        let configured = match location {
+            Location::Local => plan.local.is_some(),
+            Location::Online => plan.destination.is_some(),
+        };
+        if !configured {
+            continue;
+        }
+        let page = remote::list(plan, location, cancel).await?;
+        partial |= page.partial;
+        for record in page.records {
+            let entry = locations.entry(record.id.clone()).or_default();
+            match location {
+                Location::Local => entry.local = true,
+                Location::Online => entry.online = true,
+            }
+            if let Some(previous) = records.get(&record.id)
+                && previous != &record
+            {
+                return Err(Fault::invalid("backup copies have different metadata"));
+            }
+            records.insert(record.id.clone(), record);
+        }
+    }
+    let mut records: Vec<_> = records.into_values().collect();
+    records.sort_by(|left, right| {
+        right
+            .created_ms
+            .cmp(&left.created_ms)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(Page {
+        records,
+        partial,
+        locations,
+    })
+}
+
+pub(crate) use remote::restore;
 
 pub(crate) fn cancelled(cancel: &CancellationToken) -> Result<(), Fault> {
     if cancel.is_cancelled() {

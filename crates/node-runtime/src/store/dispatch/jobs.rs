@@ -150,11 +150,14 @@ pub(super) fn claim(
             .map_err(storage_error)?;
         let mut job: Job = serde_json::from_slice(&body).map_err(storage_error)?;
         let callback: Callback = serde_json::from_slice(&callback).map_err(storage_error)?;
-        let reference: Reference = serde_json::from_slice(&reference).map_err(storage_error)?;
+        let reference: Option<Reference> =
+            serde_json::from_slice(&reference).map_err(storage_error)?;
         let completion = callback.completion;
-        let request = package_version(db, &reference)
-            .map(|_| ())
-            .and_then(|()| request(node, &job, callback, reference));
+        let request = match &reference {
+            Some(reference) => package_version(db, reference).map(|_| ()),
+            None => native::callback(&package, &job, &callback),
+        }
+        .and_then(|()| request(node, &job, callback, reference));
         changed.push(package);
         match request {
             Ok(request) => {
@@ -212,21 +215,27 @@ pub(in crate::store) fn package(
     };
     let job: Job = serde_json::from_slice(&body).map_err(storage_error)?;
     let callback: Callback = serde_json::from_slice(&callback).map_err(storage_error)?;
-    let reference: Reference = serde_json::from_slice(&reference).map_err(storage_error)?;
-    if request(node, &job, callback, reference.clone())? != *submitted {
+    let reference: Option<Reference> = serde_json::from_slice(&reference).map_err(storage_error)?;
+    if request(node, &job, callback.clone(), reference.clone())? != *submitted {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "dispatch callback does not match its claimed job",
         ));
     }
-    package_version(db, &reference).map(Some)
+    match reference {
+        Some(reference) => package_version(db, &reference).map(Some),
+        None => {
+            native::callback(native::OWNER, &job, &callback)?;
+            Ok(None)
+        }
+    }
 }
 
 fn request(
     node: protocol::NodeId,
     job: &Job,
     callback: Callback,
-    package: Reference,
+    package: Option<Reference>,
 ) -> Result<protocol::Request, Fault> {
     let event = serde_json::to_value(&job.event).map_err(storage_error)?;
     let mut command = serde_json::to_value(callback.command).map_err(storage_error)?;
@@ -246,7 +255,7 @@ fn request(
     })?;
     let mut request = protocol::Request::new(node, command);
     request.id = job.request;
-    request.plugin = Some(protocol::plugin::Context {
+    request.plugin = package.map(|package| protocol::plugin::Context {
         invocation: None,
         turn: None,
         surface: Default::default(),

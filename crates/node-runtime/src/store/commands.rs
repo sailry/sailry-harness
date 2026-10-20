@@ -208,9 +208,14 @@ pub(super) fn execute(
         Command::ReadBackupSettings | Command::SaveBackupSettings(_) => {
             super::backup::execute(db, request)
         }
-        Command::ListBackups | Command::ExportBackup { .. } | Command::RestoreBackup { .. } => Err(
-            Fault::invalid("backup operation requires the resource worker"),
-        ),
+        Command::ListBackups
+        | Command::ExportBackup { .. }
+        | Command::RestoreBackup { .. }
+        | Command::RestoreBackupFile { .. }
+        | Command::DownloadBackup { .. }
+        | Command::UploadBackup { .. } => Err(Fault::invalid(
+            "backup operation requires the resource worker",
+        )),
         Command::ReadPythonSettings => {
             super::python::controller(request)?;
             Ok((Output::PythonSettings(super::python::read(db)?), None))

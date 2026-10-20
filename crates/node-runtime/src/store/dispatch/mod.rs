@@ -11,6 +11,7 @@ mod calendar;
 mod events;
 mod handlers;
 pub(crate) mod jobs;
+pub(in crate::store) mod native;
 mod schedules;
 mod worker;
 pub(crate) use worker::Batch;
@@ -152,7 +153,7 @@ pub(super) fn execute_admitted(
                 scheduled_ms: None,
             };
             (
-                Output::Job(events::enqueue(db, &reference, &handler, &event)?),
+                Output::Job(events::enqueue(db, Some(&reference), &handler, &event)?),
                 true,
             )
         }

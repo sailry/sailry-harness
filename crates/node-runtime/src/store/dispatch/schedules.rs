@@ -84,8 +84,9 @@ pub(super) fn due(db: &Connection, timestamp: i64) -> Result<Vec<String>, Fault>
         })
         .map_err(storage_error)?
         .filter(|row| {
-            row.as_ref()
-                .map_or(true, |(package, _)| enabled.contains(package))
+            row.as_ref().map_or(true, |(package, _)| {
+                package == native::OWNER || enabled.contains(package)
+            })
         })
         .collect::<Result<Vec<_>, _>>()
         .map_err(storage_error)?;
@@ -153,7 +154,9 @@ pub(super) fn next(db: &Connection, timestamp: i64) -> Result<Option<i64>, Fault
     let mut next: Option<i64> = None;
     for row in rows {
         let (package, due) = row.map_err(storage_error)?;
-        if super::super::plugins::get(db, &package)?.is_some_and(|info| info.summary.enabled) {
+        if package == native::OWNER
+            || super::super::plugins::get(db, &package)?.is_some_and(|info| info.summary.enabled)
+        {
             // A full delivery queue leaves its schedule unconsumed. Completions
             // wake us sooner; a bounded retry avoids spinning on overdue ticks.
             let due = if due <= timestamp {

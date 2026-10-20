@@ -75,3 +75,24 @@ fn rolls_back_failure() {
     assert!(metadata(&mut db).unwrap().is_empty());
     assert_eq!(counts(&db), (0, 0));
 }
+
+#[test]
+fn skips_native_callbacks_without_dropping_packages() {
+    let mut db = fixture();
+    for (id, status, reference) in [
+        ("native-queued", "queued", serde_json::Value::Null),
+        ("native-running", "running", serde_json::Value::Null),
+        (
+            "plugin-queued",
+            "queued",
+            serde_json::json!({"name":"example","digest":"unused","settings_revision":0}),
+        ),
+    ] {
+        db.execute("INSERT INTO dispatch_jobs(id,package,queue,status,body,callback,reference) VALUES(?1,'','fixture',?2,'{}','{}',?3)", params![id,status,serde_json::to_vec(&reference).unwrap()]).unwrap();
+    }
+    assert_eq!(
+        metadata(&mut db).unwrap(),
+        BTreeSet::from(["unused".into()])
+    );
+    assert_eq!(counts(&db), (1, 0));
+}

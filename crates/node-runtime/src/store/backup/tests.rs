@@ -14,10 +14,7 @@ fn destination() -> Destination {
 #[test]
 fn preserves_private_credentials_and_conflicts() {
     let db = Connection::open_in_memory().unwrap();
-    db.execute_batch(
-        "CREATE TABLE backup_settings(singleton INTEGER PRIMARY KEY,body BLOB NOT NULL)",
-    )
-    .unwrap();
+    db.execute_batch(include_str!("../schema.sql")).unwrap();
     let mut settings = Settings {
         destination: Some(destination()),
         ..Settings::default()
@@ -587,5 +584,99 @@ async fn copies_consistent_state_without_blocking_commands() {
         drop(packed);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
+    }
+}
+
+#[test]
+fn separates_local_destination_from_profile() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let profile = root.join("node");
+    std::fs::create_dir(&profile).unwrap();
+    assert!(local_target(root.join("archives/daily").to_str().unwrap(), &profile).is_ok());
+    for target in [&profile, &root, &profile.join("attachments/backups")] {
+        assert_eq!(
+            local_target(target.to_str().unwrap(), &profile)
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+    }
+}
+
+#[test]
+fn excludes_plugin_contexts() {
+    let mut request = Request::new(
+        sailry_protocol::NodeId([1; 32]),
+        Command::DownloadBackup {
+            expected_revision: 0,
+        },
+    );
+    controller(&request).unwrap();
+    request.plugin = Some(sailry_protocol::plugin::Context {
+        invocation: None,
+        turn: None,
+        surface: Default::default(),
+        package: sailry_protocol::plugin::Reference {
+            name: "example".into(),
+            digest: "a".repeat(64),
+            settings_revision: 0,
+        },
+        worktree: None,
+        session: None,
+    });
+    assert_eq!(
+        controller(&request).unwrap_err().code,
+        ErrorCode::PermissionDenied
+    );
+}
+
+#[test]
+fn rejects_invalid_schedule_without_writing() {
+    let db = Connection::open_in_memory().unwrap();
+    db.execute_batch(include_str!("../schema.sql")).unwrap();
+    for schedule in [
+        sailry_protocol::backup::Schedule {
+            enabled: true,
+            timezone: "Invalid/Zone".into(),
+            hour: 9,
+            minute: 5,
+        },
+        sailry_protocol::backup::Schedule {
+            enabled: true,
+            timezone: "UTC".into(),
+            hour: 24,
+            minute: 0,
+        },
+        sailry_protocol::backup::Schedule {
+            enabled: true,
+            timezone: "UTC".into(),
+            hour: 9,
+            minute: 60,
+        },
+    ] {
+        let request = Request::new(
+            sailry_protocol::NodeId([1; 32]),
+            Command::SaveBackupSettings(Update {
+                settings: Settings {
+                    destination: Some(destination()),
+                    schedule: Some(schedule),
+                    ..Settings::default()
+                },
+                identity: SecretUpdate::Keep,
+                secret: SecretUpdate::Keep,
+                session_token: SecretUpdate::Keep,
+                passphrase: SecretUpdate::Replace(Secret::new(
+                    "scheduled-backup-passphrase".into(),
+                )),
+            }),
+        );
+        assert_eq!(
+            execute(&db, &request).unwrap_err().code,
+            ErrorCode::InvalidRequest
+        );
+        assert_eq!(read(&db).unwrap().settings, Settings::default());
+        let records:i64 = db.query_row("SELECT (SELECT count(*) FROM dispatch_handlers)+(SELECT count(*) FROM dispatch_schedules)",[],|row|row.get(0)).unwrap();
+        assert_eq!(records, 0);
     }
 }

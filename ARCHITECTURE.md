@@ -119,13 +119,13 @@ Removing a clean linked worktree without active or queued turns keeps the histor
 of sessions that used it; they cannot admit turns there unless a checkout is
 registered again at that path or the conversation moves to another worktree.
 
-Manual profile backups use the execution Node's consistent SQLite snapshot,
+Data management backups use the execution Node's consistent SQLite snapshot,
 referenced plugin packages, attachments and session HTML documents, and registered managed workspaces.
 Database copying and reference enumeration share one pinned read transaction on an
 independent connection, outside the Store actor; concurrent commands can continue.
 Referenced session documents remain on disk until copying finishes; session
 metadata can still be removed while their physical cleanup waits.
-External project paths remain references. WebDAV and S3 exports publish verified
+External project paths remain references. Local folders, WebDAV and S3 publish verified
 password-encrypted age segments before their manifest; uncertain operations keep
 their original request identity. Explicit restore validates the archive into a new empty profile,
 relocates only current profile-owned paths and preserves immutable history.
@@ -138,6 +138,14 @@ before autosaving it. Existing passphrases remain usable to recover older archiv
 Restore accepts a separate passphrase for older backups and authenticates the
 entire stream before publishing any profile. A restored profile retains its Node
 identity; only one copy of that identity should run at a time.
+Controller-selected exports and file restores use caller-bound, verified Client
+transfer streams, so a remote Node's export is saved on the controller device.
+Local and online targets can be enabled together and share one capture and encrypted
+archive. Automatic backups use the existing Node dispatch service and one private
+backup schedule, configured through the same revision-checked settings command.
+Only Node configuration can create this native callback; plugin job authority
+cannot borrow it. Scheduling requires an online Node and reuses the existing latest
+due occurrence recovery; no controller window or additional background service is required.
 
 Knowledge collections, settings and explicit plugin grants remain in the primary
 Node database. `storage/knowledge.db` contains only derived chunks, full-text

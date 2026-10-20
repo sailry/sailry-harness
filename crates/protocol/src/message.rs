@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Credential, CredentialId, Defaults, NodeId, ProjectId, ProviderId, QueuedTurn, RequestId,
-    Secret, Session, SessionConfig, SessionId, TurnId,
+    Secret, Session, SessionConfig, SessionId, StreamId, TurnId,
 };
 
 #[cfg(test)]
@@ -851,12 +851,28 @@ pub enum Command {
     ExportBackup {
         expected_revision: u64,
     },
+    DownloadBackup {
+        expected_revision: u64,
+    },
+    UploadBackup {
+        size: u64,
+        revision: String,
+    },
+    RestoreBackupFile {
+        stream: StreamId,
+        expected_revision: u64,
+        target: String,
+        #[serde(default)]
+        passphrase: Option<crate::Secret>,
+    },
     RestoreBackup {
         id: String,
         expected_revision: u64,
         target: String,
         #[serde(default)]
         passphrase: Option<crate::Secret>,
+        #[serde(default, skip_serializing_if = "crate::backup::Location::is_online")]
+        location: crate::backup::Location,
     },
     ReadPythonSettings,
     SavePythonSettings(crate::python::Settings),
@@ -1585,6 +1601,8 @@ impl Command {
                 | Self::ReadSearchSettings
                 | Self::ReadBackupSettings
                 | Self::ListBackups
+                | Self::DownloadBackup { .. }
+                | Self::UploadBackup { .. }
                 | Self::ReadPythonSettings
                 | Self::DismissInstallation { .. }
                 | Self::ReadInstallations { .. }
@@ -1898,6 +1916,8 @@ pub enum Output {
     BackupSettings(crate::backup::Settings),
     Backups(crate::backup::Page),
     Backup(crate::backup::Record),
+    BackupDownload(crate::backup::Download),
+    BackupUpload(crate::backup::Upload),
     BackupRestored {
         record: crate::backup::Record,
         target: String,

@@ -55,8 +55,22 @@ pub(crate) fn open(
     passphrase: &Secret,
     cancel: &CancellationToken,
 ) -> Result<tempfile::NamedTempFile, Fault> {
+    open_file(
+        input.reopen().map_err(io)?,
+        input.path().parent().unwrap(),
+        passphrase,
+        cancel,
+    )
+}
+
+pub(crate) fn open_file(
+    input: std::fs::File,
+    temporary: &std::path::Path,
+    passphrase: &Secret,
+    cancel: &CancellationToken,
+) -> Result<tempfile::NamedTempFile, Fault> {
     cancelled(cancel)?;
-    let decryptor = age::Decryptor::new(input.reopen().map_err(io)?).map_err(decryption)?;
+    let decryptor = age::Decryptor::new(input).map_err(decryption)?;
     if !decryptor.is_scrypt() {
         return Err(decryption(()));
     }
@@ -66,7 +80,7 @@ pub(crate) fn open(
     let mut reader = decryptor
         .decrypt(std::iter::once(&identity as &dyn age::Identity))
         .map_err(decryption)?;
-    let file = tempfile::NamedTempFile::new_in(input.path().parent().unwrap()).map_err(io)?;
+    let file = tempfile::NamedTempFile::new_in(temporary).map_err(io)?;
     let mut output = file.reopen().map_err(io)?;
     transfer(&mut reader, &mut output, cancel).map_err(|error| {
         if error.code == ErrorCode::Cancelled {

@@ -82,6 +82,7 @@ pub(super) fn prepare<'a>(
         revision: hash.finalize().to_hex().to_string(),
         stamp,
         _permit: permit,
+        _staging: None,
     })
 }
 
@@ -93,6 +94,7 @@ pub(super) async fn send(
         source,
         size,
         _permit,
+        _staging,
         ..
     } = prepared;
     let source: Box<dyn tokio::io::AsyncRead + Unpin + Send> = match source {

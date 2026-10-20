@@ -12,6 +12,7 @@ use sailry_protocol::{
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
+mod backup;
 mod download;
 mod registry;
 #[cfg(test)]
@@ -64,6 +65,7 @@ struct Prepared {
     revision: String,
     stamp: String,
     _permit: OwnedSemaphorePermit,
+    _staging: Option<(tempfile::NamedTempFile, tempfile::TempDir)>,
 }
 
 enum Source {
@@ -175,6 +177,7 @@ impl Transfers {
                 revision: source.spec.revision,
                 stamp: String::new(),
                 _permit: permit,
+                _staging: None,
             })
         });
         let prepared = tokio::select! {
@@ -212,6 +215,7 @@ impl Transfers {
             revision: attachment.spec.revision.clone(),
             stamp: String::new(),
             _permit: permit,
+            _staging: None,
         };
         let output = sailry_protocol::attachment::Download {
             stream: lease.stream,
