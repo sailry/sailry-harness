@@ -11,12 +11,15 @@ pub(in crate::plugins) fn owns(info: &Info) -> bool {
         Some(sailry_protocol::plugin::Origin::Bundled) => true,
         Some(sailry_protocol::plugin::Origin::Online { source, path }) => {
             info.skill.is_none()
-                && source.repository == format!("{REPOSITORY}.git")
+                && owns_source(&info.summary.name, &source.repository, path)
                 && (source.git_ref == "main" || github::source::commit(&source.git_ref))
-                && path == &info.summary.name
         }
         _ => false,
     }
+}
+
+pub(crate) fn owns_source(package: &str, repository: &str, path: &str) -> bool {
+    repository == format!("{REPOSITORY}.git") && path == package
 }
 
 #[derive(Deserialize)]

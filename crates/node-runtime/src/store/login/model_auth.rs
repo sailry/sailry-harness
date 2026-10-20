@@ -374,7 +374,11 @@ pub(in crate::store) fn check_binding(
     let saved =
         crate::store::providers::authentication::binding(db, credential.id, credential.provider)?
             .ok_or_else(missing)?;
-    if saved.origin != target.origin {
+    if !crate::store::providers::consent::same_origin(
+        &target.package,
+        &saved.origin,
+        &target.origin,
+    ) {
         return Err(missing());
     }
     saved.matches(target)

@@ -30,6 +30,27 @@ pub(in crate::store) fn origin(info: &plugin::Info) -> Origin {
     }
 }
 
+/// Installed imports keep their account owner across content-only updates.
+/// Official bundled and repository packages share the same publishing owner.
+pub(in crate::store) fn same_origin(package: &str, previous: &Origin, current: &Origin) -> bool {
+    if previous == current
+        || matches!(
+            (previous, current),
+            (Origin::Imported { .. }, Origin::Imported { .. })
+        )
+    {
+        return true;
+    }
+    let official = |origin: &Origin| match origin {
+        Origin::Bundled => true,
+        Origin::Git { repository, path } => {
+            crate::plugins::catalog::official::owns_source(package, repository, path)
+        }
+        _ => false,
+    };
+    official(previous) && official(current)
+}
+
 pub(in crate::store) fn requested(
     info: &plugin::Info,
     preset: &sailry_protocol::conversation::presets::Preset,

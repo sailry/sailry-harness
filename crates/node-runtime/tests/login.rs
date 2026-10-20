@@ -72,11 +72,22 @@ impl Fixture {
     }
 
     async fn empty(remote: bool, server: &Server) -> Self {
+        Self::start(remote, server, false).await
+    }
+
+    async fn source(remote: bool, server: &Server) -> Self {
+        Self::start(remote, server, true).await
+    }
+
+    async fn start(remote: bool, server: &Server, source: bool) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let node =
-            Node::start_empty_with_authorization(directory.path().join("node"), &server.endpoint)
-                .await
-                .unwrap();
+        let path = directory.path().join("node");
+        let node = if source {
+            Node::start_empty_with_authorization_source(path, &server.endpoint).await
+        } else {
+            Node::start_empty_with_authorization(path, &server.endpoint).await
+        }
+        .unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

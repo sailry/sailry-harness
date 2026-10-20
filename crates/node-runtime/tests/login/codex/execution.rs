@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
+pub(super) fn captured(fixture: &Fixture, turn: &QueuedTurn) -> Provider {
     let db = rusqlite::Connection::open_with_flags(
         fixture.node.profile().join("storage/node.sqlite3"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,

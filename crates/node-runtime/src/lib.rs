@@ -261,6 +261,26 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))?
     }
 
+    /// Combines isolated authorization and immutable package-source fixtures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn start_empty_with_authorization_source(
+        path: impl AsRef<Path>,
+        endpoint: &str,
+    ) -> Result<Self, Error> {
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                authorization: providers::login::Service::fixture(endpoint),
+                skills: crate::plugins::github::Github::fixture(endpoint),
+                skip_bundled: true,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
+    }
+
     /// Shortens observation only in isolated lifecycle fixtures, never child execution.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_child_observation_fixture(&self, window: std::time::Duration) {

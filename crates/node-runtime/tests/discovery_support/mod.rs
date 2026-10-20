@@ -19,6 +19,7 @@ pub enum Reply {
     Json(Value),
     Hold,
     Raw(String),
+    Bytes(Vec<u8>),
     Staged {
         initial: String,
         release: Arc<tokio::sync::Notify>,
@@ -190,6 +191,11 @@ async fn respond(
         Reply::Delayed(release, value) => {
             release.notified().await;
             write_json(&mut stream, value).await?;
+        }
+        Reply::Bytes(value) => {
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/zip\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", value.len()).as_bytes()).await?;
+            stream.write_all(&value).await?;
+            stream.shutdown().await?;
         }
         Reply::Raw(value) => {
             stream.write_all(value.as_bytes()).await?;

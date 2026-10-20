@@ -15,6 +15,8 @@ mod search;
 pub(super) mod server;
 #[path = "codex/streaming.rs"]
 mod streaming;
+#[path = "codex/updates.rs"]
+mod updates;
 
 const CLIENT: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub(super) const ACCESS: &str = "isolated-codex-access";

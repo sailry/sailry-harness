@@ -7,7 +7,7 @@ use sailry_protocol::plugin::{
 };
 use serde::Deserialize;
 use std::io::{Read, Seek};
-pub(super) mod official;
+pub(crate) mod official;
 pub(super) mod skills;
 
 #[derive(Deserialize)]
