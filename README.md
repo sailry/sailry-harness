@@ -34,7 +34,7 @@ Run locally or on your own server, and continue from Desktop or Mobile.
 | Platform | Architecture | Status | Download |
 | --- | --- | --- | --- |
 | macOS 13+ | Apple silicon / Intel | Awaiting release | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
-| Linux · glibc 2.28+ | x64 / ARM64 | Awaiting release | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Linux · glibc 2.34+ | x64 / ARM64 | Awaiting release | [Previews](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | — | Planned | — |
 
 ### Mobile

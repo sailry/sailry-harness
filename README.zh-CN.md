@@ -34,7 +34,7 @@
 | 系统 | 架构 | 状态 | 下载 |
 | --- | --- | --- | --- |
 | macOS 13+ | Apple 芯片 / Intel | 待发布 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
-| Linux · glibc 2.28+ | x64 / ARM64 | 待发布 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
+| Linux · glibc 2.34+ | x64 / ARM64 | 待发布 | [预览版](https://github.com/sailry/sailry-harness/releases?q=prerelease%3Atrue) |
 | Windows | — | 计划中 | — |
 
 ### 移动端

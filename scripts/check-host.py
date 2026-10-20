@@ -2,15 +2,53 @@
 """Verify an existing Host binary using a fresh private profile and no external service."""
 
 import argparse
+import json
 from pathlib import Path
 import queue
+import re
+import shutil
 import subprocess
 import tempfile
 import threading
 
 
+def check_linux(binary):
+    with binary.open("rb") as stream:
+        if stream.read(4) != b"\x7fELF":
+            return
+    recorded = set()
+    for name in ("onnx-runtime.json", "llama-runtime.json"):
+        manifest = binary.parent / name
+        if manifest.is_symlink():
+            raise ValueError("Runtime manifest must be an ordinary file")
+        if manifest.is_file():
+            recorded.update(file["name"] for file in json.loads(manifest.read_text())["files"])
+    libraries = sorted(binary.parent.glob("*.so*"))
+    for library in libraries:
+        if library.is_symlink() or not library.is_file():
+            raise ValueError(f"Runtime library must be an ordinary file: {library.name}")
+        if library.name not in recorded:
+            raise ValueError(f"Runtime library has no manifest entry: {library.name}")
+    tool = shutil.which("readelf")
+    if tool:
+        arguments = [tool, "--version-info"]
+    else:
+        tool = shutil.which("llvm-objdump") or shutil.which("objdump")
+        if not tool:
+            raise RuntimeError("readelf or objdump is required to verify Linux compatibility")
+        arguments = [tool, "-T"]
+    for path in [binary, *libraries]:
+        output = subprocess.run([*arguments, str(path)], check=True, capture_output=True,
+                                text=True).stdout
+        versions = [tuple(map(int, match.split(".")))
+                    for match in re.findall(r"\bGLIBC_(\d+(?:\.\d+)+)\b", output)]
+        if any(version > (2, 34) for version in versions):
+            raise ValueError(f"Linux binary requires glibc newer than 2.34: {path.name}")
+
+
 def check(binary):
     binary = binary.resolve(strict=True)
+    check_linux(binary)
     subprocess.run([str(binary), "--version"], check=True)
     subprocess.run([str(binary), "--help"], check=True)
     with tempfile.TemporaryDirectory(prefix="sailry-host-check-") as directory:

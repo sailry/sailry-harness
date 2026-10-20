@@ -304,7 +304,7 @@ handoffs. Manual dispatch can retry those follow-ups for a published version tag
 Apple silicon and Intel runners build native Desktop DMGs, updater ZIPs and
 standalone macOS Host archives. Desktop contains its local Node, not remote Host
 binaries or a Python runtime. Independent Linux amd64 and arm64 runners each
-build one Host architecture with glibc 2.28 targeting.
+build one Host architecture with glibc 2.34 targeting.
 Linux link inputs are checksum-pinned in
 [`linux-sysroot.lock.json`](scripts/package/linux-sysroot.lock.json); the build
 does not install cross-compilation packages into the host system.

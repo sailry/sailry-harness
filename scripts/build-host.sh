@@ -30,7 +30,7 @@ if [[ "$task_target" == *linux-gnu ]]; then
   export "PKG_CONFIG_SYSROOT_DIR_$task_environment=$task_sysroot"
   export "PKG_CONFIG_LIBDIR_$task_environment=$task_sysroot/usr/lib/$task_triplet/pkgconfig:$task_sysroot/usr/share/pkgconfig"
   "$task_zigbuild" zigbuild --locked -p sailry-host --profile "$task_cargo_profile" \
-    --target "$task_target.2.28" --target-dir target/host-cross
+    --target "$task_target.2.34" --target-dir target/host-cross
   task_binary="$task_root/target/host-cross/$task_target/$task_profile/sailry-host"
 else
   test "$task_target" = "$task_native"
