@@ -82,32 +82,55 @@ pub(super) fn parse(directory: &str, text: &str) -> Result<Skill, Fault> {
     Ok(skill)
 }
 
-pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
-    let mut lines = text.split_inclusive('\n');
-    if lines.next().map(str::trim_end) != Some("---") {
-        return Err(sailry_protocol::Fault::invalid(
-            "skill frontmatter is required",
-        ));
-    }
-    let mut header = String::new();
-    let mut closed = false;
-    for line in lines {
-        if line.trim_end() == "---" {
-            closed = true;
-            break;
+/// Splits a leading YAML frontmatter block into its header and Markdown body.
+///
+/// The opening `---` may follow a byte-order mark and blank lines; `---` or `...` closes it.
+/// Returns `None` when the text has no complete frontmatter block.
+pub(super) fn frontmatter(text: &str) -> Option<(&str, &str)> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut offset = 0;
+    let mut opened = false;
+    let mut start = 0;
+    for line in text.split_inclusive('\n') {
+        let end = offset + line.len();
+        let trimmed = line.trim_end();
+        if !opened {
+            if trimmed.is_empty() {
+                offset = end;
+                continue;
+            }
+            if trimmed != "---" {
+                return None;
+            }
+            opened = true;
+            start = end;
+        } else if trimmed == "---" || trimmed == "..." {
+            return Some((&text[start..offset], &text[end..]));
         }
-        header.push_str(line);
+        offset = end;
     }
-    if !closed || header.len() > 16 * 1024 {
+    None
+}
+
+/// Returns the Markdown body of a skill document without its frontmatter.
+pub(super) fn body(text: &str) -> &str {
+    frontmatter(text).map_or(text, |(_, body)| body)
+}
+
+pub(super) fn parse_document(text: &str) -> Result<Skill, Fault> {
+    let (header, _) = frontmatter(text).ok_or_else(|| {
+        sailry_protocol::Fault::invalid("skill frontmatter is missing or incomplete")
+    })?;
+    if header.len() > 16 * 1024 {
         return Err(sailry_protocol::Fault::invalid(
-            "skill frontmatter is incomplete or too large",
+            "skill frontmatter is too large",
         ));
     }
     let options = serde_saphyr::options! {
         duplicate_keys: serde_saphyr::DuplicateKeyPolicy::Error,
         budget: serde_saphyr::budget! { max_depth: 16, max_events: 4096, max_aliases: 64, max_anchors: 64 },
     };
-    let value: Value = serde_saphyr::from_str_with_options(&header, options)
+    let value: Value = serde_saphyr::from_str_with_options(header, options)
         .map_err(|_| sailry_protocol::Fault::invalid("invalid skill YAML frontmatter"))?;
     let object = value
         .as_object()

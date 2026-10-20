@@ -1,4 +1,5 @@
 //! Document inspection reuses immutable acquisition and never installs or executes a skill.
+//! The returned content is the Markdown body; the parsed frontmatter travels as `skill`.
 use super::*;
 use sailry_protocol::plugin::skills::{Document, DocumentSource};
 
@@ -57,6 +58,6 @@ pub(in crate::plugins) fn parse(bytes: &[u8]) -> Result<Document, Fault> {
     let skill = super::super::skills::parse_document(content)?;
     Ok(Document {
         skill,
-        content: content.into(),
+        content: super::super::skills::body(content).into(),
     })
 }

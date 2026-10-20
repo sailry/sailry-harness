@@ -491,6 +491,57 @@ mod skill_loading {
         assert!(info.mcp.is_empty());
     }
 
+    mod document_body {
+        use super::*;
+
+        #[test]
+        fn strips_frontmatter() {
+            let text = "---\nname: analysis\ndescription: text\n---\n# Analysis\n\nBody\n";
+            assert_eq!(skills::body(text), "# Analysis\n\nBody\n");
+        }
+
+        #[test]
+        fn keeps_plain_markdown() {
+            let text = "# Analysis\n\n---\n\nBody\n";
+            assert_eq!(skills::body(text), text);
+        }
+
+        #[test]
+        fn strips_crlf_frontmatter() {
+            let text = "---\r\nname: analysis\r\n---\r\nBody\r\n";
+            assert_eq!(skills::body(text), "Body\r\n");
+        }
+
+        #[test]
+        fn keeps_unterminated_fence() {
+            let text = "---\nname: analysis\nBody\n";
+            assert_eq!(skills::body(text), text);
+            assert!(skills::parse_document(text).is_err());
+        }
+
+        #[test]
+        fn accepts_bom_blank_lines_and_dots() {
+            let text = "\u{feff}\n---\nname: analysis\ndescription: text\n...\nBody";
+            assert_eq!(skills::body(text), "Body");
+            assert_eq!(skills::parse_document(text).unwrap().name, "analysis");
+        }
+
+        #[test]
+        fn preserves_unicode_body() {
+            let text =
+                "---\nname: kunlun-dev\ndescription: 自动化测试教练\n---\n## 正文 🙂\n\n保留内容\n";
+            assert_eq!(skills::body(text), "## 正文 🙂\n\n保留内容\n");
+        }
+
+        #[test]
+        fn document_carries_body() {
+            let text = "---\nname: analysis\ndescription: text\n---\nBody\n";
+            let document = crate::plugins::skill_sources::document::parse(text.as_bytes()).unwrap();
+            assert_eq!(document.skill.name, "analysis");
+            assert_eq!(document.content, "Body\n");
+        }
+    }
+
     #[test]
     fn rejects_invalid_frontmatter() {
         for header in [

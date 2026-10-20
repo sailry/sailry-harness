@@ -293,10 +293,7 @@ async fn reads_immutable_documents_without_installation() {
         };
         let read = document(&client, source).await;
         assert_eq!(read.skill, discovery.skills[0].skill);
-        assert_eq!(
-            read.content,
-            "---\nname: review\ndescription: Review changes\n---\nReview supplied changes\n"
-        );
+        assert_eq!(read.content, "Review supplied changes\n");
         assert!(
             catalog
                 .requests
@@ -339,10 +336,7 @@ async fn reads_immutable_documents_without_installation() {
         )
         .await;
         assert_eq!(read.skill, discovery.skills[0].skill);
-        assert_eq!(
-            read.content,
-            "---\nname: analysis\ndescription: Inspect a sample\n---\nRevision 1.0.0\n"
-        );
+        assert_eq!(read.content, "Revision 1.0.0\n");
         let mut changed = discovery.source;
         changed.archive_sha256 = "0".repeat(64);
         assert_eq!(
@@ -372,8 +366,8 @@ async fn reads_immutable_documents_without_installation() {
             Some(read.skill.description.as_str()),
             entry.description.as_deref()
         );
-        assert!(read.content.starts_with("---\n"));
-        assert!(read.content.len() > read.skill.description.len());
+        assert!(!read.content.starts_with("---"));
+        assert!(!read.content.trim().is_empty());
         assert_eq!(execute(&client, Command::ListPlugins).await, inventory);
         assert_eq!(retained(&node), before);
         node.shutdown().await.unwrap();
