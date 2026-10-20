@@ -259,7 +259,7 @@ impl Workspace {
                     view.provider_link.as_ref().and_then(|live| live.error),
                     view.provider_link
                         .as_ref()
-                        .and_then(|live| live.catalog.error),
+                        .and_then(|live| live.catalog.feedback()),
                     cx.try_global::<crate::preferences::Preferences>()
                         .and_then(|preferences| preferences.error),
                     cx.try_global::<crate::theme::Catalog>()
@@ -353,7 +353,7 @@ impl Workspace {
             self.dictation.update(cx, |panel, cx| panel.refresh(cx));
         }
         if section == Section::Providers {
-            self.refresh_catalog(cx);
+            self.refresh_catalog(providers::Source::Automatic, cx);
         }
         if section.is_extension() {
             cx.emit(OpenPlugins);

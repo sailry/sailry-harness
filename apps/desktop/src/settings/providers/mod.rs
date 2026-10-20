@@ -9,6 +9,7 @@ mod login;
 mod model;
 mod presets;
 mod vendors;
+pub(super) use catalog::Source;
 use gpui_kit::prelude::FluentBuilder as _;
 pub(super) use live::Binding;
 pub(super) use live::Live;

@@ -1,12 +1,62 @@
 use super::*;
 use sailry_link::CancellationToken;
+use sailry_node_runtime::logging::{Area, Entry, Phase, Span};
 use sailry_protocol::{Command, ErrorCode, Output, conversation::catalog};
+
+#[derive(Clone, Copy)]
+pub(in crate::settings) enum Source {
+    Automatic,
+    Manual,
+}
+
+impl Source {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Automatic => "automatic",
+            Self::Manual => "manual",
+        }
+    }
+}
+
+pub(in crate::settings) struct Failure {
+    key: &'static str,
+    source: Source,
+}
 
 #[derive(Default)]
 pub(in crate::settings) struct State {
     pub status: catalog::Status,
     pub refresh: Option<Refresh>,
-    pub error: Option<&'static str>,
+    pub error: Option<Failure>,
+}
+
+impl State {
+    pub(in crate::settings) fn feedback(&self) -> Option<&'static str> {
+        self.error
+            .as_ref()
+            .and_then(|failure| matches!(failure.source, Source::Manual).then_some(failure.key))
+    }
+
+    fn complete(&mut self, source: Source, result: Result<catalog::Status, ErrorCode>) {
+        match result {
+            Ok(status) => {
+                if status.revision >= self.status.revision {
+                    self.status = status;
+                }
+                self.error = None;
+            }
+            Err(code) => {
+                self.error = Some(Failure {
+                    key: if code == ErrorCode::Busy {
+                        "provider_catalog_busy"
+                    } else {
+                        "provider_catalog_failed"
+                    },
+                    source,
+                });
+            }
+        }
+    }
 }
 
 pub(in crate::settings) struct Refresh {
@@ -21,7 +71,7 @@ impl Drop for Refresh {
 }
 
 impl Workspace {
-    pub(in crate::settings) fn refresh_catalog(&mut self, cx: &mut Context<Self>) {
+    pub(in crate::settings) fn refresh_catalog(&mut self, source: Source, cx: &mut Context<Self>) {
         let Some(live) = &mut self.provider_link else {
             self.providers.catalog_revision += 1;
             cx.notify();
@@ -34,12 +84,27 @@ impl Workspace {
         let node = binding.client.target();
         let stop = CancellationToken::new();
         let cancelled = stop.clone();
+        let request = binding.client.prepare(Command::RefreshModelCatalog);
+        let mut entry = Entry::new(Area::Desktop, Phase::Begin);
+        entry.operation = Some("model_catalog");
+        entry.stage = Some("refresh");
+        entry.source_kind = Some(source.name());
+        entry.context.node = Some(node);
+        entry.context.request = Some(request.id);
+        let mut diagnostic = Span::new(entry).cancel_when(stop.clone());
         let job = binding.runtime.spawn(async move {
-            tokio::select! {
+            let result = tokio::select! {
                 biased;
                 _ = cancelled.cancelled() => None,
-                result = binding.client.execute(binding.client.prepare(Command::RefreshModelCatalog)) => Some(result),
-            }
+                result = binding.client.execute(request) => Some(result),
+            };
+            match &result {
+                Some(Ok(Output::CatalogStatus(_))) => diagnostic.finish(Phase::Completed, None),
+                Some(Err(error)) => diagnostic.finish(Phase::Failed, Some(error.code)),
+                None => diagnostic.finish(Phase::Cancelled, Some(ErrorCode::Cancelled)),
+                _ => diagnostic.finish(Phase::Failed, Some(ErrorCode::Internal)),
+            };
+            result
         });
         live.catalog.error = None;
         live.catalog.refresh = Some(Refresh {
@@ -54,17 +119,12 @@ impl Workspace {
                         return;
                     }
                     live.catalog.refresh = None;
-                    match result {
-                        Ok(Some(Ok(Output::CatalogStatus(status)))) => {
-                            if status.revision >= live.catalog.status.revision {
-                                live.catalog.status = status;
-                            }
-                        }
-                        Ok(Some(Err(error))) if error.code == ErrorCode::Busy => {
-                            live.catalog.error = Some("provider_catalog_busy");
-                        }
-                        _ => live.catalog.error = Some("provider_catalog_failed"),
-                    }
+                    let result = match result {
+                        Ok(Some(Ok(Output::CatalogStatus(status)))) => Ok(status),
+                        Ok(Some(Err(error))) => Err(error.code),
+                        _ => Err(ErrorCode::Internal),
+                    };
+                    live.catalog.complete(source, result);
                     cx.notify();
                 });
             }),
@@ -109,7 +169,9 @@ impl Workspace {
                             .disabled(loading || live.is_some_and(|live| !live.connected))
                             .debug_selector(|| "models-dev-refresh".into())
                             .label(tr("provider_catalog_update"))
-                            .on_click(cx.listener(|owner, _, _, cx| owner.refresh_catalog(cx))),
+                            .on_click(cx.listener(|owner, _, _, cx| {
+                                owner.refresh_catalog(Source::Manual, cx)
+                            })),
                     )
                 },
             )
@@ -138,3 +200,6 @@ impl Workspace {
             .child(Row::new("provider_catalog_last_update", updated_at))
     }
 }
+
+#[cfg(test)]
+mod tests;

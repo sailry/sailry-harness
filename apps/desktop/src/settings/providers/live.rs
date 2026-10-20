@@ -272,7 +272,7 @@ impl Workspace {
             self.read_channel_directory(plugins, cx);
         }
         if refresh {
-            self.refresh_catalog(cx);
+            self.refresh_catalog(super::catalog::Source::Automatic, cx);
         }
         quota::refresh(self, cx);
         cx.notify();
