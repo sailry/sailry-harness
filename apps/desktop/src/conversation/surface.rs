@@ -221,7 +221,7 @@ impl RenderOnce for ActivityScroll {
         div()
             .w_full()
             .min_w_0()
-            .when(self.frame, |body| body.py_2())
+            .when(self.frame && !self.group, |body| body.py_2())
             .child(
                 div()
                     .relative()
