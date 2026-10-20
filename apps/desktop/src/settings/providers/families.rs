@@ -51,15 +51,8 @@ pub(super) fn for_reference(
         return Selection::Group(id);
     }
     Selection::Group(
-        bundled
-            .iter()
-            .find(|entry| {
-                entry
-                    .preset
-                    .routes
-                    .iter()
-                    .any(|route| presets::kind(entry, route) == kind)
-            })
+        presets::for_kind(kind)
+            .as_ref()
             .map_or_else(|| "unlisted".into(), presets::brand),
     )
 }

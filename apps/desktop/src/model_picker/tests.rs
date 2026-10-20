@@ -53,3 +53,59 @@ fn retains_declared_type_identity() {
     reference.id = "missing".into();
     assert!(crate::settings::installed_preset(Some(&reference), &packages).is_none());
 }
+
+#[test]
+fn groups_builtin_methods_by_type() {
+    let methods = [
+        ("api_key", Some("openai")),
+        ("chat_gpt_oauth", None),
+        ("chat_gpt", Some("chat-gpt")),
+        ("api_key", None),
+    ];
+    let groups = methods
+        .into_iter()
+        .enumerate()
+        .map(|(id, (authentication, preset))| {
+            let provider: Provider = serde_json::from_value(serde_json::json!({
+                "id":sailry_protocol::ProviderId::new(), "revision":1,
+                "name":format!("Channel {id}"), "api":"responses",
+                "authentication":authentication, "endpoint":"https://example.test/v1",
+                "enabled":true, "default_model":"shared",
+                "preset":preset.map(|id| PresetRef {
+                    source:Source::Builtin, id:id.into(), route:None
+                })
+            }))
+            .unwrap();
+            let mut channel = crate::settings::channel(id, &provider);
+            channel.models = vec![crate::settings::Model::example("shared")];
+            Group::from(channel)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        groups
+            .iter()
+            .map(|group| &group.family)
+            .collect::<BTreeSet<_>>()
+            .len(),
+        1
+    );
+    for (id, group) in groups.iter().enumerate() {
+        assert_eq!(group.family, "openai");
+        assert_eq!(group.id, id);
+        assert_eq!(group.name, format!("Channel {id}"));
+        assert_eq!(group.models[0].id, "shared");
+        assert_eq!(
+            crate::settings::type_label(group.directory.as_ref().unwrap()),
+            "OpenAI"
+        );
+    }
+    let provider: Provider = serde_json::from_value(serde_json::json!({
+        "id":sailry_protocol::ProviderId::new(), "revision":1,"name":"Other channel",
+        "api":"anthropic","authentication":"claude_oauth",
+        "endpoint":"https://example.test", "enabled":true,"default_model":"shared"
+    }))
+    .unwrap();
+    let other = Group::from(crate::settings::channel(4, &provider));
+    assert_eq!(other.family, "anthropic");
+    assert_ne!(other.family, groups[0].family);
+}

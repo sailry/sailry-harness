@@ -10,8 +10,8 @@ mod login;
 mod model;
 mod presets;
 pub(crate) use presets::{
-    brand as type_key, brand_label as type_label, installed as installed_preset,
-    render_icon as type_icon,
+    brand as type_key, brand_label as type_label, for_kind as fallback_preset,
+    installed as installed_preset, render_icon as type_icon,
 };
 mod vendors;
 pub(super) use catalog::Source;

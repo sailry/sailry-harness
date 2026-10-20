@@ -87,8 +87,15 @@ fn matches_all_methods_in_declared_family() {
     assert_ne!(selected, selection(&channels[2], None));
     let mut legacy = channels[0].clone();
     legacy.directory = None;
-    legacy.preset = Preset::CompatibleResponses;
-    assert_eq!(selection(&legacy, None), Selection::Group("openai".into()));
+    for preset in [
+        Preset::OpenAi,
+        Preset::CompatibleResponses,
+        Preset::ChatGptOAuth,
+        Preset::ChatGpt,
+    ] {
+        legacy.preset = preset;
+        assert_eq!(selection(&legacy, None), Selection::Group("openai".into()));
+    }
     legacy.preset = Preset::OpenCodeZen;
     assert_eq!(
         selection(&legacy, None),

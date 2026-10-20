@@ -36,6 +36,17 @@ pub(super) fn bundled() -> Vec<Entry> {
         .collect()
 }
 
+/// Match a saved channel without a directory reference to its declared type.
+pub(crate) fn for_kind(kind: Kind) -> Option<Entry> {
+    bundled().into_iter().find(|entry| {
+        entry
+            .preset
+            .routes
+            .iter()
+            .any(|route| self::kind(entry, route) == kind)
+    })
+}
+
 pub(super) fn label(preset: &Preset) -> String {
     preset
         .locales

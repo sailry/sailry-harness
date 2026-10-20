@@ -43,15 +43,18 @@ struct Choice {
 
 impl From<Channel> for Group {
     fn from(channel: Channel) -> Self {
+        let directory = channel
+            .directory
+            .or_else(|| crate::settings::fallback_preset(channel.preset));
         Group {
             id: channel.id,
             name: channel.name,
             category: channel.preset.category(),
-            family: channel.directory.as_ref().map_or_else(
+            family: directory.as_ref().map_or_else(
                 || channel.preset.category().key().to_owned(),
                 crate::settings::type_key,
             ),
-            directory: channel.directory,
+            directory,
             models: channel
                 .models
                 .into_iter()
