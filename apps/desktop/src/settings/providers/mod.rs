@@ -114,7 +114,6 @@ impl Workspace {
                             .w(px(220.))
                             .child(
                                 Input::new(&self.provider_query)
-                                    .small()
                                     .cleanable(true)
                                     .prefix(Icon::new(IconName::Search).small()),
                             ),
@@ -124,7 +123,6 @@ impl Workspace {
                         Button::new("settings-add")
                             .disabled(busy)
                             .primary()
-                            .small()
                             .debug_selector(|| "settings-add".into())
                             .label(tr("settings_add"))
                             .icon(IconName::Plus)

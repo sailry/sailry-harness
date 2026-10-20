@@ -144,7 +144,6 @@ impl Workspace {
         Button::new("provider-families")
             .debug_selector(|| "provider-families".into())
             .accessibility_label(tr("provider_type"))
-            .small()
             .outline()
             .dropdown_caret(true)
             .label(label)
