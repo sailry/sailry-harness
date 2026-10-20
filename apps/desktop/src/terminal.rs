@@ -31,6 +31,14 @@ pub(crate) use self::input::{Copy, Paste, SelectAll};
 pub(crate) use connection::{Binding, Scope};
 pub(crate) use search::{Close, Find, Next, Previous};
 
+fn failure(error: &sailry_protocol::Fault) -> &'static str {
+    if error.code == sailry_protocol::ErrorCode::OutcomeUnknown {
+        "terminal_action_unknown"
+    } else {
+        "terminal_unavailable"
+    }
+}
+
 pub(crate) fn init(cx: &mut App) {
     let (copy, paste, select) = if cfg!(target_os = "macos") {
         ("cmd-c", "cmd-v", "cmd-a")
@@ -91,7 +99,13 @@ pub(crate) struct View {
 impl View {
     pub fn new(binding: Binding, window: &mut Window, cx: &mut Context<Self>) -> Self {
         crate::feedback::observe(window, cx, |view: &Self, _| {
-            view.message.into_iter().collect()
+            view.message
+                .into_iter()
+                .chain(view.state.error.as_ref().map(failure).or_else(|| {
+                    (view.status() == Some("terminal_unavailable"))
+                        .then_some("terminal_unavailable")
+                }))
+                .collect()
         });
         cx.observe_global::<crate::preferences::Preferences>(|_, cx| cx.notify())
             .detach();
@@ -512,7 +526,10 @@ impl Render for View {
                         .bg(cx.theme().background.opacity(0.9))
                         .text_color(cx.theme().muted_foreground)
                         .text_sm()
-                        .when(status != "terminal_other_controller", |element| {
+                        .when(status == "terminal_connecting", |element| {
+                            element.child(spinner::Spinner::new().small())
+                        })
+                        .when(status == "terminal_exited", |element| {
                             element.child(tr(status))
                         })
                         .when(self.connection.can_retry(), |element| {
@@ -563,6 +580,9 @@ impl View {
             return Some("terminal_exited");
         }
         if !self.controlling() {
+            if self.claim_pending || snapshot.info.owner.is_none() && snapshot.info.ssh.is_none() {
+                return Some("terminal_connecting");
+            }
             return Some(if snapshot.info.ssh.is_some() {
                 "terminal_unavailable"
             } else {

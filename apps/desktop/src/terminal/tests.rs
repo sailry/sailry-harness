@@ -76,3 +76,18 @@ fn selection_boundaries() {
     };
     assert_eq!(rectangular.text(&screen), "ab\nef");
 }
+
+#[test]
+fn distinguishes_uncertain_connections() {
+    use sailry_protocol::{ErrorCode, Fault};
+    assert_eq!(
+        failure(&Fault::new(ErrorCode::OutcomeUnknown, "Fixture")),
+        "terminal_action_unknown"
+    );
+    for code in [ErrorCode::Unavailable, ErrorCode::PermissionDenied] {
+        assert_eq!(
+            failure(&Fault::new(code, "Fixture")),
+            "terminal_unavailable"
+        );
+    }
+}

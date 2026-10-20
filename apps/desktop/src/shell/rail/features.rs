@@ -65,7 +65,7 @@ impl Feature {
 
     pub fn selected(&self, shell: &Shell, cx: &App) -> bool {
         match &self.destination {
-            Destination::Page(page) => shell.page == *page,
+            Destination::Page(page) => shell.page.navigation() == *page,
             Destination::Plugin(entry)
                 if entry.navigation.surface
                     == sailry_protocol::plugin::desktop::Surface::Settings =>

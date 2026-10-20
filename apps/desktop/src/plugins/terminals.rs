@@ -102,9 +102,11 @@ impl Terminals {
                 let Some(scope) = scope else {
                     mounted.views.borrow_mut().remove(args.id());
                     return div()
-                        .text_color(cx.theme().muted_foreground)
-                        .debug_selector(|| "plugin-terminal-unavailable".into())
-                        .child(crate::tr("plugins_view_unavailable"))
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(spinner::Spinner::new().small())
                         .into_any_element();
                 };
                 let old = mounted.views.borrow().get(args.id()).cloned();

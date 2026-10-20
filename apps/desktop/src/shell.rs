@@ -400,6 +400,9 @@ impl Shell {
                 self.session_scope.open(key);
             }
         }
+        if page == Page::Conversation && self.live.is_some() {
+            self.activate_session(self.session_scope.active, window, cx);
+        }
         self.sync_session_panel(window, cx);
         cx.notify();
     }

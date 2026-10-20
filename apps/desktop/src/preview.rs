@@ -64,6 +64,14 @@ impl Page {
         }
     }
 
+    pub fn navigation(self) -> Self {
+        if self == Self::Terminal {
+            Self::Conversation
+        } else {
+            self
+        }
+    }
+
     pub fn panel_index(self) -> usize {
         match self {
             Self::Files => 1,
@@ -195,5 +203,21 @@ mod panel_visibility {
         };
         assert!(!layout.panel_visible(Page::Git, 1235.));
         assert!(layout.panel_visible(Page::Git, 1236.));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::prelude::v1::test;
+
+    #[test]
+    fn keeps_terminals_in_conversations() {
+        assert_eq!(Page::Terminal.navigation(), Page::Conversation);
+        for page in Page::ALL {
+            if page != Page::Terminal {
+                assert_eq!(page.navigation(), page);
+            }
+        }
     }
 }
