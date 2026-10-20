@@ -277,34 +277,32 @@ impl Market {
         for package in locals {
             let id = package.id.clone();
             let current = *selected == id;
-            cards.push(
-                self.theme_card(
-                    id.clone(),
-                    package.name.clone(),
-                    if id == "builtin" {
-                        tr("market_theme_builtin").to_string()
+            cards.push(Self::theme_card(
+                id.clone(),
+                package.name.clone(),
+                if id == "builtin" {
+                    tr("market_theme_builtin").to_string()
+                } else {
+                    String::new()
+                },
+                theme::preview(package, cx.theme().is_dark(), cx)
+                    .h_full()
+                    .into_any_element(),
+                Button::new(SharedString::from(format!("market-theme-apply-{id}")))
+                    .small()
+                    .label(tr(if current {
+                        "market_theme_current"
                     } else {
-                        String::new()
-                    },
-                    theme::preview(package, cx.theme().is_dark(), cx)
-                        .h_full()
-                        .into_any_element(),
-                    Button::new(SharedString::from(format!("market-theme-apply-{id}")))
-                        .small()
-                        .label(tr(if current {
-                            "market_theme_current"
-                        } else {
-                            "market_theme_apply"
-                        }))
-                        .disabled(current)
-                        .on_click(move |_, window, cx| {
-                            cx.stop_propagation();
-                            apply(&id, window, cx)
-                        }),
-                    current,
-                    cx,
-                ),
-            );
+                        "market_theme_apply"
+                    }))
+                    .disabled(current)
+                    .on_click(move |_, window, cx| {
+                        cx.stop_propagation();
+                        apply(&id, window, cx)
+                    }),
+                current,
+                cx,
+            ));
         }
         for entry in entries {
             let package = catalog
@@ -370,20 +368,18 @@ impl Market {
                         state.install_theme(selection, window, cx);
                     }
                 }));
-            cards.push(
-                self.theme_card(
-                    entry.id.clone(),
-                    entry.name.clone().into(),
-                    entry
-                        .description(&rust_i18n::locale())
-                        .unwrap_or_default()
-                        .to_owned(),
-                    preview,
-                    action,
-                    current,
-                    cx,
-                ),
-            );
+            cards.push(Self::theme_card(
+                entry.id.clone(),
+                entry.name.clone().into(),
+                entry
+                    .description(&rust_i18n::locale())
+                    .unwrap_or_default()
+                    .to_owned(),
+                preview,
+                action,
+                current,
+                cx,
+            ));
         }
         self.paging.count(cards.len());
         let columns = self.themes.columns;
@@ -422,7 +418,6 @@ impl Market {
     }
 
     fn theme_card(
-        &self,
         id: String,
         name: SharedString,
         description: String,
