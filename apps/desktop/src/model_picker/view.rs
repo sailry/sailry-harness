@@ -123,7 +123,16 @@ impl Picker {
     }
 
     fn navigation(&self, cx: &mut Context<Self>) -> AnyElement {
-        let categories = ModelCategory::ALL;
+        let mut seen = BTreeSet::new();
+        let families = ModelCategory::ALL
+            .into_iter()
+            .flat_map(|category| {
+                self.channels.iter().filter(move |channel| {
+                    channel.category == category && !channel.models.is_empty()
+                })
+            })
+            .filter(|channel| seen.insert(channel.family.clone()))
+            .collect::<Vec<_>>();
         v_flex()
             .id("model-family-scroll")
             .overflow_y_scrollbar()
@@ -148,41 +157,41 @@ impl Picker {
                     ),
                 )
             })
-            .children(
-                categories
-                    .into_iter()
-                    .enumerate()
-                    .filter(|(_, category)| self.has_category(*category))
-                    .map(|(index, category)| {
-                        let family = Some(category);
-                        let key = category.key();
-                        let icon = category.icon();
-                        div()
-                            .debug_selector(move || format!("composer-model-family-{index}"))
-                            .child(
-                                Button::new(("model-family", index))
-                                    .text()
-                                    .icon(icon)
-                                    .tooltip(tr(key))
-                                    .selected(self.family == family)
-                                    .when(self.family == family, |button| {
-                                        button.bg(cx.theme().popover)
-                                    })
-                                    .text_color(if self.family == family {
-                                        cx.theme().foreground
-                                    } else {
-                                        cx.theme().muted_foreground
-                                    })
-                                    .w_10()
-                                    .h_10()
-                                    .rounded_full()
-                                    .on_click(cx.listener(move |picker, _, _, cx| {
-                                        picker.family = family;
-                                        cx.notify();
-                                    })),
-                            )
-                    }),
-            )
+            .children(families.into_iter().enumerate().map(|(index, channel)| {
+                let family = Some(channel.family.clone());
+                let selected = self.family == family;
+                let label = channel.directory.as_ref().map_or_else(
+                    || tr(channel.category.key()),
+                    |entry| crate::settings::type_label(entry).into(),
+                );
+                let icon = channel.directory.as_ref().map_or_else(
+                    || channel.category.icon().size_4().into_any_element(),
+                    |entry| crate::settings::type_icon(entry, rems(1.)),
+                );
+
+                div()
+                    .debug_selector(move || format!("composer-model-family-{index}"))
+                    .child(
+                        Button::new(("model-family", index))
+                            .text()
+                            .child(icon)
+                            .tooltip(label)
+                            .selected(selected)
+                            .when(selected, |button| button.bg(cx.theme().popover))
+                            .text_color(if selected {
+                                cx.theme().foreground
+                            } else {
+                                cx.theme().muted_foreground
+                            })
+                            .w_10()
+                            .h_10()
+                            .rounded_full()
+                            .on_click(cx.listener(move |picker, _, _, cx| {
+                                picker.family = family.clone();
+                                cx.notify();
+                            })),
+                    )
+            }))
             .map(|rail| {
                 div()
                     .w_12()
@@ -201,7 +210,11 @@ impl Render for Picker {
         let channels: Vec<_> = self
             .channels
             .iter()
-            .filter(|channel| self.family.is_none_or(|family| family == channel.category))
+            .filter(|channel| {
+                self.family
+                    .as_ref()
+                    .is_none_or(|family| *family == channel.family)
+            })
             .filter(|channel| !channel.models.is_empty())
             .cloned()
             .collect();

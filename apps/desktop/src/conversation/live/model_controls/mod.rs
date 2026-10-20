@@ -54,6 +54,13 @@ impl View {
             .filter_map(|(node, provider)| {
                 let id = self.provider_ids.get(&(node, provider.id))?;
                 let mut channel = crate::settings::channel(*id, provider);
+                if node == self.binding.client.target() {
+                    channel.directory = crate::settings::installed_preset(
+                        provider.preset.as_ref(),
+                        &self.contribution_metadata.read(cx).entries,
+                    )
+                    .or(channel.directory);
+                }
                 channel.enabled &= self.source_connected(node);
                 if let Some(profile) = self
                     .session

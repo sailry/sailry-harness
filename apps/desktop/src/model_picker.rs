@@ -29,6 +29,8 @@ struct Group {
     id: usize,
     name: String,
     category: ModelCategory,
+    family: String,
+    directory: Option<sailry_protocol::conversation::presets::Entry>,
     models: Vec<Choice>,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -39,13 +41,44 @@ struct Choice {
     efforts: Vec<sailry_protocol::Effort>,
 }
 
+impl From<Channel> for Group {
+    fn from(channel: Channel) -> Self {
+        Group {
+            id: channel.id,
+            name: channel.name,
+            category: channel.preset.category(),
+            family: channel.directory.as_ref().map_or_else(
+                || channel.preset.category().key().to_owned(),
+                crate::settings::type_key,
+            ),
+            directory: channel.directory,
+            models: channel
+                .models
+                .into_iter()
+                .map(|model| Choice {
+                    efforts: if model.reasoning {
+                        crate::reasoning::choices(&model.efforts)
+                    } else {
+                        vec![]
+                    },
+                    label: model.label().to_owned(),
+                    id: model.id,
+                    effort: sailry_protocol::Effort::initial(&model.efforts, model.default_effort),
+                })
+                .collect(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;
 mod view;
 
 pub(crate) struct Picker {
     channels: Vec<Group>,
     selected: Option<Selection>,
     pub popover: Option<WeakEntity<PopoverState>>,
-    family: Option<ModelCategory>,
+    family: Option<String>,
     categories: bool,
     collapsed: BTreeSet<usize>,
     scroll: ScrollHandle,
@@ -89,28 +122,7 @@ impl Picker {
         let channels = channels
             .into_iter()
             .filter(|channel| channel.enabled)
-            .map(|channel| Group {
-                id: channel.id,
-                name: channel.name,
-                category: channel.preset.category(),
-                models: channel
-                    .models
-                    .into_iter()
-                    .map(|model| Choice {
-                        efforts: if model.reasoning {
-                            crate::reasoning::choices(&model.efforts)
-                        } else {
-                            vec![]
-                        },
-                        label: model.label().to_owned(),
-                        id: model.id,
-                        effort: sailry_protocol::Effort::initial(
-                            &model.efforts,
-                            model.default_effort,
-                        ),
-                    })
-                    .collect(),
-            })
+            .map(Group::from)
             .collect();
         self.set_groups(channels, selected, cx);
     }
@@ -138,6 +150,8 @@ impl Picker {
                         id: index,
                         name: model.provider.clone(),
                         category: ModelCategory::Other,
+                        family: ModelCategory::Other.key().to_owned(),
+                        directory: None,
                         models: Vec::new(),
                     });
                     index
@@ -181,7 +195,7 @@ impl Picker {
                             .iter()
                             .find(|channel| channel.id == selection.channel)
                     })
-                    .map(|channel| channel.category)
+                    .map(|channel| channel.family.clone())
                     != selected
                         .as_ref()
                         .and_then(|selection| {
@@ -189,10 +203,13 @@ impl Picker {
                                 .iter()
                                 .find(|channel| channel.id == selection.channel)
                         })
-                        .map(|channel| channel.category);
+                        .map(|channel| channel.family.clone());
             self.channels = channels;
             self.selected = selected;
-            let missing = self.family.is_some_and(|family| !self.has_category(family));
+            let missing = self
+                .family
+                .as_ref()
+                .is_some_and(|family| !self.has_family(family));
             if missing {
                 self.family = None;
             }
@@ -238,15 +255,15 @@ impl Picker {
                 .iter()
                 .find(|channel| channel.id == selection.channel && !channel.models.is_empty())
         }) {
-            self.family = Some(channel.category);
+            self.family = Some(channel.family.clone());
             self.collapsed.remove(&channel.id);
         }
         cx.notify();
     }
 
-    fn has_category(&self, category: ModelCategory) -> bool {
+    fn has_family(&self, family: &str) -> bool {
         self.channels
             .iter()
-            .any(|channel| channel.category == category && !channel.models.is_empty())
+            .any(|channel| channel.family == family && !channel.models.is_empty())
     }
 }

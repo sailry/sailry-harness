@@ -90,7 +90,7 @@ fn glyph(entry: &Entry) -> Glyph<'_> {
         .map_or(Glyph::Fallback, Glyph::Remote)
 }
 
-pub(super) fn render_icon(entry: &Entry, size: Rems) -> AnyElement {
+pub(crate) fn render_icon(entry: &Entry, size: Rems) -> AnyElement {
     match glyph(entry) {
         Glyph::Declared(icon) => crate::assets::icons::icon(icon)
             .size(size)
@@ -103,7 +103,43 @@ pub(super) fn render_icon(entry: &Entry, size: Rems) -> AnyElement {
     }
 }
 
-pub(super) fn brand(entry: &Entry) -> String {
+/// Resolve type presentation from the already loaded package inventory.
+/// Authorization and installation provenance still resolve on the Node.
+pub(crate) fn installed(
+    reference: Option<&PresetRef>,
+    packages: &std::collections::BTreeMap<String, sailry_protocol::plugin::Info>,
+) -> Option<Entry> {
+    let reference = reference?;
+    let Source::Package { name } = &reference.source else {
+        return None;
+    };
+    let info = packages.get(name)?;
+    if !info.summary.enabled || !info.issues.is_empty() {
+        return None;
+    }
+    let preset = info
+        .extension
+        .as_ref()?
+        .model_providers
+        .iter()
+        .find(|preset| preset.id == reference.id)?;
+    Some(Entry {
+        source: reference.source.clone(),
+        preset: preset.clone(),
+        provenance: if matches!(info.origin, Some(sailry_protocol::plugin::Origin::Bundled)) {
+            Provenance::Bundled
+        } else {
+            Provenance::ThirdParty
+        },
+        package: Some(info.summary.reference()),
+        origin: None,
+        requested: Default::default(),
+        icon: info.icon.clone(),
+        login: None,
+    })
+}
+
+pub(crate) fn brand(entry: &Entry) -> String {
     let name = entry.preset.brand.as_deref().unwrap_or(&entry.preset.id);
     match &entry.source {
         Source::Builtin => name.into(),
@@ -112,7 +148,7 @@ pub(super) fn brand(entry: &Entry) -> String {
     }
 }
 
-pub(super) fn brand_label(entry: &Entry) -> String {
+pub(crate) fn brand_label(entry: &Entry) -> String {
     if let Some(display) = &entry.preset.brand_display {
         return display.label(&rust_i18n::locale()).to_owned();
     }
