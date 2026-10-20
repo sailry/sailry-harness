@@ -38,6 +38,10 @@ pub(crate) fn begin(node: NodeId, caller: NodeId, request: &Request) -> Option<S
         entry.context.package = Some(context.package.clone());
         entry.context.invocation = context.invocation;
     }
+    if let Command::RequestProviderHttp { provider, .. } = &request.command {
+        entry.stage = Some("provider_http");
+        entry.context.provider = Some(*provider);
+    }
     Some(Span::new(entry))
 }
 
@@ -54,6 +58,16 @@ pub(crate) fn admitted(mut span: Span, mut admission: Admission) -> Admission {
                         if let Output::QueuedTurn(turn) = output {
                             span.entry.context.session = Some(turn.session);
                             span.entry.context.turn = Some(turn.id);
+                        }
+                        if span.entry.stage == Some("provider_http")
+                            && let Output::PluginHttp(response) = output
+                        {
+                            span.entry.upstream_status = Some(u64::from(response.status));
+                            span.entry.reason = Some(if (200..300).contains(&response.status) {
+                                "http_success"
+                            } else {
+                                "http_rejected"
+                            });
                         }
                         span.finish(Phase::Completed, None);
                     }

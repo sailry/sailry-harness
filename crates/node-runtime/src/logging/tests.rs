@@ -459,3 +459,116 @@ fn records_script_errors_without_values() {
             .contains("PRIVATE_PLUGIN_VALUE")
     );
 }
+
+#[test]
+fn records_provider_http_metadata() {
+    use sailry_protocol::{
+        Command, ErrorCode, Fault, NodeId, Output, ProviderId, Receipt, Request, plugin,
+    };
+
+    let directory = tempfile::tempdir().unwrap();
+    let (writer, worker) = writer(directory.path(), Rotation::DAILY, 7, 8192).unwrap();
+    let dispatch = tracing::Dispatch::new(subscriber(writer, Application::Host));
+    let node = NodeId([1; 32]);
+    let provider = ProviderId::new();
+    let request = Request::new(
+        node,
+        Command::RequestProviderHttp {
+            provider,
+            expected_revision: 7,
+            request: "usage".into(),
+            input: Default::default(),
+        },
+    )
+    .with_plugin(plugin::Context {
+        package: plugin::Reference {
+            name: "fixture".into(),
+            digest: "a".repeat(64),
+            settings_revision: 0,
+        },
+        invocation: None,
+        session: None,
+        turn: None,
+        worktree: None,
+        surface: Default::default(),
+    });
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    tracing::dispatcher::with_default(&dispatch, || {
+        runtime.block_on(async {
+            for status in [200, 403, 429] {
+                let span = commands::begin(node, node, &request).unwrap();
+                let (reply, completion) = tokio::sync::oneshot::channel();
+                let response = plugin::http::Response {
+                    status,
+                    headers: std::collections::BTreeMap::from([(
+                        "x-private".into(),
+                        vec!["PRIVATE_HEADER".into()],
+                    )]),
+                    body: "PRIVATE_BODY".into(),
+                };
+                let admission = commands::admitted(
+                    span,
+                    sailry_link::Admission {
+                        receipt: Receipt {
+                            id: request.id,
+                            durable: false,
+                        },
+                        completion,
+                    },
+                );
+                reply
+                    .send(Ok(Output::PluginHttp(response.clone())))
+                    .unwrap();
+                assert_eq!(
+                    admission.completion.await.unwrap().unwrap(),
+                    Output::PluginHttp(response)
+                );
+            }
+            for code in [ErrorCode::PermissionDenied, ErrorCode::OutcomeUnknown] {
+                let mut span = commands::begin(node, node, &request).unwrap();
+                commands::rejected(&mut span, &Fault::new(code, "PRIVATE_FAILURE"));
+            }
+        })
+    });
+    drop(worker);
+    let records = lines(directory.path());
+    let completed = records
+        .iter()
+        .filter(|entry| entry["phase"] == "completed")
+        .collect::<Vec<_>>();
+    assert_eq!(completed.len(), 3);
+    for (entry, status) in completed.into_iter().zip([200, 403, 429]) {
+        assert_eq!(entry["stage"], "provider_http");
+        assert_eq!(entry["upstream_status"], status);
+        assert_eq!(
+            entry["reason"],
+            if status == 200 {
+                "http_success"
+            } else {
+                "http_rejected"
+            }
+        );
+        assert_eq!(entry["package"], "fixture");
+        assert_eq!(entry["provider"], provider.to_string());
+    }
+    let failures = records
+        .iter()
+        .filter(|entry| entry["phase"] == "failed")
+        .collect::<Vec<_>>();
+    assert_eq!(failures.len(), 2);
+    for (entry, code) in failures
+        .into_iter()
+        .zip(["permission_denied", "outcome_unknown"])
+    {
+        assert_eq!(entry["stage"], "provider_http");
+        assert_eq!(entry["code"], code);
+        assert!(entry.get("upstream_status").is_none());
+    }
+    assert!(
+        !serde_json::to_string(&records)
+            .unwrap()
+            .contains("PRIVATE_")
+    );
+}
