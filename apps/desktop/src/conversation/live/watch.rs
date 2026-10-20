@@ -1,4 +1,5 @@
 use super::*;
+mod snapshot;
 
 pub(super) fn python(
     binding: &Binding,
@@ -78,21 +79,70 @@ pub(super) fn node(
         binding.client.clone()
     };
     let stop = stop.clone();
+    let observation = stop.clone();
+    let watcher = client.clone();
+    let runtime = binding.runtime.clone();
+    let node = client.target();
     binding.runtime.spawn(async move {
-        let _ = client.watch(sender, stop).await;
+        let _ = watcher.watch(sender, observation).await;
     });
     cx.spawn(async move |view, cx| {
         loop {
-            let next = receiver.borrow_and_update().clone();
+            let mut next = receiver.borrow_and_update().clone();
+            let candidate = view
+                .update(cx, |view, _| {
+                    if defaults || view.binding.client.target() != node {
+                        return None;
+                    }
+                    view.session()
+                        .filter(|id| snapshot::missing(&next, *id))
+                        .map(|session| (session, view.binding.project, view.binding.worktree))
+                })
+                .ok()
+                .flatten();
+            let confirmed = if let Some((session, project, worktree)) = candidate {
+                let client = client.clone();
+                let result = runtime
+                    .spawn(async move { snapshot::read(&client).await })
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(sailry_protocol::Fault::new(
+                            sailry_protocol::ErrorCode::Internal,
+                            "session snapshot read stopped",
+                        ))
+                    });
+                snapshot::confirm(&mut next, node, session, result)
+                    .then_some((session, project, worktree))
+            } else {
+                None
+            };
+            if stop.is_cancelled() {
+                break;
+            }
+            // Client owns ordering and recovery; a newer watch update supersedes this read.
+            if candidate.is_some() && receiver.borrow().has_changed() {
+                continue;
+            }
             if view
                 .update(cx, |view, cx| {
-                    if !defaults
-                        && next.connected
-                        && let Some(snapshot) = &next.snapshot
-                        && let Some(session) = &view.session
-                        && !snapshot.sessions.iter().any(|item| item.id == session.id)
-                    {
-                        cx.emit(Event::Removed(session.id));
+                    if !defaults {
+                        if view.binding.client.target() != node {
+                            return;
+                        }
+                        if let Some((session, project, worktree)) = candidate
+                            && (view.session() != Some(session)
+                                || view.binding.project != project
+                                || view.binding.worktree != worktree)
+                        {
+                            return;
+                        }
+                    }
+                    if let Some(session) = snapshot::removed(
+                        &next,
+                        confirmed.map(|(session, _, _)| session),
+                        view.session(),
+                    ) {
+                        cx.emit(Event::Removed(session));
                         return;
                     }
                     if !defaults
