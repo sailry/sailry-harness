@@ -95,7 +95,7 @@ async fn requires_a_completed_answer() {
                 terminal["type"] = json!("response.failed");
                 terminal["response"]["status"] = json!("failed");
                 terminal["response"]["output"] = json!([]);
-                terminal["response"]["error"] = json!({"code":"invalid_request","message":ACCESS});
+                terminal["response"]["error"] = json!({"code":"invalid_prompt","message":ACCESS});
                 server::stream(vec![terminal], true)
             }
             "empty" => server::stream(vec![server::completed(json!([]))], true),

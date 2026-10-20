@@ -170,15 +170,11 @@ async fn freezes_native_input_support() {
         assert!(!pair[0].to_string().contains("Contents not included"));
         assert!(!pair[1].to_string().contains("data:image/png;base64,"));
         assert!(
-            pair[1]
-                .to_string()
-                .contains("Contents not included; use read_office")
+            pair[1].to_string().contains(
+                "This model does not support images. The original attachment is retained."
+            )
         );
-        assert!(
-            pair[1]
-                .to_string()
-                .contains("use an attachment-capable tool for other files")
-        );
+        assert!(!pair[1].to_string().contains("use read_office"));
     }
     fixture.close().await;
 }

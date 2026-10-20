@@ -309,16 +309,50 @@ async fn reconnects_after_revocation() {
         else {
             panic!("credentials expected")
         };
-        assert_eq!(credentials.len(), 1);
-        assert_eq!(credentials[0].id, reference.id);
-        assert_eq!(credentials[0].revision, 3);
-        assert!(!credentials[0].revoked);
+        let Output::Providers(providers) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListProviders))
+            .await
+            .unwrap()
+        else {
+            panic!("providers expected")
+        };
+        let current = &providers[0];
+        let replacement = current.credential.as_ref().unwrap();
+        assert_ne!(replacement.id, reference.id);
+        assert_eq!(
+            current
+                .models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["fixture", "unknown"]
+        );
+        assert_eq!(current.models[0], provider.models[0]);
+        let mut expected = provider.clone();
+        expected.revision += 1;
+        expected.credential = Some(replacement.clone());
+        expected.models = current.models.clone();
+        assert_eq!(*current, expected);
+        assert_eq!(credentials.len(), 2);
+        let original = credentials
+            .iter()
+            .find(|value| value.id == reference.id)
+            .unwrap();
+        assert_eq!(original.revision, 2);
+        assert!(original.revoked);
+        let active = credentials
+            .iter()
+            .find(|value| value.id == replacement.id)
+            .unwrap();
+        assert_eq!(active.revision, 1);
+        assert!(!active.revoked);
         fixture.close().await;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn rejects_identity_mismatch_without_replacing_account() {
+async fn replaces_interactive_accounts() {
     for remote in [false, true] {
         let count = std::sync::atomic::AtomicUsize::new(0);
         let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
@@ -336,25 +370,25 @@ async fn rejects_identity_mismatch_without_replacing_account() {
         let fixture = Fixture::empty(remote, &server).await;
         let provider =
             execution::signed_in(&fixture, Authentication::ChatGpt, ModelApi::Responses).await;
-        let before = fixture
+        let Output::Credentials(before) = fixture
             .client
             .execute(fixture.client.prepare(Command::ListCredentials))
             .await
-            .unwrap();
+            .unwrap()
+        else {
+            panic!("credentials expected")
+        };
         let (_, attempt) = begin(&fixture.client, &provider).await;
         let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
-        assert!(matches!(
-            terminal(&mut stream).await.state,
-            login::State::Failed(_)
-        ));
-        assert_eq!(
-            fixture
-                .client
-                .execute(fixture.client.prepare(Command::ListCredentials))
-                .await
-                .unwrap(),
-            before
-        );
+        assert_eq!(terminal(&mut stream).await.state, login::State::Connected);
+        let Output::Credentials(credentials) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListCredentials))
+            .await
+            .unwrap()
+        else {
+            panic!("credentials expected")
+        };
         let Output::Providers(providers) = fixture
             .client
             .execute(fixture.client.prepare(Command::ListProviders))
@@ -363,7 +397,35 @@ async fn rejects_identity_mismatch_without_replacing_account() {
         else {
             panic!("providers expected")
         };
-        assert_eq!(providers[0], provider);
+        let reference = provider.credential.as_ref().unwrap();
+        let current = &providers[0];
+        let replacement = current.credential.as_ref().unwrap();
+        assert_ne!(replacement.id, reference.id);
+        assert_eq!(
+            current
+                .models
+                .iter()
+                .map(|model| model.id.as_str())
+                .collect::<Vec<_>>(),
+            ["fixture", "unknown"]
+        );
+        assert_eq!(current.models[0], provider.models[0]);
+        let mut expected = provider.clone();
+        expected.revision += 1;
+        expected.credential = Some(replacement.clone());
+        expected.models = current.models.clone();
+        assert_eq!(*current, expected);
+        assert_eq!(credentials.len(), 2);
+        assert_eq!(
+            credentials.iter().find(|value| value.id == reference.id),
+            before.iter().find(|value| value.id == reference.id)
+        );
+        let active = credentials
+            .iter()
+            .find(|value| value.id == replacement.id)
+            .unwrap();
+        assert_eq!(active.revision, 1);
+        assert!(!active.revoked);
         fixture.close().await;
     }
 }

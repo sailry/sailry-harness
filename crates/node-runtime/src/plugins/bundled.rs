@@ -241,10 +241,6 @@ mod tests {
                 .icon
                 .as_ref()
                 .unwrap_or_else(|| panic!("{} has no display icon", entry.name));
-            assert!(matches!(
-                glyph,
-                sailry_protocol::plugin::desktop::Icon::Name(_)
-            ));
             assert!(glyph.valid(), "{}", entry.name);
             let extension = info.extension.as_ref().unwrap();
             assert_eq!(
