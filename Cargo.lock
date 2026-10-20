@@ -14169,7 +14169,7 @@ dependencies = [
 
 [[package]]
 name = "sailry-desktop"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "aes 0.8.4",
  "anyhow",
@@ -14273,7 +14273,7 @@ dependencies = [
 
 [[package]]
 name = "sailry-host"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "adk-acp",
  "blake3",
