@@ -110,7 +110,7 @@ impl Workspace {
                             let removed = removed.clone();
                             crate::prompts::confirm(
                                 &tr("settings_delete"),
-                                &rust_i18n::t!(
+                                rust_i18n::t!(
                                     "connector_remove_effect",
                                     name = removed
                                         .identity
@@ -118,7 +118,7 @@ impl Workspace {
                                         .map(|identity| identity.name.as_str())
                                         .unwrap_or(&removed.connector)
                                 )
-                                .to_string(),
+                                .as_ref(),
                                 tr("settings_delete"),
                                 window,
                                 cx,
