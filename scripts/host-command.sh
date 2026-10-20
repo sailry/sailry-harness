@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-task_root="$HOME/.local/lib/sailry"
+task_script="${BASH_SOURCE[0]}"
+if test -L "$task_script"; then
+  task_link="$(readlink "$task_script")"
+  case "$task_link" in
+    /*) task_script="$task_link" ;;
+    *) task_script="$(dirname "$task_script")/$task_link" ;;
+  esac
+fi
+task_root="$(cd "$(dirname "$task_script")" && pwd)"
 task_data="$HOME/.sailry-host"
 task_command="${1:-help}"
 if test "$#" -gt 0; then shift; fi

@@ -373,6 +373,11 @@ use `--version 0.1.0-alpha.1` to select one. The installer does not replace
 `~/.sailry-host` and retains the previous program files in a reported backup
 directory.
 
+For an existing Linux root installation in `~/.local/lib/sailry`, use Desktop's
+Host update or the current release's verified installer from [Install](README.md#install):
+`bash install-host.sh --update --version <version>`. This moves program files to
+`/usr/local/libexec/sailry` and preserves the profile; later updates can use `sailry update`.
+
 Submit a noninteractive task to the already running Host with a registered
 worktree ID or an existing session ID:
 

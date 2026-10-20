@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -26,14 +27,34 @@ class HostTasks(unittest.TestCase):
             "raise SystemExit(4)\n"
         )
         self.binary.chmod(0o755)
+        self.wrapper = self.binary.with_name("sailry")
+        shutil.copyfile(ROOT / "scripts/host-command.sh", self.wrapper)
         self.environment = {key: value for key, value in os.environ.items()
                             if not key.startswith("SAILRY_")}
         self.environment["HOME"] = str(self.home)
 
     def command(self, script, *arguments, text="", environment=None):
-        return subprocess.run(["bash", str(ROOT / "scripts" / script), *arguments],
+        path = self.wrapper if script == "host-command.sh" else ROOT / "scripts" / script
+        return subprocess.run(["bash", str(path), *arguments],
                               cwd=self.root, env=environment or self.environment,
                               input=text, capture_output=True, text=True, timeout=10)
+
+    def test_wrapper_resolves_installed_links(self):
+        program = self.root / "system program"
+        self.binary.parent.rename(program)
+        command = self.root / "bin/sailry"
+        command.parent.mkdir()
+        for target in (program / "sailry", Path("../system program/sailry")):
+            with self.subTest(target=target):
+                command.symlink_to(target)
+                output = subprocess.run(["bash", str(command), "submit", "--session", "session"],
+                                        cwd=self.root, env=self.environment, input="",
+                                        capture_output=True, text=True, timeout=10)
+                self.assertEqual(output.returncode, 4, output.stderr)
+                self.assertEqual(json.loads(output.stdout)["args"],
+                                 ["submit", "--data-dir", str(self.home / ".sailry-host"),
+                                  "--session", "session"])
+                command.unlink()
 
     def test_wrapper_preserves_profiles_and_literal_values(self):
         text = "$(touch injected) `touch altered` spaced 中文 🙂"

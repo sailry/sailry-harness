@@ -36,12 +36,26 @@ case "$(uname -s)/$(uname -m)" in
   Darwin/arm64) task_target=aarch64-apple-darwin ;;
   *) echo 'Host supports Linux and macOS on amd64 or arm64' >&2; exit 1 ;;
 esac
-task_root="$HOME/.local/lib/sailry"
+task_parent="$HOME/.local/lib"
+task_root="$task_parent/sailry"
 task_data="$HOME/.sailry-host"
 task_command="$HOME/.local/bin/sailry"
-if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then task_command=/usr/local/bin/sailry; fi
+if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
+  task_parent=/usr/local/libexec
+  task_root="$task_parent/sailry"
+  task_command=/usr/local/bin/sailry
+fi
+task_existing="$task_root"
+task_migrate=0
+if test "$task_update" = 1 && test "$task_root" = /usr/local/libexec/sailry \
+  && ! test -e "$task_root" && ! test -L "$task_root" \
+  && test -L "$task_command" \
+  && test "$(readlink "$task_command")" = "$HOME/.local/lib/sailry/sailry"; then
+  task_existing="$HOME/.local/lib/sailry"
+  task_migrate=1
+fi
 if test -e "$task_command" || test -L "$task_command"; then
-  if ! test -L "$task_command" || test "$(readlink "$task_command")" != "$task_root/sailry"; then
+  if ! test -L "$task_command" || test "$(readlink "$task_command")" != "$task_existing/sailry"; then
     echo 'The sailry command path is already in use' >&2
     exit 1
   fi
@@ -52,8 +66,8 @@ if test "$task_update" = 0; then
     exit 1
   fi
 else
-  test -x "$task_root/sailry-host"
-  test -x "$task_root/sailry"
+  test -x "$task_existing/sailry-host"
+  test -x "$task_existing/sailry"
 fi
 command -v curl >/dev/null
 command -v tar >/dev/null
@@ -67,8 +81,8 @@ else
 fi
 if test "$task_update" = 0; then test ! -e "$task_unit"; fi
 umask 077
-mkdir -p "$HOME/.local/lib" "$(dirname "$task_command")"
-task_stage="$(mktemp -d "$HOME/.local/lib/.sailry-install-XXXXXX")"
+mkdir -p "$task_parent" "$(dirname "$task_command")"
+task_stage="$(mktemp -d "$task_parent/.sailry-install-XXXXXX")"
 trap 'rm -rf -- "$task_stage"' EXIT
 task_archive="sailry-host-$task_target.tar.gz"
 task_release="$task_repository/releases/download/v$task_version"
@@ -89,19 +103,40 @@ else
 fi
 if test "${task_actual%% *}" != "$task_expected"; then echo 'Host checksum does not match' >&2; exit 1; fi
 mkdir "$task_stage/package"
-tar -xzf "$task_stage/$task_archive" -C "$task_stage/package"
+tar --no-same-owner -xzf "$task_stage/$task_archive" -C "$task_stage/package"
 test -x "$task_stage/package/sailry-host"
 test -f "$task_stage/package/sailry"
 test -f "$task_stage/package/service.sh"
 chmod 700 "$task_stage/package/sailry" "$task_stage/package/sailry-host"
 test "$("$task_stage/package/sailry-host" --version)" = "Sailry Host $task_version"
+if test "$task_migrate" = 1; then
+  "$task_stage/package/python/bin/python3.12" -I - "$task_unit" "$task_existing" "$task_root" "$task_stage/service" <<'PY'
+from pathlib import Path
+import sys
+unit, previous, current, output = sys.argv[1:]
+lines = Path(unit).read_text().splitlines(keepends=True)
+prefix = f'ExecStart="{previous}/sailry-host" '
+if sum(line.startswith(prefix) for line in lines) != 1:
+    raise RuntimeError("Existing Host service does not match its managed program path")
+Path(output).write_text(''.join(
+    f'ExecStart="{current}/sailry-host" ' + line[len(prefix):]
+    if line.startswith(prefix) else line for line in lines))
+PY
+fi
 if test "$task_update" = 1; then
-  "$task_root/sailry" stop
-  task_backup="$(mktemp -d "$HOME/.local/lib/.sailry-previous-XXXXXX")"
+  "$task_existing/sailry" stop
+  task_backup="$(mktemp -d "$task_parent/.sailry-previous-XXXXXX")"
   rmdir "$task_backup"
-  mv "$task_root" "$task_backup"
+  mv "$task_existing" "$task_backup"
 fi
 mv "$task_stage/package" "$task_root"
+if test "$(uname -s)" = Linux && test "$(id -u)" = 0 && command -v restorecon >/dev/null; then
+  restorecon -RF "$task_root"
+fi
+if test "$task_migrate" = 1; then
+  cat "$task_stage/service" > "$task_unit"
+  systemctl daemon-reload
+fi
 ln -sfn "$task_root/sailry" "$task_command"
 if test "$task_update" = 1; then
   if ! "$task_root/sailry" start; then

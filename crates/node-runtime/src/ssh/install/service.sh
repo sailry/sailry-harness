@@ -1,6 +1,9 @@
 set -eu
 umask 077
 install_root="$HOME/.local/lib/sailry"
+if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
+  install_root=/usr/local/libexec/sailry
+fi
 install_data="$HOME/.sailry-host"
 mkdir -p "$install_root" "$install_data"
 install_network=--internet

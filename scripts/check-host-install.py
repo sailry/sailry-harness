@@ -14,6 +14,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = Path("/etc/systemd/system/sailry-host.service")
 COMMAND = Path("/usr/local/bin/sailry")
+PROGRAM = Path("/usr/local/libexec/sailry")
 
 
 def run(*arguments, environment=None, capture=False):
@@ -39,7 +40,8 @@ def check(directory):
     if sys.platform != "linux" or os.geteuid() != 0 or not Path("/run/systemd/system").is_dir():
         raise ValueError("An isolated root-owned Linux systemd runner is required")
     existing = subprocess.run(["systemctl", "cat", "sailry-host.service"], capture_output=True)
-    if UNIT.exists() or UNIT.is_symlink() or COMMAND.exists() or COMMAND.is_symlink() or existing.returncode == 0:
+    if (UNIT.exists() or UNIT.is_symlink() or COMMAND.exists() or COMMAND.is_symlink()
+            or PROGRAM.exists() or PROGRAM.is_symlink() or existing.returncode == 0):
         raise ValueError("Refusing to replace an existing Host service or command")
     metadata = json.loads((directory / "host/build.json").read_text())
     version, target = metadata["application_version"], metadata["target"]
@@ -58,37 +60,51 @@ def check(directory):
     for name in (archive, f"SHA256SUMS-{target}"):
         (assets / name).symlink_to(directory / name)
     environment = {**os.environ, "HOME": str(home), "PATH": f"{bin}:{os.environ['PATH']}"}
+    previous = set(PROGRAM.parent.glob(".sailry-previous-*"))
     try:
         run("bash", ROOT / "scripts/install-host.sh", "--version", version, environment=environment)
+        if PROGRAM.stat().st_uid != 0 or (PROGRAM / "sailry-host").stat().st_uid != 0:
+            raise RuntimeError("System program files must belong to root")
         pid = ready(home)
         output = run(COMMAND, "version", environment=environment, capture=True).stdout.strip()
         if output != f"Sailry Host {version}":
             raise RuntimeError("Installed Host version does not match")
+        identity = json.loads(run(PROGRAM / "python/bin/python3.12", "-I",
+                                  ROOT / "crates/node-runtime/src/ssh/install/identity.py",
+                                  PROGRAM, environment=environment, capture=True).stdout)
+        if identity.get("version") != output:
+            raise RuntimeError("Installed Host identity version does not match")
         run(COMMAND, "status", environment=environment, capture=True)
         marker = home / ".sailry-host/fixture-data"
         marker.write_bytes(b"preserve")
         run(COMMAND, "restart", environment=environment)
-        ready(home, pid)
+        pid = ready(home, pid)
         run(COMMAND, "stop", environment=environment)
         if (home / ".sailry-host/control.sock").exists():
             raise RuntimeError("Stopped Host left its control socket")
         run(COMMAND, "start", environment=environment)
         pid = ready(home)
         run(COMMAND, "update", "--version", version, environment=environment)
-        ready(home, pid)
+        pid = ready(home, pid)
         if marker.read_bytes() != b"preserve":
             raise RuntimeError("Host update changed existing profile data")
-        backups = list((home / ".local/lib").glob(".sailry-previous-*"))
+        backups = list(set(PROGRAM.parent.glob(".sailry-previous-*")) - previous)
         if len(backups) != 1 or not (backups[0] / "sailry-host").is_file():
             raise RuntimeError("Host update did not preserve previous program files")
         print("Host installation, systemd controls and profile-preserving update verified")
     finally:
-        if UNIT.is_file() and str(home / ".local/lib/sailry") in UNIT.read_text():
+        if UNIT.is_file() and str(home / ".sailry-host") in UNIT.read_text():
             run("systemctl", "disable", "--now", "sailry-host.service")
             UNIT.unlink()
             run("systemctl", "daemon-reload")
-        if COMMAND.is_symlink() and COMMAND.readlink() == home / ".local/lib/sailry/sailry":
+        if COMMAND.is_symlink() and COMMAND.readlink() in {
+                PROGRAM / "sailry", home / ".local/lib/sailry/sailry"}:
             COMMAND.unlink()
+        if PROGRAM.is_dir() and not PROGRAM.is_symlink():
+            shutil.rmtree(PROGRAM)
+        for backup in set(PROGRAM.parent.glob(".sailry-previous-*")) - previous:
+            if backup.is_dir() and not backup.is_symlink():
+                shutil.rmtree(backup)
         shutil.rmtree(home)
 
 

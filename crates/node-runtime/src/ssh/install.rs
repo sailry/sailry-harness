@@ -28,7 +28,14 @@ pub(super) async fn execute(
         let identity = command(
             session,
             concat!(
-                "\"$HOME/.local/lib/sailry/python/bin/python3.12\" -I - <<'SAILRY_IDENTITY'\n",
+                "install_root=\"$HOME/.local/lib/sailry\"\n",
+                "if test \"$(uname -s)\" = Linux && test \"$(id -u)\" = 0; then\n",
+                "  if test -e /usr/local/libexec/sailry; then install_root=/usr/local/libexec/sailry\n",
+                "  elif ! test -L /usr/local/bin/sailry || test \"$(readlink /usr/local/bin/sailry)\" != \"$install_root/sailry\"; then\n",
+                "    echo 'Managed Host program files are unavailable' >&2; exit 1\n",
+                "  fi\n",
+                "fi\n",
+                "\"$install_root/python/bin/python3.12\" -I - \"$install_root\" <<'SAILRY_IDENTITY'\n",
                 include_str!("install/identity.py"),
                 "\nSAILRY_IDENTITY"
             ),
