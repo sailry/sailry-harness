@@ -244,7 +244,7 @@ fn features(entry: &Value) -> Result<Vec<sailry_protocol::conversation::features
             id: "speed".into(),
             name: Some("Speed".into()),
             icon: Some(sailry_protocol::plugin::desktop::Icon::Name(
-                "reicon:newicons/flash".into(),
+                "reicon:newicons/flash2".into(),
             )),
             options: vec![FeatureOption {
                 id: "fast".into(),

@@ -59,6 +59,7 @@ pub(super) fn control(
         .rounded_full()
         .text()
         .small()
+        .size_6()
         .icon(icon)
         .selected(selected.is_some())
         .accessibility_label(label.clone())

@@ -75,7 +75,9 @@ impl Entry {
                 };
                 div()
                     .flex_shrink_0()
-                    .text_xs()
+                    .when(self.declaration.slot != Slot::Model, |segment| {
+                        segment.text_xs()
+                    })
                     .text_color(color)
                     .child(label(&segment.label))
                     .into_any_element()

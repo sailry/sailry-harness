@@ -192,6 +192,8 @@ impl View {
                 h_flex()
                     .min_w_0()
                     .gap_2()
+                    .text_sm()
+                    .line_height(px(20.))
                     .when_some(provider, |row, (badge, name)| {
                         row.child(
                             div()
@@ -219,8 +221,6 @@ impl View {
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .text_ellipsis_middle()
-                            .text_sm()
-                            .line_height(px(20.))
                             .child(model.clone())
                             .child(fit.probe(fit::Part::Model, Some(model.clone()), view)),
                     )
@@ -233,8 +233,6 @@ impl View {
                                 .debug_selector(|| "live-chat-effort".into())
                                 .relative()
                                 .flex_shrink_0()
-                                .text_sm()
-                                .line_height(px(20.))
                                 .text_color(cx.theme().muted_foreground)
                                 .map(|effort| {
                                     if compact {
@@ -266,8 +264,7 @@ impl View {
                         .map(|label| {
                             div()
                                 .flex_shrink_0()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
+                                .text_color(cx.theme().primary)
                                 .child(label)
                         }),
                     )
@@ -536,16 +533,23 @@ impl Render for Panel {
                             .w_full()
                             .h_6()
                             .justify_center()
-                            .child(h_flex().absolute().left_0().top_0().gap_1().children(
-                                settings.features.iter().map(|feature| {
-                                    features::control(
-                                        feature,
-                                        settings.selected.get(&feature.id).map(String::as_str),
-                                        settings.busy || !settings.connected,
-                                        self.owner.clone(),
-                                    )
-                                }),
-                            ))
+                            .child(
+                                h_flex()
+                                    .absolute()
+                                    .left_0()
+                                    .top_0()
+                                    .h_6()
+                                    .items_center()
+                                    .gap_1()
+                                    .children(settings.features.iter().map(|feature| {
+                                        features::control(
+                                            feature,
+                                            settings.selected.get(&feature.id).map(String::as_str),
+                                            settings.busy || !settings.connected,
+                                            self.owner.clone(),
+                                        )
+                                    })),
+                            )
                             .child(
                                 div()
                                     .text_sm()
@@ -562,6 +566,8 @@ impl Render for Panel {
                                     .absolute()
                                     .right_0()
                                     .top_0()
+                                    .h_6()
+                                    .items_center()
                                     .gap_1()
                                     .children(contributions),
                             ),
