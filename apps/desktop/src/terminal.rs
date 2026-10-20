@@ -415,7 +415,7 @@ impl Render for View {
         let foreground = screen.as_ref().map_or(cx.theme().foreground, |snapshot| {
             grid::color(snapshot.screen.foreground)
         });
-        let status = self.status();
+        let status = overlay(self.status(), self.connection.can_retry());
         v_flex()
             .id("terminal-component")
             .key_context("SailryTerminal")
@@ -526,9 +526,6 @@ impl Render for View {
                         .bg(cx.theme().background.opacity(0.9))
                         .text_color(cx.theme().muted_foreground)
                         .text_sm()
-                        .when(status == "terminal_connecting", |element| {
-                            element.child(spinner::Spinner::new().small())
-                        })
                         .when(status == "terminal_exited", |element| {
                             element.child(tr(status))
                         })
@@ -562,6 +559,12 @@ impl Render for View {
                 )
             })
     }
+}
+
+/// Attaching and waiting for control are transient: they keep the plain
+/// terminal background unless a failed connection offers a retry.
+fn overlay(status: Option<&'static str>, retry: bool) -> Option<&'static str> {
+    status.filter(|status| *status != "terminal_connecting" || retry)
 }
 
 impl View {

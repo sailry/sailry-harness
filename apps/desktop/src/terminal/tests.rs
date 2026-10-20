@@ -91,3 +91,21 @@ fn distinguishes_uncertain_connections() {
         );
     }
 }
+
+#[test]
+fn overlay_hides_transient_attachment() {
+    assert_eq!(overlay(Some("terminal_connecting"), false), None);
+    assert_eq!(
+        overlay(Some("terminal_connecting"), true),
+        Some("terminal_connecting")
+    );
+    assert_eq!(
+        overlay(Some("terminal_exited"), false),
+        Some("terminal_exited")
+    );
+    assert_eq!(
+        overlay(Some("terminal_other_controller"), false),
+        Some("terminal_other_controller")
+    );
+    assert_eq!(overlay(None, true), None);
+}
