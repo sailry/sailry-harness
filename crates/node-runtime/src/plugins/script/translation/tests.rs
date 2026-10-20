@@ -141,15 +141,23 @@ fn preserves_values_within_caller_budget() {
 }
 
 #[test]
-fn separates_model_callbacks_from_authentication() {
-    let mut model = Session::model(
-        bundle("export function decode(){while(true){}}"),
-        CancellationToken::new(),
-    )
-    .unwrap();
-    assert_eq!(model.timeout, Duration::from_millis(50));
-    let error = model.call("decode", &json!(null), 4096).unwrap_err();
-    assert_eq!(error.code, ErrorCode::Internal);
+fn bounds_callbacks_and_output_getters() {
+    for source in [
+        "export function decode(){while(true){}}",
+        "export function decode(){return {get value(){while(true){}}}}",
+        "export function decode(){JSON.stringify=()=>{while(true){}};return JSON.stringify({});}",
+    ] {
+        let mut session = Session::new(bundle(source), CancellationToken::new()).unwrap();
+        session.timeout = Duration::from_millis(20);
+        let error = session.call("decode", &json!(null), 4096).unwrap_err();
+        assert_eq!(error.code, ErrorCode::Cancelled);
+        assert_eq!(error.message, "plugin translation deadline exceeded");
+        assert!(session.call("decode", &json!(null), 4096).is_err());
+    }
+}
+
+#[test]
+fn retains_the_shared_callback_controls() {
     let mut auth = Session::new(
         bundle("export function exchange(input){return input}"),
         CancellationToken::new(),

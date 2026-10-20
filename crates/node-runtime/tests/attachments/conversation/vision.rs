@@ -167,7 +167,10 @@ async fn preserves_images_across_model_changes() {
         let inspect = queue(
             &client,
             &current,
-            "Inspect the earlier image with the configured tool".into(),
+            input(
+                "Inspect the earlier image with the configured tool",
+                &[&first],
+            ),
         )
         .await;
         let history = run(&client, &inspect).await;
@@ -184,27 +187,38 @@ async fn preserves_images_across_model_changes() {
             assert_eq!(request["model"], "text-tools");
             let serialized = request.to_string();
             assert!(serialized.contains(&first.id.to_string()));
+            assert!(serialized.contains("This model does not support images"));
             assert!(!serialized.contains(&first_url));
         }
         server.replace_tools(vec![]);
         let current = select(&client, &current, "text-only").await;
         let requests_before = server.requests.lock().unwrap().len();
-        let failed = queue(&client, &current, input("Inspect a new image", &[&second])).await;
-        let history = run(&client, &failed).await;
-        let failed_run = history
+        let unsupported = queue(&client, &current, input("Inspect a new image", &[&second])).await;
+        let history = run(&client, &unsupported).await;
+        let completed = history
             .runs
             .iter()
-            .find(|run| run.turn == failed.id)
+            .find(|run| run.turn == unsupported.id)
             .unwrap();
-        assert_eq!(failed_run.status, Status::Failed);
-        let error = failed_run.error.as_ref().unwrap();
-        assert_eq!(error.code, ErrorCode::InvalidRequest);
-        assert_eq!(
-            error.message,
-            "attachment requires tools or a supported native model input"
-        );
-        assert!(!error.message.contains("attachment is unavailable"));
-        assert_eq!(server.requests.lock().unwrap().len(), requests_before);
+        assert_eq!(completed.status, Status::Completed);
+        assert!(completed.error.is_none());
+        let original = history
+            .entries
+            .iter()
+            .find(|entry| entry.turn == unsupported.id && entry.author == "user")
+            .unwrap()
+            .clone();
+        assert!(original.parts.contains(&Part::Attachment(second.clone())));
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), requests_before + 1);
+            let request = requests.last().unwrap().to_string();
+            assert!(request.contains("Inspect a new image"));
+            assert!(request.contains(&second.id.to_string()));
+            assert!(request.contains("This model does not support images"));
+            assert!(!request.contains(&first_url));
+            assert!(!request.contains(&second_url));
+        }
         assert_eq!(
             companion.requests.lock().unwrap().len(),
             companion_before + 1
@@ -218,14 +232,12 @@ async fn preserves_images_across_model_changes() {
         .await;
         let history = run(&client, &plain).await;
         assert_eq!(last_status(&history, plain.id), Status::Completed);
+        assert!(history.entries.contains(&original));
         let request = server.requests.lock().unwrap().last().unwrap().to_string();
         assert!(!request.contains(&first_url));
         assert!(!request.contains(&second_url));
         assert!(request.contains("One bright pixel"));
-        assert!(
-            request
-                .contains("Contents not included; the current model cannot read this attachment")
-        );
+        assert!(request.contains("This model does not support images"));
 
         let current = select(&client, &current, "fixture").await;
         let restored = queue(&client, &current, "Inspect both original images".into()).await;
@@ -234,13 +246,14 @@ async fn preserves_images_across_model_changes() {
         assert_eq!(restored.config.model, "fixture");
         let history = run(&client, &restored).await;
         assert_eq!(last_status(&history, restored.id), Status::Completed);
+        assert!(history.entries.contains(&original));
         let request = server.requests.lock().unwrap().last().unwrap().clone();
         assert_eq!(request["model"], "fixture");
         let serialized = request.to_string();
         assert!(serialized.contains(&first_url));
         assert!(serialized.contains(&second_url));
         assert!(!serialized.contains("sailry-attachment://"));
-        assert_eq!(server.requests.lock().unwrap().len(), before + 5);
+        assert_eq!(server.requests.lock().unwrap().len(), before + 6);
         assert_eq!(
             companion.requests.lock().unwrap().len(),
             companion_before + 1

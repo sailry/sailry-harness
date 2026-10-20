@@ -228,25 +228,74 @@ fn rejects_incomplete_streams_and_private_errors() {
     ));
     assert_eq!(error.category, adk_core::ErrorCategory::Internal);
     assert!(!error.retry.should_retry);
-    let mut output = response::Accumulator::default();
-    output
-        .push(
-            vec![
-                Delta::ToolCall {
-                    index: 0,
-                    id: Some("call".into()),
-                    name: Some("lookup".into()),
-                    arguments_delta: Some("{".into()),
-                },
-                Delta::Finish {
-                    reason: Finish::ToolCalls,
-                },
-            ],
-            true,
-            &[],
-        )
-        .unwrap();
-    assert!(output.finish(&["lookup".into()].into()).is_err());
+}
+
+#[test]
+fn marks_invalid_arguments_without_substitution() {
+    for raw in ["", " ", "{", "[]", "42", "null"] {
+        let mut output = response::Accumulator::default();
+        let partials = output
+            .push(
+                vec![
+                    Delta::ToolCall {
+                        index: 0,
+                        id: Some("call".into()),
+                        name: Some("lookup".into()),
+                        arguments_delta: Some(raw.into()),
+                    },
+                    Delta::Finish {
+                        reason: Finish::ToolCalls,
+                    },
+                ],
+                true,
+                &[],
+            )
+            .unwrap();
+        assert!(partials.iter().all(|response| response.content.is_none()));
+        let response = output.finish(&["lookup".into()].into()).unwrap();
+        assert!(!response.partial);
+        assert!(response.turn_complete);
+        let content = response.content.unwrap();
+        let [Part::FunctionCall { id, name, args, .. }] = content.parts.as_slice() else {
+            panic!("one marked call expected")
+        };
+        assert_eq!(id.as_deref(), Some("call"));
+        assert_eq!(name, "lookup");
+        assert!(adk_core::invalid_tool_arguments_reason(args).is_some());
+        assert_eq!(args[adk_core::INVALID_TOOL_ARGUMENTS_KEY]["raw"], raw);
+        assert_ne!(args, &json!({}));
+    }
+}
+
+#[test]
+fn validates_identity_before_marking_arguments() {
+    for (id, name) in [("", "lookup"), ("call", ""), ("call", "other")] {
+        let mut output = response::Accumulator::default();
+        output
+            .push(
+                vec![
+                    Delta::ToolCall {
+                        index: 0,
+                        id: Some(id.into()),
+                        name: Some(name.into()),
+                        arguments_delta: Some("{".into()),
+                    },
+                    Delta::Finish {
+                        reason: Finish::ToolCalls,
+                    },
+                ],
+                true,
+                &[],
+            )
+            .unwrap();
+        let error = output.finish(&["lookup".into()].into()).unwrap_err();
+        assert_eq!(error.code, "model.plugin.invalid_translation");
+        assert_eq!(
+            error.message,
+            "model returned an invalid tool-call identity"
+        );
+        assert!(!error.retry.should_retry);
+    }
 }
 
 #[tokio::test]

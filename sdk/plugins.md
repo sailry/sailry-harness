@@ -277,9 +277,10 @@ The inert `sailry/adapter` module exposes `version` and `parseJson`; its
 [type declarations](../crates/node-runtime/src/plugins/script/adapter.d.ts) describe
 the neutral input and deltas. These modules have no `sailry/sdk`, filesystem, network or tool dispatch. The Node performs
 transport and credential injection; model translation never receives tokens.
-Each model callback has a 50 ms execution budget and the model request budget is
-32 MiB. These limits do not bound HTTP/SSE waiting or asynchronous authorization;
-authentication transformations retain their existing separate budget.
+Model callbacks use the shared 60-second script execution limit, including JSON
+conversion, with cancellation, a 64 MiB heap and a 512 KiB stack. Model requests
+remain bounded to 32 MiB. The script limit does not bound HTTP/SSE waiting or
+authorization I/O.
 ADK remains the sole model/tool execution and history owner. Package-owned tests
 can use `translationInput` and `translate` from `scripts/test-host.mjs` with an
 explicit current `SAILRY_PLUGIN_TEST_HOST`; that bridge runs the production pure

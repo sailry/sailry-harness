@@ -29,7 +29,7 @@ impl Worker {
         let stop = stop.child_token();
         let interrupted = stop.clone();
         tokio::task::spawn_blocking(move || {
-            let mut session = match Session::model(bundle, interrupted.clone()) {
+            let mut session = match Session::new(bundle, interrupted.clone()) {
                 Ok(session) => {
                     match session.has_export("classify") {
                         Ok(classifies) => {
@@ -102,3 +102,6 @@ fn cancelled() -> Fault {
 fn unavailable() -> Fault {
     Fault::new(ErrorCode::Unavailable, "model translation is unavailable")
 }
+
+#[cfg(test)]
+mod tests;

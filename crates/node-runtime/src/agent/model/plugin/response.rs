@@ -180,11 +180,17 @@ impl Accumulator {
             {
                 return Err(invalid("model returned an invalid tool-call identity"));
             }
-            let args: Value = serde_json::from_str(&call.arguments)
-                .map_err(|_| invalid("model returned incomplete tool-call arguments"))?;
-            if !args.is_object() {
-                return Err(invalid("model tool-call arguments must be an object"));
-            }
+            let args = match serde_json::from_str::<Value>(&call.arguments) {
+                Ok(args) if args.is_object() => args,
+                Ok(_) => adk_core::invalid_tool_arguments(
+                    "model tool-call arguments must be an object",
+                    &call.arguments,
+                ),
+                Err(_) => adk_core::invalid_tool_arguments(
+                    "model returned incomplete tool-call arguments",
+                    &call.arguments,
+                ),
+            };
             parts.push(Part::FunctionCall {
                 name: call.name,
                 args,

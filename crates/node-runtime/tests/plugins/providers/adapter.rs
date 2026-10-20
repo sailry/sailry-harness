@@ -193,6 +193,350 @@ async fn runs_captured_translations_without_manual_approval() {
     }
 }
 
+#[tokio::test]
+async fn corrects_arguments_without_executing_invalid_calls() {
+    use sailry_protocol::conversation::Part;
+
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let source = directory.path().join("source/package");
+        declare_adapter(&source, 1);
+        fs::write(
+            source.join("dev.sailry.platform/tools.js"),
+            r#"
+import {getValue,setValue,completeRequest,forgetRequest} from 'sailry/sdk';
+export async function echo(input) {
+  const before = await getValue('executions');
+  const id = setValue('executions',(before.value??0)+1,before.revision);
+  await completeRequest(id);
+  forgetRequest(id);
+  return input;
+}
+"#,
+        )
+        .unwrap();
+        let path = source.join("plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        manifest["extensions"]["dev.sailry.platform"]["actions"] =
+            json!(["models.provide", "storage.read", "storage.write"]);
+        manifest["extensions"]["dev.sailry.platform"]["tools"][0]["handler"]["read_only"] =
+            false.into();
+        fs::write(path, manifest.to_string()).unwrap();
+        let path = source.join("dev.sailry.platform/adapter.js");
+        let translation = fs::read_to_string(&path).unwrap().replace(
+            "export function prepare(input) {",
+            "export function prepare(input) { if(input.model==='unavailable') throw new Error('Synthetic prepare failure');",
+        );
+        assert_eq!(
+            translation
+                .matches("arguments_delta:call.function?.arguments")
+                .count(),
+            1
+        );
+        fs::write(path,translation.replace("arguments_delta:call.function?.arguments",
+            "arguments_delta:call.function?.arguments==='{\"query\":\"broken\"}'?'{':call.function?.arguments")).unwrap();
+        let installed = info(execute(&client, install(worktree, 0)).await);
+        assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+        let name = model_fixture::plugin_tool("example", "echo");
+        let server = model_fixture::Server::scripted_tools(vec![
+            (name.clone(), json!({"query":"broken"})),
+            (name.clone(), json!({"query":"corrected"})),
+        ])
+        .await;
+        let provider: Provider = serde_json::from_value(json!({"id":ProviderId::new(),"revision":0,"name":"Example adapter","api":"plugin","authentication":"api_key","endpoint":server.endpoint,"enabled":true,"models":[],"default_model":"","credential":null,"preset":{"source":{"kind":"package","data":{"name":"example"}},"id":"example"}})).unwrap();
+        let Output::Provider(provider) = execute(
+            &client,
+            Command::PutProvider {
+                provider,
+                expected_revision: 0,
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+            panic!("snapshot expected")
+        };
+        let project = snapshot
+            .worktrees
+            .iter()
+            .find(|item| item.id == worktree)
+            .unwrap()
+            .project;
+        let Output::Session(session) = execute(
+            &client,
+            Command::CreateSession {
+                project,
+                worktree: Some(worktree),
+                config: Some(SessionConfig {
+                    assistant: None,
+                    resource: None,
+                    provider: provider.id,
+                    credential: None,
+                    model: "fixture".into(),
+                    effort: Effort::Default,
+                    mode: WorkMode::Code,
+                    permission: Permission::Full,
+                    options: Default::default(),
+                }),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        let message = "Keep this original task while correcting the tool call";
+        let Output::QueuedTurn(turn) = execute(
+            &client,
+            Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: message.into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected")
+        };
+        finish(&client, session.id, turn.id).await;
+        let page = client
+            .read_conversation(session.id, None, 100)
+            .await
+            .unwrap()
+            .page;
+        let original = page
+            .entries
+            .iter()
+            .find(|entry| entry.turn == turn.id && entry.author == "user")
+            .unwrap()
+            .clone();
+        assert!(original.parts.contains(&Part::Text(message.into())));
+        let calls = page
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == turn.id)
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| match part {
+                Part::ToolCall { id, arguments, .. } => Some((id, arguments)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].0.as_deref(), Some("call-fixture-0"));
+        assert!(adk_core::invalid_tool_arguments_reason(calls[0].1).is_some());
+        assert_eq!(calls[0].1[adk_core::INVALID_TOOL_ARGUMENTS_KEY]["raw"], "{");
+        assert_eq!(calls[1].0.as_deref(), Some("call-fixture-1"));
+        assert_eq!(calls[1].1, &json!({"query":"corrected"}));
+        assert!(calls.iter().all(|(_, arguments)| arguments.is_object()));
+        let results = page
+            .entries
+            .iter()
+            .filter(|entry| entry.turn == turn.id)
+            .flat_map(|entry| &entry.parts)
+            .filter_map(|part| match part {
+                Part::ToolResult { id, result, .. } => Some((id, result)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].0.as_deref(), Some("call-fixture-0"));
+        assert!(
+            results[0].1["error"]
+                .as_str()
+                .unwrap()
+                .starts_with(&format!("tool '{name}' was not run:"))
+        );
+        assert_eq!(results[1].0.as_deref(), Some("call-fixture-1"));
+        assert!(
+            results[1].1.to_string().contains("corrected"),
+            "{:?}",
+            results[1].1
+        );
+        let context = plugin::Context {
+            invocation: None,
+            turn: None,
+            surface: Default::default(),
+            package: installed.summary.reference(),
+            worktree: Some(worktree),
+            session: Some(session.id),
+        };
+        let Output::PluginValue(executions) = client
+            .execute(
+                client
+                    .prepare(Command::ReadPluginValue {
+                        key: "executions".into(),
+                    })
+                    .with_plugin(context.clone()),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("plugin value expected")
+        };
+        assert_eq!(executions.value, json!(1));
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 3);
+            let tools = requests[1]["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["role"] == "tool")
+                .collect::<Vec<_>>();
+            assert_eq!(tools.len(), 1);
+            assert!(
+                tools[0]["content"]
+                    .as_str()
+                    .unwrap()
+                    .contains("was not run")
+            );
+            assert!(requests[2].to_string().contains("corrected"));
+        }
+        let Output::Session(session) = execute(
+            &client,
+            Command::SetSessionConfig {
+                session: session.id,
+                expected_revision: session.revision,
+                config: SessionConfig {
+                    model: "unavailable".into(),
+                    ..session.config.clone()
+                },
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        let failed_message = "Retain this request after the adapter fails";
+        let Output::QueuedTurn(failed) = execute(
+            &client,
+            Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: failed_message.into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected")
+        };
+        let failed_page = tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let page = client
+                    .read_conversation(session.id, None, 100)
+                    .await
+                    .unwrap()
+                    .page;
+                if let Some(run) = page.runs.iter().find(|run| run.turn == failed.id)
+                    && matches!(
+                        run.status,
+                        sailry_protocol::conversation::Status::Completed
+                            | sailry_protocol::conversation::Status::Failed
+                    )
+                {
+                    assert_eq!(run.status, sailry_protocol::conversation::Status::Failed);
+                    assert_eq!(run.error.as_ref().unwrap().code, ErrorCode::Internal);
+                    break page;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(failed_page.entries.contains(&original));
+        assert!(
+            failed_page
+                .entries
+                .iter()
+                .filter(|entry| entry.turn == failed.id)
+                .flat_map(|entry| &entry.parts)
+                .all(|part| !matches!(part, Part::ToolCall { .. } | Part::ToolResult { .. }))
+        );
+        let failed_input = failed_page
+            .entries
+            .iter()
+            .find(|entry| entry.turn == failed.id && entry.author == "user")
+            .unwrap()
+            .clone();
+        assert!(
+            failed_input
+                .parts
+                .contains(&Part::Text(failed_message.into()))
+        );
+        assert_eq!(server.requests.lock().unwrap().len(), 3);
+        server.replace_tools(vec![]);
+        let Output::Session(session) = execute(
+            &client,
+            Command::SetSessionConfig {
+                session: session.id,
+                expected_revision: session.revision,
+                config: SessionConfig {
+                    model: "continued".into(),
+                    ..session.config.clone()
+                },
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        let Output::QueuedTurn(next) = execute(
+            &client,
+            Command::SubmitTurn {
+                session: session.id,
+                expected_revision: session.revision,
+                message: "Continue the original task".into(),
+            },
+        )
+        .await
+        else {
+            panic!("turn expected")
+        };
+        assert_eq!(next.config.model, "continued");
+        finish(&client, session.id, next.id).await;
+        let page = client
+            .read_conversation(session.id, None, 100)
+            .await
+            .unwrap()
+            .page;
+        assert!(page.entries.contains(&original));
+        assert!(page.entries.contains(&failed_input));
+        assert!(
+            failed_page
+                .entries
+                .iter()
+                .all(|entry| page.entries.contains(entry))
+        );
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 4);
+            let request = requests.last().unwrap();
+            assert_eq!(request["model"], "continued");
+            assert!(request.to_string().contains(message));
+            assert!(request.to_string().contains(failed_message));
+            assert!(request.to_string().contains("corrected"));
+        }
+        let Output::PluginValue(retained) = client
+            .execute(
+                client
+                    .prepare(Command::ReadPluginValue {
+                        key: "executions".into(),
+                    })
+                    .with_plugin(context),
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("plugin value expected")
+        };
+        assert_eq!(retained, executions);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
 fn enable_discovery(root: &Path) {
     let path = root.join("plugin.json");
     let mut manifest: serde_json::Value =

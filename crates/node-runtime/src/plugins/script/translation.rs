@@ -24,28 +24,12 @@ pub(crate) struct Session {
     stop: CancellationToken,
     timeout: Duration,
     failed: bool,
-    model: bool,
 }
 
 impl Session {
     /// `bundle` must come from the captured immutable package resource owner.
     pub(crate) fn new(bundle: Bundle, stop: CancellationToken) -> Result<Self, Fault> {
         Self::bounded(bundle, stop, CALL_TIMEOUT)
-    }
-
-    /// Model translation is a short CPU callback, not an OAuth flow or an HTTP lifetime.
-    pub(crate) fn model(bundle: Bundle, stop: CancellationToken) -> Result<Self, Fault> {
-        let cancelled = stop.clone();
-        let mut session =
-            Self::bounded(bundle, stop, Duration::from_millis(50)).map_err(|error| {
-                if error.code == ErrorCode::Cancelled && !cancelled.is_cancelled() {
-                    exhausted()
-                } else {
-                    error
-                }
-            })?;
-        session.model = true;
-        Ok(session)
     }
 
     pub(crate) fn has_export(&self, handler: &str) -> Result<bool, Fault> {
@@ -122,7 +106,6 @@ impl Session {
             stop,
             timeout,
             failed: false,
-            model: false,
         })
     }
 
@@ -167,7 +150,7 @@ impl Session {
                 .map_err(|_| unavailable())?
                 .is_some_and(|deadline| Instant::now() >= deadline)
             {
-                return Err(if self.model { exhausted() } else { expired() });
+                return Err(expired());
             }
             let text = result.map_err(|_| unavailable())?;
             if text.len() > max_bytes {
@@ -213,11 +196,4 @@ fn unavailable() -> Fault {
 
 fn expired() -> Fault {
     Fault::new(ErrorCode::Cancelled, "plugin translation deadline exceeded")
-}
-
-fn exhausted() -> Fault {
-    Fault::new(
-        ErrorCode::Internal,
-        "model adapter callback exceeded its execution budget",
-    )
 }

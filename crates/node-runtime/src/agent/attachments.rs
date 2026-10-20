@@ -16,6 +16,7 @@ const REQUEST_BYTES: u64 = 64 * 1024 * 1024;
 const READ_NOTE: &str = "Contents not included; use read_office with source {\"kind\":\"attachment\",\"value\":\"<id>\"} for PDF, Office documents and spreadsheets; use an attachment-capable tool for other files";
 const UNAVAILABLE_NOTE: &str =
     "Contents not included; the current model cannot read this attachment";
+const IMAGE_NOTE: &str = "This model does not support images. The original attachment is retained.";
 
 pub(super) fn api(provider: &Provider, effective: ModelApi) -> Option<ModelApi> {
     if effective == ModelApi::Plugin {
@@ -134,6 +135,14 @@ impl Model {
                         .ingress
                         .attachment_bytes(attachment.clone(), self.stop.clone())
                         .await?;
+                    if !self.vision
+                        && file_format::FileFormat::from_bytes(&bytes)
+                            .media_type()
+                            .starts_with("image/")
+                    {
+                        *part = file(&attachment, Some(IMAGE_NOTE));
+                        continue;
+                    }
                     inline(&attachment, bytes, self.vision, self.api)
                 } else {
                     None
