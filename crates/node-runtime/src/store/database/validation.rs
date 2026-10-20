@@ -907,6 +907,7 @@ mod tests {
             for field in ["unrecognized", "future_setting"] {
                 let (_directory, path, node, database) = fixture();
                 let config = SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: ProviderId::new(),
@@ -951,6 +952,7 @@ mod tests {
                 worktree: WorktreeId::new(),
                 revision: 1,
                 config: SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: ProviderId::new(),

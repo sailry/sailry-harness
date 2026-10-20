@@ -22,6 +22,7 @@ declare module 'sailry/adapter' {
   export interface Request {
     version: 'v1'; model: string; messages: Message[]; system?: string | null;
     tools: Tool[]; tool_choice: Choice; reasoning: {effort: Effort; replay: boolean};
+    features: Record<string, string>;
     max_output_tokens?: number | null; temperature?: number | null; top_p?: number | null;
     stop: string[]; stream: boolean; session: string; endpoint: string; options: Record<string, Json>;
   }

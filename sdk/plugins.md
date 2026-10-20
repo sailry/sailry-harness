@@ -317,6 +317,13 @@ uses `prepare_discovery` and `decode_discovery`. See the authoritative
 [wire types](../crates/protocol/src/plugin/model_adapter/wire.rs) and
 [authentication declarations](../crates/protocol/src/plugin/model_auth.rs).
 Do not infer model capabilities from IDs or synthesize fallback context limits.
+Discovery can advertise `capabilities.features` as a list of `{id, name?, icon?,
+options: [{id, name?}]}` descriptors. IDs are stable parameter values; display
+names do not affect requests. Selected choices arrive in `prepare` as
+`features: Record<string, string>`, independently of reasoning. An empty map
+means no feature is selected. A translation maps only its own advertised choices
+to the upstream protocol. Native Responses currently maps `speed: "fast"` to
+`service_tier: "priority"` when that choice is advertised by the model catalog.
 
 Pure modules declare their entry and resources under `dev.sailry.platform/`.
 The inert `sailry/adapter` module exposes `version` and `parseJson`; its

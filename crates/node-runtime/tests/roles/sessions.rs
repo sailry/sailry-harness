@@ -76,6 +76,7 @@ async fn create(client: &Client, root: &std::path::Path, provider: &Provider) ->
         Command::SetDefaults {
             expected_revision: 0,
             config: SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: provider.id,

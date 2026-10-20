@@ -412,6 +412,7 @@ impl Fixture {
             project: Some(project.id),
             worktree: None,
             config: Some(sailry_protocol::SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 options: Default::default(),

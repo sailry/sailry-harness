@@ -83,6 +83,7 @@ mod history {
             request: RequestId::new(),
             revision: 1,
             config: crate::SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: crate::ProviderId::new(),

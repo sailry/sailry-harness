@@ -104,6 +104,7 @@ async fn ok(client: &Client, context: &Context, handler: &str, input: Value) -> 
 async fn config(client: &Client, endpoint: String) -> SessionConfig {
     let model = completion::configure(client, endpoint).await;
     SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: model.split('/').next().unwrap().parse().unwrap(),

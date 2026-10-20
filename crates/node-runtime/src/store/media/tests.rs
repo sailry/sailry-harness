@@ -37,6 +37,7 @@ fn fixture() -> (Provider, SessionConfig) {
         }],
     };
     let config = SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: provider.id,

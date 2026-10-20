@@ -56,6 +56,7 @@ pub(super) async fn session(client: &Client, worktree: WorktreeId) -> Session {
             project,
             worktree: Some(worktree),
             config: Some(SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: provider.id,

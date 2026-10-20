@@ -79,10 +79,15 @@ fn retains_multimodal_history_and_options() {
         "http://localhost:8080",
         "session",
         Effort::High,
+        std::collections::BTreeMap::from([("speed".into(), "fast".into())]),
         &capabilities(),
         true,
     )
     .unwrap();
+    assert_eq!(
+        value.features.get("speed").map(String::as_str),
+        Some("fast")
+    );
     assert_eq!(value.system.as_deref(), Some("system instruction"));
     assert_eq!(value.messages.len(), 3);
     let wire::Message::Tool { call_id, parts, .. } = &value.messages[2] else {
@@ -132,6 +137,7 @@ fn rejects_unrepresentable_parts_without_dropping() {
                 "http://localhost:8080",
                 "session",
                 Effort::Default,
+                Default::default(),
                 &Capabilities::default(),
                 false
             )

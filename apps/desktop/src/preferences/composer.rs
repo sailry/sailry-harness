@@ -1,5 +1,6 @@
 use sailry_protocol::{Effort, NodeId, Permission, ProviderId, WorkMode};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Composer {
@@ -24,4 +25,6 @@ pub(crate) struct Model {
     pub provider: ProviderId,
     pub model: String,
     pub effort: Effort,
+    #[serde(default)]
+    pub features: BTreeMap<String, String>,
 }

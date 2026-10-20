@@ -105,6 +105,7 @@ async fn closes_earlier_admission() {
             project: Some(expected.id),
             worktree: None,
             config: Some(SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),
@@ -399,6 +400,7 @@ async fn rechecks_new_tasks() {
             project: Some(expected.id),
             worktree: None,
             config: Some(SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),

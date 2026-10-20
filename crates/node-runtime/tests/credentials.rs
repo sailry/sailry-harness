@@ -138,6 +138,7 @@ async fn lifecycle(remote: bool) {
     );
 
     let config = SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider,
@@ -278,6 +279,7 @@ async fn rejects_unavailable_credentials() {
         id,
     };
     let config = SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider,

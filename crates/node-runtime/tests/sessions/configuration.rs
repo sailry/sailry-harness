@@ -52,6 +52,7 @@ async fn freezes_package_options_across_resume() {
         };
         assert!(package.issues.is_empty(), "{:?}", package.issues);
         let config = SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: ProviderId::new(),
@@ -170,6 +171,7 @@ async fn defers_unused_archive_validation() {
                 node.local()
             });
             let config = SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),

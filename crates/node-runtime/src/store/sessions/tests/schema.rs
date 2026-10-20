@@ -239,6 +239,7 @@ fn session(database: &Database, profile: &Path, state: &str) -> SessionId {
         None,
         Configuration {
             config: SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),

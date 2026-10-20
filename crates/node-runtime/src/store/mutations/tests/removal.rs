@@ -5,6 +5,7 @@ fn session(worktree: &Worktree) -> Command {
         project: worktree.project,
         worktree: Some(worktree.id),
         config: Some(SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: ProviderId::new(),

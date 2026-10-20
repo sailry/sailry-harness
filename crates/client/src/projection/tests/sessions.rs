@@ -11,6 +11,7 @@ fn session() -> Session {
         worktree: WorktreeId::new(),
         revision: 1,
         config: SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: ProviderId::new(),

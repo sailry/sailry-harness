@@ -20,6 +20,7 @@ async fn restores_config_revisions() {
         panic!("project expected")
     };
     let config = SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: ProviderId::new(),

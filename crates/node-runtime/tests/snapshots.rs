@@ -96,6 +96,7 @@ async fn configure(client: &Client) -> SessionConfig {
         .await;
     }
     SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: provider.id,

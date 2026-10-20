@@ -1,5 +1,63 @@
 use super::*;
 
+mod composer {
+    use super::*;
+    use sailry_protocol::{Effort, NodeId, ProviderId};
+
+    fn selection() -> Composer {
+        Composer {
+            model: Some(Model {
+                source: NodeId([1; 32]),
+                provider: ProviderId::new(),
+                model: "declared-model".into(),
+                effort: Effort::High,
+                features: Default::default(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn missing_features_preserves_existing_selection() {
+        let expected = selection();
+        let mut value = serde_json::to_value(&expected).unwrap();
+        value["model"].as_object_mut().unwrap().remove("features");
+        let restored: Composer = serde_json::from_value(value).unwrap();
+        assert_eq!(restored, expected);
+        assert!(restored.model.unwrap().features.is_empty());
+    }
+
+    #[test]
+    fn persists_features_independently_of_effort() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("preferences.json");
+        let mut preferences = Preferences::open(path.clone());
+        preferences.data.composer = Some(selection());
+        for value in [Some("fast"), Some("future-choice"), None] {
+            let features = value
+                .map(|value| ("speed".to_owned(), value.to_owned()))
+                .into_iter()
+                .collect::<std::collections::BTreeMap<_, _>>();
+            preferences
+                .data
+                .composer
+                .as_mut()
+                .unwrap()
+                .model
+                .as_mut()
+                .unwrap()
+                .features = features.clone();
+            preferences.save();
+            assert_eq!(preferences.error, None);
+            let restored = Preferences::open(path.clone());
+            assert_eq!(restored.data.composer, preferences.data.composer);
+            let model = restored.data.composer.unwrap().model.unwrap();
+            assert_eq!(model.features, features);
+            assert_eq!(model.effort, Effort::High);
+        }
+    }
+}
+
 mod picker {
     use super::*;
     #[test]

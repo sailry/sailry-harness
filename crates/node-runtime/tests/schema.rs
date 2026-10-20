@@ -318,6 +318,7 @@ async fn upgrades_resources_on_both_paths() {
             panic!("provider expected")
         };
         let config = SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: provider.id,

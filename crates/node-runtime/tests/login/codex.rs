@@ -5,6 +5,8 @@ use sailry_protocol::conversation::{Model, Page, Part, Status, oauth::Options};
 mod completion;
 #[path = "codex/execution.rs"]
 mod execution;
+#[path = "codex/features.rs"]
+mod features;
 #[path = "codex/lifecycle.rs"]
 mod lifecycle;
 #[path = "codex/media.rs"]

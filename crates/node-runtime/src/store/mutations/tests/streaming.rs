@@ -26,6 +26,7 @@ async fn session(client: &Client) -> Session {
             project: Some(snapshot.projects[0].id),
             worktree: None,
             config: Some(SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),

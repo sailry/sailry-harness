@@ -12,6 +12,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::FluentBuilder as _;
 
 mod badge;
+pub(super) mod features;
 mod fit;
 #[cfg(test)]
 mod tests;
@@ -100,19 +101,6 @@ impl View {
             .config
             .as_ref()
             .map_or(Effort::Default, |config| config.effort);
-        let initial = self
-            .config
-            .as_ref()
-            .and_then(|config| {
-                self.providers()
-                    .find(|provider| provider.id == config.provider)?
-                    .models
-                    .iter()
-                    .find(|model| model.id == config.model)
-            })
-            .map_or(Effort::Default, |model| {
-                Effort::initial(&model.efforts, model.default_effort)
-            });
         let blocked = self.configuration_blocked();
         let available = channels
             .iter()
@@ -129,7 +117,12 @@ impl View {
                     model,
                     choices,
                     effort,
-                    initial,
+                    features: self.available_features(),
+                    selected: self
+                        .config
+                        .as_ref()
+                        .map(|config| config.features.clone())
+                        .unwrap_or_default(),
                     busy: blocked || !self.can_pick_model(),
                     connected: self.configuration().connected,
                 },
@@ -260,6 +253,24 @@ impl View {
                                 .child(fit.probe(fit::Part::Effort, Some(label), view)),
                         )
                     })
+                    .children(
+                        features::labels(
+                            &self.available_features(),
+                            &self
+                                .config
+                                .as_ref()
+                                .map(|config| config.features.clone())
+                                .unwrap_or_default(),
+                        )
+                        .into_iter()
+                        .map(|label| {
+                            div()
+                                .flex_shrink_0()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(label)
+                        }),
+                    )
                     .children(segments),
             )
             .disabled(self.configuration_blocked() || !self.can_pick_model());
@@ -311,7 +322,8 @@ struct Settings {
     model: SharedString,
     choices: Vec<Effort>,
     effort: Effort,
-    initial: Effort,
+    features: Vec<sailry_protocol::conversation::features::Feature>,
+    selected: std::collections::BTreeMap<String, String>,
     busy: bool,
     connected: bool,
 }
@@ -524,14 +536,16 @@ impl Render for Panel {
                             .w_full()
                             .h_6()
                             .justify_center()
-                            .child(
-                                h_flex()
-                                    .absolute()
-                                    .left_0()
-                                    .top_0()
-                                    .gap_1()
-                                    .children(contributions),
-                            )
+                            .child(h_flex().absolute().left_0().top_0().gap_1().children(
+                                settings.features.iter().map(|feature| {
+                                    features::control(
+                                        feature,
+                                        settings.selected.get(&feature.id).map(String::as_str),
+                                        settings.busy || !settings.connected,
+                                        self.owner.clone(),
+                                    )
+                                }),
+                            ))
                             .child(
                                 div()
                                     .text_sm()
@@ -544,33 +558,12 @@ impl Render for Panel {
                                     }),
                             )
                             .child(
-                                Button::new("model-controls-reset")
-                                    .rounded_full()
-                                    .text()
-                                    .small()
+                                h_flex()
                                     .absolute()
-                                    .right_2()
-                                    .icon(IconName::RotateCw)
-                                    .tooltip(tr("composer_effort_reset"))
-                                    .accessibility_label(tr("composer_effort_reset"))
-                                    .disabled(
-                                        settings.busy
-                                            || !settings.connected
-                                            || !settings.choices.contains(&settings.initial)
-                                            || selected == settings.initial,
-                                    )
-                                    .debug_selector(|| "model-controls-reset".into())
-                                    .on_click(cx.listener(|panel, _, window, cx| {
-                                        let index = panel.settings.as_ref().and_then(|settings| {
-                                            settings
-                                                .choices
-                                                .iter()
-                                                .position(|choice| *choice == settings.initial)
-                                        });
-                                        if let Some(index) = index {
-                                            panel.apply(index, window, cx);
-                                        }
-                                    })),
+                                    .right_0()
+                                    .top_0()
+                                    .gap_1()
+                                    .children(contributions),
                             ),
                     )
                     .child(

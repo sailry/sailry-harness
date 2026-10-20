@@ -20,6 +20,11 @@ pub(super) fn seed(
     // Reconnecting the same account preserves its explicit model selection.
     // A replacement account uses its complete catalog and retains shared choices.
     if !replace && !provider.models.is_empty() {
+        for configured in &mut provider.models {
+            if let Some(discovered) = models.iter().find(|model| model.id == configured.id) {
+                features(configured, discovered);
+            }
+        }
         return Ok(());
     }
     let mut references = BTreeMap::new();
@@ -58,13 +63,20 @@ pub(super) fn seed(
     provider.models = models
         .iter()
         .map(|model| {
-            configured.get(&model.id).cloned().unwrap_or_else(|| {
-                model.configuration(
-                    references.get(&model.id),
-                    provider.api,
-                    provider.authentication,
-                )
-            })
+            configured
+                .get(&model.id)
+                .cloned()
+                .map(|mut configured| {
+                    features(&mut configured, model);
+                    configured
+                })
+                .unwrap_or_else(|| {
+                    model.configuration(
+                        references.get(&model.id),
+                        provider.api,
+                        provider.authentication,
+                    )
+                })
         })
         .collect();
     if !provider
@@ -75,4 +87,20 @@ pub(super) fn seed(
         provider.default_model = provider.models[0].id.clone();
     }
     Ok(())
+}
+
+fn features(configured: &mut sailry_protocol::conversation::Model, discovered: &discovery::Model) {
+    let features = discovered
+        .capabilities
+        .as_ref()
+        .map(|value| value.features.clone())
+        .unwrap_or_default();
+    if let Some(capabilities) = &mut configured.capabilities {
+        capabilities.features = features;
+    } else if !features.is_empty() {
+        configured.capabilities = Some(discovery::Capabilities {
+            features,
+            ..Default::default()
+        });
+    }
 }

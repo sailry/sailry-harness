@@ -81,6 +81,7 @@ async fn preserves_atomic_visibility_and_resources() {
             panic!("project expected")
         };
         let config = SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: ProviderId::new(),

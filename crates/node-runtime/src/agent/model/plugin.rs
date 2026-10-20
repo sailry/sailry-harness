@@ -93,6 +93,7 @@ impl Llm for Model {
             &self.provider.endpoint,
             &self.session.to_string(),
             self.config.effort,
+            self.config.features.clone(),
             &self.declaration.capabilities,
             streaming,
         )
@@ -592,6 +593,7 @@ async fn read_catalog(
             }
             // Catalog summaries cannot elevate the captured transport's abilities.
             let capabilities = model.capabilities.get_or_insert_with(Default::default);
+            sailry_protocol::conversation::features::validate(&capabilities.features)?;
             if !declaration.capabilities.vision {
                 capabilities.vision = Some(false);
             }

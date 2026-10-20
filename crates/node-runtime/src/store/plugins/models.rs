@@ -56,6 +56,7 @@ pub(super) fn resolve(db: &Connection, selected: &str) -> Result<(Provider, Sess
         .find(|candidate| candidate.id == model)
         .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "selected model is unavailable"))?;
     let config = SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: provider.id,
@@ -83,6 +84,15 @@ pub(super) fn session(
     let (provider, resolved) = resolve(db, selected)?;
     let mut config = base.cloned().unwrap_or_else(|| resolved.clone());
     let unchanged = config.provider == resolved.provider && config.model == resolved.model;
+    if !unchanged {
+        config.features.clear();
+    } else if let Some(model) = provider
+        .models
+        .iter()
+        .find(|model| model.id == resolved.model)
+    {
+        model.retain_features(provider.api, &mut config.features);
+    }
     config.provider = resolved.provider;
     config.model = resolved.model;
     config.credential = resolved.credential;

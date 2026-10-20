@@ -411,6 +411,7 @@ async fn shares_reads_across_sessions_and_clients() {
                 project: None,
                 worktree: None,
                 config: Some(SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: provider.id,

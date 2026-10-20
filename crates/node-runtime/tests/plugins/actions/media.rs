@@ -69,6 +69,7 @@ async fn running(
             project,
             worktree: context.worktree,
             config: Some(SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: primary_id,

@@ -55,6 +55,8 @@ pub struct SessionConfig {
     pub model: String,
     #[serde(default)]
     pub effort: Effort,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub features: std::collections::BTreeMap<String, String>,
     pub mode: WorkMode,
     /// Public package-owned choices, separate from model and tool authority.
     #[serde(default)]
@@ -173,6 +175,7 @@ mod permission {
             (Permission::Full, "full"),
         ] {
             let config = SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),
@@ -286,6 +289,7 @@ mod work_mode {
     fn requires_an_explicit_choice() {
         for (mode, name) in [(WorkMode::Plan, "plan"), (WorkMode::Code, "code")] {
             let config = SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),

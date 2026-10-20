@@ -56,6 +56,7 @@ pub(super) async fn provider(client: &Client, endpoint: &str, model: &str) -> Pr
 
 pub(super) fn config(provider: &Provider) -> SessionConfig {
     SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: provider.id,

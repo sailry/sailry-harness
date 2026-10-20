@@ -114,6 +114,10 @@ pub(super) fn validate_model(
     };
     if let Some(provider) = provider {
         super::agent::providers::selection(&provider, config)?;
+    } else if !config.features.is_empty() {
+        return Err(Fault::invalid(
+            "model feature choices require an advertised model",
+        ));
     }
     Ok(())
 }

@@ -134,6 +134,13 @@ pub(super) fn save(
                 {
                     session.config.model = model.id.clone();
                     session.config.effort = model.default_effort;
+                    session.config.features.clear();
+                } else if let Some(model) = provider
+                    .models
+                    .iter()
+                    .find(|model| model.id == session.config.model)
+                {
+                    model.retain_features(provider.api, &mut session.config.features);
                 }
                 if let Some(profile) = &mut session.profile {
                     profile.provider.credential = provider.credential.clone();

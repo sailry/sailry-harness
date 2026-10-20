@@ -10,6 +10,7 @@ fn create() -> Command {
         project: None,
         worktree: None,
         config: Some(SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: ProviderId::new(),

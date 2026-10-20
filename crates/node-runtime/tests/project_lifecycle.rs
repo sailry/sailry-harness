@@ -113,6 +113,7 @@ async fn edits_and_restores() {
                 project: Some(updated.id),
                 worktree: None,
                 config: Some(SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: ProviderId::new(),

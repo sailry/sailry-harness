@@ -51,6 +51,7 @@ async fn synchronizes_and_persists_read_state() {
             project: Some(project.id),
             worktree: None,
             config: Some(SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),

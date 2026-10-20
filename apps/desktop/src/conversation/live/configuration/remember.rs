@@ -14,6 +14,15 @@ impl View {
                     && provider.models.iter().any(|entry| entry.id == model.model)
             })?
             .1;
+        let declarations = provider
+            .models
+            .iter()
+            .find(|entry| entry.id == model.model)
+            .and_then(|entry| entry.capabilities.as_ref())
+            .map(|value| value.features.as_slice())
+            .unwrap_or_default();
+        let features =
+            super::super::model_controls::features::retain(declarations, &model.features);
         Some(SessionConfig {
             assistant: None,
             resource: None,
@@ -21,6 +30,7 @@ impl View {
             provider: provider.id,
             model: model.model,
             effort: model.effort,
+            features,
             mode: selection.mode,
             permission: selection.permission,
             credential: provider.credential.clone(),
@@ -45,6 +55,7 @@ impl View {
                     provider: config.provider,
                     model: config.model.clone(),
                     effort: config.effort,
+                    features: config.features.clone(),
                 }),
                 mode: config.mode,
                 permission: config.permission,

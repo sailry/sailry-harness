@@ -401,6 +401,7 @@ async fn configure(client: &Client, endpoint: &str) {
         .execute(client.prepare(Command::SetDefaults {
             expected_revision: 0,
             config: SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: provider.id,

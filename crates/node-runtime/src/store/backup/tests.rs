@@ -304,6 +304,7 @@ async fn copies_consistent_state_without_blocking_commands() {
                 project: Some(registered.id),
                 worktree: Some(worktree),
                 config: Some(sailry_protocol::SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: sailry_protocol::ProviderId::new(),

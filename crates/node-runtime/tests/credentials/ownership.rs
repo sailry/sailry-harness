@@ -56,6 +56,7 @@ async fn retains_replaced_and_removed_configuration() {
                 worktree: None,
                 project: None,
                 config: Some(SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: provider.id,

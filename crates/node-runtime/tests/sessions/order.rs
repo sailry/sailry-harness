@@ -61,6 +61,7 @@ async fn restores_snapshot_order() {
         let mut projection = Projection::new(node.id(), 1);
         projection.apply(1, updates.next().await.unwrap()).unwrap();
         let config = SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: ProviderId::new(),

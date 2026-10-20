@@ -281,6 +281,7 @@ async fn previews_are_bounded_without_exposing_history() {
                 project: None,
                 worktree: None,
                 config: Some(SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: model.split_once('/').unwrap().0.parse().unwrap(),

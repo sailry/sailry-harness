@@ -13,6 +13,7 @@ pub(super) fn convert(
     endpoint: &str,
     session: &str,
     effort: Effort,
+    features: BTreeMap<String, String>,
     capabilities: &Capabilities,
     stream: bool,
 ) -> Result<wire::Request, Fault> {
@@ -136,6 +137,7 @@ pub(super) fn convert(
             effort,
             replay: capabilities.reasoning,
         },
+        features,
         max_output_tokens,
         temperature: config.temperature.map(f64::from),
         top_p: config.top_p.map(f64::from),

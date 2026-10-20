@@ -281,6 +281,7 @@ async fn capture(client: &Client, worktree: WorktreeId) -> (Session, TurnId) {
             project: Some(project),
             worktree: Some(worktree),
             config: Some(SessionConfig {
+                features: Default::default(),
                 provider: model.split('/').next().unwrap().parse().unwrap(),
                 model: "fixture".into(),
                 mode: WorkMode::Code,

@@ -140,6 +140,7 @@ async fn streams_before_completion() {
         captured.lock().unwrap().push(category);
     });
     let config = SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: source.provider.id,

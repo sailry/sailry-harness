@@ -34,6 +34,7 @@ async fn preserves_large_inline_payloads() {
         "https://example.test",
         "example",
         Effort::Default,
+        Default::default(),
         &Capabilities {
             vision: true,
             tools: true,

@@ -17,6 +17,7 @@ async fn node() -> (TempDir, Node, Client) {
 
 fn config(model: &str) -> SessionConfig {
     SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: ProviderId::new(),

@@ -115,6 +115,7 @@ async fn survives_without_projects() {
                     project: None,
                     worktree: None,
                     config: Some(SessionConfig {
+                        features: Default::default(),
                         assistant: Some(sailry_protocol::plugin::conversation::Binding {
                             package: package.summary.reference(),
                             id: assistant.into(),

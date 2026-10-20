@@ -3,6 +3,7 @@ mod authorization;
 mod cloud;
 mod diagnostics;
 mod errors;
+mod features;
 pub(super) mod history;
 mod hosted;
 mod opencode;
@@ -121,6 +122,11 @@ pub(super) async fn configured(
         .find(|model| model.id == config.model);
     if let Some(model) = metadata {
         model.validate_effort(api, config.effort)?;
+        model.validate_features(api, &config.features)?;
+    } else if !config.features.is_empty() {
+        return Err(Fault::invalid(
+            "model feature choices require an advertised model",
+        ));
     }
     let effort = if metadata.is_none_or(|model| {
         model
@@ -173,7 +179,11 @@ pub(super) async fn configured(
             stop: stop.clone(),
         }) as Arc<dyn Llm>
     };
-    Ok(inner)
+    Ok(if api == ModelApi::Responses {
+        features::wrap(inner, config.features.clone())
+    } else {
+        inner
+    })
 }
 
 pub(super) fn native(

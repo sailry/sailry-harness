@@ -131,6 +131,7 @@ fn loads_only_explicit_new_task_configuration() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("session config.json");
     let config = SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: ProviderId::new(),

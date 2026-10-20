@@ -11,7 +11,13 @@ pub(in crate::store) fn selection(
         .find(|model| model.id == config.model)
     {
         model.validate_effort(provider.api, config.effort)?;
+        model.validate_features(provider.api, &config.features)?;
     } else {
+        if !config.features.is_empty() {
+            return Err(Fault::invalid(
+                "model feature choices require an advertised model",
+            ));
+        }
         config.effort.validate(provider.api, 0)?;
     }
     Ok(())
@@ -92,6 +98,7 @@ pub(in crate::store) fn validate(
             ));
         }
         model.validate_reasoning(provider.api)?;
+        model.validate_features(provider.api, &Default::default())?;
     }
     if !provider.models.is_empty() && !ids.contains(&provider.default_model) {
         return Err(sailry_protocol::Fault::invalid(

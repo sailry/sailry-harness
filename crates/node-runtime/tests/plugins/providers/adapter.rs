@@ -26,7 +26,7 @@ export function prepare(input) {
       tool_calls:item.parts.filter(part=>part.kind==='tool_call').map(part=>({id:part.id,type:'function',function:{name:part.name,arguments:JSON.stringify(part.arguments)}}))});
   }
   return {method:'POST',url:input.endpoint+'/chat/completions',headers:{'content-type':'application/json'},
-    body:JSON.stringify({model:input.model,messages,stream:true,translated:version,
+    body:JSON.stringify({model:input.model,messages,stream:true,translated:version,features:input.features,
       tools:input.tools.map(tool=>({type:'function',function:tool}))}),framing:'sse'};
 }
 export function decode(input) {
@@ -95,6 +95,7 @@ async fn runs_captured_translations_without_manual_approval() {
                 project,
                 worktree: Some(worktree),
                 config: Some(SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: provider.id,
@@ -271,6 +272,7 @@ export async function echo(input) {
                 project,
                 worktree: Some(worktree),
                 config: Some(SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: provider.id,
@@ -670,6 +672,178 @@ async fn discovers_without_message_access() {
         assert_eq!(saved, draft);
         assert_eq!(stored_state(node.profile()), before);
         assert_eq!(server.requests.lock().unwrap().len(), 2);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn captures_declared_feature_choices() {
+    use sailry_protocol::conversation::discovery;
+    for remote in [false, true] {
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        let source = directory.path().join("source/package");
+        declare_adapter(&source, 1);
+        enable_discovery(&source);
+        let installed = info(execute(&client, install(worktree, 0)).await);
+        assert!(installed.issues.is_empty(), "{:?}", installed.issues);
+        let server = discovery_fixture::Server::start_with_request(ModelApi::Plugin, |request| {
+            if request.path == "/v1/metadata" {
+                return discovery_fixture::Reply::Json(json!({"data":[{"id":"fixture","context":4096,"output":128,
+                    "capabilities":{"tools":true,"features":[{"id":"speed","name":"Speed","options":[{"id":"fast","name":"Fast"}]}]}}]}));
+            }
+            assert_eq!(request.path,"/v1/chat/completions");
+            let body:serde_json::Value = serde_json::from_str(&request.body).unwrap();
+            assert!(matches!(body["features"]["speed"].as_str(),Some("fast")|None));
+            let chunk = json!({"id":"fixture","model":"fixture","choices":[{"index":0,"delta":{"content":"Completed"},"finish_reason":"stop"}]});
+            discovery_fixture::Reply::Raw(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {chunk}\n\ndata: [DONE]\n\n"))
+        }).await;
+        let reference = PresetRef {
+            source: Source::Package {
+                name: "example".into(),
+            },
+            id: "example".into(),
+            route: None,
+        };
+        let catalog = discover(
+            &client,
+            discovery::Source::Draft(discovery::Draft {
+                provider: ProviderId::new(),
+                api: ModelApi::Plugin,
+                preset: Some(reference.clone()),
+                endpoint: server.endpoint.clone(),
+                credential: None,
+                secret: Some(Secret::new("private-adapter-discovery-key".into())),
+            }),
+        )
+        .await;
+        assert_eq!(
+            catalog.models[0].capabilities.as_ref().unwrap().features[0].options[0].id,
+            "fast"
+        );
+        let mut provider:Provider = serde_json::from_value(json!({"id":ProviderId::new(),"revision":0,"name":"Feature adapter","api":"plugin","authentication":"api_key","endpoint":server.endpoint,"enabled":true,"models":[],"default_model":"fixture","credential":null,"preset":reference})).unwrap();
+        provider.models = catalog
+            .models
+            .iter()
+            .map(|model| {
+                model.configuration(
+                    None,
+                    ModelApi::Plugin,
+                    sailry_protocol::Authentication::ApiKey,
+                )
+            })
+            .collect();
+        let Output::Provider(provider) = execute(
+            &client,
+            Command::PutProvider {
+                provider,
+                expected_revision: 0,
+            },
+        )
+        .await
+        else {
+            panic!("provider expected")
+        };
+        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
+            panic!("snapshot expected")
+        };
+        let project = snapshot
+            .worktrees
+            .iter()
+            .find(|tree| tree.id == worktree)
+            .unwrap()
+            .project;
+        let Output::Session(mut session) = execute(
+            &client,
+            Command::CreateSession {
+                project,
+                worktree: Some(worktree),
+                config: Some(SessionConfig {
+                    assistant: None,
+                    resource: None,
+                    provider: provider.id,
+                    model: "fixture".into(),
+                    effort: Effort::Default,
+                    features: std::collections::BTreeMap::from([("speed".into(), "fast".into())]),
+                    mode: WorkMode::Code,
+                    permission: Permission::Ask,
+                    options: Default::default(),
+                    credential: None,
+                }),
+            },
+        )
+        .await
+        else {
+            panic!("session expected")
+        };
+        for enabled in [true, false] {
+            if !enabled {
+                let previous = session.revision;
+                let mut config = session.config.clone();
+                config.features.clear();
+                let Output::Session(updated) = execute(
+                    &client,
+                    Command::SetSessionConfig {
+                        session: session.id,
+                        expected_revision: previous,
+                        config: config.clone(),
+                    },
+                )
+                .await
+                else {
+                    panic!("session expected")
+                };
+                session = updated;
+                assert_eq!(
+                    client
+                        .execute(client.prepare(Command::SetSessionConfig {
+                            session: session.id,
+                            expected_revision: previous,
+                            config,
+                        }))
+                        .await
+                        .unwrap_err()
+                        .code,
+                    ErrorCode::RevisionConflict
+                );
+            }
+            let Output::QueuedTurn(turn) = execute(
+                &client,
+                Command::SubmitTurn {
+                    session: session.id,
+                    expected_revision: session.revision,
+                    message: "Translate declared choices".into(),
+                },
+            )
+            .await
+            else {
+                panic!("queued turn expected")
+            };
+            assert_eq!(
+                turn.config.features.get("speed").map(String::as_str),
+                enabled.then_some("fast")
+            );
+            finish(&client, session.id, turn.id).await;
+            assert_eq!(
+                captured(node.profile(), turn.id).models[0]
+                    .capabilities
+                    .as_ref()
+                    .unwrap()
+                    .features,
+                catalog.models[0].capabilities.as_ref().unwrap().features
+            );
+        }
+        {
+            let requests = server.requests.lock().unwrap();
+            let bodies: Vec<serde_json::Value> = requests
+                .iter()
+                .filter(|request| request.path == "/v1/chat/completions")
+                .map(|request| serde_json::from_str(&request.body).unwrap())
+                .collect();
+            assert_eq!(bodies.len(), 2);
+            assert_eq!(bodies[0]["features"], json!({"speed":"fast"}));
+            assert_eq!(bodies[1]["features"], json!({}));
+        }
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }

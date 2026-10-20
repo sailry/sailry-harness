@@ -172,6 +172,7 @@ async fn restores_new_profiles_without_external_mutation() {
                 .unwrap()
                 .id;
             let config = SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),
@@ -522,6 +523,7 @@ async fn restores_independent_managed_git_checkouts() {
             unreachable!()
         };
         let config = SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: ProviderId::new(),

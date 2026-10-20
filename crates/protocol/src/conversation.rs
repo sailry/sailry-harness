@@ -5,6 +5,7 @@ pub mod catalog;
 pub mod connection;
 pub mod consent;
 pub mod discovery;
+pub mod features;
 pub mod login;
 pub mod oauth;
 pub mod presets;

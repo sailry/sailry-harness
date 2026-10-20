@@ -166,6 +166,49 @@ fn legacy_keeps_visible_native_metadata() {
 }
 
 #[test]
+fn advertises_only_reported_priority() {
+    let mut value = json!({"models":[{"slug":"fixture","display_name":"Fixture","visibility":"list",
+        "service_tiers":[{"id":"priority","name":"Priority"}],"default_service_tier":"priority"}]});
+    let models = parse(Authentication::ChatGptOAuth, ModelApi::Responses, &value).unwrap();
+    let choices = &models[0].capabilities.as_ref().unwrap().features;
+    assert_eq!(choices.len(), 1);
+    assert_eq!(choices[0].id, "speed");
+    assert_eq!(choices[0].options[0].id, "fast");
+    assert!(choices[0].icon.as_ref().unwrap().valid());
+    let configured =
+        models[0].configuration(None, ModelApi::Responses, Authentication::ChatGptOAuth);
+    assert_eq!(&configured.capabilities.as_ref().unwrap().features, choices);
+    // An unrelated account catalog never borrows the Codex transport declaration.
+    assert!(
+        parse(Authentication::ChatGpt, ModelApi::Responses, &value).unwrap()[0]
+            .capabilities
+            .as_ref()
+            .unwrap()
+            .features
+            .is_empty()
+    );
+    for tiers in [json!([]), json!([{"id":"standard"}]), json!(null)] {
+        value["models"][0]["service_tiers"] = tiers;
+        assert!(
+            parse(Authentication::ChatGptOAuth, ModelApi::Responses, &value).unwrap()[0]
+                .capabilities
+                .as_ref()
+                .unwrap()
+                .features
+                .is_empty()
+        );
+    }
+    for tiers in [
+        json!(false),
+        json!([{"id":1}]),
+        json!([{"id":"priority"},{"id":"priority"}]),
+    ] {
+        value["models"][0]["service_tiers"] = tiers;
+        assert!(parse(Authentication::ChatGptOAuth, ModelApi::Responses, &value).is_err());
+    }
+}
+
+#[test]
 fn preserves_native_metadata() {
     let models = parse(Authentication::ChatGpt, ModelApi::Responses, &json!({"models":[
         {"slug":"known","visibility":"list","display_name":"Known model","context_window":4096,"max_output_tokens":128,"input_modalities":["text","image"],"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"}],"default_reasoning_level":"high"},

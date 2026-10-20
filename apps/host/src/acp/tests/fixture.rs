@@ -75,6 +75,7 @@ impl Fixture {
         }
         let provider = provider(&client, &model.endpoint).await;
         let config = SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: provider.id,

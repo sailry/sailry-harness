@@ -118,6 +118,7 @@ async fn session_api(client: &Client, endpoint: &str, root: &Path, api: ModelApi
             project: Some(project.id),
             worktree: None,
             config: Some(SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: provider.id,

@@ -14,6 +14,8 @@ pub struct Request {
     pub tools: Vec<Tool>,
     pub tool_choice: Choice,
     pub reasoning: Reasoning,
+    #[serde(default)]
+    pub features: BTreeMap<String, String>,
     pub max_output_tokens: Option<u64>,
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,

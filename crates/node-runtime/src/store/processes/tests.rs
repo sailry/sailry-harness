@@ -41,6 +41,7 @@ fn resolves_the_admitted_worktree() {
             project: Some(project.id),
             worktree: None,
             config: Some(SessionConfig {
+                features: Default::default(),
                 assistant: None,
                 resource: None,
                 provider: ProviderId::new(),

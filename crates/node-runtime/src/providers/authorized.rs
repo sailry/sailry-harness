@@ -146,6 +146,11 @@ fn parse(
                 metadata::limits(entry, &["context_window"])?,
                 metadata::limits(entry, &["max_output_tokens"])?,
                 discovery::Capabilities {
+                    features: if authentication == Authentication::ChatGptOAuth {
+                        features(entry)?
+                    } else {
+                        Vec::new()
+                    },
                     vision,
                     web_search: metadata::capabilities(entry)?.and_then(|value| value.web_search),
                     tools: None,
@@ -162,6 +167,7 @@ fn parse(
                 metadata::limits(limits, &["max_context_window_tokens"])?,
                 metadata::limits(limits, &["max_output_tokens"])?,
                 discovery::Capabilities {
+                    features: Vec::new(),
                     vision: boolean(supports, "vision")?,
                     web_search: boolean(supports, "web_search")?,
                     tools: boolean(supports, "tool_calls")?,
@@ -211,6 +217,43 @@ fn parse(
         models.sort_by(|left, right| left.id.cmp(&right.id));
     }
     Ok(models)
+}
+
+fn features(entry: &Value) -> Result<Vec<sailry_protocol::conversation::features::Feature>, Fault> {
+    use sailry_protocol::conversation::features::{Feature, FeatureOption};
+    let Some(value) = entry.get("service_tiers").filter(|value| !value.is_null()) else {
+        return Ok(Vec::new());
+    };
+    let tiers = value
+        .as_array()
+        .filter(|tiers| tiers.len() <= 16)
+        .ok_or_else(|| unavailable("provider service tiers are invalid"))?;
+    let mut ids = std::collections::BTreeSet::new();
+    for tier in tiers {
+        let id = tier
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty() && id.len() <= 64 && !id.chars().any(char::is_control))
+            .ok_or_else(|| unavailable("provider service tier identifier is invalid"))?;
+        if !ids.insert(id) {
+            return Err(unavailable("provider service tier identifiers conflict"));
+        }
+    }
+    Ok(if ids.contains("priority") {
+        vec![Feature {
+            id: "speed".into(),
+            name: Some("Speed".into()),
+            icon: Some(sailry_protocol::plugin::desktop::Icon::Name(
+                "reicon:newicons/flash".into(),
+            )),
+            options: vec![FeatureOption {
+                id: "fast".into(),
+                name: Some("Fast".into()),
+            }],
+        }]
+    } else {
+        Vec::new()
+    })
 }
 
 fn supports(entry: &Value, api: ModelApi) -> Result<bool, Fault> {

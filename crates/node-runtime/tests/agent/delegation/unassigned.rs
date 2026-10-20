@@ -67,6 +67,7 @@ async fn delegates_from_private_workspaces() {
                     project: None,
                     worktree: None,
                     config: Some(SessionConfig {
+                        features: Default::default(),
                         provider: provider.id,
                         model: "fixture-a".into(),
                         permission: Permission::Full,

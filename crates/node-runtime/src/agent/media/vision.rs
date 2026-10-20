@@ -129,6 +129,13 @@ pub(super) fn configuration(
         .iter()
         .find(|model| model.id == selected.model);
     let mut config = primary.clone();
+    if config.provider != provider.id || config.model != selected.model {
+        config.features.clear();
+    } else if let Some(metadata) = metadata {
+        metadata.retain_features(provider.api, &mut config.features);
+    } else {
+        config.features.clear();
+    }
     config.provider = provider.id;
     config.model = selected.model.clone();
     config.credential = provider.credential.clone();
@@ -212,12 +219,18 @@ mod tests {
                 web_search: false,
                 generates: vec![],
                 efforts: vec![Effort::High, Effort::Low],
-                capabilities: None,
+                capabilities: Some(
+                    serde_json::from_value(
+                        json!({"features":[{"id":"speed","options":[{"id":"fast"}]}]}),
+                    )
+                    .unwrap(),
+                ),
                 custom_efforts: false,
                 default_effort: Effort::Low,
             }],
         };
         let config = SessionConfig {
+            features: std::collections::BTreeMap::from([("speed".into(), "fast".into())]),
             assistant: None,
             resource: None,
             provider: provider.id,
@@ -258,6 +271,7 @@ mod tests {
         assert_eq!(config.model, primary.model);
         assert_eq!(config.credential, selected.provider.credential);
         assert_eq!(config.effort, Effort::Low);
+        assert_eq!(config.features, primary.features);
     }
 
     #[test]
@@ -269,6 +283,7 @@ mod tests {
         assert_eq!(config.credential, selected.provider.credential);
         assert_eq!(config.effort, Effort::Low);
         assert_eq!(config.permission, primary.permission);
+        assert!(config.features.is_empty());
         selected.model = "unavailable".into();
         let config = configuration(&primary, &selected);
         assert_eq!(config.model, selected.model);

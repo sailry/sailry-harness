@@ -132,6 +132,7 @@ mod tests {
 
     fn configuration() -> SessionConfig {
         SessionConfig {
+            features: Default::default(),
             assistant: None,
             resource: None,
             provider: ProviderId::new(),

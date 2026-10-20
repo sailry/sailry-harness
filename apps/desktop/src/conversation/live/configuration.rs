@@ -2,6 +2,52 @@ use super::*;
 mod remember;
 
 impl View {
+    pub(super) fn available_features(
+        &self,
+    ) -> Vec<sailry_protocol::conversation::features::Feature> {
+        self.config
+            .as_ref()
+            .and_then(|config| {
+                self.providers()
+                    .find(|provider| provider.id == config.provider)?
+                    .models
+                    .iter()
+                    .find(|model| model.id == config.model)
+            })
+            .and_then(|model| model.capabilities.as_ref())
+            .map(|value| value.features.clone())
+            .unwrap_or_default()
+    }
+
+    pub(super) fn select_feature(
+        &mut self,
+        id: &str,
+        value: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.configuration_blocked() || (self.session.is_some() && !self.connected()) {
+            return;
+        }
+        if !self.available_features().iter().any(|feature| {
+            feature.id == id
+                && value.is_none_or(|value| feature.options.iter().any(|option| option.id == value))
+        }) {
+            return;
+        }
+        if let Some(mut config) = self.config.clone() {
+            match value {
+                Some(value) => {
+                    config.features.insert(id.to_owned(), value.to_owned());
+                }
+                None => {
+                    config.features.remove(id);
+                }
+            }
+            self.configure(config, window, cx);
+        }
+    }
+
     pub(crate) fn available_efforts(&self) -> Vec<Effort> {
         self.config
             .as_ref()
@@ -115,6 +161,20 @@ impl View {
                         provider: provider.id,
                         model: selected.model.clone(),
                         credential: provider.credential.clone(),
+                        features: super::model_controls::features::retain(
+                            provider
+                                .models
+                                .iter()
+                                .find(|model| model.id == selected.model)
+                                .and_then(|model| model.capabilities.as_ref())
+                                .map(|value| value.features.as_slice())
+                                .unwrap_or_default(),
+                            &self
+                                .config
+                                .as_ref()
+                                .map(|config| config.features.clone())
+                                .unwrap_or_default(),
+                        ),
                         effort,
                         mode: self.config.as_ref().map_or(
                             self.draft_mode.unwrap_or(sailry_protocol::WorkMode::Code),
@@ -189,6 +249,7 @@ impl View {
                                     provider: provider.id,
                                     model: provider.default_model.clone(),
                                     credential: provider.credential.clone(),
+                                    features: Default::default(),
                                     mode: sailry_protocol::WorkMode::Code,
                                     permission: sailry_protocol::Permission::Ask,
                                     effort: provider
@@ -235,6 +296,11 @@ impl View {
             });
             if let (Some(config), Some(effort)) = (&mut self.config, replacement) {
                 config.effort = effort;
+            }
+            let features = self.available_features();
+            if let Some(config) = &mut self.config {
+                config.features =
+                    super::model_controls::features::retain(&features, &config.features);
             }
         }
     }

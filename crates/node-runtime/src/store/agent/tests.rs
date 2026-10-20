@@ -160,6 +160,7 @@ fn rebuilds_from_durable_events() {
         panic!("project expected")
     };
     let config = SessionConfig {
+        features: Default::default(),
         assistant: None,
         resource: None,
         provider: ProviderId::new(),

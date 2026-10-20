@@ -121,6 +121,7 @@ impl Fixture {
                 project: Some(project.id),
                 worktree: None,
                 config: Some(SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     options: Default::default(),

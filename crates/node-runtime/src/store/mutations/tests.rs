@@ -163,6 +163,7 @@ async fn shutdown_drains() {
             .execute(fixture.client.prepare(Command::SetDefaults {
                 expected_revision: 0,
                 config: SessionConfig {
+                    features: Default::default(),
                     assistant: None,
                     resource: None,
                     provider: ProviderId::new(),

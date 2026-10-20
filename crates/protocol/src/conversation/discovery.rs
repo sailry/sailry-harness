@@ -50,6 +50,8 @@ pub struct Model {
 /// Missing fields are unknown; only explicit provider metadata is represented.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub features: Vec<super::features::Feature>,
     pub vision: Option<bool>,
     pub tools: Option<bool>,
     pub web_search: Option<bool>,
