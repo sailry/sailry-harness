@@ -8,6 +8,7 @@ pub mod session;
 mod storage;
 mod transfer;
 mod urls;
+pub mod verified;
 
 use std::{collections::BTreeSet, path::Path, time::Duration};
 pub use transfer::prepare;

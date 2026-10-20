@@ -63,24 +63,7 @@ fn validate(graph: &Path, tokens: &Path) -> std::result::Result<(), Failure> {
 
 fn load_session(graph: &Path) -> std::result::Result<Session, Failure> {
     (|| -> std::result::Result<Session, Box<dyn std::error::Error>> {
-        Ok(Session::builder()?
-            .with_independent_thread_pool()
-            .map_err(ort::Error::<()>::from)?
-            .with_no_environment_execution_providers()
-            .map_err(ort::Error::<()>::from)?
-            .with_execution_providers([ort::ep::CPU::default().build()])
-            .map_err(ort::Error::<()>::from)?
-            .with_parallel_execution(false)
-            .map_err(ort::Error::<()>::from)?
-            .with_intra_threads(
-                std::thread::available_parallelism().map_or(2, |n| n.get().clamp(1, 4)),
-            )
-            .map_err(ort::Error::<()>::from)?
-            .with_inter_threads(1)
-            .map_err(ort::Error::<()>::from)?
-            .with_config_entry("session.intra_op.allow_spinning", "0")
-            .map_err(ort::Error::<()>::from)?
-            .commit_from_file(graph)?)
+        Ok(sailry_model_assets::session::builder()?.commit_from_file(graph)?)
     })()
     .map_err(|_| Failure::invalid("session_load"))
 }
