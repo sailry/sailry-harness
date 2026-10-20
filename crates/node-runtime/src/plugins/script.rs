@@ -202,12 +202,14 @@ fn evaluate_with(
     })));
     let mut resolver = BuiltinResolver::default()
         .with_module("sailry/sdk")
+        .with_module("sailry/http")
         .with_module("sailry/models")
         .with_module("sailry/connectors")
         .with_module("sailry/cards")
         .with_module("sailry/installations");
     let mut loader = BuiltinLoader::default()
         .with_module("sailry/sdk", include_str!("script/sdk.js"))
+        .with_module("sailry/http", include_str!("script/http.js"))
         .with_module("sailry/models", include_str!("script/models.js"))
         .with_module("sailry/connectors", include_str!("script/connectors.js"))
         .with_module("sailry/cards", include_str!("script/cards.js"))

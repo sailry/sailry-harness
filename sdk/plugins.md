@@ -716,6 +716,12 @@ remains available for non-connector services and cannot be combined with
 `connector`. MCP injection uses a declared `server` plus `header` or `env`.
 Actual server URLs and configuration stay private on the Node.
 
+Headless flows can import `call`, `response`, `failure`, `text`, `id`, `query`
+and `limit` from `sailry/http`. These pure helpers prepare declared HTTP steps,
+decode outcomes and encode parameters. Packages retain service validation and
+pagination; the Node executes returned calls through the scoped `http.request`
+operation.
+
 The `sailry/connectors` module exposes scoped `list`, `types`, and `status(id)`
 public reads. Native surfaces prepare `login` and `cancel` drafts; headless
 callbacks cannot authenticate. Connections use stable IDs and revision-checked
