@@ -249,3 +249,99 @@ async fn connects_with_isolated_credentials() {
         }
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn preserves_pending_controls() {
+    for remote in [false, true] {
+        for outcome in ["connected", "cancelled", "expired", "denied"] {
+            let polls = Arc::new(AtomicUsize::new(0));
+            let count = polls.clone();
+            let server = Server::start_with_request(ModelApi::Anthropic,move |request| {
+                if request.path == "/api/accounts/deviceauth/usercode" {
+                    let Reply::Json(mut value) = server::standard(request,3600) else {panic!("device prompt expected")};
+                    let code = value.as_object_mut().unwrap().remove("user_code").unwrap();
+                    value["usercode"] = code;
+                    if outcome == "expired" {value["expires_in"] = json!(3);}
+                    return Reply::Json(value);
+                }
+                if request.path == "/api/accounts/deviceauth/token" {
+                    let index = count.fetch_add(1,Ordering::SeqCst);
+                    let error = if outcome == "denied" {Some((400,json!({"error":{"code":"access_denied"}})))}
+                        else if outcome == "expired" || index == 1 {Some((429,json!({"error":{"code":"slow_down"}})))}
+                        else if index == 0 {Some((400,json!({"error":"deviceauth_authorization_pending"})))}
+                        else {None};
+                    if let Some((status,body)) = error {
+                        let body = body.to_string();
+                        return Reply::Raw(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()));
+                    }
+                }
+                server::standard(request,3600)
+            }).await;
+            let fixture = Fixture::empty(remote, &server).await;
+            let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
+            let (_, attempt) = start(&fixture.client, &provider).await;
+            let mut updates = fixture.client.subscribe_login(attempt.id).await.unwrap();
+            if outcome == "cancelled" {
+                server.wait_requests(3).await;
+                let request = fixture.client.prepare(Command::CancelProviderLogin {
+                    attempt: attempt.id,
+                });
+                let first = fixture.client.execute(request.clone()).await.unwrap();
+                assert_eq!(fixture.client.execute(request).await.unwrap(), first);
+            }
+            let update = terminal(&mut updates).await;
+            no_secrets(&update);
+            match outcome {
+                "connected" => {
+                    assert_eq!(update.state, login::State::Connected);
+                    assert_eq!(polls.load(Ordering::SeqCst), 3);
+                }
+                "cancelled" => assert_eq!(update.state, login::State::Cancelled),
+                "expired" => {
+                    let login::State::Failed(error) = update.state else {
+                        panic!("expiry expected")
+                    };
+                    assert_eq!(error.code, ErrorCode::Expired);
+                    assert_eq!(polls.load(Ordering::SeqCst), 1);
+                }
+                "denied" => {
+                    let login::State::Failed(error) = update.state else {
+                        panic!("denial expected")
+                    };
+                    assert_eq!(error.code, ErrorCode::PermissionDenied);
+                    assert_eq!(polls.load(Ordering::SeqCst), 1);
+                }
+                _ => unreachable!(),
+            }
+            if outcome != "connected" {
+                assert!(
+                    saved(&fixture.client, provider.id)
+                        .await
+                        .credential
+                        .is_none()
+                );
+                assert!(
+                    !server
+                        .requests
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .any(|request| request.path == "/oauth/token")
+                );
+            } else {
+                assert_eq!(
+                    server
+                        .requests
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|request| request.path == "/oauth/token")
+                        .count(),
+                    1
+                );
+            }
+            drop(updates);
+            fixture.close().await;
+        }
+    }
+}

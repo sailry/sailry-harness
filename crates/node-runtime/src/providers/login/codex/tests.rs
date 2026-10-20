@@ -178,3 +178,56 @@ fn rejects_subject_or_workspace_change() {
         );
     }
 }
+
+#[test]
+fn accepts_device_code_spellings() {
+    for field in ["user_code", "usercode"] {
+        let mut value = json!({"device_auth_id":"fixture-device","interval":"5"});
+        value[field] = json!("ABCD-EFGH");
+        let device: Device = serde_json::from_value(value).unwrap();
+        assert_eq!(device.user_code, "ABCD-EFGH");
+        assert_eq!(interval(device.interval.as_ref()), 5);
+    }
+}
+
+#[test]
+fn recognizes_pending_responses() {
+    for status in [StatusCode::BAD_REQUEST, StatusCode::TOO_MANY_REQUESTS] {
+        for (code, expected) in [
+            ("deviceauth_authorization_pending", Poll::Pending),
+            ("slow_down", Poll::SlowDown),
+        ] {
+            for value in [json!({"error":code}), json!({"error":{"code":code}})] {
+                assert_eq!(
+                    pending(status, &serde_json::to_vec(&value).unwrap()),
+                    Some(expected)
+                );
+                assert_eq!(
+                    pending(StatusCode::OK, &serde_json::to_vec(&value).unwrap()),
+                    None
+                );
+            }
+        }
+    }
+    for status in [StatusCode::FORBIDDEN, StatusCode::NOT_FOUND] {
+        assert_eq!(pending(status, b""), Some(Poll::Pending));
+    }
+    for value in [
+        json!({"error":"access_denied"}),
+        json!({"error":"invalid_grant"}),
+        json!({"error":{"code":false}}),
+        json!({}),
+    ] {
+        assert_eq!(
+            pending(
+                StatusCode::BAD_REQUEST,
+                &serde_json::to_vec(&value).unwrap()
+            ),
+            None
+        );
+    }
+    assert_eq!(
+        pending(StatusCode::BAD_REQUEST, b"private upstream body"),
+        None
+    );
+}

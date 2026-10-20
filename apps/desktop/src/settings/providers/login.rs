@@ -343,6 +343,16 @@ impl Login {
                             login.error = None;
                         }
                         if let Some(State::Failed(error)) = login.state() {
+                            let mut entry = sailry_node_runtime::logging::Entry::new(
+                                sailry_node_runtime::logging::Area::Desktop,
+                                sailry_node_runtime::logging::Phase::Failed,
+                            );
+                            entry.operation = Some("provider_authorization");
+                            entry.stage = Some("observed");
+                            entry.context.provider = Some(login.provider.id);
+                            entry.context.request = Some(login.request.id);
+                            entry.code = Some(error.code);
+                            entry.emit();
                             let key = error_key(error);
                             login.reply(crate::oauth::page::Outcome::Failed);
                             login.completion = None;

@@ -542,7 +542,19 @@ impl Worker {
                         update.state = login::State::Connected;
                         update.model_error = model_error;
                     }),
-                    Err(error) => entry.set(login::State::Failed(error)),
+                    Err(error) => {
+                        let mut record = crate::logging::Entry::new(
+                            crate::logging::Area::Node,
+                            crate::logging::Phase::Failed,
+                        );
+                        record.operation = Some("provider_authorization");
+                        record.stage = Some("completion");
+                        record.context.provider = Some(entry.provider.id);
+                        record.context.request = Some(id);
+                        record.code = Some(error.code);
+                        record.emit();
+                        entry.set(login::State::Failed(error));
+                    }
                 }
             }
         }

@@ -17,6 +17,7 @@ const REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
 #[derive(Deserialize)]
 struct Device {
     device_auth_id: Secret,
+    #[serde(alias = "usercode")]
     user_code: String,
     interval: Option<Value>,
     expires_in: Option<u64>,
@@ -34,10 +35,11 @@ impl Service {
         P: FnOnce(State) -> F,
         F: Future<Output = Result<(), Fault>>,
     {
-        let device: Device = json(
+        let device: Device = document(
             client
                 .post(format!("{}/api/accounts/deviceauth/usercode", self.auth))
                 .json(&json!({"client_id": CLIENT_ID})),
+            "device_code",
         )
         .await?;
         required(&device.device_auth_id)?;
@@ -46,7 +48,7 @@ impl Service {
             return Err(expired());
         }
         let deadline = tokio::time::Instant::now() + duration;
-        let interval = Duration::from_secs(interval(device.interval.as_ref()));
+        let mut interval = Duration::from_secs(interval(device.interval.as_ref()));
         progress(prompt(
             VERIFICATION_URL,
             device.user_code.clone(),
@@ -64,28 +66,68 @@ impl Service {
                             "user_code": device.user_code,
                         })),
                 )
-                .await?;
-                if matches!(status, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND) {
+                .await
+                .inspect_err(|error| {
+                    diagnostic("device_poll", "transport", None, Some(error.code));
+                })?;
+                if let Some(pending) = pending(status, &body) {
+                    diagnostic(
+                        "device_poll",
+                        match pending {
+                            Poll::Pending => "pending",
+                            Poll::SlowDown => "slow_down",
+                        },
+                        Some(status),
+                        None,
+                    );
+                    if pending == Poll::SlowDown {
+                        interval =
+                            interval
+                                .checked_add(Duration::from_secs(5))
+                                .ok_or_else(|| {
+                                    Fault::invalid("authorization polling interval overflowed")
+                                })?;
+                    }
                     continue;
                 }
+                diagnostic(
+                    "device_poll",
+                    if status.is_success() {
+                        "http_success"
+                    } else {
+                        "http_rejected"
+                    },
+                    Some(status),
+                    (!status.is_success()).then(|| {
+                        if status == StatusCode::GONE {
+                            ErrorCode::Expired
+                        } else {
+                            http_error(status).code
+                        }
+                    }),
+                );
                 if status == StatusCode::GONE {
                     return Err(expired());
                 }
                 if !status.is_success() {
                     return Err(http_error(status));
                 }
-                let code: Code = decode(&body)?;
+                let code: Code = decode(&body).inspect_err(|error| {
+                    diagnostic("device_poll", "decode", Some(status), Some(error.code));
+                })?;
                 required(&code.authorization_code)?;
                 required(&code.code_verifier)?;
-                let tokens: Tokens =
-                    json(client.post(format!("{}/oauth/token", self.auth)).form(&[
+                let tokens: Tokens = document(
+                    client.post(format!("{}/oauth/token", self.auth)).form(&[
                         ("grant_type", "authorization_code"),
                         ("client_id", CLIENT_ID),
                         ("redirect_uri", REDIRECT_URI),
                         ("code", code.authorization_code.expose()),
                         ("code_verifier", code.code_verifier.expose()),
-                    ]))
-                    .await?;
+                    ]),
+                    "token_exchange",
+                )
+                .await?;
                 return self.codex_grant(client, tokens, None).await;
             }
         })
@@ -104,12 +146,15 @@ impl Service {
                 "Codex authorization expected",
             ));
         };
-        let tokens: Tokens = json(client.post(format!("{}/oauth/token", self.auth)).form(&[
-            ("grant_type", "refresh_token"),
-            ("client_id", CLIENT_ID),
-            ("refresh_token", refresh.expose()),
-            ("scope", "openid profile email"),
-        ]))
+        let tokens: Tokens = document(
+            client.post(format!("{}/oauth/token", self.auth)).form(&[
+                ("grant_type", "refresh_token"),
+                ("client_id", CLIENT_ID),
+                ("refresh_token", refresh.expose()),
+                ("scope", "openid profile email"),
+            ]),
+            "token_refresh",
+        )
         .await?;
         self.codex_grant(client, tokens, Some(previous)).await
     }
@@ -121,7 +166,11 @@ impl Service {
         previous: Option<&Grant>,
     ) -> Result<Grant, Fault> {
         let identity = match &tokens.id_token {
-            Some(token) => identity::verify(client, &self.auth, token, CLIENT_ID, None).await?,
+            Some(token) => identity::verify(client, &self.auth, token, CLIENT_ID, None)
+                .await
+                .inspect_err(|error| {
+                    diagnostic("identity", "verify", None, Some(error.code));
+                })?,
             None => match previous {
                 Some(Grant::ChatGptOAuth {
                     subject,
@@ -140,7 +189,82 @@ impl Service {
                 }
             },
         };
-        tokens.grant(identity, previous)
+        tokens.grant(identity, previous).inspect_err(|error| {
+            diagnostic("grant", "validate", None, Some(error.code));
+        })
+    }
+}
+
+// Diagnostics are fixed metadata, never authorization payloads or error text.
+async fn document<T: DeserializeOwned>(
+    request: RequestBuilder,
+    stage: &'static str,
+) -> Result<T, Fault> {
+    let (status, body) = response(request).await.inspect_err(|error| {
+        diagnostic(stage, "transport", None, Some(error.code));
+    })?;
+    if !status.is_success() {
+        let error = http_error(status);
+        diagnostic(stage, "http_rejected", Some(status), Some(error.code));
+        return Err(error);
+    }
+    let value = decode(&body).inspect_err(|error| {
+        diagnostic(stage, "decode", Some(status), Some(error.code));
+    })?;
+    diagnostic(stage, "http_success", Some(status), None);
+    Ok(value)
+}
+
+fn diagnostic(
+    stage: &'static str,
+    reason: &'static str,
+    status: Option<StatusCode>,
+    code: Option<ErrorCode>,
+) {
+    use crate::logging::{Area, Entry, Phase};
+    let mut entry = Entry::new(
+        Area::Node,
+        if code.is_some() {
+            Phase::Failed
+        } else {
+            Phase::Completed
+        },
+    );
+    entry.operation = Some("provider_authorization");
+    entry.source_kind = Some("chat_gpt_oauth");
+    entry.stage = Some(stage);
+    entry.reason = Some(reason);
+    entry.upstream_status = status.map(|value| u64::from(value.as_u16()));
+    entry.code = code;
+    if code.is_some() {
+        entry.emit();
+    } else {
+        entry.emit_debug();
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Poll {
+    Pending,
+    SlowDown,
+}
+
+fn pending(status: StatusCode, body: &[u8]) -> Option<Poll> {
+    if status.is_success() {
+        return None;
+    }
+    if matches!(status, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND) {
+        return Some(Poll::Pending);
+    }
+    let value: Value = serde_json::from_slice(body).ok()?;
+    let error = value.get("error")?;
+    match error
+        .as_str()
+        .or_else(|| error.get("code").and_then(Value::as_str))?
+    {
+        "deviceauth_authorization_pending" => Some(Poll::Pending),
+        "slow_down" => Some(Poll::SlowDown),
+        _ => None,
     }
 }
 
