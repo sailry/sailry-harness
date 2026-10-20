@@ -13,6 +13,26 @@ use summary::{AuthKind, Status};
 const TILE: f32 = 36.;
 const GAP: f32 = 12.;
 
+/// The channel's type icon on its gradient tile, as in the type picker; monochrome icons
+/// inherit the white text color.
+pub(super) fn tile(channel: &Channel, size: f32) -> Div {
+    let icon = size * 5. / 9.;
+    let glyph = channel.directory.as_ref().map_or_else(
+        || {
+            channel
+                .preset
+                .category()
+                .icon()
+                .size(px(icon))
+                .into_any_element()
+        },
+        |entry| presets::render_icon(entry, rems(icon / 16.)),
+    );
+    crate::plugins::emblem::surface(&channel.name, None, px(size))
+        .text_color(gpui_kit::white())
+        .child(glyph)
+}
+
 impl Workspace {
     fn provider_authentication(&self, channel: &Channel) -> Authentication {
         self.provider_link
@@ -124,7 +144,11 @@ impl Workspace {
             .py_3()
             .gap(px(GAP))
             .items_center()
-            .child(Self::provider_tile(channel))
+            .child(
+                tile(channel, TILE)
+                    .when(!channel.enabled, |tile| tile.opacity(0.45))
+                    .into_any_element(),
+            )
             .child(details)
             .when_some(
                 channel.quota.as_ref().filter(|_| auth == AuthKind::OAuth),
@@ -158,26 +182,6 @@ impl Workspace {
             .when(expanded, |entry| {
                 entry.child(Self::provider_models(channel, cx))
             })
-            .into_any_element()
-    }
-
-    fn provider_tile(channel: &Channel) -> AnyElement {
-        let tile = crate::plugins::emblem::surface(&channel.name, None, px(TILE))
-            .when(!channel.enabled, |tile| tile.opacity(0.45));
-        // The type icon, as in the type picker; monochrome icons inherit the white text color.
-        let glyph = channel.directory.as_ref().map_or_else(
-            || {
-                channel
-                    .preset
-                    .category()
-                    .icon()
-                    .size(px(20.))
-                    .into_any_element()
-            },
-            |entry| presets::render_icon(entry, rems(1.25)),
-        );
-        tile.text_color(gpui_kit::white())
-            .child(glyph)
             .into_any_element()
     }
 

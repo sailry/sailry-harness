@@ -163,7 +163,13 @@ impl Editor {
                         editor.close(window, cx);
                         window.close_dialog(cx);
                         if login {
-                            super::super::login::open_for(login_binding, provider, window, cx);
+                            super::super::login::open_for(
+                                login_binding,
+                                provider,
+                                editor.selected.clone(),
+                                window,
+                                cx,
+                            );
                         }
                     }
                     Ok(Err(error)) => {

@@ -1,6 +1,5 @@
 use super::Workspace;
 use super::live::Binding;
-use crate::theme::DialogStyle as _;
 use crate::tr;
 use gpui_kit::{component::*, prelude::FluentBuilder, *};
 use sailry_client::login::View;
@@ -19,7 +18,9 @@ mod declaration;
 #[cfg(test)]
 mod tests;
 mod view;
-mod waiting;
+
+/// Presentation identity of a completed sign-in; feedback uses the shared toast.
+const CONNECTED: &str = "connected";
 
 fn binding(owner: &Entity<Workspace>, id: usize, cx: &App) -> Option<(Binding, Provider)> {
     let live = owner.read(cx).provider_link.as_ref()?;
@@ -33,17 +34,25 @@ pub(super) fn open(
     cx: &mut App,
 ) -> Option<Entity<Login>> {
     let (binding, provider) = binding(&owner, id, cx)?;
-    Some(open_for(binding, provider, window, cx))
+    let directory = owner
+        .read(cx)
+        .providers
+        .channels
+        .iter()
+        .find(|channel| channel.id == id)
+        .and_then(|channel| channel.directory.clone());
+    Some(open_for(binding, provider, directory, window, cx))
 }
 
 pub(super) fn open_for(
     binding: Binding,
     provider: Provider,
+    directory: Option<sailry_protocol::conversation::presets::Entry>,
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<Login> {
     let login = cx.new(|cx| {
-        let mut login = Login::new(binding, provider, window, cx);
+        let mut login = Login::new(binding, provider, directory, window, cx);
         login.begin(window, cx);
         login
     });
@@ -54,9 +63,7 @@ pub(super) fn open_for(
     window.open_dialog(cx, move |dialog, window, cx| {
         let cancel = login.clone();
         let close = login.clone();
-        dialog
-            .form_title(tr("provider_connect"), cx)
-            .w((window.viewport_size().width - px(48.)).min(px(520.)))
+        crate::ui::authorization::dialog(dialog, window, cx)
             .on_ok(|_, _, _| false)
             .on_cancel(move |_, window, cx| cancel.update(cx, |login, cx| login.cancel(window, cx)))
             .on_close(move |_, _, cx| {
@@ -70,7 +77,6 @@ pub(super) fn open_for(
                 })
             })
             .child(login.clone())
-            .footer(login.read(cx).footer(&login, cx))
     });
     result
 }
@@ -78,6 +84,9 @@ pub(super) fn open_for(
 pub(super) struct Login {
     binding: Binding,
     provider: Provider,
+    channel: super::data::Channel,
+    /// Last code or link shown, kept so an expired attempt can still display it.
+    prompt: Option<State>,
     request: Request,
     attempt: Option<Attempt>,
     cancellation: Request,
@@ -112,9 +121,12 @@ impl Login {
     fn new(
         binding: Binding,
         provider: Provider,
+        directory: Option<sailry_protocol::conversation::presets::Entry>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let mut channel = super::live::channel(0, &provider);
+        channel.directory = directory.or(channel.directory);
         let request = binding.client.prepare(Command::BeginProviderLogin {
             provider: provider.id,
             expected_revision: provider.revision,
@@ -126,6 +138,8 @@ impl Login {
         Self {
             binding,
             provider,
+            channel,
+            prompt: None,
             request,
             attempt: None,
             cancellation,
@@ -188,6 +202,7 @@ impl Login {
                     None
                 };
             self.attempt = None;
+            self.prompt = None;
             self.request = self.binding.client.prepare(Command::BeginProviderLogin {
                 provider: self.provider.id,
                 expected_revision: self.provider.revision,
@@ -283,6 +298,11 @@ impl Login {
                             return;
                         }
                         login.view = view;
+                        if let Some(state @ (State::Pending { .. } | State::Browser { .. })) =
+                            login.state()
+                        {
+                            login.prompt = Some(state.clone());
+                        }
                         match login.state().cloned() {
                             Some(State::Browser {
                                 authorization_url, ..
@@ -309,7 +329,7 @@ impl Login {
                                 {
                                     "provider_login_models_failed"
                                 } else {
-                                    "provider_login_connected"
+                                    CONNECTED
                                 };
                                 let visible = !login.closed;
                                 login.report(key, window, cx);
@@ -412,14 +432,8 @@ impl Login {
         self.presented = Some(identity);
         if key == "provider_login_models_failed" {
             crate::feedback::error("", &tr(key), window, cx);
-        } else if key == "provider_login_connected" {
-            crate::feedback::status(
-                window,
-                tr(key),
-                notification::NotificationType::Success,
-                notification::Notification::success(tr(key)),
-                cx,
-            );
+        } else if key == CONNECTED {
+            crate::ui::authorization::connected(&self.provider.name, None, window, cx);
         } else {
             crate::feedback::info("", &tr(key), window, cx);
         }
