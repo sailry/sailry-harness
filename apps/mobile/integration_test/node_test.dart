@@ -179,7 +179,18 @@ void main({bool host = false}) {
       final heading = tester.widget<ToolHeading>(find.byType(ToolHeading));
       final resolved = object(heading.call['resolved']);
       expect(object(resolved['label'])['label'], 'Read file');
-      expect(object(resolved['label'])['locales'], {'zh-CN': '读取文件'});
+      expect(object(resolved['label'])['locales'], {
+        "zh-CN": "读取文件",
+        "zh-TW": "讀取檔案",
+        "ja": "ファイルを読む",
+        "ko": "파일 읽기",
+        "fr": "Lire le fichier",
+        "de": "Datei lesen",
+        "es": "Leer archivo",
+        "pt-BR": "Ler arquivo",
+        "ru": "Прочитать файл",
+        "en": "Read file",
+      });
       expect(
         object(object(resolved['input'])['summary'])['text'],
         'source.txt',
