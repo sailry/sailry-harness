@@ -23,6 +23,7 @@ pub(crate) struct Authorization {
     pub targets: Vec<(Target, Injection)>,
     pub stop: CancellationToken,
     pub oauth: Option<AuthClient<reqwest::Client>>,
+    pub settings: Option<Arc<(sailry_protocol::plugin::Context, String)>>,
     redactions: Arc<Mutex<Vec<Secret>>>,
     sealed: Arc<Mutex<Vec<(Id, Secret)>>>,
 }
@@ -41,6 +42,7 @@ impl Authorization {
             targets,
             stop,
             oauth: None,
+            settings: None,
             redactions: Arc::new(Mutex::new(redactions)),
             sealed: Arc::default(),
         }
@@ -52,6 +54,11 @@ impl Authorization {
             .collect()
     }
     pub(crate) async fn validate(&self) -> Result<(), Fault> {
+        if let Some(settings) = &self.settings {
+            self.ingress
+                .mcp_connectors(settings.0.clone(), settings.1.clone())
+                .await?;
+        }
         for (target, _) in &self.targets {
             self.ingress
                 .connector_target(target.id, target.revision)

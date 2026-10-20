@@ -61,6 +61,74 @@ fn replace(db: &Connection, info: &Info, stored: &Stored) {
 }
 
 #[test]
+fn fences_slots_retired_into_connections() {
+    let (directory, db, info, mut saved) = fixture();
+    saved.mcp_targets = super::super::targets::current(&db, &info, saved.mcp.as_ref()).unwrap();
+    replace(&db, &info, &saved);
+    let original = encode(&saved).unwrap();
+    assert_eq!(
+        resolve(&db, &info).unwrap().secrets["token"].expose(),
+        "preserved-token"
+    );
+    let host = crate::plugins::Host::new(Some(directory.path().canonicalize().unwrap()));
+    let connector = host
+        .install_bundled("figma")
+        .unwrap()
+        .extension
+        .unwrap()
+        .connectors;
+    let mut current = info.clone();
+    current.extension.as_mut().unwrap().connectors = connector;
+    super::super::super::save(&db, &current, true).unwrap();
+    // An unrelated connector does not revoke an ordinary, unchanged slot.
+    assert_eq!(
+        resolve(&db, &info).unwrap().secrets["token"].expose(),
+        "preserved-token"
+    );
+    // Collection may remove an unused latest revision from an inventory tombstone.
+    current.summary.settings_revision = 2;
+    super::super::super::save(&db, &current, false).unwrap();
+    assert_eq!(
+        resolve(&db, &info).unwrap().secrets["token"].expose(),
+        "preserved-token"
+    );
+    current.summary.settings_revision = 1;
+    for installed in [true, false] {
+        current.settings = None;
+        super::super::super::save(&db, &current, installed).unwrap();
+        assert_eq!(
+            resolve(&db, &info).err().unwrap().code,
+            ErrorCode::NotConfigured
+        );
+        current.settings = info.settings.clone();
+        current
+            .settings
+            .as_mut()
+            .unwrap()
+            .properties
+            .get_mut("token")
+            .unwrap()
+            .secret
+            .as_mut()
+            .unwrap()
+            .header = Some("X-Other".into());
+        super::super::super::save(&db, &current, installed).unwrap();
+        assert_eq!(
+            resolve(&db, &info).err().unwrap().code,
+            ErrorCode::NotConfigured
+        );
+        let retained: Vec<u8> = db
+            .query_row(
+                "SELECT body FROM plugin_settings WHERE plugin=?1 AND revision=1",
+                [&info.summary.name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(retained, original);
+    }
+}
+
+#[test]
 fn preserves_unbound_bytes_without_injecting_them() {
     let (_directory, db, info, saved) = fixture();
     let package = info.summary.reference();

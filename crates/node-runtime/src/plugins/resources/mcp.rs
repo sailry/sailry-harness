@@ -51,6 +51,9 @@ impl Resources {
             .cloned()
             .transpose()?
         {
+            if !settings.secrets.is_empty() {
+                authorization.settings = Some(Arc::new((context.clone(), server.into())));
+            }
             for secret in settings.secrets.values() {
                 authorization.remember(secret.clone())?;
             }

@@ -1,5 +1,7 @@
 use super::*;
 mod bodies;
+#[cfg(feature = "test-support")]
+mod captures;
 mod configuration;
 use sailry_link::CancellationToken;
 use std::{

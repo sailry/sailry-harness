@@ -435,6 +435,7 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
             "plugin settings are incomplete or changed",
         ));
     }
+    authorize_slots(db, info, &saved, &state.configured)?;
     let secrets = state
         .configured
         .iter()
@@ -455,6 +456,47 @@ pub(in crate::store) fn resolve(db: &Connection, info: &Info) -> Result<Resolved
         secrets,
         mcp: saved.mcp,
     })
+}
+
+fn authorize_slots(
+    db: &Connection,
+    info: &Info,
+    saved: &Stored,
+    configured: &[String],
+) -> Result<(), Fault> {
+    if configured.is_empty() {
+        return Ok(());
+    }
+    // Tombstones retain the latest declaration after removal. Historical bytes
+    // remain replayable, but cannot restore a slot retired into a connector.
+    let body: Option<Vec<u8>> = db
+        .query_row(
+            "SELECT body FROM plugins WHERE name=?1",
+            [&info.summary.name],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage_error)?;
+    let current: Option<Info> = body
+        .map(|body| serde_json::from_slice(&body).map_err(storage_error))
+        .transpose()?;
+    let Some(current) =
+        current.filter(|current| !super::connectors::declarations(current).is_empty())
+    else {
+        return Ok(());
+    };
+    // The projection already validated this capture's immutable destination.
+    if let Some(schema) = &current.settings
+        && configured
+            .iter()
+            .all(|name| same_binding(saved, schema, name, &saved.mcp_targets))
+    {
+        return Ok(());
+    }
+    Err(Fault::new(
+        ErrorCode::NotConfigured,
+        "plugin credential binding is no longer configured",
+    ))
 }
 
 pub(in crate::store) fn capture(

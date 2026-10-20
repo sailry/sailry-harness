@@ -15,6 +15,7 @@ pub(in crate::store) fn resolve(
     } else {
         settings::current(db, &context.package)?
     };
+    settings::resolve(db, &info)?;
     let mut targets = Vec::new();
     let mut names = std::collections::BTreeSet::new();
     for declaration in registry::declarations(&info) {
