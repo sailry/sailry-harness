@@ -1,6 +1,6 @@
 use super::*;
 use adk_core::{ErrorCategory, ErrorComponent};
-use serde_json::{Value, json};
+use serde_json::json;
 
 const KEY: &str = "fixture-private-access-token";
 
@@ -16,20 +16,18 @@ fn upstream() -> AdkError {
 
 #[test]
 fn redacts_captured_values_in_all_fields() {
-    let details = ProviderErrorDetails {
-        message: Some(format!("Unsupported input 中文; Bearer {KEY}")),
-        code: Some(format!("invalid_{KEY}")),
-        kind: Some(format!("type_{KEY}")),
-        param: Some(format!("input_{KEY}")),
-        request_id: Some(format!("request_{KEY}")),
-        status: Some(400),
-    };
     let mut error = upstream();
-    error
-        .details
-        .metadata
-        .insert("provider_error_code".into(), json!(KEY));
-    let error = redact(error, &[Secret::new(KEY.into())], Some(&details));
+    error.message = format!("Unsupported input 中文; Bearer {KEY}");
+    error.details.request_id = Some(format!("request_{KEY}"));
+    for field in ["provider_error_code", "type", "param"] {
+        error.details.metadata.insert(field.into(), json!(KEY));
+    }
+    let error = redact(error, &[Secret::new(KEY.into())]);
+    assert!(error.details.metadata.is_empty());
+    assert_eq!(
+        error.details.request_id.as_deref(),
+        Some("request_[redacted]")
+    );
     assert!(!format!("{error:?}").contains(KEY));
     assert!(!error.to_problem_json().to_string().contains(KEY));
     let mut entry =
@@ -55,16 +53,7 @@ fn redacts_captured_values_in_all_fields() {
         summary,
         "Agent execution failed (model.openai_responses.invalid_request); HTTP 400; invalid_input"
     );
-    let detail: Value = serde_json::from_str(detail).unwrap();
-    assert_eq!(
-        detail["message"],
-        "Unsupported input 中文; Bearer [redacted]"
-    );
-    assert_eq!(detail["code"], "invalid_[redacted]");
-    assert_eq!(detail["type"], "type_[redacted]");
-    assert_eq!(detail["param"], "input_[redacted]");
-    assert_eq!(detail["request_id"], "request_[redacted]");
-    assert_eq!(detail["status"], 400);
+    assert_eq!(detail, "Unsupported input 中文; Bearer [redacted]");
 }
 
 #[test]
@@ -83,17 +72,14 @@ fn bounds_unicode_after_secret_redaction() {
 
 #[test]
 fn protects_authorization_values() {
-    let details = ProviderErrorDetails {
-        message: Some(format!("Account fixture-account; Bearer {KEY}")),
-        ..Default::default()
-    };
+    let mut error = upstream();
+    error.message = format!("Account fixture-account; Bearer {KEY}");
     let error = redact(
-        upstream(),
+        error,
         &[
             Secret::new(KEY.into()),
             Secret::new("fixture-account".into()),
         ],
-        Some(&details),
     );
     let fault = super::super::error(error);
     assert!(!fault.message.contains(KEY));
@@ -111,7 +97,7 @@ fn protects_errors_without_provider_fields() {
     error.message = format!("Transport rejected {KEY}");
     error.details.request_id = Some(format!("request_{KEY}"));
     error.details.metadata.insert("private".into(), json!(KEY));
-    let error = redact(error, &[Secret::new(KEY.into())], None);
+    let error = redact(error, &[Secret::new(KEY.into())]);
     assert_eq!(error.message, "Transport rejected [redacted]");
     assert_eq!(
         error.details.request_id.as_deref(),
@@ -120,4 +106,70 @@ fn protects_errors_without_provider_fields() {
     assert!(error.details.metadata.is_empty());
     assert!(!format!("{error:?}").contains(KEY));
     assert!(!error.to_problem_json().to_string().contains(KEY));
+}
+
+#[test]
+fn preserves_native_retry_guidance() {
+    for category in [
+        ErrorCategory::RateLimited,
+        ErrorCategory::Unavailable,
+        ErrorCategory::Timeout,
+        ErrorCategory::Unauthorized,
+        ErrorCategory::Forbidden,
+    ] {
+        let mut error = upstream();
+        error.category = category;
+        error.retry = adk_core::RetryHint {
+            should_retry: matches!(
+                category,
+                ErrorCategory::RateLimited | ErrorCategory::Unavailable | ErrorCategory::Timeout
+            ),
+            retry_after_ms: Some(7000),
+            max_attempts: Some(3),
+        };
+        error
+            .details
+            .metadata
+            .insert("provider_error_code".into(), json!("future_failure"));
+        let before = serde_json::to_value(&error.details).unwrap();
+        let retry = serde_json::to_value(&error.retry).unwrap();
+        let error = redact(error, &[]);
+        assert_eq!(error.category, category);
+        assert_eq!(error.code, "model.openai_responses.invalid_request");
+        assert_eq!(serde_json::to_value(&error.details).unwrap(), before);
+        assert_eq!(serde_json::to_value(&error.retry).unwrap(), retry);
+    }
+}
+
+#[test]
+fn keeps_sharing_failures_terminal() {
+    for (provider_code, category, code) in [
+        (
+            "subscription_sharing_usage_limit_exceeded",
+            ErrorCategory::RateLimited,
+            "model.openai_responses.subscription_sharing_usage_limit_exceeded",
+        ),
+        (
+            "subscription_sharing_usage_unavailable",
+            ErrorCategory::Unavailable,
+            "model.openai_responses.subscription_sharing_usage_unavailable",
+        ),
+    ] {
+        let mut error = AdkError::new(
+            ErrorComponent::Model,
+            ErrorCategory::Unavailable,
+            "model.openai_responses.response_failed",
+            "OpenAI Responses generation failed",
+        );
+        error
+            .details
+            .metadata
+            .insert("provider_error_code".into(), json!(provider_code));
+        assert!(error.is_retryable());
+        let error = redact(error, &[]);
+        assert_eq!(error.category, category);
+        assert_eq!(error.code, code);
+        assert!(!error.is_retryable());
+        assert_eq!(error.message, "OpenAI Responses generation failed");
+    }
 }

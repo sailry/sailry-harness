@@ -1,7 +1,6 @@
 //! Provider diagnostics become public only after captured-credential redaction.
 use super::*;
 use adk_core::{AdkError, LlmRequest, LlmResponseStream, SchemaAdapter};
-use adk_model::{ErrorAdapter, ProviderErrorDetails, inspect_errors};
 use async_trait::async_trait;
 use futures::StreamExt;
 use sailry_protocol::Secret;
@@ -37,29 +36,44 @@ impl Llm for Model {
         stream: bool,
     ) -> adk_core::Result<LlmResponseStream> {
         let secrets = self.secrets.clone();
-        let response = inspect_errors(
-            adapter(secrets.clone()),
-            self.inner.generate_content(request, stream),
-        )
-        .await
-        .map_err(|error| redact(error, &secrets, None))?;
+        let response = self
+            .inner
+            .generate_content(request, stream)
+            .await
+            .map_err(|error| redact(error, &secrets))?;
         Ok(protect(response, secrets))
     }
 }
 
 fn protect(response: LlmResponseStream, secrets: Vec<Secret>) -> LlmResponseStream {
-    Box::pin(response.map(move |result| result.map_err(|error| redact(error, &secrets, None))))
+    Box::pin(response.map(move |result| result.map_err(|error| redact(error, &secrets))))
 }
 
-pub(super) fn adapter(secrets: Vec<Secret>) -> ErrorAdapter {
-    Arc::new(move |error, details| redact(error, &secrets, Some(&details)))
-}
-
-fn redact(
-    mut error: AdkError,
-    secrets: &[Secret],
-    details: Option<&ProviderErrorDetails>,
-) -> AdkError {
+fn redact(mut error: AdkError, secrets: &[Secret]) -> AdkError {
+    // These existing application policy failures remain terminal.
+    if error.code.starts_with("model.openai_responses.") {
+        let policy = match error
+            .details
+            .metadata
+            .get("provider_error_code")
+            .and_then(serde_json::Value::as_str)
+        {
+            Some("subscription_sharing_usage_limit_exceeded") => Some((
+                adk_core::ErrorCategory::RateLimited,
+                "model.openai_responses.subscription_sharing_usage_limit_exceeded",
+            )),
+            Some("subscription_sharing_usage_unavailable") => Some((
+                adk_core::ErrorCategory::Unavailable,
+                "model.openai_responses.subscription_sharing_usage_unavailable",
+            )),
+            _ => None,
+        };
+        if let Some((category, code)) = policy {
+            error.category = category;
+            error.code = code;
+            error.retry = adk_core::RetryHint::default();
+        }
+    }
     error.message = safe(&error.message, secrets, 8192);
     if let Some(request_id) = &mut error.details.request_id {
         *request_id = safe(request_id, secrets, 256);
@@ -70,50 +84,6 @@ fn redact(
             .iter()
             .any(|secret| !secret.expose().is_empty() && value.contains(secret.expose()))
     });
-    if let Some(details) = details {
-        // Subscription policy failures are terminal even when upstream treats unknown codes as transient.
-        if error.code.starts_with("model.openai_responses.") {
-            let policy = match details.code.as_deref() {
-                Some("subscription_sharing_usage_limit_exceeded") => Some((
-                    adk_core::ErrorCategory::RateLimited,
-                    "model.openai_responses.subscription_sharing_usage_limit_exceeded",
-                )),
-                Some("subscription_sharing_usage_unavailable") => Some((
-                    adk_core::ErrorCategory::Unavailable,
-                    "model.openai_responses.subscription_sharing_usage_unavailable",
-                )),
-                _ => None,
-            };
-            if let Some((category, code)) = policy {
-                error.category = category;
-                error.code = code;
-                error.retry = adk_core::RetryHint::default();
-            }
-        }
-        let mut fields = serde_json::Map::new();
-        for (name, value, limit) in [
-            ("message", details.message.as_deref(), 8192),
-            ("code", details.code.as_deref(), 256),
-            ("type", details.kind.as_deref(), 256),
-            ("param", details.param.as_deref(), 512),
-            ("request_id", details.request_id.as_deref(), 256),
-        ] {
-            if let Some(value) = value {
-                fields.insert(name.into(), safe(value, secrets, limit).into());
-            }
-        }
-        if let Some(status) = details.status {
-            fields.insert("status".into(), status.into());
-        }
-        if !fields.is_empty() {
-            let body = serde_json::to_string_pretty(&fields).expect("diagnostic strings serialize");
-            let fault = Fault::new(
-                ErrorCode::Unavailable,
-                format!("{}\n\n{body}", summary(&error)),
-            );
-            return error.with_source(fault);
-        }
-    }
     error
 }
 

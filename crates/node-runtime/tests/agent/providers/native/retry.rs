@@ -731,8 +731,12 @@ async fn bounds_classified_response_failures() {
                     .message
                     .contains("model.openai_responses.response_failed")
             );
-            assert!(failure.message.contains("Our servers are currently overloaded. Please try again later. authorization [redacted]"));
-            assert!(failure.message.contains("Bearer [redacted]"));
+            let expected = match code {
+                Some("server_error") => "OpenAI Responses generation failed: server_error",
+                Some("stream_timeout") => "OpenAI Responses generation failed: stream_timeout",
+                _ => "OpenAI Responses generation failed",
+            };
+            assert_eq!(failure.message.split_once("\n\n").unwrap().1, expected);
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
             {
                 let requests = server.requests.lock().unwrap();

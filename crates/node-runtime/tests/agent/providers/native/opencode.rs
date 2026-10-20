@@ -2,14 +2,14 @@ use super::*;
 use serde_json::json;
 
 #[tokio::test]
-async fn keeps_public_status_without_provider_content() {
+async fn retains_native_errors_and_status() {
     for remote in [false, true] {
         for (status, category) in [
             (400, "invalid_input"),
             (401, "unauthorized"),
             (403, "forbidden"),
         ] {
-            let body = format!("private provider response {}", server::KEY);
+            let body = format!("Provider rejected input {}", server::KEY);
             let reply = format!(
                 "HTTP/1.1 {status} Failure\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -51,7 +51,7 @@ async fn keeps_public_status_without_provider_content() {
             assert_eq!(fault.code, ErrorCode::Unavailable);
             assert!(fault.message.contains(&format!("HTTP {status}")));
             assert!(fault.message.contains(category));
-            assert!(!fault.message.contains("private"));
+            assert!(fault.message.contains("Provider rejected input [redacted]"));
             assert!(!fault.message.contains(server::KEY));
             assert_eq!(server.requests.lock().unwrap().len(), 1);
             fixture.controller.close().await.unwrap();

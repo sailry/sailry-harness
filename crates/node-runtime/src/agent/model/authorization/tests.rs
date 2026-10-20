@@ -7,7 +7,6 @@ mod live;
 struct Failure {
     message: String,
     opening: bool,
-    adapter: adk_model::ErrorAdapter,
 }
 
 impl Failure {
@@ -16,22 +15,15 @@ impl Failure {
             ErrorComponent::Model,
             ErrorCategory::InvalidInput,
             "model.openai_responses.invalid_request",
-            "OpenAI Responses API request failed",
+            self.message.clone(),
         )
         .with_upstream_status(400);
-        let details = adk_model::ProviderErrorDetails {
-            message: Some(self.message.clone()),
-            code: Some(self.message.clone()),
-            kind: Some(self.message.clone()),
-            param: Some(self.message.clone()),
-            request_id: Some(self.message.clone()),
-            status: Some(400),
-        };
+        error.details.request_id = Some(self.message.clone());
         error
             .details
             .metadata
             .insert("provider_error_code".into(), json!(self.message));
-        (self.adapter)(error, details)
+        error
     }
 }
 
@@ -104,7 +96,6 @@ async fn captures_private_grant_fields_for_redaction() {
                         actual.iter().cloned().collect::<Vec<_>>().join(" | ")
                     ),
                     opening,
-                    adapter: super::super::errors::adapter(secrets.clone()),
                 }),
                 secrets.clone(),
             );
@@ -145,24 +136,9 @@ async fn captures_private_grant_fields_for_redaction() {
                 assert!(!projected.contains(private));
                 assert!(!fault.message.contains(private));
             }
-            let (_, details) = fault.message.split_once("\n\n").unwrap();
-            let details: Value = serde_json::from_str(details).unwrap();
-            for field in ["message", "code", "type", "param", "request_id"] {
-                assert!(
-                    details[field]
-                        .as_str()
-                        .unwrap()
-                        .starts_with("Provider error: ")
-                );
-                assert_eq!(
-                    details[field]
-                        .as_str()
-                        .unwrap()
-                        .matches("[redacted]")
-                        .count(),
-                    actual.len()
-                );
-            }
+            let (_, message) = fault.message.split_once("\n\n").unwrap();
+            assert!(message.starts_with("Provider error: "));
+            assert_eq!(message.matches("[redacted]").count(), actual.len());
         }
     }
 }

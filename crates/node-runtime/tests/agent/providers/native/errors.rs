@@ -94,8 +94,21 @@ async fn retains_shared_usage_causes_without_replay() {
                     format!("Agent execution failed (model.openai_responses.{code})")
                 );
                 let serialized = serde_json::to_string(&page).unwrap();
-                assert!(serialized.contains(MESSAGE));
-                assert!(serialized.contains("[redacted]"));
+                let native = if kind == "flat" {
+                    "OpenAI Responses generation failed"
+                } else {
+                    "OpenAI Responses generation failed: invalid_request_error"
+                };
+                assert_eq!(
+                    run.error
+                        .as_ref()
+                        .unwrap()
+                        .message
+                        .split_once("\n\n")
+                        .unwrap()
+                        .1,
+                    native
+                );
                 assert!(!serialized.contains(server::KEY));
                 assert_eq!(server.requests.lock().unwrap().len(), 1);
                 fixture.controller.close().await.unwrap();
@@ -106,7 +119,7 @@ async fn retains_shared_usage_causes_without_replay() {
 }
 
 #[tokio::test]
-async fn retains_upstream_stream_causes() {
+async fn retains_native_stream_errors() {
     for remote in [false, true] {
         for kind in ["nested", "flat", "failed"] {
             let server = completion::server(vec![failure("invalid_prompt", kind)]).await;
@@ -126,13 +139,7 @@ async fn retains_upstream_stream_causes() {
                 summary,
                 "Agent execution failed (model.openai_responses.response_failed)"
             );
-            let detail: Value = serde_json::from_str(body).unwrap();
-            assert_eq!(detail["code"], "invalid_prompt");
-            assert_eq!(
-                detail["message"],
-                format!("{MESSAGE}; authorization [redacted]")
-            );
-            assert_eq!(detail["param"], "Bearer [redacted]");
+            assert_eq!(body, "OpenAI Responses generation failed: invalid_prompt");
             assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
             assert_eq!(server.requests.lock().unwrap().len(), 1);
             fixture.controller.close().await.unwrap();
@@ -142,7 +149,7 @@ async fn retains_upstream_stream_causes() {
 }
 
 #[tokio::test]
-async fn retains_upstream_http_causes() {
+async fn retains_native_http_errors() {
     for remote in [false, true] {
         let body = json!({"error":{"message":format!("{MESSAGE}; {}", server::KEY),
             "code":"fixture_limit", "type":"invalid_request_error", "param":"input"}});
@@ -167,12 +174,13 @@ async fn retains_upstream_http_causes() {
             summary,
             "Agent execution failed (model.openai_responses.invalid_request); HTTP 400; invalid_input"
         );
-        let detail: Value = serde_json::from_str(body).unwrap();
-        assert_eq!(detail["message"], format!("{MESSAGE}; [redacted]"));
-        assert_eq!(detail["code"], "fixture_limit");
-        assert_eq!(detail["type"], "invalid_request_error");
-        assert_eq!(detail["param"], "input");
-        assert_eq!(detail["status"], 400);
+        assert!(
+            body.starts_with("OpenAI Responses API error: 400 Bad Request invalid_request_error: "),
+            "{body}"
+        );
+        assert!(body.contains(&format!("{MESSAGE}; [redacted]")), "{body}");
+        assert!(body.contains("(param: input)"), "{body}");
+        assert!(body.contains("(code: fixture_limit)"), "{body}");
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         assert_eq!(server.requests.lock().unwrap().len(), 1);
         fixture.controller.close().await.unwrap();
