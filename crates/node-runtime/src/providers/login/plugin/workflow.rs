@@ -130,15 +130,32 @@ where
         let interrupted = stop.clone();
         let transformed = tokio::task::spawn_blocking(move || {
             let mut session =
-                crate::plugins::script::translation::Session::new(cloned, interrupted)?;
+                crate::plugins::script::translation::Session::new(cloned, interrupted)
+                    .inspect_err(|error| {
+                        diagnostic("script", "session_create", Some(error.code), None)
+                    })?;
             // A step includes previous credentials, a bounded HTTP document and
             // its private continuation, rather than just one response body.
-            session.call(&handler, &step, super::super::BODY_LIMIT * 4)
+            session
+                .call(&handler, &step, super::super::BODY_LIMIT * 4)
+                .inspect_err(|error| diagnostic("script", "handler_call", Some(error.code), None))
         });
         let effect: Effect = tokio::select! {
             biased;
             _=stop.cancelled()=>return Err(cancelled()),
-            result=tokio::time::timeout_at(deadline,transformed)=>serde_json::from_value(result.map_err(|_|super::super::expired())?.map_err(|_|invalid())??).map_err(|_|invalid())?,
+            result=tokio::time::timeout_at(deadline,transformed)=>{
+                let value = result.map_err(|_| {
+                    diagnostic("script", "step_deadline", Some(ErrorCode::Expired), None);
+                    super::super::expired()
+                })?.map_err(|_| {
+                    diagnostic("script", "worker_join", Some(ErrorCode::InvalidRequest), None);
+                    invalid()
+                })??;
+                serde_json::from_value(value).map_err(|_| {
+                    diagnostic("effect", "effect_decode", Some(ErrorCode::InvalidRequest), None);
+                    invalid()
+                })?
+            },
         };
         let action = async {
             match effect {
@@ -147,6 +164,7 @@ where
                     fields,
                     state: next,
                 } => {
+                    let stage = request_stage(&name);
                     let endpoint = requests.get(&name).ok_or_else(invalid)?;
                     for key in ["client_id", "client_secret"] {
                         if let (Some(configured), Some(requested)) =
@@ -167,15 +185,18 @@ where
                         true,
                     )
                     .await
-                    .inspect_err(|error| diagnostic("request_failed", None, Some(error.code)))?;
+                    .inspect_err(|error| {
+                        diagnostic(stage, "request_failed", Some(error.code), None)
+                    })?;
                     diagnostic(
+                        stage,
                         if status.is_success() {
                             "http_success"
                         } else {
                             "http_rejected"
                         },
-                        Some(status),
                         None,
+                        Some(status),
                     );
                     state = next;
                     event = json!({"kind":"response","status":status.as_u16(),"body":body});
@@ -282,13 +303,17 @@ where
                     nonce,
                     state: next,
                 } => {
+                    diagnostic("identity", "started", None, None);
                     let issuer = issuer.as_deref().ok_or_else(invalid)?;
                     let client = super::super::http_client(
                         input
                             .fields
                             .get("user_agent")
                             .map_or("Sailry/0.1", Secret::expose),
-                    )?;
+                    )
+                    .inspect_err(|error| {
+                        diagnostic("identity", "client_create", Some(error.code), None)
+                    })?;
                     #[cfg(any(test, feature = "test-support"))]
                     let issuer = input.service.model_endpoint.as_deref().unwrap_or(issuer);
                     let claims = super::identity::verify(
@@ -325,9 +350,12 @@ where
                     state = next;
                     event = json!({"kind":"registered"});
                 }
-                Effect::Finish { grant } => return Ok(Some(grant)),
+                Effect::Finish { grant } => {
+                    diagnostic("grant", "received", None, None);
+                    return Ok(Some(grant));
+                }
                 Effect::Reject { code } => {
-                    diagnostic("rejected", None, Some(code));
+                    diagnostic("effect", "rejected", Some(code), None);
                     return Err(match code {
                         ErrorCode::Expired => super::super::expired(),
                         ErrorCode::PermissionDenied => {
@@ -448,7 +476,22 @@ fn cancelled() -> Fault {
     Fault::new(ErrorCode::Cancelled, "provider authorization cancelled")
 }
 
-fn diagnostic(reason: &'static str, status: Option<reqwest::StatusCode>, code: Option<ErrorCode>) {
+fn request_stage(name: &str) -> &'static str {
+    match name {
+        "device" => "device",
+        "poll" => "poll",
+        "token" => "token",
+        "refresh" => "refresh",
+        _ => "http",
+    }
+}
+
+pub(super) fn diagnostic(
+    stage: &'static str,
+    reason: &'static str,
+    code: Option<ErrorCode>,
+    status: Option<reqwest::StatusCode>,
+) {
     let mut entry = crate::logging::Entry::new(
         crate::logging::Area::Node,
         if code.is_some() {
@@ -459,7 +502,7 @@ fn diagnostic(reason: &'static str, status: Option<reqwest::StatusCode>, code: O
     );
     entry.operation = Some("provider_authorization");
     entry.source_kind = Some("model_auth");
-    entry.stage = Some("http");
+    entry.stage = Some(stage);
     entry.reason = Some(reason);
     entry.code = code;
     entry.upstream_status = status.map(|status| u64::from(status.as_u16()));

@@ -126,3 +126,64 @@ fn preserves_declared_body_and_private_substitution() {
         endpoint
     );
 }
+
+#[tokio::test]
+async fn rejects_invalid_private_grants() {
+    for missing in [true, false] {
+        let mut grant = json!({
+            "kind":"chat_gpt_oauth","access":"PRIVATE_ACCESS","refresh":"PRIVATE_REFRESH",
+            "expires_at_ms":0,"subject":"PRIVATE_SUBJECT","account_id":"PRIVATE_ACCOUNT",
+            "email":"private@example.test","id_token":"PRIVATE_ID_TOKEN","renewal_pending":false,
+        });
+        if missing {
+            grant.as_object_mut().unwrap().remove("id_token");
+        }
+        let entry = "dev.sailry.platform/auth/fixture.js";
+        let declaration: model_auth::Declaration = serde_json::from_value(json!({
+            "id":"fixture","authentication":"chat_gpt_oauth","display":{"label":"Fixture"},
+            "flow":{"kind":"script","script":{"entry":entry,"resources":[]},"handler":"authorize",
+                "requests":{"token":{"url":"https://auth.example.test/token"}},"callback":null,"issuer":null},
+        })).unwrap();
+        assert!(declaration.valid());
+        let bundle = crate::plugins::script::Bundle {
+            entry: entry.into(),
+            files: BTreeMap::from([(
+                entry.into(),
+                format!(
+                    "export function authorize() {{ return {}; }}",
+                    json!({"kind":"finish","grant":grant})
+                ),
+            )]),
+        };
+        let result = authorize(
+            Input {
+                context: None,
+                service: crate::providers::login::Service::default(),
+                declaration,
+                fields: BTreeMap::new(),
+                redirect: None,
+                callback: None,
+                exchange: Some(bundle),
+            },
+            |_| async { panic!("private finish does not prompt") },
+            CancellationToken::new(),
+        )
+        .await;
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("invalid private grant was accepted"),
+        };
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(
+            error.message,
+            if missing {
+                "model authorization data is invalid"
+            } else {
+                "authorization expiry is invalid"
+            }
+        );
+        let public = serde_json::to_string(&error).unwrap();
+        assert!(!public.contains("PRIVATE"));
+        assert!(!public.contains("private@example.test"));
+    }
+}

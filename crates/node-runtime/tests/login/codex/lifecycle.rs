@@ -11,6 +11,10 @@ async fn connects_with_isolated_credentials() {
             let drift = Arc::new(AtomicUsize::new(0));
             let identity = drift.clone();
             let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+                assert!(
+                    !request.path.starts_with("/.well-known/"),
+                    "Codex authorization does not request OIDC discovery"
+                );
                 if request.path == "/api/accounts/deviceauth/usercode" && outcome == "denied" {
                     return Reply::Raw("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into());
                 }
@@ -343,5 +347,52 @@ async fn preserves_pending_controls() {
             drop(updates);
             fixture.close().await;
         }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rejects_invalid_identity_after_token_exchange() {
+    for remote in [false, true] {
+        let exchanges = Arc::new(AtomicUsize::new(0));
+        let observed = exchanges.clone();
+        let server = Server::start_with_request(ModelApi::Anthropic, move |request| {
+            if request.path == "/oauth/token" {
+                observed.fetch_add(1, Ordering::SeqCst);
+                let mut tokens = server::tokens(request, 3600, ACCESS, REFRESH);
+                tokens["id_token"] = json!("PRIVATE_BROKEN_ID_TOKEN");
+                return Reply::Json(tokens);
+            }
+            server::standard(request, 3600)
+        })
+        .await;
+        let fixture = Fixture::empty(remote, &server).await;
+        let provider = provider(&fixture.client, Authentication::ChatGptOAuth).await;
+        let (_, attempt) = start(&fixture.client, &provider).await;
+        let mut stream = fixture.client.subscribe_login(attempt.id).await.unwrap();
+        let update = terminal(&mut stream).await;
+        no_secrets(&update);
+        assert!(
+            !serde_json::to_string(&update)
+                .unwrap()
+                .contains("PRIVATE_BROKEN_ID_TOKEN")
+        );
+        let login::State::Failed(error) = update.state else {
+            panic!("invalid identity was accepted")
+        };
+        assert_eq!(error.code, ErrorCode::InvalidRequest);
+        assert_eq!(error.message, "model authorization data is invalid");
+        assert_eq!(exchanges.load(Ordering::SeqCst), 1);
+        assert_eq!(saved(&fixture.client, provider.id).await, provider);
+        let Output::Credentials(credentials) = fixture
+            .client
+            .execute(fixture.client.prepare(Command::ListCredentials))
+            .await
+            .unwrap()
+        else {
+            panic!("credentials expected")
+        };
+        assert!(credentials.is_empty());
+        drop(stream);
+        fixture.close().await;
     }
 }

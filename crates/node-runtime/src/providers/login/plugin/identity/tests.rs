@@ -167,3 +167,29 @@ fn discovery_refuses_cross_origin_signing_endpoints() {
         .is_ok()
     );
 }
+
+#[test]
+fn keeps_failure_reasons_static() {
+    let json = serde_json::from_str::<u64>("\"PRIVATE_TOKEN_PAYLOAD\"").unwrap_err();
+    for (kind, expected) in [
+        (
+            ErrorKind::MissingRequiredClaim("PRIVATE_CLAIM".into()),
+            "missing_claim",
+        ),
+        (
+            ErrorKind::InvalidClaimFormat("PRIVATE_FORMAT".into()),
+            "claim_format",
+        ),
+        (ErrorKind::Json(std::sync::Arc::new(json)), "token_decode"),
+        (
+            ErrorKind::Provider("PRIVATE_PROVIDER_FAILURE".into()),
+            "token_decode",
+        ),
+        (ErrorKind::InvalidSignature, "signature"),
+        (ErrorKind::InvalidAudience, "audience"),
+        (ErrorKind::ExpiredSignature, "expired"),
+    ] {
+        assert_eq!(reason(&kind), expected);
+        assert!(!reason(&kind).contains("PRIVATE"));
+    }
+}

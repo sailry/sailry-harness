@@ -1,5 +1,7 @@
 //! OIDC proof validation shared by package-declared account flows.
 use super::super::*;
+use super::workflow::diagnostic;
+use jsonwebtoken::errors::ErrorKind;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode_header, jwk::JwkSet};
 use reqwest::Url;
 use serde::Deserialize;
@@ -28,11 +30,64 @@ pub(super) async fn verify(
     client_id: &str,
     nonce: Option<&str>,
 ) -> Result<Value, Fault> {
-    let discovery: Discovery =
-        json(client.get(format!("{auth}/.well-known/openid-configuration"))).await?;
-    discovery.validate(auth)?;
-    let keys: JwkSet = json(client.get(&discovery.jwks_uri)).await?;
+    let discovery: Discovery = document(
+        client.get(format!("{auth}/.well-known/openid-configuration")),
+        "identity_discovery",
+    )
+    .await?;
+    discovery.validate(auth).inspect_err(|error| {
+        diagnostic(
+            "identity_discovery",
+            "issuer_binding",
+            Some(error.code),
+            None,
+        );
+    })?;
+    let keys: JwkSet = document(client.get(&discovery.jwks_uri), "identity_keys").await?;
     verified(token, client_id, nonce, &discovery.issuer, &keys)
+}
+
+async fn document<T: serde::de::DeserializeOwned>(
+    request: RequestBuilder,
+    stage: &'static str,
+) -> Result<T, Fault> {
+    let (status, body) = response(request).await.inspect_err(|error| {
+        diagnostic(stage, "request_failed", Some(error.code), None);
+    })?;
+    diagnostic(
+        stage,
+        if status.is_success() {
+            "http_success"
+        } else {
+            "http_rejected"
+        },
+        None,
+        Some(status),
+    );
+    if !status.is_success() {
+        return Err(http_error(status));
+    }
+    decode(&body).inspect_err(|error| {
+        diagnostic(stage, "document_decode", Some(error.code), Some(status));
+    })
+}
+
+fn reason(kind: &ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::InvalidSignature => "signature",
+        ErrorKind::ExpiredSignature => "expired",
+        ErrorKind::ImmatureSignature => "not_yet_valid",
+        ErrorKind::InvalidIssuer => "issuer",
+        ErrorKind::InvalidAudience => "audience",
+        ErrorKind::InvalidSubject => "subject",
+        ErrorKind::MissingRequiredClaim(_) => "missing_claim",
+        ErrorKind::InvalidClaimFormat(_) => "claim_format",
+        ErrorKind::InvalidAlgorithm
+        | ErrorKind::UnsupportedAlgorithm
+        | ErrorKind::InvalidAlgorithmName
+        | ErrorKind::MissingAlgorithm => "algorithm",
+        _ => "token_decode",
+    }
 }
 
 impl Discovery {
@@ -69,12 +124,25 @@ fn verified(
     issuer: &str,
     keys: &JwkSet,
 ) -> Result<Value, Fault> {
-    let header = decode_header(token.expose())
-        .map_err(|_| sailry_protocol::Fault::invalid("authorization identity token is invalid"))?;
+    let header = decode_header(token.expose()).map_err(|error| {
+        diagnostic(
+            "identity_header",
+            reason(error.kind()),
+            Some(ErrorCode::InvalidRequest),
+            None,
+        );
+        sailry_protocol::Fault::invalid("authorization identity token is invalid")
+    })?;
     if !matches!(
         header.alg,
         Algorithm::RS256 | Algorithm::ES256 | Algorithm::EdDSA
     ) {
+        diagnostic(
+            "identity_header",
+            "algorithm",
+            Some(ErrorCode::InvalidRequest),
+            None,
+        );
         return Err(sailry_protocol::Fault::invalid(
             "authorization identity algorithm is unsupported",
         ));
@@ -84,6 +152,12 @@ fn verified(
         .as_deref()
         .and_then(|kid| keys.find(kid))
         .ok_or_else(|| {
+            diagnostic(
+                "identity_key",
+                "missing_key",
+                Some(ErrorCode::InvalidRequest),
+                None,
+            );
             sailry_protocol::Fault::invalid("authorization identity signing key was not found")
         })?;
     if key
@@ -103,11 +177,23 @@ fn verified(
                 !operations.contains(&jsonwebtoken::jwk::KeyOperations::Verify)
             })
     {
+        diagnostic(
+            "identity_key",
+            "key_policy",
+            Some(ErrorCode::InvalidRequest),
+            None,
+        );
         return Err(sailry_protocol::Fault::invalid(
             "authorization identity signing key is invalid",
         ));
     }
     let key = DecodingKey::from_jwk(key).map_err(|_| {
+        diagnostic(
+            "identity_key",
+            "key_decode",
+            Some(ErrorCode::InvalidRequest),
+            None,
+        );
         sailry_protocol::Fault::invalid("authorization identity signing key is invalid")
     })?;
     let mut validation = Validation::new(header.alg);
@@ -117,10 +203,25 @@ fn verified(
     validation.set_issuer(&[issuer]);
     validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
     let document = jsonwebtoken::decode::<Value>(token.expose(), &key, &validation)
-        .map_err(|_| Fault::invalid("authorization identity token could not be verified"))?
+        .map_err(|error| {
+            diagnostic(
+                "identity_verification",
+                reason(error.kind()),
+                Some(ErrorCode::InvalidRequest),
+                None,
+            );
+            Fault::invalid("authorization identity token could not be verified")
+        })?
         .claims;
-    let claims: Claims = serde_json::from_value(document.clone())
-        .map_err(|_| Fault::invalid("authorization identity claims are invalid"))?;
+    let claims: Claims = serde_json::from_value(document.clone()).map_err(|_| {
+        diagnostic(
+            "identity_claims",
+            "claims_decode",
+            Some(ErrorCode::InvalidRequest),
+            None,
+        );
+        Fault::invalid("authorization identity claims are invalid")
+    })?;
     let now = now_ms()? / 1000;
     if claims.sub.is_empty()
         || claims.sub.len() > 2048
@@ -140,6 +241,12 @@ fn verified(
             email.is_empty() || email.len() > 1024 || email.chars().any(char::is_control)
         })
     {
+        diagnostic(
+            "identity_claims",
+            "claims_binding",
+            Some(ErrorCode::InvalidRequest),
+            None,
+        );
         return Err(sailry_protocol::Fault::invalid(
             "authorization identity claims did not match",
         ));

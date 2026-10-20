@@ -534,10 +534,13 @@ impl Worker {
                     entry.set(login::State::Cancelled);
                     return;
                 }
+                let mut stage = "authorization";
                 let result = result.and_then(|authorized| {
                     if let Some(capture) = &entry.plugin {
+                        stage = "capture";
                         model_auth::complete(&database.connection, &entry.provider, capture)?;
                     }
+                    stage = "persistence";
                     persistence::save(
                         database,
                         &entry.provider,
@@ -558,7 +561,7 @@ impl Worker {
                             crate::logging::Phase::Failed,
                         );
                         record.operation = Some("provider_authorization");
-                        record.stage = Some("completion");
+                        record.stage = Some(stage);
                         record.context.provider = Some(entry.provider.id);
                         record.context.request = Some(id);
                         record.code = Some(error.code);

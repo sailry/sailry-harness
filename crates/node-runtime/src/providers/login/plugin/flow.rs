@@ -43,8 +43,23 @@ where
                     super::workflow::run(&mut input, None, progress, stop.clone()).await?;
                 if let Some(authentication) = input.declaration.authentication {
                     let grant: super::super::Grant =
-                        serde_json::from_value(document).map_err(|_| invalid())?;
-                    grant.validate(authentication)?;
+                        serde_json::from_value(document).map_err(|_| {
+                            super::workflow::diagnostic(
+                                "grant",
+                                "grant_decode",
+                                Some(ErrorCode::InvalidRequest),
+                                None,
+                            );
+                            invalid()
+                        })?;
+                    grant.validate(authentication).inspect_err(|error| {
+                        super::workflow::diagnostic(
+                            "grant",
+                            "grant_validate",
+                            Some(error.code),
+                            None,
+                        );
+                    })?;
                     if grant.expires_at_ms() <= super::super::now_ms()? {
                         return Err(super::super::expired());
                     }
