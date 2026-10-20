@@ -15,6 +15,16 @@ impl Workspace {
         let updates = catalog.updates.as_ref().map(|state| state.read(cx));
         let busy = !live.connected || catalog.busy(cx);
         let plugins = &catalog.packages;
+        let preparations = catalog
+            .python
+            .preparations
+            .iter()
+            .filter(|preparation| {
+                !plugins
+                    .iter()
+                    .any(|plugin| plugin.name == preparation.package)
+            })
+            .collect::<Vec<_>>();
         let owner = cx.entity();
         let download_owner = owner.clone();
         v_flex()
@@ -79,33 +89,25 @@ impl Workspace {
                         ),
                 )
             })
-            .when(catalog.python.connected, |view| {
-                view.child(
-                    v_flex().gap_2().children(
-                        catalog
-                            .python
-                            .preparations
-                            .iter()
-                            .filter(|preparation| {
-                                !plugins
-                                    .iter()
-                                    .any(|plugin| plugin.name == preparation.package)
-                            })
-                            .map(|preparation| {
-                                let selector = format!("plugin-preparing-{}", preparation.package);
-                                h_flex()
-                                    .min_w_0()
-                                    .gap_2()
-                                    .text_sm()
-                                    .text_color(cx.theme().muted_foreground)
-                                    .debug_selector(move || selector.clone())
-                                    .child(spinner::Spinner::new().small())
-                                    .child(preparation.package.clone())
-                                    .child(preparation::label(preparation.stage))
-                            }),
-                    ),
-                )
-            })
+            .when(
+                catalog.python.connected && !preparations.is_empty(),
+                |view| {
+                    view.child(v_flex().gap_2().children(preparations.into_iter().map(
+                        |preparation| {
+                            let selector = format!("plugin-preparing-{}", preparation.package);
+                            h_flex()
+                                .min_w_0()
+                                .gap_2()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .debug_selector(move || selector.clone())
+                                .child(spinner::Spinner::new().small())
+                                .child(preparation.package.clone())
+                                .child(preparation::label(preparation.stage))
+                        },
+                    )))
+                },
+            )
             .when(plugins.is_empty() && live.connected, |view| {
                 view.child(
                     Group::new("plugins_installed")
