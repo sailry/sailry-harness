@@ -19,7 +19,7 @@ impl Panel {
                     loop {
                         let update = tokio::select! { _ = stop.cancelled() => return, update = stream.next() => update };
                         let relevant = match update {
-                            Ok(Update::Event(envelope)) => matches!(envelope.event, Event::BackupSettingsChanged { .. }),
+                            Ok(Update::Event(envelope)) => matches!(envelope.event, Event::BackupSettingsChanged { .. } | Event::SessionChanged { .. } | Event::SessionsRemoved { .. } | Event::TaskStarted { .. } | Event::SessionRewound { .. }),
                             Ok(Update::Snapshot(_)) | Ok(Update::ResetRequired) => true,
                             Ok(_) => false, Err(_) => break,
                         };

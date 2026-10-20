@@ -8,9 +8,8 @@ use gpui_kit::{
         form::Field,
         input::{Input, InputEvent, InputState},
         scroll::ScrollableElement,
-        searchable_list::SearchableListItem,
-        select::{Select, SelectEvent, SelectState},
         switch::Switch,
+        tab::{Tab, TabBar},
         time_field::{TimeField, TimeFieldEvent, TimeFieldState},
     },
     prelude::FluentBuilder as _,
@@ -20,9 +19,6 @@ use sailry_protocol::{
     backup::{Destination, Kind, Local, Schedule, Update},
     plugin::settings::SecretUpdate,
 };
-
-#[derive(Clone)]
-struct Choice(Kind);
 
 fn destination(settings: &Settings) -> Destination {
     settings.destination.clone().unwrap_or(Destination {
@@ -34,23 +30,11 @@ fn destination(settings: &Settings) -> Destination {
     })
 }
 
-impl SearchableListItem for Choice {
-    type Value = Kind;
-    fn title(&self) -> SharedString {
-        tr(match self.0 {
-            Kind::Webdav => "backup_webdav",
-            Kind::S3 => "backup_s3",
-        })
-    }
-    fn value(&self) -> &Kind {
-        &self.0
-    }
-}
-
 pub(super) struct Editor {
-    owner: Entity<Panel>,
+    owner: WeakEntity<Panel>,
+    tab: usize,
     settings: Settings,
-    kind: Entity<SelectState<Vec<Choice>>>,
+    kind: Kind,
     time: Entity<TimeFieldState>,
     local_enabled: bool,
     online_enabled: bool,
@@ -58,17 +42,18 @@ pub(super) struct Editor {
     pub(super) fields: Vec<(&'static str, Entity<InputState>)>,
     remove_credentials: bool,
     task: Option<Task<()>>,
-    closed: bool,
     pub(super) conflict: bool,
     error: Option<&'static str>,
 }
 
-pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
-    let Some(settings) = owner.read(cx).settings.clone() else {
-        return;
-    };
+pub(super) fn create(
+    owner: WeakEntity<Panel>,
+    settings: Settings,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<Editor> {
     let value = destination(&settings);
-    let editor = cx.new(|cx| {
+    cx.new(|cx| {
         crate::feedback::observe_with(
             window,
             cx,
@@ -83,7 +68,7 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
                         .on_click(cx.listener(move |toast, _, window, cx| {
                             toast.dismiss(window, cx);
                             _ = owner.update(cx, |editor, cx| {
-                                editor.owner.update(cx, |panel, cx| {
+                                _ = editor.owner.update(cx, |panel, cx| {
                                     panel.rebase = true;
                                     panel.load(window, cx);
                                 });
@@ -92,14 +77,6 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
                 })
             },
         );
-        let kind = cx.new(|cx| {
-            SelectState::new(
-                vec![Choice(Kind::Webdav), Choice(Kind::S3)],
-                Some(IndexPath::new(usize::from(value.kind == Kind::S3))),
-                window,
-                cx,
-            )
-        });
         let fields: Vec<_> = [
             ("backup_endpoint", value.endpoint),
             ("backup_prefix", value.root),
@@ -153,7 +130,7 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
             cx.subscribe_in(
                 input,
                 window,
-                |editor: &mut Editor, _, event, window, cx| {
+                move |editor: &mut Editor, _, event, window, cx| {
                     if matches!(event, InputEvent::Change) {
                         editor.changed(window, cx);
                     }
@@ -161,16 +138,6 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
             )
             .detach();
         }
-        cx.subscribe_in(
-            &kind,
-            window,
-            |editor: &mut Editor, _, event, window, cx| {
-                if matches!(event, SelectEvent::Confirm(_)) {
-                    editor.changed(window, cx);
-                }
-            },
-        )
-        .detach();
         let time = cx.new(|cx| {
             let mut state = TimeFieldState::new(window, cx);
             let (hour, minute) = settings
@@ -193,6 +160,7 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
         .detach();
         Editor {
             owner,
+            tab: usize::from(value.kind == Kind::S3),
             local_enabled: settings.local.as_ref().is_some_and(|local| local.enabled),
             online_enabled: settings.online_enabled,
             schedule_enabled: settings
@@ -200,18 +168,21 @@ pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
                 .as_ref()
                 .is_some_and(|schedule| schedule.enabled),
             settings,
-            kind,
+            kind: value.kind,
             time,
             fields,
             remove_credentials: false,
             task: None,
-            closed: false,
             conflict: false,
             error: None,
         }
-    });
-    let panel = editor.read(cx).owner.clone();
-    panel.update(cx, |panel, _| panel.editor = Some(editor.downgrade()));
+    })
+}
+
+pub(super) fn open(owner: Entity<Panel>, window: &mut Window, cx: &mut App) {
+    let Some(editor) = owner.read(cx).editor.clone() else {
+        return;
+    };
     window.open_dialog(cx, move |dialog, window, cx| {
         let close = editor.clone();
         let cancel = editor.clone();
@@ -254,12 +225,7 @@ impl Editor {
                 return Err("backup_passphrase_mismatch");
             }
         }
-        let kind = self
-            .kind
-            .read(cx)
-            .selected_value()
-            .copied()
-            .unwrap_or_default();
+        let kind = self.kind;
         let destination = Destination {
             kind,
             endpoint: values[0].trim().into(),
@@ -340,13 +306,7 @@ impl Editor {
         let time = self.time.read(cx).time();
         self.remove_credentials
             || values[4..9].iter().any(|value| !value.is_empty())
-            || self
-                .kind
-                .read(cx)
-                .selected_value()
-                .copied()
-                .unwrap_or_default()
-                != destination.kind
+            || self.kind != destination.kind
             || values[..4]
                 .iter()
                 .zip([
@@ -376,9 +336,6 @@ impl Editor {
             || time.minute() != u32::from(schedule.minute)
     }
     fn changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.closed {
-            return;
-        }
         self.error = None;
         self.task = Some(cx.spawn_in(window, async move |owner, cx| {
             cx.background_executor()
@@ -391,7 +348,10 @@ impl Editor {
         cx.notify();
     }
     fn flush(&mut self, report: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if !self.owner.read(cx).active || self.closed {
+        let Some(owner) = self.owner.upgrade() else {
+            return false;
+        };
+        if !owner.read(cx).active {
             return false;
         }
         if self.conflict {
@@ -401,7 +361,7 @@ impl Editor {
             }
             return false;
         }
-        if self.owner.read(cx).locked() {
+        if owner.read(cx).locked() {
             return false;
         }
         let update = match self.update(cx) {
@@ -423,21 +383,23 @@ impl Editor {
         {
             return true;
         }
-        self.owner.update(cx, |panel, cx| {
+        owner.update(cx, |panel, cx| {
             panel.submit(Command::SaveBackupSettings(update), window, cx)
         })
     }
     fn finish(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if !self.owner.read(cx).active {
+        if self
+            .owner
+            .upgrade()
+            .is_none_or(|owner| !owner.read(cx).active)
+        {
             self.error = Some("backup_target_changed");
-            self.closed = true;
             self.task = None;
             self.erase(window, cx);
             cx.notify();
             return true;
         }
         if self.flush(true, window, cx) {
-            self.closed = true;
             self.task = None;
             self.erase(window, cx);
             true
@@ -473,7 +435,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.closed || settings.revision == self.settings.revision {
+        if settings.revision == self.settings.revision {
             return;
         }
         if !self.dirty(cx) {
@@ -492,9 +454,7 @@ impl Editor {
                         .1
                         .update(cx, |input, cx| input.set_value(value, window, cx));
                 }
-                self.kind.update(cx, |state, cx| {
-                    state.set_selected_value(&destination.kind, window, cx)
-                });
+                self.kind = destination.kind;
             }
             self.local_enabled = settings.local.as_ref().is_some_and(|local| local.enabled);
             self.online_enabled = settings.online_enabled;
@@ -549,114 +509,207 @@ impl Editor {
     }
 }
 
+impl Editor {
+    pub(super) fn automatic(&mut self, locked: bool, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        use crate::settings::group::Row;
+        let mut rows = vec![
+            Row::new(
+                "backup_schedule_enabled",
+                Switch::new("backup-schedule-enabled")
+                    .checked(self.schedule_enabled)
+                    .accessibility_label(tr("backup_schedule_enabled"))
+                    .disabled(locked)
+                    .on_change(cx.listener(|editor, value, window, cx| {
+                        editor.schedule_enabled = *value;
+                        editor.changed(window, cx);
+                    })),
+            )
+            .into_any_element(),
+        ];
+        if self.schedule_enabled {
+            rows.push(
+                Row::new(
+                    "backup_schedule_time",
+                    TimeField::new(&self.time).disabled(locked),
+                )
+                .into_any_element(),
+            );
+            rows.push(
+                Row::new(
+                    "backup_timezone",
+                    Input::new(&self.fields[10].1).disabled(locked).w_48(),
+                )
+                .into_any_element(),
+            );
+        }
+        rows
+    }
+
+    fn choose_directory(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(panel) = self.owner.upgrade() else {
+            return;
+        };
+        if panel.read(cx).locked() {
+            return;
+        }
+        let generation = panel.read(cx).generation;
+        let client = panel.read(cx).binding.client.clone();
+        let initial = self.fields[9].1.read(cx).value().to_string();
+        let owner = cx.weak_entity();
+        let valid = owner.clone();
+        let pending = owner.clone();
+        let picker = crate::file_picker::open(
+            crate::file_picker::Options {
+                client: Some(client),
+                preview_host: 0,
+                initial: (!initial.is_empty()).then_some(initial),
+                mode: crate::file_picker::Mode::Directory,
+                title: "backup_local_directory",
+                confirm: "directory_title",
+            },
+            move |selection, window, cx| {
+                let crate::file_picker::Selection::Directory(path) = selection else {
+                    return Err("directory_stale");
+                };
+                owner
+                    .update(cx, |editor, cx| {
+                        let Some(panel) = editor.owner.upgrade() else {
+                            return Err("directory_stale");
+                        };
+                        if !panel.read(cx).active || panel.read(cx).generation != generation {
+                            return Err("directory_stale");
+                        }
+                        editor.fields[9]
+                            .1
+                            .update(cx, |input, cx| input.set_value(path, window, cx));
+                        editor.changed(window, cx);
+                        Ok(crate::file_picker::Completion::Close)
+                    })
+                    .unwrap_or(Err("directory_stale"))
+            },
+            window,
+            cx,
+        );
+        picker.update(cx, |picker, _| {
+            picker.bind(
+                move |cx| {
+                    valid
+                        .upgrade()
+                        .and_then(|editor| editor.read(cx).owner.upgrade())
+                        .is_some_and(|panel| {
+                            panel.read(cx).active && panel.read(cx).generation == generation
+                        })
+                },
+                move |cx| {
+                    pending
+                        .upgrade()
+                        .and_then(|editor| editor.read(cx).owner.upgrade())
+                        .is_none_or(|panel| panel.read(cx).locked())
+                },
+            )
+        });
+    }
+}
+
 impl Render for Editor {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let locked = self.owner.read(cx).locked() || self.closed;
-        let s3 = self.kind.read(cx).selected_value() == Some(&Kind::S3);
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let locked = self
+            .owner
+            .upgrade()
+            .is_none_or(|owner| owner.read(cx).locked());
+        let s3 = self.tab == 1;
+        let kind = if s3 { Kind::S3 } else { Kind::Webdav };
+        let selected = self.kind;
         v_flex()
             .gap_4()
             .child(
-                Field::new().label(tr("backup_local_enabled")).child(
-                    Switch::new("backup-local-enabled")
-                        .checked(self.local_enabled)
-                        .accessibility_label(tr("backup_local_enabled"))
-                        .disabled(locked)
-                        .on_click(cx.listener(|editor, value, window, cx| {
-                            editor.local_enabled = *value;
-                            editor.changed(window, cx);
-                        })),
-                ),
+                TabBar::new("backup-storage-tabs")
+                    .segmented()
+                    .selected_index(self.tab)
+                    .on_click(cx.listener(|editor, index, _, cx| {
+                        editor.tab = *index;
+                        cx.notify();
+                    }))
+                    .child(Tab::new().label(tr("backup_webdav")))
+                    .child(Tab::new().label(tr("backup_s3")))
+                    .child(Tab::new().label(tr("backup_local"))),
             )
-            .when(self.local_enabled, |view| {
+            .when(self.tab == 2, |view| {
                 view.child(
-                    Field::new()
-                        .label(tr("backup_local_directory"))
-                        .child(Input::new(&self.fields[9].1).disabled(locked)),
-                )
-            })
-            .child(
-                Field::new().label(tr("backup_online_enabled")).child(
-                    Switch::new("backup-online-enabled")
-                        .checked(self.online_enabled)
-                        .accessibility_label(tr("backup_online_enabled"))
-                        .disabled(locked)
-                        .on_click(cx.listener(|editor, value, window, cx| {
-                            editor.online_enabled = *value;
-                            editor.changed(window, cx);
-                        })),
-                ),
-            )
-            .when(self.online_enabled, |view| {
-                view.child(
-                    Field::new().label(tr("backup_storage")).child(
-                        Select::new(&self.kind)
-                            .id("backup-kind")
+                    Field::new().label(tr("backup_local_enabled")).child(
+                        Switch::new("backup-local-enabled")
+                            .checked(self.local_enabled)
                             .disabled(locked)
-                            .w_full(),
-                    ),
-                )
-            })
-            .children(
-                self.fields
-                    .iter()
-                    .enumerate()
-                    .filter(|(index, _)| {
-                        (7..9).contains(index)
-                            || (self.online_enabled
-                                && *index < 7
-                                && (s3 || !matches!(index, 2 | 3 | 6)))
-                    })
-                    .map(|(_, (key, input))| {
-                        let key = *key;
-                        Field::new().label(tr(key)).child(
-                            div()
-                                .debug_selector(move || key.into())
-                                .child(Input::new(input).disabled(locked)),
-                        )
-                    }),
-            )
-            .child(
-                Field::new().label(tr("backup_schedule_enabled")).child(
-                    Switch::new("backup-schedule-enabled")
-                        .checked(self.schedule_enabled)
-                        .accessibility_label(tr("backup_schedule_enabled"))
-                        .disabled(locked)
-                        .on_click(cx.listener(|editor, value, window, cx| {
-                            editor.schedule_enabled = *value;
-                            editor.changed(window, cx);
-                        })),
-                ),
-            )
-            .when(self.schedule_enabled, |view| {
-                view.child(
-                    Field::new().label(tr("backup_schedule_time")).child(
-                        div()
-                            .id("backup-schedule-time")
-                            .role(Role::Group)
-                            .aria_label(tr("backup_schedule_time"))
-                            .child(TimeField::new(&self.time).disabled(locked)),
+                            .accessibility_label(tr("backup_local_enabled"))
+                            .on_change(cx.listener(|editor, value, window, cx| {
+                                editor.local_enabled = *value;
+                                editor.changed(window, cx);
+                            })),
                     ),
                 )
                 .child(
-                    Field::new()
-                        .label(tr("backup_timezone"))
-                        .child(Input::new(&self.fields[10].1).disabled(locked)),
+                    Field::new().label(tr("backup_local_directory")).child(
+                        h_flex()
+                            .gap_2()
+                            .child(Input::new(&self.fields[9].1).readonly(true).flex_1())
+                            .child(
+                                Button::new("backup-choose-directory")
+                                    .label(tr("backup_choose_directory"))
+                                    .disabled(locked)
+                                    .on_click(cx.listener(|editor, _, window, cx| {
+                                        editor.choose_directory(window, cx)
+                                    })),
+                            ),
+                    ),
                 )
             })
-            .when(self.settings.credentials_configured, |view| {
+            .when(self.tab < 2, |view| {
                 view.child(
-                    Button::new("backup-clear-credentials")
-                        .ghost()
-                        .icon(gpui_kit::assets::IconName::Trash)
-                        .accessibility_label(tr("backup_clear_credentials"))
-                        .disabled(locked)
-                        .on_click(cx.listener(|editor, _, window, cx| {
-                            editor.remove_credentials = true;
-                            editor.changed(window, cx);
-                        })),
+                    Field::new().label(tr("backup_online_enabled")).child(
+                        Switch::new("backup-online-enabled")
+                            .checked(self.online_enabled && selected == kind)
+                            .disabled(locked)
+                            .accessibility_label(tr("backup_online_enabled"))
+                            .on_change(cx.listener(move |editor, value, window, cx| {
+                                editor.kind = kind;
+                                editor.online_enabled = *value;
+                                editor.changed(window, cx);
+                            })),
+                    ),
+                )
+                .children(
+                    self.fields
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, _)| *index < 7 && (s3 || !matches!(index, 2 | 3 | 6)))
+                        .map(|(_, (key, input))| {
+                            Field::new()
+                                .label(tr(key))
+                                .child(Input::new(input).disabled(locked || selected != kind))
+                        }),
                 )
             })
-            .max_h(px(600.))
+            .children(self.fields[7..9].iter().map(|(key, input)| {
+                Field::new()
+                    .label(tr(key))
+                    .child(Input::new(input).disabled(locked))
+            }))
+            .when(
+                self.settings.credentials_configured && self.tab < 2,
+                |view| {
+                    view.child(
+                        Button::new("backup-clear-credentials")
+                            .ghost()
+                            .label(tr("backup_clear_credentials"))
+                            .disabled(locked)
+                            .on_click(cx.listener(|editor, _, window, cx| {
+                                editor.remove_credentials = true;
+                                editor.changed(window, cx);
+                            })),
+                    )
+                },
+            )
+            .max_h((window.viewport_size().height - px(260.)).max(px(180.)))
             .overflow_y_scrollbar()
     }
 }

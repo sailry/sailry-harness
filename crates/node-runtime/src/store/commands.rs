@@ -913,6 +913,9 @@ pub(super) fn execute(
             expected_revision,
             archived,
         } => super::sessions::archive(db, *session, *expected_revision, *archived),
+        Command::ArchiveSessions { .. } | Command::RemoveSessions { .. } => Err(Fault::invalid(
+            "session batch requires its command transaction",
+        )),
         Command::SetSessionOrder {
             project,
             expected,

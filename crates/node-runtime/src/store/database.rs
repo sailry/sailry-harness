@@ -761,6 +761,11 @@ impl Database {
                 self.profile.as_deref(),
                 request,
             )
+        } else if matches!(
+            request.command,
+            Command::ArchiveSessions { .. } | Command::RemoveSessions { .. }
+        ) {
+            super::sessions::batch::execute(&transaction, request)
         } else {
             commands::execute(
                 &transaction,

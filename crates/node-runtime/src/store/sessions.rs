@@ -13,6 +13,7 @@ pub(super) use rewind::{revision as history_revision, rewind};
 mod replace;
 pub(super) use replace::replace;
 pub(super) mod attention;
+pub(super) mod batch;
 mod lifecycle;
 mod start;
 pub(super) use start::start;

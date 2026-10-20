@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Credential, CredentialId, Defaults, NodeId, ProjectId, ProviderId, QueuedTurn, RequestId,
-    Secret, Session, SessionConfig, SessionId, StreamId, TurnId,
+    Secret, Session, SessionConfig, SessionId, SessionRevision, StreamId, TurnId,
 };
 
 #[cfg(test)]
@@ -1469,6 +1469,14 @@ pub enum Command {
         expected_revision: u64,
         archived: bool,
     },
+    /// Archive the selected Node sessions in one revision-checked transaction.
+    ArchiveSessions {
+        expected: Vec<SessionRevision>,
+    },
+    /// Remove selected sessions and their owned children atomically.
+    RemoveSessions {
+        expected: Vec<SessionRevision>,
+    },
     /// Reorder one project's sessions without changing their execution configuration.
     SetSessionOrder {
         project: ProjectId,
@@ -2031,6 +2039,7 @@ pub enum Output {
     },
     Defaults(Defaults),
     Session(Session),
+    SessionsArchived(Vec<Session>),
     SessionsRemoved(Vec<SessionId>),
     SessionOrder(Vec<SessionId>),
     QueuedTurn(QueuedTurn),

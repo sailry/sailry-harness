@@ -1,6 +1,8 @@
 mod editor;
+mod records;
 mod requests;
 mod restore;
+mod sessions;
 mod view;
 mod watch;
 
@@ -31,7 +33,9 @@ pub(super) struct Panel {
     request: Option<Request>,
     stop: Option<CancellationToken>,
     generation: u64,
-    editor: Option<WeakEntity<editor::Editor>>,
+    editor: Option<Entity<editor::Editor>>,
+    sessions: Vec<sailry_protocol::Session>,
+    records_open: bool,
     error: Option<&'static str>,
 }
 
@@ -53,7 +57,7 @@ impl Panel {
                 let owner = cx.weak_entity();
                 notification::Notification::error(crate::tr(key)).action(move |_, _, cx| {
                     let owner = owner.clone();
-                    let action = if key == "backup_unknown" {
+                    let action = if matches!(key, "backup_unknown" | "backup_sessions_unknown") {
                         crate::feedback::retry("backup-retry")
                     } else {
                         button::Button::new("backup-retry").label(crate::tr("backup_reload"))
@@ -87,6 +91,8 @@ impl Panel {
             stop: None,
             generation: 0,
             editor: None,
+            sessions: Vec::new(),
+            records_open: false,
             error: None,
         }
     }
@@ -95,6 +101,7 @@ impl Panel {
     }
     fn deactivate(&mut self, cx: &mut Context<Self>) {
         self.active = false;
+        self.editor = None;
         self.generation += 1;
         if let Some(stop) = self.stop.take() {
             stop.cancel();

@@ -15,10 +15,15 @@ impl Panel {
         let binding = self.binding.clone();
         let generation = self.generation;
         let job = binding.runtime.spawn(async move {
-            binding
+            let settings = binding
                 .client
                 .execute(binding.client.prepare(Command::ReadBackupSettings))
-                .await
+                .await?;
+            let snapshot = binding
+                .client
+                .execute(binding.client.prepare(Command::Snapshot))
+                .await?;
+            Ok::<_, sailry_protocol::Fault>((settings, snapshot))
         });
         cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
@@ -32,16 +37,25 @@ impl Panel {
                     return;
                 }
                 match result {
-                    Ok(Ok(Output::BackupSettings(settings))) => {
-                        if let Some(editor) = panel.editor.as_ref().and_then(WeakEntity::upgrade) {
+                    Ok(Ok((Output::BackupSettings(settings), Output::Snapshot(snapshot)))) => {
+                        panel.sessions = snapshot.sessions;
+                        if let Some(editor) = panel.editor.as_ref() {
                             editor.update(cx, |editor, cx| {
                                 editor.observe(&settings, panel.rebase, window, cx)
                             });
                         }
+                        if panel.editor.is_none() {
+                            let editor =
+                                editor::create(cx.weak_entity(), settings.clone(), window, cx);
+                            cx.observe(&editor, |_, _, cx| cx.notify()).detach();
+                            panel.editor = Some(editor);
+                        }
                         panel.settings = Some(settings);
                         panel.error = None;
                         panel.rebase = false;
-                        panel.list(window, cx);
+                        if panel.records_open {
+                            panel.list(window, cx);
+                        }
                     }
                     Ok(Err(error)) => panel.error = Some(error_key(error.code)),
                     _ => panel.error = Some("backup_failed"),
@@ -56,7 +70,7 @@ impl Panel {
         cx.notify();
     }
 
-    fn list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn list(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(settings) = self.settings.as_ref() else {
             return;
         };
@@ -81,7 +95,8 @@ impl Panel {
                 if !panel.active {
                     return;
                 }
-                if generation == panel.generation
+                if panel.records_open
+                    && generation == panel.generation
                     && panel
                         .settings
                         .as_ref()
@@ -123,9 +138,19 @@ impl Panel {
         let Some(request) = self.request.clone() else {
             return;
         };
+        let session_command = matches!(
+            request.command,
+            Command::ArchiveSessions { .. }
+                | Command::RemoveSessions { .. }
+                | Command::RemoveSession { .. }
+                | Command::SetSessionArchived { .. }
+        );
         let notice = match request.command {
             Command::ExportBackup { .. } => "backup_exported",
             Command::RestoreBackup { .. } | Command::RestoreBackupFile { .. } => "backup_restored",
+            Command::ArchiveSessions { .. } => "backup_archived",
+            Command::RemoveSessions { .. } | Command::RemoveSession { .. } => "backup_deleted",
+            Command::SetSessionArchived { .. } => "backup_unarchived",
             _ => "backup_saved",
         };
         let binding = self.binding.clone();
@@ -143,9 +168,7 @@ impl Panel {
                     Ok((Ok(output), _)) => {
                         panel.request = None;
                         if let Output::BackupSettings(settings) = output {
-                            if let Some(editor) =
-                                panel.editor.as_ref().and_then(WeakEntity::upgrade)
-                            {
+                            if let Some(editor) = panel.editor.as_ref() {
                                 editor.update(cx, |editor, cx| {
                                     editor.accept(settings.clone(), window, cx)
                                 });
@@ -162,19 +185,37 @@ impl Panel {
                         if !uncertain {
                             panel.request = None;
                         }
-                        if let Some(editor) = panel.editor.as_ref().and_then(WeakEntity::upgrade) {
+                        if !session_command && let Some(editor) = panel.editor.as_ref() {
                             editor.update(cx, |editor, cx| {
                                 editor.conflict = error.code == ErrorCode::RevisionConflict;
                                 cx.notify();
                             });
                         }
                         panel.error = Some(if uncertain {
-                            "backup_unknown"
+                            if session_command {
+                                "backup_sessions_unknown"
+                            } else {
+                                "backup_unknown"
+                            }
+                        } else if session_command {
+                            match error.code {
+                                ErrorCode::Busy => "backup_sessions_busy",
+                                ErrorCode::RevisionConflict | ErrorCode::NotFound => {
+                                    "session_changed"
+                                }
+                                _ => "backup_sessions_failed",
+                            }
                         } else {
                             error_key(error.code)
                         });
                     }
-                    Err(_) => panel.error = Some("backup_unknown"),
+                    Err(_) => {
+                        panel.error = Some(if session_command {
+                            "backup_sessions_unknown"
+                        } else {
+                            "backup_unknown"
+                        })
+                    }
                 }
                 cx.notify();
             });

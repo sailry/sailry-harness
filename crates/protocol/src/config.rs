@@ -92,6 +92,13 @@ pub struct Session {
     pub delegation: Option<Box<Delegation>>,
 }
 
+/// The session revision selected for one atomic bulk operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionRevision {
+    pub session: SessionId,
+    pub revision: u64,
+}
+
 /// A child execution is owned by one canonical parent tool call.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Delegation {

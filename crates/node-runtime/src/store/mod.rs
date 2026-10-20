@@ -1189,7 +1189,7 @@ impl Store {
                             request,
                             reply,
                         } => {
-                            let (reply, artifact_cleanup) = if matches!(request.command, sailry_protocol::Command::RemoveSession { .. }) {
+                            let (reply, artifact_cleanup) = if matches!(request.command, sailry_protocol::Command::RemoveSession { .. } | sailry_protocol::Command::RemoveSessions { .. }) {
                                 let (send, cleanup) = oneshot::channel();
                                 (admission::release_removed(computer.clone(), cleanup_commands.clone(), attachment_profile.clone(), backup_resources.clone(), &cleanup_runtime, reply, cleanup), Some(send))
                             } else {

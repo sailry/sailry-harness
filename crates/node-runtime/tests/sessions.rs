@@ -12,6 +12,9 @@ mod configuration;
 #[path = "sessions/order.rs"]
 mod order;
 
+#[path = "sessions/batch.rs"]
+mod batch;
+
 async fn snapshot(client: &Client) -> Snapshot {
     let Output::Snapshot(value) = client
         .execute(client.prepare(Command::Snapshot))
