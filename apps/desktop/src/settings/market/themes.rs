@@ -301,6 +301,7 @@ impl Market {
                             cx.stop_propagation();
                             apply(&id, window, cx)
                         }),
+                    current,
                     cx,
                 ),
             );
@@ -339,7 +340,7 @@ impl Market {
             } else {
                 Skeleton::new()
                     .size_full()
-                    .rounded(cx.theme().radius_lg)
+                    .rounded_none()
                     .into_any_element()
             };
             let id = entry.id.clone();
@@ -379,6 +380,7 @@ impl Market {
                         .to_owned(),
                     preview,
                     action,
+                    current,
                     cx,
                 ),
             );
@@ -426,6 +428,7 @@ impl Market {
         description: String,
         preview: AnyElement,
         action: Button,
+        current: bool,
         cx: &Context<Self>,
     ) -> AnyElement {
         let target = id.clone();
@@ -434,13 +437,20 @@ impl Market {
             .h_auto()
             .min_w_0()
             .p_0()
+            .overflow_hidden()
             .rounded(cx.theme().radius_lg)
+            .border_1()
+            .border_color(if current {
+                cx.theme().primary
+            } else {
+                cx.theme().border
+            })
+            .bg(cx.theme().group_box)
             .accessibility_label(name.clone())
             .child(
                 v_flex()
                     .w_full()
                     .min_w_0()
-                    .gap(px(10.))
                     .child(
                         div()
                             .relative()
@@ -448,8 +458,8 @@ impl Market {
                             .aspect_ratio(16. / 10.)
                             .flex_shrink_0()
                             .overflow_hidden()
-                            .rounded(cx.theme().radius_lg)
-                            .border_1()
+                            .rounded_t(cx.theme().radius_lg)
+                            .border_b_1()
                             .border_color(cx.theme().border)
                             .child(div().absolute().inset_0().child(preview)),
                     )
@@ -458,7 +468,8 @@ impl Market {
                             .w_full()
                             .min_w_0()
                             .flex_shrink_0()
-                            .px_0p5()
+                            .py_3()
+                            .px(px(14.))
                             .gap_3()
                             .items_center()
                             .child(
