@@ -195,7 +195,7 @@ async fn configure(
                     config,
                     key,
                     effort,
-                    hosted::session_adapter(provider, &config.model, session, resolved.summary),
+                    hosted::session_adapter(provider, &config.model, session, resolved.encrypted),
                     None,
                     ingress
                         .model_clients

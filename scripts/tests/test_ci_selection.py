@@ -84,7 +84,7 @@ class Selection(unittest.TestCase):
         for path in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml", ".cargo/config.toml",
                      ".config/nextest.toml", ".gitmodules", ".github/workflows/ci.yml", "justfile",
                      "scripts/check-mobile-boundary.sh", "new-owner/README.md", "assets/new.png",
-                     "vendor/adk-model/src/lib.rs", "locales/application.en.yml"):
+                     "vendor/new-crate/src/lib.rs", "locales/application.en.yml"):
             with self.subTest(path=path):
                 self.assertEqual(ci.select_paths([path]), ci.LANES)
 

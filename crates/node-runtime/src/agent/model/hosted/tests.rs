@@ -360,3 +360,29 @@ fn captures_stateless_reasoning() {
     );
     assert!(body.get("previous_response_id").is_none());
 }
+
+#[test]
+fn filters_unreplayable_history() {
+    let original = json!({"input":[
+        {"type":"reasoning","id":"legacy","summary":[{"type":"summary_text","text":"Old summary"}]},
+        {"type":"reasoning","id":"null","summary":[],"encrypted_content":null},
+        {"type":"reasoning","id":"empty","summary":[],"encrypted_content":""},
+        {"type":"reasoning","id":"opaque","summary":[],"encrypted_content":"sealed +/ opaque"},
+        {"type":"function_call","name":"inspect","call_id":"call","arguments":"{}"},
+        {"role":"assistant","content":"Visible answer"}
+    ],"store":true,"previous_response_id":"stored"});
+    let mut body = original.clone();
+    stateless(&mut body, false).unwrap();
+    assert_eq!(
+        body["input"],
+        json!([
+            {"type":"reasoning","id":"opaque","summary":[],"encrypted_content":"sealed +/ opaque"},
+            {"type":"function_call","name":"inspect","call_id":"call","arguments":"{}"},
+            {"role":"assistant","content":"Visible answer"}
+        ])
+    );
+    assert_eq!(original["input"].as_array().unwrap().len(), 6);
+    assert_eq!(body["store"], false);
+    assert!(body.get("include").is_none());
+    assert!(body.get("previous_response_id").is_none());
+}

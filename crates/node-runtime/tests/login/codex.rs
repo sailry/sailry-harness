@@ -7,6 +7,8 @@ mod completion;
 mod execution;
 #[path = "codex/features.rs"]
 mod features;
+#[path = "codex/history.rs"]
+mod history;
 #[path = "codex/lifecycle.rs"]
 mod lifecycle;
 #[path = "codex/media.rs"]

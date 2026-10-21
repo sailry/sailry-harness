@@ -23,7 +23,7 @@ pub(super) fn session_adapter(
     provider: &Provider,
     model: &str,
     session: SessionId,
-    summary: bool,
+    encrypted: bool,
 ) -> Option<RequestAdapter> {
     if provider.authentication != Authentication::ApiKey
         || !matches!(
@@ -37,32 +37,15 @@ pub(super) fn session_adapter(
     let responses = provider.api == ModelApi::Responses;
     let session = session.to_string();
     Some(Arc::new(move |body, headers| {
-        let fields = body.as_object_mut().ok_or_else(|| {
-            adk_core::AdkError::model("compatible request body must be an object")
-        })?;
-        if responses {
-            fields.remove("previous_response_id");
-            fields.insert("store".into(), json!(false));
-            if summary {
-                let include = fields
-                    .entry("include")
-                    .or_insert_with(|| json!([]))
-                    .as_array_mut()
-                    .ok_or_else(|| {
-                        adk_core::AdkError::model("Responses include must be an array")
-                    })?;
-                if !include
-                    .iter()
-                    .any(|item| item == "reasoning.encrypted_content")
-                {
-                    include.push(json!("reasoning.encrypted_content"));
-                }
-            }
-        }
         if let Some(adapter) = &reasoning {
             adapter(body, headers)?;
         }
-        let fields = body.as_object_mut().expect("validated object");
+        if responses {
+            stateless(body, encrypted)?;
+        }
+        let fields = body.as_object_mut().ok_or_else(|| {
+            adk_core::AdkError::model("compatible request body must be an object")
+        })?;
         fields.insert("prompt_cache_key".into(), json!(session));
         let value = HeaderValue::from_str(&session)
             .map_err(|_| adk_core::AdkError::model("session ID is not a valid HTTP header"))?;
@@ -70,6 +53,44 @@ pub(super) fn session_adapter(
         headers.insert("session_id", value);
         Ok(())
     }))
+}
+
+pub(super) fn stateless(
+    body: &mut serde_json::Value,
+    encrypted: bool,
+) -> Result<(), adk_core::AdkError> {
+    let fields = body
+        .as_object_mut()
+        .ok_or_else(|| adk_core::AdkError::model("Responses request body must be an object"))?;
+    fields.remove("previous_response_id");
+    fields.insert("store".into(), json!(false));
+    if let Some(input) = fields
+        .get_mut("input")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        // Stored histories keep their original items; stateless requests can replay
+        // reasoning only when the provider returned its opaque encrypted content.
+        input.retain(|item| {
+            item["type"] != "reasoning"
+                || item["encrypted_content"]
+                    .as_str()
+                    .is_some_and(|value| !value.is_empty())
+        });
+    }
+    if encrypted {
+        let include = fields
+            .entry("include")
+            .or_insert_with(|| json!([]))
+            .as_array_mut()
+            .ok_or_else(|| adk_core::AdkError::model("Responses include must be an array"))?;
+        if !include
+            .iter()
+            .any(|item| item == "reasoning.encrypted_content")
+        {
+            include.push(json!("reasoning.encrypted_content"));
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn adapter(provider: &Provider, model: &str) -> Option<RequestAdapter> {

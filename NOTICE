@@ -75,11 +75,10 @@ third_party_licenses/.
 
 ADK-Rust agent engine and model clients
 The ADK crates use https://github.com/dux-web/adk-rust at
-e15668344ecaf4a3579ca9978b3c7bb35434ef0d. The upstream source is
-https://github.com/zavora-ai/adk-rust. The adk-model crate is retained at that
-revision under vendor/adk-model with Sailry's focused Responses transport patch.
-Retained notices, licenses and patch provenance are in
-third_party_licenses/adk-model.md and vendor/adk-model/SAILRY_PATCHES.md.
+ef4f60c6fdefbc9dd607c6e13b51e6fe1dcd45c5. The upstream source is
+https://github.com/zavora-ai/adk-rust. The fork includes provider history replay,
+Responses transport policy and explicit OpenCode timeouts. Retained notices,
+licenses and source provenance are in third_party_licenses/adk-model.md.
 
 MCP Rust SDK
 Sailry uses rmcp 3.5.1 from https://github.com/sailry/rust-sdk at

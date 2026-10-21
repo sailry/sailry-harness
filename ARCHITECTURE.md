@@ -63,8 +63,9 @@ link          → protocol + transport dependencies
 
 Test-only integration fixtures may construct real Nodes without changing the
 production controller boundary. The root Cargo workspace owns pinned Rust
-dependencies and lockfiles. Focused patches live in `vendor/` with upstream
-licenses and patch notices. Feature modules stay inside their owning crate unless
+dependencies and lockfiles. ADK changes are committed in the pinned fork; all ADK
+crates use the same revision. Retained third-party source keeps its upstream
+licenses and provenance. Feature modules stay inside their owning crate unless
 a concrete platform or dependency boundary requires another crate.
 
 ## Data and ownership
@@ -329,6 +330,11 @@ generation freezes its authorization, credential revision, response observer and
 redaction material through stream completion. Main API-key Responses and ChatGPT
 OAuth generations prefer a session-owned WebSocket; helpers and compaction use
 pooled HTTP. Both transports share request adaptation and response projection.
+Stateless Responses requests replay provider reasoning only with its original
+opaque `encrypted_content`. Known reasoning and unknown models request that field
+independently of summaries. History projection retains provider replay parts
+between turns without changing persisted events; old reasoning without encrypted
+content is omitted only from outgoing requests.
 Only verified extensions of canonical history use connection-local continuation.
 Pre-event WebSocket failures select the same adapted request over SSE once;
 capability observations stay in Node memory and definitive refusals are remembered

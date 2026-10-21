@@ -150,6 +150,22 @@ impl Model {
                 (adapter, stream)
             }
         };
+        let adapter = if self.provider.api == ModelApi::Responses {
+            let metadata = self
+                .provider
+                .models
+                .iter()
+                .find(|model| model.id == self.config.model);
+            let encrypted = super::reasoning::resolve(metadata, self.provider.api, self.effort)
+                .map_err(failure)?
+                .encrypted;
+            Arc::new(move |body: &mut Value, headers: &mut HeaderMap| {
+                adapter(body, headers)?;
+                super::hosted::stateless(body, encrypted)
+            }) as RequestAdapter
+        } else {
+            adapter
+        };
         Ok(Prepared {
             entry,
             scope: Scope {

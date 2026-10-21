@@ -2,21 +2,21 @@
 
 ADK dependencies use [dux-web/adk-rust](https://github.com/dux-web/adk-rust),
 a fork of [ADK-Rust](https://github.com/zavora-ai/adk-rust), at
-[`e15668344ecaf4a3579ca9978b3c7bb35434ef0d`](https://github.com/dux-web/adk-rust/commit/e15668344ecaf4a3579ca9978b3c7bb35434ef0d).
-The root Cargo.toml and Cargo.lock retain that exact Git source for sibling ADK
-packages. Sailry does not carry the retired request-scoped provider-error hooks;
+[`ef4f60c6fdefbc9dd607c6e13b51e6fe1dcd45c5`](https://github.com/dux-web/adk-rust/commit/ef4f60c6fdefbc9dd607c6e13b51e6fe1dcd45c5),
+based on upstream
+[`caac72bef1fd570fd42d3b289410c012fe2df7ce`](https://github.com/zavora-ai/adk-rust/commit/caac72bef1fd570fd42d3b289410c012fe2df7ce).
+The root Cargo.toml and Cargo.lock retain that exact Git source for every ADK
+package. Sailry does not carry the retired request-scoped provider-error hooks;
 native ADK errors supply provider classification and diagnostics.
 
-Only `adk-model` is vendored at that revision, with a focused Responses transport
-patch. HTTP and WebSocket share request adapters, compatible event normalization
-and response projections. The patch adds refreshed handshake headers, bounded
-socket lifetimes, continuation and HTTP fallback, while Node owns authorization,
-capability observations and retry budgets. The manifest expands upstream
-workspace inheritance and aligns WebSocket TLS roots with the generation HTTP
-client. Source provenance and modification details are retained in
-[vendor/adk-model/SAILRY_PATCHES.md](../vendor/adk-model/SAILRY_PATCHES.md).
+The fork carries explicit OpenCode transport timeouts from
+[`f09867b9a914fad316a429cef138af98f5ae13ea`](https://github.com/dux-web/adk-rust/commit/f09867b9a914fad316a429cef138af98f5ae13ea).
+It preserves provider replay parts between invocations and shares Responses
+request adapters, compatible event normalization and response projections across
+HTTP and WebSocket. Node owns authorization, capability observations and retry
+budgets. ADK source is consumed directly from the fork without a local override.
 
-ADK's Apache-2.0 copyright notice is retained in [adk-LICENSE](adk-LICENSE)
-and in the vendored crate. The Gemini client's original MIT notice,
+ADK's Apache-2.0 copyright notice is retained in [adk-LICENSE](adk-LICENSE).
+The Gemini client's original MIT notice,
 Copyright (c) 2025 Michael Yang, is retained in
 [adk-gemini-LICENSE](adk-gemini-LICENSE).

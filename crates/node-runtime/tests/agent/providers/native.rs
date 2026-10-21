@@ -34,6 +34,8 @@ mod search_packages;
 mod search_selection;
 #[path = "native/server.rs"]
 mod server;
+#[path = "native/stateless.rs"]
+mod stateless;
 #[path = "native/streaming.rs"]
 mod streaming;
 #[path = "native/tool_images.rs"]

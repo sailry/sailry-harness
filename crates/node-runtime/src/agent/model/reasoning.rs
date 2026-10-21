@@ -12,6 +12,7 @@ use sailry_protocol::{
 pub(super) struct Resolved {
     pub effort: Effort,
     pub summary: bool,
+    pub encrypted: bool,
 }
 
 pub(super) fn resolve(
@@ -37,6 +38,7 @@ pub(super) fn resolve(
     effort.validate(api, model.map_or(0, |model| model.output))?;
     Ok(Resolved {
         effort,
+        encrypted: known != Some(false),
         summary: effort != Effort::Disabled
             && known != Some(false)
             && (model.is_some_and(|model| model.reasoning) || effort != Effort::Default),
@@ -131,11 +133,18 @@ mod tests {
         let resolved = resolve(Some(&model), ModelApi::Responses, Effort::Default).unwrap();
         assert_eq!(resolved.effort, Effort::High);
         assert!(resolved.summary);
+        assert!(resolved.encrypted);
         model.capabilities =
             Some(serde_json::from_value(serde_json::json!({"reasoning":false})).unwrap());
         let resolved = resolve(Some(&model), ModelApi::Responses, Effort::High).unwrap();
         assert_eq!(resolved.effort, Effort::Default);
         assert!(!resolved.summary);
+        assert!(!resolved.encrypted);
+        assert!(
+            resolve(None, ModelApi::Responses, Effort::Default)
+                .unwrap()
+                .encrypted
+        );
         assert!(
             !resolve(None, ModelApi::Responses, Effort::Default)
                 .unwrap()
