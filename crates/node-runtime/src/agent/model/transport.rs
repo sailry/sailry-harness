@@ -1,8 +1,6 @@
 //! Session sockets and endpoint observations are Node-private transport optimizations.
 use super::*;
-use adk_core::{AdkError, LlmRequest, LlmResponseStream, SchemaAdapter};
 use adk_model::openai::{TransportEvent, WsOptions, WsRefusal};
-use async_trait::async_trait;
 use std::{collections::BTreeMap, sync::Mutex};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -124,7 +122,6 @@ impl Capabilities {
                 }
                 entry.emit();
             }),
-            credential_revision: Arc::new(authorization::revision),
             ..options
         })
     }
@@ -133,43 +130,6 @@ impl Capabilities {
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn configure_fixture(registry: &registry::Registry, options: WsOptions) {
     registry.capabilities.configure_fixture(options);
-}
-
-struct Http {
-    inner: Arc<dyn Llm>,
-}
-pub(in crate::agent) fn http(inner: Arc<dyn Llm>) -> Arc<dyn Llm> {
-    Arc::new(Http { inner })
-}
-#[async_trait]
-impl Llm for Http {
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-    fn schema_adapter(&self) -> &dyn SchemaAdapter {
-        self.inner.schema_adapter()
-    }
-    fn uses_interactions_api(&self) -> bool {
-        self.inner.uses_interactions_api()
-    }
-    fn max_cost_micro_usd(&self, request: &LlmRequest) -> Option<u64> {
-        self.inner.max_cost_micro_usd(request)
-    }
-    async fn generate_content(
-        &self,
-        request: LlmRequest,
-        stream: bool,
-    ) -> Result<LlmResponseStream, AdkError> {
-        let responses =
-            adk_model::openai::http_only(self.inner.generate_content(request, stream)).await?;
-        Ok(Box::pin(futures::stream::unfold(
-            responses,
-            |mut responses| async move {
-                let next = adk_model::openai::http_only(responses.next()).await;
-                next.map(|next| (next, responses))
-            },
-        )))
-    }
 }
 
 #[cfg(test)]

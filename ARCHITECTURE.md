@@ -348,8 +348,8 @@ authentication, quota, timeout and uncertain outcomes never trigger fallback.
 Node reuses native model clients by session and captured configuration. Each
 generation refreshes the cache idle lifetime and freezes its authorization,
 credential revision, response observer and redaction material through stream completion. Main API-key Responses and ChatGPT
-OAuth generations prefer a session-owned WebSocket; helpers and compaction use
-pooled HTTP. Both transports share request adaptation and response projection.
+OAuth generations prefer a session-owned WebSocket; helper and compaction clients
+are constructed with pooled HTTP. Both transports share request adaptation and response projection.
 Stateless Responses requests replay provider reasoning only with its original
 opaque `encrypted_content` and the same provider, model and private authorization
 ownership. A non-secret origin digest binds the effective endpoint and credential;
@@ -369,10 +369,11 @@ only after SSE succeeds. Destinations matched by proxy policy use HTTP; `NO_PROX
 bypasses remain eligible for WebSocket.
 
 Turn preparation overlaps a handshake-only preconnection; it sends no generation
-or warmup frame. Entry ownership cancels pending handshakes and closes unused
+or warmup frame. Entry ownership cancels pending handshakes; the SDK closes unused
 preconnections within 25 seconds. Idle sockets close after four minutes and expire
-after 55 minutes at a request boundary; credential rotation reconnects with the
-new capture. Session archive/removal and Node shutdown release registry resources.
+after 55 minutes at a request boundary. A change to the final adapted headers
+reconnects with the new capture. Constructor-bound API keys still participate in
+client cache identity. Session archive/removal and Node shutdown release registry resources.
 HTTP uses a 30-second connection deadline; WebSocket handshakes use 15 seconds.
 Before the first provider event, WebSocket requests have a 15-second deadline
 that control frames do not extend. Any provider event ends SSE fallback eligibility,

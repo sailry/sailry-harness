@@ -14,13 +14,8 @@ mod codex;
 struct Scope {
     adapter: RequestAdapter,
     observer: Option<ResponseObserver>,
-    revision: u64,
 }
 tokio::task_local! { static REQUEST: Scope; }
-
-pub(super) fn revision() -> u64 {
-    REQUEST.try_with(|scope| scope.revision).unwrap_or(0)
-}
 
 fn adapter(body: &mut Value, headers: &mut HeaderMap) -> Result<(), AdkError> {
     REQUEST
@@ -41,7 +36,8 @@ pub(super) struct Model {
     pub(super) config: SessionConfig,
     pub(super) session: sailry_protocol::SessionId,
     pub(super) delegated: bool,
-    pub(super) effort: Effort,
+    pub(super) reasoning: reasoning::Resolved,
+    pub(super) purpose: Purpose,
     pub(super) stop: CancellationToken,
 }
 
@@ -85,7 +81,8 @@ impl Model {
             &provider,
             &self.config,
             self.session,
-            self.effort,
+            self.reasoning,
+            self.purpose,
             &authorized,
         )
         .map_err(failure)?;
@@ -100,7 +97,6 @@ impl Model {
             self.ingress
                 .quota_observer(self.provider.id, reference, authorized.credential.revision)
         });
-        let revision = authorized.credential.revision;
         let grant = authorized.grant;
         let claude_tools = matches!(&grant, Grant::ClaudeOAuth { .. })
             .then(|| request.tools.keys().cloned().collect::<Vec<_>>());
@@ -160,14 +156,7 @@ impl Model {
             }
         };
         let adapter = if self.provider.api == ModelApi::Responses {
-            let metadata = self
-                .provider
-                .models
-                .iter()
-                .find(|model| model.id == self.config.model);
-            let encrypted = super::reasoning::resolve(metadata, self.provider.api, self.effort)
-                .map_err(failure)?
-                .encrypted;
+            let encrypted = self.reasoning.encrypted;
             Arc::new(move |body: &mut Value, headers: &mut HeaderMap| {
                 adapter(body, headers)?;
                 super::hosted::stateless(body, encrypted)
@@ -177,11 +166,7 @@ impl Model {
         };
         Ok(Prepared {
             entry,
-            scope: Scope {
-                adapter,
-                observer,
-                revision,
-            },
+            scope: Scope { adapter, observer },
             secrets,
             tools: claude_tools,
             stream,
@@ -234,18 +219,27 @@ fn pooled(
     provider: &Provider,
     config: &SessionConfig,
     session: sailry_protocol::SessionId,
-    effort: Effort,
+    reasoning: reasoning::Resolved,
+    purpose: Purpose,
     authorization: &crate::store::login::Authorization,
 ) -> Result<Arc<registry::Entry>, Fault> {
     let adapted = matches!(
         provider.api,
         ModelApi::Responses | ModelApi::ChatCompletions | ModelApi::Anthropic
     );
+    let websocket = matches!(purpose, Purpose::Main)
+        .then(|| {
+            registry
+                .capabilities
+                .options(provider, &config.model, session)
+        })
+        .flatten();
     let fingerprint = registry::fingerprint(
         provider,
         config,
-        effort,
+        reasoning.effort,
         (!adapted).then_some(authorization.credential.revision),
+        websocket.is_some(),
     )?;
     // These native SDKs accept authorization only in their constructor.
     let key = if adapted {
@@ -258,12 +252,10 @@ fn pooled(
             provider,
             config,
             key,
-            effort,
+            reasoning,
             Some(Arc::new(adapter)),
             Some(Arc::new(observe)),
-            registry
-                .capabilities
-                .options(provider, &config.model, session),
+            websocket,
         )
     })
 }
@@ -292,7 +284,6 @@ fn chatgpt(body: &mut Value) -> Result<(), AdkError> {
     if fields.get("stream") != Some(&Value::Bool(true)) {
         return Err(invalid());
     }
-    fields.insert("store".into(), Value::Bool(false));
     let input = fields
         .get_mut("input")
         .and_then(Value::as_array_mut)
@@ -316,17 +307,6 @@ fn chatgpt(body: &mut Value) -> Result<(), AdkError> {
     if let Some(tools) = fields.get_mut("tools") {
         namespace(tools.as_array_mut().ok_or_else(invalid)?)?;
     }
-    let include = fields
-        .entry("include")
-        .or_insert_with(|| json!([]))
-        .as_array_mut()
-        .ok_or_else(invalid)?;
-    if !include
-        .iter()
-        .any(|value| value == "reasoning.encrypted_content")
-    {
-        include.push(json!("reasoning.encrypted_content"));
-    }
     for key in [
         "background",
         "conversation",
@@ -343,7 +323,6 @@ fn chatgpt(body: &mut Value) -> Result<(), AdkError> {
         "top_p",
         "truncation",
         "user",
-        "previous_response_id",
     ] {
         fields.remove(key);
     }

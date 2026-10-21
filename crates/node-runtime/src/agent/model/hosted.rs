@@ -78,10 +78,10 @@ pub(super) fn stateless(
         });
     }
     if !encrypted {
-        if let Some(include) = fields
-            .get_mut("include")
-            .and_then(serde_json::Value::as_array_mut)
-        {
+        if let Some(include) = fields.get_mut("include") {
+            let include = include
+                .as_array_mut()
+                .ok_or_else(|| adk_core::AdkError::model("Responses include must be an array"))?;
             include.retain(|value| value != "reasoning.encrypted_content");
             if include.is_empty() {
                 fields.remove("include");

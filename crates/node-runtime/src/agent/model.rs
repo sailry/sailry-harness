@@ -32,7 +32,6 @@ use sailry_protocol::{
 };
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use transport::configure_fixture;
-pub(super) use transport::http;
 
 fn timeouts() -> adk_model::HttpTimeouts {
     adk_model::HttpTimeouts::new(
@@ -45,6 +44,7 @@ pub(super) async fn build(
     ingress: &Arc<Ingress>,
     invocation: &Invocation,
     stop: &CancellationToken,
+    purpose: Purpose,
 ) -> Result<Arc<dyn Llm>, Fault> {
     let provider = invocation.provider.as_ref().ok_or_else(|| {
         Fault::new(
@@ -60,11 +60,7 @@ pub(super) async fn build(
         invocation.turn.session,
         invocation.child.is_some(),
         stop,
-        if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
-            Purpose::Helper
-        } else {
-            Purpose::Main
-        },
+        purpose,
     )
     .await?;
     let metadata = provider
@@ -128,7 +124,8 @@ pub(super) async fn configured(
     .await
 }
 
-enum Purpose {
+#[derive(Clone, Copy)]
+pub(super) enum Purpose {
     Main,
     Helper,
 }
@@ -167,7 +164,9 @@ async fn configure(
     let resolved = reasoning::resolve(metadata, api, config.effort)?;
     let effort = resolved.effort;
     let inner = if provider.api == ModelApi::Plugin {
-        Arc::new(plugin::Model::new(ingress, provider, config, session, stop).await?)
+        let mut config = config.clone();
+        config.effort = effort;
+        Arc::new(plugin::Model::new(ingress, provider, &config, session, stop).await?)
             as Arc<dyn Llm>
     } else if provider.authentication == Authentication::ApiKey {
         let credential = match &config.credential {
@@ -182,11 +181,20 @@ async fn configure(
         let key = credential
             .as_ref()
             .map_or("", |(_, secret)| secret.expose());
+        let websocket = matches!(purpose, Purpose::Main)
+            .then(|| {
+                ingress
+                    .model_clients
+                    .capabilities
+                    .options(provider, &config.model, session)
+            })
+            .flatten();
         let fingerprint = registry::fingerprint(
             provider,
             config,
             effort,
             credential.as_ref().map(|(value, _)| value.revision),
+            websocket.is_some(),
         )?;
         let entry = ingress.model_clients.get(session, fingerprint, || {
             if matches!(provider.api, ModelApi::OpenCodeGo | ModelApi::OpenCodeZen) {
@@ -196,13 +204,10 @@ async fn configure(
                     provider,
                     config,
                     key,
-                    effort,
+                    resolved,
                     hosted::session_adapter(provider, &config.model, session, resolved.encrypted),
                     None,
-                    ingress
-                        .model_clients
-                        .capabilities
-                        .options(provider, &config.model, session),
+                    websocket,
                 )
             }
         })?;
@@ -234,18 +239,14 @@ async fn configure(
             config: config.clone(),
             session,
             delegated,
-            effort,
+            reasoning: resolved,
+            purpose,
             stop: stop.clone(),
         });
         if matches!(purpose, Purpose::Main) {
             let _ = model.preconnect().await;
         }
         model as Arc<dyn Llm>
-    };
-    let inner = if matches!(purpose, Purpose::Helper) {
-        transport::http(inner)
-    } else {
-        inner
     };
     Ok(if api == ModelApi::Responses {
         features::wrap(inner, config.features.clone())
@@ -258,11 +259,12 @@ fn native(
     provider: &Provider,
     config: &SessionConfig,
     key: &str,
-    effort: Effort,
+    reasoning: reasoning::Resolved,
     adapter: Option<RequestAdapter>,
     observer: Option<ResponseObserver>,
     websocket: Option<adk_model::openai::WsOptions>,
 ) -> Result<registry::Built, Fault> {
+    let effort = reasoning.effort;
     let adapter = match provider
         .binding
         .as_ref()
@@ -358,16 +360,7 @@ fn native(
                     config.credential.is_none()
                         || provider.endpoint.trim_end_matches('/') != "https://api.openai.com/v1",
                 );
-            let config = if reasoning::resolve(
-                provider
-                    .models
-                    .iter()
-                    .find(|model| model.id == config.model),
-                ModelApi::Responses,
-                effort,
-            )?
-            .summary
-            {
+            let config = if reasoning.summary {
                 config.with_reasoning_summary(ReasoningSummary::Auto)
             } else {
                 config

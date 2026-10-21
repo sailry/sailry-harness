@@ -9,7 +9,6 @@ pub(super) fn adapt(
 ) -> Result<(), AdkError> {
     let fields = body.as_object_mut().ok_or_else(invalid)?;
     fields.insert("stream".into(), json!(true));
-    fields.insert("store".into(), json!(false));
     if fields.get("instructions").is_none_or(Value::is_null) {
         fields.insert("instructions".into(), json!(""));
     }
@@ -27,24 +26,12 @@ pub(super) fn adapt(
                 .insert("role".into(), json!("developer"));
         }
     }
-    let include = fields
-        .entry("include")
-        .or_insert_with(|| json!([]))
-        .as_array_mut()
-        .ok_or_else(invalid)?;
-    if !include
-        .iter()
-        .any(|value| value == "reasoning.encrypted_content")
-    {
-        include.push(json!("reasoning.encrypted_content"));
-    }
     for key in [
         "max_output_tokens",
         "max_completion_tokens",
         "max_tool_calls",
         "temperature",
         "top_p",
-        "previous_response_id",
         "generate",
         "prompt_cache_options",
         "prompt_cache_retention",
@@ -98,6 +85,7 @@ mod tests {
         ], "tools":tools, "stream":false, "store":true, "max_output_tokens":10,
         "max_tool_calls":1, "temperature":0.5, "top_p":0.9, "previous_response_id":"old"});
         adapt(&mut body, &mut headers, session).unwrap();
+        super::super::super::hosted::stateless(&mut body, true).unwrap();
         assert_eq!(body["model"], "captured-model");
         assert_eq!(body["stream"], true);
         assert_eq!(body["store"], false);
@@ -118,6 +106,7 @@ mod tests {
             assert!(body.get(field).is_none());
         }
         adapt(&mut body, &mut headers, session).unwrap();
+        super::super::super::hosted::stateless(&mut body, true).unwrap();
         assert_eq!(body["include"], json!(["reasoning.encrypted_content"]));
     }
 
@@ -142,7 +131,9 @@ mod tests {
             json!({"model":"captured", "input":[], "instructions":false}),
             json!({"model":"captured", "input":[], "include":false}),
         ] {
-            assert!(adapt(&mut body, &mut HeaderMap::new(), SessionId::new()).is_err());
+            let result = adapt(&mut body, &mut HeaderMap::new(), SessionId::new())
+                .and_then(|()| super::super::super::hosted::stateless(&mut body, true));
+            assert!(result.is_err());
         }
     }
 }

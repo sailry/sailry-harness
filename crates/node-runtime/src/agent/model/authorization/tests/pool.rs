@@ -10,7 +10,6 @@ async fn isolates_concurrent_request_captures() {
         let barrier = barrier.clone();
         tasks.push(tokio::spawn(async move {
             let scope = Scope {
-                revision: 1,
                 adapter: Arc::new(move |_, headers| {
                     headers.insert("authorization", HeaderValue::from_static(token));
                     Ok(())
@@ -90,7 +89,6 @@ async fn retains_capture_while_streaming() {
     let scope = |token, captured_revision| {
         let observed = observed.clone();
         Scope {
-            revision: captured_revision,
             adapter: Arc::new(move |_, headers| {
                 headers.insert("authorization", HeaderValue::from_static(token));
                 Ok(())
@@ -99,7 +97,7 @@ async fn retains_capture_while_streaming() {
                 observed.lock().unwrap().push((
                     token,
                     headers["authorization"].to_str().unwrap().to_owned(),
-                    revision(),
+                    captured_revision,
                 ));
             })),
         }
@@ -219,7 +217,8 @@ async fn rotates_constructor_authorization() {
             &provider,
             &config,
             session,
-            Effort::Default,
+            reasoning::resolve(None, provider.api, Effort::Default).unwrap(),
+            Purpose::Main,
             &authorization,
         )
         .unwrap();
@@ -227,7 +226,8 @@ async fn rotates_constructor_authorization() {
             assert_eq!(Arc::ptr_eq(&entry, &previous), revision == 1);
         }
         let fingerprint =
-            registry::fingerprint(&provider, &config, Effort::Default, Some(revision)).unwrap();
+            registry::fingerprint(&provider, &config, Effort::Default, Some(revision), false)
+                .unwrap();
         assert!(!fingerprint.contains(key));
         let mut stream = super::super::errors::wrap(
             entry.inner.clone(),

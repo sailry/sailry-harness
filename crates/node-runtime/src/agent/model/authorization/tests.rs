@@ -179,6 +179,7 @@ fn uses_stateless_streaming() {
         "previous_response_id": "response_1"
     });
     chatgpt(&mut body).unwrap();
+    super::super::hosted::stateless(&mut body, true).unwrap();
     assert_eq!(body["model"], "selected-model");
     assert_eq!(body["stream"], true);
     assert_eq!(body["store"], false);
@@ -218,6 +219,7 @@ fn uses_stateless_streaming() {
         assert!(body.get(key).is_none(), "unexpected field: {key}");
     }
     chatgpt(&mut body).unwrap();
+    super::super::hosted::stateless(&mut body, true).unwrap();
     assert_eq!(body["include"].as_array().unwrap().len(), 2);
 }
 
@@ -242,6 +244,7 @@ fn groups_local_tools() {
         "tools":[function,custom,web,existing]
     });
     chatgpt(&mut body).unwrap();
+    super::super::hosted::stateless(&mut body, true).unwrap();
     assert_eq!(body["tools"][0], web);
     assert_eq!(body["tools"][1], existing);
     assert_eq!(body["tools"][2]["type"], "namespace");
@@ -250,6 +253,7 @@ fn groups_local_tools() {
     assert_eq!(body["input"][0]["namespace"], "sailry");
     assert_eq!(body["input"][1]["namespace"], "external");
     chatgpt(&mut body).unwrap();
+    super::super::hosted::stateless(&mut body, true).unwrap();
     assert_eq!(body["tools"].as_array().unwrap().len(), 3);
 }
 
@@ -260,7 +264,9 @@ fn rejects_unsupported_requests() {
         json!({"stream":true,"input":"prompt"}),
         json!({"stream":true,"input":[],"include":false}),
     ] {
-        assert!(chatgpt(&mut body).is_err());
+        let result =
+            chatgpt(&mut body).and_then(|()| super::super::hosted::stateless(&mut body, true));
+        assert!(result.is_err());
     }
     for tool in [
         "image_generation",

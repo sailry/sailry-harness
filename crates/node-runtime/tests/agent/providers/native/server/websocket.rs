@@ -15,6 +15,8 @@ pub enum Mode {
     MissingContinuation,
     AckTimeout,
     FirstTimeout,
+    ErrorOnce,
+    InvalidFrame,
     RefuseAfter { accepted: usize, status: u16 },
 }
 
@@ -127,6 +129,43 @@ pub(super) async fn respond(
                     ))
                     .await;
                 tokio::time::sleep(Duration::from_secs(1)).await;
+                return;
+            }
+            Mode::ErrorOnce if index == 0 => {
+                let mut response = response_events(false, false).pop().unwrap()["response"].clone();
+                response["status"] = json!("in_progress");
+                response["output"] = json!([]);
+                let _ = socket
+                    .send(Message::Text(
+                        json!({"type":"response.created",
+                    "sequence_number":0,"response":response})
+                        .to_string()
+                        .into(),
+                    ))
+                    .await;
+                let _ = socket
+                    .send(Message::Text(
+                        json!({"type":"error","status":429,
+                    "error":{"code":"rate_limit_exceeded","message":KEY}})
+                        .to_string()
+                        .into(),
+                    ))
+                    .await;
+                continue;
+            }
+            Mode::InvalidFrame => {
+                let mut response = response_events(false, false).pop().unwrap()["response"].clone();
+                response["status"] = json!("in_progress");
+                response["output"] = json!([]);
+                let _ = socket
+                    .send(Message::Text(
+                        json!({"type":"response.created",
+                    "sequence_number":0,"response":response})
+                        .to_string()
+                        .into(),
+                    ))
+                    .await;
+                let _ = socket.get_mut().write_all(&[0x83, 0x00]).await;
                 return;
             }
             Mode::Close(code) => {

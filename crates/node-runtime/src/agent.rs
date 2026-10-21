@@ -347,7 +347,12 @@ async fn execute_with(
     if stop.is_cancelled() {
         return Ok(Outcome::default());
     }
-    let model = model::build(ingress, &invocation, &stop).await?;
+    let purpose = if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
+        model::Purpose::Helper
+    } else {
+        model::Purpose::Main
+    };
+    let model = model::build(ingress, &invocation, &stop, purpose).await?;
     if invocation.turn.kind == sailry_protocol::conversation::RunKind::Compaction {
         compaction::manual(ingress, &invocation, model, stop).await?;
         return Ok(Outcome::default());
@@ -459,7 +464,7 @@ async fn execute_with(
     }
     let (compact, compaction_config, compact_tool) = compaction::bind(
         ingress,
-        model::http(model.clone()),
+        model::build(ingress, &invocation, &stop, model::Purpose::Helper).await?,
         &invocation,
         stop.clone(),
         instruction.clone(),

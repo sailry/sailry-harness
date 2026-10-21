@@ -6,6 +6,151 @@ use std::sync::atomic::Ordering;
 #[path = "transport/preparation.rs"]
 mod preparation;
 
+#[tokio::test]
+async fn reuses_after_provider_error() {
+    for remote in [false, true] {
+        let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::ErrorOnce).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let turn = fixture.submit("Retry the provider rejection").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        assert_eq!(completion::response(&page), server::ANSWER);
+        assert_eq!(super::retry::attempts(&page), [1]);
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.body["type"] == "response.create")
+        );
+        assert_eq!(server.upgrades.lock().unwrap().len(), 1);
+        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn retains_accepted_read_failure() {
+    for remote in [false, true] {
+        let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::InvalidFrame).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let turn = fixture.submit("Report the accepted delivery failure").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        let terminal = page.runs.last().unwrap();
+        assert_eq!(terminal.status, Status::Failed);
+        assert!(
+            terminal
+                .error
+                .as_ref()
+                .unwrap()
+                .message
+                .contains("model.openai_responses.ws_read")
+        );
+        assert!(super::retry::attempts(&page).is_empty());
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].body["type"], "response.create");
+        assert_eq!(server.upgrades.lock().unwrap().len(), 1);
+        assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn keeps_compaction_on_http() {
+    for remote in [false, true] {
+        let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::Accept).await;
+        let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let mut provider = fixture.provider.clone();
+        provider.models[0].context = 32_000;
+        provider.models[0].output = 4_096;
+        execute(
+            &fixture.client,
+            Command::SaveProvider {
+                expected_revision: provider.revision,
+                provider,
+                secret: None,
+            },
+        )
+        .await;
+        for index in 0..3 {
+            let turn = fixture
+                .submit(&format!("Context evidence {index} ").repeat(100))
+                .await;
+            let page = finished(&fixture.client, fixture.session.id, turn).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                Status::Completed,
+                "{:?}",
+                page.runs
+            );
+        }
+        let Output::QueuedTurn(summary) = execute(
+            &fixture.client,
+            Command::CompactContext {
+                session: fixture.session.id,
+                expected_revision: fixture.session.revision,
+            },
+        )
+        .await
+        else {
+            panic!("summary turn expected");
+        };
+        let page = finished(&fixture.client, fixture.session.id, summary.id).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        assert!(
+            page.entries
+                .iter()
+                .flat_map(|entry| &entry.parts)
+                .any(|part| matches!(part, Part::Compaction(_)))
+        );
+        let turn = fixture.submit("Continue after the summary").await;
+        let page = finished(&fixture.client, fixture.session.id, turn).await;
+        assert_eq!(
+            page.runs.last().unwrap().status,
+            Status::Completed,
+            "{:?}",
+            page.runs
+        );
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 5);
+        assert!(
+            requests[..3]
+                .iter()
+                .all(|request| request.body["type"] == "response.create")
+        );
+        let summary = &requests[3];
+        assert!(summary.body.get("type").is_none());
+        assert!(
+            summary
+                .body
+                .to_string()
+                .contains("Summarize this conversation")
+        );
+        assert_eq!(summary.body["store"], false);
+        assert_eq!(
+            summary.headers["authorization"],
+            format!("Bearer {}", server::KEY)
+        );
+        assert_eq!(requests[4].body["type"], "response.create");
+        assert_eq!(server.upgrades.lock().unwrap().len(), 1);
+        fixture.controller.close().await.unwrap();
+        fixture.node.shutdown().await.unwrap();
+    }
+}
+
 async fn stream(remote: bool, mode: Mode) -> Vec<(Status, Vec<Part>)> {
     let release = Arc::new(tokio::sync::Notify::new());
     let server = Server::transport(ModelApi::Responses, Reply::Stream(release.clone()), mode).await;
@@ -444,25 +589,61 @@ async fn classifies_acknowledged_timeouts() {
 async fn expires_connections() {
     for remote in [false, true] {
         for idle in [false, true] {
+            let start = std::time::Instant::now();
             let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::Accept).await;
             let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
-            let short = Duration::from_millis(75);
+            let lifetime = Duration::from_secs(1);
             let long = Duration::from_secs(60);
             fixture
                 .node
                 .set_model_transport_fixture(adk_model::openai::WsOptions {
-                    idle_timeout: if idle { short } else { long },
-                    max_age: if idle { long } else { short },
+                    idle_timeout: if idle { lifetime } else { long },
+                    max_age: if idle { long } else { lifetime },
                     ..Default::default()
                 });
-            for _ in 0..2 {
+            let mut completed = Vec::new();
+            for index in 0..2 {
                 let turn = fixture.submit("Use the session connection").await;
                 let page = finished(&fixture.client, fixture.session.id, turn).await;
                 assert_eq!(page.runs.last().unwrap().status, Status::Completed);
-                tokio::time::sleep(Duration::from_millis(110)).await;
+                assert!(super::retry::attempts(&page).is_empty());
+                completed.push((
+                    server.upgrades.lock().unwrap().len(),
+                    server
+                        .requests
+                        .lock()
+                        .unwrap()
+                        .iter()
+                        .filter(|request| request.body["type"] == "response.create")
+                        .count(),
+                ));
+                assert_eq!(
+                    completed[index],
+                    (index + 1, index + 1),
+                    "remote={remote}, idle={idle}, completed=(handshakes,ws_creates) {completed:?}"
+                );
+                if index == 0 {
+                    tokio::time::sleep(lifetime + Duration::from_millis(50)).await;
+                }
             }
-            assert_eq!(server.upgrades.lock().unwrap().len(), 2);
+            let upgrades = server.upgrades.lock().unwrap().clone();
             let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(
+                upgrades.len(),
+                2,
+                "remote={remote}, idle={idle}, handshakes={:?}, wire={:?}, completed=(handshakes,ws_creates) {completed:?}",
+                upgrades
+                    .iter()
+                    .map(|request| request.received.duration_since(start))
+                    .collect::<Vec<_>>(),
+                requests
+                    .iter()
+                    .map(|request| (
+                        request.received.duration_since(start),
+                        request.body["type"].as_str().unwrap_or("http")
+                    ))
+                    .collect::<Vec<_>>()
+            );
             assert_eq!(requests.len(), 2);
             assert!(
                 requests
@@ -479,6 +660,7 @@ async fn expires_connections() {
 #[tokio::test]
 async fn remembers_repeated_refusals() {
     for remote in [false, true] {
+        let start = std::time::Instant::now();
         let server = Server::transport(
             ModelApi::Responses,
             Reply::Text,
@@ -489,22 +671,57 @@ async fn remembers_repeated_refusals() {
         )
         .await;
         let fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+        let lifetime = Duration::from_secs(1);
         fixture
             .node
             .set_model_transport_fixture(adk_model::openai::WsOptions {
-                idle_timeout: Duration::from_millis(50),
+                idle_timeout: lifetime,
                 ..Default::default()
             });
-        for _ in 0..4 {
+        let mut completed = Vec::new();
+        for (index, expected) in [1, 2, 3, 3].into_iter().enumerate() {
             let turn = fixture.submit("Use the session capability").await;
             let page = finished(&fixture.client, fixture.session.id, turn).await;
             assert_eq!(page.runs.last().unwrap().status, Status::Completed);
             assert!(super::retry::attempts(&page).is_empty());
-            tokio::time::sleep(Duration::from_millis(75)).await;
+            completed.push((
+                server.upgrades.lock().unwrap().len(),
+                server
+                    .requests
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|request| request.body["type"] == "response.create")
+                    .count(),
+            ));
+            assert_eq!(
+                completed[index],
+                (expected, 1),
+                "remote={remote}, completed=(handshakes,ws_creates) {completed:?}"
+            );
+            if index < 3 {
+                tokio::time::sleep(lifetime + Duration::from_millis(50)).await;
+            }
         }
         // One successful WebSocket followed by two confirmed refusals disables probing.
-        assert_eq!(server.upgrades.lock().unwrap().len(), 3);
+        let upgrades = server.upgrades.lock().unwrap().clone();
         let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(
+            upgrades.len(),
+            3,
+            "remote={remote}, handshakes={:?}, wire={:?}, completed=(handshakes,ws_creates) {completed:?}",
+            upgrades
+                .iter()
+                .map(|request| request.received.duration_since(start))
+                .collect::<Vec<_>>(),
+            requests
+                .iter()
+                .map(|request| (
+                    request.received.duration_since(start),
+                    request.body["type"].as_str().unwrap_or("http")
+                ))
+                .collect::<Vec<_>>()
+        );
         assert_eq!(requests.len(), 4);
         assert_eq!(
             requests

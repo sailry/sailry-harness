@@ -164,7 +164,7 @@ impl Entry {
             tokio::select! {
                 biased;
                 _ = stop.cancelled() => {},
-                _ = async { connect.await; tokio::time::sleep(Duration::from_secs(25)).await; } => {},
+                _ = async { connect.await; stop.cancelled().await; } => {},
             }
             socket.close_unused();
         }));
@@ -256,6 +256,7 @@ pub(super) fn fingerprint(
     config: &SessionConfig,
     effort: Effort,
     revision: Option<u64>,
+    websocket: bool,
 ) -> Result<String, Fault> {
     let value = serde_json::to_vec(&(
         provider,
@@ -263,6 +264,7 @@ pub(super) fn fingerprint(
         effort,
         &config.credential,
         revision,
+        websocket,
     ))
     .map_err(|_| Fault::invalid("model client identity is invalid"))?;
     Ok(blake3::hash(&value).to_hex().to_string())

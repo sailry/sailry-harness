@@ -123,7 +123,8 @@ async fn streams_before_completion() {
             return Err(AdkError::model("live acceptance does not retry requests"));
         }
         headers.extend(base.clone());
-        codex::adapt(body, headers, session)
+        codex::adapt(body, headers, session)?;
+        super::super::super::hosted::stateless(body, true)
     });
     let content_types = Arc::new(Mutex::new(Vec::new()));
     let captured = content_types.clone();
@@ -155,7 +156,7 @@ async fn streams_before_completion() {
         &source.provider,
         &config,
         source.grant.access().expose(),
-        Effort::Low,
+        reasoning::resolve(None, source.provider.api, Effort::Low).unwrap(),
         Some(adapter),
         Some(observer),
         None,
