@@ -13529,7 +13529,7 @@ dependencies = [
 [[package]]
 name = "rmcp"
 version = "3.5.1"
-source = "git+https://github.com/sailry/rust-sdk.git?rev=e12063473f6e629b7a2b066ab3a9cfaf8ba21ccf#e12063473f6e629b7a2b066ab3a9cfaf8ba21ccf"
+source = "git+https://github.com/sailry/rust-sdk.git?rev=a222497a6c6a1baa2d1b5fe277fd0ee3e4435f07#a222497a6c6a1baa2d1b5fe277fd0ee3e4435f07"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -13560,7 +13560,7 @@ dependencies = [
 [[package]]
 name = "rmcp-macros"
 version = "3.5.1"
-source = "git+https://github.com/sailry/rust-sdk.git?rev=e12063473f6e629b7a2b066ab3a9cfaf8ba21ccf#e12063473f6e629b7a2b066ab3a9cfaf8ba21ccf"
+source = "git+https://github.com/sailry/rust-sdk.git?rev=a222497a6c6a1baa2d1b5fe277fd0ee3e4435f07#a222497a6c6a1baa2d1b5fe277fd0ee3e4435f07"
 dependencies = [
  "darling 0.24.1",
  "proc-macro2",

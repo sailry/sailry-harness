@@ -1,8 +1,7 @@
 use super::*;
+use crate::github_fixture as cli;
 use sailry_protocol::plugin::connector::{Input, Kind, LoginState};
 use std::sync::atomic::Ordering;
-#[path = "../../../support/github.rs"]
-mod cli;
 #[path = "../../../plugins/oauth/server.rs"]
 mod issuer;
 

@@ -12,11 +12,7 @@ static HOOKS: LazyLock<Vec<u8>> = LazyLock::new(|| {
 });
 
 pub(super) fn needed(db: &Connection) -> Result<bool, Error> {
-    Ok(db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM plugin_connections WHERE json_type(body,'$.login') IS NULL)",
-        [],
-        |row| row.get(0),
-    )?)
+    json::needed(db)
 }
 
 pub(super) fn column(table: &str, name: &str) -> Option<&'static [u8]> {

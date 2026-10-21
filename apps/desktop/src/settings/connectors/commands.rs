@@ -30,9 +30,7 @@ fn finish(
     error: Option<ErrorCode>,
 ) {
     if requests.get(&id).is_some_and(|submission| {
-        submission.request.id == request
-            && (matches!(&submission.request.command, Command::ProbeConnection { .. })
-                || error != Some(ErrorCode::OutcomeUnknown))
+        submission.request.id == request && error != Some(ErrorCode::OutcomeUnknown)
     }) {
         requests.remove(&id);
     }
@@ -45,10 +43,9 @@ pub(super) fn reconcile(
 ) {
     requests.retain(|id, submission| {
         pending.contains(id)
-            || (!matches!(&submission.request.command, Command::ProbeConnection { .. })
-                && !rows
-                    .iter()
-                    .any(|row| row.id == *id && row.revision > submission.revision))
+            || !rows
+                .iter()
+                .any(|row| row.id == *id && row.revision > submission.revision)
     });
 }
 

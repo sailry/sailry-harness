@@ -106,21 +106,14 @@ pub(in crate::store) fn save(
     revision: u64,
     credentials: Option<Secret>,
 ) -> Result<Summary, Fault> {
-    let mut record = record(db, profile, target)?;
-    super::super::super::commands::check_revision(record.grant_revision, revision)?;
-    record.grant_revision = revision
-        .checked_add(1)
-        .filter(|revision| *revision <= i64::MAX as u64)
-        .ok_or_else(|| Fault::new(ErrorCode::Conflict, "MCP grant revision exhausted"))?;
-    record.grant = credentials.map(|access| Grant {
+    let record = record(db, profile, target)?;
+    let issued = credentials.map(|access| crate::providers::login::plugin::Issued {
         access,
         refresh: None,
         expires_at_ms: None,
+        account_label: None,
         extra: BTreeMap::new(),
     });
-    if record.grant.is_none() {
-        record.state = State::Expired;
-    }
-    super::save(db, &record)?;
+    let record = super::renew(db, record.id, record.auth_revision, revision, issued)?;
     Ok(required(db, &record.plugin)?.summary)
 }

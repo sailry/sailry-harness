@@ -2,6 +2,8 @@ use super::*;
 mod bodies;
 #[cfg(feature = "test-support")]
 mod captures;
+#[cfg(feature = "test-support")]
+mod cli;
 mod configuration;
 use sailry_link::CancellationToken;
 use std::{
@@ -22,8 +24,13 @@ enum Reply {
     Normal,
     HeldInitialization,
     Expired,
+    #[cfg(feature = "test-support")]
+    Unauthorized,
     Redirect(String),
-    Oversized { method: &'static str, chunked: bool },
+    Oversized {
+        method: &'static str,
+        chunked: bool,
+    },
 }
 
 #[tokio::test]
@@ -227,6 +234,12 @@ async fn respond(
         .lock()
         .unwrap()
         .push((method.clone(), headers, request.clone()));
+    #[cfg(feature = "test-support")]
+    if matches!(reply, Reply::Unauthorized) && method == "POST" {
+        return stream
+            .write_all(b"HTTP/1.1 401 Fixture\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await;
+    }
     if request["method"] == "server/discover" {
         let body = json!({
             "jsonrpc":"2.0", "id":request["id"],

@@ -1,7 +1,6 @@
 use super::*;
+use crate::connector_fixture as connectors;
 use plugin::connector::Kind;
-#[path = "../../support/connectors.rs"]
-mod connectors;
 use std::sync::atomic::Ordering;
 #[path = "../../support/application_tokens.rs"]
 mod issuer;

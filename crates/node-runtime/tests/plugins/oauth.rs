@@ -15,6 +15,8 @@ mod lifecycle;
 mod recovery;
 #[path = "oauth/rejections.rs"]
 mod rejections;
+#[path = "oauth/renewals.rs"]
+mod renewals;
 #[path = "oauth/server.rs"]
 mod server;
 

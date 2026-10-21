@@ -26,6 +26,9 @@ mod computer;
 mod configuration;
 #[path = "agent/connections.rs"]
 mod connections;
+#[cfg(all(unix, feature = "test-support"))]
+#[path = "support/connectors.rs"]
+mod connector_fixture;
 #[path = "agent/delegation/mod.rs"]
 mod delegation;
 #[cfg(unix)]
@@ -38,6 +41,9 @@ mod environment_fixture;
 mod external_browser;
 #[path = "agent/forks.rs"]
 mod forks;
+#[cfg(all(unix, feature = "test-support"))]
+#[path = "support/github.rs"]
+mod github_fixture;
 #[cfg(unix)]
 #[path = "agent/goals.rs"]
 mod goals;

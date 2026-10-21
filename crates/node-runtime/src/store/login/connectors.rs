@@ -379,82 +379,7 @@ impl Worker {
         self.runtime.spawn(async move {
             let mut target = target;
             let result = async {
-                if target.method == connector::Kind::LocalCli {
-                    let access = host
-                        .connectors
-                        .access(&target, &ingress, None, &stop)
-                        .await?;
-                    target.grant = Some(crate::providers::login::plugin::Issued {
-                        account_label: None,
-                        access,
-                        refresh: None,
-                        expires_at_ms: None,
-                        extra: Default::default(),
-                    });
-                } else if matches!(
-                    target.method,
-                    connector::Kind::Application | connector::Kind::Oauth2
-                ) {
-                    host.connectors
-                        .access(&target, &ingress, None, &stop)
-                        .await?;
-                    target.grant = ingress
-                        .connector_target(target.id, target.revision, true)
-                        .await?
-                        .grant;
-                } else if target.method == connector::Kind::McpOauth {
-                    let connector::Auth::McpOauth { server, .. } = target
-                        .declaration
-                        .auth
-                        .iter()
-                        .find(|auth| auth.kind() == target.method)
-                        .ok_or_else(missing)?
-                    else {
-                        return Err(missing());
-                    };
-                    let endpoint = target.mcp_endpoint.clone().ok_or_else(missing)?;
-                    let registered = crate::plugins::authorization::Registered::connector(&target)?;
-                    let client = host
-                        .authorizations
-                        .client(
-                            &ingress,
-                            crate::plugins::authorization::Target {
-                                plugin: target.package.name.clone(),
-                                server: server.clone(),
-                                endpoint,
-                                id: target.id,
-                                revision: target.revision,
-                                checking: true,
-                            },
-                            registered,
-                        )
-                        .await?;
-                    client.get_access_token().await.map_err(|_| missing())?;
-                    target.grant = ingress
-                        .connector_target(target.id, target.revision, true)
-                        .await?
-                        .grant;
-                }
-                if let Err(error) = host.connectors.probe(&mut target, &stop).await {
-                    if error.code == ErrorCode::Expired {
-                        ingress
-                            .save_connector_grant(
-                                target.id,
-                                target.revision,
-                                target
-                                    .grant
-                                    .as_ref()
-                                    .filter(|_| target.method != connector::Kind::LocalCli)
-                                    .map(|grant| grant.access.clone()),
-                                None,
-                            )
-                            .await?;
-                    }
-                    return Err(error);
-                }
-                if target.method == connector::Kind::LocalCli {
-                    target.grant = None;
-                }
+                host.connectors.check(&mut target, &ingress, &stop).await?;
                 Ok(Box::new(target))
             }
             .await;
@@ -580,10 +505,8 @@ fn commit(
         if record.revision != baseline.revision
             || record.auth_revision != baseline.auth_revision
             || replace
-                && (record.grant_revision != baseline.grant_revision
-                    || record.state != connector::State::Connecting
-                    || record.login.as_ref().map(|login| login.attempt)
-                        != baseline.login.as_ref().map(|login| login.attempt))
+                && record.login.as_ref().map(|login| login.attempt)
+                    != baseline.login.as_ref().map(|login| login.attempt)
         {
             return Err(Fault::new(
                 ErrorCode::RevisionConflict,
@@ -636,6 +559,12 @@ fn commit(
     let outcome = match result {
         Ok(target) => {
             let target = *target;
+            if !replace && record.grant_revision != target.grant_revision {
+                return Err(Fault::new(
+                    ErrorCode::RevisionConflict,
+                    "connector grant changed",
+                ));
+            }
             record.identity = target.identity;
             if replace {
                 if baseline.revision > 1 {

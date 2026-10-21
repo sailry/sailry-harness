@@ -22,6 +22,7 @@ pub(crate) struct Target {
     pub id: Id,
     /// Authorization fence, independent from public editing revisions.
     pub revision: u64,
+    pub grant_revision: u64,
     pub package: Reference,
     pub declaration: Declaration,
     pub method: Kind,
@@ -103,10 +104,24 @@ pub(crate) struct Service {
 
 struct Cached {
     revision: u64,
+    grant_revision: u64,
     auth: Auth,
     identity: Identity,
     expires: tokio::time::Instant,
     token: Secret,
+    rejected: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct Access {
+    pub token: Secret,
+    pub revision: u64,
+}
+
+pub(crate) enum Rejection {
+    Current,
+    Renew,
+    Stop,
 }
 
 pub(crate) struct Login {
@@ -178,9 +193,9 @@ impl Service {
         &self,
         target: &Target,
         ingress: &crate::store::Ingress,
-        rejected: Option<&Secret>,
+        rejected: Option<u64>,
         stop: &CancellationToken,
-    ) -> Result<Secret, Fault> {
+    ) -> Result<Access, Fault> {
         let lock = self.lock(target.id)?;
         let _guard = tokio::select! {biased;_=stop.cancelled()=>return Err(cancelled()),guard=lock.lock()=>guard};
         let live = ingress
@@ -188,6 +203,8 @@ impl Service {
             .await?;
         let mut target = target.clone();
         target.grant = live.grant;
+        target.grant_revision = live.grant_revision;
+        let rejected = rejected == Some(target.grant_revision);
         let auth = target
             .declaration
             .auth
@@ -199,6 +216,10 @@ impl Service {
                 .first()
                 .and_then(|field| target.secrets.get(field))
                 .cloned()
+                .map(|token| Access {
+                    token,
+                    revision: target.grant_revision,
+                })
                 .ok_or_else(unavailable),
             Auth::LocalCli { timeout_ms, .. } => {
                 let expected = target.identity.as_ref().ok_or_else(unavailable)?;
@@ -206,12 +227,16 @@ impl Service {
                     && let Some(cached) =
                         self.cli.lock().map_err(|_| unavailable())?.get(&target.id)
                     && cached.revision == target.revision
+                    && cached.grant_revision == target.grant_revision
                     && cached.auth == *auth
                     && cached.identity == *expected
                     && cached.expires > tokio::time::Instant::now()
-                    && rejected != Some(&cached.token)
+                    && !rejected
                 {
-                    return Ok(cached.token.clone());
+                    return Ok(Access {
+                        token: cached.token.clone(),
+                        revision: cached.grant_revision,
+                    });
                 }
                 self.cli
                     .lock()
@@ -223,36 +248,65 @@ impl Service {
                     Ok(value) if value.0.id == expected.id => value,
                     Ok(_) => {
                         ingress
-                            .save_connector_grant(target.id, target.revision, None, None)
+                            .save_connector_grant(
+                                target.id,
+                                target.revision,
+                                target.grant_revision,
+                                None,
+                            )
                             .await?;
                         return Err(unavailable());
                     }
                     Err(error) if error.code == ErrorCode::Expired => {
                         ingress
-                            .save_connector_grant(target.id, target.revision, None, None)
+                            .save_connector_grant(
+                                target.id,
+                                target.revision,
+                                target.grant_revision,
+                                None,
+                            )
                             .await?;
                         return Err(error);
                     }
                     Err(error) => return Err(error),
                 };
+                let revision = ingress
+                    .save_connector_grant(
+                        target.id,
+                        target.revision,
+                        target.grant_revision,
+                        Some(Issued {
+                            access: token.clone(),
+                            refresh: None,
+                            expires_at_ms: None,
+                            account_label: None,
+                            extra: BTreeMap::new(),
+                        }),
+                    )
+                    .await?;
                 self.cli.lock().map_err(|_| unavailable())?.insert(
                     target.id,
                     Cached {
                         revision: target.revision,
+                        grant_revision: revision,
                         auth: auth.clone(),
                         identity,
                         expires: tokio::time::Instant::now() + Duration::from_millis(*timeout_ms),
                         token: token.clone(),
+                        rejected,
                     },
                 );
-                Ok(token)
+                Ok(Access { token, revision })
             }
             Auth::Application { .. } | Auth::Oauth2 { .. } => {
                 if let Some(grant) = &target.grant
-                    && rejected != Some(&grant.access)
+                    && !rejected
                     && grant.expires_at_ms.is_none_or(|expires| expires > now())
                 {
-                    return Ok(grant.access.clone());
+                    return Ok(Access {
+                        token: grant.access.clone(),
+                        revision: target.grant_revision,
+                    });
                 }
                 let (declaration, fields) = self.declaration(&target, false)?;
                 let service = self.transport(ingress.login_service.clone(), &declaration);
@@ -296,15 +350,18 @@ impl Service {
                 };
                 match issued {
                     Ok(issued) => {
-                        ingress
+                        let revision = ingress
                             .save_connector_grant(
                                 target.id,
                                 target.revision,
-                                target.grant.as_ref().map(|grant| grant.access.clone()),
+                                target.grant_revision,
                                 Some(issued.clone()),
                             )
                             .await?;
-                        Ok(issued.access)
+                        Ok(Access {
+                            token: issued.access,
+                            revision,
+                        })
                     }
                     Err(error)
                         if matches!(
@@ -316,7 +373,7 @@ impl Service {
                             .save_connector_grant(
                                 target.id,
                                 target.revision,
-                                target.grant.as_ref().map(|grant| grant.access.clone()),
+                                target.grant_revision,
                                 None,
                             )
                             .await?;
@@ -328,9 +385,56 @@ impl Service {
             Auth::McpOauth { .. } => target
                 .grant
                 .as_ref()
-                .map(|grant| grant.access.clone())
+                .map(|grant| Access {
+                    token: grant.access.clone(),
+                    revision: target.grant_revision,
+                })
                 .ok_or_else(unavailable),
         }
+    }
+    pub(crate) fn accepted(&self, id: Id, revision: u64) -> Result<(), Fault> {
+        if let Some(cached) = self.cli.lock().map_err(|_| unavailable())?.get_mut(&id)
+            && cached.grant_revision == revision
+        {
+            cached.rejected = false;
+        }
+        Ok(())
+    }
+    pub(crate) async fn reject(
+        &self,
+        target: &Target,
+        ingress: &crate::store::Ingress,
+        revision: u64,
+        repeated: bool,
+    ) -> Result<Rejection, Fault> {
+        let current = ingress
+            .connector_target(target.id, target.revision, target.checking)
+            .await?;
+        if current.grant_revision != revision {
+            return Ok(Rejection::Current);
+        }
+        let renewed = !target.checking
+            && self
+                .cli
+                .lock()
+                .map_err(|_| unavailable())?
+                .get(&target.id)
+                .is_some_and(|cached| cached.grant_revision == revision && cached.rejected);
+        let application = target.method == Kind::Application && !target.checking;
+        if target.method == Kind::Secret || (repeated || renewed) && !application {
+            ingress
+                .save_connector_grant(target.id, target.revision, revision, None)
+                .await?;
+            self.cli
+                .lock()
+                .map_err(|_| unavailable())?
+                .remove(&target.id);
+            return Ok(Rejection::Stop);
+        }
+        if repeated {
+            return Ok(Rejection::Stop);
+        }
+        Ok(Rejection::Renew)
     }
     pub(crate) fn declaration(
         &self,
@@ -655,6 +759,113 @@ impl Service {
             target.grant = None;
         }
         Ok(target)
+    }
+    pub(crate) async fn check(
+        &self,
+        target: &mut Target,
+        ingress: &Arc<crate::store::Ingress>,
+        stop: &CancellationToken,
+    ) -> Result<(), Fault> {
+        let mut force = None;
+        for attempt in 0..2 {
+            let live = ingress
+                .connector_target(target.id, target.revision, true)
+                .await?;
+            target.grant = live.grant;
+            target.grant_revision = live.grant_revision;
+            if target.method == Kind::McpOauth {
+                let Auth::McpOauth { server, .. } = target
+                    .declaration
+                    .auth
+                    .iter()
+                    .find(|auth| auth.kind() == target.method)
+                    .ok_or_else(unavailable)?
+                else {
+                    return Err(unavailable());
+                };
+                let registered = super::authorization::Registered::connector(target)?;
+                let client = ingress
+                    .plugins
+                    .authorizations
+                    .client(
+                        ingress,
+                        super::authorization::Target {
+                            plugin: target.package.name.clone(),
+                            server: server.clone(),
+                            endpoint: target.mcp_endpoint.clone().ok_or_else(unavailable)?,
+                            id: target.id,
+                            revision: target.revision,
+                            checking: true,
+                        },
+                        registered,
+                    )
+                    .await?;
+                if force == Some(target.grant_revision) {
+                    client
+                        .auth_manager
+                        .lock()
+                        .await
+                        .refresh_token()
+                        .await
+                        .map_err(|_| unavailable())?;
+                } else {
+                    client.get_access_token().await.map_err(|_| unavailable())?;
+                }
+                let live = ingress
+                    .connector_target(target.id, target.revision, true)
+                    .await?;
+                target.grant = live.grant;
+                target.grant_revision = live.grant_revision;
+            } else if matches!(
+                target.method,
+                Kind::LocalCli | Kind::Application | Kind::Oauth2
+            ) {
+                let access = self.access(target, ingress, force, stop).await?;
+                target.grant_revision = access.revision;
+                if target.method == Kind::LocalCli {
+                    target.grant = Some(Issued {
+                        account_label: None,
+                        access: access.token,
+                        refresh: None,
+                        expires_at_ms: None,
+                        extra: BTreeMap::new(),
+                    });
+                } else {
+                    let live = ingress
+                        .connector_target(target.id, target.revision, true)
+                        .await?;
+                    target.grant = live.grant;
+                    target.grant_revision = live.grant_revision;
+                }
+            }
+            match self.probe(target, stop).await {
+                Ok(()) => {
+                    self.accepted(target.id, target.grant_revision)?;
+                    if target.method == Kind::LocalCli {
+                        target.grant = None;
+                    }
+                    return Ok(());
+                }
+                Err(error) if error.code == ErrorCode::Expired => {
+                    force = match self
+                        .reject(target, ingress, target.grant_revision, attempt != 0)
+                        .await?
+                    {
+                        Rejection::Stop => return Err(error),
+                        Rejection::Current => None,
+                        Rejection::Renew => Some(target.grant_revision),
+                    };
+                    if attempt != 0 {
+                        return Err(Fault::new(
+                            ErrorCode::RevisionConflict,
+                            "connector grant changed",
+                        ));
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        unreachable!()
     }
     pub(crate) async fn probe(
         &self,

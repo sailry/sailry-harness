@@ -452,6 +452,11 @@ fn next(record: &mut Record) -> Result<(), Fault> {
 }
 
 fn revoke(record: &mut Record) -> Result<(), Fault> {
+    record.grant_revision = record
+        .grant_revision
+        .checked_add(1)
+        .filter(|revision| *revision <= i64::MAX as u64)
+        .ok_or_else(|| Fault::new(ErrorCode::Conflict, "connector grant revision exhausted"))?;
     record.auth_revision = record
         .revision
         .checked_add(1)
@@ -747,7 +752,8 @@ pub(in crate::store) fn resolve(
         captured.origin = record.bound.as_ref().and_then(|bound| bound.origin.clone());
     }
     if !record.enabled
-        || !matches!(live.state, State::Connected | State::Failed)
+        || !(matches!(live.state, State::Connected | State::Failed)
+            || live.state == State::Connecting && login::usable(&record))
         || !consent::same(&record.plugin, record.bound.as_ref(), captured.as_ref())
     {
         return Err(Fault::new(
@@ -782,6 +788,7 @@ pub(in crate::store) fn target(
     crate::plugins::connectors::Target {
         id: record.id,
         revision: record.auth_revision,
+        grant_revision: record.grant_revision,
         package,
         declaration,
         method: record.method,
@@ -818,6 +825,7 @@ pub(in crate::store) fn current_target(
     let state = project(db, profile, &record)?.state;
     if !record.enabled
         || !(matches!(state, State::Connected | State::Failed)
+            || state == State::Connecting && login::usable(&record)
             || checking && state == State::Expired)
     {
         return Err(Fault::new(
@@ -843,38 +851,47 @@ pub(in crate::store) fn current_target(
 }
 
 pub(in crate::store) fn renew(
-    database: &mut crate::store::database::Database,
+    db: &Connection,
     id: Id,
     revision: u64,
-    previous: Option<&Secret>,
+    grant_revision: u64,
     issued: Option<crate::providers::login::plugin::Issued>,
-    events: &tokio::sync::broadcast::Sender<sailry_protocol::EventEnvelope>,
-) -> Result<(), Fault> {
-    let transaction = database.connection.transaction().map_err(storage_error)?;
-    let db = &transaction;
+) -> Result<Record, Fault> {
     let mut record = read(db, id)?;
     super::super::commands::check_revision(record.auth_revision, revision)?;
-    if record.grant.as_ref().map(|grant| &grant.access) != previous {
-        return Err(Fault::new(
-            ErrorCode::RevisionConflict,
-            "connector grant changed",
-        ));
-    }
+    super::super::commands::check_revision(record.grant_revision, grant_revision)?;
     record.grant_revision = record
         .grant_revision
         .checked_add(1)
         .filter(|value| *value <= i64::MAX as u64)
         .ok_or_else(|| Fault::new(ErrorCode::Conflict, "connector grant revision exhausted"))?;
-    record.grant = issued.map(|issued| Grant {
-        access: issued.access,
-        refresh: issued.refresh,
-        expires_at_ms: issued.expires_at_ms,
-        extra: issued.extra,
-    });
-    if record.grant.is_none() {
+    let expired = issued.is_none();
+    record.grant = issued
+        .filter(|_| record.method != Kind::LocalCli)
+        .map(|issued| Grant {
+            access: issued.access,
+            refresh: issued.refresh,
+            expires_at_ms: issued.expires_at_ms,
+            extra: issued.extra,
+        });
+    if expired {
         record.state = State::Expired;
     }
     save(db, &record)?;
+    Ok(record)
+}
+
+pub(in crate::store) fn save_grant(
+    database: &mut crate::store::database::Database,
+    id: Id,
+    revision: u64,
+    grant_revision: u64,
+    issued: Option<crate::providers::login::plugin::Issued>,
+    events: &tokio::sync::broadcast::Sender<sailry_protocol::EventEnvelope>,
+) -> Result<u64, Fault> {
+    let transaction = database.connection.transaction().map_err(storage_error)?;
+    let db = &transaction;
+    let record = renew(db, id, revision, grant_revision, issued)?;
     let envelopes = crate::store::database::record(
         db,
         database.node,
@@ -884,7 +901,7 @@ pub(in crate::store) fn renew(
     for envelope in envelopes {
         let _ = events.send(envelope);
     }
-    Ok(())
+    Ok(record.grant_revision)
 }
 
 #[cfg(test)]

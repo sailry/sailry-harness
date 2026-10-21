@@ -98,7 +98,7 @@ async fn standalone_credentials() {
         let output = results(&page);
         assert_eq!(
             output[0]["output"]["secret_hash"],
-            blake3::hash(original.as_bytes()).to_hex().to_string()
+            json!(blake3::hash(original.as_bytes()).as_bytes())
         );
         assert_eq!(output[0]["output"]["settings"], json!({}));
         let public = serde_json::to_string(&page).unwrap();
@@ -110,7 +110,7 @@ async fn standalone_credentials() {
         assert_eq!(page.runs.last().unwrap().status, Status::Completed);
         assert_eq!(
             results(&page).last().unwrap()["output"]["secret_hash"],
-            blake3::hash(replacement.as_bytes()).to_hex().to_string()
+            json!(blake3::hash(replacement.as_bytes()).as_bytes())
         );
         fixture.node.shutdown().await.unwrap();
         reaped(

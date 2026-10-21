@@ -63,7 +63,7 @@ fn defaults_and_recovers_without_rewriting_history() {
 }
 
 #[test]
-fn rejects_invalid_baselines_before_backup_or_writes() {
+fn discards_invalid_baselines_without_changing_accounts() {
     for nested in [false, true] {
         let (directory, path, node) = startup::fixture("");
         let id = RequestId::new();
@@ -78,26 +78,48 @@ fn rejects_invalid_baselines_before_backup_or_writes() {
         let mut value = record(id, true);
         value["login"] = json!({"attempt":RequestId::new(),"revision":2,"auth_revision":1,"grant_revision":1,"previous":previous});
         let raw = insert(&path, id, &value);
-        let before = std::fs::read(&path).unwrap();
-        let files = startup::entries(directory.path());
-        let error = Database::open(&path, node, None).err().unwrap().to_string();
-        assert!(error.contains("invalid stored connection"), "{error}");
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        assert_eq!(startup::entries(directory.path()), files);
-        let db =
-            Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
-        assert_eq!(stored(&db, id), raw);
+        let db = startup::upgraded(directory.path(), &path, node);
+        value["login"] = Value::Null;
+        value["state"] = json!("not_connected");
         assert_eq!(
-            db.query_row("SELECT body FROM requests", [], |row| row
-                .get::<_, Vec<u8>>(0))
-                .unwrap(),
-            b"kept"
+            serde_json::from_slice::<Value>(&stored(&db, id)).unwrap(),
+            value
         );
-        assert_eq!(
-            db.query_row("SELECT status FROM requests", [], |row| row
-                .get::<_, String>(0))
-                .unwrap(),
-            "admitted"
-        );
+        db.close().unwrap();
+        let backups = directory.path().join("backups");
+        let files = startup::entries(&backups);
+        assert_eq!(files.len(), 1);
+        let previous = Connection::open_with_flags(
+            backups.join(&files[0]),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        assert_eq!(stored(&previous, id), raw);
+        previous.close().unwrap();
     }
+}
+
+#[test]
+fn rejects_invalid_accounts_before_backup_or_writes() {
+    let (directory, path, node) = startup::fixture("");
+    let id = RequestId::new();
+    let mut value = record(id, true);
+    value["auth_revision"] = json!(0);
+    value["login"] = json!({"attempt":RequestId::new(),"revision":2,"auth_revision":1,"grant_revision":1,"previous":null});
+    let raw = insert(&path, id, &value);
+    let before = std::fs::read(&path).unwrap();
+    let files = startup::entries(directory.path());
+    let error = Database::open(&path, node, None).err().unwrap().to_string();
+    assert!(error.contains("invalid stored connection"), "{error}");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(startup::entries(directory.path()), files);
+    let db =
+        Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+    assert_eq!(stored(&db, id), raw);
+    assert_eq!(
+        db.query_row("SELECT status FROM requests", [], |row| row
+            .get::<_, String>(0))
+            .unwrap(),
+        "admitted"
+    );
 }

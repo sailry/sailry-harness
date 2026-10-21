@@ -4,7 +4,7 @@ use sailry_protocol::plugin::connector::{Connection, State};
 use serde_json::Value;
 use std::sync::atomic::Ordering;
 
-async fn start(client: &Client, row: &Connection, redirect: bool) -> Attempt {
+pub(super) async fn start(client: &Client, row: &Connection, redirect: bool) -> Attempt {
     let Output::ConnectorLogin(attempt) = execute(
         client,
         Command::StartConnectorLogin {

@@ -78,7 +78,7 @@ impl Authorization {
                 .connectors
                 .access(target, &self.ingress, None, &self.stop)
                 .await?;
-            if current != expected {
+            if current.token != expected {
                 return Err(Fault::new(
                     ErrorCode::NotConfigured,
                     "MCP credentials changed",
@@ -148,7 +148,8 @@ struct Prepared {
     uri: Arc<str>,
     headers: Headers,
     token: Option<String>,
-    sent: Vec<(Target, Secret)>,
+    revision: Option<u64>,
+    sent: Vec<(Target, Access)>,
 }
 impl Client {
     async fn prepare(&self, uri: Arc<str>, mut headers: Headers) -> Result<Prepared, Error> {
@@ -162,7 +163,16 @@ impl Client {
                 continue;
             }
             let token = if let Some(field) = &injection.field {
-                target.secrets.get(field).cloned()
+                let live = self
+                    .authorization
+                    .ingress
+                    .connector_target(target.id, target.revision, target.checking)
+                    .await
+                    .map_err(failure)?;
+                target.secrets.get(field).cloned().map(|token| Access {
+                    token,
+                    revision: live.grant_revision,
+                })
             } else if target.method == Kind::Secret
                 && target.secrets.is_empty()
                 && target.declaration.fields.iter().all(|field| field.optional)
@@ -196,7 +206,7 @@ impl Client {
             )
             .map_err(|_| failure(unavailable()))?;
             let mut value =
-                HeaderValue::from_str(&format!("{}{}", injection.prefix, token.expose()))
+                HeaderValue::from_str(&format!("{}{}", injection.prefix, token.token.expose()))
                     .map_err(|_| failure(unavailable()))?;
             value.set_sensitive(true);
             if headers.get(&name).is_some_and(|value| !value.is_empty()) {
@@ -206,21 +216,30 @@ impl Client {
             }
             headers.insert(name, value);
             self.authorization
-                .remember(token.clone())
+                .remember(token.token.clone())
                 .map_err(failure)?;
             sent.push((target.clone(), token));
         }
-        let token = if let Some(client) = &self.oauth {
-            let token = client
+        let (token, revision) = if let Some(client) = &self.oauth {
+            client
                 .get_access_token()
                 .await
                 .map_err(|_| failure(unavailable()))?;
-            self.authorization
-                .remember(Secret::new(token.clone()))
+            let target = self.oauth_target().map_err(failure)?;
+            let live = self
+                .authorization
+                .ingress
+                .connector_target(target.id, target.revision, target.checking)
+                .await
                 .map_err(failure)?;
-            Some(token)
+            let grant = live.grant.as_ref().ok_or_else(|| failure(unavailable()))?;
+            let token = crate::plugins::authorization::access(&grant.access).map_err(failure)?;
+            self.authorization
+                .remember(token.clone())
+                .map_err(failure)?;
+            (Some(token.expose().to_owned()), Some(live.grant_revision))
         } else {
-            None
+            (None, None)
         };
         let uri = self
             .authorization
@@ -233,60 +252,70 @@ impl Client {
             uri,
             headers,
             token,
+            revision,
             sent,
         })
     }
-    async fn rejected(&self, prepared: &Prepared) -> Result<bool, Error> {
+    fn oauth_target(&self) -> Result<&Target, Fault> {
+        self.authorization
+            .targets
+            .iter()
+            .find(|(target, _)| target.method == Kind::McpOauth)
+            .map(|(target, _)| target)
+            .ok_or_else(unavailable)
+    }
+    fn accepted(&self, prepared: &Prepared) -> Result<(), Fault> {
+        let service = &self.authorization.ingress.plugins.connectors;
+        for (target, access) in &prepared.sent {
+            service.accepted(target.id, access.revision)?;
+        }
+        if let Some(revision) = prepared.revision {
+            service.accepted(self.oauth_target()?.id, revision)?;
+        }
+        Ok(())
+    }
+    async fn rejected(&self, prepared: &Prepared, repeated: bool) -> Result<bool, Error> {
+        let ingress = &self.authorization.ingress;
+        let service = &ingress.plugins.connectors;
         let mut changed = false;
-        if let (Some(client), Some(sent)) = (&self.oauth, &prepared.token) {
-            let manager = client.auth_manager.lock().await;
-            let current = manager
-                .get_access_token()
+        if let (Some(client), Some(revision)) = (&self.oauth, prepared.revision) {
+            let target = self.oauth_target().map_err(failure)?;
+            match service
+                .reject(target, ingress, revision, repeated)
                 .await
-                .map_err(|_| failure(unavailable()))?;
-            let current = if current != *sent {
-                current
-            } else {
-                {
-                    manager
-                        .refresh_token()
-                        .await
-                        .map_err(|_| failure(unavailable()))?;
-                    manager
-                        .get_access_token()
-                        .await
-                        .map_err(|_| failure(unavailable()))?
+                .map_err(failure)?
+            {
+                Rejection::Stop => {}
+                rejection => {
+                    if matches!(rejection, Rejection::Renew) {
+                        client
+                            .auth_manager
+                            .lock()
+                            .await
+                            .refresh_token()
+                            .await
+                            .map_err(|_| failure(unavailable()))?;
+                    }
+                    changed = true;
                 }
-            };
-            changed = true;
-            self.authorization
-                .remember(Secret::new(current))
-                .map_err(failure)?;
+            }
         }
         for (target, sent) in &prepared.sent {
-            if target.method == Kind::Secret {
-                self.authorization
-                    .ingress
-                    .save_connector_grant(target.id, target.revision, None, None)
-                    .await
-                    .map_err(failure)?;
-                continue;
-            }
-            let token = self
-                .authorization
-                .ingress
-                .plugins
-                .connectors
-                .access(
-                    target,
-                    &self.authorization.ingress,
-                    Some(sent),
-                    &self.authorization.stop,
-                )
+            let force = match service
+                .reject(target, ingress, sent.revision, repeated)
+                .await
+                .map_err(failure)?
+            {
+                Rejection::Stop => continue,
+                Rejection::Current => None,
+                Rejection::Renew => Some(sent.revision),
+            };
+            let access = service
+                .access(target, ingress, force, &self.authorization.stop)
                 .await
                 .map_err(failure)?;
+            self.authorization.remember(access.token).map_err(failure)?;
             changed = true;
-            self.authorization.remember(token).map_err(failure)?;
         }
         Ok(changed)
     }
@@ -338,7 +367,9 @@ impl StreamableHttpClient for Client {
             .await;
         // A rejected POST can rotate credentials, but its side effect is never replayed.
         if unauthorized(&result) {
-            self.rejected(&prepared).await?;
+            self.rejected(&prepared, false).await?;
+        } else if result.is_ok() {
+            self.accepted(&prepared).map_err(failure)?;
         }
         result.map_err(|_| failure(unavailable()))
     }
@@ -400,31 +431,28 @@ impl StreamableHttpClient for Client {
                 max,
             )
             .await;
-        if unauthorized(&result) && self.rejected(&prepared).await? {
+        if unauthorized(&result) && self.rejected(&prepared, false).await? {
             let fresh = self.prepare(uri, headers).await?;
             let result = self
                 .inner
                 .get_stream_with_max_sse_event_size(
-                    fresh.uri,
+                    fresh.uri.clone(),
                     session_id,
                     last_event_id,
-                    fresh.token,
-                    fresh.headers,
+                    fresh.token.clone(),
+                    fresh.headers.clone(),
                     max,
                 )
                 .await;
             if unauthorized(&result) {
-                for (target, _) in &fresh.sent {
-                    if target.method == Kind::LocalCli {
-                        self.authorization
-                            .ingress
-                            .save_connector_grant(target.id, target.revision, None, None)
-                            .await
-                            .map_err(failure)?;
-                    }
-                }
+                self.rejected(&fresh, true).await?;
+            } else if result.is_ok() {
+                self.accepted(&fresh).map_err(failure)?;
             }
             return result.map_err(|_| failure(unavailable()));
+        }
+        if result.is_ok() {
+            self.accepted(&prepared).map_err(failure)?;
         }
         result.map_err(|_| failure(unavailable()))
     }

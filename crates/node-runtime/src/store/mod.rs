@@ -157,9 +157,9 @@ enum Job {
     ConnectorGrant {
         id: sailry_protocol::plugin::connector::Id,
         revision: u64,
-        previous: Option<sailry_protocol::Secret>,
+        grant_revision: u64,
         grant: Option<crate::providers::login::plugin::Issued>,
-        reply: oneshot::Sender<Result<(), Fault>>,
+        reply: oneshot::Sender<Result<u64, Fault>>,
     },
     Authorization {
         reference: sailry_protocol::CredentialRef,
@@ -870,8 +870,8 @@ impl Store {
                         Job::ConnectorTarget { id, revision, checking, reply } => {
                             let _ = reply.send(plugins::connectors::current_target(&database.connection, database.profile.as_deref(), id, revision, checking));
                         }
-                        Job::ConnectorGrant { id, revision, previous, grant, reply } => {
-                            let _ = reply.send(plugins::connectors::renew(&mut database, id, revision, previous.as_ref(), grant, &events));
+                        Job::ConnectorGrant { id, revision, grant_revision, grant, reply } => {
+                            let _ = reply.send(plugins::connectors::save_grant(&mut database, id, revision, grant_revision, grant, &events));
                         }
                         Job::SubscribeLogin {
                             caller,
@@ -1687,15 +1687,15 @@ impl Ingress {
         &self,
         id: sailry_protocol::plugin::connector::Id,
         revision: u64,
-        previous: Option<sailry_protocol::Secret>,
+        grant_revision: u64,
         grant: Option<crate::providers::login::plugin::Issued>,
-    ) -> Result<(), Fault> {
+    ) -> Result<u64, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .try_send(Job::ConnectorGrant {
                 id,
                 revision,
-                previous,
+                grant_revision,
                 grant,
                 reply,
             })

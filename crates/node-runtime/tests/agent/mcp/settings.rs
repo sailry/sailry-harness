@@ -51,7 +51,7 @@ fn verify(page: &Page, label: &str, secret: &str) {
     assert_eq!(result["settings"], json!({"label":label}));
     assert_eq!(
         result["secret_hash"],
-        blake3::hash(secret.as_bytes()).to_hex().to_string()
+        json!(blake3::hash(secret.as_bytes()).as_bytes())
     );
     assert!(Path::new(result["settings_path"].as_str().unwrap()).exists());
 }

@@ -213,57 +213,52 @@ pub(crate) async fn run(
         let mut secrets = target.secrets.values().cloned().collect::<Vec<_>>();
         let mut rotated = None;
         for attempt in 0..2 {
-            ingress
+            let current = ingress
                 .connector_target(target.id, target.revision, target.checking)
                 .await?;
-            let token = if let Some(field) = &injection.field {
-                target.secrets.get(field).cloned().ok_or_else(|| {
-                    Fault::new(ErrorCode::NotConfigured, "connector secret is unavailable")
-                })?
+            let access = if let Some(field) = &injection.field {
+                crate::plugins::connectors::Access {
+                    token: target.secrets.get(field).cloned().ok_or_else(|| {
+                        Fault::new(ErrorCode::NotConfigured, "connector secret is unavailable")
+                    })?,
+                    revision: current.grant_revision,
+                }
             } else if let Some(token) = rotated.take() {
                 token
             } else {
                 service.access(&target, ingress, None, &stop).await?
             };
-            secrets.push(token.clone());
+            secrets.push(access.token.clone());
             let mut value =
-                HeaderValue::from_str(&format!("{}{}", injection.prefix, token.expose())).map_err(
-                    |_| Fault::invalid("connector credential is not a valid header value"),
-                )?;
+                HeaderValue::from_str(&format!("{}{}", injection.prefix, access.token.expose()))
+                    .map_err(|_| {
+                        Fault::invalid("connector credential is not a valid header value")
+                    })?;
             value.set_sensitive(true);
             insert(&mut input.headers, name.clone(), value)?;
             input.url = Url::parse(&service.resource(input.url.as_str()))
                 .map_err(|_| Fault::invalid("invalid connector HTTP URL"))?;
             let response = send(input.clone(), Some(secrets.clone()), stop.clone()).await?;
             if response.status != 401 {
+                if (200..300).contains(&response.status) {
+                    service.accepted(target.id, access.revision)?;
+                }
                 return Ok(response);
             }
-            if target.method == sailry_protocol::plugin::connector::Kind::Secret
-                || (attempt != 0
-                    && target.method == sailry_protocol::plugin::connector::Kind::LocalCli)
-            {
-                let current = ingress
-                    .connector_target(target.id, target.revision, target.checking)
-                    .await?;
-                ingress
-                    .save_connector_grant(
-                        target.id,
-                        target.revision,
-                        current.grant.as_ref().map(|grant| grant.access.clone()),
-                        None,
-                    )
-                    .await?;
-                return Ok(response);
-            }
+            use crate::plugins::connectors::Rejection;
+            let rejected = service
+                .reject(&target, ingress, access.revision, attempt != 0)
+                .await?;
+            let force = match rejected {
+                Rejection::Stop => return Ok(response),
+                Rejection::Current => None,
+                Rejection::Renew => Some(access.revision),
+            };
             if attempt != 0 {
                 return Ok(response);
             }
             // Rotate a rejected token even when the side effect cannot be replayed.
-            rotated = Some(
-                service
-                    .access(&target, ingress, Some(&token), &stop)
-                    .await?,
-            );
+            rotated = Some(service.access(&target, ingress, force, &stop).await?);
             if !idempotent {
                 return Ok(response);
             }

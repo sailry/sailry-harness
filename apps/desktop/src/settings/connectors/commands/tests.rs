@@ -201,13 +201,10 @@ fn retains_only_unknown_durable_outcomes() {
             };
             let request = Request::new(NodeId([9; 32]), command);
             let request_id = request.id;
-            let mut requests = BTreeMap::from([(
-                id,
-                Submission {
-                    request,
-                    revision: 3,
-                },
-            )]);
+            let mut requests = BTreeMap::new();
+            let prepared = prepare(&mut requests, id, 3, request);
+            assert_eq!(prepared.id, request_id);
+            assert_eq!(requests.contains_key(&id), !probe);
             finish(&mut requests, id, request_id, code);
             assert_eq!(
                 requests.contains_key(&id),

@@ -88,6 +88,19 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
     Ok(changed)
 }
 
+pub(super) fn needed(db: &Connection) -> Result<bool, Error> {
+    let mut query = db.prepare("SELECT body FROM plugin_connections WHERE json_type(body,'$.login') IS NULL OR json_type(body,'$.login')!='null'")?;
+    for bytes in query.query_map([], |row| row.get::<_, Vec<u8>>(0))? {
+        let Ok(mut value) = serde_json::from_slice::<Value>(&bytes?) else {
+            continue;
+        };
+        if connection(&mut value) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 fn connection(value: &mut Value) -> bool {
     let Some(object) = value.as_object_mut() else {
         return false;
@@ -102,6 +115,21 @@ fn connection(value: &mut Value) -> bool {
     if !object.contains_key("login") {
         object.insert("login".into(), Value::Null);
         changed = true;
+    }
+    if value.get("login").is_some_and(|login| !login.is_null()) {
+        use crate::store::plugins::connectors::{Record, validate};
+        let valid = serde_json::from_value::<Record>(value.clone())
+            .is_ok_and(|record| validate(&record).is_ok());
+        if !valid {
+            let mut current = value.clone();
+            current["login"] = Value::Null;
+            if serde_json::from_value::<Record>(current)
+                .is_ok_and(|record| validate(&record).is_ok())
+            {
+                value["login"] = Value::Null;
+                changed = true;
+            }
+        }
     }
     changed
 }

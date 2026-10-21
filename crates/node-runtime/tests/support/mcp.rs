@@ -198,7 +198,7 @@ fn stdio_peer() {
                         serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
                     let secret = std::env::var("SAILRY_MCP_TOKEN").unwrap();
                     let output = json!({"settings": settings, "settings_path": path,
-                        "secret_hash": blake3::hash(secret.as_bytes()).to_hex().to_string()});
+                        "secret_hash": blake3::hash(secret.as_bytes()).as_bytes()});
                     println!(
                         "{}",
                         json!({"jsonrpc":"2.0", "id":id, "result":{

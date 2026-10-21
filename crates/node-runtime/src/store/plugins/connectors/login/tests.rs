@@ -48,6 +48,33 @@ fn pending(changed: bool) -> (Record, Record, RequestId) {
 }
 
 #[test]
+fn preserves_renewals_during_the_pending_attempt() {
+    let (mut record, previous, attempt) = pending(false);
+    assert!(usable(&record));
+    record.grant_revision += 1;
+    record.grant.as_mut().unwrap().access = Secret::new("private-renewed".into());
+    record.fields.insert("label".into(), "current".into());
+    let revision = record.grant_revision;
+    assert!(restore(&mut record, attempt));
+    assert_eq!(record.state, previous.state);
+    assert_eq!(
+        record.grant.as_ref().unwrap().access.expose(),
+        "private-renewed"
+    );
+    assert_eq!(record.grant_revision, revision);
+    assert_eq!(record.fields["label"], "current");
+    assert!(record.login.is_none());
+
+    let (mut changed, _, _) = pending(true);
+    assert!(!usable(&changed));
+    changed.state = State::Expired;
+    let attempt = changed.login.as_ref().unwrap().attempt;
+    assert!(restore(&mut changed, attempt));
+    assert_eq!(changed.state, State::Expired);
+    assert!(changed.grant.is_none());
+}
+
+#[test]
 fn restores_only_the_owned_attempt() {
     for changed in [false, true] {
         let (mut record, previous, attempt) = pending(changed);

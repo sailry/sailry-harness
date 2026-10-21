@@ -74,7 +74,8 @@ impl Resources {
                     .plugins
                     .connectors
                     .access(target, ingress, None, &self.stop)
-                    .await?;
+                    .await?
+                    .token;
                 env.insert(name.into(), secret.expose().into());
                 authorization.seal(target.id, secret.clone())?;
                 authorization.remember(secret)?;

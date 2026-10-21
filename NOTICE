@@ -82,7 +82,7 @@ licenses and source provenance are in third_party_licenses/adk-model.md.
 
 MCP Rust SDK
 Sailry uses rmcp 3.5.1 from https://github.com/sailry/rust-sdk at
-e12063473f6e629b7a2b066ab3a9cfaf8ba21ccf, based on the official Rust SDK
+a222497a6c6a1baa2d1b5fe277fd0ee3e4435f07, based on the official Rust SDK
 v3.5.1 at 79437f291b2c44053d00dcd5db969fd0cca7c887. The fork retains Sailry's
 transport, client-service and refresh-rejection fixes. Provenance and the upstream license text are
 in third_party_licenses/rmcp.md and third_party_licenses/rmcp-LICENSE.
