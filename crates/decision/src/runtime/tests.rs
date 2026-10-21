@@ -18,10 +18,14 @@ fn compares_platform_baselines() {
 #[test]
 fn rejects_unpinned_manifest_before_loading() {
     let directory = tempfile::tempdir().unwrap();
-    std::fs::write(directory.path().join("llama-runtime.json"), serde_json::json!({
-        "version":1,"target":target().unwrap(),"build":"different","runtime_version":"0.7.0",
-        "available":true,"entry":"libllama.0.dylib","source":{"url":"fixture","sha256":"fixture"},"files":[]
-    }).to_string()).unwrap();
+    std::fs::write(
+        directory.path().join("llama-runtime.json"),
+        serde_json::json!({
+            "version":1,"target":target().unwrap(),"build":"different","files":[]
+        })
+        .to_string(),
+    )
+    .unwrap();
     assert!(matches!(
         verify(directory.path()),
         Err(Error::Unavailable(_))
@@ -99,25 +103,22 @@ fn retains_loader_cause() {
 }
 
 #[test]
-fn caches_package_failures() {
+fn retries_package_failures() {
     let directory = tempfile::tempdir().unwrap();
-    let cache = OnceLock::new();
+    let cache = Mutex::new(None);
     let first = cached(&cache, || load(directory.path())).err().unwrap();
     assert!(matches!(first, Error::Unavailable(_)));
     std::fs::write(manifest(directory.path()), b"invalid manifest").unwrap();
-    let second = cached(&cache, || panic!("immutable package was checked twice"))
-        .err()
-        .unwrap();
-    assert_eq!(second.to_string(), first.to_string());
     let mut inspected = false;
-    assert!(
-        cached(&OnceLock::new(), || {
-            inspected = true;
-            load(directory.path())
-        })
-        .is_err()
-    );
+    let second = cached(&cache, || {
+        inspected = true;
+        load(directory.path())
+    })
+    .err()
+    .unwrap();
     assert!(inspected);
+    assert_ne!(second.to_string(), first.to_string());
+    assert!(cache.lock().unwrap().is_none());
 }
 
 #[test]
@@ -129,19 +130,21 @@ fn caches_verified_package() {
     let content = std::fs::read(&original).unwrap();
     let installed: Manifest = serde_json::from_slice(&content).unwrap();
     let directory = tempfile::tempdir().unwrap();
+    let cache = Mutex::new(None);
+    assert!(cached(&cache, || load(directory.path())).is_err());
+    assert!(cache.lock().unwrap().is_none());
     for file in installed.files {
         std::fs::copy(source.join(&file.name), directory.path().join(&file.name)).unwrap();
     }
     let manifest = manifest(directory.path());
     std::fs::write(&manifest, content).unwrap();
-    let cache = OnceLock::new();
     let first = cached(&cache, || load(directory.path())).unwrap();
-    assert!(first.initialized.get().is_none());
+    assert!(!*first.initialized.lock().unwrap());
     std::fs::remove_file(&manifest).unwrap();
     let second = cached(&cache, || panic!("immutable package was checked twice")).unwrap();
     assert!(Arc::ptr_eq(&first, &second));
-    assert!(second.initialized.get().is_none());
-    assert!(cached(&OnceLock::new(), || load(directory.path())).is_err());
+    assert!(!*second.initialized.lock().unwrap());
+    assert!(cached(&Mutex::new(None), || load(directory.path())).is_err());
 }
 
 #[cfg(target_os = "linux")]

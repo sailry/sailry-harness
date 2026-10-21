@@ -23,7 +23,7 @@ fn run(onnx_first: bool) {
     }
     let models = native::models();
     let path = native::path("julia", &models["julia"]);
-    let mut engine = Engine::open(&path).unwrap();
+    let mut engine = Engine::open(&path, false).unwrap();
     let mut onnx = early.unwrap_or_else(session);
     let request = &native::requests()[0];
     scale(&mut onnx);
@@ -31,7 +31,7 @@ fn run(onnx_first: bool) {
     scale(&mut onnx);
     drop(engine);
     scale(&mut onnx);
-    let mut engine = Engine::open(&path).unwrap();
+    let mut engine = Engine::open(&path, false).unwrap();
     drop(onnx);
     assert_eq!(engine.decide(request, || false).unwrap().answers.len(), 3);
 }

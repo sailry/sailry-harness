@@ -7,7 +7,7 @@ mod native;
 fn rejects_other_asset_layouts() {
     let definition = fixture();
     assert!(matches!(
-        Engine::load(&definition, Path::new(".")),
+        Engine::load(&definition, Path::new("."), false),
         Err(Error::Invalid(_))
     ));
 }

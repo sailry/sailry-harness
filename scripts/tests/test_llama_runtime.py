@@ -63,8 +63,10 @@ class Assets(unittest.TestCase):
         for directory in (self.output, self.output / "deps", self.output / "examples"):
             self.assertEqual((directory / "libllama.0.dylib").read_bytes(), self.content)
             manifest = json.loads((directory / runtime.MANIFEST).read_text())
-            self.assertTrue(manifest["available"])
-            self.assertEqual(manifest["minimum_macos"], "13.3")
+            self.assertEqual(set(manifest), {"version", "target", "build", "files"})
+            self.assertEqual(manifest["version"], 1)
+            self.assertEqual(manifest["target"], TARGET)
+            self.assertEqual(manifest["build"], self.definition["build"])
             self.assertEqual(manifest["files"][0]["sha256"], hashlib.sha256(self.content).hexdigest())
 
     def test_rejects_corrupt_archive_before_publication(self):
@@ -99,7 +101,7 @@ class Assets(unittest.TestCase):
         runtime.prepare(target, self.output, self.cache)
         self.assertEqual((self.output / "llama.dll").read_bytes(), self.content)
 
-    def test_records_arm_glibc_minimum(self):
+    def test_keeps_platform_minimum_in_lock(self):
         target = "aarch64-unknown-linux-gnu"
         fixture(self.root, self.cache, target)
         definition = json.loads(self.lock.read_text())
@@ -107,8 +109,8 @@ class Assets(unittest.TestCase):
         self.lock.write_text(json.dumps(definition))
         runtime.prepare(target, self.output, self.cache)
         manifest = json.loads((self.output / runtime.MANIFEST).read_text())
-        self.assertTrue(manifest["available"])
-        self.assertEqual(manifest["minimum_glibc"], "2.38")
+        self.assertNotIn("minimum_glibc", manifest)
+        self.assertEqual(json.loads(self.lock.read_text())["targets"][target]["minimum_glibc"], "2.38")
         self.assertEqual((self.output / "libllama.0.dylib").read_bytes(), self.content)
 
     def test_records_unavailable_without_download(self):
@@ -119,7 +121,7 @@ class Assets(unittest.TestCase):
             runtime.prepare(TARGET, self.output, self.cache)
         request.assert_not_called()
         manifest = json.loads((self.output / runtime.MANIFEST).read_text())
-        self.assertFalse(manifest["available"])
+        self.assertEqual(set(manifest), {"version", "target", "build", "files"})
         self.assertEqual(manifest["files"], [])
 
     def test_finalizes_signed_bundle(self):
@@ -131,7 +133,7 @@ class Assets(unittest.TestCase):
         self.assertFalse((output / runtime.MANIFEST).exists())
         manifest = json.loads((output.parent / "Resources" / runtime.MANIFEST).read_text())
         self.assertEqual(manifest["files"][0]["sha256"], runtime.NATIVE.digest(file))
-        self.assertNotEqual(manifest["files"][0]["sha256"], manifest["files"][0]["source_sha256"])
+        self.assertNotEqual(manifest["files"][0]["sha256"], self.definition["targets"][TARGET]["files"][0]["sha256"])
 
 
 if __name__ == "__main__":

@@ -143,13 +143,6 @@ fn save(db: &Connection, settings: &Settings) -> Result<(Output, Option<Event>),
     updated.validate()?;
     for (kind, choice) in &updated.choices {
         require(db, *kind, choice.model.as_deref())?;
-        if *kind == Kind::Decision
-            && choice.enabled
-            && choice.model.is_some()
-            && previous.choice(*kind) != *choice
-        {
-            crate::models::availability::ensure(*kind)?;
-        }
     }
     updated.revision = updated
         .revision

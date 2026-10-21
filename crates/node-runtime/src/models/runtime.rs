@@ -31,7 +31,7 @@ pub(crate) enum Engine {
 }
 
 impl Engine {
-    pub(super) fn load(resource: &Resource) -> Result<Self, Fault> {
+    pub(super) fn load(resource: &Resource, validating: bool) -> Result<Self, Fault> {
         match resource.definition.format.kind() {
             Kind::Embedding => {
                 sailry_embedding::Engine::load_definition(&resource.definition, &resource.directory)
@@ -42,7 +42,7 @@ impl Engine {
                 .map(|engine| Self::Ocr(Box::new(engine)))
                 .map_err(failure),
             Kind::Decision => {
-                sailry_decision::Engine::load(&resource.definition, &resource.directory)
+                sailry_decision::Engine::load(&resource.definition, &resource.directory, validating)
                     .map(|engine| Self::Decision(Box::new(engine)))
                     .map_err(crate::decision::error)
             }
@@ -390,7 +390,7 @@ fn acquire<'a>(
             .map(|asset| asset.bytes)
             .sum::<u64>();
         make_room(loaded, bytes);
-        let engine = Engine::load(&work.resource)?;
+        let engine = Engine::load(&work.resource, work.validating)?;
         loaded.insert(
             work.resource.id.clone(),
             Loaded {

@@ -8,14 +8,13 @@ use std::{
     fs::File,
     io::Read,
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::{Arc, Mutex},
 };
 mod cpu;
 
 const LOCK: &str = include_str!("../../../scripts/package/llama-runtime.lock.json");
-type Prepared = std::result::Result<Arc<Runtime>, String>;
-// Packaged native images and this executable's compiled lock stay immutable until restart.
-static CURRENT: OnceLock<Prepared> = OnceLock::new();
+// Successful native images and this executable's compiled lock stay immutable until restart.
+static CURRENT: Mutex<Option<Arc<Runtime>>> = Mutex::new(None);
 
 pub(crate) struct Runtime {
     pub api: ffi::Llama,
@@ -23,22 +22,18 @@ pub(crate) struct Runtime {
     _base: ffi::base::Base,
     _cpu: Option<libloading::Library>,
     cpu: Option<CString>,
-    initialized: OnceLock<std::result::Result<(), String>>,
+    initialized: Mutex<bool>,
 }
 
 #[derive(Deserialize)]
 struct Lock {
     version: u32,
     build: String,
-    runtime_version: String,
-    source: String,
     targets: BTreeMap<String, Target>,
 }
 #[derive(Deserialize)]
 struct Target {
     available: bool,
-    archive: String,
-    sha256: String,
     entry: Option<String>,
     minimum_macos: Option<String>,
     minimum_glibc: Option<String>,
@@ -55,22 +50,12 @@ struct Manifest {
     version: u32,
     target: String,
     build: String,
-    runtime_version: String,
-    available: bool,
-    entry: Option<String>,
-    source: Source,
     files: Vec<Installed>,
-}
-#[derive(Deserialize)]
-struct Source {
-    url: String,
-    sha256: String,
 }
 #[derive(Deserialize)]
 struct Installed {
     name: String,
     size: u64,
-    source_sha256: String,
     sha256: String,
 }
 
@@ -81,11 +66,15 @@ struct Artifact {
 
 pub(crate) fn initialize() -> Result<Arc<Runtime>> {
     let runtime = prepared()?;
-    runtime
+    let mut initialized = runtime
         .initialized
-        .get_or_init(|| runtime.start().map_err(reason))
-        .as_ref()
-        .map_err(|message| Error::Unavailable(message.clone().into()))?;
+        .lock()
+        .expect("native initialization lock is healthy");
+    if !*initialized {
+        runtime.start()?;
+        *initialized = true;
+    }
+    drop(initialized);
     Ok(runtime)
 }
 
@@ -104,14 +93,16 @@ fn prepared() -> Result<Arc<Runtime>> {
 }
 
 fn cached(
-    cache: &OnceLock<Prepared>,
+    cache: &Mutex<Option<Arc<Runtime>>>,
     load: impl FnOnce() -> Result<Runtime>,
 ) -> Result<Arc<Runtime>> {
-    cache
-        .get_or_init(|| load().map(Arc::new).map_err(reason))
-        .as_ref()
-        .cloned()
-        .map_err(|message| Error::Unavailable(message.clone().into()))
+    let mut cache = cache.lock().expect("native preflight lock is healthy");
+    if let Some(runtime) = cache.as_ref() {
+        return Ok(runtime.clone());
+    }
+    let runtime = Arc::new(load().map_err(|error| Error::Unavailable(reason(error).into()))?);
+    *cache = Some(runtime.clone());
+    Ok(runtime)
 }
 
 fn reason(error: Error) -> String {
@@ -255,12 +246,7 @@ fn verify(directory: &Path) -> Result<Artifact> {
         || installed.version != 1
         || installed.target != identity
         || installed.build != lock.build
-        || installed.runtime_version != lock.runtime_version
-        || !installed.available
-        || installed.entry != target.entry
         || installed.files.len() != target.files.len()
-        || installed.source.url != format!("{}{}", lock.source, target.archive)
-        || installed.source.sha256 != target.sha256
     {
         return Err(Error::Unavailable(
             "native runtime does not match its lock".into(),
@@ -268,7 +254,6 @@ fn verify(directory: &Path) -> Result<Artifact> {
     }
     for (file, pinned) in installed.files.iter().zip(&target.files) {
         if file.name != pinned.name
-            || file.source_sha256 != pinned.sha256
             || (!cfg!(target_os = "macos")
                 && (file.size != pinned.size || file.sha256 != pinned.sha256))
         {
@@ -371,7 +356,7 @@ fn load(directory: &Path) -> Result<Runtime> {
         _base: base,
         _cpu: cpu_library,
         cpu,
-        initialized: OnceLock::new(),
+        initialized: Mutex::new(false),
     })
 }
 

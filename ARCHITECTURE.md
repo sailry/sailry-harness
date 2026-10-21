@@ -231,9 +231,11 @@ controller never infers support from its own operating system.
 | Windows x64 and ARM64 | Packaged official CPU runtime |
 
 Native availability preflights the exact locked libraries and their dynamic
-dependencies once per process, retaining successful handles or the failure until
-restart. Cold checks run outside async workers. Models and contexts are still
-created only by the shared inference runtime.
+dependencies, retaining successful handles until restart and retrying failed
+checks on the next request. Cold checks run outside async workers. Models and
+contexts are still created only by the shared inference runtime. Installation
+checks every tensor; later loads reuse the verified assets without repeating
+that full scan.
 
 Unsupported decision targets retain OCR and embedding. Ordinary metadata remains
 readable, while decision registration, installation and execution report

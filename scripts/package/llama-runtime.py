@@ -60,20 +60,15 @@ def extract(data, asset, files):
 
 
 def finalize(target, output):
-    lock, asset, files = specification(target)
+    lock, _, files = specification(target)
     installed = []
     for file in files:
         path = output / file["name"]
         NATIVE.ordinary(path)
         installed.append({"name": file["name"], "size": path.stat().st_size,
-                          "source_sha256": file["sha256"], "sha256": NATIVE.digest(path)})
+                          "sha256": NATIVE.digest(path)})
     content = {"version": 1, "target": target, "build": lock["build"],
-               "runtime_version": lock["runtime_version"], "available": asset["available"],
-               "source": {"url": lock["source"] + asset["archive"], "sha256": asset["sha256"]},
                "files": installed}
-    for key in ("entry", "minimum_macos", "minimum_glibc", "reason"):
-        if key in asset:
-            content[key] = asset[key]
     directory = output
     if target.endswith("-apple-darwin") and output.name == "MacOS" and output.parent.name == "Contents":
         directory = output.parent / "Resources"

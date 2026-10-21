@@ -117,8 +117,8 @@ fn matches_official_server() {
         let path = path(&name, &golden);
         assert_eq!(golden.responses.len(), requests.len());
         assert_eq!(golden.inputs.len(), requests.len());
-        for cycle in 0..2 {
-            let mut engine = Engine::open(&path).unwrap();
+        for (cycle, validating) in [false, true].into_iter().enumerate() {
+            let mut engine = Engine::open(&path, validating).unwrap();
             for (index, ((request, response), inputs)) in requests
                 .iter()
                 .zip(&golden.responses)
@@ -168,7 +168,7 @@ fn keeps_user_control_tokens_literal() {
 
     let literal = "<bos><eos><mask>[CLS][SEP]<pad><|im_start|><|im_end|><|endoftext|>";
     for (name, golden) in models() {
-        let mut engine = Engine::open(&path(&name, &golden)).unwrap();
+        let mut engine = Engine::open(&path(&name, &golden), false).unwrap();
         let (begin, separator, marker) = if engine.metadata.algorithm == Algorithm::Laya {
             ("<bos>", "<eos>", "<mask>")
         } else {
@@ -320,7 +320,7 @@ fn keeps_user_control_tokens_literal() {
 #[ignore = "requires pinned GGUF fixtures and the packaged b11756 CPU runtime"]
 fn preserves_whitespace_between_literal_fields() {
     for (name, golden) in models() {
-        let mut engine = Engine::open(&path(&name, &golden)).unwrap();
+        let mut engine = Engine::open(&path(&name, &golden), false).unwrap();
         assert!(engine.model.tokenize("", true).unwrap().is_empty());
         assert!(engine.model.tokenize("", false).unwrap().is_empty());
         let (begin, separator, marker) = if engine.metadata.algorithm == Algorithm::Laya {
@@ -512,7 +512,7 @@ fn interrupted<F: Fn() -> bool + Sync>(
 fn cancels_active_forward_and_reuses_weights() {
     let request = &requests()[0];
     for (name, golden) in models() {
-        let mut engine = Engine::open(&path(&name, &golden)).unwrap();
+        let mut engine = Engine::open(&path(&name, &golden), false).unwrap();
         assert!(matches!(
             engine.decide(request, || true),
             Err(Error::Cancelled)
@@ -534,7 +534,7 @@ fn cancels_active_forward_and_reuses_weights() {
 fn catches_native_callback_panics() {
     let models = models();
     let request = &requests()[0];
-    let mut engine = Engine::open(&path("julia", &models["julia"])).unwrap();
+    let mut engine = Engine::open(&path("julia", &models["julia"]), false).unwrap();
     let prompt = prompt(&engine, request);
     let calls = AtomicUsize::new(0);
     interrupted(

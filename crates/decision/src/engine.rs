@@ -117,14 +117,15 @@ struct Prompt<'a> {
 
 impl Engine {
     /// Loads verified model weights once. Request contexts are sized to the input.
-    pub fn load(definition: &Definition, directory: &Path) -> Result<Self> {
+    /// Installation sets `validating` to scan all tensor data before publication.
+    pub fn load(definition: &Definition, directory: &Path, validating: bool) -> Result<Self> {
         if definition.assets.len() != 1 || definition.assets[0].name != "model.gguf" {
             return Err(Error::Invalid("decision model requires model.gguf"));
         }
-        Self::open(&directory.join("model.gguf"))
+        Self::open(&directory.join("model.gguf"), validating)
     }
 
-    fn open(path: &Path) -> Result<Self> {
+    fn open(path: &Path, validating: bool) -> Result<Self> {
         let metadata = crate::validate(path)?;
         let templates = Templates::new(&metadata.template)?;
         let runtime = runtime::initialize()?;
@@ -141,7 +142,7 @@ impl Engine {
         params.load_mode = ffi::llama_load_mode_LLAMA_LOAD_MODE_MMAP;
         params.lazy_mode = ffi::llama_lazy_mode_LLAMA_LAZY_MODE_OFF;
         params.use_extra_bufts = false;
-        params.check_tensors = true;
+        params.check_tensors = validating;
         // SAFETY: all pointers outlive this synchronous load; the GGUF was bounded
         // and structurally validated before entering native parsing.
         let handle = unsafe {

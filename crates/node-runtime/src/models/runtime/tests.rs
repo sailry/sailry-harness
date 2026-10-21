@@ -202,7 +202,7 @@ async fn evicts_idle_and_least_recently_used_engines() {
         resource: resource.clone(),
         used,
         bytes,
-        engine: Engine::load(&resource).unwrap(),
+        engine: Engine::load(&resource, false).unwrap(),
     };
     let mut loaded = BTreeMap::from([
         ("old".into(), entry(now - IDLE, 500)),

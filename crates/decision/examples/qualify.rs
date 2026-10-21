@@ -85,7 +85,7 @@ fn main() -> Result<()> {
     let cases = cases(&input)?;
     let metadata = sailry_decision::validate(&directory.join("model.gguf"))?;
     let started = Instant::now();
-    let mut engine = Engine::load(&definition, directory)?;
+    let mut engine = Engine::load(&definition, directory, false)?;
     let load_ms = started.elapsed().as_secs_f64() * 1000.;
     // Warm the actual path for each question type before recording steady-state latency.
     let mut warmed = BTreeSet::new();
