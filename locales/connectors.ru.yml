@@ -1,4 +1,5 @@
 settings_connectors: "Коннекторы"
+settings_connectors_description: "Управление подключениями к сервисам"
 connector_search: "Поиск коннекторов"
 connector_empty: "Нет подключений"
 connector_not_connected: "Не подключено"

@@ -1,4 +1,5 @@
 settings_connectors: "连接器"
+settings_connectors_description: "管理服务连接"
 connector_search: "搜索连接器"
 connector_empty: "暂无连接"
 connector_not_connected: "未连接"

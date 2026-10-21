@@ -13,12 +13,7 @@ use gpui_kit::component::{
 
 impl Render for Panel {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let content = v_flex().gap_6().child(self.section(self.kind, cx));
-        if self.kind == Kind::Ocr {
-            content.child(self.section(Kind::Decision, cx))
-        } else {
-            content
-        }
+        v_flex().gap_6().child(self.section(self.kind, cx))
     }
 }
 

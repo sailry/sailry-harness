@@ -89,6 +89,7 @@ pub enum Section {
     Conversation,
     Terminal,
     Knowledge,
+    Decision,
     Runtime,
     Ocr,
     Backup,
@@ -127,7 +128,12 @@ impl Section {
         ),
         (
             "settings_group_ai",
-            &[Self::Providers, Self::Connectors, Self::Knowledge],
+            &[
+                Self::Providers,
+                Self::Connectors,
+                Self::Knowledge,
+                Self::Decision,
+            ],
         ),
         (
             "settings_group_tools",
@@ -149,7 +155,7 @@ impl Section {
         match self {
             Self::General | Self::Providers | Self::Terminal | Self::Permissions => 100,
             Self::About | Self::Knowledge => 200,
-            Self::Backup => 300,
+            Self::Backup | Self::Decision => 300,
             Self::Appearance | Self::Connections => 200,
             Self::Connectors => 150,
             Self::Conversation => 300,
@@ -169,6 +175,7 @@ impl Section {
             Self::Conversation => "settings_conversation",
             Self::Terminal => "settings_terminal",
             Self::Knowledge => "settings_knowledge",
+            Self::Decision => "settings_decision",
             Self::Runtime => "settings_runtime",
             Self::Ocr => "settings_ocr",
             Self::Backup => "settings_backup",
@@ -195,6 +202,7 @@ impl Section {
             Self::Conversation => return Icon::default().path("reicon:messages/chat-round"),
             Self::Terminal => IconName::SquareTerminal,
             Self::Knowledge => IconName::BookOpen,
+            Self::Decision => return gpui_kit::assets::IconName::BrainCircuit.into(),
             Self::Runtime => IconName::Cpu,
             Self::Ocr => IconName::ALargeSmall,
             Self::Backup => return gpui_kit::assets::IconName::Upload.into(),
@@ -417,6 +425,9 @@ impl Render for Workspace {
             Section::Terminal => self.terminal(window, cx),
             Section::Knowledge => {
                 self.local_models(sailry_protocol::models::Kind::Embedding, window, cx)
+            }
+            Section::Decision => {
+                self.local_models(sailry_protocol::models::Kind::Decision, window, cx)
             }
             Section::Runtime => self.runtime(window, cx),
             Section::Ocr => self.local_models(sailry_protocol::models::Kind::Ocr, window, cx),

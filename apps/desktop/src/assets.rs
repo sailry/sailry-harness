@@ -160,7 +160,9 @@ gpui_kit::assets::icon_assets!(
         Shield,
         Wrench,
         Server,
-        Tag
+        Tag,
+        Plug,
+        BrainCircuit
     ]
 );
 
@@ -633,6 +635,8 @@ mod tests {
             "icons/key-round.svg",
             "icons/link.svg",
             "icons/cloud.svg",
+            "icons/plug.svg",
+            "icons/brain-circuit.svg",
         ] {
             let expected = SettingsAssets.load(path).unwrap().unwrap();
             assert_eq!(Assets.load(path).unwrap().unwrap(), expected);

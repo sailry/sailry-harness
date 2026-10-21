@@ -148,6 +148,27 @@ mod tests {
         }
     }
 
+    #[test]
+    fn settings_headings_resolve() {
+        for language in Language::ALL
+            .into_iter()
+            .filter(|language| *language != Language::System)
+        {
+            let locale = language.resolve([]);
+            for section in [
+                crate::settings::Section::Connectors,
+                crate::settings::Section::Decision,
+            ] {
+                let description = format!("{}_description", section.key());
+                for key in [section.key(), description.as_str()] {
+                    let text = rust_i18n::t!(key, locale = locale);
+                    assert!(!text.trim().is_empty(), "{locale}: {key}");
+                    assert_ne!(text, key, "{locale}: {key}");
+                }
+            }
+        }
+    }
+
     #[gpui_kit::test]
     fn applies_saved_language_on_start(cx: &mut gpui_kit::TestAppContext) {
         let before = rust_i18n::locale().to_string();

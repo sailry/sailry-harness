@@ -1,4 +1,5 @@
 settings_connectors: "コネクター"
+settings_connectors_description: "サービスへの接続を管理"
 connector_search: "コネクターを検索"
 connector_empty: "接続なし"
 connector_not_connected: "未接続"
