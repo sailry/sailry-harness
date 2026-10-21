@@ -75,9 +75,10 @@ third_party_licenses/.
 
 ADK-Rust agent engine and model clients
 The ADK crates use https://github.com/dux-web/adk-rust at
-commit 0636ff57bf2567658b0b169aad45ec696da4211b. The upstream source is
+commit 5322153a79a80fbd77934f5d9313ab4da8f3fc73. The upstream source is
 https://github.com/zavora-ai/adk-rust. The fork includes source-bound provider history replay,
-Responses transport policy and explicit OpenCode timeouts. Retained notices,
+Responses transport policy, explicit OpenCode timeouts and handler-owned confirmation
+deadlines. Retained notices,
 licenses and source provenance are in third_party_licenses/adk-model.md.
 
 MCP Rust SDK

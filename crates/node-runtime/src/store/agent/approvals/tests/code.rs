@@ -70,7 +70,6 @@ fn requires_exact_claim_for_plan_lifecycle() {
         assert_eq!(
             resolve(
                 &fixture.database.connection,
-                &fixture.database.approvals,
                 fixture.session,
                 approval.id,
                 Decision::ApproveSession

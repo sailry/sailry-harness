@@ -37,6 +37,8 @@ pub(crate) struct Controls {
     pub(crate) child_observation: Mutex<Option<std::time::Duration>>,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) approval_timeout: Mutex<Option<std::time::Duration>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) approval_expiry: Arc<Notify>,
 }
 
 impl Controls {

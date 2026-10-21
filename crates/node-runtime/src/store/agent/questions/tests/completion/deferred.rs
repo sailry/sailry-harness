@@ -239,7 +239,6 @@ fn closes_nested_submit_in_the_transaction() {
             fixture.database.node,
             None,
             &child,
-            &fixture.database.approvals,
         )
         .unwrap();
         let changes = review::command(

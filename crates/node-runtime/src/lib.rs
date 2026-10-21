@@ -288,10 +288,32 @@ impl Node {
         *self.ingress.agents.child_observation.lock().unwrap() = Some(window);
     }
 
-    /// Shortens ADK's confirmation timeout in isolated approval lifecycle fixtures.
+    /// Shortens the Node approval deadline in isolated lifecycle fixtures.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_approval_timeout_fixture(&self, timeout: std::time::Duration) {
         *self.ingress.agents.approval_timeout.lock().unwrap() = Some(timeout);
+    }
+
+    /// Observes an actual expiry request without guessing its scheduling delay.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn wait_approval_expiry_fixture(&self) {
+        self.ingress.agents.approval_expiry.notified().await;
+    }
+
+    /// Holds an isolated approval transaction before or after its commit claim.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn hold_approval_commit_fixture(
+        &self,
+        after_claim: bool,
+        fail: bool,
+    ) -> Result<
+        (
+            std::sync::Arc<tokio::sync::Notify>,
+            std::sync::mpsc::Sender<()>,
+        ),
+        sailry_protocol::Fault,
+    > {
+        self.ingress.hold_approval_commit(after_claim, fail).await
     }
 
     /// Routes model generations independently from an authorization HTTP fixture.

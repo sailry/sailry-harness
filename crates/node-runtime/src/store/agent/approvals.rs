@@ -12,6 +12,8 @@ mod rules;
 pub(crate) use rules::Binding;
 mod waiting;
 pub(in crate::store) use waiting::{Waiting, cancel, check_waiter, prune};
+#[cfg(any(test, feature = "test-support"))]
+pub(in crate::store) mod fixture;
 
 #[cfg(test)]
 mod tests;
@@ -48,11 +50,12 @@ impl Ingress {
         binding: Option<Binding>,
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
-        let mut pending = waiting::Pending::new(self, turn, &request)?;
+        let pending = waiting::Pending::new(self, turn, &request)?;
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
                 owner: pending.owner,
+                deadline: pending.deadline,
                 request,
                 binding,
                 startup: None,
@@ -62,9 +65,7 @@ impl Ingress {
             })))
             .await
             .map_err(|_| super::super::unavailable())?;
-        let decision = response.await.map_err(|_| super::super::unavailable())?;
-        pending.complete();
-        decision
+        pending.wait(response).await
     }
 
     pub(crate) async fn confirm_code(
@@ -77,11 +78,12 @@ impl Ingress {
         let root = self.worktree_root(startup.worktree).await?;
         self.code.validate(&startup, &root).await?;
         let (reply, response) = oneshot::channel();
-        let mut pending = waiting::Pending::new(self, turn, &request)?;
+        let pending = waiting::Pending::new(self, turn, &request)?;
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
                 owner: pending.owner,
+                deadline: pending.deadline,
                 request,
                 binding: Some(binding),
                 startup: Some(startup),
@@ -91,9 +93,7 @@ impl Ingress {
             })))
             .await
             .map_err(|_| super::super::unavailable())?;
-        let decision = response.await.map_err(|_| super::super::unavailable())?;
-        pending.complete();
-        decision
+        pending.wait(response).await
     }
 
     pub(crate) async fn confirm_connection(
@@ -105,11 +105,12 @@ impl Ingress {
         ssh: Option<sailry_protocol::ssh::Trust>,
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
-        let mut pending = waiting::Pending::new(self, turn, &request)?;
+        let pending = waiting::Pending::new(self, turn, &request)?;
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
                 owner: pending.owner,
+                deadline: pending.deadline,
                 request,
                 binding: Some(binding),
                 startup: None,
@@ -119,9 +120,7 @@ impl Ingress {
             })))
             .await
             .map_err(|_| super::super::unavailable())?;
-        let decision = response.await.map_err(|_| super::super::unavailable())?;
-        pending.complete();
-        decision
+        pending.wait(response).await
     }
 
     pub(crate) async fn authorize(
@@ -347,7 +346,6 @@ pub(super) fn begin_for(
 
 pub(in crate::store) fn resolve(
     db: &Connection,
-    waiting: &Waiting,
     session: SessionId,
     id: ApprovalId,
     decision: Decision,
@@ -399,15 +397,37 @@ pub(in crate::store) fn resolve(
             .ok_or_else(|| Fault::invalid("tool approval has no captured owner"))?;
         rules::validate(db, approval.turn, &request(db, &approval)?, &binding)?;
         rules::insert(db, &run, &binding, choice, id)?;
-        if *choice == ApprovalChoice::Session {
-            rules::apply_session(db, waiting, &run, &binding)?;
-        }
     }
     approval.state = state;
     approval.choice = choice;
     approval.reason = reason;
     put(db, &approval)?;
     Ok(approval)
+}
+
+/// Claims the decision immediately before the actor commits its transaction.
+/// Expiry can only be answered by this actor after the commit attempt has finished.
+pub(in crate::store) fn claim(
+    db: &Connection,
+    waiting: &Waiting,
+    output: &Output,
+) -> Result<(), Fault> {
+    let Output::Approval(approval) = output else {
+        return Ok(());
+    };
+    check_waiter(waiting, approval.id)?;
+    if approval.choice == Some(ApprovalChoice::Session) {
+        let run = runs::get(db, approval.turn)?;
+        // Repeating an already committed choice remains idempotent after its run
+        // ends. New decisions were checked by resolve in this same transaction.
+        if run.status != Status::Running {
+            return Ok(());
+        }
+        let binding = rules::read(db, approval.id)?
+            .ok_or_else(|| Fault::invalid("tool approval has no captured owner"))?;
+        rules::apply_session(db, waiting, &run, &binding)?;
+    }
+    Ok(())
 }
 
 fn matches_decision(approval: &Approval, decision: &Decision) -> bool {

@@ -105,7 +105,6 @@ fn distinguishes_confined_and_unrestricted_authority() {
                     assert_eq!(
                         resolve(
                             &fixture.database.connection,
-                            &fixture.database.approvals,
                             fixture.session,
                             approval.id,
                             decision

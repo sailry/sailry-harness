@@ -471,9 +471,13 @@ Delegated work uses the same ADK engine and history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
-ADK bounds a tool-confirmation handler to five minutes. When that wait times out
-or is cancelled, Node closes its matching pending approval; a late decision cannot
-approve the call or save a session rule. Timeout denial can continue the same turn.
+Node owns each tool approval's five-minute deadline, with ADK explicitly delegating
+that bound to its handler. Expiry requests a decision from the same storage actor that
+commits approvals and session rules; it never independently denies a call during commit.
+A closed or expired wait before the actor's commit claim returns a conflict and leaves no
+rule or approved receipt. A commit claimed first settles before expiry is answered.
+Timeout denial can continue the same turn; later turn cancellation can still stop an
+approved tool before execution.
 
 Partial text and reasoning use the Node's bounded, ordered in-memory conversation
 feed without entering the storage worker queue. Publication checks active turn

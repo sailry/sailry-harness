@@ -161,19 +161,19 @@ process-wrap = { version = "=10.0.0", default-features = false, features = ["tok
 libghostty-vt = { git = "https://github.com/sailry/libghostty-rs.git", rev = "0b239afc87748c2a4bced30194a87f075a474a4b", default-features = false, features = ["kitty-graphics"] }
 windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 windows = { version = "=0.62.2", features = ["Win32_System_Com", "Win32_UI_Shell"] }
-adk-browser = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false }
-adk-eval = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false }
+adk-browser = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false }
+adk-eval = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false }
 cpal = "=0.18.2"
-adk-sandbox = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false, features = ["sandbox-macos", "sandbox-linux"] }
-adk-core = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false }
-adk-gemini = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false }
-adk-session = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false }
-adk-runner = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false }
-adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false }
-adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false, features = ["openai", "openai-ws", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
-adk-tool = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false, features = ["mcp"] }
+adk-sandbox = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false, features = ["sandbox-macos", "sandbox-linux"] }
+adk-core = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false }
+adk-gemini = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false }
+adk-session = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false }
+adk-runner = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false }
+adk-agent = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false }
+adk-model = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false, features = ["openai", "openai-ws", "anthropic", "gemini", "deepseek", "opencode", "azure-ai"] }
+adk-tool = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false, features = ["mcp"] }
 rmcp = { version = "=3.5.1", default-features = false, features = ["auth", "client", "transport-async-rw", "transport-streamable-http-client-reqwest"] }
-adk-acp = { git = "https://github.com/dux-web/adk-rust.git", rev = "0636ff57bf2567658b0b169aad45ec696da4211b", default-features = false }
+adk-acp = { git = "https://github.com/dux-web/adk-rust.git", rev = "5322153a79a80fbd77934f5d9313ab4da8f3fc73", default-features = false }
 async-trait = "=0.1.92"
 chrono = { version = "=0.4.45", features = ["serde"] }
 chrono-tz = "=0.10.4"

@@ -1,15 +1,25 @@
-//! A handler's lifetime owns its pending Node approval, including ADK timeout drops.
+//! The storage actor settles approval expiry and durable decisions in one order.
 use super::*;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Instant};
 
-pub(in crate::store) type Waiting =
-    BTreeMap<ApprovalId, (TurnId, RequestId, oneshot::Sender<Result<Decision, Fault>>)>;
+pub(in crate::store) type Waiting = BTreeMap<
+    ApprovalId,
+    (
+        TurnId,
+        RequestId,
+        Instant,
+        Option<oneshot::Sender<Result<Decision, Fault>>>,
+    ),
+>;
 
 pub(super) struct Pending {
     sender: tokio::sync::mpsc::Sender<Job>,
     turn: TurnId,
     call: String,
     pub(super) owner: RequestId,
+    pub(super) deadline: Instant,
+    #[cfg(any(test, feature = "test-support"))]
+    expiry: Arc<tokio::sync::Notify>,
     complete: bool,
 }
 
@@ -19,7 +29,18 @@ impl Pending {
         turn: TurnId,
         request: &ToolConfirmationRequest,
     ) -> Result<Self, Fault> {
+        let timeout = adk_core::DEFAULT_TOOL_CONFIRMATION_TIMEOUT;
+        #[cfg(any(test, feature = "test-support"))]
+        let timeout = ingress
+            .agents
+            .approval_timeout
+            .lock()
+            .unwrap()
+            .unwrap_or(timeout);
         Ok(Self {
+            deadline: Instant::now() + timeout,
+            #[cfg(any(test, feature = "test-support"))]
+            expiry: ingress.agents.approval_expiry.clone(),
             sender: ingress.sender.clone(),
             turn,
             call: call_id(request)?.into(),
@@ -28,8 +49,31 @@ impl Pending {
         })
     }
 
-    pub(super) fn complete(&mut self) {
+    fn cancellation(&self) -> Job {
+        Job::Agent(Box::new(Operation::CancelApproval {
+            turn: self.turn,
+            call: self.call.clone(),
+            owner: self.owner,
+        }))
+    }
+
+    pub(super) async fn wait(
+        mut self,
+        mut response: oneshot::Receiver<Result<Decision, Fault>>,
+    ) -> Result<Decision, Fault> {
+        let result = tokio::select! {
+            decision = &mut response => decision,
+            _ = tokio::time::sleep_until(self.deadline.into()) => {
+                // Expiry asks the same owner to settle. A commit already claimed before
+                // the deadline must finish before this wait can become a denial.
+                self.sender.send(self.cancellation()).await.map_err(|_| super::super::super::unavailable())?;
+                #[cfg(any(test, feature = "test-support"))]
+                self.expiry.notify_one();
+                response.await
+            }
+        };
         self.complete = true;
+        result.map_err(|_| super::super::super::unavailable())?
     }
 }
 
@@ -39,26 +83,17 @@ impl Drop for Pending {
             return;
         }
         let sender = self.sender.clone();
-        let turn = self.turn;
-        let call = self.call.clone();
-        let owner = self.owner;
+        let job = self.cancellation();
         tokio::spawn(async move {
-            let _ = sender
-                .send(Job::Agent(Box::new(Operation::CancelApproval {
-                    turn,
-                    call,
-                    owner,
-                })))
-                .await;
+            let _ = sender.send(job).await;
         });
     }
 }
 
 pub(in crate::store) fn check_waiter(waiting: &Waiting, id: ApprovalId) -> Result<(), Fault> {
-    if waiting
-        .get(&id)
-        .is_some_and(|(_, _, reply)| reply.is_closed())
-    {
+    if waiting.get(&id).is_some_and(|(_, _, deadline, reply)| {
+        reply.as_ref().is_none_or(oneshot::Sender::is_closed) || Instant::now() >= *deadline
+    }) {
         return Err(Fault::new(
             ErrorCode::Conflict,
             "approval is no longer awaited",
@@ -74,7 +109,9 @@ pub(in crate::store) fn prune(
     let closed: Vec<_> = database
         .approvals
         .iter()
-        .filter(|(_, (_, _, reply))| reply.is_closed())
+        .filter(|(_, (_, _, deadline, reply))| {
+            reply.as_ref().is_none_or(oneshot::Sender::is_closed) || Instant::now() >= *deadline
+        })
         .map(|(id, _)| *id)
         .collect();
     for id in closed {
@@ -90,27 +127,42 @@ pub(in crate::store) fn cancel(
     owner: RequestId,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<(), Fault> {
-    let id: Option<String> = database
-        .connection
-        .query_row(
-            "SELECT id FROM agent_approvals WHERE turn=?1 AND call=?2",
-            params![turn.to_string(), call],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(storage_error)?;
-    let Some(id) = id else { return Ok(()) };
-    let id = id.parse().map_err(storage_error)?;
-    if database
-        .approvals
-        .get(&id)
-        .is_some_and(|(active_turn, active_owner, _)| {
-            *active_turn == turn && *active_owner == owner
-        })
-    {
-        close(database, id, events)?;
+    let result: Result<(), Fault> = (|| {
+        let id: Option<String> = database
+            .connection
+            .query_row(
+                "SELECT id FROM agent_approvals WHERE turn=?1 AND call=?2",
+                params![turn.to_string(), call],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(storage_error)?;
+        let Some(id) = id else { return Ok(()) };
+        let id = id.parse().map_err(storage_error)?;
+        if database
+            .approvals
+            .get(&id)
+            .is_some_and(|(active_turn, active_owner, _, _)| {
+                *active_turn == turn && *active_owner == owner
+            })
+        {
+            close(database, id, events)?;
+        }
+        Ok(())
+    })();
+    if let Err(error) = &result {
+        // Keep this closed owner until durable cleanup succeeds. Removing it here
+        // would let a late decision treat the still-Pending record as unawaited.
+        for (active_turn, active_owner, _, reply) in database.approvals.values_mut() {
+            if *active_turn == turn
+                && *active_owner == owner
+                && let Some(reply) = reply.take()
+            {
+                let _ = reply.send(Err(error.clone()));
+            }
+        }
     }
-    Ok(())
+    result
 }
 
 fn close(
@@ -127,7 +179,9 @@ fn close(
     put(&transaction, &approval)?;
     let envelope = changed(&transaction, database.node, approval.session)?;
     transaction.commit().map_err(storage_error)?;
-    database.approvals.remove(&id);
+    if let Some((_, _, _, Some(reply))) = database.approvals.remove(&id) {
+        let _ = reply.send(Ok(Decision::Deny));
+    }
     let _ = events.send(envelope);
     database
         .feeds

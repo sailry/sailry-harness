@@ -437,7 +437,7 @@ fn resolved(database: &mut Database, approval: &Approval) {
         approval.session,
         Change::Approval(approval.clone()),
     );
-    if let Some((_, _, reply)) = database.approvals.remove(&approval.id) {
+    if let Some((_, _, _, Some(reply))) = database.approvals.remove(&approval.id) {
         let decision = match approval.state {
             ApprovalState::Approved => Decision::Approve,
             ApprovalState::Denied => approval

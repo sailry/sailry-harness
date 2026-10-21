@@ -181,6 +181,7 @@ pub(super) enum Operation {
     Confirm {
         turn: TurnId,
         owner: RequestId,
+        deadline: std::time::Instant,
         request: adk_core::ToolConfirmationRequest,
         binding: Option<ApprovalBinding>,
         startup: Option<sailry_protocol::code::Startup>,
@@ -192,6 +193,11 @@ pub(super) enum Operation {
         turn: TurnId,
         call: String,
         owner: RequestId,
+    },
+    #[cfg(any(test, feature = "test-support"))]
+    ApprovalCommitFixture {
+        gate: approvals::fixture::Commit,
+        reply: oneshot::Sender<()>,
     },
     Authorize {
         turn: TurnId,
@@ -794,6 +800,7 @@ pub(super) fn execute(
         Operation::Confirm {
             turn,
             owner,
+            deadline,
             request,
             binding,
             startup,
@@ -801,7 +808,8 @@ pub(super) fn execute(
             prepared,
             reply,
         } => {
-            if reply.is_closed() {
+            if reply.is_closed() || std::time::Instant::now() >= deadline {
+                let _ = reply.send(Ok(Decision::Deny));
                 return;
             }
             match approvals::begin_for(
@@ -820,12 +828,19 @@ pub(super) fn execute(
                     let _ = reply.send(Ok(Decision::Approve));
                 }
                 Ok(approval) => {
-                    database.approvals.insert(approval.id, (turn, owner, reply));
+                    database
+                        .approvals
+                        .insert(approval.id, (turn, owner, deadline, Some(reply)));
                 }
                 Err(error) => {
                     let _ = reply.send(Err(error));
                 }
             }
+        }
+        #[cfg(any(test, feature = "test-support"))]
+        Operation::ApprovalCommitFixture { gate, reply } => {
+            database.approval_commit = Some(gate);
+            let _ = reply.send(());
         }
         Operation::CancelApproval { turn, call, owner } => {
             if let Err(error) = approvals::cancel(database, turn, &call, owner, events) {

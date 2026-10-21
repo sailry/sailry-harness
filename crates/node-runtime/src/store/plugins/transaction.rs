@@ -30,7 +30,6 @@ pub(in crate::store) fn execute(
     caller: NodeId,
     profile: Option<&Path>,
     request: &Request,
-    waiting: &super::super::agent::approvals::Waiting,
 ) -> Result<(Output, Vec<Event>), Fault> {
     let Command::PluginTransaction { operations } = &request.command else {
         unreachable!()
@@ -44,7 +43,7 @@ pub(in crate::store) fn execute(
     for operation in operations {
         let mut child = request.clone();
         child.command = operation.command(package);
-        let (output, event) = commands::execute(db, node, caller, profile, &child, waiting)?;
+        let (output, event) = commands::execute(db, node, caller, profile, &child)?;
         if let Output::QueuedTurn(turn) = &output {
             admitted = Some((turn.session, turn.id));
         }

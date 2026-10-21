@@ -128,14 +128,7 @@ fn raw(db: &Connection) -> Vec<(String, i64, i64, Vec<u8>)> {
 }
 
 fn execute(db: &Connection, request: &Request) -> Result<(Output, Option<Event>), Fault> {
-    crate::store::commands::execute(
-        db,
-        request.target,
-        request.target,
-        None,
-        request,
-        &Default::default(),
-    )
+    crate::store::commands::execute(db, request.target, request.target, None, request)
 }
 fn settings(
     db: &Connection,

@@ -107,7 +107,6 @@ fn mutation(fixture: &mut Fixture, turn: TurnId, command: Command) -> Request {
     .unwrap();
     approvals::resolve(
         &fixture.database.connection,
-        &fixture.database.approvals,
         fixture.session,
         approval.id,
         Decision::Approve,

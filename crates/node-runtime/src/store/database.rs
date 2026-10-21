@@ -21,6 +21,8 @@ pub(super) struct Database {
     pub(super) feeds: super::agent::Feeds,
     pub(super) model_clients: std::sync::Arc<crate::agent::model::registry::Registry>,
     pub(super) approvals: super::agent::approvals::Waiting,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) approval_commit: Option<super::agent::approvals::fixture::Commit>,
     pub(super) questions: super::agent::questions::Waiting,
     pub(super) profile: Option<std::path::PathBuf>,
     pub(super) network_link: Option<sailry_link::LinkHandle>,
@@ -275,6 +277,8 @@ impl Database {
             model_clients: Default::default(),
             local_models: None,
             approvals: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            approval_commit: None,
             questions: Default::default(),
         })
     }
@@ -770,7 +774,8 @@ impl Database {
         request: &Request,
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Response {
-        if matches!(request.command, Command::ResolveApproval { .. }) {
+        let approval = matches!(request.command, Command::ResolveApproval { .. });
+        if approval {
             super::agent::approvals::prune(self, events)?;
         }
         let transaction = self.connection.transaction().map_err(storage_error)?;
@@ -787,7 +792,6 @@ impl Database {
                 caller,
                 self.profile.as_deref(),
                 request,
-                &self.approvals,
             )
         } else if matches!(
             request.command,
@@ -801,7 +805,6 @@ impl Database {
                 caller,
                 self.profile.as_deref(),
                 request,
-                &self.approvals,
             )
             .map(|(output, event)| (output, event.into_iter().collect()))
         };
@@ -856,21 +859,60 @@ impl Database {
                 (Err(error), Vec::new())
             }
         };
-        transaction
-            .execute_batch("RELEASE command")
-            .map_err(storage_error)?;
-        let envelopes = record(&transaction, self.node, changes)?;
-        if request.command.durable() {
+        if !approval {
             transaction
-                .execute(
-                    "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2",
-                    params![
-                        &caller.0[..],
-                        request.id.to_string(),
-                        serde_json::to_string(&result).map_err(storage_error)?
-                    ],
-                )
+                .execute_batch("RELEASE command")
                 .map_err(storage_error)?;
+        }
+        let mut envelopes = record(&transaction, self.node, changes)?;
+        let receipt = |result: &Response| -> Result<(), Fault> {
+            if request.command.durable() {
+                transaction.execute(
+                    "UPDATE requests SET status='completed',result=?3 WHERE caller=?1 AND id=?2",
+                    params![&caller.0[..], request.id.to_string(), serde_json::to_string(result).map_err(storage_error)?],
+                ).map_err(storage_error)?;
+            }
+            Ok(())
+        };
+        receipt(&result)?;
+        #[cfg(any(test, feature = "test-support"))]
+        if approval && result.is_ok() {
+            super::agent::approvals::fixture::wait(&mut self.approval_commit, false, &transaction);
+        }
+        if approval
+            && let Ok(output) = &result
+            && let Err(error) =
+                super::agent::approvals::claim(&transaction, &self.approvals, output)
+        {
+            // The receipt is inside this savepoint too: no stale Approved result or
+            // session rule may survive when expiry won before the commit claim.
+            transaction
+                .execute_batch("ROLLBACK TO command")
+                .map_err(storage_error)?;
+            result = Err(error);
+            envelopes.clear();
+            review_changes.clear();
+            model_configuration = None;
+            receipt(&result)?;
+        }
+        if approval {
+            if let Ok(Output::Approval(approved)) = &result {
+                envelopes = record(
+                    &transaction,
+                    self.node,
+                    vec![super::agent::activity::changed(
+                        &transaction,
+                        approved.session,
+                    )?],
+                )?;
+            }
+            transaction
+                .execute_batch("RELEASE command")
+                .map_err(storage_error)?;
+        }
+        #[cfg(any(test, feature = "test-support"))]
+        if approval && result.is_ok() {
+            super::agent::approvals::fixture::wait(&mut self.approval_commit, true, &transaction);
         }
         transaction.commit().map_err(storage_error)?;
         if let Some(prepared) = model_configuration {

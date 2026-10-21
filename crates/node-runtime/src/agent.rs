@@ -561,6 +561,8 @@ async fn execute_with(
             .with_presentations(catalog.presentations()),
     );
     let run_config = RunConfig {
+        // The Node's storage actor owns expiry and durable approval in one order.
+        tool_confirmation_timeout: None,
         tool_confirmation_handler: Some(Arc::new(approval::Handler {
             ingress: ingress.clone(),
             turn: invocation.turn.id,
@@ -568,16 +570,6 @@ async fn execute_with(
             bindings,
         })),
         ..Default::default()
-    };
-    #[cfg(any(test, feature = "test-support"))]
-    let run_config = RunConfig {
-        tool_confirmation_timeout: ingress
-            .agents
-            .approval_timeout
-            .lock()
-            .unwrap()
-            .unwrap_or(run_config.tool_confirmation_timeout),
-        ..run_config
     };
     let runner = Runner::builder()
         .app_name(APP)
