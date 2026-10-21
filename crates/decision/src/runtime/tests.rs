@@ -49,3 +49,34 @@ fn rejects_nonordinary_runtime_paths() {
     std::os::unix::fs::symlink(&source, &link).unwrap();
     assert!(matches!(ordinary(&link), Err(Error::Unavailable(_))));
 }
+
+#[test]
+#[ignore = "requires the packaged b11756 CPU runtime beside the test executable"]
+fn loads_scored_cpu_backend() {
+    let executable = std::env::current_exe().unwrap();
+    let directory = executable.parent().unwrap();
+    let artifact = verify(directory).unwrap();
+    if !artifact.variants.is_empty() {
+        let selected = cpu::select(directory, &artifact.variants).unwrap();
+        assert!(
+            artifact
+                .variants
+                .iter()
+                .any(|name| selected.file_name() == Some(std::ffi::OsStr::new(name)))
+        );
+        eprintln!(
+            "Selected pinned CPU backend: {}",
+            selected.file_name().unwrap().to_string_lossy()
+        );
+    }
+    let runtime = initialize().unwrap();
+    // SAFETY: the shared runtime retains the verified backend library and its registry.
+    assert!(
+        !unsafe {
+            runtime._backend.ggml_backend_dev_by_type(
+                ffi::backend::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_CPU,
+            )
+        }
+        .is_null()
+    );
+}

@@ -10,6 +10,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+mod cpu;
 
 const LOCK: &str = include_str!("../../../scripts/package/llama-runtime.lock.json");
 static CURRENT: Mutex<Option<Arc<Runtime>>> = Mutex::new(None);
@@ -64,6 +65,11 @@ struct Installed {
     size: u64,
     source_sha256: String,
     sha256: String,
+}
+
+struct Artifact {
+    entry: String,
+    variants: Vec<String>,
 }
 
 pub(crate) fn initialize() -> Result<Arc<Runtime>> {
@@ -170,7 +176,7 @@ fn manifest(directory: &Path) -> PathBuf {
     directory.join("llama-runtime.json")
 }
 
-fn verify(directory: &Path) -> Result<String> {
+fn verify(directory: &Path) -> Result<Artifact> {
     platform()?;
     let identity = target()?;
     let lock: Lock = serde_json::from_str(LOCK)
@@ -232,39 +238,45 @@ fn verify(directory: &Path) -> Result<String> {
             return Err(Error::Unavailable("native runtime checksum does not match"));
         }
     }
-    target
+    let entry = target
         .entry
         .clone()
-        .ok_or(Error::Unavailable("native runtime entry is missing"))
+        .ok_or(Error::Unavailable("native runtime entry is missing"))?;
+    Ok(Artifact {
+        entry,
+        variants: target
+            .files
+            .iter()
+            .filter(|file| cpu::variant(&file.name))
+            .map(|file| file.name.clone())
+            .collect(),
+    })
 }
 
-fn names() -> Result<(&'static str, &'static str, &'static str)> {
+fn names() -> Result<(&'static str, &'static str, Option<&'static str>)> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("macos", _) => Ok((
             "libggml-base.0.dylib",
             "libggml.0.dylib",
-            "libggml-cpu.0.dylib",
+            Some("libggml-cpu.0.dylib"),
         )),
-        ("linux", "x86_64") => Ok(("libggml-base.so.0", "libggml.so.0", "libggml-cpu-x64.so")),
-        ("windows", "x86_64") => Ok(("ggml-base.dll", "ggml.dll", "ggml-cpu-x64.dll")),
-        ("windows", "aarch64") => Ok(("ggml-base.dll", "ggml.dll", "ggml-cpu.dll")),
+        ("linux", "x86_64") => Ok(("libggml-base.so.0", "libggml.so.0", None)),
+        ("windows", "x86_64") => Ok(("ggml-base.dll", "ggml.dll", None)),
+        ("windows", "aarch64") => Ok(("ggml-base.dll", "ggml.dll", Some("ggml-cpu.dll"))),
         _ => Err(Error::Unavailable("CPU backend is unavailable")),
     }
 }
 
 fn load(directory: &Path) -> Result<Runtime> {
-    let entry = verify(directory)?;
+    let artifact = verify(directory)?;
     let (base, backend, cpu) = names()?;
-    let backend_path = ordinary(&directory.join(backend))?;
-    let cpu = ordinary(&directory.join(cpu))?;
-    let cpu = CString::new(cpu.as_os_str().as_encoded_bytes())
-        .map_err(|_| Error::Unavailable("CPU backend path is invalid"))?;
-    // SAFETY: every dependency was verified against the packaged b11756 manifest.
-    let backend = unsafe { ffi::backend::Backend::new(backend_path) }?;
     // SAFETY: the base library and its callback signature share the same pinned tag.
-    let base = unsafe { ffi::base::Base::new(ordinary(&directory.join(base))?) }?;
+    let base = unsafe { ffi::base::Base::from_library(library(&directory.join(base))?) }?;
+    // SAFETY: every dependency was verified against the packaged b11756 manifest.
+    let backend =
+        unsafe { ffi::backend::Backend::from_library(library(&directory.join(backend))?) }?;
     // SAFETY: the required public C symbols and by-value layouts are pinned together.
-    let api = unsafe { ffi::Llama::new(ordinary(&directory.join(entry))?) }?;
+    let api = unsafe { ffi::Llama::from_library(library(&directory.join(artifact.entry))?) }?;
     // SAFETY: the callback captures no data and remains valid for process lifetime.
     unsafe {
         api.llama_log_set(Some(discard), std::ptr::null_mut());
@@ -279,8 +291,17 @@ fn load(directory: &Path) -> Result<Runtime> {
         )
     };
     if device.is_null() {
+        let path = if artifact.variants.is_empty() {
+            ordinary(
+                &directory.join(cpu.ok_or(Error::Unavailable("CPU backend variants are missing"))?),
+            )?
+        } else {
+            cpu::select(directory, &artifact.variants)?
+        };
+        let path = CString::new(path.as_os_str().as_encoded_bytes())
+            .map_err(|_| Error::Unavailable("CPU backend path is invalid"))?;
         // SAFETY: this is one exact, verified CPU library, never a directory scan.
-        if unsafe { backend.ggml_backend_load(cpu.as_ptr()) }.is_null() {
+        if unsafe { backend.ggml_backend_load(path.as_ptr()) }.is_null() {
             return Err(Error::Unavailable("CPU backend could not be loaded"));
         }
         // SAFETY: the explicit backend load just registered its devices.
@@ -303,6 +324,29 @@ fn load(directory: &Path) -> Result<Runtime> {
         _backend: backend,
         _base: base,
     })
+}
+
+fn library(path: &Path) -> Result<libloading::Library> {
+    let path = ordinary(path)?;
+    #[cfg(windows)]
+    {
+        use libloading::os::windows::{
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32, Library,
+        };
+        // SAFETY: load only the verified absolute file and its colocated or OS dependencies.
+        let library = unsafe {
+            Library::load_with_flags(
+                path,
+                LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+            )
+        }?;
+        Ok(library.into())
+    }
+    #[cfg(not(windows))]
+    {
+        // SAFETY: the ordinary file was verified against the packaged b11756 manifest.
+        Ok(unsafe { libloading::Library::new(path) }?)
+    }
 }
 
 unsafe extern "C" fn discard(_: ffi::ggml_log_level, _: *const std::ffi::c_char, _: *mut c_void) {}

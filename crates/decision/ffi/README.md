@@ -29,5 +29,12 @@ Upstream code is MIT licensed; its license is preserved in `LICENSE-llama.cpp`.
 The loader validates the packaged b11756 manifest and each ordinary native file
 against `scripts/package/llama-runtime.lock.json`, including source member hashes
 and the actual signed bytes on macOS. It loads one explicit CPU backend. Linux
-and Windows x86-64 use the portable `cpu-x64` variant. It never scans a directory,
-loads a system runtime, or invokes private/staging decision APIs.
+and Windows x86-64 score only the CPU plugins listed in that lock, selecting the
+highest positive score supported by the current CPU. `ggml_backend_score` is the
+exported `int(void)` plugin entry declared by `ggml/src/ggml-backend-impl.h`
+(SHA-256 `4e861c8e23d3d7b0d99d8e0836e68564af58f8597d75d7bbb732857d7a632fa7`).
+The same tag's CPU CMake target compiles that detector without ISA flags or LTO.
+The public `ggml_backend_load` validates the selected plugin's API version before
+registering it. Windows resolves DLL dependencies from the verified program
+directory and System32. The loader never scans a directory, loads a system
+runtime, or invokes private/staging decision APIs.
