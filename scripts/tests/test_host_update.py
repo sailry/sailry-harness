@@ -221,5 +221,141 @@ if name != 'restorecon': os.execv(tools[name], [name, *arguments])
         self.assertEqual(list(self.program.parent.glob(".sailry-previous-*")), [self.retained])
 
 
+class MacUpdate(Fixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.home.rename(self.root / "private home")
+        self.home = self.root / "private home"
+        self.environment["HOME"] = str(self.home)
+        self.program = self.home / ".local/lib/sailry"
+        self.link = self.home / ".local/bin/sailry"
+        self.unit = self.home / "Library/LaunchAgents/ai.sailry.host.plist"
+        self.active = self.root / "active"
+        self.failure = self.root / "failure"
+        self.environment.update({
+            "SAILRY_FIXTURE_ACTIVE": str(self.active),
+            "SAILRY_FIXTURE_FAILURE": str(self.failure),
+        })
+        self.tool("uname", '#!/bin/sh\nif test "$1" = -s; then echo Darwin; else echo arm64; fi\n')
+        self.tool("launchctl", f'#!{sys.executable}\n' + '''import os, pathlib, sys
+arguments = sys.argv[1:]
+action = arguments[0]
+active = pathlib.Path(os.environ['SAILRY_FIXTURE_ACTIVE'])
+failure = pathlib.Path(os.environ['SAILRY_FIXTURE_FAILURE'])
+phase = failure.read_text() if failure.exists() else ''
+with open(os.environ['SAILRY_FIXTURE_LOG'], 'a') as log:
+    log.write('launchctl ' + ' '.join(arguments) + '\\n')
+if action == 'print':
+    if arguments[1] == 'gui/1000': raise SystemExit(0)
+    raise SystemExit(0 if active.read_text() == 'active' else 113)
+if action == 'bootout':
+    if phase in ('stop', 'rollback-stop'):
+        failure.unlink()
+        sys.stderr.write('fixture launchctl permission failure\\n')
+        raise SystemExit(17)
+    if active.read_text() == 'inactive':
+        with open(os.environ['SAILRY_FIXTURE_LOG'], 'a') as log: log.write('bootout absent\\n')
+        sys.stderr.write('Boot-out failed: 3: No such process\\n')
+        raise SystemExit(3)
+    active.write_text('inactive')
+if action == 'bootstrap':
+    if phase in ('start', 'start-active', 'recovery'):
+        if phase == 'start-active': active.write_text('active')
+        if phase == 'recovery': failure.write_text('rollback-stop')
+        else: failure.unlink()
+        sys.stderr.write('fixture launchctl bootstrap failure\\n')
+        raise SystemExit(17)
+    active.write_text('active')
+''')
+        target = "aarch64-apple-darwin"
+        original = self.assets / "sailry-host-aarch64-unknown-linux-gnu.tar.gz"
+        archive = self.assets / f"sailry-host-{target}.tar.gz"
+        shutil.copyfile(original, archive)
+        checksum = (self.assets / "SHA256SUMS-aarch64-unknown-linux-gnu").read_text()
+        (self.assets / f"SHA256SUMS-{target}").write_text(
+            checksum.replace("aarch64-unknown-linux-gnu", target))
+
+    def existing(self, active):
+        shutil.copytree(self.root / f"package-{VERSION}", self.program, symlinks=True)
+        (self.program / "sailry").chmod(0o700)
+        self.link.parent.mkdir(parents=True)
+        self.link.symlink_to(self.program / "sailry")
+        self.unit.parent.mkdir(parents=True)
+        self.unit.write_bytes(b"existing launch agent and network settings\n")
+        self.unit.chmod(0o600)
+        profile = self.home / ".sailry-host"
+        profile.mkdir()
+        (profile / "link.key").write_bytes(b"existing identity")
+        (profile / "marker").write_bytes(b"existing data")
+        self.active.write_text("active" if active else "inactive")
+        self.retained = self.program.parent / ".sailry-previous-retained"
+        self.retained.mkdir()
+        (self.retained / "marker").write_bytes(b"previous backup")
+
+    def update(self):
+        return self.install("--update")
+
+    def fails(self, phase, *, active=True):
+        self.existing(active)
+        before = HostUpdate.tree(self.program)
+        profile = HostUpdate.tree(self.home / ".sailry-host")
+        unit = self.unit.read_bytes()
+        self.failure.write_text(phase)
+        result = self.update()
+        self.assertEqual(result.returncode, 17, result.stderr)
+        self.assertFalse(self.failure.exists(), result.stderr)
+        self.assertIn("the previous installation was restored", result.stderr)
+        self.assertEqual(HostUpdate.tree(self.program), before)
+        self.assertEqual(self.link.readlink(), self.program / "sailry")
+        self.assertEqual(self.unit.read_bytes(), unit)
+        self.assertEqual(stat.S_IMODE(self.unit.stat().st_mode), 0o600)
+        self.assertEqual(HostUpdate.tree(self.home / ".sailry-host"), profile)
+        self.assertEqual(self.active.read_text(), "active" if active else "inactive")
+        self.assertEqual(list(self.program.parent.glob(".sailry-previous-*")), [self.retained])
+        self.assertFalse(list(self.program.parent.glob(".sailry-install-*")))
+        retry = self.update()
+        self.assertEqual(retry.returncode, 0, retry.stderr)
+        self.assertEqual(self.active.read_text(), "active")
+        self.assertEqual(HostUpdate.tree(self.home / ".sailry-host"), profile)
+        self.assertEqual(self.unit.read_bytes(), unit)
+        backups = set(self.program.parent.glob(".sailry-previous-*")) - {self.retained}
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(HostUpdate.tree(backups.pop()), before)
+        self.assertEqual((self.retained / "marker").read_bytes(), b"previous backup")
+        return result
+
+    def test_restores_after_unloaded_start_failure(self):
+        self.fails("start")
+        self.assertIn("bootout absent", self.log.read_text())
+
+    def test_restores_after_partial_start(self):
+        self.fails("start-active")
+
+    def test_preserves_inactive_services(self):
+        self.fails("start", active=False)
+        self.assertIn("bootout absent", self.log.read_text())
+
+    def test_keeps_real_stop_failures(self):
+        result = self.fails("stop")
+        self.assertIn("fixture launchctl permission failure", result.stderr)
+
+    def test_retains_files_after_recovery_failure(self):
+        self.existing(True)
+        before = HostUpdate.tree(self.program)
+        profile = HostUpdate.tree(self.home / ".sailry-host")
+        self.failure.write_text("recovery")
+        result = self.update()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(self.failure.exists(), result.stderr)
+        self.assertIn("Host recovery failed", result.stderr)
+        self.assertIn("fixture launchctl permission failure", result.stderr)
+        self.assertNotIn("the previous installation was restored", result.stderr)
+        backups = set(self.program.parent.glob(".sailry-previous-*")) - {self.retained}
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(HostUpdate.tree(backups.pop()), before)
+        self.assertEqual(HostUpdate.tree(self.home / ".sailry-host"), profile)
+        self.assertEqual(len(list(self.program.parent.glob(".sailry-install-*"))), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

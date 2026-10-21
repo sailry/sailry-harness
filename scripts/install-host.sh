@@ -90,9 +90,17 @@ task_changing=0
 task_starting=0
 task_complete=0
 task_active=0
+task_stop() {
+  local task_output task_status=0
+  task_output="$("$1/sailry" stop 2>&1)" || task_status=$?
+  # launchctl reports ESRCH when this managed service target is not loaded.
+  if test "$task_status" = 3 && test "$(uname -s)" = Darwin; then return 0; fi
+  if test -n "$task_output"; then printf '%s\n' "$task_output" >&2; fi
+  return "$task_status"
+}
 task_rollback() {
   if test "$task_starting" = 1; then
-    "$task_backup/sailry" stop || return
+    task_stop "$task_backup" || return
   fi
   if test -d "$task_backup"; then
     if test -e "$task_root" || test -L "$task_root"; then
@@ -176,7 +184,7 @@ if test "$task_update" = 1; then
   rmdir "$task_backup"
   if "$task_existing/sailry" status >/dev/null 2>&1; then task_active=1; fi
   task_changing=1
-  "$task_existing/sailry" stop
+  task_stop "$task_existing"
   mv "$task_existing" "$task_backup"
 fi
 mv "$task_stage/package" "$task_root"
