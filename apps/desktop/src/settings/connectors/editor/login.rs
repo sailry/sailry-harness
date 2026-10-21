@@ -263,7 +263,11 @@ impl Editor {
                             }
                             this.pending = false;
                             this.flow = interactive.then_some(LoginState::Failed(error.clone()));
-                            failure(error, window, cx);
+                            if editing {
+                                failure(error, window, cx);
+                            } else {
+                                crate::feedback::error("", &tr(failure_key(error.code)), window, cx);
+                            }
                         }
                     }
                     this.reconcile(cx);
@@ -317,5 +321,35 @@ impl Editor {
         ))
         .on_refresh(move |window, cx| owner.update(cx, |this, cx| this.submit(false, window, cx)))
         .into_any_element()
+    }
+}
+
+fn failure_key(code: ErrorCode) -> &'static str {
+    match code {
+        ErrorCode::RevisionConflict => "connector_conflict",
+        ErrorCode::OutcomeUnknown => "connector_unknown",
+        _ => "oauth_failed_title",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::failure_key;
+    use sailry_protocol::ErrorCode;
+
+    #[test]
+    fn distinguishes_login_failures_from_expired_accounts() {
+        for code in [
+            ErrorCode::Expired,
+            ErrorCode::PermissionDenied,
+            ErrorCode::Unavailable,
+        ] {
+            assert_eq!(failure_key(code), "oauth_failed_title");
+        }
+        assert_eq!(
+            failure_key(ErrorCode::RevisionConflict),
+            "connector_conflict"
+        );
+        assert_eq!(failure_key(ErrorCode::OutcomeUnknown), "connector_unknown");
     }
 }

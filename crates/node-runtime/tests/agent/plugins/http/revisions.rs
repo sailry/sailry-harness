@@ -287,6 +287,8 @@ async fn fences_changed_inputs_before_failed_relogin() {
             let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(body["auth_revision"], original.revision + 1);
             assert!(body["grant"].is_null());
+            assert_eq!(body["secrets"]["token"], PAT);
+            assert_eq!(body["fields"]["tenant"], "current");
             assert_eq!(captured(), before);
             resource.requests.lock().unwrap().clear();
             resource.status.store(0, Ordering::SeqCst);
@@ -302,7 +304,7 @@ async fn fences_changed_inputs_before_failed_relogin() {
                 panic!("connections expected")
             };
             let failed = rows.iter().find(|row| row.id == original.id).unwrap();
-            assert_eq!(failed.state, State::Failed);
+            assert_eq!(failed.state, State::Connected);
             let LoginState::Connected(connected) = login(&fixture, failed, Input::default()).await
             else {
                 panic!("connected login expected")
@@ -311,19 +313,8 @@ async fn fences_changed_inputs_before_failed_relogin() {
             {
                 let requests = resource.requests.lock().unwrap();
                 assert_eq!(requests.len(), 1);
-                assert!(requests[0].0.starts_with(if edit == "target" {
-                    "GET /other/health "
-                } else {
-                    "GET /current/health "
-                }));
-                assert!(requests[0].0.contains(&format!(
-                    "x-figma-token: {}\r\n",
-                    if edit == "secret" {
-                        "relogin-private-marker"
-                    } else {
-                        PAT
-                    }
-                )));
+                assert!(requests[0].0.starts_with("GET /current/health "));
+                assert!(requests[0].0.contains(&format!("x-figma-token: {PAT}\r\n")));
             }
             let request = fixture
                 .client

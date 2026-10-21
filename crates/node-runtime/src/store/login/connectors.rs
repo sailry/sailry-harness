@@ -633,63 +633,54 @@ fn commit(
     let cancelled = result
         .as_ref()
         .is_err_and(|error| error.code == ErrorCode::Cancelled);
-    let outcome =
-        match result {
-            Ok(target) => {
-                let target = *target;
-                record.identity = target.identity;
-                if replace {
-                    if baseline.revision > 1 {
-                        record.auth_revision = record.revision;
-                    }
-                    record.fields = target.fields;
-                    record.secrets = target.secrets;
-                    record.grant_revision = record
-                        .grant_revision
-                        .checked_add(1)
-                        .filter(|revision| *revision <= i64::MAX as u64)
-                        .ok_or_else(missing)?;
-                    record.grant = target.grant.map(|grant| Grant {
-                        access: grant.access,
-                        refresh: grant.refresh,
-                        expires_at_ms: grant.expires_at_ms,
-                        extra: grant.extra,
-                    });
+    let outcome = match result {
+        Ok(target) => {
+            let target = *target;
+            record.identity = target.identity;
+            if replace {
+                if baseline.revision > 1 {
+                    record.auth_revision = record.revision;
                 }
-                record.state = connector::State::Connected;
-                Ok(())
+                record.fields = target.fields;
+                record.secrets = target.secrets;
+                record.grant_revision = record
+                    .grant_revision
+                    .checked_add(1)
+                    .filter(|revision| *revision <= i64::MAX as u64)
+                    .ok_or_else(missing)?;
+                record.grant = target.grant.map(|grant| Grant {
+                    access: grant.access,
+                    refresh: grant.refresh,
+                    expires_at_ms: grant.expires_at_ms,
+                    extra: grant.extra,
+                });
             }
-            Err(error) => {
-                if cancelled {
-                    if baseline.login.as_ref().is_none_or(|login| {
-                        !connections::login::restore(&mut record, login.attempt)
-                    }) {
-                        return Err(error);
-                    }
-                } else {
-                    record.state =
-                        if matches!(error.code, ErrorCode::PermissionDenied | ErrorCode::Expired) {
-                            record.grant = None;
-                            record.grant_revision = record
-                                .grant_revision
-                                .checked_add(1)
-                                .filter(|revision| *revision <= i64::MAX as u64)
-                                .ok_or_else(missing)?;
-                            connector::State::Expired
-                        } else if record.method == connector::Kind::LocalCli {
-                            connector::State::NotConnected
-                        } else {
-                            connector::State::Failed
-                        };
-                }
-                Err(error)
-            }
-        };
-    if !cancelled {
-        record.checked_at_ms = Some(crate::plugins::connectors::now());
-        if replace {
-            record.login = None;
+            record.state = connector::State::Connected;
+            Ok(())
         }
+        Err(error) => {
+            let previous = record
+                .login
+                .as_ref()
+                .is_some_and(|login| login.previous.is_some());
+            if baseline
+                .login
+                .as_ref()
+                .is_none_or(|login| !connections::login::restore(&mut record, login.attempt))
+            {
+                return Err(error);
+            }
+            if !cancelled && !previous {
+                record.state = connector::State::Failed;
+            }
+            Err(error)
+        }
+    };
+    if outcome.is_ok() {
+        record.checked_at_ms = Some(crate::plugins::connectors::now());
+    }
+    if replace {
+        record.login = None;
     }
     connections::save(&transaction, &record)?;
     let projected = connections::project(&transaction, database.profile.as_deref(), &record)?;

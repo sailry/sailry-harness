@@ -392,11 +392,16 @@ async fn classifies_token_rejections() {
             (401, "unauthorized", true),
             (400, r#"{"error":"invalid_grant"}"#, true),
             (400, r#"{"error":"invalid_client"}"#, true),
+            (400, r#"{"error":"unauthorized_client"}"#, true),
+            (400, r#"{"error":"access_denied"}"#, true),
+            (400, r#"{"error":"expired_token"}"#, true),
             (400, r#"{"error":"temporarily_unavailable"}"#, false),
             (403, r#"{"error":"temporarily_unavailable"}"#, false),
             (503, r#"{"error":"temporarily_unavailable"}"#, false),
             (503, r#"{"error":"invalid_grant"}"#, false),
             (503, r#"{"error":"invalid_client"}"#, false),
+            (503, r#"{"error":"unauthorized_client"}"#, false),
+            (503, "server unavailable", false),
             (302, r#"{"error":"redirect"}"#, false),
         ] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -21,6 +21,16 @@ impl Server {
         refresh: bool,
         error: Option<&str>,
     ) -> Self {
+        Self::serve(dingtalk, expiring, refresh, error, false).await
+    }
+
+    pub(super) async fn serve(
+        dingtalk: bool,
+        expiring: bool,
+        refresh: bool,
+        error: Option<&str>,
+        device: bool,
+    ) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/token", listener.local_addr().unwrap());
@@ -46,7 +56,8 @@ impl Server {
                     assert!(bytes.len() < 32 * 1024);
                 }
                 let headers = String::from_utf8(bytes).unwrap();
-                assert!(headers.starts_with("POST /token HTTP/1.1"));
+                let device_request = device && headers.starts_with("POST /device HTTP/1.1");
+                assert!(device_request || headers.starts_with("POST /token HTTP/1.1"));
                 let size: usize = headers
                     .lines()
                     .find_map(|line| {
@@ -64,7 +75,14 @@ impl Server {
                     .unwrap()
                     .push(String::from_utf8(bytes).unwrap());
                 let count = requests.lock().unwrap().len();
-                let status = responses.load(Ordering::SeqCst);
+                let status = if device_request {
+                    200
+                } else {
+                    responses.load(Ordering::SeqCst)
+                };
+                if device && status == 503 {
+                    responses.store(200, Ordering::SeqCst);
+                }
                 if status == 0 {
                     let _ = socket.read(&mut byte).await;
                     continue;
@@ -72,7 +90,9 @@ impl Server {
                 if status == 1 {
                     continue;
                 }
-                let mut body = if status != 200 {
+                let mut body = if device_request {
+                    serde_json::json!({"verification_uri":"https://issuer.example.com/verify","user_code":"ABCD","device_code":"private-device-marker","expires_in":3,"interval":1}).to_string()
+                } else if status != 200 {
                     let error = error.as_deref().unwrap_or(if status == 400 {
                         "invalid_grant"
                     } else {
@@ -90,7 +110,7 @@ impl Server {
                 } else {
                     r#"{"access_token":"private-access-marker","refresh_token":"private-refresh-marker","expires_in":3600,"token_type":"Bearer"}"#.into()
                 };
-                if status == 200 && !refresh {
+                if status == 200 && !refresh && !device_request {
                     let mut value: serde_json::Value = serde_json::from_str(&body).unwrap();
                     value.as_object_mut().unwrap().remove(if dingtalk {
                         "refreshToken"

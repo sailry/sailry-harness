@@ -2,7 +2,7 @@ use super::*;
 use sailry_protocol::plugin::{Context, connector::State, http};
 use std::sync::atomic::Ordering;
 
-fn request(
+pub(super) fn request(
     package: &plugin::Reference,
     worktree: WorktreeId,
     id: plugin::connector::Id,
@@ -150,12 +150,15 @@ async fn attempt(
 }
 
 #[tokio::test]
-async fn rejects_invalid_clients_without_expiring_temporary_failures() {
+async fn preserves_accounts_when_new_authorization_fails() {
     for remote in [false, true] {
         for initial in [false, true] {
-            for status in [400, 503] {
-                let issuer =
-                    server::Server::respond(false, false, true, Some("invalid_client")).await;
+            for (status, rejected) in [
+                (400, "invalid_client"),
+                (400, "unauthorized_client"),
+                (503, "invalid_client"),
+            ] {
+                let issuer = server::Server::respond(false, false, true, Some(rejected)).await;
                 let (directory, node, controller, client, worktree) = support::empty(remote).await;
                 node.set_connector_fixture("https://issuer.example.com", &issuer.endpoint);
                 configure(&directory.path().join("source/package"));
@@ -191,21 +194,26 @@ async fn rejects_invalid_clients_without_expiring_temporary_failures() {
                 };
                 assert_eq!(
                     rows[0].state,
-                    if status == 400 {
-                        State::Expired
-                    } else {
+                    if initial {
                         State::Failed
+                    } else {
+                        State::Connected
                     }
                 );
                 let after: serde_json::Value =
                     serde_json::from_slice(&lifecycle::stored(&node, rows[0].id)).unwrap();
-                if status == 400 || initial {
+                if initial {
                     assert!(after["grant"].is_null());
                 } else {
                     let before = before.unwrap();
                     assert_eq!(after["grant"], before["grant"]);
                     assert_eq!(after["secrets"], before["secrets"]);
+                    assert_eq!(after["grant_revision"], before["grant_revision"]);
+                    assert_eq!(after["auth_revision"], before["auth_revision"]);
+                    assert_eq!(after["checked_at_ms"], before["checked_at_ms"]);
+                    assert_eq!(after["revision"], before["revision"].as_u64().unwrap() + 1);
                 }
+                assert!(after["login"].is_null());
                 controller.close().await.unwrap();
                 node.shutdown().await.unwrap();
             }

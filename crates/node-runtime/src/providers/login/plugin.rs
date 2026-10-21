@@ -257,14 +257,10 @@ pub(crate) async fn request(
     stop: &CancellationToken,
 ) -> Result<Value, Fault> {
     let (status, document) = response(service, endpoint, fields, stop).await?;
-    if rejected(status, &document) {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "authorization was rejected; sign in again",
-        ));
-    }
-    if !status.is_success() {
-        return Err(super::unavailable());
+    match classify(status, &document) {
+        Status::Rejected => return Err(rejected()),
+        Status::Success => {}
+        _ => return Err(super::unavailable()),
     }
     Ok(document)
 }
@@ -276,25 +272,50 @@ async fn refresh_request(
     stop: &CancellationToken,
 ) -> Result<Value, Fault> {
     let (status, document) = response_with(service, endpoint, fields, stop, true, false).await?;
-    if rejected(status, &document) {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "authorization refresh was rejected; sign in again",
-        ));
-    }
-    if !status.is_success() {
-        return Err(uncertain());
+    match classify(status, &document) {
+        Status::Rejected => return Err(rejected()),
+        Status::Success => {}
+        _ => return Err(uncertain()),
     }
     Ok(document)
 }
 
-fn rejected(status: reqwest::StatusCode, document: &Value) -> bool {
-    status.as_u16() == 401
-        || !status.is_server_error()
-            && matches!(
-                document.get("error").and_then(Value::as_str),
-                Some("invalid_grant" | "invalid_client")
-            )
+#[derive(PartialEq, Eq)]
+enum Status {
+    Success,
+    Pending,
+    SlowDown,
+    Rejected,
+    Temporary,
+    Invalid,
+}
+
+fn classify(status: reqwest::StatusCode, document: &Value) -> Status {
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        return Status::Rejected;
+    }
+    if status.is_server_error() {
+        return Status::Temporary;
+    }
+    match document.get("error").and_then(Value::as_str) {
+        Some(
+            "invalid_grant"
+            | "invalid_client"
+            | "unauthorized_client"
+            | "access_denied"
+            | "expired_token",
+        ) => Status::Rejected,
+        Some("authorization_pending") => Status::Pending,
+        Some("slow_down") => Status::SlowDown,
+        Some("temporarily_unavailable" | "server_error") => Status::Temporary,
+        Some(_) => Status::Invalid,
+        None if status.is_success() => Status::Success,
+        None => Status::Temporary,
+    }
+}
+
+fn rejected() -> Fault {
+    Fault::new(ErrorCode::PermissionDenied, "authorization was rejected")
 }
 
 fn uncertain() -> Fault {
@@ -371,7 +392,7 @@ async fn response_with(
             Ok((status,body))
         } => {
             let (status, body) = result?;
-            if status.as_u16() == 401 {return Ok((status,Value::Null))}
+            if status.as_u16() == 401 || status.is_server_error() {return Ok((status,Value::Null))}
             match serde_json::from_slice(&body) { Ok(document)=>Ok((status,document)), Err(_) if error_document && !status.is_success()=>Ok((status,Value::Null)), Err(_)=>Err(invalid()) }
         }
     }

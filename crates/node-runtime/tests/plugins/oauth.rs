@@ -3,6 +3,8 @@ use super::*;
 use plugin::connector::{Attempt, Input, Kind, LoginState};
 use serde_json::json;
 use std::collections::BTreeMap;
+#[path = "oauth/attempts.rs"]
+mod attempts;
 #[path = "oauth/cancellation.rs"]
 mod cancellation;
 #[path = "oauth/consent.rs"]

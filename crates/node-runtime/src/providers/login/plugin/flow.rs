@@ -113,14 +113,21 @@ where
                     tokio::select! {biased; _ = stop.cancelled() => return Err(cancelled()), _ = tokio::time::sleep(interval) => {}}
                     let (status, value) =
                         response(&input.service, &token, &input.fields, &stop).await?;
-                    if status.is_success()
+                    let classified = classify(status, &value);
+                    if classified == Status::Rejected {
+                        return Err(rejected());
+                    }
+                    if classified == Status::Success
                         && value
                             .pointer(&success.pointer)
                             .is_some_and(|value| success.values.contains(value))
                     {
                         break value;
                     }
-                    if !status.is_success() {
+                    if classified == Status::Temporary {
+                        continue;
+                    }
+                    if classified == Status::Invalid {
                         return Err(super::super::http_error(status));
                     }
                 }
@@ -467,6 +474,16 @@ impl Pending {
         {
             return Err(invalid());
         }
+        if values.contains_key("error") {
+            let document = serde_json::to_value(&values).map_err(|_| invalid())?;
+            return Err(
+                if classify(reqwest::StatusCode::BAD_REQUEST, &document) == Status::Rejected {
+                    rejected()
+                } else {
+                    invalid()
+                },
+            );
+        }
         values
             .remove("code")
             .filter(|value| !value.is_empty())
@@ -548,26 +565,17 @@ async fn poll(
             return Err(super::super::expired());
         }
         let (status, document) = response(service, endpoint, fields, stop).await?;
-        if status.is_server_error() {
-            return Err(super::super::unavailable());
-        }
-        match document.get("error").and_then(Value::as_str) {
-            Some("authorization_pending") => continue,
-            Some("slow_down") => {
+        match classify(status, &document) {
+            Status::Pending | Status::Temporary => continue,
+            Status::SlowDown => {
                 interval = interval
                     .checked_add(Duration::from_secs(5))
                     .ok_or_else(invalid)?;
                 continue;
             }
-            Some("access_denied" | "expired_token" | "invalid_grant" | "invalid_client") => {
-                return Err(Fault::new(
-                    ErrorCode::PermissionDenied,
-                    "model authorization failed; sign in again",
-                ));
-            }
-            Some(_) => return Err(invalid()),
-            None if status.is_success() => return Ok(document),
-            None => return Err(super::super::http_error(status)),
+            Status::Rejected => return Err(rejected()),
+            Status::Invalid => return Err(invalid()),
+            Status::Success => return Ok(document),
         }
     }
 }
