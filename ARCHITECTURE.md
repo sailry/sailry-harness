@@ -199,8 +199,9 @@ individual model may load alone. Cancellation reaches queued work and active
 engine stages; removal invalidates captures and unloads the engine before deleting
 owned assets. Desktop shares one model panel per Node while speech remains local
 to its controller. Changing a kind's selection or enable choice cancels only that
-kind's work. Registering definitions and saving unchanged choices preserve ongoing
-work. Mirror changes cancel only downloads whose asset URLs change.
+kind's inference; its installations continue. Registering definitions and saving
+unchanged choices preserve ongoing work. Mirror changes cancel only downloads
+whose asset URLs change.
 
 Local decision requests use typed binary, choice and score questions through the
 same nondurable local and remote protocol. The `decisions.run` action permits

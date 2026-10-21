@@ -31,8 +31,7 @@ fn ocr() -> Registration {
 
 fn transfer(owner: &Registry, id: &str) -> CancellationToken {
     let mut state = owner.state.lock().unwrap();
-    let kind = state.definitions[id].format.kind();
-    let cancel = state.scopes[&kind].child_token();
+    let cancel = owner.stop.child_token();
     state.transfers.insert(
         id.into(),
         Transfer {
@@ -44,7 +43,7 @@ fn transfer(owner: &Registry, id: &str) -> CancellationToken {
 }
 
 #[tokio::test]
-async fn preserves_downloads_until_their_kind_changes() {
+async fn preserves_downloads_across_kind_changes() {
     let fixture = Fixture::new().await;
     let decision = decision();
     let mut records = vec![fixture.record.clone(), decision.clone()];
@@ -71,7 +70,7 @@ async fn preserves_downloads_until_their_kind_changes() {
     settings.choices.get_mut(&Kind::Decision).unwrap().model = Some(decision.id.clone());
     settings.revision += 1;
     fixture.owner.configure(settings.clone(), &records).unwrap();
-    assert!(downloading.is_cancelled());
+    assert!(!downloading.is_cancelled());
     assert_eq!(
         fixture
             .owner
@@ -80,13 +79,16 @@ async fn preserves_downloads_until_their_kind_changes() {
             .code,
         ErrorCode::RevisionConflict
     );
-    let downloading = transfer(&fixture.owner, &decision.id);
     settings.choices.get_mut(&Kind::Decision).unwrap().enabled = false;
     settings.revision += 1;
     fixture.owner.configure(settings, &records).unwrap();
-    assert!(downloading.is_cancelled());
+    assert!(!downloading.is_cancelled());
     fixture.owner.current(&embedding).unwrap();
+    assert!(fixture.owner.cancel(&decision.id));
+    assert!(downloading.is_cancelled());
+    let downloading = transfer(&fixture.owner, &decision.id);
     fixture.owner.shutdown().await;
+    assert!(downloading.is_cancelled());
 }
 
 #[tokio::test]

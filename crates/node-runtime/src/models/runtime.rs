@@ -99,6 +99,11 @@ impl Drop for Pending {
 }
 
 impl Runtime {
+    #[cfg(test)]
+    pub(super) fn pending_background(&self) -> usize {
+        self.background.max_capacity() - self.background.capacity()
+    }
+
     pub(crate) fn new(stop: CancellationToken) -> Self {
         let (interactive, interactive_jobs) = mpsc::channel(8);
         let (background, background_jobs) = mpsc::channel(4);

@@ -65,11 +65,7 @@ impl Registry {
             if state.installed.contains_key(id) {
                 return Ok(());
             }
-            let stop = state
-                .scopes
-                .get(&kind)
-                .expect("Node model kind exists")
-                .child_token();
+            let stop = self.stop.child_token();
             state.transfers.insert(
                 id.into(),
                 Transfer {
@@ -133,11 +129,7 @@ impl Registry {
                     definition: definition.clone(),
                     directory: directory.clone(),
                     stamp,
-                    cancel: state
-                        .scopes
-                        .get(&kind)
-                        .expect("Node model kind exists")
-                        .clone(),
+                    cancel: stop.clone(),
                     epoch: *state.epochs.get(id).unwrap_or(&0),
                 }
             };

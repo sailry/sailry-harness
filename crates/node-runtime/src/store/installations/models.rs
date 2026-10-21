@@ -39,6 +39,9 @@ pub(in crate::store) fn submit(
         kind: definition.format.kind(),
         id: id.clone(),
     };
+    let removing =
+        matches!(execution.request.command, Command::DeleteLocalModel { .. }).then(|| id.clone());
+    let models = ingress.local_models.clone();
     let request = execution.request.clone();
     let execution = Execution {
         caller: execution.caller,
@@ -47,10 +50,17 @@ pub(in crate::store) fn submit(
         operation: true,
         observe: !matches!(request.command, Command::DeleteLocalModel { .. }),
     };
-    worker.submit(execution, resource, move |reporter, stop| async move {
+    let result = worker.submit(execution, resource, move |reporter, stop| async move {
         reporter(Phase::Inspecting, None);
         ingress
             .change_local_model(&request, &stop, Some(&reporter))
             .await
-    })
+    });
+    if result.is_ok()
+        && let Some(id) = removing
+    {
+        // Ordered removal must cancel an installation before waiting for its completion.
+        models.cancel(&id);
+    }
+    result
 }

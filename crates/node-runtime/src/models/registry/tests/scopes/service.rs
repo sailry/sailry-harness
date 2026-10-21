@@ -10,6 +10,7 @@ use tokio::{
 };
 
 mod decisions;
+mod downloads;
 
 struct Fixture {
     _directory: tempfile::TempDir,
