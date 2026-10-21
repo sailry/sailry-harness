@@ -52,13 +52,16 @@ task_app="$task_output/Sailry.app"
 task_package_args=()
 task_python_outputs=()
 task_metadata=()
+# Developer ID signing covers the runtime later; other bundles sign it while staging.
+task_llama=(--target "$task_target" --cache "$task_root/target/llama-prebuilt" --source "$task_build")
+if test "$task_signing" != developer-id; then task_llama+=(--sign -); fi
 if test "$task_desktop" = 1; then
   mkdir -p "$task_app/Contents/MacOS" "$task_app/Contents/Resources"
   cp "$task_build/sailry-desktop" "$task_app/Contents/MacOS/sailry-desktop"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
     --output "$task_app/Contents/MacOS" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt" --speech
-  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
-    --output "$task_app/Contents/MacOS" --source "$task_build" --cache "$task_root/target/llama-prebuilt"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" "${task_llama[@]}" \
+    --output "$task_app/Contents/MacOS"
   cp "$task_root/apps/desktop/macos/Info.plist" "$task_app/Contents/Info.plist"
   cp -R "$task_root/apps/desktop/macos/zh_CN.lproj" "$task_app/Contents/Resources/"
   task_apple_version="$(bash "$task_root/scripts/python.sh" "$task_root/scripts/package/versions.py" --apple "$task_version")"
@@ -76,8 +79,8 @@ if test "$task_host" = 1; then
   cp "$task_build/sailry-host" "$task_output/host/sailry-host"
   bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
     --output "$task_output/host" --source "$task_build" --cache "$task_root/target/sherpa-onnx-prebuilt"
-  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
-    --output "$task_output/host" --source "$task_build" --cache "$task_root/target/llama-prebuilt"
+  bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" "${task_llama[@]}" \
+    --output "$task_output/host"
   cp "$task_root/scripts/host-launchd.sh" "$task_output/host/host-launchd.sh"
   cp "$task_root/scripts/host-command.sh" "$task_output/host/sailry"
   cp "$task_root/scripts/install-host.sh" "$task_output/host/install-host.sh"
@@ -120,8 +123,6 @@ else
     done
     bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
       --output "$task_app/Contents/MacOS" --speech --finalize
-    bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
-      --output "$task_app/Contents/MacOS" --sign -
     codesign --force --sign - "$task_app"
   fi
   if test "$task_host" = 1; then
@@ -129,8 +130,6 @@ else
     codesign --force --sign - "$task_output/host/sailry-host"
     bash "$task_root/scripts/python.sh" "$task_root/scripts/package/onnx-runtime.py" --target "$task_target" \
       --output "$task_output/host" --finalize
-    bash "$task_root/scripts/python.sh" "$task_root/scripts/package/llama-runtime.py" --target "$task_target" \
-      --output "$task_output/host" --sign -
   fi
 fi
 if test "$task_desktop" = 1; then

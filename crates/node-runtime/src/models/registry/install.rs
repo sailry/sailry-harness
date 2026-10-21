@@ -1,39 +1,37 @@
 use super::*;
 use sailry_model_assets::verified;
 
+/// Publishes from the validated stamp; it never inspects files again.
 struct Installation {
     owner: Arc<Registry>,
     id: String,
 }
 impl Drop for Installation {
     fn drop(&mut self) {
-        let mut state = self
-            .owner
-            .state
-            .lock()
-            .expect("local model configuration lock is healthy");
+        let mut state = self.owner.lock();
         if let Some(transfer) = state.transfers.remove(&self.id) {
             transfer.cancel();
         }
-        drop(state);
-        let _ = self.owner.list(None);
+        self.owner.publish(&state);
     }
 }
 
 struct Removal {
     owner: Arc<Registry>,
     id: String,
+    removed: bool,
 }
 impl Drop for Removal {
     fn drop(&mut self) {
-        let mut state = self
-            .owner
-            .state
-            .lock()
-            .expect("local model configuration lock is healthy");
+        let mut state = self.owner.lock();
         state.removing.remove(&self.id);
+        self.owner.publish(&state);
         drop(state);
-        let _ = self.owner.list(None);
+        if !self.removed {
+            // Files may remain after a failed removal; reinspect them off the caller.
+            let owner = self.owner.clone();
+            drop(self.owner.handle.spawn_blocking(move || owner.list(None)));
+        }
     }
 }
 
@@ -52,28 +50,19 @@ impl Registry {
         super::super::availability::check(kind).await?;
         let root = self.root()?;
         let directory = files::directory(&root, id, &definition)?;
-        let path = directory.clone();
-        let model = id.to_owned();
-        let inspecting = definition.clone();
         let owner = self.clone();
+        let model = id.to_owned();
         if tokio::task::spawn_blocking(move || {
-            let mut state = owner
-                .state
-                .lock()
-                .expect("local model configuration lock is healthy");
-            inspect(&mut state, &path, &model, &inspecting)
+            owner.verify(|candidate, _| candidate == model)?;
+            Ok::<_, Fault>(owner.lock().verified.contains_key(&model))
         })
         .await
-        .map_err(failure)?
-        .is_some()
+        .map_err(failure)??
         {
             return Ok(());
         }
         let (stop, mirror) = {
-            let mut state = self
-                .state
-                .lock()
-                .expect("local model configuration lock is healthy");
+            let mut state = self.lock();
             let stop = self.stop.child_token();
             state.transfers.insert(id.into(), stop.clone());
             self.publish(&state);
@@ -114,26 +103,20 @@ impl Registry {
             .await
             .map_err(failure)?
             .ok_or_else(|| Fault::invalid("model assets changed before validation"))?;
-            let resource = {
-                let state = self
-                    .state
-                    .lock()
-                    .expect("local model configuration lock is healthy");
-                Resource {
-                    id: id.into(),
-                    definition: definition.clone(),
-                    directory: directory.clone(),
-                    stamp,
-                    cancel: stop.clone(),
-                    epoch: *state.epochs.get(id).unwrap_or(&0),
-                }
+            let resource = Resource {
+                id: id.into(),
+                definition: definition.clone(),
+                directory: directory.clone(),
+                stamp,
+                cancel: stop.clone(),
             };
             let captured = resource.clone();
             let owner = self.clone();
-            let check = Arc::new(move || owner.installing(&captured));
+            let check = Arc::new(move |_: bool| owner.installing(&captured));
             let path = directory.clone();
             let definition = definition.clone();
-            self.runtime
+            let stamp = self
+                .runtime
                 .validate(resource.clone(), &stop, check, move |engine, cancelling| {
                     if cancelling.is_cancelled() {
                         return Err(cancelled());
@@ -157,9 +140,11 @@ impl Registry {
                     files::mark(&path, &definition, &resource.stamp)
                 })
                 .await?;
-            if stop.is_cancelled() {
+            let mut state = self.lock();
+            if stop.is_cancelled() || state.removing.contains(id) {
                 return Err(cancelled());
             }
+            state.verified.insert(id.into(), stamp);
             Ok(())
         };
         tokio::pin!(operation);
@@ -173,14 +158,10 @@ impl Registry {
         if self.stop.is_cancelled() || resource.cancel.is_cancelled() {
             return Err(cancelled());
         }
-        let state = self
-            .state
-            .lock()
-            .expect("local model configuration lock is healthy");
+        let state = self.lock();
         if !state.transfers.contains_key(&resource.id)
             || state.removing.contains(&resource.id)
             || state.definitions.get(&resource.id) != Some(&resource.definition)
-            || *state.epochs.get(&resource.id).unwrap_or(&0) != resource.epoch
         {
             return Err(conflict());
         }
@@ -190,27 +171,25 @@ impl Registry {
     pub(crate) async fn remove(self: &Arc<Self>, id: &str) -> Result<(), Fault> {
         let definition = self.definition(id)?;
         {
-            let mut state = self
-                .state
-                .lock()
-                .expect("local model configuration lock is healthy");
+            let mut state = self.lock();
             state.removing.insert(id.into());
-            let epoch = state.epochs.entry(id.into()).or_default();
-            *epoch = epoch
-                .checked_add(1)
-                .ok_or_else(|| failure("local model epoch exhausted"))?;
+            // Clearing the stamp invalidates queued captures before files are deleted.
+            state.verified.remove(id);
             self.publish(&state);
         }
-        let _guard = Removal {
+        let mut guard = Removal {
             owner: self.clone(),
             id: id.into(),
+            removed: false,
         };
         self.runtime.unload(id).await?;
         let root = self.root()?;
         let model = id.to_owned();
         tokio::task::spawn_blocking(move || files::remove(&root, &model, &definition))
             .await
-            .map_err(failure)?
+            .map_err(failure)??;
+        guard.removed = true;
+        Ok(())
     }
 }
 

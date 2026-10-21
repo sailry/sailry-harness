@@ -103,7 +103,7 @@ impl Panel {
                 cx.notify();
             }));
         let entries = self
-            .model_entries(kind)
+            .model_entries(kind, cx)
             .into_iter()
             .filter(|model| (tab == 0) == matches!(model.status, ModelStatus::Installed))
             .collect();

@@ -18,6 +18,7 @@ async fn queues_edits_without_cancelling_current_pass() {
         cancel: Mutex::new(stop.child_token()),
         stop,
         worker: Mutex::new(None),
+        refreshes: Default::default(),
     });
     let current = owner.cancel.lock().unwrap().clone();
     owner.refresh();

@@ -87,9 +87,9 @@ impl Fixture {
             cap_std::fs::Dir::open_ambient_dir(&assets, cap_std::ambient_authority()).unwrap();
         sailry_model_assets::verified::write_marker(
             &handle,
-            &blake3::hash(&encode(&definition).unwrap())
+            blake3::hash(&encode(&definition).unwrap())
                 .to_hex()
-                .to_string(),
+                .as_ref(),
         )
         .unwrap();
         let ocr_assets = root.join("models/ocr").join(&ocr);
@@ -167,13 +167,17 @@ async fn preserves_installed_identity_and_imports_once() {
         catalog.settings.choice(Kind::Ocr).model.as_deref(),
         Some(fixture.ocr.as_str())
     );
-    assert_eq!(catalog.records.len(), 2);
-    let imported = catalog
-        .records
-        .iter()
-        .find(|record| record.id == fixture.model)
-        .unwrap();
-    assert_eq!(imported.definition, fixture.definition);
+    assert_eq!(
+        db.connection
+            .query_row("SELECT COUNT(*) FROM local_models", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        catalog.definitions.get(&fixture.model).unwrap().as_ref(),
+        &fixture.definition
+    );
     let stored = crate::store::knowledge::catalog(&db.connection)
         .unwrap()
         .collections
@@ -194,9 +198,11 @@ async fn preserves_installed_identity_and_imports_once() {
         Some(fixture.directory.path().into()),
         CancellationToken::new(),
     );
-    registry
-        .configure(catalog.settings, &catalog.records)
-        .unwrap();
+    registry.apply(
+        registry
+            .prepare(catalog.settings, catalog.definitions)
+            .unwrap(),
+    );
     let model = registry
         .models(Some(Kind::Embedding))
         .await
@@ -265,11 +271,12 @@ async fn preserves_installed_identity_and_imports_once() {
     db.close().unwrap();
     for _ in 0..2 {
         let db = Database::open(&fixture.path, fixture.node, None).unwrap();
-        assert!(
-            local_models::read(&db.connection)
-                .unwrap()
-                .records
-                .is_empty()
+        assert_eq!(
+            db.connection
+                .query_row("SELECT COUNT(*) FROM local_models", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
         );
         assert_eq!(local_models::settings(&db.connection).unwrap(), settings);
         assert_eq!(

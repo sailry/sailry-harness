@@ -192,10 +192,11 @@ and source scopes remain unchanged. The settings singleton records completed
 import even after all registered models are removed. Committed model configuration
 is applied to that registry before command completion. Installation subscriptions
 carry progress; catalog events carry definition and installation-state changes.
-Knowledge retrieval reads model configuration from the registry, and only
-embedding changes invalidate its derived index. Installed state comes from the
-verified files and receipts; earlier valid receipts are recognized in place
-without downloading or reinstalling their models.
+Knowledge retrieval reads model configuration from the registry. Embedding changes
+invalidate derived vectors; OCR selection and installation changes refresh source
+extraction. Installed state comes from the verified files and receipts; unchanged
+file identities retain their verification across restarts. Earlier valid receipts
+are recognized in place without downloading or reinstalling their models.
 
 One CPU runtime lazily loads local model engines and runs one inference at a time.
 Interactive retrieval and document inspection take priority over queued indexing
@@ -232,10 +233,11 @@ controller never infers support from its own operating system.
 
 Native availability preflights the exact locked libraries and their dynamic
 dependencies, retaining successful handles until restart and retrying failed
-checks on the next request. Cold checks run outside async workers. Models and
-contexts are still created only by the shared inference runtime. Installation
-checks every tensor; later loads reuse the verified assets without repeating
-that full scan.
+loads on the next request. Verified packaged files are cached independently, so a
+failed dynamic load does not repeat file hashing. Cold checks run outside async
+workers. Models and contexts are still created only by the shared inference
+runtime. Installation checks every tensor; later loads reuse the verified assets
+without repeating that full scan.
 
 Unsupported decision targets retain OCR and embedding. Ordinary metadata remains
 readable, while decision registration, installation and execution report

@@ -53,16 +53,15 @@ fn deduplicates_normalized_assets_without_replacing_metadata() {
     }
     assert_eq!(register(&db, &reordered), first);
     assert_eq!(rows(&db), original);
-    let record = crate::store::local_models::read(&db)
-        .unwrap()
-        .records
-        .remove(0);
+    let catalog = crate::store::local_models::read(&db).unwrap();
     let mut normalized = definition.clone();
     normalized
         .assets
         .sort_by(|left, right| left.name.cmp(&right.name));
-    assert_eq!(record.id, first);
-    assert_eq!(record.definition, normalized);
+    assert_eq!(
+        catalog.definitions.get(&first).unwrap().as_ref(),
+        &normalized
+    );
     let mut different = definition;
     different.source.revision = "b".repeat(40);
     for asset in &mut different.assets {
@@ -70,10 +69,7 @@ fn deduplicates_normalized_assets_without_replacing_metadata() {
     }
     let second = register(&db, &different);
     assert_ne!(second, first);
-    assert_eq!(
-        crate::store::local_models::read(&db).unwrap().records.len(),
-        2
-    );
+    assert_eq!(rows(&db).len(), 2);
     assert_eq!(
         rows(&db).iter().find(|row| row.0 == original[0].0).unwrap(),
         &original[0]
@@ -95,10 +91,7 @@ fn separates_prefixes_in_immutable_model_identity() {
     let documents = register(&db, &document);
     assert_ne!(prefixed, documents);
     assert_ne!(plain, documents);
-    assert_eq!(
-        crate::store::local_models::read(&db).unwrap().records.len(),
-        3
-    );
+    assert_eq!(rows(&db).len(), 3);
 }
 
 #[test]
@@ -266,12 +259,15 @@ fn restores_immutable_metadata_and_selection() {
         &request(Command::SaveLocalModelSettings(settings)),
     )
     .unwrap();
-    let records = local_models::read(&db.connection).unwrap().records;
+    let definitions = local_models::read(&db.connection).unwrap().definitions;
     let original = rows(&db.connection);
     db.close().unwrap();
     let db = Database::open(&path, node, None).unwrap();
     assert_eq!(rows(&db.connection), original);
-    assert_eq!(local_models::read(&db.connection).unwrap().records, records);
+    assert_eq!(
+        local_models::read(&db.connection).unwrap().definitions,
+        definitions
+    );
     assert_eq!(
         local_models::settings(&db.connection)
             .unwrap()
@@ -279,7 +275,7 @@ fn restores_immutable_metadata_and_selection() {
             .model,
         Some(model.clone())
     );
-    assert_eq!(register(&db.connection, &records[0].definition), model);
+    assert_eq!(register(&db.connection, &definitions[&model]), model);
     assert_eq!(rows(&db.connection), original);
     db.close().unwrap();
 }

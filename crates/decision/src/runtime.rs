@@ -15,6 +15,8 @@ mod cpu;
 const LOCK: &str = include_str!("../../../scripts/package/llama-runtime.lock.json");
 // Successful native images and this executable's compiled lock stay immutable until restart.
 static CURRENT: Mutex<Option<Arc<Runtime>>> = Mutex::new(None);
+// Verified packaged files are reused when a later dynamic load is retried.
+static VERIFIED: Mutex<Option<Arc<Artifact>>> = Mutex::new(None);
 
 pub(crate) struct Runtime {
     pub api: ffi::Llama,
@@ -22,7 +24,14 @@ pub(crate) struct Runtime {
     _base: ffi::base::Base,
     _cpu: Option<libloading::Library>,
     cpu: Option<CString>,
-    initialized: Mutex<bool>,
+    started: Mutex<Started>,
+}
+
+/// Native registration steps that must not repeat after a later step fails.
+#[derive(Default)]
+struct Started {
+    backend: bool,
+    initialized: bool,
 }
 
 #[derive(Deserialize)]
@@ -66,15 +75,7 @@ struct Artifact {
 
 pub(crate) fn initialize() -> Result<Arc<Runtime>> {
     let runtime = prepared()?;
-    let mut initialized = runtime
-        .initialized
-        .lock()
-        .expect("native initialization lock is healthy");
-    if !*initialized {
-        runtime.start()?;
-        *initialized = true;
-    }
-    drop(initialized);
+    runtime.start()?;
     Ok(runtime)
 }
 
@@ -88,21 +89,23 @@ fn prepared() -> Result<Arc<Runtime>> {
         let directory = executable
             .parent()
             .ok_or_else(|| Error::Unavailable("executable directory is missing".into()))?;
-        load(directory)
+        open(directory, &VERIFIED)
     })
 }
 
-fn cached(
-    cache: &Mutex<Option<Arc<Runtime>>>,
-    load: impl FnOnce() -> Result<Runtime>,
-) -> Result<Arc<Runtime>> {
+fn open(directory: &Path, verified: &Mutex<Option<Arc<Artifact>>>) -> Result<Runtime> {
+    let artifact = cached(verified, || verify(directory))?;
+    load(directory, &artifact)
+}
+
+fn cached<T>(cache: &Mutex<Option<Arc<T>>>, load: impl FnOnce() -> Result<T>) -> Result<Arc<T>> {
     let mut cache = cache.lock().expect("native preflight lock is healthy");
-    if let Some(runtime) = cache.as_ref() {
-        return Ok(runtime.clone());
+    if let Some(value) = cache.as_ref() {
+        return Ok(value.clone());
     }
-    let runtime = Arc::new(load().map_err(|error| Error::Unavailable(reason(error).into()))?);
-    *cache = Some(runtime.clone());
-    Ok(runtime)
+    let value = Arc::new(load().map_err(|error| Error::Unavailable(reason(error).into()))?);
+    *cache = Some(value.clone());
+    Ok(value)
 }
 
 fn reason(error: Error) -> String {
@@ -312,8 +315,7 @@ fn names() -> Result<(&'static str, &'static str, Option<&'static str>)> {
     }
 }
 
-fn load(directory: &Path) -> Result<Runtime> {
-    let artifact = verify(directory)?;
+fn load(directory: &Path, artifact: &Artifact) -> Result<Runtime> {
     let (base, backend, cpu) = names()?;
     // SAFETY: the base library and its callback signature share the same pinned tag.
     let base = unsafe { ffi::base::Base::from_library(library(&directory.join(base))?) }?;
@@ -321,7 +323,7 @@ fn load(directory: &Path) -> Result<Runtime> {
     let backend =
         unsafe { ffi::backend::Backend::from_library(library(&directory.join(backend))?) }?;
     // SAFETY: the required public C symbols and by-value layouts are pinned together.
-    let api = unsafe { ffi::Llama::from_library(library(&directory.join(artifact.entry))?) }?;
+    let api = unsafe { ffi::Llama::from_library(library(&directory.join(&artifact.entry))?) }?;
     // SAFETY: the callback captures no data and remains valid for process lifetime.
     unsafe {
         api.llama_log_set(Some(discard), std::ptr::null_mut());
@@ -356,17 +358,25 @@ fn load(directory: &Path) -> Result<Runtime> {
         _base: base,
         _cpu: cpu_library,
         cpu,
-        initialized: Mutex::new(false),
+        started: Mutex::new(Started::default()),
     })
 }
 
 impl Runtime {
     fn start(&self) -> Result<()> {
-        if let Some(path) = &self.cpu {
+        let mut started = self
+            .started
+            .lock()
+            .expect("native initialization lock is healthy");
+        if started.initialized {
+            return Ok(());
+        }
+        if let Some(path) = self.cpu.as_ref().filter(|_| !started.backend) {
             // SAFETY: preflight retained this exact locked CPU image and dependencies.
             if unsafe { self._backend.ggml_backend_load(path.as_ptr()) }.is_null() {
                 return Err(Error::Unavailable("CPU backend could not be loaded".into()));
             }
+            started.backend = true;
         }
         // SAFETY: CPU registration is complete before initializing floating-point tables.
         let device = unsafe {
@@ -379,6 +389,7 @@ impl Runtime {
         }
         // SAFETY: a registered CPU prevents the initializer's implicit directory scan.
         unsafe { self.api.llama_backend_init() };
+        started.initialized = true;
         Ok(())
     }
 }

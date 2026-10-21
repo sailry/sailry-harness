@@ -173,8 +173,7 @@ printf '%s' 'signature fixture' >> "$task_target"
         app = debug / "Sailry.app"
         stages = [("python-runtime.py", debug), ("onnx-runtime.py", native), ("llama-runtime.py", native),
                   ("onnx-runtime.py", debug), ("llama-runtime.py", debug), ("python-runtime.py", app / "Contents/MacOS"),
-                  ("python-runtime.py", app / "Contents/MacOS"),
-                  ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS"),
+                  ("python-runtime.py", app / "Contents/MacOS"), ("onnx-runtime.py", app / "Contents/MacOS"),
                   ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS")]
         self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * len(stages))
         self.assertEqual(len(calls), len(stages))
@@ -183,6 +182,8 @@ printf '%s' 'signature fixture' >> "$task_target"
             self.assertEqual(arguments[arguments.index("--output") + 1], str(output))
         self.assertEqual(calls[6][calls[6].index("--sign") + 1], "FIXTURE")
         self.assertIn("--finalize", calls[-2])
+        self.assertEqual(calls[-1][calls[-1].index("--source") + 1], str(debug))
+        self.assertEqual(calls[-1][calls[-1].index("--sign") + 1], "FIXTURE")
         self.assertEqual(json.loads(self.build.read_text()), {
             "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native)})
         signatures = self.arguments(self.signatures)

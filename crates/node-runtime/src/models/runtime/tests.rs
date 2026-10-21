@@ -28,7 +28,7 @@ async fn serializes_work_and_prioritizes_interactive_queue() {
                 captured,
                 Lane::Background,
                 &CancellationToken::new(),
-                Arc::new(|| Ok(())),
+                Arc::new(|_: bool| Ok(())),
                 move |_, _| {
                     first_peak.fetch_max(
                         first_active.fetch_add(1, Ordering::SeqCst) + 1,
@@ -60,7 +60,7 @@ async fn serializes_work_and_prioritizes_interactive_queue() {
                     captured,
                     lane,
                     &CancellationToken::new(),
-                    Arc::new(|| Ok(())),
+                    Arc::new(|_: bool| Ok(())),
                     move |_, _| {
                         peak.fetch_max(active.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
                         order.lock().unwrap().push(label);
@@ -100,7 +100,7 @@ async fn skips_cancelled_and_dropped_queued_work() {
             resource.clone(),
             Lane::Background,
             &CancellationToken::new(),
-            Arc::new(|| Ok(())),
+            Arc::new(|_: bool| Ok(())),
             false,
             move |_, _| {
                 let _ = entered.send(());
@@ -117,7 +117,7 @@ async fn skips_cancelled_and_dropped_queued_work() {
             resource.clone(),
             Lane::Interactive,
             &stop,
-            Arc::new(|| Ok(())),
+            Arc::new(|_: bool| Ok(())),
             false,
             {
                 let invoked = invoked.clone();
@@ -137,7 +137,7 @@ async fn skips_cancelled_and_dropped_queued_work() {
     assert!(!stop.is_cancelled());
     stop.cancel();
     assert!(
-        matches!(runtime.submit(resource,Lane::Background,&stop,Arc::new(||Ok(())),false,|_,_|Ok(())),Err(error) if error.code==ErrorCode::Cancelled)
+        matches!(runtime.submit(resource,Lane::Background,&stop,Arc::new(|_: bool|Ok(())),false,|_,_|Ok(())),Err(error) if error.code==ErrorCode::Cancelled)
     );
     assert_eq!(invoked.load(Ordering::SeqCst), 0);
     runtime.shutdown().await;
@@ -164,7 +164,7 @@ async fn cancels_active_work_with_its_owner() {
                         resource,
                         Lane::Interactive,
                         &cancel,
-                        Arc::new(|| Ok(())),
+                        Arc::new(|_: bool| Ok(())),
                         move |_, cancel| {
                             let _ = entered.send(());
                             while !cancel.is_cancelled() {

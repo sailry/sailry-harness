@@ -163,7 +163,7 @@ fn size(bytes: u64) -> String {
 impl Target {
     fn entry(&self, key: &ModelKey, cx: &App) -> Option<ManagedModel> {
         let entries = match self {
-            Self::Node(panel, kind) => panel.read(cx).model_entries(*kind),
+            Self::Node(panel, kind) => panel.read(cx).model_entries(*kind, cx),
             Self::Speech(panel) => panel.read(cx).model_entries(cx),
         };
         entries.into_iter().find(|model| &model.key == key)

@@ -256,6 +256,24 @@ pub(crate) fn track_resource(
     Some(Ticket { queue, key })
 }
 
+/// Measured progress of a Node model installation in the shared observation.
+pub(crate) fn model_progress(
+    node: NodeId,
+    id: &str,
+    cx: &App,
+) -> Option<sailry_protocol::installation::Progress> {
+    cx.try_global::<Registry>()?
+        .0
+        .read(cx)
+        .model_progress(node, id)
+}
+
+/// Re-renders an observer when installation observations change.
+pub(crate) fn observe<T: 'static>(cx: &mut Context<T>) -> Subscription {
+    let queue = registry(cx);
+    cx.observe(&queue, |_, _, cx| cx.notify())
+}
+
 /// Only the original command completion proves success, never feed disappearance.
 pub(crate) fn result(
     result: &Result<Result<Output, Fault>, tokio::task::JoinError>,
@@ -330,6 +348,23 @@ impl Ticket {
 }
 
 impl Queue {
+    fn model_progress(
+        &self,
+        node: NodeId,
+        id: &str,
+    ) -> Option<sailry_protocol::installation::Progress> {
+        self.entries
+            .iter()
+            .filter(|(key, entry)| {
+                key.0 == Location::Node(node)
+                    && matches!(&entry.resource, Resource::Model { id: model, .. } if model == id)
+            })
+            .find_map(|(_, entry)| match &entry.status {
+                Presentation::Observed(Status::Running { progress, .. }) => *progress,
+                _ => None,
+            })
+    }
+
     fn bind(
         &mut self,
         client: Arc<Client>,

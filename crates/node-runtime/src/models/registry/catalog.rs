@@ -14,6 +14,9 @@ pub(crate) struct Registration {
     pub definition: Definition,
 }
 
+/// Registered definitions allowed per kind, beside the pinned builtins.
+pub(crate) const LIMIT: usize = 128;
+
 pub(crate) fn id(definition: &Definition) -> String {
     let mut definition = definition.clone();
     definition
@@ -54,7 +57,7 @@ pub(crate) fn definitions(
             .iter()
             .filter(|record| record.definition.format.kind() == kind)
             .count()
-            > 128
+            > LIMIT
         {
             return Err(Fault::invalid("local model catalog exceeds its limit"));
         }
@@ -62,7 +65,7 @@ pub(crate) fn definitions(
     Ok(definitions)
 }
 
-fn builtins() -> &'static BTreeMap<String, Arc<Definition>> {
+pub(crate) fn builtins() -> &'static BTreeMap<String, Arc<Definition>> {
     static MODELS: LazyLock<BTreeMap<String, Arc<Definition>>> = LazyLock::new(|| {
         let mut definitions = BTreeMap::new();
         for (id, definition) in embedding().into_iter().chain(

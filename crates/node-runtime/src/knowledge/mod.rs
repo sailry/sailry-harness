@@ -27,6 +27,8 @@ pub(crate) struct Service {
     cancel: Mutex<CancellationToken>,
     stop: CancellationToken,
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
+    #[cfg(test)]
+    refreshes: std::sync::atomic::AtomicU64,
 }
 
 impl Service {
@@ -63,6 +65,8 @@ impl Service {
             cancel: Mutex::new(stop.child_token()),
             stop,
             worker: Mutex::new(None),
+            #[cfg(test)]
+            refreshes: std::sync::atomic::AtomicU64::new(0),
         });
         let handle = tokio::runtime::Handle::current();
         let weak = Arc::downgrade(&owner);
@@ -79,7 +83,15 @@ impl Service {
     }
 
     pub(crate) fn refresh(&self) {
+        #[cfg(test)]
+        self.refreshes
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let _ = self.wake.try_send(());
+    }
+
+    #[cfg(test)]
+    pub(crate) fn refreshes(&self) -> u64 {
+        self.refreshes.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub(crate) fn invalidate(&self) {

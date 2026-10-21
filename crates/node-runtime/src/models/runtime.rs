@@ -60,7 +60,8 @@ pub(crate) fn embedding_error(error: sailry_embedding::Error) -> Fault {
     }
 }
 
-type Check = Arc<dyn Fn() -> Result<(), Fault> + Send + Sync>;
+/// Owner checks; `true` also compares file identity once before an execution runs.
+type Check = Arc<dyn Fn(bool) -> Result<(), Fault> + Send + Sync>;
 type Call = Box<dyn FnOnce(Result<&mut Engine, Fault>) -> bool + Send>;
 
 struct Work {
@@ -155,7 +156,7 @@ impl Runtime {
                 let result = if stopping.is_cancelled() {
                     Err(cancelled())
                 } else {
-                    checking().and(result)
+                    checking(false).and(result)
                 };
                 let success = result.is_ok();
                 let _ = reply.send(result);
@@ -356,29 +357,24 @@ fn acquire<'a>(
     if work.cancel.is_cancelled() || stop.is_cancelled() {
         return Err(cancelled());
     }
-    (work.check)()?;
-    let stamp = if work.validating {
-        sailry_model_assets::verified::candidate(
+    (work.check)(!work.validating)?;
+    if work.validating
+        && sailry_model_assets::verified::candidate(
             &work.resource.directory,
             &files::assets(&work.resource.definition),
         )
-    } else {
-        files::stamp(
-            &work.resource.directory,
-            &work.resource.id,
-            &work.resource.definition,
-            Some(&work.resource.stamp),
-        )
-    };
-    if stamp.as_ref() != Some(&work.resource.stamp) {
+        .as_ref()
+            != Some(&work.resource.stamp)
+    {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "local model assets changed",
         ));
     }
-    if loaded.get(&work.resource.id).is_some_and(|entry| {
-        entry.resource.stamp != work.resource.stamp || entry.resource.epoch != work.resource.epoch
-    }) {
+    if loaded
+        .get(&work.resource.id)
+        .is_some_and(|entry| entry.resource.stamp != work.resource.stamp)
+    {
         loaded.remove(&work.resource.id);
     }
     if !loaded.contains_key(&work.resource.id) {

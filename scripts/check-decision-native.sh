@@ -16,14 +16,13 @@ task_libraries="$task_build/debug/deps"
 cargo test --locked -p sailry-decision --lib --no-run
 task_stage() {
   local task_output="$1"
-  bash scripts/python.sh scripts/package/llama-runtime.py --target "$task_target" \
-    --output "$task_output" --cache "$task_build/llama-prebuilt"
+  local task_llama=(--target "$task_target" --output "$task_output" --cache "$task_build/llama-prebuilt")
+  case "$task_target" in *-apple-darwin) task_llama+=(--sign -);; esac
+  bash scripts/python.sh scripts/package/llama-runtime.py "${task_llama[@]}"
   bash scripts/python.sh scripts/package/onnx-runtime.py --target "$task_target" \
     --output "$task_output" --cache "$task_build/sherpa-onnx-prebuilt"
   case "$task_target" in
     *-apple-darwin)
-      bash scripts/python.sh scripts/package/llama-runtime.py --target "$task_target" \
-        --output "$task_output" --sign -
       codesign --force --sign - "$task_output/libonnxruntime.dylib"
       bash scripts/python.sh scripts/package/onnx-runtime.py --target "$task_target" \
         --output "$task_output" --finalize

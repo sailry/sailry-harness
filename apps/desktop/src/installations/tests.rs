@@ -228,3 +228,42 @@ fn retains_uncertainty_after_unowned_disappearance(cx: &mut TestAppContext) {
         });
     });
 }
+
+#[gpui::test]
+fn exposes_observed_model_progress(cx: &mut TestAppContext) {
+    use sailry_protocol::installation::{Phase, Progress};
+    cx.update(|cx| {
+        let node = NodeId([1; 32]);
+        assert_eq!(model_progress(node, "model", cx), None);
+        let queue = registry(cx);
+        let request = RequestId::new();
+        let progress = Progress::Percent {
+            percent: 40,
+            bytes_per_second: Some(2048),
+        };
+        queue.update(cx, |queue, _| {
+            queue.accept(
+                Location::Node(node),
+                View {
+                    connected: true,
+                    error: None,
+                    tasks: vec![Observed {
+                        request,
+                        revision: 1,
+                        resource: Resource::Model {
+                            kind: sailry_protocol::models::Kind::Embedding,
+                            id: "model".into(),
+                        },
+                        state: Status::Running {
+                            phase: Phase::Downloading,
+                            progress: Some(progress),
+                        },
+                    }],
+                },
+            );
+        });
+        assert_eq!(model_progress(node, "model", cx), Some(progress));
+        assert_eq!(model_progress(node, "other", cx), None);
+        assert_eq!(model_progress(NodeId([2; 32]), "model", cx), None);
+    });
+}

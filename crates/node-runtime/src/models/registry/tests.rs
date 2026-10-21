@@ -6,6 +6,7 @@ use crate::models::{
 
 mod ocr;
 mod scopes;
+mod verification;
 
 #[tokio::test]
 async fn exposes_catalog_without_acquiring_models() {
@@ -43,14 +44,14 @@ async fn preserves_unrelated_settings_and_rejects_replaced_files() {
         .owner
         .resource(Kind::Embedding, &fixture.record.id, None)
         .unwrap();
-    fixture.owner.current(&captured).unwrap();
+    fixture.owner.current(&captured, false).unwrap();
     let mut settings = fixture.owner.settings();
     settings.revision = 1;
     fixture
         .owner
         .configure(settings, std::slice::from_ref(&fixture.record))
         .unwrap();
-    fixture.owner.current(&captured).unwrap();
+    fixture.owner.current(&captured, false).unwrap();
     let captured = fixture
         .owner
         .resource(Kind::Embedding, &fixture.record.id, None)

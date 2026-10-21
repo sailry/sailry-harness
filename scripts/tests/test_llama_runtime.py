@@ -4,6 +4,7 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -134,6 +135,29 @@ class Assets(unittest.TestCase):
         manifest = json.loads((output.parent / "Resources" / runtime.MANIFEST).read_text())
         self.assertEqual(manifest["files"][0]["sha256"], runtime.NATIVE.digest(file))
         self.assertNotEqual(manifest["files"][0]["sha256"], self.definition["targets"][TARGET]["files"][0]["sha256"])
+
+    def test_stages_and_signs_in_one_call(self):
+        output = self.root / "Sailry.app/Contents/MacOS"
+        file = output / "libllama.0.dylib"
+
+        def sign(arguments, check):
+            self.assertTrue(check)
+            self.assertEqual(arguments[:5], ["codesign", "--force", "--timestamp=none", "--sign", "-"])
+            Path(arguments[-1]).write_bytes(self.content + b"signature")
+
+        arguments = ["llama-runtime.py", "--target", TARGET, "--output", str(output),
+                     "--cache", str(self.cache), "--sign", "-"]
+        with patch.object(runtime.subprocess, "run", side_effect=sign) as run, \
+                patch.object(sys, "argv", arguments):
+            runtime.main()
+        run.assert_called_once()
+        self.assertEqual(run.call_args.args[0][-1], str(file))
+        manifest = json.loads((output.parent / "Resources" / runtime.MANIFEST).read_text())
+        self.assertEqual(manifest["files"][0]["sha256"], runtime.NATIVE.digest(file))
+        with patch.object(runtime.subprocess, "run", side_effect=sign) as run, \
+                patch.object(sys, "argv", arguments[:5] + ["--sign", "-"]):
+            runtime.main()
+        run.assert_called_once()
 
 
 if __name__ == "__main__":

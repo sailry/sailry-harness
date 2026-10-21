@@ -275,3 +275,87 @@ async fn saves_without_touching_model_directories() {
         fixture.close().await;
     }
 }
+
+#[tokio::test]
+async fn refreshes_knowledge_after_ocr_changes() {
+    for remote in [false, true] {
+        let fixture = Fixture::start(remote).await;
+        let knowledge = fixture.node.ingress.knowledge.get().unwrap().clone();
+        let refreshed = |before: u64| {
+            let knowledge = knowledge.clone();
+            async move {
+                timeout(Duration::from_secs(10), async {
+                    while knowledge.refreshes() <= before {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await
+                .expect("knowledge was not refreshed");
+            }
+        };
+        let before = knowledge.refreshes();
+        let mut settings = fixture.settings().await;
+        settings.choices.get_mut(&Kind::Ocr).unwrap().enabled = false;
+        fixture
+            .execute(Command::SaveLocalModelSettings(settings))
+            .await;
+        refreshed(before).await;
+
+        // Recorded OCR files become installed without another download.
+        let mut definition = ocr().definition;
+        for asset in &mut definition.assets {
+            asset.bytes = asset.name.len() as u64;
+            asset.sha256 = format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&asset.name));
+        }
+        let id = fixture.register(&definition).await;
+        let before = knowledge.refreshes();
+        let path = files::directory(
+            &fixture.node.ingress.local_models.root().unwrap(),
+            &id,
+            &definition,
+        )
+        .unwrap();
+        std::fs::create_dir_all(&path).unwrap();
+        for asset in &definition.assets {
+            std::fs::write(path.join(&asset.name), &asset.name).unwrap();
+        }
+        let stamp =
+            sailry_model_assets::verified::candidate(&path, &files::assets(&definition)).unwrap();
+        files::mark(&path, &definition, &stamp).unwrap();
+        fixture
+            .execute(Command::InstallLocalModel { id: id.clone() })
+            .await;
+        let Output::LocalModels(catalog) = fixture
+            .execute(Command::ReadLocalModels {
+                kind: Some(Kind::Ocr),
+            })
+            .await
+        else {
+            panic!("local models expected")
+        };
+        assert!(
+            catalog
+                .models
+                .iter()
+                .any(|model| model.id == id && model.state == State::Installed)
+        );
+        refreshed(before).await;
+
+        let before = knowledge.refreshes();
+        let mut settings = fixture.settings().await;
+        settings.choices.get_mut(&Kind::Ocr).unwrap().model = Some(id);
+        fixture
+            .execute(Command::SaveLocalModelSettings(settings))
+            .await;
+        refreshed(before).await;
+
+        let before = knowledge.refreshes();
+        let mut settings = fixture.settings().await;
+        settings.choices.get_mut(&Kind::Ocr).unwrap().enabled = true;
+        fixture
+            .execute(Command::SaveLocalModelSettings(settings))
+            .await;
+        refreshed(before).await;
+        fixture.close().await;
+    }
+}

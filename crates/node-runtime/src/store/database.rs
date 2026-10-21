@@ -36,7 +36,7 @@ impl Database {
         registry: std::sync::Arc<crate::models::registry::Registry>,
     ) -> Result<(), Fault> {
         let catalog = super::local_models::read(&self.connection)?;
-        let prepared = registry.prepare(catalog.settings, &catalog.records)?;
+        let prepared = registry.prepare(catalog.settings, catalog.definitions)?;
         registry.apply(prepared);
         self.local_models = Some(registry);
         Ok(())
@@ -836,7 +836,8 @@ impl Database {
             ) && let Some(registry) = &self.local_models
             {
                 let catalog = super::local_models::read(&transaction)?;
-                model_configuration = Some(registry.prepare(catalog.settings, &catalog.records)?);
+                model_configuration =
+                    Some(registry.prepare(catalog.settings, catalog.definitions)?);
             }
             Ok((output, changes))
         });

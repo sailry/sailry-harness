@@ -51,7 +51,7 @@ async fn preserves_downloads_across_kind_changes() {
     records.push(ocr());
     fixture.owner.configure(settings.clone(), &records).unwrap();
     assert!(!downloading.is_cancelled());
-    fixture.owner.current(&embedding).unwrap();
+    fixture.owner.current(&embedding, false).unwrap();
     settings.revision += 1;
     fixture.owner.configure(settings.clone(), &records).unwrap();
     assert!(!downloading.is_cancelled());
@@ -59,7 +59,7 @@ async fn preserves_downloads_across_kind_changes() {
     settings.revision += 1;
     fixture.owner.configure(settings.clone(), &records).unwrap();
     assert!(!downloading.is_cancelled());
-    fixture.owner.current(&embedding).unwrap();
+    fixture.owner.current(&embedding, false).unwrap();
     let previous = settings.choice(Kind::Decision);
     settings.choices.get_mut(&Kind::Decision).unwrap().model = Some(decision.id.clone());
     settings.revision += 1;
@@ -77,7 +77,7 @@ async fn preserves_downloads_across_kind_changes() {
     settings.revision += 1;
     fixture.owner.configure(settings, &records).unwrap();
     assert!(!downloading.is_cancelled());
-    fixture.owner.current(&embedding).unwrap();
+    fixture.owner.current(&embedding, false).unwrap();
     assert!(fixture.owner.cancel(&decision.id));
     assert!(downloading.is_cancelled());
     let downloading = transfer(&fixture.owner, &decision.id);
@@ -113,12 +113,12 @@ async fn limits_mirror_changes_to_affected_downloads() {
     fixture.owner.configure(settings, &records).unwrap();
     assert!(mirrored.is_cancelled());
     assert!(!direct.is_cancelled());
-    fixture.owner.current(&resource).unwrap();
+    fixture.owner.current(&resource, false).unwrap();
     fixture.owner.shutdown().await;
 }
 
 #[tokio::test]
-async fn publishes_only_model_or_embedding_changes() {
+async fn publishes_only_catalog_and_retrieval_changes() {
     let fixture = Fixture::new().await;
     let mut settings = fixture.owner.settings();
     let mut updates = fixture.owner.subscribe();
@@ -128,7 +128,8 @@ async fn publishes_only_model_or_embedding_changes() {
         .owner
         .configure(settings.clone(), std::slice::from_ref(&fixture.record))
         .unwrap();
-    assert!(!updates.has_changed().unwrap());
+    assert!(updates.has_changed().unwrap());
+    assert!(!updates.borrow_and_update().ocr.enabled);
     settings.mirror = Some("https://mirror.example.com/".into());
     settings.revision += 1;
     fixture

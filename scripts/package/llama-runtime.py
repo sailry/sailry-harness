@@ -110,7 +110,9 @@ def main():
     parser.add_argument("--sign")
     args = parser.parse_args()
     output = args.output.absolute()
-    if not args.finalize and args.sign is None:
+    # Staging inputs with --sign stage and sign in one pass; --sign alone re-signs staged files.
+    staging = args.cache is not None or args.source is not None or args.cargo
+    if not args.finalize and (args.sign is None or staging):
         cache = args.cache.absolute() if args.cache else output.parent / "llama-prebuilt"
         prepare(args.target, output, cache, args.source.absolute() if args.source else None, args.cargo)
     if args.sign is not None:

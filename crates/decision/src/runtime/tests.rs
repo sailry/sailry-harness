@@ -106,13 +106,15 @@ fn retains_loader_cause() {
 fn retries_package_failures() {
     let directory = tempfile::tempdir().unwrap();
     let cache = Mutex::new(None);
-    let first = cached(&cache, || load(directory.path())).err().unwrap();
+    let first = cached(&cache, || open(directory.path(), &Mutex::new(None)))
+        .err()
+        .unwrap();
     assert!(matches!(first, Error::Unavailable(_)));
     std::fs::write(manifest(directory.path()), b"invalid manifest").unwrap();
     let mut inspected = false;
     let second = cached(&cache, || {
         inspected = true;
-        load(directory.path())
+        open(directory.path(), &Mutex::new(None))
     })
     .err()
     .unwrap();
@@ -131,20 +133,26 @@ fn caches_verified_package() {
     let installed: Manifest = serde_json::from_slice(&content).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let cache = Mutex::new(None);
-    assert!(cached(&cache, || load(directory.path())).is_err());
+    assert!(cached(&cache, || open(directory.path(), &Mutex::new(None))).is_err());
     assert!(cache.lock().unwrap().is_none());
     for file in installed.files {
         std::fs::copy(source.join(&file.name), directory.path().join(&file.name)).unwrap();
     }
     let manifest = manifest(directory.path());
     std::fs::write(&manifest, content).unwrap();
-    let first = cached(&cache, || load(directory.path())).unwrap();
-    assert!(!*first.initialized.lock().unwrap());
+    let first = cached(&cache, || open(directory.path(), &Mutex::new(None))).unwrap();
+    assert!(!first.started.lock().unwrap().initialized);
     std::fs::remove_file(&manifest).unwrap();
     let second = cached(&cache, || panic!("immutable package was checked twice")).unwrap();
     assert!(Arc::ptr_eq(&first, &second));
-    assert!(!*second.initialized.lock().unwrap());
-    assert!(cached(&Mutex::new(None), || load(directory.path())).is_err());
+    assert!(!second.started.lock().unwrap().initialized);
+    assert!(
+        cached(&Mutex::new(None), || open(
+            directory.path(),
+            &Mutex::new(None)
+        ))
+        .is_err()
+    );
 }
 
 #[cfg(target_os = "linux")]
@@ -171,4 +179,43 @@ fn rejects_old_glibc() {
         error.to_string(),
         "decision runtime is unavailable: glibc 2.38 or newer is required"
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn reuses_verified_files_after_load_failure() {
+    let directory = tempfile::tempdir().unwrap();
+    let lock: Lock = serde_json::from_str(LOCK).unwrap();
+    let files = lock.targets[target().unwrap()]
+        .files
+        .iter()
+        .map(|file| {
+            let body = format!("invalid native image {}", file.name);
+            std::fs::write(directory.path().join(&file.name), &body).unwrap();
+            serde_json::json!({
+                "name": file.name,
+                "size": body.len(),
+                "sha256": format!("{:x}", Sha256::digest(body.as_bytes())),
+            })
+        })
+        .collect::<Vec<_>>();
+    std::fs::write(
+        manifest(directory.path()),
+        serde_json::json!({
+            "version": 1, "target": target().unwrap(), "build": lock.build, "files": files
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let verified = Mutex::new(None);
+    let first = cached(&Mutex::new(None), || open(directory.path(), &verified))
+        .err()
+        .unwrap();
+    assert!(verified.lock().unwrap().is_some());
+    // A retried load reuses the verified files instead of reading the manifest again.
+    std::fs::remove_file(manifest(directory.path())).unwrap();
+    let second = cached(&Mutex::new(None), || open(directory.path(), &verified))
+        .err()
+        .unwrap();
+    assert_eq!(second.to_string(), first.to_string());
 }

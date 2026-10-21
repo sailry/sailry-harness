@@ -42,7 +42,9 @@ impl Service {
         if !choice.enabled {
             return Err(Fault::new(ErrorCode::NotConfigured, "OCR is disabled"));
         }
-        let models = self.registry.list(Some(Kind::Ocr))?;
+        self.registry.storage()?;
+        // Startup and installation verify files; each execution checks the selected stamp.
+        let models = self.registry.cached(Some(Kind::Ocr));
         let selected = select(&models, &choice).ok_or_else(|| {
             Fault::new(ErrorCode::NotConfigured, "an OCR model must be installed")
         })?;

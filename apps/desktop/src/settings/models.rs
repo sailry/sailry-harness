@@ -1,5 +1,7 @@
 //! One Node-scoped owner for local model metadata, selection and installation.
 mod requests;
+#[cfg(test)]
+mod tests;
 mod view;
 mod watch;
 
@@ -19,6 +21,7 @@ use gpui_kit::{
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     Command, NodeId, Request,
+    installation::Progress,
     models::{
         Availability, Choice as Selection, Definition, Kind, Model, Settings, Source,
         State as Status,
@@ -50,6 +53,7 @@ pub(super) struct Panel {
     error: Option<&'static str>,
     fault: Option<sailry_protocol::Fault>,
     retry_install: Option<String>,
+    _installations: Subscription,
 }
 
 #[derive(Clone)]
@@ -166,6 +170,7 @@ impl Panel {
             error: None,
             fault: None,
             retry_install: None,
+            _installations: crate::installations::observe(cx),
         }
     }
 
@@ -264,7 +269,8 @@ impl Panel {
             .find(|model| model.id == id)
             .map(|model| model.definition.clone())
     }
-    pub(in crate::settings) fn model_entries(&self, kind: Kind) -> Vec<ManagedModel> {
+    pub(in crate::settings) fn model_entries(&self, kind: Kind, cx: &App) -> Vec<ManagedModel> {
+        let node = self.binding.client.target();
         self.models
             .iter()
             .filter(|model| model.definition.format.kind() == kind)
@@ -272,7 +278,12 @@ impl Panel {
                 key: ModelKey::Node(kind, model.id.clone()),
                 name: model.definition.name.clone().into(),
                 detail: model.definition.source.repository.clone(),
-                status: status(&model.state),
+                status: status(
+                    &model.state,
+                    (model.state == Status::Downloading)
+                        .then(|| crate::installations::model_progress(node, &model.id, cx))
+                        .flatten(),
+                ),
                 selected: self
                     .settings
                     .as_ref()
@@ -376,13 +387,35 @@ fn availability<'a>(models: impl Iterator<Item = &'a Model>) -> ModelStatus {
             Status::Downloading => 1,
             Status::Missing => 0,
         })
-        .map_or(ModelStatus::Missing, |model| status(&model.state))
+        .map_or(ModelStatus::Missing, |model| status(&model.state, None))
 }
-fn status(value: &Status) -> ModelStatus {
+/// Catalog state with transfer progress from the Node's installation observation.
+fn status(value: &Status, progress: Option<Progress>) -> ModelStatus {
     match value {
         Status::Missing => ModelStatus::Missing,
         Status::Installed => ModelStatus::Installed,
-        Status::Downloading => ModelStatus::Downloading(None),
+        Status::Downloading => ModelStatus::Downloading(progress.map(transfer)),
+    }
+}
+fn transfer(progress: Progress) -> sailry_model_assets::Progress {
+    let (percent, bytes_per_second) = match progress {
+        Progress::Percent {
+            percent,
+            bytes_per_second,
+        } => (f32::from(percent), bytes_per_second),
+        Progress::Counts {
+            completed,
+            total,
+            bytes_per_second,
+        } => (
+            (completed as f64 / total.max(1) as f64 * 100.) as f32,
+            bytes_per_second,
+        ),
+    };
+    sailry_model_assets::Progress {
+        phase: sailry_model_assets::Phase::Downloading,
+        percent,
+        bytes_per_second: bytes_per_second.unwrap_or_default() as f64,
     }
 }
 fn error_key(code: sailry_protocol::ErrorCode) -> &'static str {

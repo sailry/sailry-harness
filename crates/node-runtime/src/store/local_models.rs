@@ -1,24 +1,29 @@
 //! Durable local model metadata and the shared execution owner's public boundary.
 pub(in crate::store) mod approvals;
+#[cfg(test)]
+mod tests;
 
 use super::{
     Ingress, Job,
     database::{Database, encode, storage_error},
 };
-use crate::models::registry::{Registration, catalog};
+use crate::models::registry::{Registration, Update, catalog};
 use rusqlite::{Connection, OptionalExtension, params};
 use sailry_link::{Admission, CancellationToken};
 use sailry_protocol::{
     Command, ErrorCode, Event, EventEnvelope, Fault, Output, Request,
     models::{Definition, Kind, Model, Settings},
 };
-use std::{collections::BTreeSet, sync::Arc};
-use tokio::sync::{broadcast, oneshot};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+use tokio::sync::{broadcast, oneshot, watch};
 
 #[derive(Clone, Debug)]
 pub(crate) struct Catalog {
     pub settings: Settings,
-    pub records: Vec<Registration>,
+    pub definitions: BTreeMap<String, Arc<Definition>>,
 }
 
 pub(in crate::store) fn initialize(db: &Connection) -> Result<(), Fault> {
@@ -83,7 +88,10 @@ pub(in crate::store) fn read(db: &Connection) -> Result<Catalog, Fault> {
             ));
         }
     }
-    Ok(Catalog { settings, records })
+    Ok(Catalog {
+        settings,
+        definitions,
+    })
 }
 
 pub(in crate::store) fn require(
@@ -103,7 +111,8 @@ pub(in crate::store) fn require(
 }
 
 pub(in crate::store) fn definition(db: &Connection, id: &str) -> Result<Arc<Definition>, Fault> {
-    catalog::definitions(&read(db)?.records)?
+    read(db)?
+        .definitions
         .remove(id)
         .ok_or_else(|| Fault::new(ErrorCode::NotFound, "local model is not registered"))
 }
@@ -189,23 +198,23 @@ fn register(db: &Connection, definition: &Definition) -> Result<(Output, Option<
         )
         .optional()
         .map_err(storage_error)?;
+    let registered = previous.is_some();
     let id = previous.unwrap_or_else(|| digest.clone());
-    let mut catalog = read(db)?;
-    let definitions = catalog::definitions(&catalog.records)?;
-    if !definitions.contains_key(&id) {
-        catalog.records.push(Registration {
-            id: id.clone(),
-            definition: definition.clone(),
-        });
-        catalog::definitions(&catalog.records)?;
+    if !registered && !catalog::builtins().contains_key(&id) {
+        let kind = definition.format.kind();
+        let count: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM local_models WHERE kind=?1",
+                [kind_name(kind)],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?;
+        if count >= catalog::LIMIT as i64 {
+            return Err(Fault::invalid("local model catalog exceeds its limit"));
+        }
         db.execute(
             "INSERT INTO local_models(id,kind,digest,body) VALUES(?1,?2,?3,?4)",
-            params![
-                id,
-                kind_name(definition.format.kind()),
-                digest,
-                encode(&definition)?
-            ],
+            params![id, kind_name(kind), digest, encode(&definition)?],
         )
         .map_err(storage_error)?;
     }
@@ -233,48 +242,104 @@ pub(in crate::store) fn models(
 pub(in crate::store) async fn start(ingress: &Arc<Ingress>) -> Result<(), Fault> {
     ingress.local_models.models(None).await?;
     let mut updates = ingress.local_models.subscribe();
-    let mut previous = updates.borrow_and_update().clone();
+    let previous = updates.borrow_and_update().clone();
     let weak = Arc::downgrade(ingress);
     let stop = ingress.closed.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::select! { _ = stop.cancelled() => break, result = updates.changed() => if result.is_err() { break } }
-            let Some(ingress) = weak.upgrade() else { break };
-            let latest = updates.borrow_and_update().clone();
-            if latest.models != previous.models {
+    let observer = weak.clone();
+    tokio::spawn(follow(
+        updates,
+        previous,
+        stop,
+        move |models| {
+            let weak = weak.clone();
+            async move {
+                let ingress = weak.upgrade().ok_or_else(super::unavailable)?;
                 let (reply, result) = oneshot::channel();
-                if ingress
-                    .send_internal(Job::LocalModels {
-                        models: latest.models.clone(),
-                        reply,
-                    })
-                    .await
-                    .is_err()
-                    || !matches!(result.await, Ok(Ok(())))
-                {
-                    break;
-                }
+                ingress
+                    .send_internal(Job::LocalModels { models, reply })
+                    .await?;
+                result.await.map_err(|_| super::unavailable())?
             }
-            if (latest.embedding != previous.embedding
-                || membership(&latest.models) != membership(&previous.models))
+        },
+        move |reaction| {
+            if let Some(ingress) = observer.upgrade()
                 && let Some(knowledge) = ingress.knowledge.get()
             {
-                knowledge.invalidate();
+                match reaction {
+                    Reaction::Invalidate => knowledge.invalidate(),
+                    Reaction::Refresh => knowledge.refresh(),
+                }
             }
-            previous = latest;
-        }
-    });
+        },
+    ));
     Ok(())
 }
 
-fn membership(models: &[Model]) -> BTreeSet<String> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Reaction {
+    Invalidate,
+    Refresh,
+}
+
+/// Records catalog changes and wakes knowledge until the registry channel closes.
+async fn follow<W, F>(
+    mut updates: watch::Receiver<Update>,
+    mut previous: Update,
+    stop: CancellationToken,
+    mut write: W,
+    mut react: impl FnMut(Reaction),
+) where
+    W: FnMut(Vec<Model>) -> F,
+    F: std::future::Future<Output = Result<(), Fault>>,
+{
+    let mut recorded = previous.models.clone();
+    loop {
+        tokio::select! { _ = stop.cancelled() => break, result = updates.changed() => if result.is_err() { break } }
+        let latest = updates.borrow_and_update().clone();
+        if latest.models != recorded {
+            match write(latest.models.clone()).await {
+                Ok(()) => recorded = latest.models.clone(),
+                // The next registry change retries with the complete catalog.
+                Err(error) => tracing::warn!(
+                    target: "sailry",
+                    area = "model",
+                    phase = "failed",
+                    operation = "local_models_event",
+                    code = ?error.code
+                ),
+            }
+        }
+        if let Some(reaction) = reaction(&previous, &latest) {
+            react(reaction);
+        }
+        previous = latest;
+    }
+}
+
+/// Embedding changes invalidate derived vectors; OCR changes only re-extract sources.
+fn reaction(previous: &Update, latest: &Update) -> Option<Reaction> {
+    if latest.embedding != previous.embedding
+        || installed(&latest.models, Kind::Embedding)
+            != installed(&previous.models, Kind::Embedding)
+    {
+        Some(Reaction::Invalidate)
+    } else if latest.ocr != previous.ocr
+        || installed(&latest.models, Kind::Ocr) != installed(&previous.models, Kind::Ocr)
+    {
+        Some(Reaction::Refresh)
+    } else {
+        None
+    }
+}
+
+fn installed(models: &[Model], kind: Kind) -> BTreeSet<&str> {
     models
         .iter()
         .filter(|model| {
-            model.definition.format.kind() == Kind::Embedding
+            model.definition.format.kind() == kind
                 && model.state == sailry_protocol::models::State::Installed
         })
-        .map(|model| model.id.clone())
+        .map(|model| model.id.as_str())
         .collect()
 }
 
