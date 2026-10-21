@@ -63,6 +63,15 @@ pub(super) fn observed_edit(request: &Request, rows: &[Connection]) -> Option<Co
         .cloned()
 }
 
+fn success_key(command: &Command) -> &'static str {
+    match command {
+        Command::ProbeConnection { .. } => "connector_checked",
+        Command::DisconnectConnection { .. } => "connector_disconnected",
+        Command::RemoveConnection { .. } => "connector_removed",
+        _ => "connector_saved",
+    }
+}
+
 impl Workspace {
     pub(super) fn refresh_connectors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(binding) = self.connectors.binding.clone() else {
@@ -73,13 +82,7 @@ impl Workspace {
         }
         let mut requests = Vec::new();
         for row in &self.connectors.rows {
-            if !row.enabled
-                || matches!(
-                    row.state,
-                    connector::State::Connecting | connector::State::NeedsConfirmation
-                )
-                || self.connectors.pending.contains(&row.id)
-            {
+            if !super::menu::checkable(row) || self.connectors.pending.contains(&row.id) {
                 continue;
             }
             let request = binding
@@ -171,8 +174,8 @@ impl Workspace {
                 } else {
                     crate::feedback::toast(
                         window,
-                        tr("connector_saved"),
-                        notification::Notification::success(tr("connector_saved")),
+                        tr("connector_checked"),
+                        notification::Notification::success(tr("connector_checked")),
                         cx,
                     );
                 }
@@ -201,6 +204,7 @@ impl Workspace {
             | Command::ConfirmConnectorConsent { connection, .. } => *connection,
             _ => return,
         };
+        let success = success_key(&command);
         let probe = matches!(&command, Command::ProbeConnection { .. });
         if !probe
             && self.connectors.requests.get(&id).is_some_and(|submission| {
@@ -276,8 +280,8 @@ impl Workspace {
                 match result {
                     Ok(Ok(_)) => crate::feedback::toast(
                         window,
-                        tr("connector_saved"),
-                        notification::Notification::success(tr("connector_saved")),
+                        tr(success),
+                        notification::Notification::success(tr(success)),
                         cx,
                     ),
                     Ok(Err(error)) => failure(error, window, cx),

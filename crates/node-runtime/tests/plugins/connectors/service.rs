@@ -120,6 +120,7 @@ async fn preserves_private_credentials_and_durable_identity() {
         assert!(initial.connections.is_empty());
         let row = connected(&client, package.clone(), None, None, secret()).await;
         assert_eq!(row.state, State::Connected);
+        assert!(row.can_disconnect);
         assert_eq!(row.configured, ["token"]);
         assert!(!serde_json::to_string(&row).unwrap().contains(TOKEN));
         let scope = context(package.clone(), worktree);
@@ -190,6 +191,7 @@ async fn preserves_private_credentials_and_durable_identity() {
             panic!("connection expected");
         };
         assert!(!disabled.enabled);
+        assert!(disabled.can_disconnect);
         assert_eq!(
             client
                 .execute(
@@ -237,6 +239,7 @@ async fn preserves_private_credentials_and_durable_identity() {
             panic!("connection expected");
         };
         assert_eq!(disconnected.state, State::NotConnected);
+        assert!(!disconnected.can_disconnect);
         assert!(disconnected.configured.is_empty());
         let relinked = connected(
             &client,

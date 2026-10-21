@@ -367,6 +367,10 @@ impl Workspace {
     }
 }
 
+fn editable(field: &connector::Field, method: connector::Kind) -> bool {
+    method != connector::Kind::LocalCli || !field.secret
+}
+
 fn title(navigation: &sailry_protocol::plugin::desktop::Navigation) -> String {
     navigation
         .locales

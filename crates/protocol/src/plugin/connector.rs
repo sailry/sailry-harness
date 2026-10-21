@@ -236,6 +236,8 @@ pub struct Connection {
     pub revision: u64,
     pub enabled: bool,
     pub state: State,
+    #[serde(default)]
+    pub can_disconnect: bool,
     pub identity: Option<Identity>,
     pub expires_at_ms: Option<u64>,
     pub checked_at_ms: Option<u64>,

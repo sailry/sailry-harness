@@ -27,18 +27,21 @@ impl Editor {
         let Some(auth) = self.method().cloned() else {
             return;
         };
+        let editing = updates(auth.kind(), self.configuring(), registration);
+        let success = success_key(auth.kind(), self.configuring());
         let mut input = self.values(cx);
         input.registration = registration;
-        let interactive =
-            matches!(auth, Auth::Oauth2 { .. } | Auth::McpOauth { .. }) || registration;
-        let needs_callback = matches!(
-            auth,
-            Auth::Oauth2 {
-                flow: connector::Flow::Pkce,
-                ..
-            } | Auth::McpOauth { .. }
-        ) || registration
-            && matches!(&auth, Auth::Application { registration: Some(registration), .. } if matches!(&registration.flow, sailry_protocol::plugin::model_auth::Flow::Script { callback: Some(_), .. }));
+        let interactive = !editing
+            && (matches!(auth, Auth::Oauth2 { .. } | Auth::McpOauth { .. }) || registration);
+        let needs_callback = !editing
+            && (matches!(
+                auth,
+                Auth::Oauth2 {
+                    flow: connector::Flow::Pkce,
+                    ..
+                } | Auth::McpOauth { .. }
+            ) || registration
+                && matches!(&auth, Auth::Application { registration: Some(registration), .. } if matches!(&registration.flow, sailry_protocol::plugin::model_auth::Flow::Script { callback: Some(_), .. })));
         let callback_path = match &auth {
             Auth::Application {
                 registration: Some(registration),
@@ -96,10 +99,6 @@ impl Editor {
             .filter(|current| Some(current.id) == connection)
             .map(|connection| connection.revision)
             .or_else(|| self.attempt.as_ref().map(|attempt| attempt.revision));
-        let editing = self.editing
-            && !self.reconnecting
-            && matches!(auth, Auth::Oauth2 { .. } | Auth::McpOauth { .. })
-            && !registration;
         let command = if editing {
             Command::UpdateConnection {
                 connection: connection.expect("edited connection"),
@@ -224,16 +223,13 @@ impl Editor {
                     }
                     match message {
                         Message::Attempt(attempt) => this.attempt = Some(attempt),
-                        Message::State(LoginState::Connected(connection)) => {
+                        Message::State(LoginState::Connected(_connection)) => {
                             this.request = None;
                             this.callback = None;
                             this.pending = false;
-                            let title = this.kind()
-                                .map(|kind| super::super::title(&kind.declaration.display))
-                                .unwrap_or_default();
                             this.closed = true;
                             window.close_dialog(cx);
-                            crate::ui::authorization::connected(&title, connection.identity.as_ref().map(|identity| identity.name.as_str()), window, cx);
+                            crate::feedback::toast(window, tr(success), notification::Notification::success(tr(success)), cx);
                         }
                         Message::State(state) => {
                             this.pending = state.active();
@@ -324,6 +320,21 @@ impl Editor {
     }
 }
 
+fn updates(method: Kind, configuring: bool, registration: bool) -> bool {
+    configuring && !registration && matches!(method, Kind::Oauth2 | Kind::McpOauth | Kind::LocalCli)
+}
+
+fn success_key(method: Kind, configuring: bool) -> &'static str {
+    if configuring {
+        return "connector_saved";
+    }
+    match method {
+        Kind::Oauth2 | Kind::McpOauth => "connector_authorized",
+        Kind::LocalCli => "connector_bound",
+        Kind::Secret | Kind::Application => "connector_saved",
+    }
+}
+
 fn failure_key(code: ErrorCode) -> &'static str {
     match code {
         ErrorCode::RevisionConflict => "connector_conflict",
@@ -334,8 +345,37 @@ fn failure_key(code: ErrorCode) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::failure_key;
+    use super::super::submit_key;
+    use super::{failure_key, success_key, updates};
     use sailry_protocol::ErrorCode;
+    use sailry_protocol::plugin::connector::Kind;
+
+    #[test]
+    fn separates_saved_configuration_from_account_binding() {
+        for method in [
+            Kind::Secret,
+            Kind::Application,
+            Kind::Oauth2,
+            Kind::McpOauth,
+            Kind::LocalCli,
+        ] {
+            assert_eq!(submit_key(method, true), "settings_save");
+            assert_eq!(success_key(method, true), "connector_saved");
+            assert_eq!(
+                updates(method, true, false),
+                matches!(method, Kind::Oauth2 | Kind::McpOauth | Kind::LocalCli)
+            );
+            assert!(!updates(method, false, false));
+            assert!(!updates(method, true, true));
+            let (submit, success) = match method {
+                Kind::Oauth2 | Kind::McpOauth => ("connector_authorize", "connector_authorized"),
+                Kind::LocalCli => ("connector_bind", "connector_bound"),
+                _ => ("settings_save", "connector_saved"),
+            };
+            assert_eq!(submit_key(method, false), submit);
+            assert_eq!(success_key(method, false), success);
+        }
+    }
 
     #[test]
     fn distinguishes_login_failures_from_expired_accounts() {

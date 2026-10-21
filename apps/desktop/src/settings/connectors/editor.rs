@@ -138,6 +138,10 @@ impl Drop for Editor {
 }
 
 impl Editor {
+    fn configuring(&self) -> bool {
+        self.editing && !self.reconnecting
+    }
+
     fn reconcile(&mut self, cx: &mut Context<Self>) {
         if self.pending || self.closed {
             return;
@@ -201,9 +205,10 @@ impl Editor {
             cx.observe(&state, |_, _, cx| cx.notify()).detach();
             self.fields.insert(field.name, state);
         }
-        if self
-            .method()
-            .is_some_and(|auth| auth.kind() == Kind::LocalCli)
+        if !self.configuring()
+            && self
+                .method()
+                .is_some_and(|auth| auth.kind() == Kind::LocalCli)
         {
             self.inspect(window, cx);
         }
@@ -223,21 +228,24 @@ impl Editor {
         let Some(kind) = self.kind() else {
             return false;
         };
-        if self
-            .method()
-            .is_some_and(|auth| auth.kind() == Kind::LocalCli)
-        {
-            return self.cli.is_some() && !self.inspecting;
-        }
-        if self
-            .method()
-            .is_some_and(|auth| matches!(auth, Auth::McpOauth { client: None, .. }))
-        {
-            return true;
+        if !self.configuring() {
+            if self
+                .method()
+                .is_some_and(|auth| auth.kind() == Kind::LocalCli)
+            {
+                return self.cli.is_some() && !self.inspecting;
+            }
+            if self
+                .method()
+                .is_some_and(|auth| matches!(auth, Auth::McpOauth { client: None, .. }))
+            {
+                return true;
+            }
         }
         kind.declaration
             .fields
             .iter()
+            .filter(|field| editable(field, self.method().expect("selected method").kind()))
             .filter(|field| !field.optional)
             .all(|field| {
                 self.fields
@@ -254,6 +262,9 @@ impl Editor {
         let mut input = Values::default();
         if let Some(kind) = self.kind() {
             for field in &kind.declaration.fields {
+                if !editable(field, self.method().expect("selected method").kind()) {
+                    continue;
+                }
                 let value = self
                     .fields
                     .get(&field.name)
@@ -315,6 +326,47 @@ impl Editor {
         })
         .detach();
     }
+    fn field_form(&self, kind: &Type) -> AnyElement {
+        let mut form = Form::new();
+        for field in &kind.declaration.fields {
+            if !editable(field, self.method().expect("selected method").kind()) {
+                continue;
+            }
+            let input = Input::new(self.fields.get(&field.name).expect("connector field state"))
+                .when(field.secret, |input| {
+                    input.content_type(InputContentType::Password).mask_toggle()
+                });
+            let label = field
+                .locales
+                .get::<str>(rust_i18n::locale().as_ref())
+                .cloned()
+                .unwrap_or_else(|| field.title.clone());
+            let help = field.help.clone();
+            let name = field.name.clone();
+            let element = Field::new()
+                .label_fn(move |_, _| {
+                    h_flex()
+                        .w_full()
+                        .items_center()
+                        .justify_between()
+                        .child(label.clone())
+                        .when_some(help.clone(), |element, url| {
+                            element.child(
+                                Button::new(format!("connector-help-{name}"))
+                                    .link()
+                                    .small()
+                                    .icon(IconName::ExternalLink)
+                                    .accessibility_label(tr("menu_help"))
+                                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                            )
+                        })
+                })
+                .child(input);
+            form = form.child(element);
+        }
+        form.into_any_element()
+    }
+
     fn normal(&self, cx: &mut Context<Self>) -> AnyElement {
         let Some(kind) = self.kind() else {
             return self.choices(cx);
@@ -358,83 +410,52 @@ impl Editor {
                 }
                 cx.notify();
             }));
-        let content = match auth {
-            Auth::LocalCli { command, token, .. } => v_flex()
-                .gap_3()
-                .when(self.inspecting, |element| {
-                    element.child(Skeleton::new().h_12().w_full())
-                })
-                .when(!self.inspecting, |element| {
-                    element.child(
-                        h_flex()
-                            .gap_3()
-                            .child(Icon::new(if self.cli.is_some() {
-                                IconName::CircleCheck
-                            } else {
-                                IconName::CircleAlert
-                            }))
-                            .child(
-                                self.cli
-                                    .as_ref()
-                                    .map(|identity| identity.name.clone())
-                                    .unwrap_or_else(|| tr("connector_not_connected").to_string()),
-                            ),
-                    )
-                })
-                .child(
-                    div()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(format!("{command} {}", token.argv.join(" "))),
-                )
-                .into_any_element(),
-            Auth::McpOauth { client: None, .. }
-            | Auth::Oauth2 {
-                client: connector::Client::Bundled { .. },
-                ..
-            } => v_flex()
-                .items_center()
-                .gap_3()
-                .child(Icon::new(IconName::Globe).size_8())
-                .child(tr("connector_browser"))
-                .into_any_element(),
-            _ => {
-                let mut form = Form::new();
-                for field in &kind.declaration.fields {
-                    let input =
-                        Input::new(self.fields.get(&field.name).expect("connector field state"))
-                            .when(field.secret, |input| {
-                                input.content_type(InputContentType::Password).mask_toggle()
-                            });
-                    let label = field
-                        .locales
-                        .get::<str>(rust_i18n::locale().as_ref())
-                        .cloned()
-                        .unwrap_or_else(|| field.title.clone());
-                    let help = field.help.clone();
-                    let name = field.name.clone();
-                    let element = Field::new()
-                        .label_fn(move |_, _| {
+        let content = if self.configuring() {
+            self.field_form(kind)
+        } else {
+            match auth {
+                Auth::LocalCli { command, token, .. } => v_flex()
+                    .gap_3()
+                    .when(self.inspecting, |element| {
+                        element.child(Skeleton::new().h_12().w_full())
+                    })
+                    .when(!self.inspecting, |element| {
+                        element.child(
                             h_flex()
-                                .w_full()
-                                .items_center()
-                                .justify_between()
-                                .child(label.clone())
-                                .when_some(help.clone(), |element, url| {
-                                    element.child(
-                                        Button::new(format!("connector-help-{name}"))
-                                            .link()
-                                            .small()
-                                            .icon(IconName::ExternalLink)
-                                            .accessibility_label(tr("menu_help"))
-                                            .on_click(move |_, _, cx| cx.open_url(&url)),
-                                    )
-                                })
-                        })
-                        .child(input);
-                    form = form.child(element);
-                }
-                form.into_any_element()
+                                .gap_3()
+                                .child(Icon::new(if self.cli.is_some() {
+                                    IconName::CircleCheck
+                                } else {
+                                    IconName::CircleAlert
+                                }))
+                                .child(
+                                    self.cli
+                                        .as_ref()
+                                        .map(|identity| identity.name.clone())
+                                        .unwrap_or_else(|| {
+                                            tr("connector_not_connected").to_string()
+                                        }),
+                                ),
+                        )
+                    })
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(format!("{command} {}", token.argv.join(" "))),
+                    )
+                    .into_any_element(),
+                Auth::McpOauth { client: None, .. }
+                | Auth::Oauth2 {
+                    client: connector::Client::Bundled { .. },
+                    ..
+                } => v_flex()
+                    .items_center()
+                    .gap_3()
+                    .child(Icon::new(IconName::Globe).size_8())
+                    .child(tr("connector_browser"))
+                    .into_any_element(),
+                _ => self.field_form(kind),
             }
         };
         let registration = matches!(
@@ -488,13 +509,7 @@ impl Editor {
                     .child(
                         Button::new("connector-submit")
                             .primary()
-                            .label(tr(if self.editing {
-                                "settings_save"
-                            } else if matches!(auth, Auth::Oauth2 { .. } | Auth::McpOauth { .. }) {
-                                "connector_authorize"
-                            } else {
-                                "connector_connect"
-                            }))
+                            .label(tr(submit_key(auth.kind(), self.configuring())))
                             .loading(self.pending)
                             .disabled(self.pending || !self.required(cx))
                             .on_click(
@@ -552,6 +567,17 @@ impl Editor {
                     .children(rows),
             )
             .into_any_element()
+    }
+}
+
+fn submit_key(method: Kind, configuring: bool) -> &'static str {
+    if configuring {
+        return "settings_save";
+    }
+    match method {
+        Kind::Oauth2 | Kind::McpOauth => "connector_authorize",
+        Kind::LocalCli => "connector_bind",
+        Kind::Secret | Kind::Application => "settings_save",
     }
 }
 

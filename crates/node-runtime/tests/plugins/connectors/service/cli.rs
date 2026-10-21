@@ -306,11 +306,27 @@ async fn clears_identity_after_changing_authentication() {
         };
         let original = ready(&client, &attempt).await;
         assert_eq!(original.identity.as_ref().unwrap().id, "fixture-user");
+        assert!(original.can_disconnect);
+        let Output::Connection(disconnected) = execute(
+            &client,
+            Command::DisconnectConnection {
+                connection: original.id,
+                expected_revision: original.revision,
+            },
+        )
+        .await
+        else {
+            panic!("connection expected")
+        };
+        assert_eq!(disconnected.identity, original.identity);
+        assert_eq!(disconnected.state, State::NotConnected);
+        assert!(!disconnected.can_disconnect);
+
         let row = super::connected(
             &client,
             package.clone(),
             Some(original.id),
-            Some(original.revision),
+            Some(disconnected.revision),
             secret(),
         )
         .await;

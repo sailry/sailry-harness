@@ -113,6 +113,8 @@ credentials, authentication targets, consent or enablement change. Unchanged
 authorization preserves captured and new calls, while live revocation and consent
 remain enforced. Private historical settings captures stay intact; current
 authentication reads only connections.
+The public disconnect capability is derived from the current private credentials
+or CLI binding and login state; it does not expose credentials or add stored state.
 
 Local CLI connections bind a public account identity and read transient tokens
 when used. Fixed argv runs without a shell in a minimal environment with bounded

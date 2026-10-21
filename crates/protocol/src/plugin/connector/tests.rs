@@ -100,3 +100,17 @@ fn confines_local_commands() {
         assert!(!accepted(changed), "accepted {pointer}");
     }
 }
+
+#[test]
+fn defaults_missing_disconnect_capability() {
+    let connection: Connection = serde_json::from_value(json!({
+        "id":RequestId::new(),"package":{"name":"fixture","digest":"a".repeat(64),"settings_revision":0},
+        "connector":"account","method":"oauth2","revision":1,"enabled":true,"state":"failed",
+        "identity":null,"expires_at_ms":null,"checked_at_ms":null,"fields":{},"configured":[]
+    })).unwrap();
+    assert!(!connection.can_disconnect);
+    assert_eq!(
+        serde_json::to_value(connection).unwrap()["can_disconnect"],
+        false
+    );
+}

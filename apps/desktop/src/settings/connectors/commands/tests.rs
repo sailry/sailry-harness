@@ -1,4 +1,4 @@
-use super::{Submission, finish, observed_edit, prepare, reconcile};
+use super::{Submission, finish, observed_edit, prepare, reconcile, success_key};
 use sailry_protocol::{
     Command, ErrorCode, NodeId, Request, RequestId,
     plugin::connector::{self, Connection},
@@ -18,6 +18,7 @@ fn row(id: connector::Id, revision: u64) -> Connection {
         revision,
         enabled: true,
         state: connector::State::Connected,
+        can_disconnect: true,
         identity: None,
         expires_at_ms: None,
         checked_at_ms: None,
@@ -212,5 +213,45 @@ fn retains_only_unknown_durable_outcomes() {
                 "{probe}/{code:?}",
             );
         }
+    }
+}
+
+#[test]
+fn reports_the_completed_operation() {
+    let connection = RequestId::new();
+    for (command, key) in [
+        (Command::ProbeConnection { connection }, "connector_checked"),
+        (
+            Command::DisconnectConnection {
+                connection,
+                expected_revision: 7,
+            },
+            "connector_disconnected",
+        ),
+        (
+            Command::RemoveConnection {
+                connection,
+                expected_revision: 7,
+            },
+            "connector_removed",
+        ),
+        (
+            Command::SetConnectionEnabled {
+                connection,
+                expected_revision: 7,
+                enabled: false,
+            },
+            "connector_saved",
+        ),
+        (
+            Command::ConfirmConnectorConsent {
+                connection,
+                expected_revision: 7,
+                accept: true,
+            },
+            "connector_saved",
+        ),
+    ] {
+        assert_eq!(success_key(&command), key);
     }
 }

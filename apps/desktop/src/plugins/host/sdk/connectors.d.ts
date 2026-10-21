@@ -2,6 +2,7 @@ export type Kind = 'secret'|'oauth2'|'application'|'mcp_oauth'|'local_cli';
 export interface Connection {
   id:string;connector:string;method:Kind;revision:string;enabled:boolean;
   state:'connected'|'not_connected'|'connecting'|'expired'|'needs_confirmation'|'failed';
+  can_disconnect:boolean;
   package:{name:string;digest:string;settings_revision:string};
   identity:{name:string;id:string}|null;expires_at_ms:number|null;checked_at_ms:number|null;
   fields:Record<string,string>;configured:string[];
