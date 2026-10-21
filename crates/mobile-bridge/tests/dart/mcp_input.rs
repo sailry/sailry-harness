@@ -57,6 +57,8 @@ enum Input {
     Task,
 }
 
+const ORIGIN: &str = "https://mcp.example.com";
+
 fn forms(sse: bool, oauth: bool, input: Input) {
     let directory = tempfile::tempdir().unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -78,11 +80,20 @@ fn forms(sse: bool, oauth: bool, input: Input) {
     });
     peer.package(&directory.path().join("project/package"));
     let issuer = oauth.then(|| runtime.block_on(issuer::Server::start(&peer.endpoint)));
-    if let Some(issuer) = &issuer {
+    if issuer.is_some() {
         std::fs::write(directory.path().join("project/package/mcp.json"), json!({
             "$schema":"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
-            "mcpServers":{"input":{"type":if sse {"sse"} else {"streamable-http"},"url":issuer.endpoint}}
+            "mcpServers":{"input":{"type":if sse {"sse"} else {"streamable-http"},"url":format!("{ORIGIN}/mcp")}}
         }).to_string()).unwrap();
+        let path = directory.path().join("project/package/plugin.json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        manifest["extensions"] = json!({"dev.sailry.platform":{"api_version":"v1","connectors":[{
+            "id":"service","display":{"label":"Service"},"accounts":"single","origins":[ORIGIN],
+            "auth":[{"kind":"mcp_oauth","server":"input"}],
+            "inject":[{"server":"input","header":"Authorization","prefix":"Bearer "}]
+        }]}});
+        std::fs::write(path, manifest.to_string()).unwrap();
     }
     let model = runtime.block_on(support::Server::turn_tools(vec![
         (
@@ -96,6 +107,9 @@ fn forms(sse: bool, oauth: bool, input: Input) {
         &model.endpoint,
         "ffi-mcp-input",
     ));
+    if let Some(issuer) = &issuer {
+        node.set_connector_fixture(ORIGIN, &issuer.endpoint);
+    }
     runtime.block_on(async {
         let client = Client::new(node.local());
         let Output::Snapshot(snapshot) = client

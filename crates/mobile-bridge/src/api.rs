@@ -1,6 +1,7 @@
 pub(crate) mod activity;
 pub(crate) mod commands;
 pub(crate) mod connection;
+pub(crate) mod connectors;
 pub(crate) mod conversation;
 pub(crate) mod login;
 pub(crate) mod overview;
@@ -11,6 +12,7 @@ pub(crate) mod transfers;
 pub(crate) mod usage;
 pub use commands::CommandUpdates;
 pub use connection::{Connection, Updates};
+pub use connectors::ConnectionsUpdates;
 pub use conversation::ConversationUpdates;
 pub use login::LoginUpdates;
 pub use overview::OverviewUpdates;

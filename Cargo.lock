@@ -14344,6 +14344,7 @@ dependencies = [
  "base64 0.22.1",
  "blake3",
  "flutter_rust_bridge",
+ "futures",
  "jni 0.22.4",
  "jsonwebtoken",
  "objc2-foundation 0.3.2",
@@ -14361,6 +14362,7 @@ dependencies = [
  "sqlx",
  "tempfile",
  "tokio",
+ "tokio-tungstenite 0.28.0",
  "url",
 ]
 

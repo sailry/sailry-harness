@@ -5,6 +5,7 @@
 
 import '../frb_generated.dart';
 import 'commands.dart';
+import 'connectors.dart';
 import 'conversation.dart';
 import 'login.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
@@ -56,13 +57,16 @@ abstract class Connection implements RustOpaqueInterface {
 
   Future<CommandUpdates> watchCommands({required String session});
 
+  /// Observe the Node's connection snapshots without initiating authorization.
+  Future<ConnectionsUpdates> watchConnections();
+
+  /// Observe an existing connector attempt without initiating authorization.
+  Future<LoginUpdates> watchConnectorLogin({required String attempt});
+
   Future<ConversationUpdates> watchConversation({required String session});
 
   /// Observe an existing attempt; BeginProviderLogin remains an explicit durable command.
   Future<LoginUpdates> watchLogin({required String attempt});
-
-  /// Observe an existing MCP OAuth attempt without initiating authorization.
-  Future<LoginUpdates> watchMcpLogin({required String attempt});
 
   Future<TerminalUpdates> watchTerminal({required String terminal});
 

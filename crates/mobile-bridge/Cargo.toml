@@ -23,6 +23,7 @@ jni.workspace = true
 rustls-platform-verifier.workspace = true
 
 [dev-dependencies]
+futures.workspace = true
 rustls.workspace = true
 jsonwebtoken.workspace = true
 sqlx.workspace = true
@@ -33,6 +34,7 @@ url.workspace = true
 base64.workspace = true
 sailry-node-runtime = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
+tokio-tungstenite.workspace = true
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 objc2-foundation = { workspace = true, features = ["NSFileManager", "NSPathUtilities", "NSURL"] }

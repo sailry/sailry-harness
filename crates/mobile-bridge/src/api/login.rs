@@ -14,7 +14,7 @@ pub struct LoginUpdates {
 
 enum Receiver {
     Provider(watch::Receiver<View>),
-    Mcp(watch::Receiver<sailry_client::mcp_login::View>),
+    Connector(watch::Receiver<sailry_client::connectors::View>),
 }
 
 impl LoginUpdates {
@@ -31,18 +31,20 @@ impl LoginUpdates {
         }
     }
 
-    pub(super) fn mcp(
+    pub(super) fn connector(
         client: Arc<Client>,
-        attempt: sailry_protocol::plugin::authorization::Attempt,
+        attempt: sailry_protocol::plugin::connector::Attempt,
         stop: CancellationToken,
     ) -> Self {
-        let (sender, receiver) = watch::channel(sailry_client::mcp_login::View::default());
+        let (sender, receiver) = watch::channel(sailry_client::connectors::View::default());
         let cancelled = stop.clone();
         let task = tokio::spawn(async move {
-            let _ = client.watch_mcp_login(attempt, sender, cancelled).await;
+            let _ = client
+                .watch_connector_login(attempt, sender, cancelled)
+                .await;
         });
         Self {
-            receiver: Mutex::new(Receiver::Mcp(receiver)),
+            receiver: Mutex::new(Receiver::Connector(receiver)),
             stop,
             task,
         }
@@ -59,7 +61,7 @@ impl LoginUpdates {
                         receiver.changed().await.map_err(error)?;
                         serde_json::to_string(&*receiver.borrow_and_update()).map_err(error)
                     }
-                    Receiver::Mcp(receiver) => {
+                    Receiver::Connector(receiver) => {
                         receiver.changed().await.map_err(error)?;
                         serde_json::to_string(&*receiver.borrow_and_update()).map_err(error)
                     }

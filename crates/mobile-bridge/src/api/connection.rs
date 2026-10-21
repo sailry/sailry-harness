@@ -71,6 +71,19 @@ impl Connection {
         })
     }
 
+    /// Observe the Node's connection snapshots without initiating authorization.
+    pub async fn watch_connections(&self) -> Result<ConnectionsUpdates, String> {
+        let subscription = tokio::select! {
+            biased;
+            _ = self.stop.cancelled() => return Err("connection is closed".into()),
+            result = self.client.subscribe_connections() => result.map_err(error)?,
+        };
+        Ok(ConnectionsUpdates::new(
+            subscription,
+            self.stop.child_token(),
+        ))
+    }
+
     pub fn close(&self) {
         self.stop.cancel();
     }
@@ -207,13 +220,13 @@ impl Connection {
         ))
     }
 
-    /// Observe an existing MCP OAuth attempt without initiating authorization.
-    pub async fn watch_mcp_login(&self, attempt: String) -> Result<LoginUpdates, String> {
+    /// Observe an existing connector attempt without initiating authorization.
+    pub async fn watch_connector_login(&self, attempt: String) -> Result<LoginUpdates, String> {
         if self.stop.is_cancelled() {
             return Err("connection is closed".into());
         }
         let attempt = serde_json::from_str(&attempt).map_err(error)?;
-        Ok(LoginUpdates::mcp(
+        Ok(LoginUpdates::connector(
             self.client.clone(),
             attempt,
             self.stop.child_token(),
