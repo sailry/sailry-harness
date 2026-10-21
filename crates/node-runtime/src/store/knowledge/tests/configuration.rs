@@ -36,7 +36,7 @@ fn keeps_model_settings_controller_owned() {
             ErrorCode::InvalidRequest
         );
     }
-    assert_eq!(catalog(&db).unwrap().settings, previous);
+    assert_eq!(local_models::settings(&db).unwrap(), previous);
     let mut settings = previous.clone();
     settings.mirror = Some("https://models.example/public/models".into());
     let (Output::LocalModelSettings(saved), event) =
@@ -55,7 +55,7 @@ fn keeps_model_settings_controller_owned() {
             .code,
         ErrorCode::RevisionConflict
     );
-    assert_eq!(catalog(&db).unwrap().settings, saved);
+    assert_eq!(local_models::settings(&db).unwrap(), saved);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn invalidates_only_collections_following_default() {
     let mut definition = storage();
     definition.model = Some("bge-small-zh".to_owned());
     let pinned = insert(&db, &owner, definition);
-    let mut settings = catalog(&db).unwrap().settings;
+    let mut settings = local_models::settings(&db).unwrap();
     select_model(&mut settings, Some("potion-multi".into()));
     execute(&db, &request(Command::SaveLocalModelSettings(settings))).unwrap();
     let snapshot = catalog(&db).unwrap();
@@ -88,7 +88,7 @@ fn invalidates_only_collections_following_default() {
         pinned
     );
     let original = raw(&db);
-    let mut settings = snapshot.settings;
+    let mut settings = local_models::settings(&db).unwrap();
     settings.mirror = Some("https://models.example/".into());
     execute(&db, &request(Command::SaveLocalModelSettings(settings))).unwrap();
     assert_eq!(raw(&db), original);
@@ -189,7 +189,7 @@ fn rejects_exhaustion_before_partial_writes() {
     entries[1].collection.progress.generation = i64::MAX as u64;
     collections::persist(&db, &entries[1]).unwrap();
     let before = raw(&db);
-    let previous = catalog(&db).unwrap().settings;
+    let previous = local_models::settings(&db).unwrap();
     let mut changed = previous.clone();
     select_model(&mut changed, None);
     assert_eq!(
@@ -199,7 +199,7 @@ fn rejects_exhaustion_before_partial_writes() {
         ErrorCode::InvalidRequest
     );
     assert_eq!(raw(&db), before);
-    assert_eq!(catalog(&db).unwrap().settings, previous);
+    assert_eq!(local_models::settings(&db).unwrap(), previous);
     entries[0].collection.revision = i64::MAX as u64;
     collections::persist(&db, &entries[0]).unwrap();
     let before = raw(&db);

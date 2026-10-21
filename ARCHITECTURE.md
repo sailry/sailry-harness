@@ -189,7 +189,11 @@ commands and events. Assets require explicit installation and immutable revision
 size and SHA-256 verification. Existing model IDs, directories and collection
 references survive the centralized, backed-up storage update; derived vector keys
 and source scopes remain unchanged. The settings singleton records completed
-import even after all registered models are removed.
+import even after all registered models are removed. Committed model configuration
+is applied to that registry before command completion. Installation subscriptions
+carry progress; catalog events carry definition and installation-state changes.
+Knowledge retrieval reads model configuration from the registry, and only
+embedding changes invalidate its derived index.
 
 One CPU runtime lazily loads local model engines and runs one inference at a time.
 Interactive retrieval and document inspection take priority over queued indexing

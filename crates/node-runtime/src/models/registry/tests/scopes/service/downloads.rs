@@ -47,7 +47,7 @@ async fn queued(owner: &Registry, id: &str) -> CancellationToken {
         while owner.runtime.pending_background() == 0 {
             tokio::task::yield_now().await;
         }
-        owner.state.lock().unwrap().transfers[id].cancel.clone()
+        owner.state.lock().unwrap().transfers[id].clone()
     })
     .await
     .unwrap()

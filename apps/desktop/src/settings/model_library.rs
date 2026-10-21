@@ -84,7 +84,7 @@ pub(super) enum ModelKey {
 #[derive(Clone, Copy)]
 pub(super) enum ModelStatus {
     Missing,
-    Downloading(sailry_model_assets::Progress),
+    Downloading(Option<sailry_model_assets::Progress>),
     Installed,
     Checking,
     Unavailable,

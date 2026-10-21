@@ -28,6 +28,20 @@ impl Models {
         })
     }
 
+    pub(super) fn binding(&self, stored: &super::Stored, choice: &Choice) -> super::index::Binding {
+        let model = stored
+            .collection
+            .definition
+            .model
+            .as_deref()
+            .or_else(|| choice.enabled.then_some(choice.model.as_deref()).flatten())
+            .and_then(|id| {
+                let definition = self.registry.definition(id).ok()?;
+                Some((id.to_owned(), usize::from(definition.format.dimension()?)))
+            });
+        super::binding(stored, model)
+    }
+
     pub(super) async fn encode(
         &self,
         model: &str,

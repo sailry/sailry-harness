@@ -104,7 +104,7 @@ pub struct Model {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum State {
     Missing,
-    Downloading { percent: u8, bytes_per_second: u64 },
+    Downloading,
     Installed,
 }
 
@@ -137,6 +137,18 @@ mod tests {
         );
         assert_eq!(Settings::default().selected(Kind::Decision), None);
         settings.validate().unwrap();
+    }
+
+    #[test]
+    fn excludes_transient_progress_from_catalog_state() {
+        let previous =
+            serde_json::json!({"kind":"downloading", "percent":42, "bytes_per_second":1024});
+        let state: State = serde_json::from_value(previous).unwrap();
+        assert_eq!(state, State::Downloading);
+        assert_eq!(
+            serde_json::to_value(state).unwrap(),
+            serde_json::json!({"kind":"downloading"})
+        );
     }
 
     #[test]

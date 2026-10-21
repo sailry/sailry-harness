@@ -23,7 +23,7 @@ use tokio::sync::watch;
 pub(crate) struct Registry {
     profile: Option<PathBuf>,
     state: Mutex<Configuration>,
-    updates: watch::Sender<Vec<Model>>,
+    updates: watch::Sender<Update>,
     mutations: BTreeMap<Kind, tokio::sync::Mutex<()>>,
     runtime: Runtime,
     stop: CancellationToken,
@@ -35,13 +35,19 @@ struct Configuration {
     installed: BTreeMap<String, Stamp>,
     epochs: BTreeMap<String, u64>,
     removing: BTreeSet<String>,
-    transfers: BTreeMap<String, Transfer>,
+    transfers: BTreeMap<String, CancellationToken>,
     scopes: BTreeMap<Kind, CancellationToken>,
 }
 
-struct Transfer {
-    cancel: CancellationToken,
-    progress: sailry_model_assets::Progress,
+pub(crate) struct Prepared {
+    settings: Settings,
+    definitions: BTreeMap<String, Arc<Definition>>,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(crate) struct Update {
+    pub models: Vec<Model>,
+    pub embedding: Choice,
 }
 
 #[derive(Clone, Debug)]
@@ -68,7 +74,7 @@ impl Registry {
                 .map(|kind| (kind, stop.child_token()))
                 .collect(),
         };
-        let (updates, _) = watch::channel(infos(&state));
+        let (updates, _) = watch::channel(update(&state));
         Arc::new(Self {
             profile,
             state: Mutex::new(state),
@@ -82,14 +88,14 @@ impl Registry {
         })
     }
 
-    pub(crate) fn configure(
+    pub(crate) fn prepare(
         &self,
         mut settings: Settings,
         records: &[Registration],
-    ) -> Result<(), Fault> {
+    ) -> Result<Prepared, Fault> {
         settings.fill_defaults();
         settings.validate()?;
-        let mut definitions = catalog::definitions(records)?;
+        let definitions = catalog::definitions(records)?;
         for (kind, choice) in &settings.choices {
             if choice.model.as_ref().is_some_and(|id| {
                 !definitions
@@ -101,7 +107,7 @@ impl Registry {
                 ));
             }
         }
-        let mut state = self
+        let state = self
             .state
             .lock()
             .expect("local model configuration lock is healthy");
@@ -112,24 +118,28 @@ impl Registry {
         {
             return Err(Fault::invalid("registered model definition is immutable"));
         }
-        // Catalog reads can finish out of order. Registrations are immutable;
-        // deleting an installation does not unregister its definition.
-        for (id, definition) in &state.definitions {
-            definitions
-                .entry(id.clone())
-                .or_insert_with(|| definition.clone());
-        }
-        if settings.revision < state.settings.revision {
-            settings = state.settings.clone();
-        }
-        let changed = state.settings != settings || state.definitions != definitions;
+        Ok(Prepared {
+            settings,
+            definitions,
+        })
+    }
+
+    pub(crate) fn apply(&self, prepared: Prepared) {
+        let Prepared {
+            settings,
+            definitions,
+        } = prepared;
+        let mut state = self
+            .state
+            .lock()
+            .expect("local model configuration lock is healthy");
         for (id, transfer) in &state.transfers {
             if source_changed(
                 &definitions[id],
                 state.settings.mirror.as_deref(),
                 settings.mirror.as_deref(),
             ) {
-                transfer.cancel.cancel();
+                transfer.cancel();
             }
         }
         for kind in [Kind::Embedding, Kind::Ocr, Kind::Decision] {
@@ -141,13 +151,19 @@ impl Registry {
         }
         state.settings = settings;
         state.definitions = definitions;
-        if changed {
-            self.updates.send_replace(infos(&state));
-        }
-        Ok(())
+        self.publish(&state);
     }
 
     #[cfg(test)]
+    pub(crate) fn configure(
+        &self,
+        settings: Settings,
+        records: &[Registration],
+    ) -> Result<(), Fault> {
+        self.apply(self.prepare(settings, records)?);
+        Ok(())
+    }
+
     pub(crate) fn settings(&self) -> Settings {
         self.state
             .lock()
@@ -156,7 +172,7 @@ impl Registry {
             .clone()
     }
 
-    pub(crate) fn subscribe(&self) -> watch::Receiver<Vec<Model>> {
+    pub(crate) fn subscribe(&self) -> watch::Receiver<Update> {
         self.updates.subscribe()
     }
 
@@ -175,6 +191,17 @@ impl Registry {
         })
         .await
         .map_err(failure)?
+    }
+
+    fn publish(&self, state: &Configuration) {
+        let latest = update(state);
+        self.updates.send_if_modified(|previous| {
+            if *previous == latest {
+                return false;
+            }
+            *previous = latest;
+            true
+        });
     }
 
     pub(crate) fn snapshot(&self) -> Vec<Model> {
@@ -257,7 +284,7 @@ impl Registry {
             }
         }
         if changed {
-            self.updates.send_replace(infos(&state));
+            self.publish(&state);
         }
         Ok(())
     }
@@ -426,7 +453,7 @@ impl Registry {
             .lock()
             .expect("local model configuration lock is healthy");
         state.transfers.get(id).is_some_and(|transfer| {
-            transfer.cancel.cancel();
+            transfer.cancel();
             true
         })
     }
@@ -437,6 +464,13 @@ impl Registry {
     }
 }
 
+fn update(state: &Configuration) -> Update {
+    Update {
+        models: infos(state),
+        embedding: state.settings.choice(Kind::Embedding),
+    }
+}
+
 fn infos(state: &Configuration) -> Vec<Model> {
     state
         .definitions
@@ -444,11 +478,8 @@ fn infos(state: &Configuration) -> Vec<Model> {
         .map(|(id, definition)| Model {
             id: id.clone(),
             definition: definition.as_ref().clone(),
-            state: if let Some(transfer) = state.transfers.get(id) {
-                State::Downloading {
-                    percent: transfer.progress.percent.clamp(0., 99.) as u8,
-                    bytes_per_second: transfer.progress.bytes_per_second.max(0.) as u64,
-                }
+            state: if state.transfers.contains_key(id) {
+                State::Downloading
             } else if state.installed.contains_key(id) && !state.removing.contains(id) {
                 State::Installed
             } else {

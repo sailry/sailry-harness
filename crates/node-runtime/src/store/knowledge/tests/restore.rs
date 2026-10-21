@@ -45,9 +45,8 @@ fn preserves_definitions_without_derived_database() {
     let db = Database::open(&path, node, None).unwrap();
     assert_eq!(raw(&db.connection), metadata);
     assert_eq!(
-        catalog(&db.connection)
+        local_models::settings(&db.connection)
             .unwrap()
-            .settings
             .choice(sailry_protocol::models::Kind::Embedding)
             .model,
         None
@@ -107,7 +106,7 @@ fn adds_missing_tables_with_original_backup() {
     db.close().unwrap();
     let db = Database::open(&path, node, None).unwrap();
     assert_eq!(
-        catalog(&db.connection).unwrap().settings,
+        local_models::settings(&db.connection).unwrap(),
         sailry_protocol::models::Settings::default()
     );
     assert!(catalog(&db.connection).unwrap().collections.is_empty());

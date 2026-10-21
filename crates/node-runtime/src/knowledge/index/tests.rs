@@ -317,10 +317,7 @@ fn query() -> Query {
 
 #[test]
 fn preserves_imported_keys_vectors_and_source_scope() {
-    use crate::{
-        models::test_support,
-        store::knowledge::{Catalog, Stored},
-    };
+    use crate::{models::test_support, store::knowledge::Stored};
     let (directory, mut index) = open();
     let (mut record, _) = test_support::record(2, &[100., 0., 1., 0., 0., 1.]);
     let model = format!("model-{}", sailry_protocol::ModelId::new());
@@ -332,18 +329,14 @@ fn preserves_imported_keys_vectors_and_source_scope() {
             "paused":false,"progress":{"status":"ready","sources":1,"completed":1,"chunks":1,"skipped":0,"model":model,"generation":8}},
         "capture":{"package":null,"worktree":null,"session":null},"automatic":false
     })).unwrap();
-    let catalog = Catalog {
-        settings: Default::default(),
-        models: vec![record],
-        collections: vec![stored.clone()],
-    };
-    let captured = crate::knowledge::binding(&stored, &catalog);
+    let dimension = usize::from(record.definition.format.dimension().unwrap());
+    let captured = crate::knowledge::binding(&stored, Some((model.clone(), dimension)));
     assert_eq!(captured.model.as_ref().map(|(id, _)| id), Some(&model));
     let mut different = stored.clone();
     different.collection.definition.model = Some("bge-small-zh".into());
     // Model selection is deliberately excluded from the source scope hash.
     assert_eq!(
-        crate::knowledge::binding(&different, &catalog).scope,
+        crate::knowledge::binding(&different, Some(("bge-small-zh".into(), 512))).scope,
         captured.scope
     );
     index.bind(&captured).unwrap();
@@ -363,7 +356,10 @@ fn preserves_imported_keys_vectors_and_source_scope() {
     drop(index);
     let mut index = Index::open(&directory.path().join("knowledge.db")).unwrap();
     index
-        .bind(&crate::knowledge::binding(&stored, &catalog))
+        .bind(&crate::knowledge::binding(
+            &stored,
+            Some((model.clone(), dimension)),
+        ))
         .unwrap();
     let restored = index
         .db

@@ -13,9 +13,9 @@ impl Drop for Installation {
             .lock()
             .expect("local model configuration lock is healthy");
         if let Some(transfer) = state.transfers.remove(&self.id) {
-            transfer.cancel.cancel();
+            transfer.cancel();
         }
-        self.owner.updates.send_replace(infos(&state));
+        self.owner.publish(&state);
     }
 }
 
@@ -31,7 +31,7 @@ impl Drop for Removal {
             .lock()
             .expect("local model configuration lock is healthy");
         state.removing.remove(&self.id);
-        self.owner.updates.send_replace(infos(&state));
+        self.owner.publish(&state);
     }
 }
 
@@ -66,14 +66,8 @@ impl Registry {
                 return Ok(());
             }
             let stop = self.stop.child_token();
-            state.transfers.insert(
-                id.into(),
-                Transfer {
-                    cancel: stop.clone(),
-                    progress: Default::default(),
-                },
-            );
-            self.updates.send_replace(infos(&state));
+            state.transfers.insert(id.into(), stop.clone());
+            self.publish(&state);
             (stop, state.settings.mirror.clone())
         };
         let _guard = Installation {
@@ -97,14 +91,6 @@ impl Registry {
         let operation = async {
             sailry_model_assets::prepare(&directory, &downloads, &stop, |progress| {
                 crate::installation::assets(reporter, progress);
-                let mut state = self
-                    .state
-                    .lock()
-                    .expect("local model configuration lock is healthy");
-                if let Some(transfer) = state.transfers.get_mut(id) {
-                    transfer.progress = progress;
-                    self.updates.send_replace(infos(&state));
-                }
             })
             .await
             .map_err(asset_error)?;
@@ -172,7 +158,7 @@ impl Registry {
                 .lock()
                 .expect("local model configuration lock is healthy");
             state.installed.insert(id.into(), stamp);
-            self.updates.send_replace(infos(&state));
+            self.publish(&state);
             Ok(())
         };
         tokio::pin!(operation);
@@ -222,7 +208,7 @@ impl Registry {
             *epoch = epoch
                 .checked_add(1)
                 .ok_or_else(|| failure("local model epoch exhausted"))?;
-            self.updates.send_replace(infos(&state));
+            self.publish(&state);
         }
         let _guard = Removal {
             owner: self.clone(),

@@ -10,10 +10,7 @@ pub(crate) mod text;
 mod vector;
 mod worker;
 
-use crate::store::{
-    Ingress,
-    knowledge::{Catalog, Stored},
-};
+use crate::store::{Ingress, knowledge::Stored};
 use sailry_link::CancellationToken;
 use sailry_protocol::{ErrorCode, Fault, Request, knowledge::*};
 use std::{
@@ -126,16 +123,17 @@ impl Service {
         query.validate()?;
         let ingress = self.ingress.upgrade().ok_or_else(unavailable)?;
         let allowed = ingress.knowledge_allowed(request).await?;
-        let catalog = ingress.knowledge_catalog().await?;
-        self.models
+        let choice = self
+            .models
             .registry
-            .configure(catalog.settings.clone(), &catalog.models)?;
+            .settings()
+            .choice(sailry_protocol::models::Kind::Embedding);
         let bindings = allowed
             .iter()
             .filter(|stored| {
                 query.collections.is_empty() || query.collections.contains(&stored.collection.id)
             })
-            .map(|stored| binding(stored, &catalog))
+            .map(|stored| self.models.binding(stored, &choice))
             .collect::<Vec<_>>();
         let indexing = allowed
             .iter()
@@ -164,9 +162,7 @@ impl Service {
                     .models
                     .encode(
                         &model,
-                        &catalog
-                            .settings
-                            .choice(sailry_protocol::models::Kind::Embedding),
+                        &choice,
                         vec![query.query.clone()],
                         sailry_embedding::Input::Query,
                         models::Lane::Interactive,
@@ -222,7 +218,7 @@ struct Prepared {
     indexing: bool,
 }
 
-fn binding(stored: &Stored, catalog: &Catalog) -> index::Binding {
+fn binding(stored: &Stored, model: Option<(String, usize)>) -> index::Binding {
     index::Binding {
         id: stored.collection.id,
         generation: stored.collection.progress.generation,
@@ -242,22 +238,7 @@ fn binding(stored: &Stored, catalog: &Catalog) -> index::Binding {
         .as_bytes(),
         rebuild: stored.collection.rebuild,
         paused: stored.collection.paused,
-        model: stored
-            .collection
-            .definition
-            .model
-            .as_deref()
-            .or_else(|| {
-                catalog
-                    .settings
-                    .selected(sailry_protocol::models::Kind::Embedding)
-            })
-            .and_then(|id| {
-                let definitions =
-                    crate::models::registry::catalog::definitions(&catalog.models).ok()?;
-                let dimension = definitions.get(id)?.format.dimension()?;
-                Some((id.to_owned(), usize::from(dimension)))
-            }),
+        model,
     }
 }
 

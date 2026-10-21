@@ -97,9 +97,10 @@ async fn keeps_decision_work_independent_from_ocr() {
         let mut updates = owner.subscribe();
         timeout(Duration::from_secs(10), async {
             loop {
-                let downloading = updates.borrow_and_update().iter().any(|model| {
-                    model.id == queued && matches!(model.state, State::Downloading { .. })
-                });
+                let downloading =
+                    updates.borrow_and_update().models.iter().any(|model| {
+                        model.id == queued && matches!(model.state, State::Downloading)
+                    });
                 if downloading {
                     break;
                 }
@@ -108,9 +109,7 @@ async fn keeps_decision_work_independent_from_ocr() {
         })
         .await
         .unwrap();
-        let downloading = owner.state.lock().unwrap().transfers[&queued]
-            .cancel
-            .clone();
+        let downloading = owner.state.lock().unwrap().transfers[&queued].clone();
         fixture.register(&ocr().definition).await;
         let mut settings = fixture.settings().await;
         settings.choices.get_mut(&Kind::Ocr).unwrap().enabled = false;

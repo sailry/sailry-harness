@@ -510,11 +510,6 @@ impl Ingress {
                 request.command,
                 sailry_protocol::Command::SavePythonSettings(_)
             );
-            let local_change = matches!(
-                request.command,
-                sailry_protocol::Command::SaveLocalModelSettings(_)
-                    | sailry_protocol::Command::RegisterLocalModel { .. }
-            );
             let job = Job::Request {
                 access: crate::files::Access::request(&request, internal),
                 caller,
@@ -534,9 +529,7 @@ impl Ingress {
             let result = response.await.map_err(|_| unavailable())?;
             self.dispatch.wake.notify_one();
             result.map(|admission| {
-                if local_change {
-                    super::local_models::observe(self, admission)
-                } else if python_change {
+                if python_change {
                     super::python::observe(self, admission)
                 } else if knowledge_change {
                     super::knowledge::runtime::observe(self, admission, knowledge_invalidation)

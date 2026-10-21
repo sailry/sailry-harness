@@ -77,10 +77,11 @@ fn pass(
     watches.begin();
     let ingress = service.ingress.upgrade().ok_or_else(unavailable)?;
     let catalog = runtime.block_on(ingress.knowledge_catalog())?;
-    service
+    let choice = service
         .models
         .registry
-        .configure(catalog.settings.clone(), &catalog.models)?;
+        .settings()
+        .choice(sailry_protocol::models::Kind::Embedding);
     let installed = runtime
         .block_on(
             service
@@ -102,8 +103,7 @@ fn pass(
     let batch = Batch {
         service,
         ingress: &ingress,
-        settings: &catalog.settings,
-        catalog: &catalog,
+        choice: &choice,
         installed: &installed,
         cancel,
         runtime,
@@ -117,7 +117,9 @@ fn pass(
                 "knowledge indexing paused for {}: {}",
                 stored.collection.id, error.message
             );
-            let (sources, chunks) = index.counts(&binding(stored, &catalog)).unwrap_or_default();
+            let (sources, chunks) = index
+                .counts(&service.models.binding(stored, &choice))
+                .unwrap_or_default();
             let progress = Progress {
                 status: Status::Paused,
                 sources,
@@ -142,8 +144,7 @@ fn pass(
 struct Batch<'a> {
     service: &'a Service,
     ingress: &'a Arc<Ingress>,
-    settings: &'a sailry_protocol::models::Settings,
-    catalog: &'a super::Catalog,
+    choice: &'a sailry_protocol::models::Choice,
     installed: &'a BTreeSet<String>,
     cancel: &'a CancellationToken,
     runtime: &'a tokio::runtime::Handle,
@@ -158,13 +159,12 @@ fn collection(
     let Batch {
         service,
         ingress,
-        settings,
-        catalog,
+        choice,
         installed,
         cancel,
         runtime,
     } = *batch;
-    let binding = binding(stored, catalog);
+    let binding = service.models.binding(stored, choice);
     index.bind(&binding)?;
     if stored.collection.paused {
         let (sources, chunks) = index.counts(&binding)?;
@@ -187,7 +187,7 @@ fn collection(
         .filter(|model| installed.contains(*model));
     let encoding = documents::Encoding {
         service,
-        choice: settings.choice(sailry_protocol::models::Kind::Embedding),
+        choice: choice.clone(),
         model: available,
         cancel,
         runtime,

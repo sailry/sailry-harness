@@ -75,9 +75,6 @@ enum Job {
         cancel: sailry_link::CancellationToken,
         reply: oneshot::Sender<Result<backup::Source, Fault>>,
     },
-    LocalCatalog {
-        reply: oneshot::Sender<Result<local_models::Catalog, Fault>>,
-    },
     LocalModels {
         models: Vec<sailry_protocol::models::Model>,
         reply: oneshot::Sender<Result<(), Fault>>,
@@ -591,6 +588,10 @@ impl Store {
                 };
                 database.feeds = feeds;
                 database.model_clients = model_clients;
+                if let Err(error) = database.models(installing.local_models.clone()) {
+                    let _ = ready.send(Err(crate::Error::from(error)));
+                    return Ok(());
+                }
                 match search::read(&database.connection) { Ok(settings) => searcher.configure(settings), Err(error) => {let _=ready.send(Err(crate::Error::from(error)));return Ok(());} }
                 plugins::collection::run(&mut database.connection, &collection);
                 if let Err(error) = plugins::retain_python(&database.connection, &collection) { let _ = ready.send(Err(crate::Error::from(error))); return Ok(()); }
@@ -802,7 +803,6 @@ impl Store {
                         }
                         Job::BackupPlan { expected, reply } => { let _ = reply.send(backup::plan(&database.connection, expected)); }
                         Job::BackupSnapshot { revision, cancel, reply } => { let _ = reply.send(backup::source(&database, revision, &cancel)); }
-                        Job::LocalCatalog { reply } => { let _ = reply.send(local_models::read(&database.connection)); }
                         Job::LocalModels { models, reply } => { let _ = reply.send(local_models::models(&mut database, models, &events)); }
                         Job::PythonSettings { reply } => {
                             let _ = reply.send(python::read(&database.connection));

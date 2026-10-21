@@ -4,7 +4,6 @@ pub(in crate::store) mod approvals;
 use super::{
     Ingress, Job,
     database::{Database, encode, storage_error},
-    unavailable,
 };
 use crate::models::registry::{Registration, catalog};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -217,12 +216,7 @@ fn register(db: &Connection, definition: &Definition) -> Result<(Output, Option<
         )
         .map_err(storage_error)?;
     }
-    Ok((
-        Output::LocalModel { id },
-        Some(Event::LocalModelSettingsChanged {
-            revision: catalog.settings.revision,
-        }),
-    ))
+    Ok((Output::LocalModel { id }, None))
 }
 
 pub(in crate::store) fn models(
@@ -244,38 +238,37 @@ pub(in crate::store) fn models(
 }
 
 pub(in crate::store) async fn start(ingress: &Arc<Ingress>) -> Result<(), Fault> {
-    let catalog = ingress.local_catalog().await?;
-    ingress
-        .local_models
-        .configure(catalog.settings, &catalog.records)?;
     ingress.local_models.models(None).await?;
     let mut updates = ingress.local_models.subscribe();
-    let mut installed = membership(&updates.borrow_and_update());
+    let mut previous = updates.borrow_and_update().clone();
     let weak = Arc::downgrade(ingress);
     let stop = ingress.closed.clone();
     tokio::spawn(async move {
         loop {
             tokio::select! { _ = stop.cancelled() => break, result = updates.changed() => if result.is_err() { break } }
             let Some(ingress) = weak.upgrade() else { break };
-            let models = updates.borrow_and_update().clone();
-            let latest = membership(&models);
-            let (reply, result) = oneshot::channel();
-            if ingress
-                .send_internal(Job::LocalModels { models, reply })
-                .await
-                .is_err()
-                || result.await.is_err()
-            {
-                break;
-            }
-            if let Some(knowledge) = ingress.knowledge.get() {
-                if latest != installed {
-                    knowledge.invalidate()
-                } else {
-                    knowledge.refresh()
+            let latest = updates.borrow_and_update().clone();
+            if latest.models != previous.models {
+                let (reply, result) = oneshot::channel();
+                if ingress
+                    .send_internal(Job::LocalModels {
+                        models: latest.models.clone(),
+                        reply,
+                    })
+                    .await
+                    .is_err()
+                    || !matches!(result.await, Ok(Ok(())))
+                {
+                    break;
                 }
             }
-            installed = latest;
+            if (latest.embedding != previous.embedding
+                || membership(&latest.models) != membership(&previous.models))
+                && let Some(knowledge) = ingress.knowledge.get()
+            {
+                knowledge.invalidate();
+            }
+            previous = latest;
         }
     });
     Ok(())
@@ -293,12 +286,6 @@ fn membership(models: &[Model]) -> BTreeSet<String> {
 }
 
 impl Ingress {
-    pub(crate) async fn local_catalog(&self) -> Result<Catalog, Fault> {
-        let (reply, result) = oneshot::channel();
-        self.send_internal(Job::LocalCatalog { reply }).await?;
-        result.await.map_err(|_| unavailable())?
-    }
-
     pub(in crate::store) async fn read_local_models(
         &self,
         request: Request,
@@ -375,9 +362,6 @@ impl Ingress {
                 controller(request)?;
             }
         }
-        let catalog = self.local_catalog().await?;
-        self.local_models
-            .configure(catalog.settings, &catalog.records)?;
         let id = match &request.command {
             Command::InstallLocalModel { id } => {
                 self.local_models.install(id, stop, reporter).await?;
@@ -402,28 +386,4 @@ fn controller(request: &Request) -> Result<(), Fault> {
     } else {
         Ok(())
     }
-}
-
-pub(in crate::store) fn observe(ingress: &Ingress, mut admission: Admission) -> Admission {
-    let ingress = ingress.clone();
-    let (reply, completion) = oneshot::channel();
-    let original = std::mem::replace(&mut admission.completion, completion);
-    tokio::spawn(async move {
-        if let Ok(mut result) = original.await {
-            if result.is_ok() {
-                result = match ingress.local_catalog().await {
-                    Ok(catalog) => ingress
-                        .local_models
-                        .configure(catalog.settings, &catalog.records)
-                        .and(result),
-                    Err(error) => Err(error),
-                };
-                if let Some(knowledge) = ingress.knowledge.get() {
-                    knowledge.refresh();
-                }
-            }
-            let _ = reply.send(result);
-        }
-    });
-    admission
 }

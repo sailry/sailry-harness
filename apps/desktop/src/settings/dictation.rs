@@ -504,7 +504,7 @@ impl Panel {
         let selected = preferences::data(cx).dictation.unwrap_or_default().model;
         let current = match self.state {
             State::Missing => ModelStatus::Missing,
-            State::Downloading(progress) => ModelStatus::Downloading(progress),
+            State::Downloading(progress) => ModelStatus::Downloading(Some(progress)),
             State::Ready => ModelStatus::Installed,
             State::Checking => ModelStatus::Checking,
             State::Unavailable => ModelStatus::Unavailable,
@@ -567,7 +567,7 @@ fn model_status(state: dictation::models::State) -> super::model_library::ModelS
     use super::model_library::ModelStatus;
     match state {
         dictation::models::State::Missing => ModelStatus::Missing,
-        dictation::models::State::Downloading(progress) => ModelStatus::Downloading(progress),
+        dictation::models::State::Downloading(progress) => ModelStatus::Downloading(Some(progress)),
         dictation::models::State::Installed => ModelStatus::Installed,
         dictation::models::State::Failed(_) => ModelStatus::Failed,
     }

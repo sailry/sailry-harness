@@ -221,8 +221,20 @@ async fn confines_model_lifecycle_to_controller() {
             client.outcome(&request).await.unwrap_err().code,
             ErrorCode::InvalidRequest,
         );
-        let mut updates = client.subscribe().await.unwrap();
-        updates.next().await.unwrap();
+        let database =
+            rusqlite::Connection::open(fixture.temp.path().join("node/storage/node.sqlite3"))
+                .unwrap();
+        let catalog_events = || {
+            database
+                .prepare("SELECT body FROM events ORDER BY cursor")
+                .unwrap()
+                .query_map([], |row| row.get::<_, Vec<u8>>(0))
+                .unwrap()
+                .map(|row| serde_json::from_slice::<Event>(&row.unwrap()).unwrap())
+                .filter(|event| matches!(event, Event::LocalModelsChanged { .. }))
+                .count()
+        };
+        let before = catalog_events();
         let request = client.prepare(Command::DeleteLocalModel {
             id: "potion-multi".to_owned(),
         });
@@ -236,17 +248,18 @@ async fn confines_model_lifecycle_to_controller() {
             }
         );
         assert_eq!(client.execute(request).await.unwrap(), deleted);
-        tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                if let Update::Event(envelope) = updates.next().await.unwrap()
-                    && matches!(envelope.event, Event::LocalModelsChanged { .. })
-                {
-                    break;
-                }
-            }
-        })
+        let Output::LocalModels(after) = execute(
+            &client,
+            Command::ReadLocalModels {
+                kind: Some(sailry_protocol::models::Kind::Embedding),
+            },
+        )
         .await
-        .unwrap();
+        else {
+            panic!("models expected")
+        };
+        assert_eq!(after.models, models);
+        assert_eq!(catalog_events(), before);
         execute(
             &client,
             Command::RemovePlugin {

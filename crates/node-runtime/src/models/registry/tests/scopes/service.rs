@@ -51,10 +51,18 @@ impl Fixture {
     }
 
     async fn execute(&self, command: Command) -> Output {
-        self.client
+        let output = self
+            .client
             .execute(self.client.prepare(command))
             .await
-            .unwrap()
+            .unwrap();
+        if let Output::LocalModelSettings(settings) = &output {
+            assert_eq!(self.node.ingress.local_models.settings(), *settings);
+        }
+        if let Output::LocalModel { id } = &output {
+            self.node.ingress.local_models.definition(id).unwrap();
+        }
+        output
     }
 
     async fn register(&self, definition: &Definition) -> String {
@@ -240,6 +248,30 @@ async fn isolates_inflight_work_across_configuration() {
                 .unwrap(),
             [vec![1., 0.]]
         );
+        fixture.close().await;
+    }
+}
+
+#[tokio::test]
+async fn saves_without_touching_model_directories() {
+    for remote in [false, true] {
+        let fixture = Fixture::start(remote).await;
+        let owner = &fixture.node.ingress.local_models;
+        let directory = owner.root().unwrap().join("decision");
+        std::fs::remove_dir(&directory).unwrap();
+        std::fs::write(&directory, b"unavailable directory").unwrap();
+        let mut settings = fixture.settings().await;
+        settings.choices.get_mut(&Kind::Ocr).unwrap().enabled = false;
+        let Output::LocalModelSettings(saved) = fixture
+            .execute(Command::SaveLocalModelSettings(settings))
+            .await
+        else {
+            panic!("saved model settings expected")
+        };
+        assert_eq!(owner.settings(), saved);
+        assert_eq!(saved.revision, 1);
+        assert!(!saved.choice(Kind::Ocr).enabled);
+        std::fs::remove_file(directory).unwrap();
         fixture.close().await;
     }
 }

@@ -373,7 +373,7 @@ fn availability<'a>(models: impl Iterator<Item = &'a Model>) -> ModelStatus {
     models
         .max_by_key(|model| match model.state {
             Status::Installed => 2,
-            Status::Downloading { .. } => 1,
+            Status::Downloading => 1,
             Status::Missing => 0,
         })
         .map_or(ModelStatus::Missing, |model| status(&model.state))
@@ -382,14 +382,7 @@ fn status(value: &Status) -> ModelStatus {
     match value {
         Status::Missing => ModelStatus::Missing,
         Status::Installed => ModelStatus::Installed,
-        Status::Downloading {
-            percent,
-            bytes_per_second,
-        } => ModelStatus::Downloading(sailry_model_assets::Progress {
-            phase: sailry_model_assets::Phase::Downloading,
-            percent: f32::from(*percent),
-            bytes_per_second: *bytes_per_second as f64,
-        }),
+        Status::Downloading => ModelStatus::Downloading(None),
     }
 }
 fn error_key(code: sailry_protocol::ErrorCode) -> &'static str {

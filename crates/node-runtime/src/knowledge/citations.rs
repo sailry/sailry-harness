@@ -16,8 +16,12 @@ impl Service {
         check_cancel(cancel)?;
         let ingress = self.ingress.upgrade().ok_or_else(unavailable)?;
         let stored = permitted(&ingress, request, input.collection).await?;
-        let catalog = ingress.knowledge_catalog().await?;
-        let captured = binding(&stored, &catalog);
+        let choice = self
+            .models
+            .registry
+            .settings()
+            .choice(sailry_protocol::models::Kind::Embedding);
+        let captured = self.models.binding(&stored, &choice);
         let path = self.path.clone();
         let selected = input.clone();
         let indexed = tokio::task::spawn_blocking(move || {
@@ -125,14 +129,12 @@ impl Service {
             || current.capture.package != stored.capture.package
             || current.capture.worktree != stored.capture.worktree
             || current.capture.session != stored.capture.session
-            || ingress
-                .knowledge_catalog()
-                .await?
-                .settings
+            || self
+                .models
+                .registry
+                .settings()
                 .choice(sailry_protocol::models::Kind::Embedding)
-                != catalog
-                    .settings
-                    .choice(sailry_protocol::models::Kind::Embedding)
+                != choice
         {
             return Err(changed());
         }

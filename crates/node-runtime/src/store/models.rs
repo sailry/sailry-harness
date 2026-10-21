@@ -71,7 +71,7 @@ impl Ingress {
         // Plugin reads pass the same captured action check in ordinary Ingress admission.
         let stop = self.closed.child_token();
         let _guard = stop.clone().drop_guard();
-        let mirror = self.local_catalog().await?.settings.mirror;
+        let mirror = self.local_models.settings().mirror;
         let output = match &request.command {
             Command::SearchModels(search) => Output::ModelSearch(
                 crate::models::search(
@@ -107,7 +107,11 @@ impl Ingress {
             ),
             Command::RefreshLocalModel { id } => {
                 let previous = self.local_models.definition(id)?;
-                if previous.format.kind() != sailry_protocol::models::Kind::Ocr { return Err(Fault::invalid("only OCR model definitions can be refreshed")); }
+                if previous.format.kind() != sailry_protocol::models::Kind::Ocr {
+                    return Err(Fault::invalid(
+                        "only OCR model definitions can be refreshed",
+                    ));
+                }
                 Output::ModelDefinition(
                     crate::models::refresh_ocr(
                         &previous,

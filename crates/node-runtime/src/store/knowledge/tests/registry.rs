@@ -15,7 +15,6 @@ fn metadata() -> ModelDefinition {
 }
 
 fn register(db: &Connection, definition: &ModelDefinition) -> String {
-    let revision = crate::store::local_models::settings(db).unwrap().revision;
     let (output, event) = execute(
         db,
         &request(Command::RegisterLocalModel {
@@ -23,10 +22,7 @@ fn register(db: &Connection, definition: &ModelDefinition) -> String {
         }),
     )
     .unwrap();
-    assert!(matches!(
-        event,
-        Some(Event::LocalModelSettingsChanged { revision: current }) if current == revision
-    ));
+    assert!(event.is_none());
     let Output::LocalModel { id: model } = output else {
         panic!("registered model expected")
     };
@@ -177,10 +173,7 @@ fn requires_model_install_grant() {
         panic!("registered model expected")
     };
     assert!(sailry_protocol::models::valid_id(&model) && model.len() == 64);
-    assert!(matches!(
-        event,
-        Some(Event::LocalModelSettingsChanged { revision: 0 })
-    ));
+    assert!(event.is_none());
     assert_eq!(rows(&db.connection).len(), 1);
     db.close().unwrap();
 }
@@ -217,7 +210,7 @@ fn accepts_registered_selections_with_cas() {
     definition.model = Some(model.clone());
     let collection = insert(&db, &owner, definition);
     assert_eq!(collection.definition.model, Some(model.clone()));
-    assert_eq!(catalog(&db).unwrap().settings, saved);
+    assert_eq!(local_models::settings(&db).unwrap(), saved);
 }
 
 #[test]
@@ -225,7 +218,7 @@ fn refuses_unknown_selections_without_side_effects() {
     let db = database();
     let owner = package(&db, "owner", 'a', &["storage.read"]);
     let collection = insert(&db, &owner, storage());
-    let previous = catalog(&db).unwrap().settings;
+    let previous = local_models::settings(&db).unwrap();
     let unknown = format!("model-{}", ModelId::new());
     let mut selected = previous.clone();
     select_model(&mut selected, Some(unknown.clone()));
@@ -255,7 +248,7 @@ fn refuses_unknown_selections_without_side_effects() {
         );
         assert_eq!(raw(&db), before);
     }
-    assert_eq!(catalog(&db).unwrap().settings, previous);
+    assert_eq!(local_models::settings(&db).unwrap(), previous);
     assert!(rows(&db).is_empty());
 }
 
@@ -266,23 +259,22 @@ fn restores_immutable_metadata_and_selection() {
     let node = NodeId([37; 32]);
     let db = Database::open(&path, node, None).unwrap();
     let model = register(&db.connection, &metadata());
-    let mut settings = catalog(&db.connection).unwrap().settings;
+    let mut settings = local_models::settings(&db.connection).unwrap();
     select_model(&mut settings, Some(model.clone()));
     execute(
         &db.connection,
         &request(Command::SaveLocalModelSettings(settings)),
     )
     .unwrap();
-    let records = catalog(&db.connection).unwrap().models;
+    let records = local_models::read(&db.connection).unwrap().records;
     let original = rows(&db.connection);
     db.close().unwrap();
     let db = Database::open(&path, node, None).unwrap();
     assert_eq!(rows(&db.connection), original);
-    assert_eq!(catalog(&db.connection).unwrap().models, records);
+    assert_eq!(local_models::read(&db.connection).unwrap().records, records);
     assert_eq!(
-        catalog(&db.connection)
+        local_models::settings(&db.connection)
             .unwrap()
-            .settings
             .choice(sailry_protocol::models::Kind::Embedding)
             .model,
         Some(model.clone())

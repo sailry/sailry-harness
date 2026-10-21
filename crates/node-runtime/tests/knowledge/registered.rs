@@ -48,6 +48,23 @@ async fn models(client: &Client) -> Vec<ModelInfo> {
     models
 }
 
+async fn changed(updates: &mut dyn sailry_link::Subscription, id: &str, state: ModelState) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Update::Event(envelope) = updates.next().await.unwrap()
+                && let Event::LocalModelsChanged { models } = envelope.event
+                && models
+                    .iter()
+                    .any(|model| model.id == id && model.state == state)
+            {
+                break;
+            }
+        }
+    })
+    .await
+    .unwrap();
+}
+
 async fn ready(client: &Client, id: KnowledgeId, model: Option<String>) -> Collection {
     tokio::time::timeout(Duration::from_secs(30), async {
         loop {
@@ -122,12 +139,15 @@ async fn shares_installation_restore_and_isolated_removal() {
             (first_model.clone(), &first_path),
             (second_model.clone(), &second_path),
         ] {
+            let mut updates = client.subscribe().await.unwrap();
+            assert!(matches!(updates.next().await.unwrap(), Update::Snapshot(_)));
             let request = client.prepare(Command::InstallLocalModel { id: model.clone() });
             let admission = client.dispatch(request.clone()).await.unwrap();
             assert!(admission.receipt.durable);
             let output = admission.completion.await.unwrap().unwrap();
             assert_eq!(output, Output::LocalModel { id: model.clone() });
             assert_eq!(client.execute(request).await.unwrap(), output);
+            changed(updates.as_mut(), &model, ModelState::Installed).await;
             let Output::Installations(tasks) = execute(
                 &client,
                 Command::ReadInstallations {
@@ -274,6 +294,8 @@ async fn shares_installation_restore_and_isolated_removal() {
         ready(&client, following.id, Some(first_model.clone())).await;
         ready(&client, pinned.id, Some(second_model.clone())).await;
         semantic(&client, following.id, first_model.clone()).await;
+        let mut updates = client.subscribe().await.unwrap();
+        assert!(matches!(updates.next().await.unwrap(), Update::Snapshot(_)));
         let request = client.prepare(Command::DeleteLocalModel {
             id: first_model.clone(),
         });
@@ -291,6 +313,7 @@ async fn shares_installation_restore_and_isolated_removal() {
                 id: first_model.clone()
             }
         );
+        changed(updates.as_mut(), &first_model, ModelState::Missing).await;
         let after = models(&client).await;
         assert_eq!(after.len(), before.len());
         for model in [&first_model, &second_model] {

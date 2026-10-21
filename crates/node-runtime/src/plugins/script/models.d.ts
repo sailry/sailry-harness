@@ -16,7 +16,7 @@ export function search(input:Search): Promise<Page>;
 export function versions(input:{hub:Hub; repository:string}): Promise<{name:string; revision:string}[]>;
 export function resolve(input:{kind:Kind; source:Source}): Promise<Definition>;
 export type Model = {id:string; definition:Definition; state:{kind:'missing'|'installed'}
-  | {kind:'downloading'; percent:number; bytes_per_second:number}};
+  | {kind:'downloading'}};
 /** Requires models.read; reads installed and available local definitions on the Node. */
 export function list(input:{target:'node'; kind?:'ocr'|'embedding'|'decision'}): Promise<Model[]>;
 /** Requires models.install; returns an ordinary prepared ID, not an installed model. */

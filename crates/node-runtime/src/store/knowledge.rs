@@ -36,16 +36,11 @@ pub(crate) struct Stored {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Catalog {
-    pub(crate) settings: sailry_protocol::models::Settings,
-    pub(crate) models: Vec<crate::models::registry::Registration>,
     pub(crate) collections: Vec<Stored>,
 }
 
 pub(super) fn catalog(db: &Connection) -> Result<Catalog, Fault> {
-    let local = super::local_models::read(db)?;
     Ok(Catalog {
-        settings: local.settings,
-        models: local.records,
         collections: collections::load(db)?,
     })
 }

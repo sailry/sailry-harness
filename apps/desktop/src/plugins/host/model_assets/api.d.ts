@@ -20,7 +20,7 @@ export type Search = { kind: Kind; hub: Hub; query: string; cursor: string | nul
 export type Entry = { source: Source; name: string; format: Format };
 export type Page = { items: Entry[]; next_cursor: string | null; partial: boolean };
 export type Version = { revision: string; name: string };
-export type Model = { id: string; definition: Definition; state: { kind: "missing" | "installed" } | { kind: "downloading"; percent: number; bytes_per_second: number } };
+export type Model = { id: string; definition: Definition; state: { kind: "missing" | "installed" | "downloading" } };
 export function list(input: { target: "node"; kind?: "ocr" | "embedding" | "decision" }): Promise<Model[]>;
 export function search(input: Search): Promise<Page>;
 export function versions(input: { hub: Hub; repository: string }): Promise<Version[]>;

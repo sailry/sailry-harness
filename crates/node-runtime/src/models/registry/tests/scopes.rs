@@ -32,13 +32,7 @@ fn ocr() -> Registration {
 fn transfer(owner: &Registry, id: &str) -> CancellationToken {
     let mut state = owner.state.lock().unwrap();
     let cancel = owner.stop.child_token();
-    state.transfers.insert(
-        id.into(),
-        Transfer {
-            cancel: cancel.clone(),
-            progress: Default::default(),
-        },
-    );
+    state.transfers.insert(id.into(), cancel.clone());
     cancel
 }
 
@@ -124,31 +118,39 @@ async fn limits_mirror_changes_to_affected_downloads() {
 }
 
 #[tokio::test]
-async fn retains_newer_catalog_snapshots() {
+async fn publishes_only_model_or_embedding_changes() {
     let fixture = Fixture::new().await;
-    let previous = fixture.owner.settings();
-    let mut current = previous.clone();
-    current.revision += 1;
-    current.choices.get_mut(&Kind::Ocr).unwrap().enabled = false;
+    let mut settings = fixture.owner.settings();
+    let mut updates = fixture.owner.subscribe();
+    settings.revision += 1;
+    settings.choices.get_mut(&Kind::Ocr).unwrap().enabled = false;
+    fixture
+        .owner
+        .configure(settings.clone(), std::slice::from_ref(&fixture.record))
+        .unwrap();
+    assert!(!updates.has_changed().unwrap());
+    settings.mirror = Some("https://mirror.example.com/".into());
+    settings.revision += 1;
+    fixture
+        .owner
+        .configure(settings.clone(), std::slice::from_ref(&fixture.record))
+        .unwrap();
+    assert!(!updates.has_changed().unwrap());
     let added = ocr();
-    fixture
-        .owner
-        .configure(current.clone(), &[fixture.record.clone(), added.clone()])
-        .unwrap();
-    let scope = fixture.owner.state.lock().unwrap().scopes[&Kind::Ocr].clone();
-    fixture
-        .owner
-        .configure(previous, std::slice::from_ref(&fixture.record))
-        .unwrap();
-    fixture
-        .owner
-        .configure(current.clone(), std::slice::from_ref(&fixture.record))
-        .unwrap();
-    assert_eq!(fixture.owner.settings(), current);
-    assert_eq!(
-        fixture.owner.definition(&added.id).unwrap().as_ref(),
-        &added.definition
+    let records = [fixture.record.clone(), added.clone()];
+    fixture.owner.configure(settings.clone(), &records).unwrap();
+    assert!(updates.has_changed().unwrap());
+    assert!(
+        updates
+            .borrow_and_update()
+            .models
+            .iter()
+            .any(|model| model.id == added.id)
     );
-    assert!(!scope.is_cancelled());
+    settings.choices.get_mut(&Kind::Embedding).unwrap().enabled = false;
+    settings.revision += 1;
+    fixture.owner.configure(settings, &records).unwrap();
+    assert!(updates.has_changed().unwrap());
+    assert!(!updates.borrow_and_update().embedding.enabled);
     fixture.owner.shutdown().await;
 }

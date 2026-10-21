@@ -25,11 +25,23 @@ pub(super) struct Database {
     pub(super) profile: Option<std::path::PathBuf>,
     pub(super) network_link: Option<sailry_link::LinkHandle>,
     pub(super) network_request: Option<RequestId>,
+    local_models: Option<std::sync::Arc<crate::models::registry::Registry>>,
     removals: std::collections::BTreeMap<WorktreeId, removal::Pending>,
     relocations: std::collections::BTreeMap<(NodeId, RequestId), Vec<std::path::PathBuf>>,
 }
 
 impl Database {
+    pub(super) fn models(
+        &mut self,
+        registry: std::sync::Arc<crate::models::registry::Registry>,
+    ) -> Result<(), Fault> {
+        let catalog = super::local_models::read(&self.connection)?;
+        let prepared = registry.prepare(catalog.settings, &catalog.records)?;
+        registry.apply(prepared);
+        self.local_models = Some(registry);
+        Ok(())
+    }
+
     pub(super) fn worktree_root(&self, id: WorktreeId) -> Result<std::path::PathBuf, Fault> {
         self.check_removing(id)?;
         let path: Option<String> = self
@@ -261,6 +273,7 @@ impl Database {
             network_request: None,
             feeds: Default::default(),
             model_clients: Default::default(),
+            local_models: None,
             approvals: Default::default(),
             questions: Default::default(),
         })
@@ -763,6 +776,7 @@ impl Database {
             .execute_batch("SAVEPOINT command")
             .map_err(storage_error)?;
         let mut review_changes = super::agent::review::Changes::new();
+        let mut model_configuration = None;
         let outcome = if matches!(request.command, Command::PluginTransaction { .. }) {
             super::plugins::transaction::execute(
                 &transaction,
@@ -816,6 +830,14 @@ impl Database {
                 request,
                 &output,
             )?);
+            if matches!(
+                request.command,
+                Command::SaveLocalModelSettings(_) | Command::RegisterLocalModel { .. }
+            ) && let Some(registry) = &self.local_models
+            {
+                let catalog = super::local_models::read(&transaction)?;
+                model_configuration = Some(registry.prepare(catalog.settings, &catalog.records)?);
+            }
             Ok((output, changes))
         });
         let (mut result, changes) = match outcome {
@@ -845,6 +867,12 @@ impl Database {
                 .map_err(storage_error)?;
         }
         transaction.commit().map_err(storage_error)?;
+        if let Some(prepared) = model_configuration {
+            self.local_models
+                .as_ref()
+                .expect("local model owner was prepared")
+                .apply(prepared);
+        }
         match &mut result {
             Ok(Output::Conversation(history)) => {
                 history.sequence = self.feeds.sequence(history.page.session);

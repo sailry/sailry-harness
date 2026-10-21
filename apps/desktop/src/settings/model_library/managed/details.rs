@@ -138,7 +138,7 @@ impl Render for Details {
                 );
         }
         let mut view = v_flex().gap_4().child(information);
-        if let ModelStatus::Downloading(progress) = model.status {
+        if let ModelStatus::Downloading(Some(progress)) = model.status {
             let progress_id = self.key.selector("progress");
             let speed_id = self.key.selector("speed");
             view = view
