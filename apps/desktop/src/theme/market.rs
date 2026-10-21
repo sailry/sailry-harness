@@ -64,7 +64,7 @@ struct Saved {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Failure {
     Cancelled,
-    Unavailable,
+    Unavailable(SourceFailure),
     Invalid,
     Conflict,
     Io(String),
@@ -74,11 +74,26 @@ pub(crate) enum Failure {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SourceFailure {
+    Timeout,
+    Network,
+    Http(u16),
+}
+
 impl std::fmt::Display for Failure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Cancelled => formatter.write_str("theme operation cancelled"),
-            Self::Unavailable => formatter.write_str("theme source is unavailable"),
+            Self::Unavailable(SourceFailure::Timeout) => {
+                formatter.write_str("theme source request timed out")
+            }
+            Self::Unavailable(SourceFailure::Network) => {
+                formatter.write_str("theme source network or TLS request failed")
+            }
+            Self::Unavailable(SourceFailure::Http(status)) => {
+                write!(formatter, "theme source returned HTTP {status}")
+            }
             Self::Invalid => formatter.write_str("theme source or package is invalid"),
             Self::Conflict => formatter.write_str("installed theme changed"),
             Self::Io(message) => formatter.write_str(message),
@@ -120,7 +135,7 @@ impl Service {
                 self.save(&listing)?;
                 listing
             }
-            Err(Failure::Unavailable) => {
+            Err(Failure::Unavailable(_)) => {
                 let mut listing = cached
                     .as_ref()
                     .map(|value| value.listing.clone())

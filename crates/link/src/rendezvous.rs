@@ -72,7 +72,13 @@ impl Relay {
         {
             return Err(invalid());
         }
-        let client = Client::builder()
+        let builder = Client::builder();
+        let builder = if loopback {
+            builder.no_proxy()
+        } else {
+            builder
+        };
+        let client = builder
             .redirect(Policy::none())
             .retry(reqwest::retry::never())
             .timeout(Duration::from_secs(10))

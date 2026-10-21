@@ -25,7 +25,7 @@ sha2.workspace = true
 self_update.workspace = true
 ed25519-dalek.workspace = true
 semver.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, features = ["system-proxy"] }
 rustls.workspace = true
 roxmltree.workspace = true
 html5gum.workspace = true

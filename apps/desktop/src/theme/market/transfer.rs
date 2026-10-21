@@ -1,4 +1,4 @@
-use super::{Failure, INDEX_BYTES, Listing, Result, catalog};
+use super::{Failure, INDEX_BYTES, Listing, Result, SourceFailure, catalog};
 use sailry_link::CancellationToken;
 use std::{io::Read as _, path::Path, time::Duration};
 
@@ -52,14 +52,27 @@ impl Source {
 pub(super) fn client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
-        .no_proxy()
         .referer(false)
         .user_agent(concat!("Sailry/", env!("CARGO_PKG_VERSION")))
         // Official raw and API URLs do not need cross-origin redirects.
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never())
         .build()
-        .map_err(|_| Failure::Unavailable)
+        .map_err(request_failure)
+}
+
+fn request_failure(error: reqwest::Error) -> Failure {
+    unavailable(if error.is_timeout() {
+        SourceFailure::Timeout
+    } else {
+        SourceFailure::Network
+    })
+}
+
+fn unavailable(reason: SourceFailure) -> Failure {
+    let failure = Failure::Unavailable(reason);
+    eprintln!("could not load theme source: {failure}");
+    failure
 }
 
 pub(super) async fn body(
@@ -74,9 +87,9 @@ pub(super) async fn body(
             .timeout(Duration::from_secs(45))
             .send()
             .await
-            .map_err(|_| Failure::Unavailable)?;
+            .map_err(request_failure)?;
         if !response.status().is_success() {
-            return Err(Failure::Unavailable);
+            return Err(unavailable(SourceFailure::Http(response.status().as_u16())));
         }
         if response
             .content_length()
@@ -85,7 +98,7 @@ pub(super) async fn body(
             return Err(Failure::Invalid);
         }
         let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| Failure::Unavailable)? {
+        while let Some(chunk) = response.chunk().await.map_err(request_failure)? {
             if bytes.len().saturating_add(chunk.len()) > limit {
                 return Err(Failure::Invalid);
             }

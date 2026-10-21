@@ -30,7 +30,6 @@ pub(super) struct Staged {
 pub(super) fn client() -> Result<reqwest::Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     reqwest::Client::builder()
-        .no_proxy()
         .referer(false)
         .user_agent(concat!("Sailry/", env!("CARGO_PKG_VERSION")))
         .redirect(reqwest::redirect::Policy::custom(|attempt| match redirect(

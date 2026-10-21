@@ -5,6 +5,7 @@ use sha2::{Digest as _, Sha256};
 use std::path::Path;
 
 mod fixture;
+mod network;
 use fixture::Server;
 const FIRST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const SECOND: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

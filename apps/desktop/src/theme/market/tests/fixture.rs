@@ -87,6 +87,7 @@ impl Server {
             }
         });
         let mut service = Service::new(root.into()).unwrap();
+        service.client = reqwest::Client::builder().no_proxy().build().unwrap();
         service.source = transfer::Source {
             commits: format!("http://{address}/commits/main"),
             raw: format!("http://{address}/raw/"),
