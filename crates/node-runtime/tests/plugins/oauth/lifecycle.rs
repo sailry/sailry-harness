@@ -176,6 +176,8 @@ async fn rotates_without_losing_refresh_credentials() {
         assert_eq!(client.execute(original).await.unwrap(), output);
         assert_eq!(resource.requests.lock().unwrap().len() - before, 1);
         assert_eq!(issuer.bodies.lock().unwrap().len(), 3);
+        // An accepted request confirms the rotated grant; a 401 before that expires it.
+        assert!(client.execute(request("/ok", "GET")).await.is_ok());
 
         for status in [503, 403, 1] {
             issuer.status.store(status, Ordering::SeqCst);

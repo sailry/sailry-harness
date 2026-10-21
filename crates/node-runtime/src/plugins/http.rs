@@ -211,12 +211,13 @@ pub(crate) async fn run(
         }
         let service = &ingress.plugins.connectors;
         let mut secrets = target.secrets.values().cloned().collect::<Vec<_>>();
-        let mut rotated = None;
+        let mut rotated: Option<crate::plugins::connectors::Access> = None;
         for attempt in 0..2 {
-            let current = ingress
-                .connector_target(target.id, target.revision, target.checking)
-                .await?;
             let access = if let Some(field) = &injection.field {
+                // Field injection does not enter access(), so it keeps its one live fence check.
+                let current = ingress
+                    .connector_target(target.id, target.revision, target.checking)
+                    .await?;
                 crate::plugins::connectors::Access {
                     token: target.secrets.get(field).cloned().ok_or_else(|| {
                         Fault::new(ErrorCode::NotConfigured, "connector secret is unavailable")
@@ -240,9 +241,7 @@ pub(crate) async fn run(
                 .map_err(|_| Fault::invalid("invalid connector HTTP URL"))?;
             let response = send(input.clone(), Some(secrets.clone()), stop.clone()).await?;
             if response.status != 401 {
-                if (200..300).contains(&response.status) {
-                    service.accepted(target.id, access.revision)?;
-                }
+                service.accepted(target.id, access.revision)?;
                 return Ok(response);
             }
             use crate::plugins::connectors::Rejection;

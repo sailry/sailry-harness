@@ -62,8 +62,19 @@ fn preserves_renewals_during_the_pending_attempt() {
         "private-renewed"
     );
     assert_eq!(record.grant_revision, revision);
-    assert_eq!(record.fields["label"], "current");
+    assert_eq!(record.fields["label"], "original");
     assert!(record.login.is_none());
+
+    let (mut record, previous, attempt) = pending(false);
+    record.grant_revision += 1;
+    record.grant = None;
+    record.state = State::Expired;
+    record.fields.insert("label".into(), "current".into());
+    assert!(finish(&mut record, attempt, Outcome::Failed).unwrap());
+    assert_eq!(record.state, State::Expired);
+    assert!(record.grant.is_none());
+    assert_eq!(record.fields, previous.fields);
+    assert_eq!(record.secrets, previous.secrets);
 
     let (mut changed, _, _) = pending(true);
     assert!(!usable(&changed));

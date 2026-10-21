@@ -318,3 +318,139 @@ async fn finishes_conflicts_without_overwriting_newer_edits() {
         }
     }
 }
+
+#[tokio::test]
+async fn discards_pending_edits_after_background_renewal() {
+    for remote in [false, true] {
+        for outcome in ["denied", "cancelled", "restart"] {
+            let restart = outcome == "restart";
+            let issuer = server::Server::start(false, false).await;
+            let resource = super::super::http::server::Server::start().await;
+            let (directory, node, controller, client, worktree) = support::empty(remote).await;
+            node.set_connector_fixture("https://issuer.example.com", &issuer.endpoint);
+            node.set_connector_fixture("https://service.example.com", &resource.origin);
+            configure_label(&directory.path().join("source/package"));
+            let package = info(execute(&client, install(worktree, 0)).await)
+                .summary
+                .reference();
+            let original = lifecycle::connect(&client, package.clone()).await;
+            let before: Value =
+                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            let Output::ConnectorLogin(attempt) = execute(
+                &client,
+                Command::StartConnectorLogin {
+                    package: package.clone(),
+                    connector: original.connector.clone(),
+                    connection: Some(original.id),
+                    expected_revision: Some(original.revision),
+                    method: original.method,
+                    input: Input {
+                        redirect: Some("http://127.0.0.1:43191/auth/callback".into()),
+                        fields: BTreeMap::from([("label".into(), "Pending label".into())]),
+                        ..Default::default()
+                    },
+                },
+            )
+            .await
+            else {
+                panic!("connector attempt expected")
+            };
+            let LoginState::Browser { url, .. } = state(&client, &attempt, |state| {
+                matches!(state, LoginState::Browser { .. })
+            })
+            .await
+            else {
+                unreachable!()
+            };
+            let (command, scope) =
+                super::rejections::request(&package, worktree, original.id, true);
+            assert!(matches!(
+                client.execute(client.prepare(command).with_plugin(scope)).await,
+                Ok(Output::PluginHttp(response)) if response.status == 401
+            ));
+            let renewed: Value =
+                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            assert_eq!(renewed["state"], "connecting");
+            assert_eq!(renewed["fields"]["label"], "Pending label");
+            let revision = before["grant_revision"].as_u64().unwrap() + 1;
+            assert_eq!(renewed["grant_revision"], revision);
+            let (node, client) = if restart {
+                let interrupted = lifecycle::stored(&node, original.id);
+                let profile = node.profile().to_owned();
+                let node_id = node.id();
+                node.shutdown().await.unwrap();
+                controller.handle().disconnect(node_id).await;
+                drop(client);
+                rusqlite::Connection::open(profile.join("storage/node.sqlite3"))
+                    .unwrap()
+                    .execute(
+                        "UPDATE plugin_connections SET body=?1 WHERE id=?2",
+                        rusqlite::params![interrupted, original.id.to_string()],
+                    )
+                    .unwrap();
+                let node = Node::start_empty(&profile).await.unwrap();
+                let client = Client::new(if remote {
+                    controller.handle().remote(node.link().address())
+                } else {
+                    node.local()
+                });
+                (node, client)
+            } else if outcome == "cancelled" {
+                execute(
+                    &client,
+                    Command::CancelConnectorLogin {
+                        attempt: attempt.id,
+                    },
+                )
+                .await;
+                state(&client, &attempt, |state| {
+                    matches!(state, LoginState::Cancelled)
+                })
+                .await;
+                (node, client)
+            } else {
+                let mut denied = reqwest::Url::parse(callback(&url).expose()).unwrap();
+                let state_value = denied
+                    .query_pairs()
+                    .find(|(key, _)| key == "state")
+                    .unwrap()
+                    .1
+                    .into_owned();
+                denied.set_query(None);
+                denied
+                    .query_pairs_mut()
+                    .append_pair("state", &state_value)
+                    .append_pair("error", "access_denied");
+                execute(
+                    &client,
+                    Command::SubmitConnectorInput {
+                        attempt: attempt.id,
+                        input: Secret::new(denied.into()),
+                    },
+                )
+                .await;
+                state(&client, &attempt, |state| {
+                    matches!(state, LoginState::Failed(_))
+                })
+                .await;
+                (node, client)
+            };
+            let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
+                panic!("connections expected")
+            };
+            public(&rows);
+            assert_eq!(rows[0].state, State::Connected, "{remote}/{outcome}");
+            let after: Value =
+                serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+            assert!(after["login"].is_null());
+            assert_eq!(after["revision"], original.revision + 1);
+            assert_eq!(after["grant_revision"], revision);
+            assert_eq!(after["grant"], renewed["grant"]);
+            for field in ["fields", "secrets", "identity", "auth_revision"] {
+                assert_eq!(after[field], before[field], "{remote}/{outcome}/{field}");
+            }
+            controller.close().await.unwrap();
+            node.shutdown().await.unwrap();
+        }
+    }
+}

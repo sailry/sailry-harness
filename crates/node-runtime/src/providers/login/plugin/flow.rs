@@ -564,7 +564,12 @@ async fn poll(
         if super::super::now_ms()? >= expires {
             return Err(super::super::expired());
         }
-        let (status, document) = response(service, endpoint, fields, stop).await?;
+        let (status, document) = match response(service, endpoint, fields, stop).await {
+            Ok(response) => response,
+            // An unreachable endpoint is temporary until the device code expires.
+            Err(error) if error.code == ErrorCode::Unavailable => continue,
+            Err(error) => return Err(error),
+        };
         match classify(status, &document) {
             Status::Pending | Status::Temporary => continue,
             Status::SlowDown => {

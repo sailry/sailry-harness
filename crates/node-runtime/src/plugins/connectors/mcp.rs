@@ -53,16 +53,20 @@ impl Authorization {
             .map(|(target, _)| (target.id, target.revision))
             .collect()
     }
-    pub(crate) async fn validate(&self) -> Result<(), Fault> {
+    /// Confirms every target is still current and returns its live grant revision.
+    pub(crate) async fn validate(&self) -> Result<BTreeMap<Id, u64>, Fault> {
         if let Some(settings) = &self.settings {
             self.ingress
                 .mcp_connectors(settings.0.clone(), settings.1.clone())
                 .await?;
         }
+        let mut revisions = BTreeMap::new();
         for (target, _) in &self.targets {
-            self.ingress
+            let live = self
+                .ingress
                 .connector_target(target.id, target.revision, target.checking)
                 .await?;
+            revisions.insert(target.id, live.grant_revision);
         }
         let sealed = self.sealed.lock().map_err(|_| unavailable())?.clone();
         for (id, expected) in sealed {
@@ -85,7 +89,7 @@ impl Authorization {
                 ));
             }
         }
-        Ok(())
+        Ok(revisions)
     }
     pub(crate) fn seal(&self, id: Id, token: Secret) -> Result<(), Fault> {
         self.sealed
@@ -153,7 +157,7 @@ struct Prepared {
 }
 impl Client {
     async fn prepare(&self, uri: Arc<str>, mut headers: Headers) -> Result<Prepared, Error> {
-        self.authorization.validate().await.map_err(failure)?;
+        let revisions = self.authorization.validate().await.map_err(failure)?;
         let mut sent = Vec::new();
         for (target, injection) in &self.authorization.targets {
             if !target.endpoint(&uri) {
@@ -163,16 +167,14 @@ impl Client {
                 continue;
             }
             let token = if let Some(field) = &injection.field {
-                let live = self
-                    .authorization
-                    .ingress
-                    .connector_target(target.id, target.revision, target.checking)
-                    .await
-                    .map_err(failure)?;
-                target.secrets.get(field).cloned().map(|token| Access {
-                    token,
-                    revision: live.grant_revision,
-                })
+                let revision = *revisions
+                    .get(&target.id)
+                    .ok_or_else(|| failure(unavailable()))?;
+                target
+                    .secrets
+                    .get(field)
+                    .cloned()
+                    .map(|token| Access { token, revision })
             } else if target.method == Kind::Secret
                 && target.secrets.is_empty()
                 && target.declaration.fields.iter().all(|field| field.optional)
@@ -295,6 +297,13 @@ impl Client {
                             .refresh_token()
                             .await
                             .map_err(|_| failure(unavailable()))?;
+                        let live = ingress
+                            .connector_target(target.id, target.revision, target.checking)
+                            .await
+                            .map_err(failure)?;
+                        service
+                            .rotated(target.id, live.grant_revision)
+                            .map_err(failure)?;
                     }
                     changed = true;
                 }
@@ -326,6 +335,21 @@ fn failure(_: Fault) -> Error {
 fn unauthorized<T>(result: &Result<T, Error>) -> bool {
     matches!(result, Err(Error::AuthRequired(_)))
         || matches!(result,Err(Error::HttpStatus(error)) if error.status==401)
+}
+/// Any other server status means the credential itself was not rejected.
+fn answered<T>(result: &Result<T, Error>) -> bool {
+    match result {
+        Ok(_) => true,
+        Err(Error::HttpStatus(error)) => error.status != 401,
+        Err(Error::Client(error)) => error.status().is_some_and(|status| status.as_u16() != 401),
+        Err(
+            Error::InsufficientScope(_)
+            | Error::ServerDoesNotSupportSse
+            | Error::SessionExpired
+            | Error::UnexpectedContentType(_),
+        ) => true,
+        _ => false,
+    }
 }
 
 impl StreamableHttpClient for Client {
@@ -368,7 +392,7 @@ impl StreamableHttpClient for Client {
         // A rejected POST can rotate credentials, but its side effect is never replayed.
         if unauthorized(&result) {
             self.rejected(&prepared, false).await?;
-        } else if result.is_ok() {
+        } else if answered(&result) {
             self.accepted(&prepared).map_err(failure)?;
         }
         result.map_err(|_| failure(unavailable()))
@@ -446,12 +470,12 @@ impl StreamableHttpClient for Client {
                 .await;
             if unauthorized(&result) {
                 self.rejected(&fresh, true).await?;
-            } else if result.is_ok() {
+            } else if answered(&result) {
                 self.accepted(&fresh).map_err(failure)?;
             }
             return result.map_err(|_| failure(unavailable()));
         }
-        if result.is_ok() {
+        if answered(&result) {
             self.accepted(&prepared).map_err(failure)?;
         }
         result.map_err(|_| failure(unavailable()))

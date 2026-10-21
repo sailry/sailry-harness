@@ -138,10 +138,14 @@ async fn restores_denied_and_timed_out_accounts() {
 #[tokio::test]
 async fn retries_poll_failures_and_restores_expiry() {
     for remote in [false, true] {
-        for expire in [false, true] {
-            let issuer =
-                server::Server::serve(false, false, true, Some("authorization_pending"), true)
-                    .await;
+        // Status 1 closes the connection without a response.
+        for (status, error) in [
+            (503, "authorization_pending"),
+            (1, "authorization_pending"),
+            (400, "authorization_pending"),
+            (400, "expired_token"),
+        ] {
+            let issuer = server::Server::serve(false, false, true, Some(error), true).await;
             let (directory, node, controller, client, worktree) = support::empty(remote).await;
             node.set_connector_fixture("https://issuer.example.com", &issuer.endpoint);
             let root = directory.path().join("source/package");
@@ -187,30 +191,84 @@ async fn retries_poll_failures_and_restores_expiry() {
                 unreachable!()
             };
             let before = serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
-            if expire {
-                issuer.status.store(400, Ordering::SeqCst);
-            } else {
-                issuer.status.store(503, Ordering::SeqCst);
-            }
+            issuer.status.store(status, Ordering::SeqCst);
             let attempt = start(&client, &original, false).await;
             state(&client, &attempt, |state| {
                 matches!(state, LoginState::Device { .. })
             })
             .await;
             let result = state(&client, &attempt, |state| !state.active()).await;
-            if expire {
+            if status == 400 {
+                let code = if error == "expired_token" {
+                    ErrorCode::PermissionDenied
+                } else {
+                    ErrorCode::Expired
+                };
                 assert!(
-                    matches!(result, LoginState::Failed(ref error) if error.code == ErrorCode::Expired)
+                    matches!(result, LoginState::Failed(ref error) if error.code == code),
+                    "{remote}/{error}: {result:?}"
                 );
                 restored(&node, &original, &before);
             } else {
                 assert!(
-                    matches!(result, LoginState::Connected(ref row) if row.state == State::Connected)
+                    matches!(result, LoginState::Connected(ref row) if row.state == State::Connected),
+                    "{remote}/{status}: {result:?}"
                 );
                 assert_eq!(issuer.bodies.lock().unwrap().len(), 5);
             }
             controller.close().await.unwrap();
             node.shutdown().await.unwrap();
         }
+    }
+}
+
+#[tokio::test]
+async fn rejects_probes_during_sign_in() {
+    for remote in [false, true] {
+        let issuer = server::Server::start(false, false).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        node.set_connector_fixture("https://issuer.example.com", &issuer.endpoint);
+        configure(&directory.path().join("source/package"));
+        let package = info(execute(&client, install(worktree, 0)).await)
+            .summary
+            .reference();
+        let original = lifecycle::connect(&client, package).await;
+        let before = serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+        let attempt = start(&client, &original, true).await;
+        state(&client, &attempt, |state| {
+            matches!(state, LoginState::Browser { .. })
+        })
+        .await;
+        let probe = client.prepare(Command::ProbeConnection {
+            connection: original.id,
+        });
+        assert_eq!(
+            client.execute(probe).await.unwrap_err().code,
+            ErrorCode::Busy
+        );
+        let pending: Value =
+            serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+        assert_eq!(pending["state"], "connecting");
+        execute(
+            &client,
+            Command::CancelConnectorLogin {
+                attempt: attempt.id,
+            },
+        )
+        .await;
+        state(&client, &attempt, |state| {
+            matches!(state, LoginState::Cancelled)
+        })
+        .await;
+        restored(&node, &original, &before);
+        let probe = client.prepare(Command::ProbeConnection {
+            connection: original.id,
+        });
+        assert!(matches!(
+            client.execute(probe).await.unwrap(),
+            Output::Connection(row) if row.state == State::Connected
+        ));
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
     }
 }

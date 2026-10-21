@@ -26,6 +26,8 @@ enum Reply {
     Expired,
     #[cfg(feature = "test-support")]
     Unauthorized,
+    #[cfg(feature = "test-support")]
+    Status(Arc<std::sync::atomic::AtomicU16>),
     Redirect(String),
     Oversized {
         method: &'static str,
@@ -238,6 +240,23 @@ async fn respond(
     if matches!(reply, Reply::Unauthorized) && method == "POST" {
         return stream
             .write_all(b"HTTP/1.1 401 Fixture\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            .await;
+    }
+    #[cfg(feature = "test-support")]
+    if let Reply::Status(status) = &reply
+        && method == "POST"
+    {
+        let status = status.load(Ordering::SeqCst);
+        if status == 0 {
+            return Ok(());
+        }
+        return stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 {status} Fixture\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+                .as_bytes(),
+            )
             .await;
     }
     if request["method"] == "server/discover" {

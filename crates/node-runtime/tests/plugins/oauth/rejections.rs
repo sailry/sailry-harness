@@ -157,6 +157,7 @@ async fn preserves_accounts_when_new_authorization_fails() {
                 (400, "invalid_client"),
                 (400, "unauthorized_client"),
                 (503, "invalid_client"),
+                (1, "invalid_client"),
             ] {
                 let issuer = server::Server::respond(false, false, true, Some(rejected)).await;
                 let (directory, node, controller, client, worktree) = support::empty(remote).await;
@@ -222,6 +223,56 @@ async fn preserves_accounts_when_new_authorization_fails() {
 }
 
 #[tokio::test]
+async fn expires_rejected_rotations() {
+    for remote in [false, true] {
+        let issuer = server::Server::start(false, false).await;
+        let resource = super::super::http::server::Server::start().await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        node.set_connector_fixture("https://issuer.example.com", &issuer.endpoint);
+        node.set_connector_fixture("https://service.example.com", &resource.origin);
+        configure(&directory.path().join("source/package"));
+        let package = info(execute(&client, install(worktree, 0)).await)
+            .summary
+            .reference();
+        let row = lifecycle::connect(&client, package.clone()).await;
+        let before: serde_json::Value =
+            serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+        let revision = before["grant_revision"].as_u64().unwrap();
+        for (index, state) in ["connected", "expired"].into_iter().enumerate() {
+            let (command, scope) = request(&package, worktree, row.id, true);
+            let result = client
+                .execute(client.prepare(command).with_plugin(scope))
+                .await;
+            assert!(
+                matches!(result, Ok(Output::PluginHttp(ref response)) if response.status == 401),
+                "{remote}/{index}"
+            );
+            let after: serde_json::Value =
+                serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
+            assert_eq!(after["state"], state, "{remote}/{index}");
+            assert_eq!(after["grant"].is_null(), index == 1);
+            assert_eq!(
+                after["grant_revision"].as_u64().unwrap(),
+                revision + 1 + index as u64
+            );
+            assert_eq!(issuer.bodies.lock().unwrap().len(), 2, "one refresh only");
+        }
+        assert_eq!(resource.requests.lock().unwrap().len(), 2);
+        let (command, scope) = request(&package, worktree, row.id, false);
+        assert_eq!(
+            client
+                .execute(client.prepare(command).with_plugin(scope))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::NotConfigured
+        );
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn invalidates_rejected_refreshes_and_health_checks() {
     for remote in [false, true] {
         for probe in [false, true] {
@@ -254,6 +305,8 @@ async fn invalidates_rejected_refreshes_and_health_checks() {
                 client.prepare(command).with_plugin(scope)
             };
             let count = resource.requests.lock().unwrap().len();
+            let expected = count + 1 + usize::from(probe);
+            assert_eq!(issuer.bodies.lock().unwrap().len(), 1);
             assert_eq!(
                 client.execute(original).await.unwrap_err().code,
                 if probe {
@@ -262,15 +315,28 @@ async fn invalidates_rejected_refreshes_and_health_checks() {
                     ErrorCode::PermissionDenied
                 }
             );
-            assert_eq!(resource.requests.lock().unwrap().len(), count + 1);
-            assert_eq!(
-                issuer.bodies.lock().unwrap().len(),
-                if probe { 1 } else { 2 }
-            );
+            {
+                let calls = resource.requests.lock().unwrap();
+                assert_eq!(calls.len(), expected, "{remote}/{probe}");
+                for (headers, body) in &calls[count..] {
+                    if probe {
+                        assert!(headers.starts_with("GET /health "));
+                        assert!(body.is_empty());
+                    } else {
+                        assert!(headers.starts_with("POST /unauthorized "));
+                        assert_eq!(body, "write-once");
+                    }
+                }
+            }
+            assert_eq!(issuer.bodies.lock().unwrap().len(), 2, "{remote}/{probe}");
             let after: serde_json::Value =
                 serde_json::from_slice(&lifecycle::stored(&node, row.id)).unwrap();
             assert_eq!(after["state"], "expired");
             assert!(after["grant"].is_null());
+            assert_eq!(
+                after["grant_revision"].as_u64().unwrap(),
+                before["grant_revision"].as_u64().unwrap() + 1 + u64::from(probe)
+            );
             for field in ["fields", "secrets", "auth_revision", "revision"] {
                 assert_eq!(after[field], before[field], "{remote}/{probe}/{field}");
             }
@@ -283,7 +349,7 @@ async fn invalidates_rejected_refreshes_and_health_checks() {
                     .code,
                 ErrorCode::NotConfigured
             );
-            assert_eq!(resource.requests.lock().unwrap().len(), count + 1);
+            assert_eq!(resource.requests.lock().unwrap().len(), expected);
             controller.close().await.unwrap();
             node.shutdown().await.unwrap();
         }

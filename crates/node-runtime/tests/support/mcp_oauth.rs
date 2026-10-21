@@ -7,7 +7,7 @@ use std::{
     io,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU16, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering},
     },
 };
 use tokio::{
@@ -21,6 +21,8 @@ pub struct Server {
     pub refreshes: Arc<AtomicUsize>,
     pub registrations: Arc<AtomicUsize>,
     pub status: Arc<AtomicU16>,
+    pub denied: Arc<AtomicBool>,
+    pub requests: Arc<Mutex<Vec<String>>>,
     token: Arc<Mutex<String>>,
     secret: Option<Arc<Mutex<String>>>,
     stop: CancellationToken,
@@ -90,6 +92,8 @@ impl Server {
         let refreshes = Arc::new(AtomicUsize::new(0));
         let registrations = Arc::new(AtomicUsize::new(0));
         let status = Arc::new(AtomicU16::new(200));
+        let denied = Arc::new(AtomicBool::new(false));
+        let requests = Arc::new(Mutex::new(Vec::new()));
         let token = Arc::new(Mutex::new("access-initial".to_owned()));
         let stop = CancellationToken::new();
         let shutdown = stop.clone();
@@ -99,6 +103,8 @@ impl Server {
             refreshes: refreshes.clone(),
             registrations: registrations.clone(),
             status: status.clone(),
+            denied: denied.clone(),
+            requests: requests.clone(),
             secret: secret.clone(),
             registered,
             authentication,
@@ -129,6 +135,8 @@ impl Server {
             refreshes,
             registrations,
             status,
+            denied,
+            requests,
             token,
             secret,
             stop,
@@ -164,6 +172,8 @@ struct Issuer {
     refreshes: Arc<AtomicUsize>,
     registrations: Arc<AtomicUsize>,
     status: Arc<AtomicU16>,
+    denied: Arc<AtomicBool>,
+    requests: Arc<Mutex<Vec<String>>>,
     secret: Option<Arc<Mutex<String>>>,
     registered: bool,
     authentication: Option<Authentication>,
@@ -222,6 +232,7 @@ impl Issuer {
             }
         };
         let head = std::str::from_utf8(&bytes[..end]).unwrap();
+        let request = head.lines().next().unwrap().to_owned();
         let target_path = head.split_whitespace().nth(1).unwrap().to_owned();
         let headers: BTreeMap<_, _> = head
             .lines()
@@ -343,6 +354,9 @@ impl Issuer {
                         let _ = stream.read(&mut buffer).await;
                         return Ok(());
                     }
+                    if status == 1 {
+                        return Ok(());
+                    }
                     if status != 200 {
                         let error = self.error.as_deref().unwrap_or(if status == 401 {
                             "invalid_client"
@@ -360,10 +374,16 @@ impl Issuer {
                 }
                 response
             }
-            "/mcp" | "/messages" => {
+            "/mcp" | "/messages" | "/health" => {
+                self.requests.lock().unwrap().push(request);
                 let expected = format!("Bearer {}", self.token.lock().unwrap());
-                if headers.get("authorization") != Some(&expected) {
+                if self.denied.load(Ordering::SeqCst)
+                    || headers.get("authorization") != Some(&expected)
+                {
                     return reply(&mut stream,401,&format!("WWW-Authenticate: Bearer resource_metadata=\"{origin}/.well-known/oauth-protected-resource/mcp\"\r\n"), json!({"error":"unauthorized"})).await;
+                }
+                if url.path() == "/health" {
+                    return reply(&mut stream, 200, "", json!({"ok":true})).await;
                 }
                 let mut upstream = TcpStream::connect(target).await?;
                 upstream.write_all(&bytes).await?;

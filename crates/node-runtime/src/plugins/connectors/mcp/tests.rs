@@ -12,6 +12,8 @@ struct Server {
     refreshes: Arc<AtomicUsize>,
     expected: Arc<Mutex<String>>,
     reuse: Arc<AtomicBool>,
+    revoked: Arc<AtomicBool>,
+    refusing: Arc<AtomicBool>,
     stop: CancellationToken,
 }
 impl Server {
@@ -25,6 +27,8 @@ impl Server {
             refreshes: Arc::default(),
             expected: Arc::new(Mutex::new("rejected".into())),
             reuse: Arc::default(),
+            revoked: Arc::default(),
+            refusing: Arc::default(),
             stop: CancellationToken::new(),
         };
         let (posts, gets, refreshes, expected, reuse, stop) = (
@@ -35,6 +39,7 @@ impl Server {
             result.reuse.clone(),
             result.stop.clone(),
         );
+        let (revoked, refusing) = (result.revoked.clone(), result.refusing.clone());
         tokio::spawn(async move {
             loop {
                 let (mut stream, _) = tokio::select! {_=stop.cancelled()=>break,result=listener.accept()=>result.unwrap()};
@@ -84,6 +89,9 @@ impl Server {
                     registration["client_id"] = json!("fixture-client");
                     status = 201;
                     registration.to_string()
+                } else if path == "/token" && refusing.load(Ordering::SeqCst) {
+                    status = 400;
+                    json!({"error":"invalid_grant"}).to_string()
                 } else if path == "/token" {
                     let revision = refreshes.fetch_add(1, Ordering::SeqCst) + 1;
                     let token = format!(
@@ -106,8 +114,9 @@ impl Server {
                             .filter(|(name, _)| name.eq_ignore_ascii_case("authorization"))
                             .map(|(_, value)| value.trim())
                     });
-                    if authorization
-                        != Some(format!("Bearer {}", expected.lock().unwrap()).as_str())
+                    if revoked.load(Ordering::SeqCst)
+                        || authorization
+                            != Some(format!("Bearer {}", expected.lock().unwrap()).as_str())
                     {
                         status = 401;
                         if head.starts_with("POST ") {
@@ -140,17 +149,10 @@ impl Drop for Server {
     }
 }
 
-#[tokio::test]
-async fn refreshes_without_replaying_posts() {
-    let server = Server::start().await;
+async fn connected(server: &Server) -> (tempfile::TempDir, crate::Node, Target) {
     let directory = tempfile::tempdir().unwrap();
     let node = crate::Node::start_empty(directory.path().join("node"))
         .await
-        .unwrap();
-    let inner = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .retry(reqwest::retry::never())
-        .build()
         .unwrap();
     node.set_connector_fixture("https://mcp.notion.com", &server.endpoint);
     let controller = sailry_client::Client::new(node.local());
@@ -225,6 +227,18 @@ async fn refreshes_without_replaying_posts() {
         .connector_target(attempt.connection, 1, false)
         .await
         .unwrap();
+    (directory, node, target)
+}
+
+fn inner() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .build()
+        .unwrap()
+}
+
+async fn authorization(node: &crate::Node, target: Target) -> Authorization {
     let injection = target.declaration.inject[0].clone();
     let oauth = node
         .ingress
@@ -250,22 +264,30 @@ async fn refreshes_without_replaying_posts() {
         CancellationToken::new(),
     );
     authorization.oauth = Some(oauth);
+    authorization
+}
+
+async fn post(client: &Client) -> Result<StreamableHttpPostResponse, Error> {
+    let message:ClientJsonRpcMessage=serde_json::from_value(json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write","arguments":{"value":"once"}}})).unwrap();
+    client
+        .post_message(
+            "https://mcp.notion.com/mcp".into(),
+            message,
+            None,
+            None,
+            Headers::new(),
+        )
+        .await
+}
+
+#[tokio::test]
+async fn refreshes_without_replaying_posts() {
+    let server = Server::start().await;
+    let (_directory, node, target) = connected(&server).await;
+    let client = authorization(&node, target).await.client(inner(), 65536);
     server.refreshes.store(0, Ordering::SeqCst);
     *server.expected.lock().unwrap() = "rejected".into();
-    let client = authorization.client(inner, 65536);
-    let message:ClientJsonRpcMessage=serde_json::from_value(json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"write","arguments":{"value":"once"}}})).unwrap();
-    assert!(
-        client
-            .post_message(
-                "https://mcp.notion.com/mcp".into(),
-                message,
-                None,
-                None,
-                Headers::new()
-            )
-            .await
-            .is_err()
-    );
+    assert!(post(&client).await.is_err());
     assert_eq!(server.refreshes.load(Ordering::SeqCst), 1);
     {
         let posts = server.posts.lock().unwrap();
@@ -318,5 +340,69 @@ async fn refreshes_without_replaying_posts() {
     assert_eq!(server.gets.load(Ordering::SeqCst) - baseline, 2);
     assert_eq!(server.refreshes.load(Ordering::SeqCst), 3);
     assert_eq!(server.posts.lock().unwrap().len(), 1);
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn expires_rotated_post_rejections() {
+    let server = Server::start().await;
+    let (_directory, node, target) = connected(&server).await;
+    let (id, revision) = (target.id, target.revision);
+    let client = authorization(&node, target).await.client(inner(), 65536);
+    server.refreshes.store(0, Ordering::SeqCst);
+    server.revoked.store(true, Ordering::SeqCst);
+    assert!(post(&client).await.is_err());
+    assert_eq!(server.refreshes.load(Ordering::SeqCst), 1);
+    let rotated = node.ingress.connector_target(id, revision, false).await;
+    assert!(rotated.unwrap().grant.is_some());
+    assert!(post(&client).await.is_err());
+    assert_eq!(server.refreshes.load(Ordering::SeqCst), 1);
+    assert_eq!(server.posts.lock().unwrap().len(), 2);
+    let expired = node.ingress.connector_target(id, revision, true).await;
+    assert!(expired.unwrap().grant.is_none());
+    assert!(
+        node.ingress
+            .connector_target(id, revision, false)
+            .await
+            .is_err()
+    );
+    node.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn expires_rejected_probe_refreshes() {
+    let server = Server::start().await;
+    let (_directory, node, target) = connected(&server).await;
+    let mut target = node
+        .ingress
+        .connector_target(target.id, target.revision, true)
+        .await
+        .unwrap();
+    target.declaration.health = Some(sailry_protocol::plugin::connector::HealthRequest {
+        request: "https://mcp.notion.com/mcp".into(),
+        ok: vec![200],
+    });
+    target.declaration.inject.push(
+        serde_json::from_value(json!({
+            "origin":"https://mcp.notion.com","header":"Authorization","prefix":"Bearer "
+        }))
+        .unwrap(),
+    );
+    *server.expected.lock().unwrap() = "rejected".into();
+    server.refusing.store(true, Ordering::SeqCst);
+    let error = node
+        .ingress
+        .plugins
+        .connectors
+        .check(&mut target, &node.ingress, &CancellationToken::new())
+        .await
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Expired);
+    let expired = node
+        .ingress
+        .connector_target(target.id, target.revision, true)
+        .await
+        .unwrap();
+    assert!(expired.grant.is_none());
     node.shutdown().await.unwrap();
 }

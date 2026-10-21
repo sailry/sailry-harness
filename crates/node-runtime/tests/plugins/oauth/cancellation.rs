@@ -124,7 +124,6 @@ async fn preserves_healthy_accounts_and_concurrent_changes() {
                     "fields",
                     "secrets",
                     "grant",
-                    "grant_revision",
                     "identity",
                     "bound",
                     "state",
@@ -132,6 +131,12 @@ async fn preserves_healthy_accounts_and_concurrent_changes() {
                 ] {
                     assert_eq!(after[field], before[field], "{remote}/{change:?}/{field}");
                 }
+                assert_eq!(after["grant_revision"], started["grant_revision"]);
+                assert_eq!(
+                    after["grant_revision"].as_u64().unwrap(),
+                    before["grant_revision"].as_u64().unwrap()
+                        + u64::from(matches!(change, Change::PendingSecret))
+                );
                 assert_eq!(after["auth_revision"], started["auth_revision"]);
                 if matches!(change, Change::PendingSecret) {
                     assert_ne!(after["auth_revision"], before["auth_revision"]);

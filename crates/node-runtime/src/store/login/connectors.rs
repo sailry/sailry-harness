@@ -1,7 +1,7 @@
 //! Connections share the existing durable login worker and caller-bound attempts.
 use super::*;
 use crate::store::database::storage_error;
-use crate::store::plugins::connectors::{self as connections, Grant, Record};
+use crate::store::plugins::connectors::{self as connections, Record};
 use sailry_protocol::plugin::connector::{self as connector, Attempt, LoginState, LoginUpdate};
 
 pub(super) struct Entry {
@@ -312,7 +312,11 @@ impl Worker {
                             Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
                             Err(error) => return Err(error),
                         };
-                        if !connections::login::restore(&mut record, *attempt) {
+                        if !connections::login::finish(
+                            &mut record,
+                            *attempt,
+                            connections::login::Outcome::Cancelled,
+                        )? {
                             return Ok(None);
                         }
                         connections::save(db, &record)?;
@@ -355,6 +359,13 @@ impl Worker {
         }
         let prepared = (|| {
             let record = connections::read(&database.connection, connection)?;
+            // A pending sign-in owns the row until it finishes.
+            if record.login.is_some() {
+                return Err(Fault::new(
+                    ErrorCode::Busy,
+                    "connector authorization is already active",
+                ));
+            }
             connections::current_target(
                 &database.connection,
                 database.profile.as_deref(),
@@ -504,9 +515,8 @@ fn commit(
     let checked = (|| {
         if record.revision != baseline.revision
             || record.auth_revision != baseline.auth_revision
-            || replace
-                && record.login.as_ref().map(|login| login.attempt)
-                    != baseline.login.as_ref().map(|login| login.attempt)
+            || record.login.as_ref().map(|login| login.attempt)
+                != baseline.login.as_ref().map(|login| login.attempt)
         {
             return Err(Fault::new(
                 ErrorCode::RevisionConflict,
@@ -529,100 +539,84 @@ fn commit(
                 "connector authorization changed",
             ));
         }
-        Ok(info)
+        Ok(())
     })();
-    let info = match checked {
-        Ok(info) => info,
+    // Authorization failures may mark a first connection Failed; conflicts never do.
+    let (outcome, failed) = match (checked, result) {
+        (Err(error), _) => (Err(error), false),
+        (Ok(()), Err(error)) => {
+            let failed = error.code != ErrorCode::Cancelled;
+            (Err(error), failed)
+        }
+        (Ok(()), Ok(target)) => {
+            let outcome = if replace {
+                baseline
+                    .login
+                    .as_ref()
+                    .ok_or_else(missing)
+                    .and_then(|login| {
+                        connections::login::finish(
+                            &mut record,
+                            login.attempt,
+                            connections::login::Outcome::Connected(target),
+                        )
+                        .and_then(|finished| finished.then_some(()).ok_or_else(missing))
+                    })
+            } else {
+                apply(&mut record, *target)
+            };
+            (outcome, false)
+        }
+    };
+    let persist = |transaction: rusqlite::Transaction<'_>,
+                   record: &Record|
+     -> Result<connector::Connection, Fault> {
+        connections::save(&transaction, record)?;
+        let projected = connections::project(&transaction, database.profile.as_deref(), record)?;
+        let changed = super::super::plugins::get(&transaction, &record.plugin)?
+            .map(|info| Event::PluginChanged(info.summary))
+            .into_iter()
+            .collect();
+        let envelopes = super::super::database::record(&transaction, database.node, changed)?;
+        transaction.commit().map_err(storage_error)?;
+        for envelope in envelopes {
+            let _ = events.send(envelope);
+        }
+        Ok(projected)
+    };
+    match outcome {
+        Ok(()) => persist(transaction, &record),
         Err(error) => {
             if replace
                 && let Some(login) = &baseline.login
-                && connections::login::restore(&mut record, login.attempt)
+                && connections::login::finish(
+                    &mut record,
+                    login.attempt,
+                    if failed {
+                        connections::login::Outcome::Failed
+                    } else {
+                        connections::login::Outcome::Cancelled
+                    },
+                )?
             {
-                connections::save(&transaction, &record)?;
-                let changed = super::super::plugins::get(&transaction, &record.plugin)?
-                    .map(|info| Event::PluginChanged(info.summary))
-                    .into_iter()
-                    .collect();
-                let envelopes =
-                    super::super::database::record(&transaction, database.node, changed)?;
-                transaction.commit().map_err(storage_error)?;
-                for envelope in envelopes {
-                    let _ = events.send(envelope);
-                }
-            }
-            return Err(error);
-        }
-    };
-    let cancelled = result
-        .as_ref()
-        .is_err_and(|error| error.code == ErrorCode::Cancelled);
-    let outcome = match result {
-        Ok(target) => {
-            let target = *target;
-            if !replace && record.grant_revision != target.grant_revision {
-                return Err(Fault::new(
-                    ErrorCode::RevisionConflict,
-                    "connector grant changed",
-                ));
-            }
-            record.identity = target.identity;
-            if replace {
-                if baseline.revision > 1 {
-                    record.auth_revision = record.revision;
-                }
-                record.fields = target.fields;
-                record.secrets = target.secrets;
-                record.grant_revision = record
-                    .grant_revision
-                    .checked_add(1)
-                    .filter(|revision| *revision <= i64::MAX as u64)
-                    .ok_or_else(missing)?;
-                record.grant = target.grant.map(|grant| Grant {
-                    access: grant.access,
-                    refresh: grant.refresh,
-                    expires_at_ms: grant.expires_at_ms,
-                    extra: grant.extra,
-                });
-            }
-            record.state = connector::State::Connected;
-            Ok(())
-        }
-        Err(error) => {
-            let previous = record
-                .login
-                .as_ref()
-                .is_some_and(|login| login.previous.is_some());
-            if baseline
-                .login
-                .as_ref()
-                .is_none_or(|login| !connections::login::restore(&mut record, login.attempt))
-            {
-                return Err(error);
-            }
-            if !cancelled && !previous {
-                record.state = connector::State::Failed;
+                persist(transaction, &record)?;
             }
             Err(error)
         }
-    };
-    if outcome.is_ok() {
-        record.checked_at_ms = Some(crate::plugins::connectors::now());
     }
-    if replace {
-        record.login = None;
+}
+
+fn apply(record: &mut Record, target: crate::plugins::connectors::Target) -> Result<(), Fault> {
+    if record.grant_revision != target.grant_revision {
+        return Err(Fault::new(
+            ErrorCode::RevisionConflict,
+            "connector grant changed",
+        ));
     }
-    connections::save(&transaction, &record)?;
-    let projected = connections::project(&transaction, database.profile.as_deref(), &record)?;
-    let envelopes = super::super::database::record(
-        &transaction,
-        database.node,
-        vec![Event::PluginChanged(info.summary)],
-    )?;
-    transaction.commit().map_err(storage_error)?;
-    for envelope in envelopes {
-        let _ = events.send(envelope);
-    }
-    outcome.map(|_| projected)
+    record.identity = target.identity;
+    record.state = connector::State::Connected;
+    record.checked_at_ms = Some(crate::plugins::connectors::now());
+    Ok(())
 }
 
 fn missing() -> Fault {

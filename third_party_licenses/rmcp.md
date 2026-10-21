@@ -1,7 +1,7 @@
 # MCP SDK patches
 
 Sailry uses `rmcp 3.5.1` from the pinned
-[sailry/rust-sdk fork](https://github.com/sailry/rust-sdk/tree/a222497a6c6a1baa2d1b5fe277fd0ee3e4435f07/crates/rmcp),
+[sailry/rust-sdk fork](https://github.com/sailry/rust-sdk/tree/5e8fb5a9502d0fd153c29369b11e93bee88e63ac/crates/rmcp),
 based on [the official Rust SDK v3.5.1](https://github.com/modelcontextprotocol/rust-sdk/tree/79437f291b2c44053d00dcd5db969fd0cca7c887/crates/rmcp).
 The root Cargo.toml applies the fork across all crates.io `rmcp` dependencies,
 including ADK's MCP feature. The upstream Apache-2.0, MIT and documentation
@@ -35,7 +35,9 @@ metadata to cool down the affected driver. The error contains no response body
 or authentication value, and does not change transport retry behavior.
 Bare HTTP 401 responses use the same typed status so the connector owner can
 renew credentials. Responses carrying an authentication challenge retain the
-SDK's challenge handling.
+SDK's challenge handling. Other unsuccessful HTTP replies retain their typed
+status after the SDK handles session, discovery and JSON-RPC semantics; network
+failures remain distinct and never gain a synthetic response status.
 
 The dynamic registration patch selects `none` when advertised, otherwise
 `client_secret_basic`, then `client_secret_post`, matching the SDK's token

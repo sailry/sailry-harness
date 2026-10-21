@@ -82,6 +82,7 @@ async fn bounds_cache_and_preserves_temporary_failures() {
             panic!("connector login expected")
         };
         let row = ready(&client, &attempt).await;
+        let original = stored(&node, row.id);
         let scope = context(package, worktree);
         let call = |path: &str| {
             client
@@ -95,6 +96,11 @@ async fn bounds_cache_and_preserves_temporary_failures() {
         tokio::time::sleep(Duration::from_millis(1100)).await;
         assert!(client.execute(call("/ok")).await.is_ok());
         assert_eq!(cli.calls("token"), count + 1);
+        assert_eq!(
+            stored(&node, row.id),
+            original,
+            "token reads must not persist"
+        );
 
         tokio::time::sleep(Duration::from_millis(1100)).await;
         fs::write(cli.home().join("gh-fail"), "").unwrap();
@@ -112,6 +118,11 @@ async fn bounds_cache_and_preserves_temporary_failures() {
         assert_eq!(stored(&node, row.id), before);
         fs::remove_file(cli.home().join("gh-hold")).unwrap();
         assert!(client.execute(call("/ok")).await.is_ok());
+        assert_eq!(
+            stored(&node, row.id),
+            original,
+            "token reads must not persist"
+        );
 
         let before = server.requests.lock().unwrap().len();
         let count = cli.calls("token");
@@ -163,6 +174,98 @@ async fn bounds_cache_and_preserves_temporary_failures() {
         );
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn clears_rejections_after_server_responses() {
+    for remote in [false, true] {
+        for (method, status) in [("GET", 400), ("POST", 403), ("GET", 503), ("POST", 503)] {
+            let programs = tempfile::tempdir().unwrap();
+            let cli = source::Cli::new(programs.path());
+            let (directory, node, controller, client, worktree) =
+                empty_with_environment(remote, cli.source()).await;
+            let server = server::Server::start().await;
+            node.set_connector_fixture(ORIGIN, &server.origin);
+            let manifest: Value =
+                serde_json::from_str(include_str!("../../../../../../plugins/github/plugin.json"))
+                    .unwrap();
+            let mut declared = declaration();
+            declared["auth"] = json!([manifest["extensions"][plugin::NAMESPACE]["connectors"][0]
+                ["auth"][1]
+                .clone()]);
+            declared["fields"] = json!([]);
+            configure(&directory.path().join("source/package"), declared);
+            let package = info(execute(&client, install(worktree, 0)).await)
+                .summary
+                .reference();
+            let Output::ConnectorLogin(attempt) = execute(
+                &client,
+                Command::StartConnectorLogin {
+                    package: package.clone(),
+                    connector: "service".into(),
+                    connection: None,
+                    expected_revision: None,
+                    method: Kind::LocalCli,
+                    input: Input::default(),
+                },
+            )
+            .await
+            else {
+                panic!("connector login expected")
+            };
+            let row = ready(&client, &attempt).await;
+            let initial: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+            let revision = initial["grant_revision"].as_u64().unwrap();
+            let mut token_calls = 0;
+            for (index, (method, status)) in [
+                ("POST", 401),
+                (method, status),
+                ("POST", 401),
+                ("POST", 401),
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                server
+                    .status
+                    .store(status, std::sync::atomic::Ordering::SeqCst);
+                let Command::RequestPluginHttp(mut http) = request("/ok", row.id) else {
+                    unreachable!()
+                };
+                http.method = method.into();
+                let output = client
+                    .execute(
+                        client
+                            .prepare(Command::RequestPluginHttp(http))
+                            .with_plugin(context(package.clone(), worktree)),
+                    )
+                    .await
+                    .unwrap();
+                assert!(
+                    matches!(output, Output::PluginHttp(response) if response.status == status)
+                );
+                let saved: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+                assert_eq!(
+                    saved["state"],
+                    if index == 3 { "expired" } else { "connected" }
+                );
+                assert_eq!(saved["grant_revision"], revision + [1, 1, 2, 3][index]);
+                assert!(saved["grant"].is_null(), "CLI tokens remain transient");
+                if index == 0 {
+                    token_calls = cli.calls("token");
+                } else {
+                    assert_eq!(cli.calls("token"), token_calls + usize::from(index >= 2));
+                }
+            }
+            let requests = server.requests.lock().unwrap().clone();
+            assert_eq!(requests.len(), 4, "{remote}/{method}/{status}");
+            assert!(requests.iter().all(|(head, _)| {
+                head.contains(&format!("authorization: Bearer {}\r\n", source::TOKEN))
+            }));
+            controller.close().await.unwrap();
+            node.shutdown().await.unwrap();
+        }
     }
 }
 

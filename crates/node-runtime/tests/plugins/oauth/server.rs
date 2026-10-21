@@ -80,7 +80,7 @@ impl Server {
                 } else {
                     responses.load(Ordering::SeqCst)
                 };
-                if device && status == 503 {
+                if device && matches!(status, 1 | 503) {
                     responses.store(200, Ordering::SeqCst);
                 }
                 if status == 0 {
