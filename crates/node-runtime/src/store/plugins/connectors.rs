@@ -9,7 +9,8 @@ use sailry_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-mod consent;
+pub(in crate::store) mod consent;
+mod editing;
 pub(in crate::store) mod mcp;
 mod registry;
 pub(in crate::store) use registry::declarations;
@@ -22,6 +23,7 @@ pub(in crate::store) struct Record {
     pub plugin: String,
     pub connector: String,
     pub revision: u64,
+    pub auth_revision: u64,
     pub method: Kind,
     pub enabled: bool,
     pub fields: BTreeMap<String, String>,
@@ -231,6 +233,8 @@ pub(in crate::store) fn save(db: &Connection, record: &Record) -> Result<(), Fau
 pub(in crate::store) fn validate(record: &Record) -> Result<(), Fault> {
     if record.revision == 0
         || record.revision > i64::MAX as u64
+        || record.auth_revision == 0
+        || record.auth_revision > record.revision
         || !identifier(&record.connector)
         || crate::plugins::validate_name(&record.plugin).is_err()
         || record.grant_revision == 0
@@ -260,7 +264,7 @@ pub(in crate::store) fn project(
         .map(|declaration| bound(db, profile, &info, declaration, record.method))
         .transpose()?
         .flatten();
-    let consent = consent::changes(record.bound.as_ref(), current.as_ref());
+    let consent = consent::changes(&record.plugin, record.bound.as_ref(), current.as_ref());
     let state = match declaration {
         None => State::NotConnected,
         Some(_) if !info.summary.enabled => State::NotConnected,
@@ -399,6 +403,7 @@ pub(in crate::store) fn create(
             plugin: package.name.clone(),
             connector: connector.into(),
             revision: 1,
+            auth_revision: 1,
             method,
             enabled: true,
             fields: BTreeMap::new(),
@@ -411,9 +416,21 @@ pub(in crate::store) fn create(
             checked_at_ms: None,
         }
     };
+    let previous = record.clone();
     input(&mut record, &declaration, values)?;
     record.method = method;
     record.bound = bound(db, profile, &info, &declaration, method)?;
+    if id.is_some()
+        && (editing::changed(&previous, &record, &declaration)
+            || !consent::same(
+                &record.plugin,
+                previous.bound.as_ref(),
+                record.bound.as_ref(),
+            ))
+    {
+        revoke(&mut record)?;
+        record.grant = None;
+    }
     Ok((record, declaration))
 }
 
@@ -423,6 +440,20 @@ fn next(record: &mut Record) -> Result<(), Fault> {
         .checked_add(1)
         .filter(|revision| *revision <= i64::MAX as u64)
         .ok_or_else(|| Fault::new(ErrorCode::Conflict, "connection revision exhausted"))?;
+    Ok(())
+}
+
+fn revoke(record: &mut Record) -> Result<(), Fault> {
+    record.auth_revision = record
+        .revision
+        .checked_add(1)
+        .filter(|revision| *revision <= i64::MAX as u64)
+        .ok_or_else(|| {
+            Fault::new(
+                ErrorCode::Conflict,
+                "connection authorization revision exhausted",
+            )
+        })?;
     Ok(())
 }
 
@@ -495,12 +526,22 @@ pub(in crate::store) fn execute(
     let (_, declaration) = declaration(db, &info.summary.reference(), &record.connector)?;
     match command {
         Command::UpdateConnection { input: values, .. } => {
+            let previous = record.clone();
             input(&mut record, &declaration, values)?;
-            record.grant = None;
-            record.state = State::NotConnected;
+            if editing::changed(&previous, &record, &declaration) {
+                revoke(&mut record)?;
+                record.grant = None;
+                record.state = State::NotConnected;
+            }
         }
-        Command::SetConnectionEnabled { enabled, .. } => record.enabled = *enabled,
+        Command::SetConnectionEnabled { enabled, .. } => {
+            if record.enabled != *enabled {
+                revoke(&mut record)?;
+                record.enabled = *enabled;
+            }
+        }
         Command::DisconnectConnection { .. } => {
+            revoke(&mut record)?;
             record.secrets.clear();
             record.grant = None;
             record.state = State::NotConnected;
@@ -525,7 +566,10 @@ pub(in crate::store) fn execute(
                 .bound
                 .as_ref()
                 .zip(current.as_ref())
-                .is_some_and(|(old, new)| consent_reduced(old, new));
+                .is_some_and(|(old, new)| consent_reduced(&record.plugin, old, new));
+            if !consent::same(&record.plugin, record.bound.as_ref(), current.as_ref()) {
+                revoke(&mut record)?;
+            }
             if !reduced {
                 record.grant = None;
                 record.state = State::NotConnected;
@@ -597,7 +641,7 @@ pub(in crate::store) fn check(
     Ok(true)
 }
 
-fn consent_reduced(old: &Bound, new: &Bound) -> bool {
+fn consent_reduced(package: &str, old: &Bound, new: &Bound) -> bool {
     let mut reduced = old.clone();
     let scopes = match (&mut reduced.auth, &new.auth) {
         (Auth::Oauth2 { scopes: old, .. }, Auth::Oauth2 { scopes: new, .. }) => Some((old, new)),
@@ -634,7 +678,7 @@ fn consent_reduced(old: &Bound, new: &Bound) -> bool {
     reduced.origins = new.origins.clone();
     reduced.inject = new.inject.clone();
     reduced.targets = new.targets.clone();
-    reduced == *new
+    consent::same(package, Some(&reduced), Some(new))
 }
 
 pub(in crate::store) fn capture(
@@ -644,7 +688,7 @@ pub(in crate::store) fn capture(
 ) -> Result<(), Fault> {
     for record in records(db)? {
         if packages.iter().any(|package| package.name == record.plugin) {
-            db.execute("INSERT INTO turn_connections(turn,plugin,connector,connection,revision) VALUES(?1,?2,?3,?4,?5)",params![turn.to_string(),record.plugin,record.connector,record.id.to_string(),record.revision as i64]).map_err(storage_error)?;
+            db.execute("INSERT INTO turn_connections(turn,plugin,connector,connection,revision) VALUES(?1,?2,?3,?4,?5)",params![turn.to_string(),record.plugin,record.connector,record.id.to_string(),record.auth_revision as i64]).map_err(storage_error)?;
         }
     }
     Ok(())
@@ -692,7 +736,7 @@ pub(in crate::store) fn resolve(
     }
     if !record.enabled
         || !matches!(live.state, State::Connected | State::Failed)
-        || record.bound != captured
+        || !consent::same(&record.plugin, record.bound.as_ref(), captured.as_ref())
     {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
@@ -708,7 +752,7 @@ pub(in crate::store) fn resolve(
             )
             .optional()
             .map_err(storage_error)?;
-        if revision != Some(record.revision as i64) {
+        if revision != Some(record.auth_revision as i64) {
             return Err(Fault::new(
                 ErrorCode::RevisionConflict,
                 "connection changed",
@@ -725,7 +769,7 @@ pub(in crate::store) fn target(
 ) -> crate::plugins::connectors::Target {
     crate::plugins::connectors::Target {
         id: record.id,
-        revision: record.revision,
+        revision: record.auth_revision,
         package,
         declaration,
         method: record.method,
@@ -756,7 +800,7 @@ pub(in crate::store) fn current_target(
     checking: bool,
 ) -> Result<crate::plugins::connectors::Target, Fault> {
     let record = read(db, id)?;
-    super::super::commands::check_revision(record.revision, revision)?;
+    super::super::commands::check_revision(record.auth_revision, revision)?;
     let info = required(db, &record.plugin)?;
     let (_, declaration) = declaration(db, &info.summary.reference(), &record.connector)?;
     let state = project(db, profile, &record)?.state;
@@ -797,7 +841,7 @@ pub(in crate::store) fn renew(
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let db = &transaction;
     let mut record = read(db, id)?;
-    super::super::commands::check_revision(record.revision, revision)?;
+    super::super::commands::check_revision(record.auth_revision, revision)?;
     if record.grant.as_ref().map(|grant| &grant.access) != previous {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
@@ -889,6 +933,7 @@ pub(super) fn migrate(
             plugin: info.summary.name.clone(),
             connector: declaration.id.clone(),
             revision: 1,
+            auth_revision: 1,
             method,
             enabled: true,
             fields: BTreeMap::new(),

@@ -189,6 +189,64 @@ fn imports_credentials_and_preserves_captures() {
 }
 
 #[test]
+fn revokes_changed_relogin_before_persisting() {
+    let mut fixture = Fixture::new();
+    fixture.legacy("google-workspace", false);
+    fixture.upgrade().unwrap();
+    let mut previous = records(&fixture.database.connection).unwrap().remove(0);
+    assert!(previous.grant.is_some());
+    previous.revision = 10;
+    save(&fixture.database.connection, &previous).unwrap();
+    let info = required(&fixture.database.connection, &previous.plugin).unwrap();
+    for edit in ["unchanged", "client", "secret"] {
+        let (mut record, _) = create(
+            &fixture.database.connection,
+            fixture.host.profile(),
+            &Command::StartConnectorLogin {
+                package: info.summary.reference(),
+                connector: previous.connector.clone(),
+                connection: Some(previous.id),
+                expected_revision: Some(previous.revision),
+                method: previous.method,
+                input: Input {
+                    fields: if edit == "client" {
+                        BTreeMap::from([("client_id".into(), "different-client".into())])
+                    } else {
+                        BTreeMap::new()
+                    },
+                    secrets: if edit == "secret" {
+                        BTreeMap::from([(
+                            "client_secret".into(),
+                            Secret::new("private-new-client".into()),
+                        )])
+                    } else {
+                        BTreeMap::new()
+                    },
+                    ..Default::default()
+                },
+            },
+        )
+        .unwrap();
+        next(&mut record).unwrap();
+        validate(&record).unwrap();
+        assert_eq!(record.revision, previous.revision + 1);
+        assert_eq!(record.grant.is_none(), edit != "unchanged");
+        assert_eq!(
+            record.auth_revision,
+            if edit == "unchanged" {
+                previous.auth_revision
+            } else {
+                record.revision
+            }
+        );
+    }
+    assert!(
+        encode(&read(&fixture.database.connection, previous.id).unwrap()).unwrap()
+            == encode(&previous).unwrap()
+    );
+}
+
+#[test]
 fn rejects_upgrade_without_writing() {
     let mut fixture = Fixture::new();
     let (mut info, _) = fixture.legacy("notion", false);
@@ -521,7 +579,7 @@ fn reduces_only_existing_mcp_targets() {
     let mut reduced = old.clone();
     reduced.targets.remove("archive");
     reduced.inject.pop();
-    assert!(consent_reduced(&old, &reduced));
+    assert!(consent_reduced("notion", &old, &reduced));
     for change in ["path", "query", "header", "new"] {
         let mut changed = reduced.clone();
         match change {
@@ -544,6 +602,6 @@ fn reduces_only_existing_mcp_targets() {
             }
             _ => unreachable!(),
         }
-        assert!(!consent_reduced(&old, &changed), "{change}");
+        assert!(!consent_reduced("notion", &old, &changed), "{change}");
     }
 }

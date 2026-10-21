@@ -1,6 +1,9 @@
 //! Public differences describe permissions without exposing private MCP configuration.
 use super::*;
+use crate::store::providers::consent as ownership;
 use sailry_protocol::plugin::connector::{Change, Client, Consent};
+#[cfg(test)]
+mod tests;
 fn scopes(auth: &Auth) -> Vec<String> {
     match auth {
         Auth::Oauth2 { scopes, .. } => scopes.clone(),
@@ -51,7 +54,43 @@ fn targets(bound: &Bound) -> Vec<String> {
         .map(|target| serde_json::json!(target).to_string())
         .collect()
 }
-pub(super) fn changes(previous: Option<&Bound>, current: Option<&Bound>) -> Option<Consent> {
+fn source(
+    package: &str,
+    previous: &Option<plugin::Origin>,
+    current: &Option<plugin::Origin>,
+) -> bool {
+    ownership::same_origin(
+        package,
+        &ownership::source(previous.as_ref(), ""),
+        &ownership::source(current.as_ref(), ""),
+    )
+}
+
+pub(in crate::store) fn same(
+    package: &str,
+    previous: Option<&Bound>,
+    current: Option<&Bound>,
+) -> bool {
+    match (previous, current) {
+        (Some(previous), Some(current)) => {
+            let mut previous = previous.clone();
+            if source(package, &previous.origin, &current.origin) {
+                previous.origin = current.origin.clone();
+            }
+            previous == *current
+        }
+        _ => previous == current,
+    }
+}
+
+pub(super) fn changes(
+    package: &str,
+    previous: Option<&Bound>,
+    current: Option<&Bound>,
+) -> Option<Consent> {
+    if same(package, previous, current) {
+        return None;
+    }
     let (Some(old), Some(new)) = (previous, current) else {
         return (previous != current).then_some(Consent {
             changes: vec![Change::Source],
@@ -91,7 +130,7 @@ pub(super) fn changes(previous: Option<&Bound>, current: Option<&Bound>) -> Opti
         servers.dedup();
         changes.push(Change::Mcp { servers });
     }
-    if old.origin != new.origin {
+    if !source(package, &old.origin, &new.origin) {
         changes.push(Change::Source);
     }
     if changes.is_empty() && old != new {

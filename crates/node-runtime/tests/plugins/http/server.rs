@@ -1,5 +1,8 @@
 use sailry_link::CancellationToken;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU16, Ordering},
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
@@ -10,6 +13,7 @@ pub struct Server {
     pub requests: Arc<Mutex<Vec<(String, String)>>>,
     pub held: CancellationToken,
     pub disconnected: CancellationToken,
+    pub status: Arc<AtomicU16>,
     stop: CancellationToken,
 }
 
@@ -33,8 +37,10 @@ impl Server {
             requests: requests.clone(),
             held: held.clone(),
             disconnected: disconnected.clone(),
+            status: Arc::new(AtomicU16::new(0)),
             stop: stop.clone(),
         };
+        let status = server.status.clone();
         tokio::spawn(async move {
             let mut connections = tokio::task::JoinSet::new();
             loop {
@@ -45,6 +51,7 @@ impl Server {
                 let (records, held, disconnected) =
                     (requests.clone(), held.clone(), disconnected.clone());
                 let (body, held_path) = (body.clone(), held_path.clone());
+                let status = status.clone();
                 connections.spawn(async move {
                     let mut bytes = Vec::new();
                     let (header, offset, length) = loop {
@@ -66,6 +73,12 @@ impl Server {
                     }
                     let path = header.lines().next().unwrap().split_whitespace().nth(1).unwrap().to_string();
                     records.lock().unwrap().push((header, String::from_utf8(bytes[offset..offset + length].to_vec()).unwrap()));
+                    let status = status.load(Ordering::SeqCst);
+                    if status != 0 {
+                        let response = format!("HTTP/1.1 {status} Fixture\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        let _ = stream.write_all(response.as_bytes()).await;
+                        return;
+                    }
                     match path.as_str() {
                         "/drop" => {},
                         path if path == "/hold" || held_path.as_deref() == Some(path) => {

@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 #[cfg(feature = "test-support")]
 #[path = "http/cancellation.rs"]
 mod cancellation;
+#[path = "http/revisions.rs"]
+mod revisions;
 #[path = "../../plugins/http/server.rs"]
 mod server;
 
@@ -15,10 +17,23 @@ impl server::Server {
 
 const PAT: &str = "figma-pat-private-marker";
 
-async fn install_figma(fixture: &process::Fixture, origin: &str) {
+async fn install_figma(fixture: &process::Fixture, origin: &str, health: bool) {
     let root = fixture.root.join("figma-fixture");
     std::fs::create_dir_all(root.join("dev.sailry.platform/host")).unwrap();
     let manifest = include_str!("../../../../../plugins/figma/plugin.json");
+    let manifest = if health {
+        let mut manifest: serde_json::Value = serde_json::from_str(manifest).unwrap();
+        let declaration = &mut manifest["extensions"]["dev.sailry.platform"]["connectors"][0];
+        declaration["fields"].as_array_mut().unwrap().extend([
+            json!({"name":"tenant","title":"Tenant"}),
+            json!({"name":"label","title":"Label"}),
+        ]);
+        declaration["health"] =
+            json!({"request":"https://api.figma.com/{tenant}/health","ok":[200]});
+        manifest.to_string()
+    } else {
+        manifest.into()
+    };
     let source = include_str!("../../../../../plugins/figma/dev.sailry.platform/host/main.js");
     fixture
         .node
@@ -49,6 +64,14 @@ async fn install_figma(fixture: &process::Fixture, origin: &str) {
             expected_revision: None,
             method: sailry_protocol::plugin::connector::Kind::Secret,
             input: sailry_protocol::plugin::connector::Input {
+                fields: if health {
+                    BTreeMap::from([
+                        ("tenant".into(), "current".into()),
+                        ("label".into(), "Original".into()),
+                    ])
+                } else {
+                    BTreeMap::new()
+                },
                 secrets: BTreeMap::from([("token".into(), Secret::new(PAT.into()))]),
                 ..Default::default()
             },
@@ -95,7 +118,7 @@ async fn reads_figma_with_private_pat_and_approval() {
             (name.clone(), json!({"action":"nodes","file_key":"file-key","ids":["1:2"]})),
         ]).await;
         let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        install_figma(&fixture, &http.origin).await;
+        install_figma(&fixture, &http.origin, false).await;
         let mut updates = fixture
             .client
             .subscribe_conversation(fixture.session.id)
@@ -227,7 +250,7 @@ async fn stopping_figma_read_closes_the_request() {
         )])
         .await;
         let fixture = process::Fixture::packages(remote, &model, &[]).await;
-        install_figma(&fixture, &http.origin).await;
+        install_figma(&fixture, &http.origin, false).await;
         let turn = approvals::submit(&fixture.client, fixture.session.id).await;
         let (page, approval) = approvals::pending(&fixture.client, fixture.session.id).await;
         assert!(!serde_json::to_string(&page).unwrap().contains(PAT));

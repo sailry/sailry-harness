@@ -353,7 +353,7 @@ impl Worker {
                 &database.connection,
                 database.profile.as_deref(),
                 connection,
-                record.revision,
+                record.auth_revision,
                 true,
             )
             .map(|target| (record, target))
@@ -563,14 +563,14 @@ fn commit(
     let info = connections::info(&transaction, &record.plugin)?;
     let (_, declaration) =
         connections::declaration(&transaction, &info.summary.reference(), &record.connector)?;
-    if connections::bound(
+    let current = connections::bound(
         &transaction,
         database.profile.as_deref(),
         &info,
         &declaration,
         record.method,
-    )? != record.bound
-    {
+    )?;
+    if !connections::consent::same(&record.plugin, record.bound.as_ref(), current.as_ref()) {
         return Err(Fault::new(
             ErrorCode::RevisionConflict,
             "connector authorization changed",
@@ -581,6 +581,9 @@ fn commit(
             let target = *target;
             record.identity = target.identity;
             if replace {
+                if baseline.revision > 1 {
+                    record.auth_revision = record.revision;
+                }
                 record.fields = target.fields;
                 record.secrets = target.secrets;
                 record.grant_revision = record

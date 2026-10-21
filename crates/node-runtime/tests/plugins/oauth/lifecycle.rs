@@ -2,7 +2,10 @@ use super::*;
 use sailry_protocol::plugin::{Context, connector::State, http};
 use std::sync::atomic::Ordering;
 
-async fn connect(client: &Client, package: plugin::Reference) -> plugin::connector::Connection {
+pub(super) async fn connect(
+    client: &Client,
+    package: plugin::Reference,
+) -> plugin::connector::Connection {
     let Output::ConnectorLogin(attempt) = client
         .execute(client.prepare(Command::StartConnectorLogin {
             package,
@@ -76,7 +79,34 @@ async fn rotates_without_losing_refresh_credentials() {
         let package = info(execute(&client, install(worktree, 0)).await)
             .summary
             .reference();
-        let row = connect(&client, package.clone()).await;
+        let original = connect(&client, package.clone()).await;
+        let before: serde_json::Value =
+            serde_json::from_slice(&stored(&node, original.id)).unwrap();
+        let Output::Connection(row) = execute(
+            &client,
+            Command::UpdateConnection {
+                connection: original.id,
+                expected_revision: original.revision,
+                input: Input {
+                    fields: BTreeMap::from([("client_id".into(), "registered-client".into())]),
+                    secrets: BTreeMap::from([(
+                        "client_secret".into(),
+                        Secret::new("private-client-marker".into()),
+                    )]),
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        else {
+            panic!("connection expected")
+        };
+        assert_eq!(row.revision, original.revision + 1);
+        assert_eq!(row.state, State::Connected);
+        let after: serde_json::Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        for field in ["auth_revision", "grant", "grant_revision", "secrets"] {
+            assert_eq!(after[field], before[field]);
+        }
         let other = Client::new(if remote {
             node.local()
         } else {

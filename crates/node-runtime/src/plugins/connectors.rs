@@ -20,6 +20,7 @@ use std::{
 #[derive(Clone)]
 pub(crate) struct Target {
     pub id: Id,
+    /// Authorization fence, independent from public editing revisions.
     pub revision: u64,
     pub package: Reference,
     pub declaration: Declaration,

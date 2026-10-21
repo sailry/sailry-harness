@@ -13,6 +13,7 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
         ("agent_approvals", "body"),
         ("plugins", "body"),
         ("plugin_packages", "body"),
+        ("plugin_connections", "body"),
         ("requests", "result"),
         ("events", "body"),
         ("artifacts", "body"),
@@ -48,9 +49,19 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
             };
             let updated = match table {
                 "agent_approvals" => approval(&mut value),
+                "plugin_connections" => connection(&mut value),
                 "requests" => receipt(&mut value),
                 "events" => match value.get("kind").and_then(Value::as_str) {
-                    Some(kind @ ("background_settings_changed" | "ocr_models_changed" | "ocr_settings_changed" | "knowledge_models_changed" | "knowledge_settings_changed")) => { let kind = kind.to_owned(); retained(&mut value, &kind) },
+                    Some(
+                        kind @ ("background_settings_changed"
+                        | "ocr_models_changed"
+                        | "ocr_settings_changed"
+                        | "knowledge_models_changed"
+                        | "knowledge_settings_changed"),
+                    ) => {
+                        let kind = kind.to_owned();
+                        retained(&mut value, &kind)
+                    }
                     _ => false,
                 },
                 "artifacts" | "artifact_revisions" => artifact(&mut value),
@@ -75,6 +86,20 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
         }
     }
     Ok(changed)
+}
+
+fn connection(value: &mut Value) -> bool {
+    let Some(object) = value.as_object_mut() else {
+        return false;
+    };
+    if object.contains_key("auth_revision") {
+        return false;
+    }
+    let Some(revision) = object.get("revision").cloned() else {
+        return false;
+    };
+    object.insert("auth_revision".into(), revision);
+    true
 }
 
 fn code(value: &mut Value) -> bool {
@@ -173,7 +198,23 @@ fn receipt(value: &mut Value) -> bool {
     match output.get("kind").and_then(Value::as_str) {
         Some("approval") => output.get_mut("data").is_some_and(approval),
         Some("plugin") => output.get_mut("data").is_some_and(package),
-        Some(kind @ ("background_settings" | "ocr_models" | "ocr_model" | "ocr_settings" | "knowledge_models" | "knowledge_model" | "knowledge_settings" | "github_login" | "mcp_authorization" | "mcp_login" | "plugin_authorization" | "plugin_login")) => { let kind = kind.to_owned(); retained(output, &kind) },
+        Some(
+            kind @ ("background_settings"
+            | "ocr_models"
+            | "ocr_model"
+            | "ocr_settings"
+            | "knowledge_models"
+            | "knowledge_model"
+            | "knowledge_settings"
+            | "github_login"
+            | "mcp_authorization"
+            | "mcp_login"
+            | "plugin_authorization"
+            | "plugin_login"),
+        ) => {
+            let kind = kind.to_owned();
+            retained(output, &kind)
+        }
         _ => false,
     }
 }

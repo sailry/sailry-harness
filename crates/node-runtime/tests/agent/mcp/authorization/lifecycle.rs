@@ -86,6 +86,20 @@ async fn preserves_and_rejects_refresh_credentials() {
                 let row = complete(&fixture.client, &attempt, &url).await;
                 call(&fixture).await;
                 assert_eq!(peer.calls.load(Ordering::SeqCst), 1);
+                let Output::Connection(saved) = execute(
+                    &fixture.client,
+                    Command::UpdateConnection {
+                        connection: row.id,
+                        expected_revision: row.revision,
+                        input: Default::default(),
+                    },
+                )
+                .await
+                else {
+                    panic!("connection expected")
+                };
+                assert_eq!(saved.revision, row.revision + 1);
+                assert_eq!(saved.state, State::Connected);
 
                 let before = stored(&fixture.node, row.id);
                 let refreshes = issuer.refreshes.load(Ordering::SeqCst);

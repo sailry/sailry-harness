@@ -106,9 +106,13 @@ application registration, MCP OAuth and fixed local CLI sources share this owner
 there is no vendor dispatch. Registration uses the existing private flow runner.
 Only declared origins, headers, MCP servers and environment targets receive
 credentials. OAuth permission or actual MCP endpoint changes suspend use until
-revision-checked consent. Sent turns capture connection identities and revisions,
-while live enablement, revocation and consent remain enforced. Private historical
-settings captures stay intact; current authentication reads only connections.
+revision-checked consent. Content-only updates from the same publishing owner
+preserve authorization. Public editing revisions advance on every save; sent
+turns capture a private authorization revision that changes when configured
+credentials, authentication targets, consent or enablement change. Unchanged
+authorization preserves captured and new calls, while live revocation and consent
+remain enforced. Private historical settings captures stay intact; current
+authentication reads only connections.
 
 Local CLI connections bind a public account identity and read transient tokens
 when used. Fixed argv runs without a shell in a minimal environment with bounded

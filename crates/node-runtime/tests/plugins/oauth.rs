@@ -3,6 +3,8 @@ use super::*;
 use plugin::connector::{Attempt, Input, Kind, LoginState};
 use serde_json::json;
 use std::collections::BTreeMap;
+#[path = "oauth/consent.rs"]
+mod consent;
 #[path = "oauth/lifecycle.rs"]
 mod lifecycle;
 #[path = "oauth/server.rs"]

@@ -10,7 +10,11 @@ use sailry_protocol::{
 };
 
 pub(in crate::store) fn origin(info: &plugin::Info) -> Origin {
-    match &info.origin {
+    source(info.origin.as_ref(), &info.summary.digest)
+}
+
+pub(in crate::store) fn source(origin: Option<&plugin::Origin>, digest: &str) -> Origin {
+    match origin {
         Some(plugin::Origin::Bundled) => Origin::Bundled,
         Some(plugin::Origin::Online { source, path }) => Origin::Git {
             repository: source.repository.clone(),
@@ -25,7 +29,7 @@ pub(in crate::store) fn origin(info: &plugin::Info) -> Origin {
             path: path.clone(),
         },
         _ => Origin::Imported {
-            digest: info.summary.digest.clone(),
+            digest: digest.into(),
         },
     }
 }
