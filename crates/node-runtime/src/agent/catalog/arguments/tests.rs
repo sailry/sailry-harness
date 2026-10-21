@@ -309,6 +309,43 @@ async fn resolves_local_references_and_conditions() {
     assert_eq!(calls.lock().unwrap().len(), 1);
 }
 
+#[tokio::test]
+async fn enforces_canonical_union_before_execution() {
+    use adk_core::SchemaAdapter;
+    let schema = json!({
+        "type":"object","additionalProperties":false,"required":["action"],
+        "properties":{"action":{"enum":["read","write"]},"value":{"type":"string"}},
+        "oneOf":[
+            {"type":"object","properties":{"action":{"const":"read"}},"required":["action"],"additionalProperties":false},
+            {"type":"object","properties":{"action":{"const":"write"},"value":{"type":"string"}},"required":["action","value"],"additionalProperties":false}
+        ]
+    });
+    let wire = adk_model::anthropic::AnthropicSchemaAdapter.normalize_schema(schema.clone());
+    assert!(wire.get("oneOf").is_none());
+    let (probe, calls) = probe(schema.clone());
+    let tool = Validated::bind(probe, "parent".into(), CancellationToken::new()).unwrap();
+    assert_eq!(tool.parameters_schema(), Some(schema));
+    for arguments in [
+        json!({"action":"write"}),
+        json!({"action":"read","value":"unexpected"}),
+        json!({"action":"write","value":1}),
+    ] {
+        assert_eq!(
+            tool.execute(context("parent"), arguments).await.unwrap()["isError"],
+            true
+        );
+    }
+    assert!(calls.lock().unwrap().is_empty());
+    let arguments = json!({"action":"write","value":"accepted"});
+    assert_eq!(
+        tool.execute(context("parent"), arguments.clone())
+            .await
+            .unwrap(),
+        arguments
+    );
+    assert_eq!(&*calls.lock().unwrap(), &[arguments]);
+}
+
 #[test]
 fn refuses_invalid_or_external_schemas() {
     for schema in [

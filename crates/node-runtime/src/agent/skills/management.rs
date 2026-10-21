@@ -519,6 +519,42 @@ mod tests {
     use super::*;
 
     #[test]
+    fn preserves_anthropic_branches() {
+        use adk_core::SchemaAdapter;
+        for read_only in [false, true] {
+            let schema = Management { read_only }.parameters();
+            let wire =
+                adk_model::anthropic::AnthropicSchemaAdapter.normalize_schema(schema.clone());
+            assert!(wire.get("oneOf").is_none());
+            assert_eq!(wire["properties"], schema["properties"]);
+            let canonical = jsonschema::draft202012::options().build(&schema).unwrap();
+            let projected = jsonschema::draft202012::options().build(&wire).unwrap();
+            for (arguments, valid) in [
+                (json!({"action":"list"}), true),
+                (json!({"action":"discover","path":"skills"}), true),
+                (
+                    json!({"action":"uninstall","name":"fixture","expected_revision":1}),
+                    !read_only,
+                ),
+                (
+                    json!({"action":"discover","path":"skills","repository":"https://example.invalid/repo"}),
+                    true,
+                ),
+                (
+                    json!({"action":"discover","repository":"https://example.invalid/repo","registry":{"slug":"fixture"}}),
+                    false,
+                ),
+                (json!({"action":"uninstall","name":"fixture"}), false),
+                (json!({"action":"list","name":"fixture"}), false),
+            ] {
+                assert_eq!(canonical.is_valid(&arguments), valid, "{arguments}");
+                assert_eq!(projected.is_valid(&arguments), valid, "{arguments}");
+            }
+            assert!(schema.get("oneOf").is_some());
+        }
+    }
+
+    #[test]
     fn discovers_registry_links_without_git_fields() {
         let args: Discover = decode(
             json!({"repository":"https://skillhub.cn/skills/example/analysis?version=1.2.0"}),

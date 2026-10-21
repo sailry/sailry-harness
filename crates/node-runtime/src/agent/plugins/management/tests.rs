@@ -1,5 +1,37 @@
 use super::*;
 
+#[test]
+fn preserves_anthropic_branches() {
+    use adk_core::SchemaAdapter;
+    for plan in [false, true] {
+        let schema = Management { plan }.parameters();
+        let wire = adk_model::anthropic::AnthropicSchemaAdapter.normalize_schema(schema.clone());
+        assert!(wire.get("oneOf").is_none());
+        assert_eq!(wire["properties"], schema["properties"]);
+        let canonical = jsonschema::draft202012::options().build(&schema).unwrap();
+        let projected = jsonschema::draft202012::options().build(&wire).unwrap();
+        for (arguments, valid) in [
+            (json!({"action":"list"}), true),
+            (json!({"action":"search","source":"official"}), true),
+            (
+                json!({"action":"uninstall","name":"fixture","expected_revision":1}),
+                !plan,
+            ),
+            (json!({"action":"search"}), false),
+            (json!({"action":"uninstall","name":"fixture"}), false),
+            (json!({"action":"list","name":"fixture"}), false),
+            (
+                json!({"action":"inspect","target":{"kind":"installed"}}),
+                false,
+            ),
+        ] {
+            assert_eq!(canonical.is_valid(&arguments), valid, "{arguments}");
+            assert_eq!(projected.is_valid(&arguments), valid, "{arguments}");
+        }
+        assert!(schema.get("oneOf").is_some());
+    }
+}
+
 fn info(version: &str, origin: plugin::Origin) -> plugin::Info {
     plugin::Info {
         release_notes: None,

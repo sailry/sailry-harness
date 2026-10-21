@@ -1,5 +1,7 @@
 use super::*;
 
+#[path = "native/anthropic_schema.rs"]
+mod anthropic_schema;
 #[path = "native/anthropic_search.rs"]
 mod anthropic_search;
 #[path = "native/assistants.rs"]

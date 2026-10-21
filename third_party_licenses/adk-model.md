@@ -2,8 +2,8 @@
 
 ADK dependencies use [dux-web/adk-rust](https://github.com/dux-web/adk-rust),
 a fork of [ADK-Rust](https://github.com/zavora-ai/adk-rust), at
-immutable tag [`sailry-transport-942929d6`](https://github.com/dux-web/adk-rust/tree/sailry-transport-942929d6)
-([`942929d69faf787deed7bfbcda04e17000289d7a`](https://github.com/dux-web/adk-rust/commit/942929d69faf787deed7bfbcda04e17000289d7a)),
+immutable tag [`sailry-transport-8446e87e`](https://github.com/dux-web/adk-rust/tree/sailry-transport-8446e87e)
+([`8446e87e76ea2d6605e042c32ebaff4b7626b589`](https://github.com/dux-web/adk-rust/commit/8446e87e76ea2d6605e042c32ebaff4b7626b589)),
 based on upstream
 [`8805e36fc51c90fa8da27b65c806899a8cf38b13`](https://github.com/zavora-ai/adk-rust/commit/8805e36fc51c90fa8da27b65c806899a8cf38b13).
 The root Cargo.toml and Cargo.lock retain that exact Git source for every ADK
