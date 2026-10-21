@@ -132,7 +132,7 @@ impl Runtime {
         validating: bool,
         operation: impl FnOnce(&mut Engine, &CancellationToken) -> Result<T, Fault> + Send + 'static,
     ) -> Result<(Pending, oneshot::Receiver<Result<T, Fault>>), Fault> {
-        if cancel.is_cancelled() || self.stop.is_cancelled() {
+        if cancel.is_cancelled() || self.stop.is_cancelled() || resource.cancel.is_cancelled() {
             return Err(cancelled());
         }
         let token = self.stop.child_token();
@@ -202,11 +202,13 @@ impl Runtime {
         validating: bool,
         operation: impl FnOnce(&mut Engine, &CancellationToken) -> Result<T, Fault> + Send + 'static,
     ) -> Result<T, Fault> {
+        let scope = resource.cancel.clone();
         let (_pending, result) =
             self.submit(resource, lane, cancel, check, validating, operation)?;
         tokio::select! {biased;
             _=cancel.cancelled()=>Err(cancelled()),
             _=self.stop.cancelled()=>Err(cancelled()),
+            _=scope.cancelled()=>Err(cancelled()),
             result=result=>result.map_err(|_|failure("local inference stopped"))?,
         }
     }
@@ -219,11 +221,13 @@ impl Runtime {
         check: Check,
         operation: impl FnOnce(&mut Engine, &CancellationToken) -> Result<T, Fault> + Send + 'static,
     ) -> Result<T, Fault> {
+        let scope = resource.cancel.clone();
         let (_pending, result) = self.submit(resource, lane, cancel, check, false, operation)?;
         futures::executor::block_on(async {
             tokio::select! {biased;
                 _=cancel.cancelled()=>Err(cancelled()),
                 _=self.stop.cancelled()=>Err(cancelled()),
+                _=scope.cancelled()=>Err(cancelled()),
                 result=result=>result.map_err(|_|failure("local inference stopped"))?,
             }
         })

@@ -164,7 +164,9 @@ impl Service {
                     .models
                     .encode(
                         &model,
-                        catalog.settings.revision,
+                        &catalog
+                            .settings
+                            .choice(sailry_protocol::models::Kind::Embedding),
                         vec![query.query.clone()],
                         sailry_embedding::Input::Query,
                         models::Lane::Interactive,

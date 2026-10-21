@@ -65,7 +65,11 @@ impl Registry {
             if state.installed.contains_key(id) {
                 return Ok(());
             }
-            let stop = self.stop.child_token();
+            let stop = state
+                .scopes
+                .get(&kind)
+                .expect("Node model kind exists")
+                .child_token();
             state.transfers.insert(
                 id.into(),
                 Transfer {
@@ -129,8 +133,11 @@ impl Registry {
                     definition: definition.clone(),
                     directory: directory.clone(),
                     stamp,
-                    revision: state.settings.revision,
-                    generation: state.generation,
+                    cancel: state
+                        .scopes
+                        .get(&kind)
+                        .expect("Node model kind exists")
+                        .clone(),
                     epoch: *state.epochs.get(id).unwrap_or(&0),
                 }
             };
@@ -185,7 +192,7 @@ impl Registry {
     }
 
     fn installing(&self, resource: &Resource) -> Result<(), Fault> {
-        if self.stop.is_cancelled() {
+        if self.stop.is_cancelled() || resource.cancel.is_cancelled() {
             return Err(cancelled());
         }
         let state = self
@@ -196,7 +203,6 @@ impl Registry {
             || state.removing.contains(&resource.id)
             || state.definitions.get(&resource.id) != Some(&resource.definition)
             || *state.epochs.get(&resource.id).unwrap_or(&0) != resource.epoch
-            || state.generation != resource.generation
         {
             return Err(conflict());
         }

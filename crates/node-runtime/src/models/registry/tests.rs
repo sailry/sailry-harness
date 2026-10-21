@@ -5,6 +5,7 @@ use crate::models::{
 };
 
 mod ocr;
+mod scopes;
 
 #[tokio::test]
 async fn exposes_catalog_without_acquiring_models() {
@@ -37,11 +38,11 @@ async fn exposes_catalog_without_acquiring_models() {
 }
 
 #[tokio::test]
-async fn invalidates_replaced_files_and_captured_settings() {
+async fn preserves_unrelated_settings_and_rejects_replaced_files() {
     let fixture = Fixture::new().await;
     let captured = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), Some(0))
+        .resource(Kind::Embedding, Some(&fixture.record.id), None)
         .unwrap();
     fixture.owner.current(&captured).unwrap();
     let mut settings = fixture.owner.settings();
@@ -50,13 +51,10 @@ async fn invalidates_replaced_files_and_captured_settings() {
         .owner
         .configure(settings, std::slice::from_ref(&fixture.record))
         .unwrap();
-    assert_eq!(
-        fixture.owner.current(&captured).unwrap_err().code,
-        ErrorCode::RevisionConflict
-    );
+    fixture.owner.current(&captured).unwrap();
     let captured = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), Some(1))
+        .resource(Kind::Embedding, Some(&fixture.record.id), None)
         .unwrap();
     let path = fixture.path.join("config.json");
     std::fs::write(path.with_extension("new"), std::fs::read(&path).unwrap()).unwrap();
@@ -93,14 +91,14 @@ async fn preserves_explicit_embedding_override_when_disabled() {
     assert_eq!(
         fixture
             .owner
-            .resource(Kind::Embedding, None, Some(1))
+            .resource(Kind::Embedding, None, None)
             .unwrap_err()
             .code,
         ErrorCode::NotConfigured
     );
     let resource = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), Some(1))
+        .resource(Kind::Embedding, Some(&fixture.record.id), None)
         .unwrap();
     let vectors = fixture
         .owner
@@ -128,7 +126,7 @@ async fn runs_synchronous_calls_on_current_thread_executor() {
     let fixture = Fixture::new().await;
     let resource = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), Some(0))
+        .resource(Kind::Embedding, Some(&fixture.record.id), None)
         .unwrap();
     let offsets = fixture
         .owner
@@ -155,7 +153,7 @@ async fn removes_owned_files_and_invalidates_queued_captures() {
     let fixture = Fixture::new().await;
     let captured = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), Some(0))
+        .resource(Kind::Embedding, Some(&fixture.record.id), None)
         .unwrap();
     let other = fixture.path.parent().unwrap().join("another-revision");
     std::fs::create_dir(&other).unwrap();

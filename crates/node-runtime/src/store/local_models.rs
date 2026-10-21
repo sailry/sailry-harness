@@ -284,7 +284,10 @@ pub(in crate::store) async fn start(ingress: &Arc<Ingress>) -> Result<(), Fault>
 fn membership(models: &[Model]) -> BTreeSet<String> {
     models
         .iter()
-        .filter(|model| model.state == sailry_protocol::models::State::Installed)
+        .filter(|model| {
+            model.definition.format.kind() == Kind::Embedding
+                && model.state == sailry_protocol::models::State::Installed
+        })
         .map(|model| model.id.clone())
         .collect()
 }

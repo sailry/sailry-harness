@@ -13,7 +13,7 @@ pub(crate) struct Plan {
     pub(crate) collections: Vec<Stored>,
     pub(crate) keyword: Vec<(String, u64)>,
     pub(crate) eligible: BTreeSet<String>,
-    pub(crate) settings_revision: u64,
+    pub(crate) embedding: sailry_protocol::models::Choice,
 }
 
 pub(crate) struct Stamp {
@@ -69,7 +69,8 @@ pub(in crate::store) fn prepare(
         collections,
         keyword,
         eligible,
-        settings_revision: super::super::local_models::settings(db)?.revision,
+        embedding: super::super::local_models::settings(db)?
+            .choice(sailry_protocol::models::Kind::Embedding),
     })
 }
 
@@ -504,7 +505,9 @@ pub(in crate::store) fn materialize(
         return Err(denied("semantic plan belongs to another capture"));
     }
     if selection.mode != knowledge::Mode::Keyword
-        && super::super::local_models::settings(db)?.revision != plan.settings_revision
+        && super::super::local_models::settings(db)?
+            .choice(sailry_protocol::models::Kind::Embedding)
+            != plan.embedding
     {
         return fallback(db, request);
     }

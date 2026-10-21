@@ -29,7 +29,8 @@ fn plan() -> Plan {
             ("plain".into(), 3),
         ],
         eligible: BTreeSet::from(["shared".into(), "lexical".into(), "semantic".into()]),
-        settings_revision: 0,
+        embedding: sailry_protocol::models::Settings::default()
+            .choice(sailry_protocol::models::Kind::Embedding),
     }
 }
 

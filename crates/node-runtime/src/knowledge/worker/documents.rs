@@ -56,7 +56,7 @@ pub(super) fn unchanged(
 
 pub(super) struct Encoding<'a> {
     pub service: &'a Service,
-    pub revision: u64,
+    pub choice: sailry_protocol::models::Choice,
     pub model: Option<&'a str>,
     pub cancel: &'a CancellationToken,
     pub runtime: &'a tokio::runtime::Handle,
@@ -72,7 +72,7 @@ impl Encoding<'_> {
         let offsets = if let Some(model) = self.model {
             self.runtime.block_on(self.service.models.offsets(
                 model,
-                self.revision,
+                &self.choice,
                 text.into(),
                 self.cancel,
             ))?
@@ -110,7 +110,7 @@ impl Encoding<'_> {
                 super::cancelled(self.cancel)?;
                 let vectors = self.runtime.block_on(self.service.models.encode(
                     model,
-                    self.revision,
+                    &self.choice,
                     batch.iter().map(|part| part.text.clone()).collect(),
                     sailry_embedding::Input::Document,
                     models::Lane::Background,

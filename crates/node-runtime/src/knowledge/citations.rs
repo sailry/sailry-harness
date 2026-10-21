@@ -125,7 +125,14 @@ impl Service {
             || current.capture.package != stored.capture.package
             || current.capture.worktree != stored.capture.worktree
             || current.capture.session != stored.capture.session
-            || ingress.knowledge_catalog().await?.settings.revision != catalog.settings.revision
+            || ingress
+                .knowledge_catalog()
+                .await?
+                .settings
+                .choice(sailry_protocol::models::Kind::Embedding)
+                != catalog
+                    .settings
+                    .choice(sailry_protocol::models::Kind::Embedding)
         {
             return Err(changed());
         }

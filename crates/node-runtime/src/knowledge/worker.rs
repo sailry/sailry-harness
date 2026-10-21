@@ -187,7 +187,7 @@ fn collection(
         .filter(|model| installed.contains(*model));
     let encoding = documents::Encoding {
         service,
-        revision: settings.revision,
+        choice: settings.choice(sailry_protocol::models::Kind::Embedding),
         model: available,
         cancel,
         runtime,

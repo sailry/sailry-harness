@@ -5,7 +5,10 @@ use crate::models::{
     runtime::{Engine, embedding_error},
 };
 use sailry_link::CancellationToken;
-use sailry_protocol::{Fault, models::Kind};
+use sailry_protocol::{
+    Fault,
+    models::{Choice, Kind},
+};
 use std::sync::Arc;
 
 const BATCH: usize = 4;
@@ -28,7 +31,7 @@ impl Models {
     pub(super) async fn encode(
         &self,
         model: &str,
-        revision: u64,
+        choice: &Choice,
         texts: Vec<String>,
         purpose: sailry_embedding::Input,
         lane: Lane,
@@ -39,7 +42,7 @@ impl Models {
         }
         let resource = self
             .registry
-            .resource(Kind::Embedding, Some(model), Some(revision))?;
+            .resource(Kind::Embedding, Some(model), Some(choice))?;
         let vectors = self
             .registry
             .execute(resource, lane, cancel, move |engine, cancel| {
@@ -68,13 +71,13 @@ impl Models {
     pub(super) async fn offsets(
         &self,
         model: &str,
-        revision: u64,
+        choice: &Choice,
         text: String,
         cancel: &CancellationToken,
     ) -> Result<Vec<(usize, usize)>, Fault> {
         let resource = self
             .registry
-            .resource(Kind::Embedding, Some(model), Some(revision))?;
+            .resource(Kind::Embedding, Some(model), Some(choice))?;
         self.registry
             .execute(resource, Lane::Background, cancel, move |engine, _| {
                 let Engine::Embedding(engine) = engine else {

@@ -317,6 +317,48 @@ fn falls_back_after_source_or_generation_changes() {
 }
 
 #[test]
+fn guards_only_the_embedding_choice() {
+    use sailry_protocol::models::Kind;
+    for kind in [
+        None,
+        Some(Kind::Ocr),
+        Some(Kind::Decision),
+        Some(Kind::Embedding),
+    ] {
+        let db = database();
+        let reference = package(&db, 'a', true);
+        seed(&db);
+        let request = request(&reference);
+        let stop = CancellationToken::new();
+        let plan = prepare(&db, &request, &stop).unwrap();
+        let raw = sources(&db, &plan.collections[0], None, 16, &stop)
+            .unwrap()
+            .records
+            .remove(0);
+        let selected = selection(&plan, &raw);
+        let mut settings = crate::store::local_models::settings(&db).unwrap();
+        if let Some(kind) = kind {
+            settings.choices.get_mut(&kind).unwrap().enabled = false;
+        }
+        crate::store::local_models::execute(
+            &db,
+            &Request::new(NodeId([19; 32]), Command::SaveLocalModelSettings(settings)),
+        )
+        .unwrap();
+        let result = materialize(&db, &request, &plan, &selected, &stop).unwrap();
+        if kind == Some(Kind::Embedding) {
+            assert!(result.stale);
+            assert_eq!(result.page.mode, knowledge::Mode::Keyword);
+        } else {
+            assert!(!result.stale);
+            assert_eq!(result.page.mode, knowledge::Mode::Semantic);
+            assert_eq!(result.page.entries.len(), 1);
+            assert_eq!(result.page.entries[0].key, raw.key);
+        }
+    }
+}
+
+#[test]
 fn separates_page_receipts_from_content_identity() {
     let db = database();
     let reference = package(&db, 'a', true);

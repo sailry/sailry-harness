@@ -11,7 +11,7 @@ use sailry_link::CancellationToken;
 use sailry_model_assets::verified::Stamp;
 use sailry_protocol::{
     ErrorCode, Fault,
-    models::{Definition, Kind, Model, Settings, State},
+    models::{Choice, Definition, Kind, Model, Settings, State},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -36,7 +36,7 @@ struct Configuration {
     epochs: BTreeMap<String, u64>,
     removing: BTreeSet<String>,
     transfers: BTreeMap<String, Transfer>,
-    generation: u64,
+    scopes: BTreeMap<Kind, CancellationToken>,
 }
 
 struct Transfer {
@@ -51,8 +51,7 @@ pub(crate) struct Resource {
     pub directory: PathBuf,
     pub stamp: Stamp,
     pub epoch: u64,
-    revision: u64,
-    generation: u64,
+    pub(super) cancel: CancellationToken,
 }
 
 impl Registry {
@@ -64,7 +63,10 @@ impl Registry {
             epochs: BTreeMap::new(),
             removing: BTreeSet::new(),
             transfers: BTreeMap::new(),
-            generation: 0,
+            scopes: [Kind::Embedding, Kind::Ocr, Kind::Decision]
+                .into_iter()
+                .map(|kind| (kind, stop.child_token()))
+                .collect(),
         };
         let (updates, _) = watch::channel(infos(&state));
         Arc::new(Self {
@@ -87,7 +89,7 @@ impl Registry {
     ) -> Result<(), Fault> {
         settings.fill_defaults();
         settings.validate()?;
-        let definitions = catalog::definitions(records)?;
+        let mut definitions = catalog::definitions(records)?;
         for (kind, choice) in &settings.choices {
             if choice.model.as_ref().is_some_and(|id| {
                 !definitions
@@ -110,17 +112,33 @@ impl Registry {
         {
             return Err(Fault::invalid("registered model definition is immutable"));
         }
+        // Catalog reads can finish out of order. Registrations are immutable;
+        // deleting an installation does not unregister its definition.
+        for (id, definition) in &state.definitions {
+            definitions
+                .entry(id.clone())
+                .or_insert_with(|| definition.clone());
+        }
+        if settings.revision < state.settings.revision {
+            settings = state.settings.clone();
+        }
         let changed = state.settings != settings || state.definitions != definitions;
-        if changed {
-            state.generation = state
-                .generation
-                .checked_add(1)
-                .ok_or_else(|| failure("local model generation exhausted"))?;
-            for transfer in state.transfers.values() {
+        for (id, transfer) in &state.transfers {
+            if source_changed(
+                &definitions[id],
+                state.settings.mirror.as_deref(),
+                settings.mirror.as_deref(),
+            ) {
                 transfer.cancel.cancel();
             }
         }
-        state.installed.retain(|id, _| definitions.contains_key(id));
+        for kind in [Kind::Embedding, Kind::Ocr, Kind::Decision] {
+            if state.settings.choice(kind) != settings.choice(kind) {
+                let scope = state.scopes.get_mut(&kind).expect("Node model kind exists");
+                scope.cancel();
+                *scope = self.stop.child_token();
+            }
+        }
         state.settings = settings;
         state.definitions = definitions;
         if changed {
@@ -258,7 +276,7 @@ impl Registry {
         &self,
         kind: Kind,
         id: Option<&str>,
-        revision: Option<u64>,
+        choice: Option<&Choice>,
     ) -> Result<Resource, Fault> {
         self.refresh()?;
         let root = self.root()?;
@@ -266,7 +284,7 @@ impl Registry {
             .state
             .lock()
             .expect("local model configuration lock is healthy");
-        if revision.is_some_and(|revision| state.settings.revision != revision) {
+        if choice.is_some_and(|choice| state.settings.choice(kind) != *choice) {
             return Err(conflict());
         }
         let choice = state.settings.choice(kind);
@@ -331,22 +349,23 @@ impl Registry {
             definition,
             stamp,
             epoch: *state.epochs.get(id).unwrap_or(&0),
-            revision: state.settings.revision,
-            generation: state.generation,
+            cancel: state
+                .scopes
+                .get(&kind)
+                .expect("Node model kind exists")
+                .clone(),
         })
     }
 
     fn current(&self, resource: &Resource) -> Result<(), Fault> {
-        if self.stop.is_cancelled() {
+        if self.stop.is_cancelled() || resource.cancel.is_cancelled() {
             return Err(cancelled());
         }
         let state = self
             .state
             .lock()
             .expect("local model configuration lock is healthy");
-        if state.settings.revision != resource.revision
-            || state.generation != resource.generation
-            || *state.epochs.get(&resource.id).unwrap_or(&0) != resource.epoch
+        if *state.epochs.get(&resource.id).unwrap_or(&0) != resource.epoch
             || state.removing.contains(&resource.id)
             || state.installed.get(&resource.id) != Some(&resource.stamp)
             || files::stamp(&resource.directory, &resource.id, &resource.definition).as_ref()
@@ -437,6 +456,13 @@ fn infos(state: &Configuration) -> Vec<Model> {
             },
         })
         .collect()
+}
+
+fn source_changed(definition: &Definition, previous: Option<&str>, current: Option<&str>) -> bool {
+    previous != current
+        && definition.assets.iter().any(|asset| {
+            sailry_model_assets::url(asset, previous) != sailry_model_assets::url(asset, current)
+        })
 }
 
 pub(crate) fn failure(error: impl std::fmt::Display) -> Fault {
