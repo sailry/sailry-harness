@@ -159,27 +159,21 @@ impl Entry {
         if pending.as_ref().is_some_and(|task| !task.is_finished()) {
             return;
         }
+        // The task ends with the handshake, so a later turn can preconnect again.
+        // ADK closes a socket that no request uses within its preconnect lifetime.
         let stop = stop.clone();
         *pending = Some(tokio::spawn(async move {
             tokio::select! {
                 biased;
                 _ = stop.cancelled() => {},
-                _ = async { connect.await; stop.cancelled().await; } => {},
+                _ = connect => {},
             }
-            socket.close_unused();
         }));
     }
 
     fn abandon(&self) {
         if let Some(pending) = self.pending.lock().unwrap().take() {
             pending.abort();
-        }
-        if let Some(socket) = self
-            .responses
-            .as_ref()
-            .and_then(|client| client.websocket())
-        {
-            socket.close_unused();
         }
     }
 

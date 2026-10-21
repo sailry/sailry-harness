@@ -68,7 +68,23 @@ pub(super) fn wrap(inner: Arc<dyn Llm>, origin: ProviderOrigin) -> Arc<dyn Llm> 
     Arc::new(Model { inner, origin })
 }
 
-pub(super) fn project(request: &mut LlmRequest, origin: &ProviderOrigin) {
+/// Projects history for one request owner and stamps that owner on its responses.
+///
+/// Every native path, API-key, OAuth and plugin, generates through this boundary.
+pub(super) async fn generate<F, Fut>(
+    mut request: LlmRequest,
+    origin: ProviderOrigin,
+    generate: F,
+) -> adk_core::Result<LlmResponseStream>
+where
+    F: FnOnce(LlmRequest) -> Fut,
+    Fut: std::future::Future<Output = adk_core::Result<LlmResponseStream>>,
+{
+    project(&mut request, &origin);
+    Ok(responses(generate(request).await?, origin))
+}
+
+fn project(request: &mut LlmRequest, origin: &ProviderOrigin) {
     adk_core::history::for_provider(&mut request.contents, origin);
     coalesce(&mut request.contents);
 }
@@ -85,7 +101,7 @@ fn stamp(response: &mut LlmResponse, origin: &ProviderOrigin) {
     }
 }
 
-pub(super) fn responses(stream: LlmResponseStream, origin: ProviderOrigin) -> LlmResponseStream {
+fn responses(stream: LlmResponseStream, origin: ProviderOrigin) -> LlmResponseStream {
     Box::pin(stream.map(move |response| {
         response.map(|mut response| {
             stamp(&mut response, &origin);
@@ -111,14 +127,13 @@ impl Llm for Model {
 
     async fn generate_content(
         &self,
-        mut request: LlmRequest,
+        request: LlmRequest,
         stream: bool,
     ) -> adk_core::Result<LlmResponseStream> {
-        project(&mut request, &self.origin);
-        Ok(responses(
-            self.inner.generate_content(request, stream).await?,
-            self.origin.clone(),
-        ))
+        generate(request, self.origin.clone(), |request| {
+            self.inner.generate_content(request, stream)
+        })
+        .await
     }
 }
 

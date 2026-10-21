@@ -34,14 +34,10 @@ pub(super) fn session_adapter(
         return None;
     }
     let reasoning = adapter(provider, model);
-    let responses = provider.api == ModelApi::Responses;
     let session = session.to_string();
-    Some(Arc::new(move |body, headers| {
+    let adapter: RequestAdapter = Arc::new(move |body, headers| {
         if let Some(adapter) = &reasoning {
             adapter(body, headers)?;
-        }
-        if responses {
-            stateless(body, encrypted)?;
         }
         let fields = body.as_object_mut().ok_or_else(|| {
             adk_core::AdkError::model("compatible request body must be an object")
@@ -52,7 +48,20 @@ pub(super) fn session_adapter(
         headers.insert("session-id", value.clone());
         headers.insert("session_id", value);
         Ok(())
-    }))
+    });
+    Some(if provider.api == ModelApi::Responses {
+        responses(adapter, encrypted)
+    } else {
+        adapter
+    })
+}
+
+/// Composes a Responses adapter with Node-owned stateless history.
+pub(super) fn responses(adapter: RequestAdapter, encrypted: bool) -> RequestAdapter {
+    Arc::new(move |body, headers| {
+        adapter(body, headers)?;
+        stateless(body, encrypted)
+    })
 }
 
 pub(super) fn stateless(

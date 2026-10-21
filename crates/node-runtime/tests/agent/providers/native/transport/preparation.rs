@@ -50,6 +50,87 @@ export function unused() {{return {{}};}}
 }
 
 #[tokio::test]
+async fn preconnects_each_turn() {
+    for remote in [false, true] {
+        for effort in [Effort::High, Effort::Max] {
+            let server = Server::transport(ModelApi::Responses, Reply::Text, Mode::Accept).await;
+            let mut fixture = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            fixture.provider.models[0].efforts = vec![effort];
+            fixture.provider.models[0].default_effort = effort;
+            execute(
+                &fixture.client,
+                Command::PutProvider {
+                    expected_revision: fixture.provider.revision,
+                    provider: fixture.provider.clone(),
+                },
+            )
+            .await;
+            let mut config = fixture.session.config.clone();
+            config.effort = effort;
+            let Output::Session(session) = execute(
+                &fixture.client,
+                Command::SetSessionConfig {
+                    session: fixture.session.id,
+                    expected_revision: fixture.session.revision,
+                    config,
+                },
+            )
+            .await
+            else {
+                panic!("session expected");
+            };
+            fixture.session = session;
+            install(&fixture, false).await;
+            let lifetime = Duration::from_secs(1);
+            fixture
+                .node
+                .set_model_transport_fixture(adk_model::openai::WsOptions {
+                    idle_timeout: lifetime,
+                    ..Default::default()
+                });
+            for index in 0..3 {
+                let (entered, release) = fixture.node.hold_plugin_read_fixture();
+                let turn = fixture.submit("Prepare the next generation").await;
+                let request = tokio::time::timeout(Duration::from_secs(10), entered)
+                    .await
+                    .expect("turn preparation deadline")
+                    .unwrap();
+                assert!(matches!(request.command, Command::ReadPluginValue { .. }));
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    while server.upgrades.lock().unwrap().len() < index + 1 {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .unwrap_or_else(|_| {
+                    panic!("turn {index} must preconnect (remote={remote}, effort={effort:?})")
+                });
+                assert_eq!(server.upgrades.lock().unwrap().len(), index + 1);
+                assert_eq!(server.requests.lock().unwrap().len(), index);
+                release.cancel();
+                let mut page = finished(&fixture.client, fixture.session.id, turn).await;
+                page.entries.retain(|entry| entry.turn == turn);
+                assert_eq!(page.runs.last().unwrap().status, Status::Completed);
+                assert_eq!(completion::response(&page), server::ANSWER);
+                assert!(super::super::retry::attempts(&page).is_empty());
+                {
+                    let requests = server.requests.lock().unwrap();
+                    assert_eq!(requests.len(), index + 1);
+                    assert_eq!(requests[index].body["type"], "response.create");
+                    assert_eq!(requests[index].body["reasoning"]["effort"], json!(effort));
+                }
+                if index < 2 {
+                    tokio::time::sleep(lifetime + Duration::from_millis(50)).await;
+                }
+            }
+            assert_eq!(server.upgrades.lock().unwrap().len(), 3);
+            fixture.controller.close().await.unwrap();
+            fixture.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn owns_preconnections_during_preparation() {
     for remote in [false, true] {
         for outcome in ["released", "failed", "cancelled", "unused", "refused"] {
@@ -106,7 +187,8 @@ async fn owns_preconnections_during_preparation() {
                 "remote={remote}, outcome={outcome}, {page:?}"
             );
             if matches!(outcome, "failed" | "cancelled") {
-                tokio::time::timeout(Duration::from_secs(2), async {
+                // ADK, the socket owner, closes the unused preconnection.
+                tokio::time::timeout(Duration::from_secs(30), async {
                     while server.closed.load(Ordering::SeqCst) == 0 {
                         tokio::time::sleep(Duration::from_millis(10)).await;
                     }

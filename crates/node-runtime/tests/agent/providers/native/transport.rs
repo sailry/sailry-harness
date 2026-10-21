@@ -28,7 +28,9 @@ async fn reuses_after_provider_error() {
                 .iter()
                 .all(|request| request.body["type"] == "response.create")
         );
-        assert_eq!(server.upgrades.lock().unwrap().len(), 1);
+        // The error follows response.created, so a late frame of that response
+        // could reach the retry; the retry uses a new socket.
+        assert_eq!(server.upgrades.lock().unwrap().len(), 2);
         assert!(!serde_json::to_string(&page).unwrap().contains(server::KEY));
         fixture.controller.close().await.unwrap();
         fixture.node.shutdown().await.unwrap();

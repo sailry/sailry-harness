@@ -156,11 +156,7 @@ impl Model {
             }
         };
         let adapter = if self.provider.api == ModelApi::Responses {
-            let encrypted = self.reasoning.encrypted;
-            Arc::new(move |body: &mut Value, headers: &mut HeaderMap| {
-                adapter(body, headers)?;
-                super::hosted::stateless(body, encrypted)
-            }) as RequestAdapter
+            super::hosted::responses(adapter, self.reasoning.encrypted)
         } else {
             adapter
         };
@@ -199,18 +195,19 @@ impl Llm for Model {
     }
     async fn generate_content(
         &self,
-        mut request: LlmRequest,
+        request: LlmRequest,
         stream: bool,
     ) -> Result<LlmResponseStream, AdkError> {
         let prepared = self.prepare(&request, stream).await?;
-        super::history::project(&mut request, &prepared.origin);
-        let model = super::errors::wrap(prepared.entry.clone(), prepared.secrets);
-        let responses = scoped(prepared.scope, model, request, prepared.stream).await?;
-        let responses = match prepared.tools {
-            Some(tools) => claude::restore(responses, tools),
-            None => responses,
-        };
-        Ok(super::history::responses(responses, prepared.origin))
+        super::history::generate(request, prepared.origin, move |request| async move {
+            let model = super::errors::wrap(prepared.entry, prepared.secrets);
+            let responses = scoped(prepared.scope, model, request, prepared.stream).await?;
+            Ok(match prepared.tools {
+                Some(tools) => claude::restore(responses, tools),
+                None => responses,
+            })
+        })
+        .await
     }
 }
 

@@ -196,10 +196,14 @@ async fn owns_unused_preconnections() {
         .unwrap();
         tokio::task::yield_now().await;
         match release {
-            0 => stop.cancel(),
             1 => registry.evict(session),
             2 => registry.clear(),
             _ => {
+                // Stopping only ends Node's attempt; ADK owns the unused socket's expiry.
+                if release == 0 {
+                    stop.cancel();
+                    registry.abandon(session);
+                }
                 tokio::time::pause();
                 tokio::time::advance(Duration::from_secs(26)).await;
                 tokio::task::yield_now().await;
@@ -212,6 +216,74 @@ async fn owns_unused_preconnections() {
             .unwrap();
         assert!(!socket.is_connected());
         server.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn preconnects_each_turn() {
+    use adk_model::openai::{OpenAIReasoningEffort, OpenAIResponsesClient, OpenAIResponsesConfig};
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    for effort in [None, Some(OpenAIReasoningEffort::Max)] {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}/v1", listener.local_addr().unwrap());
+        let (opened, mut handshakes) = tokio::sync::mpsc::unbounded_channel();
+        let server = tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                let opened = opened.clone();
+                tokio::spawn(async move {
+                    use futures::StreamExt;
+                    let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
+                    let _ = opened.send(());
+                    while socket.next().await.is_some() {}
+                });
+            }
+        });
+        let config = OpenAIResponsesConfig::new("fixture", "fixture").with_base_url(endpoint);
+        let client = match effort {
+            Some(effort) => OpenAIResponsesClient::new_with_reasoning_effort(config, effort),
+            None => OpenAIResponsesClient::new(config),
+        };
+        let client = Arc::new(client.unwrap().with_websocket(Default::default()));
+        let socket = client.websocket().unwrap();
+        let registry = Registry::default();
+        let session = SessionId::new();
+        let model = client.clone();
+        let entry = registry
+            .get(session, "socket".into(), || {
+                Ok(Built {
+                    inner: model.clone(),
+                    responses: Some(model),
+                })
+            })
+            .unwrap();
+        // Each turn's token stays uncancelled after a normal completion.
+        let stop = CancellationToken::new();
+        for turn in 0..3 {
+            let client = client.clone();
+            entry.preconnect(&stop, async move {
+                client.preconnect().await.unwrap();
+            });
+            tokio::time::timeout(Duration::from_secs(2), handshakes.recv())
+                .await
+                .unwrap_or_else(|_| panic!("turn {turn} must preconnect ({effort:?})"))
+                .unwrap();
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while !socket.is_connected()
+                    || !entry
+                        .pending
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .is_some_and(|task| task.is_finished())
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            socket.close_idle();
+        }
+        server.abort();
     }
 }
 

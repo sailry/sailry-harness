@@ -76,7 +76,7 @@ impl Llm for Model {
 
     async fn generate_content(
         &self,
-        mut request: LlmRequest,
+        request: LlmRequest,
         streaming: bool,
     ) -> Result<LlmResponseStream, AdkError> {
         let credentials = credentials(
@@ -92,87 +92,87 @@ impl Llm for Model {
             super::history::origin(&self.provider, &self.config.model, None, None)
         });
         origin.model = self.config.model.clone();
-        super::history::project(&mut request, &origin);
-        let input = request::convert(
-            request,
-            &self.provider.endpoint,
-            &self.session.to_string(),
-            self.config.effort,
-            self.config.features.clone(),
-            &self.declaration.capabilities,
-            streaming,
-        )
-        .map_err(response::fault)?;
-        let names = input.tools.iter().map(|tool| tool.name.clone()).collect();
-        let stop = self.stop.child_token();
-        // Serialized base64 input is not raw attachment size or VM heap use.
-        // The existing VM heap/CPU owner enforces actual execution resources.
-        let worker = worker::Worker::new(clone_bundle(&self.bundle), &stop, usize::MAX)
-            .await
-            .map_err(response::translation)?;
-        let mut prepared: wire::Prepared = worker
-            .call("prepare", &input)
-            .await
-            .map_err(response::translation)?;
-        let policies = crate::providers::policy::body(&self.provider, &self.config.model);
-        if !policies.is_empty() {
-            let mut body: serde_json::Value =
-                serde_json::from_str(prepared.body.as_deref().ok_or_else(|| {
-                    response::invalid("model request policy requires a JSON body")
-                })?)
-                .map_err(|_| response::invalid("model request policy requires a JSON body"))?;
-            let fields = body
-                .as_object_mut()
-                .ok_or_else(|| response::invalid("model request policy requires a JSON object"))?;
-            for policy in policies {
-                crate::providers::policy::merge(fields, &policy)?;
-            }
-            prepared.body = Some(
-                serde_json::to_string(&body)
-                    .map_err(|_| response::invalid("model request body is invalid"))?,
-            );
-        }
-        let framing = prepared.framing.unwrap_or(self.declaration.framing);
-        let received = transport::send(
-            &self.client,
-            prepared,
-            &self.provider.endpoint,
-            &self.declaration,
-            &credentials,
-            &stop,
-            usize::MAX,
-        )
-        .await
-        .map_err(transport::Failure::model)?;
-        let status = received.status().as_u16();
-        let headers =
-            transport::headers(received.headers(), &credentials).map_err(response::fault)?;
-        let (sender, receiver) = mpsc::channel(1);
-        let cancelled = stop.clone();
-        tokio::spawn(async move {
-            let mut accumulator = response::Accumulator::default();
-            let result = produce(
-                received,
-                worker,
-                framing,
-                status,
-                headers,
-                StreamContext {
-                    credentials: &credentials,
-                    stop: &cancelled,
-                    streaming,
-                    sender: &sender,
-                },
-                &mut accumulator,
+        super::history::generate(request, origin, |request| async move {
+            let input = request::convert(
+                request,
+                &self.provider.endpoint,
+                &self.session.to_string(),
+                self.config.effort,
+                self.config.features.clone(),
+                &self.declaration.capabilities,
+                streaming,
             )
-            .await;
-            let result = result.and_then(|()| accumulator.finish(&names));
-            let _ = sender.send(result).await;
-        });
-        Ok(super::history::responses(
-            Box::pin(Output { receiver, stop }),
-            origin,
-        ))
+            .map_err(response::fault)?;
+            let names = input.tools.iter().map(|tool| tool.name.clone()).collect();
+            let stop = self.stop.child_token();
+            // Serialized base64 input is not raw attachment size or VM heap use.
+            // The existing VM heap/CPU owner enforces actual execution resources.
+            let worker = worker::Worker::new(clone_bundle(&self.bundle), &stop, usize::MAX)
+                .await
+                .map_err(response::translation)?;
+            let mut prepared: wire::Prepared = worker
+                .call("prepare", &input)
+                .await
+                .map_err(response::translation)?;
+            let policies = crate::providers::policy::body(&self.provider, &self.config.model);
+            if !policies.is_empty() {
+                let mut body: serde_json::Value =
+                    serde_json::from_str(prepared.body.as_deref().ok_or_else(|| {
+                        response::invalid("model request policy requires a JSON body")
+                    })?)
+                    .map_err(|_| response::invalid("model request policy requires a JSON body"))?;
+                let fields = body.as_object_mut().ok_or_else(|| {
+                    response::invalid("model request policy requires a JSON object")
+                })?;
+                for policy in policies {
+                    crate::providers::policy::merge(fields, &policy)?;
+                }
+                prepared.body = Some(
+                    serde_json::to_string(&body)
+                        .map_err(|_| response::invalid("model request body is invalid"))?,
+                );
+            }
+            let framing = prepared.framing.unwrap_or(self.declaration.framing);
+            let received = transport::send(
+                &self.client,
+                prepared,
+                &self.provider.endpoint,
+                &self.declaration,
+                &credentials,
+                &stop,
+                usize::MAX,
+            )
+            .await
+            .map_err(transport::Failure::model)?;
+            let status = received.status().as_u16();
+            let headers =
+                transport::headers(received.headers(), &credentials).map_err(response::fault)?;
+            let (sender, receiver) = mpsc::channel(1);
+            let cancelled = stop.clone();
+            tokio::spawn(async move {
+                let mut accumulator = response::Accumulator::default();
+                let result = produce(
+                    received,
+                    worker,
+                    framing,
+                    status,
+                    headers,
+                    StreamContext {
+                        credentials: &credentials,
+                        stop: &cancelled,
+                        streaming,
+                        sender: &sender,
+                    },
+                    &mut accumulator,
+                )
+                .await;
+                let result = result.and_then(|()| accumulator.finish(&names));
+                let _ = sender.send(result).await;
+            });
+            let stream: LlmResponseStream = Box::pin(Output { receiver, stop });
+            Ok(stream)
+        })
+        .await
     }
 }
 
