@@ -102,6 +102,8 @@ impl Model {
         let (adapter, stream) = match grant {
             Grant::Plugin { .. } => {
                 let adapter: RequestAdapter = Arc::new(move |_, headers| {
+                    headers.remove("authorization");
+                    headers.remove("x-api-key");
                     headers.extend(base.clone());
                     Ok(())
                 });

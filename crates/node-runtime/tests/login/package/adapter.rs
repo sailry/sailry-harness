@@ -31,7 +31,7 @@ async fn discovers_with_private_authorization() {
             }
         }).await;
         let fixture = Fixture::empty(remote, &server).await;
-        let provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint)).await;
+        let provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint), None).await;
         assert_eq!(
             fixture
                 .client
@@ -283,7 +283,7 @@ async fn preserves_public_endpoint_metadata() {
             }
         }).await;
         let fixture = Fixture::empty(remote, &server).await;
-        let mut provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint)).await;
+        let mut provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint), None).await;
         let installed = info(
             execute(
                 &fixture.client,

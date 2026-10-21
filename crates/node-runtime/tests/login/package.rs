@@ -9,6 +9,8 @@ pub(super) mod support;
 
 #[path = "package/adapter.rs"]
 mod adapter;
+#[path = "package/headers.rs"]
+mod headers;
 #[path = "package/partners.rs"]
 mod partners;
 #[path = "package/recovery.rs"]
@@ -54,7 +56,7 @@ async fn configured(fixture: &Fixture, approved: bool) -> Provider {
 }
 
 async fn configured_flow(fixture: &Fixture, approved: bool, flow: serde_json::Value) -> Provider {
-    configured_channel(fixture, approved, flow, None).await
+    configured_channel(fixture, approved, flow, None, None).await
 }
 
 async fn configured_channel(
@@ -62,12 +64,28 @@ async fn configured_channel(
     approved: bool,
     flow: serde_json::Value,
     endpoint: Option<&str>,
+    native: Option<(ModelApi, serde_json::Value)>,
 ) -> Provider {
     use support::{execute, info, install, package};
     let source = fixture.directory.path().join("source");
     let root = source.join("package");
     package(&root, "1.0.0");
-    let mut preset = json!({"id":"example","name":"Example channel","routes":[{"protocol":"openai-chat-completions","endpoint":"https://model.example.test"}],"auth":{"kind":"plugin","data":{"flow":"example"}}});
+    let (api, inject) = native.unwrap_or_else(|| {
+        (
+            ModelApi::ChatCompletions,
+            json!([
+                {"header":"Authorization","template":"Bearer {access}"},
+                {"header":"X-Account","template":"{extra.account}"}
+            ]),
+        )
+    });
+    let protocol = match api {
+        ModelApi::ChatCompletions => "openai-chat-completions",
+        ModelApi::Responses => "openai-responses",
+        ModelApi::Anthropic => "anthropic",
+        _ => panic!("native fixture protocol expected"),
+    };
+    let mut preset = json!({"id":"example","name":"Example channel","routes":[{"protocol":protocol,"endpoint":"https://model.example.test"}],"auth":{"kind":"plugin","data":{"flow":"example"}}});
     if let Some(endpoint) = endpoint {
         preset["routes"][0] = json!({"protocol":"plugin","endpoint":endpoint});
         preset["adapter"] = json!("example");
@@ -76,7 +94,7 @@ async fn configured_channel(
         "flow":flow,
         "client":{"client_id":"example-public-client"},
         "token":{"access":"/access","refresh":"/refresh","expires_in":"/expires_in","extra":{"account":"/account"}},
-        "inject":[{"header":"Authorization","template":"Bearer {access}"},{"header":"X-Account","template":"{extra.account}"}],
+        "inject":inject,
         "refresh":{"request":{"url":"https://auth.example.test/refresh","method":"POST","headers":{"X-Refresh-Token":"{refresh}"}},"token":{"access":"/access","refresh":"/refresh","expires_in":"/expires_in","extra":{"account":"/account"}}},
         "exchange":{"script":{"entry":"dev.sailry.platform/auth.js","resources":["dev.sailry.platform/auth.js"]},"handler":"exchange"}});
     let mut manifest: serde_json::Value =
@@ -152,7 +170,7 @@ export function decode(input) {
         }
     );
     assert!(entry.origin.is_some());
-    let provider:Provider=serde_json::from_value(json!({"id":ProviderId::new(),"revision":0,"name":"Example","api":"chat_completions","authentication":"plugin","endpoint":"https://model.example.test","enabled":true,"models":[],"default_model":"fixture","credential":null,
+    let provider:Provider=serde_json::from_value(json!({"id":ProviderId::new(),"revision":0,"name":"Example","api":api,"authentication":"plugin","endpoint":"https://model.example.test","enabled":true,"models":[],"default_model":"fixture","credential":null,
         "preset":{"source":entry.source,"id":"example","route":entry.preset.routes[0].key()},
         "consent":{"package":installed.summary.reference(),"scopes":{"messages":false,"credentials":approved},"origin":null}})).unwrap();
     let mut provider = provider;

@@ -29,10 +29,14 @@ async fn fetch(
         .build()
         .map_err(|_| unavailable("provider HTTP client failed"))?;
     let mut remaining = TOTAL_BYTES;
-    if grant.authentication() == Authentication::ClaudeOAuth {
+    if grant.authentication() == Authentication::ClaudeOAuth
+        || grant.authentication() == Authentication::Plugin && api == ModelApi::Anthropic
+    {
         let mut url = anthropic_base_url(url.as_str())?;
         url.set_path(&format!("{}/v1/models", url.path().trim_end_matches('/')));
-        return super::pages(api, url, grant.headers(options)?, &client, &mut remaining)
+        let mut headers = super::headers(api, None, None)?;
+        headers.extend(grant.headers(options)?);
+        return super::pages(api, url, headers, &client, &mut remaining)
             .await?
             .ok_or_else(|| unavailable("provider model endpoint was not found"));
     }

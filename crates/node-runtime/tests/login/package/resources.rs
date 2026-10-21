@@ -31,7 +31,7 @@ async fn reads_declared_resources_without_exposing_grants() {
         })
         .await;
         let fixture = Fixture::empty(remote, &server).await;
-        let mut provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint)).await;
+        let mut provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint), None).await;
         let installed = info(
             execute(
                 &fixture.client,
@@ -367,7 +367,7 @@ async fn executes_declared_mutations_once() {
         })
         .await;
         let fixture = Fixture::empty(remote, &server).await;
-        let provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint)).await;
+        let provider = configured_channel(&fixture, true, json!({"kind":"token_exchange","token":{"url":"https://auth.example.test/token","method":"POST"}}), Some(&server.endpoint), None).await;
         let installed = info(
             execute(
                 &fixture.client,
