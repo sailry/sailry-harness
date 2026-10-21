@@ -20,9 +20,9 @@ enum Model {
 impl Model {
     fn key(self) -> String {
         match self {
-            Self::GraniteMulti => "granite-multi".into(),
-            Self::BgeSmallZh => "bge-small-zh".into(),
-            Self::PotionMulti => "potion-multi".into(),
+            Self::GraniteMulti => sailry_embedding::ModelId::GraniteMulti.key().into(),
+            Self::BgeSmallZh => sailry_embedding::ModelId::BgeSmallZh.key().into(),
+            Self::PotionMulti => sailry_embedding::ModelId::PotionMulti.key().into(),
             Self::Registered { id } => format!("model-{id}"),
         }
     }

@@ -21,7 +21,6 @@ async fn exposes_catalog_without_acquiring_models() {
         reordered.assets.reverse();
         assert_eq!(catalog::id(&reordered), catalog::id(definition));
     }
-    assert_eq!(owner.signature(Kind::Ocr), [0; 32]);
     assert!(owner.remove("../outside").await.is_err());
     let stop = CancellationToken::new();
     stop.cancel();
@@ -42,7 +41,7 @@ async fn preserves_unrelated_settings_and_rejects_replaced_files() {
     let fixture = Fixture::new().await;
     let captured = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), None)
+        .resource(Kind::Embedding, &fixture.record.id, None)
         .unwrap();
     fixture.owner.current(&captured).unwrap();
     let mut settings = fixture.owner.settings();
@@ -54,19 +53,84 @@ async fn preserves_unrelated_settings_and_rejects_replaced_files() {
     fixture.owner.current(&captured).unwrap();
     let captured = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), None)
+        .resource(Kind::Embedding, &fixture.record.id, None)
         .unwrap();
     let path = fixture.path.join("config.json");
     std::fs::write(path.with_extension("new"), std::fs::read(&path).unwrap()).unwrap();
     std::fs::rename(path.with_extension("new"), &path).unwrap();
     assert_eq!(
-        fixture.owner.current(&captured).unwrap_err().code,
+        fixture
+            .owner
+            .execute::<()>(
+                captured.clone(),
+                Lane::Interactive,
+                &CancellationToken::new(),
+                |_, _| panic!("changed model must not execute")
+            )
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::RevisionConflict
     );
-    // Exact replacement bytes may be verified again, but the old capture remains stale.
+    // A new capture may use the replacement; previous captures remain stale.
     fixture.owner.models(None).await.unwrap();
     assert_eq!(
-        fixture.owner.current(&captured).unwrap_err().code,
+        fixture
+            .owner
+            .execute::<()>(
+                captured.clone(),
+                Lane::Interactive,
+                &CancellationToken::new(),
+                |_, _| panic!("changed model must not execute")
+            )
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::RevisionConflict
+    );
+    fixture.owner.shutdown().await;
+}
+
+#[tokio::test]
+async fn rejects_same_size_asset_changes() {
+    let fixture = Fixture::new().await;
+    let captured = fixture
+        .owner
+        .resource(Kind::Embedding, &fixture.record.id, None)
+        .unwrap();
+    let path = fixture.path.join("model.safetensors");
+    let mut contents = std::fs::read(&path).unwrap();
+    *contents.last_mut().unwrap() ^= 1;
+    std::fs::write(path, contents).unwrap();
+    let models = fixture.owner.models(None).await.unwrap();
+    assert_eq!(
+        models
+            .iter()
+            .find(|model| model.id == fixture.record.id)
+            .unwrap()
+            .state,
+        State::Missing
+    );
+    assert_eq!(
+        fixture
+            .owner
+            .resource(Kind::Embedding, &fixture.record.id, None)
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+    assert_eq!(
+        fixture
+            .owner
+            .execute(
+                captured,
+                Lane::Interactive,
+                &CancellationToken::new(),
+                |_, _| Ok(())
+            )
+            .await
+            .unwrap_err()
+            .code,
         ErrorCode::RevisionConflict
     );
     fixture.owner.shutdown().await;
@@ -88,17 +152,9 @@ async fn preserves_explicit_embedding_override_when_disabled() {
         .owner
         .configure(settings, std::slice::from_ref(&fixture.record))
         .unwrap();
-    assert_eq!(
-        fixture
-            .owner
-            .resource(Kind::Embedding, None, None)
-            .unwrap_err()
-            .code,
-        ErrorCode::NotConfigured
-    );
     let resource = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), None)
+        .resource(Kind::Embedding, &fixture.record.id, None)
         .unwrap();
     let vectors = fixture
         .owner
@@ -126,7 +182,7 @@ async fn runs_synchronous_calls_on_current_thread_executor() {
     let fixture = Fixture::new().await;
     let resource = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), None)
+        .resource(Kind::Embedding, &fixture.record.id, None)
         .unwrap();
     let offsets = fixture
         .owner
@@ -153,7 +209,7 @@ async fn removes_owned_files_and_invalidates_queued_captures() {
     let fixture = Fixture::new().await;
     let captured = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), None)
+        .resource(Kind::Embedding, &fixture.record.id, None)
         .unwrap();
     let other = fixture.path.parent().unwrap().join("another-revision");
     std::fs::create_dir(&other).unwrap();

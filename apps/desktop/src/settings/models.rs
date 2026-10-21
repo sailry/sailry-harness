@@ -109,7 +109,7 @@ impl Panel {
                 })
             },
         );
-        let selectors = [Kind::Embedding, Kind::Ocr, Kind::Decision]
+        let selectors = Kind::NODE
             .into_iter()
             .map(|kind| {
                 let selector =

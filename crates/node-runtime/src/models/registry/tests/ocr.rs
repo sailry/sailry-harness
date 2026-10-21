@@ -73,15 +73,20 @@ async fn restores_receipts_and_checks_live_assets() {
         sailry_model_assets::verified::candidate(&path, &files::assets(&record.definition))
             .unwrap();
     // Receipt persistence is separate from the installer's real engine validation.
-    files::mark(&path, &record.id, &record.definition, &before).unwrap();
+    files::mark(&path, &record.definition, &before).unwrap();
     owner.shutdown().await;
     let restarted = Registry::new(Some(profile.path().into()), CancellationToken::new());
     restarted
         .configure(Settings::default(), std::slice::from_ref(&record))
         .unwrap();
     assert_eq!(
-        restarted.resource(Kind::Ocr, None, None).unwrap().id,
+        restarted.resource(Kind::Ocr, &record.id, None).unwrap().id,
         record.id
+    );
+    let service = crate::ocr::Service::new(restarted.clone());
+    assert_eq!(
+        service.signature().unwrap(),
+        *blake3::hash(record.id.as_bytes()).as_bytes()
     );
     let mut settings = restarted.settings();
     settings.choices.insert(
@@ -94,9 +99,14 @@ async fn restores_receipts_and_checks_live_assets() {
     restarted
         .configure(settings, std::slice::from_ref(&record))
         .unwrap();
+    assert_eq!(service.signature().unwrap(), [0; 32]);
     assert_eq!(
-        restarted
-            .resource(Kind::Ocr, Some(&record.id), None)
+        crate::ocr::Service::new(restarted.clone())
+            .recognize(
+                image::RgbImage::new(1, 1),
+                Lane::Interactive,
+                &CancellationToken::new()
+            )
             .unwrap_err()
             .code,
         ErrorCode::NotConfigured
@@ -113,9 +123,9 @@ async fn restores_receipts_and_checks_live_assets() {
             .state,
         State::Missing
     );
-    files::mark(&path, &record.id, &record.definition, &before).unwrap();
+    files::mark(&path, &record.definition, &before).unwrap();
     std::fs::write(path.join("detector.onnx"), b"changed graph").unwrap();
-    assert!(files::receipt(&path, &record.id, &record.definition).is_none());
-    assert!(files::mark(&path, &record.id, &record.definition, &before).is_err());
+    assert!(files::stamp(&path, &record.id, &record.definition, None).is_none());
+    assert!(files::mark(&path, &record.definition, &before).is_err());
     restarted.shutdown().await;
 }

@@ -46,7 +46,7 @@ async fn preserves_downloads_across_kind_changes() {
     let downloading = transfer(&fixture.owner, &decision.id);
     let embedding = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), None)
+        .resource(Kind::Embedding, &fixture.record.id, None)
         .unwrap();
     records.push(ocr());
     fixture.owner.configure(settings.clone(), &records).unwrap();
@@ -68,7 +68,7 @@ async fn preserves_downloads_across_kind_changes() {
     assert_eq!(
         fixture
             .owner
-            .resource(Kind::Decision, Some(&decision.id), Some(&previous))
+            .resource(Kind::Decision, &decision.id, Some(&previous))
             .unwrap_err()
             .code,
         ErrorCode::RevisionConflict
@@ -101,7 +101,7 @@ async fn limits_mirror_changes_to_affected_downloads() {
     let direct = transfer(&fixture.owner, &ocr.id);
     let resource = fixture
         .owner
-        .resource(Kind::Embedding, Some(&fixture.record.id), None)
+        .resource(Kind::Embedding, &fixture.record.id, None)
         .unwrap();
     settings.mirror = Some("https://huggingface.co/".into());
     settings.revision += 1;

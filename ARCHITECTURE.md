@@ -193,7 +193,9 @@ import even after all registered models are removed. Committed model configurati
 is applied to that registry before command completion. Installation subscriptions
 carry progress; catalog events carry definition and installation-state changes.
 Knowledge retrieval reads model configuration from the registry, and only
-embedding changes invalidate its derived index.
+embedding changes invalidate its derived index. Installed state comes from the
+verified files and receipts; earlier valid receipts are recognized in place
+without downloading or reinstalling their models.
 
 One CPU runtime lazily loads local model engines and runs one inference at a time.
 Interactive retrieval and document inspection take priority over queued indexing

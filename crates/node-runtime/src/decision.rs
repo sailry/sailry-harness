@@ -19,7 +19,24 @@ pub(crate) async fn decide(
 ) -> Result<Response, Fault> {
     request.validate()?;
     availability::check(Kind::Decision).await?;
-    let resource = registry.resource(Kind::Decision, request.model.as_deref(), None)?;
+    let choice = registry.settings().choice(Kind::Decision);
+    if !choice.enabled {
+        return Err(Fault::new(
+            ErrorCode::NotConfigured,
+            "local decision service is disabled",
+        ));
+    }
+    let id = request
+        .model
+        .as_deref()
+        .or(choice.model.as_deref())
+        .ok_or_else(|| {
+            Fault::new(
+                ErrorCode::NotConfigured,
+                "a decision model must be selected",
+            )
+        })?;
+    let resource = registry.resource(Kind::Decision, id, Some(&choice))?;
     registry
         .execute(
             resource,

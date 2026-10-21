@@ -7,6 +7,8 @@ pub use local::{Choice, Model, Settings, State};
 use crate::Fault;
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_EMBEDDING: &str = "granite-multi";
+
 pub const MAX_ASSETS: usize = 8;
 pub const MAX_ASSET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 pub const MAX_PREFIX_BYTES: usize = 1024;
@@ -34,6 +36,10 @@ pub enum Kind {
     Speech,
     Ocr,
     Decision,
+}
+
+impl Kind {
+    pub const NODE: [Self; 3] = [Self::Embedding, Self::Ocr, Self::Decision];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

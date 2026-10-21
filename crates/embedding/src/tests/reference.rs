@@ -17,11 +17,7 @@ struct Case {
 fn compare(id: ModelId) {
     let root = std::env::var_os("SAILRY_EMBEDDING_REFERENCES")
         .expect("set SAILRY_EMBEDDING_REFERENCES to verified models and reference vectors");
-    let directory = Path::new(&root).join(match id {
-        ModelId::GraniteMulti => "granite-multi",
-        ModelId::BgeSmallZh => "bge-small-zh",
-        ModelId::PotionMulti => "potion-multi",
-    });
+    let directory = Path::new(&root).join(id.key());
     let reference: Reference = serde_json::from_str(match id {
         ModelId::GraniteMulti => include_str!("../../tests/references/granite-multi.json"),
         ModelId::BgeSmallZh => include_str!("../../tests/references/bge-small-zh.json"),

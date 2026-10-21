@@ -34,15 +34,7 @@ pub(crate) fn ocr() -> &'static [Definition] {
 pub(crate) fn definitions(
     records: &[Registration],
 ) -> Result<BTreeMap<String, Arc<Definition>>, Fault> {
-    let mut definitions = BTreeMap::new();
-    for (id, definition) in embedding().into_iter().chain(
-        ocr()
-            .iter()
-            .map(|definition| (id(definition), definition.clone())),
-    ) {
-        definition.validate()?;
-        definitions.insert(id, Arc::new(definition));
-    }
+    let mut definitions = builtins().clone();
     for record in records {
         record.definition.validate()?;
         if !sailry_protocol::models::valid_id(&record.id)
@@ -57,7 +49,7 @@ pub(crate) fn definitions(
             return Err(Fault::invalid("model identity has conflicting definitions"));
         }
     }
-    for kind in [Kind::Embedding, Kind::Ocr, Kind::Decision] {
+    for kind in Kind::NODE {
         if records
             .iter()
             .filter(|record| record.definition.format.kind() == kind)
@@ -70,8 +62,26 @@ pub(crate) fn definitions(
     Ok(definitions)
 }
 
+fn builtins() -> &'static BTreeMap<String, Arc<Definition>> {
+    static MODELS: LazyLock<BTreeMap<String, Arc<Definition>>> = LazyLock::new(|| {
+        let mut definitions = BTreeMap::new();
+        for (id, definition) in embedding().into_iter().chain(
+            ocr()
+                .iter()
+                .map(|definition| (id(definition), definition.clone())),
+        ) {
+            definition.validate().expect("pinned local model is valid");
+            definitions.insert(id, Arc::new(definition));
+        }
+        definitions
+    });
+    &MODELS
+}
+
 pub(crate) fn builtin(id: &str) -> bool {
-    matches!(id, "granite-multi" | "bge-small-zh" | "potion-multi")
+    sailry_embedding::catalog::MODELS
+        .iter()
+        .any(|model| model.id.key() == id)
 }
 
 fn embedding() -> Vec<(String, Definition)> {
@@ -79,10 +89,10 @@ fn embedding() -> Vec<(String, Definition)> {
         .iter()
         .map(|descriptor| {
             use sailry_embedding::ModelId;
-            let (id, name) = match descriptor.id {
-                ModelId::GraniteMulti => ("granite-multi", "Granite Multilingual"),
-                ModelId::BgeSmallZh => ("bge-small-zh", "BGE Small Chinese"),
-                ModelId::PotionMulti => ("potion-multi", "Potion Multilingual"),
+            let name = match descriptor.id {
+                ModelId::GraniteMulti => "Granite Multilingual",
+                ModelId::BgeSmallZh => "BGE Small Chinese",
+                ModelId::PotionMulti => "Potion Multilingual",
             };
             let source = Source {
                 hub: Hub::HuggingFace,
@@ -90,7 +100,7 @@ fn embedding() -> Vec<(String, Definition)> {
                 revision: descriptor.revision.into(),
             };
             (
-                id.into(),
+                descriptor.id.key().into(),
                 Definition {
                     source,
                     name: name.into(),

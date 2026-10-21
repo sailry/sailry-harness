@@ -25,7 +25,7 @@ pub(crate) fn ensure(kind: Kind) -> Result<(), Fault> {
 pub(crate) fn catalog(models: Vec<Model>) -> Catalog {
     Catalog {
         models,
-        availability: [Kind::Embedding, Kind::Ocr, Kind::Decision]
+        availability: Kind::NODE
             .into_iter()
             .map(|kind| {
                 let status = match ensure(kind) {

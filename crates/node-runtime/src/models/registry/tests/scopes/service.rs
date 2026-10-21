@@ -169,7 +169,7 @@ async fn isolates_inflight_work_across_configuration() {
         let fixture = Fixture::start(remote).await;
         let id = fixture.embedding().await;
         let owner = fixture.node.ingress.local_models.clone();
-        let resource = owner.resource(Kind::Embedding, Some(&id), None).unwrap();
+        let resource = owner.resource(Kind::Embedding, &id, None).unwrap();
         let (work, release, _) = active(&owner, resource, encode).await;
         fixture.register(&ocr().definition).await;
         let previous = fixture.settings().await;
@@ -214,7 +214,7 @@ async fn isolates_inflight_work_across_configuration() {
             [vec![1., 0.]]
         );
 
-        let resource = owner.resource(Kind::Embedding, Some(&id), None).unwrap();
+        let resource = owner.resource(Kind::Embedding, &id, None).unwrap();
         let (work, _release, stopped) = active(&owner, resource, encode).await;
         let mut settings = fixture.settings().await;
         settings.choices.get_mut(&Kind::Embedding).unwrap().enabled = false;
@@ -235,7 +235,7 @@ async fn isolates_inflight_work_across_configuration() {
             .unwrap()
             .unwrap();
         // A collection override remains valid after the global default is disabled.
-        let resource = owner.resource(Kind::Embedding, Some(&id), None).unwrap();
+        let resource = owner.resource(Kind::Embedding, &id, None).unwrap();
         assert_eq!(
             owner
                 .execute(

@@ -1,5 +1,5 @@
 //! Configuration and installation snapshots for Node-owned local model kinds.
-use super::{Definition, Kind, valid_id};
+use super::{DEFAULT_EMBEDDING, Definition, Kind, valid_id};
 use crate::Fault;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -12,10 +12,14 @@ pub struct Choice {
 }
 
 impl Choice {
+    pub fn selected(&self) -> Option<&str> {
+        self.enabled.then_some(self.model.as_deref()).flatten()
+    }
+
     fn initial(kind: Kind) -> Self {
         Self {
             enabled: true,
-            model: (kind == Kind::Embedding).then(|| "granite-multi".into()),
+            model: (kind == Kind::Embedding).then(|| DEFAULT_EMBEDDING.into()),
         }
     }
 }
@@ -43,7 +47,7 @@ impl Default for Settings {
 
 impl Settings {
     pub fn fill_defaults(&mut self) {
-        for kind in [Kind::Embedding, Kind::Ocr, Kind::Decision] {
+        for kind in Kind::NODE {
             self.choices
                 .entry(kind)
                 .or_insert_with(|| Choice::initial(kind));
@@ -59,8 +63,8 @@ impl Settings {
 
     pub fn selected(&self, kind: Kind) -> Option<&str> {
         match self.choices.get(&kind) {
-            Some(choice) => choice.enabled.then_some(choice.model.as_deref()).flatten(),
-            None if kind == Kind::Embedding => Some("granite-multi"),
+            Some(choice) => choice.selected(),
+            None if kind == Kind::Embedding => Some(DEFAULT_EMBEDDING),
             None => None,
         }
     }
@@ -126,7 +130,7 @@ mod tests {
         );
         assert_eq!(
             Settings::default().selected(Kind::Embedding),
-            Some("granite-multi")
+            Some(DEFAULT_EMBEDDING)
         );
         assert_eq!(
             settings.choice(Kind::Decision),

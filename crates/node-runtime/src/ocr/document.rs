@@ -51,9 +51,14 @@ pub(crate) fn pdf(
     lane: crate::models::runtime::Lane,
     cancel: &CancellationToken,
 ) -> Result<Vec<Part>, Fault> {
-    if parts.iter().all(|part| !part.text.trim().is_empty()) || service.signature() == [0; 32] {
+    if parts.iter().all(|part| !part.text.trim().is_empty()) {
         return Ok(parts);
     }
+    let resource = match service.resource() {
+        Ok(resource) => resource,
+        Err(error) if error.code == sailry_protocol::ErrorCode::NotConfigured => return Ok(parts),
+        Err(error) => return Err(error),
+    };
     let pdf = hayro::hayro_syntax::Pdf::new(bytes.to_vec())
         .map_err(|error| super::failure(format!("{error:?}")))?;
     if pdf.pages().len() != parts.len() {
@@ -96,7 +101,7 @@ pub(crate) fn pdf(
             .collect::<Vec<_>>();
         let image = image::RgbImage::from_raw(width, height, rgb)
             .ok_or_else(|| Fault::invalid("PDF rasterization size is invalid"))?;
-        match service.recognize(image, lane, cancel) {
+        match service.recognize_resource(resource.clone(), image, lane, cancel) {
             Ok(lines) => {
                 part.text = lines
                     .into_iter()

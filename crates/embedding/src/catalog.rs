@@ -56,6 +56,14 @@ impl Model {
 }
 
 impl ModelId {
+    pub const fn key(self) -> &'static str {
+        match self {
+            Self::GraniteMulti => sailry_protocol::models::DEFAULT_EMBEDDING,
+            Self::BgeSmallZh => "bge-small-zh",
+            Self::PotionMulti => "potion-multi",
+        }
+    }
+
     pub const fn descriptor(self) -> &'static Model {
         match self {
             Self::GraniteMulti => &GRANITE,

@@ -15,7 +15,8 @@ impl Drop for Installation {
         if let Some(transfer) = state.transfers.remove(&self.id) {
             transfer.cancel();
         }
-        self.owner.publish(&state);
+        drop(state);
+        let _ = self.owner.list(None);
     }
 }
 
@@ -31,7 +32,8 @@ impl Drop for Removal {
             .lock()
             .expect("local model configuration lock is healthy");
         state.removing.remove(&self.id);
-        self.owner.publish(&state);
+        drop(state);
+        let _ = self.owner.list(None);
     }
 }
 
@@ -48,23 +50,30 @@ impl Registry {
         let definition = self.definition(id)?;
         let kind = definition.format.kind();
         super::super::availability::check(kind).await?;
-        let _mutation = self
-            .mutations
-            .get(&kind)
-            .ok_or_else(|| Fault::invalid("invalid Node model kind"))?
-            .try_lock()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "a model of this kind is being changed"))?;
-        self.models(None).await?;
         let root = self.root()?;
         let directory = files::directory(&root, id, &definition)?;
+        let path = directory.clone();
+        let model = id.to_owned();
+        let inspecting = definition.clone();
+        let owner = self.clone();
+        if tokio::task::spawn_blocking(move || {
+            let mut state = owner
+                .state
+                .lock()
+                .expect("local model configuration lock is healthy");
+            inspect(&mut state, &path, &model, &inspecting)
+        })
+        .await
+        .map_err(failure)?
+        .is_some()
+        {
+            return Ok(());
+        }
         let (stop, mirror) = {
             let mut state = self
                 .state
                 .lock()
                 .expect("local model configuration lock is healthy");
-            if state.installed.contains_key(id) {
-                return Ok(());
-            }
             let stop = self.stop.child_token();
             state.transfers.insert(id.into(), stop.clone());
             self.publish(&state);
@@ -123,10 +132,8 @@ impl Registry {
             let owner = self.clone();
             let check = Arc::new(move || owner.installing(&captured));
             let path = directory.clone();
-            let model = id.to_owned();
             let definition = definition.clone();
-            let stamp = self
-                .runtime
+            self.runtime
                 .validate(resource.clone(), &stop, check, move |engine, cancelling| {
                     if cancelling.is_cancelled() {
                         return Err(cancelled());
@@ -147,24 +154,17 @@ impl Registry {
                         }
                         Engine::Ocr(_) | Engine::Decision(_) => {}
                     }
-                    files::mark(&path, &model, &definition, &resource.stamp)
+                    files::mark(&path, &definition, &resource.stamp)
                 })
                 .await?;
             if stop.is_cancelled() {
                 return Err(cancelled());
             }
-            let mut state = self
-                .state
-                .lock()
-                .expect("local model configuration lock is healthy");
-            state.installed.insert(id.into(), stamp);
-            self.publish(&state);
             Ok(())
         };
         tokio::pin!(operation);
         tokio::select! {biased;
             _=cancel.cancelled()=>{stop.cancel();let _=operation.await;Err(cancelled())},
-            _=self.stop.cancelled()=>{stop.cancel();let _=operation.await;Err(cancelled())},
             result=&mut operation=>result,
         }
     }
@@ -189,21 +189,12 @@ impl Registry {
 
     pub(crate) async fn remove(self: &Arc<Self>, id: &str) -> Result<(), Fault> {
         let definition = self.definition(id)?;
-        let kind = definition.format.kind();
-        self.cancel(id);
-        let _mutation = self
-            .mutations
-            .get(&kind)
-            .ok_or_else(|| Fault::invalid("invalid Node model kind"))?
-            .lock()
-            .await;
         {
             let mut state = self
                 .state
                 .lock()
                 .expect("local model configuration lock is healthy");
             state.removing.insert(id.into());
-            state.installed.remove(id);
             let epoch = state.epochs.entry(id.into()).or_default();
             *epoch = epoch
                 .checked_add(1)

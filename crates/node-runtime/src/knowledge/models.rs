@@ -34,7 +34,7 @@ impl Models {
             .definition
             .model
             .as_deref()
-            .or_else(|| choice.enabled.then_some(choice.model.as_deref()).flatten())
+            .or_else(|| choice.selected())
             .and_then(|id| {
                 let definition = self.registry.definition(id).ok()?;
                 Some((id.to_owned(), usize::from(definition.format.dimension()?)))
@@ -56,7 +56,7 @@ impl Models {
         }
         let resource = self
             .registry
-            .resource(Kind::Embedding, Some(model), Some(choice))?;
+            .resource(Kind::Embedding, model, Some(choice))?;
         let vectors = self
             .registry
             .execute(resource, lane, cancel, move |engine, cancel| {
@@ -91,7 +91,7 @@ impl Models {
     ) -> Result<Vec<(usize, usize)>, Fault> {
         let resource = self
             .registry
-            .resource(Kind::Embedding, Some(model), Some(choice))?;
+            .resource(Kind::Embedding, model, Some(choice))?;
         self.registry
             .execute(resource, Lane::Background, cancel, move |engine, _| {
                 let Engine::Embedding(engine) = engine else {

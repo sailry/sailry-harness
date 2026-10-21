@@ -79,7 +79,7 @@ async fn keeps_decision_work_independent_from_ocr() {
             .execute(Command::InstallLocalModel { id: id.clone() })
             .await;
         let owner = fixture.node.ingress.local_models.clone();
-        let resource = owner.resource(Kind::Decision, Some(&id), None).unwrap();
+        let resource = owner.resource(Kind::Decision, &id, None).unwrap();
         let (work, release, _) = active(&owner, resource, decide).await;
 
         let mut queued = definition;
@@ -148,7 +148,7 @@ async fn keeps_decision_work_independent_from_ocr() {
             matches!(&response.answers["save"], decision::Answer::Noul { noul } if noul.is_finite())
         );
 
-        let resource = owner.resource(Kind::Decision, Some(&id), None).unwrap();
+        let resource = owner.resource(Kind::Decision, &id, None).unwrap();
         let (work, _release, stopped) = active(&owner, resource, decide).await;
         let mut settings = fixture.settings().await;
         settings.choices.get_mut(&Kind::Decision).unwrap().enabled = false;

@@ -42,20 +42,6 @@ pub(in crate::models) fn directory(
     })
 }
 
-pub(in crate::models) fn marker(id: &str, definition: &Definition) -> Option<String> {
-    match definition.format.kind() {
-        Kind::Embedding if catalog::builtin(id) => None,
-        Kind::Embedding if id.starts_with("model-") => Some(
-            blake3::hash(
-                &serde_json::to_vec(definition).expect("model definition is serializable"),
-            )
-            .to_hex()
-            .to_string(),
-        ),
-        _ => Some(catalog::id(definition)),
-    }
-}
-
 pub(in crate::models) fn assets(definition: &Definition) -> Vec<File<'_>> {
     definition
         .assets
@@ -68,28 +54,59 @@ pub(in crate::models) fn assets(definition: &Definition) -> Vec<File<'_>> {
         .collect()
 }
 
-pub(in crate::models) fn stamp(path: &Path, id: &str, definition: &Definition) -> Option<Stamp> {
-    verified::stamp(path, &assets(definition), marker(id, definition).as_deref())
-}
-
-pub(in crate::models) fn receipt(path: &Path, id: &str, definition: &Definition) -> Option<Stamp> {
-    verified::verified(path, &assets(definition), marker(id, definition).as_deref())
+pub(in crate::models) fn stamp(
+    path: &Path,
+    id: &str,
+    definition: &Definition,
+    cached: Option<&Stamp>,
+) -> Option<Stamp> {
+    let files = assets(definition);
+    let marker = catalog::id(definition);
+    if let Some(stamp) = verified::stamp(path, &files, Some(&marker)) {
+        return if cached == Some(&stamp) {
+            Some(stamp)
+        } else {
+            verified::verified(path, &files, Some(&marker))
+        };
+    }
+    let previous = if catalog::builtin(id) {
+        None
+    } else if id.starts_with("model-") && definition.format.kind() == Kind::Embedding {
+        Some(
+            blake3::hash(&serde_json::to_vec(definition).ok()?)
+                .to_hex()
+                .to_string(),
+        )
+    } else {
+        return None;
+    };
+    let before = verified::stamp(path, &files, previous.as_deref())?;
+    if cached == Some(&before) {
+        return Some(before);
+    }
+    match verified::mark(path, &files, &marker, &before) {
+        Ok(stamp) => Some(stamp),
+        // A read-only profile can keep using its verified installed files. A
+        // marker rewrite is not a reason to require another model download.
+        Err(sailry_model_assets::Error::Storage(_)) => {
+            verified::stamp(path, &files, previous.as_deref()).filter(|stamp| *stamp == before)
+        }
+        Err(_) => None,
+    }
 }
 
 pub(in crate::models) fn mark(
     path: &Path,
-    id: &str,
     definition: &Definition,
     expected: &Stamp,
 ) -> Result<Stamp, Fault> {
-    match marker(id, definition) {
-        Some(marker) => {
-            verified::mark(path, &assets(definition), &marker, expected).map_err(super::failure)
-        }
-        None => receipt(path, id, definition)
-            .filter(|actual| actual == expected)
-            .ok_or_else(|| Fault::invalid("model assets changed during validation")),
-    }
+    verified::mark(
+        path,
+        &assets(definition),
+        &catalog::id(definition),
+        expected,
+    )
+    .map_err(super::failure)
 }
 
 pub(in crate::models) fn remove(
@@ -115,3 +132,6 @@ pub(in crate::models) fn remove(
         Err(error) => Err(super::failure(error)),
     }
 }
+
+#[cfg(test)]
+mod tests;

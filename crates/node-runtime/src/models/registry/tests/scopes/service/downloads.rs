@@ -18,7 +18,7 @@ async fn stage(fixture: &Fixture, name: &str) -> String {
 }
 
 async fn block(owner: &Arc<Registry>, id: &str) -> (JoinHandle<Result<(), Fault>>, Sender<()>) {
-    let resource = owner.resource(Kind::Embedding, Some(id), None).unwrap();
+    let resource = owner.resource(Kind::Embedding, id, None).unwrap();
     let (entered, entering) = oneshot::channel();
     let (release, waiting) = std::sync::mpsc::channel();
     let owner = owner.clone();
@@ -111,7 +111,8 @@ async fn finishes_after_selection_and_disable_changes() {
                 .unwrap();
             assert!(matches!(
                 owner
-                    .snapshot()
+                    .list(None)
+                    .unwrap()
                     .iter()
                     .find(|model| model.id == id)
                     .unwrap()
@@ -198,7 +199,8 @@ async fn cancels_only_explicit_installation_lifecycles() {
                     .unwrap();
                 assert!(matches!(
                     owner
-                        .snapshot()
+                        .list(None)
+                        .unwrap()
                         .iter()
                         .find(|model| model.id == id)
                         .unwrap()
@@ -215,7 +217,8 @@ async fn cancels_only_explicit_installation_lifecycles() {
             .unwrap();
             assert!(matches!(
                 owner
-                    .snapshot()
+                    .list(None)
+                    .unwrap()
                     .iter()
                     .find(|model| model.id == installed)
                     .unwrap()

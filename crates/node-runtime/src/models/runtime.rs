@@ -367,6 +367,7 @@ fn acquire<'a>(
             &work.resource.directory,
             &work.resource.id,
             &work.resource.definition,
+            Some(&work.resource.stamp),
         )
     };
     if stamp.as_ref() != Some(&work.resource.stamp) {

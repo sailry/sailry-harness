@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 async fn ready(owner: &Arc<Registry>, id: &str) -> Resource {
     owner.models(None).await.unwrap();
-    owner.resource(Kind::Embedding, Some(id), None).unwrap()
+    owner.resource(Kind::Embedding, id, None).unwrap()
 }
 
 #[tokio::test]

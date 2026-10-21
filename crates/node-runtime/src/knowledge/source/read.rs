@@ -31,7 +31,9 @@ pub(super) fn document(
             .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
             || crate::ocr::document::supported(&target.name)
         {
-            ocr.map_or([0; 32], crate::ocr::Service::signature)
+            ocr.map(crate::ocr::Service::signature)
+                .transpose()?
+                .unwrap_or([0; 32])
         } else {
             [0; 32]
         },
