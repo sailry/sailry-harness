@@ -2,9 +2,9 @@
 
 ADK dependencies use [dux-web/adk-rust](https://github.com/dux-web/adk-rust),
 a fork of [ADK-Rust](https://github.com/zavora-ai/adk-rust), at
-[`ef4f60c6fdefbc9dd607c6e13b51e6fe1dcd45c5`](https://github.com/dux-web/adk-rust/commit/ef4f60c6fdefbc9dd607c6e13b51e6fe1dcd45c5),
+[`1cc49fc6b5915bcc819dcf2966633b14262fb641`](https://github.com/dux-web/adk-rust/commit/1cc49fc6b5915bcc819dcf2966633b14262fb641),
 based on upstream
-[`caac72bef1fd570fd42d3b289410c012fe2df7ce`](https://github.com/zavora-ai/adk-rust/commit/caac72bef1fd570fd42d3b289410c012fe2df7ce).
+[`8805e36fc51c90fa8da27b65c806899a8cf38b13`](https://github.com/zavora-ai/adk-rust/commit/8805e36fc51c90fa8da27b65c806899a8cf38b13).
 The root Cargo.toml and Cargo.lock retain that exact Git source for every ADK
 package. Sailry does not carry the retired request-scoped provider-error hooks;
 native ADK errors supply provider classification and diagnostics.
