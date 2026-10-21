@@ -437,7 +437,23 @@ impl Worker {
                         .await?
                         .grant;
                 }
-                host.connectors.probe(&mut target, &stop).await?;
+                if let Err(error) = host.connectors.probe(&mut target, &stop).await {
+                    if error.code == ErrorCode::Expired {
+                        ingress
+                            .save_connector_grant(
+                                target.id,
+                                target.revision,
+                                target
+                                    .grant
+                                    .as_ref()
+                                    .filter(|_| target.method != connector::Kind::LocalCli)
+                                    .map(|grant| grant.access.clone()),
+                                None,
+                            )
+                            .await?;
+                    }
+                    return Err(error);
+                }
                 if target.method == connector::Kind::LocalCli {
                     target.grant = None;
                 }
@@ -626,13 +642,20 @@ fn commit(
                     return Err(error);
                 }
             } else {
-                record.state = if record.method == connector::Kind::LocalCli {
-                    connector::State::NotConnected
-                } else if error.code == ErrorCode::Expired {
-                    connector::State::Expired
-                } else {
-                    connector::State::Failed
-                };
+                record.state =
+                    if matches!(error.code, ErrorCode::PermissionDenied | ErrorCode::Expired) {
+                        record.grant = None;
+                        record.grant_revision = record
+                            .grant_revision
+                            .checked_add(1)
+                            .filter(|revision| *revision <= i64::MAX as u64)
+                            .ok_or_else(missing)?;
+                        connector::State::Expired
+                    } else if record.method == connector::Kind::LocalCli {
+                        connector::State::NotConnected
+                    } else {
+                        connector::State::Failed
+                    };
             }
             Err(error)
         }

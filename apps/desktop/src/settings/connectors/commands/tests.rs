@@ -1,6 +1,6 @@
-use super::{Submission, observed_edit, reconcile};
+use super::{Submission, finish, observed_edit, prepare, reconcile};
 use sailry_protocol::{
-    Command, NodeId, Request, RequestId,
+    Command, ErrorCode, NodeId, Request, RequestId,
     plugin::connector::{self, Connection},
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -138,4 +138,82 @@ fn releases_edits_without_replacing_login_attempts() {
         },
     );
     assert!(observed_edit(&login, &[row]).is_none());
+}
+
+#[test]
+fn prepares_fresh_probe_requests() {
+    let id = RequestId::new();
+    let mut requests = BTreeMap::new();
+    let first = prepare(
+        &mut requests,
+        id,
+        3,
+        Request::new(NodeId([9; 32]), Command::ProbeConnection { connection: id }),
+    );
+    let second = prepare(
+        &mut requests,
+        id,
+        3,
+        Request::new(NodeId([9; 32]), Command::ProbeConnection { connection: id }),
+    );
+    assert_ne!(first.id, second.id);
+    assert!(requests.is_empty());
+    let durable = prepare(
+        &mut requests,
+        id,
+        3,
+        Request::new(
+            NodeId([9; 32]),
+            Command::DisconnectConnection {
+                connection: id,
+                expected_revision: 3,
+            },
+        ),
+    );
+    finish(
+        &mut requests,
+        id,
+        durable.id,
+        Some(ErrorCode::OutcomeUnknown),
+    );
+    finish(&mut requests, id, first.id, Some(ErrorCode::Unavailable));
+    assert_eq!(requests[&id].request.id, durable.id);
+    finish(&mut requests, id, durable.id, Some(ErrorCode::Unavailable));
+    assert!(requests.is_empty());
+}
+
+#[test]
+fn retains_only_unknown_durable_outcomes() {
+    for probe in [false, true] {
+        for code in [
+            None,
+            Some(ErrorCode::Unavailable),
+            Some(ErrorCode::OutcomeUnknown),
+        ] {
+            let id = RequestId::new();
+            let command = if probe {
+                Command::ProbeConnection { connection: id }
+            } else {
+                Command::DisconnectConnection {
+                    connection: id,
+                    expected_revision: 3,
+                }
+            };
+            let request = Request::new(NodeId([9; 32]), command);
+            let request_id = request.id;
+            let mut requests = BTreeMap::from([(
+                id,
+                Submission {
+                    request,
+                    revision: 3,
+                },
+            )]);
+            finish(&mut requests, id, request_id, code);
+            assert_eq!(
+                requests.contains_key(&id),
+                !probe && code == Some(ErrorCode::OutcomeUnknown),
+                "{probe}/{code:?}",
+            );
+        }
+    }
 }

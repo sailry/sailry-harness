@@ -1,4 +1,5 @@
 use super::*;
+use std::sync::atomic::Ordering;
 
 fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
     rusqlite::Connection::open_with_flags(
@@ -12,6 +13,54 @@ fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
         |row| row.get(0),
     )
     .unwrap()
+}
+
+#[tokio::test]
+async fn expires_rejected_credentials_and_allows_rechecking() {
+    for remote in [false, true] {
+        let server = server::Server::respond(Some("{}".into()), None).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        node.set_connector_fixture(ORIGIN, &server.origin);
+        let mut declared = declaration();
+        declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[200]});
+        configure(&directory.path().join("source/package"), declared);
+        let package = info(execute(&client, install(worktree, 0)).await)
+            .summary
+            .reference();
+        let row = connected(&client, package, None, None, secret()).await;
+        let before: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        server.status.store(401, Ordering::SeqCst);
+        let request = client.prepare(Command::ProbeConnection { connection: row.id });
+        assert_eq!(
+            client.execute(request).await.unwrap_err().code,
+            ErrorCode::Expired
+        );
+        let after: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        assert_eq!(after["state"], "expired");
+        for field in ["fields", "secrets", "auth_revision", "revision"] {
+            assert_eq!(after[field], before[field], "{remote}/{field}");
+        }
+        let bytes = stored(&node, row.id);
+        server.status.store(503, Ordering::SeqCst);
+        assert_eq!(
+            client
+                .execute(client.prepare(Command::ProbeConnection { connection: row.id }))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::Unavailable
+        );
+        assert_eq!(stored(&node, row.id), bytes);
+        server.status.store(0, Ordering::SeqCst);
+        let Output::Connection(row) =
+            execute(&client, Command::ProbeConnection { connection: row.id }).await
+        else {
+            panic!("connection expected")
+        };
+        assert_eq!(row.state, State::Connected);
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
 }
 
 #[tokio::test]

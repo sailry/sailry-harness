@@ -1,9 +1,41 @@
-//! Row commands retain request identity until completion or a newer observed revision.
+//! Durable row commands retain identity only while their outcome is unknown.
 use super::*;
+use sailry_protocol::RequestId;
 
 pub(super) struct Submission {
     pub request: Request,
     pub revision: u64,
+}
+
+fn prepare(
+    requests: &mut BTreeMap<connector::Id, Submission>,
+    id: connector::Id,
+    revision: u64,
+    request: Request,
+) -> Request {
+    if matches!(&request.command, Command::ProbeConnection { .. }) {
+        return request;
+    }
+    requests
+        .entry(id)
+        .or_insert(Submission { request, revision })
+        .request
+        .clone()
+}
+
+fn finish(
+    requests: &mut BTreeMap<connector::Id, Submission>,
+    id: connector::Id,
+    request: RequestId,
+    error: Option<ErrorCode>,
+) {
+    if requests.get(&id).is_some_and(|submission| {
+        submission.request.id == request
+            && (matches!(&submission.request.command, Command::ProbeConnection { .. })
+                || error != Some(ErrorCode::OutcomeUnknown))
+    }) {
+        requests.remove(&id);
+    }
 }
 
 pub(super) fn reconcile(
@@ -13,9 +45,10 @@ pub(super) fn reconcile(
 ) {
     requests.retain(|id, submission| {
         pending.contains(id)
-            || !rows
-                .iter()
-                .any(|row| row.id == *id && row.revision > submission.revision)
+            || (!matches!(&submission.request.command, Command::ProbeConnection { .. })
+                && !rows
+                    .iter()
+                    .any(|row| row.id == *id && row.revision > submission.revision))
     });
 }
 
@@ -52,29 +85,9 @@ impl Workspace {
             {
                 continue;
             }
-            if self
-                .connectors
-                .requests
-                .get(&row.id)
-                .is_some_and(|submission| {
-                    !matches!(&submission.request.command, Command::ProbeConnection { .. })
-                })
-            {
-                crate::feedback::error("", &tr("connector_unknown"), window, cx);
-                return;
-            }
-            let request = self
-                .connectors
-                .requests
-                .entry(row.id)
-                .or_insert_with(|| Submission {
-                    request: binding
-                        .client
-                        .prepare(Command::ProbeConnection { connection: row.id }),
-                    revision: row.revision,
-                })
-                .request
-                .clone();
+            let request = binding
+                .client
+                .prepare(Command::ProbeConnection { connection: row.id });
             requests.push((row.id, request));
         }
         if requests.is_empty() {
@@ -93,7 +106,7 @@ impl Workspace {
             let mut tasks = tokio::task::JoinSet::new();
             for (id, request) in requests {
                 let client = client.clone();
-                tasks.spawn(async move { (id, client.execute(request).await) });
+                tasks.spawn(async move { (id, request.id, client.execute(request).await) });
             }
             let mut results = Vec::new();
             while let Some(result) = tasks.join_next().await {
@@ -104,31 +117,72 @@ impl Workspace {
         cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
             let _ = owner.update_in(cx, |this, window, cx| {
-                if this.connectors.binding.as_ref().is_none_or(|binding| binding.client.target() != expected) { return; }
+                if this
+                    .connectors
+                    .binding
+                    .as_ref()
+                    .is_none_or(|binding| binding.client.target() != expected)
+                {
+                    return;
+                }
                 this.connectors.refreshing = false;
-                for id in pending { this.connectors.pending.remove(&id); }
+                for id in pending {
+                    this.connectors.pending.remove(&id);
+                }
                 let mut fault = None;
                 match result {
-                    Ok(results) => for result in results {
-                        match result {
-                            Ok((id, result)) => {
-                                this.connectors.pending.remove(&id);
-                                if !matches!(&result, Err(error) if matches!(error.code, ErrorCode::OutcomeUnknown | ErrorCode::Unavailable)) {
-                                    this.connectors.requests.remove(&id);
+                    Ok(results) => {
+                        for result in results {
+                            match result {
+                                Ok((id, request, result)) => {
+                                    this.connectors.pending.remove(&id);
+                                    finish(
+                                        &mut this.connectors.requests,
+                                        id,
+                                        request,
+                                        result.as_ref().err().map(|error| error.code),
+                                    );
+                                    if let Err(error) = result {
+                                        fault.get_or_insert(error);
+                                    }
                                 }
-                                if let Err(error) = result { fault.get_or_insert(error); }
-                            },
-                            Err(_) => { fault.get_or_insert_with(|| Fault::new(ErrorCode::OutcomeUnknown, "connector refresh interrupted")); },
+                                Err(_) => {
+                                    fault.get_or_insert_with(|| {
+                                        Fault::new(
+                                            ErrorCode::OutcomeUnknown,
+                                            "connector refresh interrupted",
+                                        )
+                                    });
+                                }
+                            }
                         }
-                    },
-                    Err(_) => { fault = Some(Fault::new(ErrorCode::OutcomeUnknown, "connector refresh interrupted")); },
+                    }
+                    Err(_) => {
+                        fault = Some(Fault::new(
+                            ErrorCode::OutcomeUnknown,
+                            "connector refresh interrupted",
+                        ));
+                    }
                 }
-                reconcile(&mut this.connectors.requests, &this.connectors.pending, &this.connectors.rows);
-                if let Some(error) = fault { failure(error, window, cx); }
-                else { crate::feedback::toast(window, tr("connector_saved"), notification::Notification::success(tr("connector_saved")), cx); }
+                reconcile(
+                    &mut this.connectors.requests,
+                    &this.connectors.pending,
+                    &this.connectors.rows,
+                );
+                if let Some(error) = fault {
+                    failure(error, window, cx);
+                } else {
+                    crate::feedback::toast(
+                        window,
+                        tr("connector_saved"),
+                        notification::Notification::success(tr("connector_saved")),
+                        cx,
+                    );
+                }
                 cx.notify();
             });
-        }).detach();
+        })
+        .detach();
         cx.notify();
     }
 
@@ -150,10 +204,13 @@ impl Workspace {
             | Command::ConfirmConnectorConsent { connection, .. } => *connection,
             _ => return,
         };
-        if self.connectors.requests.get(&id).is_some_and(|submission| {
-            serde_json::to_value(&submission.request.command).ok()
-                != serde_json::to_value(&command).ok()
-        }) {
+        let probe = matches!(&command, Command::ProbeConnection { .. });
+        if !probe
+            && self.connectors.requests.get(&id).is_some_and(|submission| {
+                serde_json::to_value(&submission.request.command).ok()
+                    != serde_json::to_value(&command).ok()
+            })
+        {
             crate::feedback::error("", &tr("connector_unknown"), window, cx);
             return;
         }
@@ -186,16 +243,13 @@ impl Workspace {
                 .map(|row| row.revision)
                 .unwrap_or_default(),
         };
-        let request = self
-            .connectors
-            .requests
-            .entry(id)
-            .or_insert_with(|| Submission {
-                request: client.prepare(command),
-                revision,
-            })
-            .request
-            .clone();
+        let request = prepare(
+            &mut self.connectors.requests,
+            id,
+            revision,
+            client.prepare(command),
+        );
+        let request_id = request.id;
         let job = binding
             .runtime
             .spawn(async move { client.execute(request).await });
@@ -203,21 +257,34 @@ impl Workspace {
         cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
             let _ = owner.update_in(cx, |this, window, cx| {
-                if this.connectors.binding.as_ref().is_none_or(|binding| binding.client.target() != expected) { return; }
-                this.connectors.pending.remove(&id);
-                if matches!(&result, Ok(outcome) if !matches!(outcome, Err(error) if matches!(error.code, ErrorCode::OutcomeUnknown | ErrorCode::Unavailable))) {
-                    this.connectors.requests.remove(&id);
+                if this
+                    .connectors
+                    .binding
+                    .as_ref()
+                    .is_none_or(|binding| binding.client.target() != expected)
+                {
+                    return;
                 }
-                reconcile(&mut this.connectors.requests, &this.connectors.pending, &this.connectors.rows);
+                this.connectors.pending.remove(&id);
+                let code = match &result {
+                    Ok(outcome) => outcome.as_ref().err().map(|error| error.code),
+                    Err(_) => Some(ErrorCode::OutcomeUnknown),
+                };
+                finish(&mut this.connectors.requests, id, request_id, code);
+                reconcile(
+                    &mut this.connectors.requests,
+                    &this.connectors.pending,
+                    &this.connectors.rows,
+                );
                 match result {
-                Ok(Ok(_)) => crate::feedback::toast(
-                    window,
-                    tr("connector_saved"),
-                    notification::Notification::success(tr("connector_saved")),
-                    cx,
-                ),
-                Ok(Err(error)) => failure(error, window, cx),
-                _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
+                    Ok(Ok(_)) => crate::feedback::toast(
+                        window,
+                        tr("connector_saved"),
+                        notification::Notification::success(tr("connector_saved")),
+                        cx,
+                    ),
+                    Ok(Err(error)) => failure(error, window, cx),
+                    _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
                 }
                 cx.notify();
             });

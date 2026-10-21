@@ -391,10 +391,12 @@ async fn classifies_token_rejections() {
         for (status, body, rejected) in [
             (401, "unauthorized", true),
             (400, r#"{"error":"invalid_grant"}"#, true),
+            (400, r#"{"error":"invalid_client"}"#, true),
             (400, r#"{"error":"temporarily_unavailable"}"#, false),
             (403, r#"{"error":"temporarily_unavailable"}"#, false),
             (503, r#"{"error":"temporarily_unavailable"}"#, false),
             (503, r#"{"error":"invalid_grant"}"#, false),
+            (503, r#"{"error":"invalid_client"}"#, false),
             (302, r#"{"error":"redirect"}"#, false),
         ] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

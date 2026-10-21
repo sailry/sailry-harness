@@ -291,7 +291,10 @@ async fn refresh_request(
 fn rejected(status: reqwest::StatusCode, document: &Value) -> bool {
     status.as_u16() == 401
         || !status.is_server_error()
-            && document.get("error").and_then(Value::as_str) == Some("invalid_grant")
+            && matches!(
+                document.get("error").and_then(Value::as_str),
+                Some("invalid_grant" | "invalid_client")
+            )
 }
 
 fn uncertain() -> Fault {

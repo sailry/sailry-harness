@@ -9,6 +9,8 @@ mod cancellation;
 mod consent;
 #[path = "oauth/lifecycle.rs"]
 mod lifecycle;
+#[path = "oauth/rejections.rs"]
+mod rejections;
 #[path = "oauth/server.rs"]
 mod server;
 

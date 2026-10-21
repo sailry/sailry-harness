@@ -12,12 +12,22 @@ pub(super) struct Server {
 
 impl Server {
     pub async fn start(dingtalk: bool, expiring: bool) -> Self {
+        Self::respond(dingtalk, expiring, true, None).await
+    }
+
+    pub async fn respond(
+        dingtalk: bool,
+        expiring: bool,
+        refresh: bool,
+        error: Option<&str>,
+    ) -> Self {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let endpoint = format!("http://{}/token", listener.local_addr().unwrap());
         let bodies = Arc::new(Mutex::new(Vec::new()));
         let stop = CancellationToken::new();
         let status = Arc::new(AtomicU16::new(200));
+        let error = error.map(str::to_owned);
         let responses = status.clone();
         let (requests, closed) = (bodies.clone(), stop.clone());
         tokio::spawn(async move {
@@ -62,8 +72,13 @@ impl Server {
                 if status == 1 {
                     continue;
                 }
-                let body = if status != 200 {
-                    serde_json::json!({"error": if status == 400 {"invalid_grant"} else {"temporarily_unavailable"}}).to_string()
+                let mut body = if status != 200 {
+                    let error = error.as_deref().unwrap_or(if status == 400 {
+                        "invalid_grant"
+                    } else {
+                        "temporarily_unavailable"
+                    });
+                    serde_json::json!({"error": error}).to_string()
                 } else if dingtalk {
                     r#"{"accessToken":"private-access-marker","refreshToken":"private-refresh-marker","expireIn":7200}"#.into()
                 } else if expiring && count == 1 {
@@ -75,6 +90,15 @@ impl Server {
                 } else {
                     r#"{"access_token":"private-access-marker","refresh_token":"private-refresh-marker","expires_in":3600,"token_type":"Bearer"}"#.into()
                 };
+                if status == 200 && !refresh {
+                    let mut value: serde_json::Value = serde_json::from_str(&body).unwrap();
+                    value.as_object_mut().unwrap().remove(if dingtalk {
+                        "refreshToken"
+                    } else {
+                        "refresh_token"
+                    });
+                    body = value.to_string();
+                }
                 let _ = socket.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
             }
         });

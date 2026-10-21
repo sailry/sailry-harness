@@ -259,15 +259,24 @@ impl Service {
                 let issued = if let Some(previous) = &target.grant
                     && matches!(auth, Auth::Oauth2 { .. })
                 {
-                    flow::refresh(
-                        &service,
-                        &declaration,
-                        &fields,
-                        previous,
-                        None,
-                        stop.clone(),
-                    )
-                    .await
+                    if previous.refresh.is_none()
+                        || !matches!(auth, Auth::Oauth2 { refresh: true, .. })
+                    {
+                        Err(Fault::new(
+                            ErrorCode::Expired,
+                            "connector authorization cannot be refreshed",
+                        ))
+                    } else {
+                        flow::refresh(
+                            &service,
+                            &declaration,
+                            &fields,
+                            previous,
+                            None,
+                            stop.clone(),
+                        )
+                        .await
+                    }
                 } else {
                     flow::authorize(
                         flow::Input {
@@ -297,7 +306,12 @@ impl Service {
                             .await?;
                         Ok(issued.access)
                     }
-                    Err(error) if error.code == ErrorCode::PermissionDenied => {
+                    Err(error)
+                        if matches!(
+                            error.code,
+                            ErrorCode::PermissionDenied | ErrorCode::Expired
+                        ) =>
+                    {
                         ingress
                             .save_connector_grant(
                                 target.id,

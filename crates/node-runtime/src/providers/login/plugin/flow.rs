@@ -548,6 +548,9 @@ async fn poll(
             return Err(super::super::expired());
         }
         let (status, document) = response(service, endpoint, fields, stop).await?;
+        if status.is_server_error() {
+            return Err(super::super::unavailable());
+        }
         match document.get("error").and_then(Value::as_str) {
             Some("authorization_pending") => continue,
             Some("slow_down") => {
@@ -556,7 +559,7 @@ async fn poll(
                     .ok_or_else(invalid)?;
                 continue;
             }
-            Some("access_denied" | "expired_token" | "invalid_grant") => {
+            Some("access_denied" | "expired_token" | "invalid_grant" | "invalid_client") => {
                 return Err(Fault::new(
                     ErrorCode::PermissionDenied,
                     "model authorization failed; sign in again",
