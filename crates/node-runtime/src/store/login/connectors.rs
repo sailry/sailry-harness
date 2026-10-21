@@ -9,6 +9,7 @@ pub(super) struct Entry {
     callback: Option<oneshot::Sender<Secret>>,
     stop: CancellationToken,
     record: Record,
+    previous: Option<Record>,
     context: Option<sailry_protocol::plugin::Context>,
     finished: bool,
 }
@@ -124,6 +125,11 @@ impl Worker {
                         database.profile.as_deref(),
                         &request.command,
                     )?;
+                    let previous = if connection.is_some() {
+                        Some(connections::read(&database.connection, record.id)?)
+                    } else {
+                        None
+                    };
                     if self
                         .connectors
                         .values()
@@ -157,9 +163,9 @@ impl Worker {
                         connections::declaration(&database.connection, package, connector)?.0;
                     let settings =
                         crate::store::plugins::settings::resolve(&database.connection, &info)?;
-                    Ok((record, declaration, info, settings))
+                    Ok((record, declaration, info, settings, previous))
                 })();
-                let (record, declaration, info, settings) = match prepared {
+                let (record, declaration, info, settings, previous) = match prepared {
                     Ok(prepared) => prepared,
                     Err(error) => {
                         return database.finish_external(caller, request, Err(error), events);
@@ -197,6 +203,7 @@ impl Worker {
                         callback: Some(callback),
                         stop: stop.clone(),
                         record: record.clone(),
+                        previous,
                         context: request.plugin.clone(),
                         finished: false,
                     },
@@ -212,6 +219,7 @@ impl Worker {
                 );
                 let mut target = connections::target(&record, declaration, package.clone());
                 target.manual = manual;
+                target.identity = None;
                 let service = self.service.clone();
                 let environment = self.environment.clone();
                 let sender = self.sender.clone();
@@ -294,6 +302,7 @@ impl Worker {
                     return database.finish_external(caller, request, Ok(output), events);
                 }
                 let baseline = entry.record.clone();
+                let previous = entry.previous.clone();
                 let result = database.finish_external_with(
                     caller,
                     request,
@@ -305,10 +314,9 @@ impl Worker {
                             Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
                             Err(error) => return Err(error),
                         };
-                        if record.revision != baseline.revision {
+                        if !restore(&mut record, &baseline, previous.as_ref()) {
                             return Ok(None);
                         }
-                        record.state = connector::State::NotConnected;
                         connections::save(db, &record)?;
                         Ok(super::super::plugins::get(db, &record.plugin)?
                             .map(|info| Event::PluginChanged(info.summary)))
@@ -479,7 +487,14 @@ impl Worker {
                 entry.finished = true;
                 entry.callback.take();
                 self.pending -= 1;
-                let result = commit(database, &entry.record, result, true, events);
+                let result = commit(
+                    database,
+                    &entry.record,
+                    entry.previous.as_ref(),
+                    result,
+                    true,
+                    events,
+                );
                 entry.set(match result {
                     Ok(connection) => LoginState::Connected(connection),
                     Err(error) if error.code == ErrorCode::Cancelled => LoginState::Cancelled,
@@ -494,8 +509,8 @@ impl Worker {
                 result,
             } => {
                 self.pending -= 1;
-                let result =
-                    commit(database, &baseline, result, false, events).map(Output::Connection);
+                let result = commit(database, &baseline, None, result, false, events)
+                    .map(Output::Connection);
                 let _ = reply.send(database.finish_external(caller, &request, result, events));
             }
         }
@@ -545,6 +560,7 @@ impl Subscription for Updates {
 fn commit(
     database: &mut Database,
     baseline: &Record,
+    previous: Option<&Record>,
     result: Result<Box<crate::plugins::connectors::Target>, Fault>,
     replace: bool,
     events: &broadcast::Sender<EventEnvelope>,
@@ -576,6 +592,9 @@ fn commit(
             "connector authorization changed",
         ));
     }
+    let cancelled = result
+        .as_ref()
+        .is_err_and(|error| error.code == ErrorCode::Cancelled);
     let outcome = match result {
         Ok(target) => {
             let target = *target;
@@ -602,19 +621,25 @@ fn commit(
             Ok(())
         }
         Err(error) => {
-            record.state = if record.method == connector::Kind::LocalCli
-                || error.code == ErrorCode::Cancelled
-            {
-                connector::State::NotConnected
-            } else if error.code == ErrorCode::Expired {
-                connector::State::Expired
+            if cancelled {
+                if !restore(&mut record, baseline, previous) {
+                    return Err(error);
+                }
             } else {
-                connector::State::Failed
-            };
+                record.state = if record.method == connector::Kind::LocalCli {
+                    connector::State::NotConnected
+                } else if error.code == ErrorCode::Expired {
+                    connector::State::Expired
+                } else {
+                    connector::State::Failed
+                };
+            }
             Err(error)
         }
     };
-    record.checked_at_ms = Some(crate::plugins::connectors::now());
+    if !cancelled {
+        record.checked_at_ms = Some(crate::plugins::connectors::now());
+    }
     connections::save(&transaction, &record)?;
     let projected = connections::project(&transaction, database.profile.as_deref(), &record)?;
     let envelopes = super::super::database::record(
@@ -627,6 +652,27 @@ fn commit(
         let _ = events.send(envelope);
     }
     outcome.map(|_| projected)
+}
+
+fn restore(record: &mut Record, baseline: &Record, previous: Option<&Record>) -> bool {
+    if record.revision != baseline.revision
+        || record.auth_revision != baseline.auth_revision
+        || record.grant_revision != baseline.grant_revision
+        || record.state != connector::State::Connecting
+    {
+        return false;
+    }
+    if let Some(previous) = previous {
+        let (revision, auth_revision, grant_revision) =
+            (record.revision, record.auth_revision, record.grant_revision);
+        *record = previous.clone();
+        record.revision = revision;
+        record.auth_revision = auth_revision;
+        record.grant_revision = grant_revision;
+    } else {
+        record.state = connector::State::NotConnected;
+    }
+    true
 }
 fn missing() -> Fault {
     Fault::new(

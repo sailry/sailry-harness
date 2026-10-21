@@ -2,6 +2,17 @@ use super::*;
 #[path = "../../../support/github.rs"]
 mod source;
 
+async fn empty_with_environment(
+    remote: bool,
+    environment: sailry_node_runtime::EnvironmentFixture,
+) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty_with_environment(directory.path().join("node"), environment)
+        .await
+        .unwrap();
+    support::connect(remote, directory, node).await
+}
+
 fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
     rusqlite::Connection::open_with_flags(
         node.profile().join("storage/node.sqlite3"),
@@ -16,13 +27,30 @@ fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
     .unwrap()
 }
 
+async fn ready(client: &Client, attempt: &connector::Attempt) -> connector::Connection {
+    let mut login = client.subscribe_connector_login(attempt.id).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Update::ConnectorLogin(update) = login.next().await.unwrap() else {
+                panic!("login update expected")
+            };
+            if let LoginState::Connected(row) = update.state {
+                break row;
+            }
+            assert!(update.state.active(), "{:?}", update.state);
+        }
+    })
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn bounds_cache_and_preserves_temporary_failures() {
     for remote in [false, true] {
         let programs = tempfile::tempdir().unwrap();
         let cli = source::Cli::new(programs.path());
         let (directory, node, controller, client, worktree) =
-            support::empty_with_environment(remote, cli.source()).await;
+            empty_with_environment(remote, cli.source()).await;
         let server = server::Server::start().await;
         node.set_connector_fixture(ORIGIN, &server.origin);
         let manifest: Value =
@@ -53,20 +81,7 @@ async fn bounds_cache_and_preserves_temporary_failures() {
         else {
             panic!("connector login expected")
         };
-        let mut login = client.subscribe_connector_login(attempt.id).await.unwrap();
-        let row = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                let Update::ConnectorLogin(update) = login.next().await.unwrap() else {
-                    panic!("login update expected")
-                };
-                if let LoginState::Connected(row) = update.state {
-                    break row;
-                }
-                assert!(update.state.active(), "{:?}", update.state);
-            }
-        })
-        .await
-        .unwrap();
+        let row = ready(&client, &attempt).await;
         let scope = context(package, worktree);
         let call = |path: &str| {
             client
@@ -146,6 +161,76 @@ async fn bounds_cache_and_preserves_temporary_failures() {
                 .unwrap()
                 .contains(source::TOKEN)
         );
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn clears_identity_after_changing_authentication() {
+    for remote in [false, true] {
+        let programs = tempfile::tempdir().unwrap();
+        let cli = source::Cli::new(programs.path());
+        let (directory, node, controller, client, worktree) =
+            empty_with_environment(remote, cli.source()).await;
+        let server = server::Server::start().await;
+        node.set_connector_fixture(ORIGIN, &server.origin);
+        let manifest: Value =
+            serde_json::from_str(include_str!("../../../../../../plugins/github/plugin.json"))
+                .unwrap();
+        let mut declared = declaration();
+        declared["auth"].as_array_mut().unwrap().push(
+            manifest["extensions"]["dev.sailry.platform"]["connectors"][0]["auth"][1].clone(),
+        );
+        configure(&directory.path().join("source/package"), declared);
+        let package = info(execute(&client, install(worktree, 0)).await)
+            .summary
+            .reference();
+        let Output::ConnectorLogin(attempt) = execute(
+            &client,
+            Command::StartConnectorLogin {
+                package: package.clone(),
+                connector: "service".into(),
+                connection: None,
+                expected_revision: None,
+                method: Kind::LocalCli,
+                input: Input::default(),
+            },
+        )
+        .await
+        else {
+            panic!("connector login expected")
+        };
+        let original = ready(&client, &attempt).await;
+        assert_eq!(original.identity.as_ref().unwrap().id, "fixture-user");
+        let row = super::connected(
+            &client,
+            package.clone(),
+            Some(original.id),
+            Some(original.revision),
+            secret(),
+        )
+        .await;
+        assert_eq!(row.method, Kind::Secret);
+        assert_eq!(row.state, State::Connected);
+        assert!(row.identity.is_none());
+        let response = client
+            .execute(
+                client
+                    .prepare(request("/ok", row.id))
+                    .with_plugin(context(package, worktree)),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(response, Output::PluginHttp(_)));
+        let records = server.requests.lock().unwrap().clone();
+        assert_eq!(records.len(), 1);
+        assert!(
+            records[0]
+                .0
+                .contains(&format!("authorization: Bearer {TOKEN}\r\n"))
+        );
+        assert!(!records[0].0.contains(source::TOKEN));
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }

@@ -43,18 +43,6 @@ pub(crate) async fn empty(remote: bool) -> (tempfile::TempDir, Node, Link, Clien
     start(remote, true).await
 }
 
-#[cfg(all(unix, feature = "test-support"))]
-pub(crate) async fn empty_with_environment(
-    remote: bool,
-    environment: sailry_node_runtime::EnvironmentFixture,
-) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
-    let directory = tempfile::tempdir().unwrap();
-    let node = Node::start_empty_with_environment(directory.path().join("node"), environment)
-        .await
-        .unwrap();
-    connect(remote, directory, node).await
-}
-
 pub(crate) async fn packages(
     remote: bool,
     packages: &[&str],
@@ -99,7 +87,7 @@ async fn start(remote: bool, empty: bool) -> (tempfile::TempDir, Node, Link, Cli
     connect(remote, directory, node).await
 }
 
-async fn connect(
+pub(super) async fn connect(
     remote: bool,
     directory: tempfile::TempDir,
     node: Node,

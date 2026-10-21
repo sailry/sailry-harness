@@ -296,10 +296,9 @@ async fn probes_identity_on_both_controller_paths() {
             json!({"request":format!("{ORIGIN}/identity"),"name":"/name","id":"/id"});
         declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[200]});
         configure(&directory.path().join("source/package"), declared);
-        let package = info(execute(&client, install(worktree, 0)).await)
-            .summary
-            .reference();
-        let row = connected(&client, package, None, None, secret()).await;
+        let installed = info(execute(&client, install(worktree, 0)).await);
+        let package = installed.summary.reference();
+        let row = connected(&client, package.clone(), None, None, secret()).await;
         assert_eq!(row.identity.as_ref().unwrap().name, "Fixture account");
         let Output::Connection(probed) =
             execute(&client, Command::ProbeConnection { connection: row.id }).await
@@ -310,6 +309,36 @@ async fn probes_identity_on_both_controller_paths() {
         assert_eq!(probed.identity, row.identity);
         assert!(probed.checked_at_ms.is_some());
         assert_eq!(server.requests.lock().unwrap().len(), 4);
+        let root = directory.path().join("source/package");
+        let mut declared = declaration();
+        declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[200]});
+        configure(&root, declared);
+        let manifest = root.join("plugin.json");
+        let mut value: Value = serde_json::from_slice(&fs::read(&manifest).unwrap()).unwrap();
+        value["version"] = json!("1.0.1");
+        fs::write(&manifest, value.to_string()).unwrap();
+        let package = info(execute(&client, install(worktree, installed.summary.revision)).await)
+            .summary
+            .reference();
+        let renewed = connected(
+            &client,
+            package,
+            Some(row.id),
+            Some(probed.revision),
+            Input::default(),
+        )
+        .await;
+        assert_eq!(renewed.state, State::Connected);
+        assert!(renewed.identity.is_none());
+        let requests = server.requests.lock().unwrap().clone();
+        assert_eq!(requests.len(), 5);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(headers, _)| headers.starts_with("GET /identity "))
+                .count(),
+            2
+        );
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
