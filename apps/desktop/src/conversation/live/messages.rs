@@ -90,9 +90,10 @@ impl View {
         &self,
         id: String,
         text: String,
+        turn: TurnId,
         cx: &mut Context<Self>,
     ) -> crate::content::markdown::View {
-        self.markdown_at(id, text, self.binding.worktree, false, cx)
+        self.markdown_at(id, text, self.turn_worktree(turn), false, cx)
     }
 
     fn markdown_at(
@@ -242,14 +243,17 @@ impl View {
                             .link()
                             .label(url.to_owned())
                             .on_click(move |_, _, cx| {
-                                let _ =
-                                    owner.update(cx, |_, cx| cx.emit(Event::Link(link.clone())));
+                                let _ = owner.update(cx, |_, cx| {
+                                    cx.emit(Event::Link(worktree, link.clone()));
+                                });
                             }),
                     )
                     .into_any_element()
             })
             .on_link_click(move |link, _, cx| {
-                let _ = owner.update(cx, |_, cx| cx.emit(Event::Link(link.clone())));
+                let _ = owner.update(cx, |_, cx| {
+                    cx.emit(Event::Link(worktree, link.clone()));
+                });
             })
     }
 
@@ -413,7 +417,7 @@ impl View {
                         )
                         .content(crate::conversation::surface::thought(
                             id.clone(),
-                            self.markdown(format!("{id}-text"), text.into(), cx),
+                            self.markdown(format!("{id}-text"), text.into(), turn, cx),
                         ))
                         .into_any_element()
                 }

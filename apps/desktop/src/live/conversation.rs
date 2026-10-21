@@ -332,9 +332,9 @@ impl Shell {
                 Event::DictationSettings => {
                     shell.open_dictation_settings(window, cx);
                 }
-                Event::Link(link) => {
+                Event::Link(origin, link) => {
                     shell.focus_chat_pane(view, window, cx);
-                    shell.open_chat_link(view, link.clone(), window, cx);
+                    shell.open_chat_link(view, *origin, link.clone(), window, cx);
                 }
                 Event::Session(id) => {
                     shell.open_session_reference(view, *id, window, cx);

@@ -94,6 +94,7 @@ impl View {
                         .child(self.markdown(
                             format!("question-plan-{id}"),
                             answers[0].clone(),
+                            turn,
                             cx,
                         )),
                 ),

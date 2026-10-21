@@ -302,6 +302,6 @@ impl Assets {
         self.set_open(false, window, cx);
         let _ = self
             .owner
-            .update(cx, |_, cx| cx.emit(Event::Link(uri.into())));
+            .update(cx, |_, cx| cx.emit(Event::Link(None, uri.into())));
     }
 }

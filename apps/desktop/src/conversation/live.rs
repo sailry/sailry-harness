@@ -96,7 +96,7 @@ pub(crate) enum Event {
     ArtifactEdit(WorktreeId, String),
     Settings(NodeId),
     DictationSettings,
-    Link(SharedString),
+    Link(Option<WorktreeId>, SharedString),
     Subagent(SessionId),
     Session(SessionId),
     Host(NodeId),
@@ -475,14 +475,11 @@ impl View {
         self.binding.clone()
     }
 
-    pub(crate) fn worktree_path(&self) -> Option<&str> {
+    pub(crate) fn node_snapshot(&self) -> Option<&sailry_protocol::Snapshot> {
         self.node
             .snapshot
-            .as_ref()?
-            .worktrees
-            .iter()
-            .find(|entry| Some(entry.id) == self.binding.worktree)
-            .map(|entry| entry.path.as_str())
+            .as_ref()
+            .filter(|snapshot| snapshot.node == self.binding.client.target())
     }
 
     pub(crate) fn composer_focused(&self, window: &Window, cx: &App) -> bool {

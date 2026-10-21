@@ -28,7 +28,7 @@ impl Shell {
             return;
         }
         if let Some(chat) = self.current_chat().cloned() {
-            self.open_chat_link(&chat, link, window, cx);
+            self.open_chat_link(&chat, None, link, window, cx);
             return;
         }
         if knowledge::recognizes(&link) {
@@ -36,14 +36,20 @@ impl Shell {
             return;
         }
         if let Some(live) = &self.live {
-            if let Some(worktree) = live.selected_worktree() {
-                self.open_workspace_link(
-                    (live.selected, worktree.id),
-                    worktree.path.clone(),
-                    link,
-                    window,
-                    cx,
-                );
+            if let Some(worktree) = live.selected_worktree()
+                && let Some(snapshot) = live
+                    .view
+                    .snapshot
+                    .as_ref()
+                    .filter(|snapshot| snapshot.node == live.selected)
+            {
+                let Some((worktree, target)) =
+                    file_reference::locate(&link, worktree.id, &snapshot.worktrees)
+                else {
+                    crate::resources::file_open::failure("files_open_failed", window, cx);
+                    return;
+                };
+                self.open_workspace_link((live.selected, worktree), target, link, window, cx);
             }
             return;
         }
@@ -71,6 +77,7 @@ impl Shell {
     pub(crate) fn open_chat_link(
         &mut self,
         chat: &Entity<Chat>,
+        origin: Option<WorktreeId>,
         link: SharedString,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -85,49 +92,51 @@ impl Shell {
         }
         let view = chat.read(cx);
         let binding = view.binding();
-        let Some(worktree) = binding.worktree else {
+        let Some(worktree) = origin.or(binding.worktree) else {
             return;
         };
-        let root = view.worktree_path().map(str::to_owned).or_else(|| {
+        let snapshot = view.node_snapshot().or_else(|| {
             self.live
-                .as_ref()?
-                .view
-                .snapshot
                 .as_ref()
-                .filter(|snapshot| snapshot.node == binding.client.target())?
-                .worktrees
-                .iter()
-                .find(|entry| entry.id == worktree)
-                .map(|entry| entry.path.clone())
+                .and_then(|live| live.view.snapshot.as_ref())
+                .filter(|snapshot| snapshot.node == binding.client.target())
         });
-        let Some(root) = root else {
+        let target = snapshot
+            .and_then(|snapshot| file_reference::locate(&link, worktree, &snapshot.worktrees));
+        let Some((worktree, target)) = target else {
+            crate::resources::file_open::failure("files_open_failed", window, cx);
             return;
         };
-        self.open_workspace_link((binding.client.target(), worktree), root, link, window, cx);
+        self.open_workspace_link(
+            (binding.client.target(), worktree),
+            target,
+            link,
+            window,
+            cx,
+        );
     }
 
     fn open_workspace_link(
         &mut self,
         scope: (NodeId, WorktreeId),
-        root: String,
+        target: Target,
         link: SharedString,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        match file_reference::resolve(&link, &root) {
-            Some(Target::Workspace { path, .. }) if path.is_empty() || link.ends_with('/') => {
+        match target {
+            Target::Workspace { path, .. } if path.is_empty() || link.ends_with('/') => {
                 self.open_file_in_system(scope, path, true, window, cx);
             }
-            Some(Target::Workspace { path, line }) => {
+            Target::Workspace { path, line } => {
                 self.open_conversation_file(scope, path, line, window, cx);
             }
-            Some(Target::External(path)) if cx.global::<Services>().local.target() == scope.0 => {
+            Target::External(path) if cx.global::<Services>().local.target() == scope.0 => {
                 crate::resources::file_open::local(path, window, cx);
             }
-            Some(Target::External(_)) => {
+            Target::External(_) => {
                 crate::resources::file_open::failure("files_remote_path", window, cx)
             }
-            None => crate::resources::file_open::failure("files_open_failed", window, cx),
         }
     }
 }

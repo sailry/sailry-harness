@@ -82,6 +82,19 @@ impl Shell {
             return;
         }
         binding.worktree = Some(scope.1);
+        if let Some(worktree) = source
+            .read(cx)
+            .node_snapshot()
+            .or_else(|| {
+                self.live
+                    .as_ref()
+                    .and_then(|live| live.view.snapshot.as_ref())
+                    .filter(|snapshot| snapshot.node == scope.0)
+            })
+            .and_then(|snapshot| snapshot.worktrees.iter().find(|entry| entry.id == scope.1))
+        {
+            binding.project = worktree.project;
+        }
         let current = match &self.side_resource {
             Some(SideResource::Plugin(panel))
                 if panel.read(cx).document_scope(cx) == Some(scope)

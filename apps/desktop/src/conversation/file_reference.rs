@@ -1,10 +1,37 @@
 //! Markdown paths and file URLs resolve against the originating worktree.
+use sailry_protocol::{Worktree, WorktreeId};
 use std::path::PathBuf;
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum Target {
     Workspace { path: String, line: Option<usize> },
     External(PathBuf),
+}
+
+/// Absolute links may name another registered root on the same execution Node.
+pub(crate) fn locate(
+    link: &str,
+    origin: WorktreeId,
+    roots: &[Worktree],
+) -> Option<(WorktreeId, Target)> {
+    let current = roots.iter().find(|entry| entry.id == origin)?;
+    let target = resolve(link, &current.path)?;
+    let (path, _) = parts(link)?;
+    let absolute = path.starts_with(['/', '\\'])
+        || path.as_bytes().get(1) == Some(&b':')
+        || url::Url::parse(path).is_ok_and(|url| url.scheme() == "file");
+    if absolute
+        && let Some((entry, target)) = roots
+            .iter()
+            .filter_map(|entry| match resolve(link, &entry.path)? {
+                target @ Target::Workspace { .. } => Some((entry, target)),
+                Target::External(_) => None,
+            })
+            .max_by_key(|(entry, _)| entry.path.len())
+    {
+        return Some((entry.id, target));
+    }
+    Some((origin, target))
 }
 
 /// Resolve file URLs and Markdown paths against the captured execution directory.
@@ -90,68 +117,4 @@ fn parse_line(value: &str) -> Option<usize> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn resolves_worktree_lines() {
-        assert_eq!(parse("src/main.rs#L42"), Some(("src/main.rs", Some(42))));
-        assert_eq!(parse("./src/main.rs:42"), Some(("src/main.rs", Some(42))));
-        assert_eq!(
-            parse("docs/build notes.md#L12"),
-            Some(("docs/build notes.md", Some(12)))
-        );
-        assert_eq!(parse("README.md#setup"), Some(("README.md", None)));
-    }
-    #[test]
-    fn rejects_invalid_targets() {
-        for path in [
-            "a.rs:0",
-            "a.rs#L-1",
-            "a.rs#L999999999999999",
-            "a.rs:3#L5",
-            "../secret",
-            "/etc/passwd",
-            "C:\\secret",
-            "file:///etc/passwd",
-            "https://example.test",
-        ] {
-            assert_eq!(parse(path), None, "{path}");
-        }
-    }
-
-    #[test]
-    fn resolves_urls() {
-        for link in [
-            "build%20notes.md#L3",
-            "/project/build notes.md:3",
-            "file:///project/build%20notes.md#L3",
-        ] {
-            assert_eq!(
-                resolve(link, "/project"),
-                Some(Target::Workspace {
-                    path: "build notes.md".into(),
-                    line: Some(3)
-                })
-            );
-        }
-        for link in [
-            "../outside.png",
-            "%2e%2e/outside.png",
-            "file:///outside.png",
-        ] {
-            assert_eq!(
-                resolve(link, "/project"),
-                Some(Target::External("/outside.png".into()))
-            );
-        }
-        for link in [
-            "https://example.test/a.png",
-            "file://remote/path",
-            "image.png#L0",
-            "image.png%00",
-            "a.rs:3#L5",
-        ] {
-            assert_eq!(resolve(link, "/project"), None, "{link}");
-        }
-    }
-}
+mod tests;
