@@ -1,7 +1,7 @@
 # MCP SDK patches
 
 Sailry uses `rmcp 3.5.1` from the pinned
-[sailry/rust-sdk fork](https://github.com/sailry/rust-sdk/tree/e43a57e4c4db63825dc5682d6a476da439bf9480/crates/rmcp),
+[sailry/rust-sdk fork](https://github.com/sailry/rust-sdk/tree/9d67a217b91df367af1c61137d9263c9e4b64dc5/crates/rmcp),
 based on [the official Rust SDK v3.5.1](https://github.com/modelcontextprotocol/rust-sdk/tree/79437f291b2c44053d00dcd5db969fd0cca7c887/crates/rmcp).
 The root Cargo.toml applies the fork across all crates.io `rmcp` dependencies,
 including ADK's MCP feature. The upstream Apache-2.0, MIT and documentation
@@ -42,3 +42,8 @@ authentication-method metadata keeps its existing public-client behavior.
 Explicit unsupported methods fail before registration, and confidential
 registration requires a returned nonempty client secret. The public API and
 Node's private credential storage remain unchanged.
+
+Refresh rejection uses the actual token response status before OAuth error decoding.
+HTTP 401 and explicit `invalid_grant` responses notify the existing credential
+store under its refresh guard. Server errors, network failures, timeouts and
+cancellation preserve credentials. This adds no public API or credential owner.

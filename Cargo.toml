@@ -192,7 +192,7 @@ gpui-fast-linux = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de585
 gpui-fast-windows = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
 gpui-fast-web = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
 gpui-fast-platform = { git = "https://github.com/dux-web/gpui-fast", rev = "a2de5859345c314077b8b81cfe6b34d6d013dcb1" }
-rmcp = { git = "https://github.com/sailry/rust-sdk.git", rev = "e43a57e4c4db63825dc5682d6a476da439bf9480" }
+rmcp = { git = "https://github.com/sailry/rust-sdk.git", rev = "9d67a217b91df367af1c61137d9263c9e4b64dc5" }
 portable-pty = { git = "https://github.com/sailry/wezterm.git", rev = "e814e06b5149d73ddbcb5be670b41855b2873c74" }
 
 [profile.release]

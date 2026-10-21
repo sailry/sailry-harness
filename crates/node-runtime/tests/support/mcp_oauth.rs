@@ -7,7 +7,7 @@ use std::{
     io,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU16, AtomicUsize, Ordering},
     },
 };
 use tokio::{
@@ -20,6 +20,7 @@ pub struct Server {
     pub exchanges: Arc<AtomicUsize>,
     pub refreshes: Arc<AtomicUsize>,
     pub registrations: Arc<AtomicUsize>,
+    pub status: Arc<AtomicU16>,
     token: Arc<Mutex<String>>,
     secret: Option<Arc<Mutex<String>>>,
     stop: CancellationToken,
@@ -80,6 +81,7 @@ impl Server {
         let exchanges = Arc::new(AtomicUsize::new(0));
         let refreshes = Arc::new(AtomicUsize::new(0));
         let registrations = Arc::new(AtomicUsize::new(0));
+        let status = Arc::new(AtomicU16::new(200));
         let token = Arc::new(Mutex::new("access-initial".to_owned()));
         let stop = CancellationToken::new();
         let shutdown = stop.clone();
@@ -88,6 +90,7 @@ impl Server {
             exchanges: exchanges.clone(),
             refreshes: refreshes.clone(),
             registrations: registrations.clone(),
+            status: status.clone(),
             secret: secret.clone(),
             registered,
             authentication,
@@ -115,6 +118,7 @@ impl Server {
             exchanges,
             refreshes,
             registrations,
+            status,
             token,
             secret,
             stop,
@@ -149,6 +153,7 @@ struct Issuer {
     exchanges: Arc<AtomicUsize>,
     refreshes: Arc<AtomicUsize>,
     registrations: Arc<AtomicUsize>,
+    status: Arc<AtomicU16>,
     secret: Option<Arc<Mutex<String>>>,
     registered: bool,
     authentication: Option<Authentication>,
@@ -321,6 +326,14 @@ impl Issuer {
                     assert_eq!(params["grant_type"], "refresh_token");
                     assert_eq!(params["refresh_token"], *self.refresh.lock().unwrap());
                     let revision = self.refreshes.fetch_add(1, Ordering::SeqCst) + 1;
+                    let status = self.status.load(Ordering::SeqCst);
+                    if status == 0 {
+                        let _ = stream.read(&mut buffer).await;
+                        return Ok(());
+                    }
+                    if status != 200 {
+                        return reply(&mut stream, status, "", json!({"error":if status == 401 {"invalid_client"} else {"invalid_grant"}})).await;
+                    }
                     *self.token.lock().unwrap() = format!("access-{revision}");
                     *self.refresh.lock().unwrap() = format!("refresh-{revision}");
                 }
