@@ -43,6 +43,10 @@ fn part(part: &Part) -> u64 {
         Part::FunctionResponse {
             function_response, ..
         } => text(&function_response.name) + json(&function_response.response),
+        Part::ProviderData { .. } => match part.provider_part() {
+            Part::ProviderData { .. } => 0,
+            inner => self::part(inner),
+        },
         Part::ServerToolCall { server_tool_call } => json(server_tool_call),
         Part::ServerToolResponse {
             server_tool_response,

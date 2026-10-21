@@ -76,7 +76,7 @@ impl Llm for Model {
 
     async fn generate_content(
         &self,
-        request: LlmRequest,
+        mut request: LlmRequest,
         streaming: bool,
     ) -> Result<LlmResponseStream, AdkError> {
         let credentials = credentials(
@@ -88,6 +88,11 @@ impl Llm for Model {
         )
         .await
         .map_err(response::fault)?;
+        let mut origin = credentials.origin.clone().unwrap_or_else(|| {
+            super::history::origin(&self.provider, &self.config.model, None, None)
+        });
+        origin.model = self.config.model.clone();
+        super::history::project(&mut request, &origin);
         let input = request::convert(
             request,
             &self.provider.endpoint,
@@ -164,7 +169,10 @@ impl Llm for Model {
             let result = result.and_then(|()| accumulator.finish(&names));
             let _ = sender.send(result).await;
         });
-        Ok(Box::pin(Output { receiver, stop }))
+        Ok(super::history::responses(
+            Box::pin(Output { receiver, stop }),
+            origin,
+        ))
     }
 }
 
@@ -361,16 +369,17 @@ async fn credentials(
     stop: &CancellationToken,
 ) -> Result<Credentials, Fault> {
     if provider.authentication == Authentication::ApiKey {
-        let key = if key.is_some() {
-            key
+        let (key, credential) = if key.is_some() {
+            (key, None)
         } else {
             match reference {
-                Some(reference) => Some(
-                    ingress
-                        .resolve_credential(reference.clone(), provider.id)
-                        .await?,
-                ),
-                None => None,
+                Some(reference) => {
+                    let (credential, key) = ingress
+                        .model_credential(reference.clone(), provider.id)
+                        .await?;
+                    (Some(key), Some(credential))
+                }
+                None => (None, None),
             }
         };
         let mut headers = reqwest::header::HeaderMap::new();
@@ -393,6 +402,12 @@ async fn credentials(
                 .map_err(|_| Fault::invalid("model credential header is invalid"))?;
         }
         Ok(Credentials {
+            origin: Some(super::history::origin(
+                provider,
+                "",
+                credential.as_ref(),
+                None,
+            )),
             headers,
             access: None,
             secrets: key.clone().into_iter().collect(),
@@ -403,7 +418,7 @@ async fn credentials(
             .cloned()
             .ok_or_else(|| Fault::new(ErrorCode::NotConfigured, "provider sign-in is required"))?;
         let options = crate::providers::login::effective(provider)?;
-        let grant = ingress
+        let authorized = ingress
             .authorization(
                 reference,
                 provider.id,
@@ -411,11 +426,18 @@ async fn credentials(
                 &options,
                 stop,
             )
-            .await?
-            .grant;
+            .await?;
+        let origin = super::history::origin(
+            provider,
+            "",
+            Some(&authorized.credential),
+            Some(&authorized.grant),
+        );
+        let grant = authorized.grant;
         let headers = grant.headers(&options)?;
         let secrets = grant.secrets(&headers);
         Ok(Credentials {
+            origin: Some(origin),
             headers,
             access: Some(grant.access().clone()),
             key: None,
@@ -491,6 +513,7 @@ pub(crate) async fn discover_authorized(
         let headers = grant.headers(options)?;
         let secrets = grant.secrets(&headers);
         let credentials = Credentials {
+            origin: None,
             headers,
             access: Some(grant.access().clone()),
             key: None,

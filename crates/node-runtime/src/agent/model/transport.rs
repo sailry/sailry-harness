@@ -94,6 +94,9 @@ impl Capabilities {
                     let state = states.entry(key.clone()).or_default();
                     state.observe(event);
                 }
+                if matches!(event, TransportEvent::HttpCompleted { .. }) {
+                    return;
+                }
                 let mut entry = crate::logging::Entry::new(
                     crate::logging::Area::Model,
                     crate::logging::Phase::Completed,
@@ -110,14 +113,14 @@ impl Capabilities {
                         entry.connection_reused = Some(reused);
                         entry.continuation = Some(if incremental { "incremental" } else { "full" });
                     }
-                    TransportEvent::Fallback { refusal }
-                    | TransportEvent::HttpCompleted { refusal } => {
+                    TransportEvent::Fallback { refusal } => {
                         entry.transport = Some("sse");
                         entry.fallback_reason = Some(match refusal {
                             WsRefusal::Definitive => "refused",
                             WsRefusal::Transient => "transient",
                         });
                     }
+                    TransportEvent::HttpCompleted { .. } => unreachable!(),
                 }
                 entry.emit();
             }),
@@ -172,6 +175,45 @@ impl Llm for Http {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn logs_one_fallback_selection() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tracing_subscriber::{Layer, layer::SubscriberExt};
+        struct Count(Arc<AtomicUsize>);
+        impl<S: tracing::Subscriber> Layer<S> for Count {
+            fn on_event(
+                &self,
+                _: &tracing::Event<'_>,
+                _: tracing_subscriber::layer::Context<'_, S>,
+            ) {
+                self.0.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        let provider: Provider = serde_json::from_value(serde_json::json!({
+            "id":sailry_protocol::ProviderId::new(),"revision":1,"name":"Fixture", "api":"responses",
+            "authentication":"api_key","endpoint":"https://fixture.invalid/v1","enabled":true,
+            "models":[],"default_model":"fixture"
+        })).unwrap();
+        let capabilities = Arc::new(Capabilities::default());
+        let options = capabilities
+            .options(&provider, "fixture", sailry_protocol::SessionId::new())
+            .unwrap();
+        let count = Arc::new(AtomicUsize::new(0));
+        let dispatch =
+            tracing::Dispatch::new(tracing_subscriber::registry().with(Count(count.clone())));
+        tracing::dispatcher::with_default(&dispatch, || {
+            (options.observe)(TransportEvent::Fallback {
+                refusal: WsRefusal::Definitive,
+            });
+            assert!((options.enabled)());
+            (options.observe)(TransportEvent::HttpCompleted {
+                refusal: WsRefusal::Definitive,
+            });
+            assert!(!(options.enabled)());
+        });
+        assert_eq!(count.load(Ordering::Relaxed), 1);
+    }
+
     #[test]
     fn remembers_only_confirmed_refusals() {
         let mut state = Capability::Unknown;

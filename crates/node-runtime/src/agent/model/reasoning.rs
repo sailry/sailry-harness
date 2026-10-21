@@ -38,7 +38,10 @@ pub(super) fn resolve(
     effort.validate(api, model.map_or(0, |model| model.output))?;
     Ok(Resolved {
         effort,
-        encrypted: known != Some(false),
+        encrypted: known != Some(false)
+            && (known == Some(true)
+                || model.is_some_and(|model| model.reasoning)
+                || !matches!(effort, Effort::Default | Effort::Disabled)),
         summary: effort != Effort::Disabled
             && known != Some(false)
             && (model.is_some_and(|model| model.reasoning) || effort != Effort::Default),
@@ -141,7 +144,33 @@ mod tests {
         assert!(!resolved.summary);
         assert!(!resolved.encrypted);
         assert!(
-            resolve(None, ModelApi::Responses, Effort::Default)
+            !resolve(None, ModelApi::Responses, Effort::Default)
+                .unwrap()
+                .encrypted
+        );
+        assert!(
+            !resolve(None, ModelApi::Responses, Effort::Disabled)
+                .unwrap()
+                .encrypted
+        );
+        assert!(
+            resolve(None, ModelApi::Responses, Effort::High)
+                .unwrap()
+                .encrypted
+        );
+        model.reasoning = true;
+        model.capabilities = None;
+        model.default_effort = Effort::Default;
+        assert!(
+            resolve(Some(&model), ModelApi::Responses, Effort::Disabled)
+                .unwrap()
+                .encrypted
+        );
+        model.reasoning = false;
+        model.capabilities =
+            Some(serde_json::from_value(serde_json::json!({"reasoning":true})).unwrap());
+        assert!(
+            resolve(Some(&model), ModelApi::Responses, Effort::Default)
                 .unwrap()
                 .encrypted
         );

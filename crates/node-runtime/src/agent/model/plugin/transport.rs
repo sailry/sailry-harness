@@ -68,6 +68,7 @@ pub(super) struct Credentials {
     pub(super) access: Option<Secret>,
     pub(super) key: Option<Secret>,
     pub(super) secrets: Vec<Secret>,
+    pub(super) origin: Option<adk_core::ProviderOrigin>,
 }
 
 pub(super) fn public(value: &str, credentials: &Credentials) -> Result<(), Fault> {

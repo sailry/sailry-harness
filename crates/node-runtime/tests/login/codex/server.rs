@@ -3,6 +3,18 @@ use serde_json::Value;
 
 pub(crate) fn standard(request: &discovery_support::Request, expires: u64) -> Reply {
     match request.path.as_str() {
+        "/v1/responses"
+            if request.method == "GET"
+                && request
+                    .headers
+                    .get("upgrade")
+                    .is_some_and(|value| value.eq_ignore_ascii_case("websocket")) =>
+        {
+            Reply::Raw(
+                "HTTP/1.1 426 Upgrade Required\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                    .into(),
+            )
+        }
         "/api/accounts/deviceauth/usercode" => {
             assert_eq!(request.method, "POST");
             assert_eq!(

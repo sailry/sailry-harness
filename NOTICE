@@ -75,8 +75,8 @@ third_party_licenses/.
 
 ADK-Rust agent engine and model clients
 The ADK crates use https://github.com/dux-web/adk-rust at
-af1c17a1d9e683fb5b49946d0ed094954539ebd2. The upstream source is
-https://github.com/zavora-ai/adk-rust. The fork includes provider history replay,
+immutable tag sailry-transport-942929d6 (commit 942929d69faf787deed7bfbcda04e17000289d7a). The upstream source is
+https://github.com/zavora-ai/adk-rust. The fork includes source-bound provider history replay,
 Responses transport policy and explicit OpenCode timeouts. Retained notices,
 licenses and source provenance are in third_party_licenses/adk-model.md.
 

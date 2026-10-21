@@ -132,7 +132,7 @@ isolation and lifetime cleanup; they are not persistent build caches.
 
 ## Test conventions
 
-The conventions follow the [pinned ADK contributor guide](https://github.com/dux-web/adk-rust/blob/af1c17a1d9e683fb5b49946d0ed094954539ebd2/CONTRIBUTING.md),
+The conventions follow the [pinned ADK contributor guide](https://github.com/dux-web/adk-rust/blob/942929d69faf787deed7bfbcda04e17000289d7a/CONTRIBUTING.md),
 adapted to Sailry's ownership and local/remote boundaries.
 
 - Put small Rust unit tests in nearby `#[cfg(test)]` modules. Put cross-module

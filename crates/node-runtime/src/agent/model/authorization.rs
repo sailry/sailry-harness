@@ -51,6 +51,7 @@ struct Prepared {
     secrets: Vec<sailry_protocol::Secret>,
     tools: Option<Vec<String>>,
     stream: bool,
+    origin: adk_core::ProviderOrigin,
 }
 
 impl Model {
@@ -89,6 +90,12 @@ impl Model {
         )
         .map_err(failure)?;
         let authorized = entry.authorize(authorized);
+        let origin = super::history::origin(
+            &provider,
+            &self.config.model,
+            Some(&authorized.credential),
+            Some(&authorized.grant),
+        );
         let observer = matches!(&authorized.grant, Grant::ChatGpt { .. }).then(|| {
             self.ingress
                 .quota_observer(self.provider.id, reference, authorized.credential.revision)
@@ -178,6 +185,7 @@ impl Model {
             secrets,
             tools: claude_tools,
             stream,
+            origin,
         })
     }
 
@@ -206,16 +214,18 @@ impl Llm for Model {
     }
     async fn generate_content(
         &self,
-        request: LlmRequest,
+        mut request: LlmRequest,
         stream: bool,
     ) -> Result<LlmResponseStream, AdkError> {
         let prepared = self.prepare(&request, stream).await?;
+        super::history::project(&mut request, &prepared.origin);
         let model = super::errors::wrap(prepared.entry.clone(), prepared.secrets);
         let responses = scoped(prepared.scope, model, request, prepared.stream).await?;
-        Ok(match prepared.tools {
+        let responses = match prepared.tools {
             Some(tools) => claude::restore(responses, tools),
             None => responses,
-        })
+        };
+        Ok(super::history::responses(responses, prepared.origin))
     }
 }
 

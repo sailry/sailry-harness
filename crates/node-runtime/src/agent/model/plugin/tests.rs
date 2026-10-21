@@ -341,6 +341,7 @@ fn frames_transport_without_header_disclosure() {
         1
     );
     let credentials = transport::Credentials {
+        origin: None,
         headers: Default::default(),
         access: None,
         key: None,
@@ -398,6 +399,7 @@ export function decode(input) {
         let producer = tokio::spawn(async move {
             let mut accumulator = response::Accumulator::default();
             let credentials = transport::Credentials {
+                origin: None,
                 headers: Default::default(),
                 access: None,
                 key: None,
@@ -457,6 +459,7 @@ export function decode(input) {
 async fn bounds_requests_before_network_io() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let credentials = transport::Credentials {
+        origin: None,
         headers: Default::default(),
         access: None,
         key: None,
@@ -531,6 +534,7 @@ async fn defaults_when_classify_is_not_exported() {
         let worker = worker::Worker::new(bundle, &stop, 4096).await.unwrap();
         assert!(!worker.classifies);
         let credentials = transport::Credentials {
+            origin: None,
             headers: Default::default(),
             access: None,
             key: None,
@@ -600,6 +604,7 @@ async fn finishes_before_the_http_connection_closes() {
     }, &CancellationToken::new(), 4096).await.unwrap();
     let stop = CancellationToken::new();
     let credentials = transport::Credentials {
+        origin: None,
         headers: Default::default(),
         access: None,
         key: None,

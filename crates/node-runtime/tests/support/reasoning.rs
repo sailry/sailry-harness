@@ -15,6 +15,14 @@ pub fn output(index: usize) -> Value {
         "content":[{"type":"output_text","text":format!("Stateless answer {index}"),"annotations":[]}]}])
 }
 
+pub fn stream(index: usize) -> Vec<u8> {
+    let event = json!({"type":"response.completed","sequence_number":0,
+        "response":{"id":format!("response-{index}"),"object":"response","created_at":1,
+            "model":"fixture-a","status":"completed","output":output(index)}});
+    let body = format!("data: {event}\n\ndata: [DONE]\n\n");
+    format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes()
+}
+
 pub fn payload(body: &Value, index: usize) {
     assert_eq!(body["store"], false);
     assert!(body.get("previous_response_id").is_none());

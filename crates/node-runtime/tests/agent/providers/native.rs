@@ -22,6 +22,8 @@ mod hosted;
 mod phases;
 #[path = "native/prompt.rs"]
 mod prompt;
+#[path = "native/provenance.rs"]
+mod provenance;
 #[path = "native/reasoning.rs"]
 mod reasoning;
 #[path = "native/retry.rs"]

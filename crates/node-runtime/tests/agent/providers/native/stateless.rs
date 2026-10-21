@@ -1,35 +1,22 @@
 use super::*;
 #[path = "../../../support/reasoning.rs"]
-mod fixture;
+pub(super) mod fixture;
 
 #[tokio::test]
 async fn preserves_only_encrypted_history() {
     for remote in [false, true] {
-        let reply = Reply::Dynamic(Arc::new(|index| {
-            let event = serde_json::json!({
-                "type":"response.completed", "sequence_number":0,
-                "response":{
-                    "id":format!("response-{index}"), "object":"response", "created_at":1,
-                    "model":"fixture-a", "status":"completed", "output":fixture::output(index)
-                }
-            });
-            let body = format!("data: {event}\n\ndata: [DONE]\n\n");
-            let header = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            server::Script {
-                bytes: format!("{header}{body}").into_bytes(),
-                ending: server::Ending::Close,
-            }
+        let reply = Reply::Dynamic(Arc::new(|index| server::Script {
+            bytes: fixture::stream(index),
+            ending: server::Ending::Close,
         }));
         let server = Server::start(ModelApi::Responses, reply).await;
         let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
         let mut provider = current.provider.clone();
-        provider.models[0].reasoning = false;
-        provider.models[0].capabilities = None;
-        provider.models[0].efforts.clear();
-        provider.models[0].default_effort = Effort::Default;
+        provider.models[0].reasoning = true;
+        provider.models[0].capabilities =
+            Some(serde_json::from_value(serde_json::json!({"reasoning":true})).unwrap());
+        provider.models[0].efforts = vec![Effort::Disabled];
+        provider.models[0].default_effort = Effort::Disabled;
         let Output::Provider(provider) = execute(
             &current.client,
             Command::PutProvider {
@@ -43,7 +30,7 @@ async fn preserves_only_encrypted_history() {
         };
         current.provider = provider;
         let mut config = current.session.config.clone();
-        config.effort = Effort::Default;
+        config.effort = Effort::Disabled;
         let Output::Session(session) = execute(
             &current.client,
             Command::SetSessionConfig {
@@ -71,6 +58,9 @@ async fn preserves_only_encrypted_history() {
             assert_eq!(requests.len(), index + 1);
             fixture::payload(&requests[index].body, index);
             drop(requests);
+            assert!(page.entries.iter().flat_map(|entry|&entry.parts).any(|part| {
+                matches!(part, Part::Thinking(value) if value.contains("Legacy summary without encrypted content"))
+            }));
             let events = fixture::events(current.node.profile(), current.session.id);
             if index == 0 {
                 assert!(

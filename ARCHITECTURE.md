@@ -343,14 +343,22 @@ credential revision, response observer and redaction material through stream com
 OAuth generations prefer a session-owned WebSocket; helpers and compaction use
 pooled HTTP. Both transports share request adaptation and response projection.
 Stateless Responses requests replay provider reasoning only with its original
-opaque `encrypted_content`. Known reasoning and unknown models request that field
-independently of summaries. History projection retains provider replay parts
-between turns without changing persisted events; old reasoning without encrypted
-content is omitted only from outgoing requests.
+opaque `encrypted_content` and the same provider, model and private authorization
+ownership. A non-secret origin digest binds the effective endpoint and credential;
+verified account identity survives refresh, while unverified identities are bounded
+by their credential reference and revision. Unknown old records and foreign opaque
+parts are omitted only from outgoing request copies; ordinary text and tool history,
+persisted events and their original bytes remain unchanged. Models request encrypted
+reasoning only when catalog metadata advertises reasoning or a positive effort is
+selected, independently of summaries. Older reasoning without encrypted content
+is omitted only from outgoing requests.
 Only verified extensions of canonical history use connection-local continuation.
 Pre-event WebSocket failures select the same adapted request over SSE once;
+absence of an acknowledgement does not prove non-delivery, so this fallback may
+generate and bill twice if the provider already accepted the first request;
 capability observations stay in Node memory and definitive refusals are remembered
-only after SSE succeeds. Proxy configurations keep the HTTP path.
+only after SSE succeeds. Destinations matched by proxy policy use HTTP; `NO_PROXY`
+bypasses remain eligible for WebSocket.
 
 Turn preparation overlaps a handshake-only preconnection; it sends no generation
 or warmup frame. Entry ownership cancels pending handshakes and closes unused

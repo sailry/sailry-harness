@@ -77,7 +77,17 @@ pub(super) fn stateless(
                     .is_some_and(|value| !value.is_empty())
         });
     }
-    if encrypted {
+    if !encrypted {
+        if let Some(include) = fields
+            .get_mut("include")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            include.retain(|value| value != "reasoning.encrypted_content");
+            if include.is_empty() {
+                fields.remove("include");
+            }
+        }
+    } else {
         let include = fields
             .entry("include")
             .or_insert_with(|| json!([]))

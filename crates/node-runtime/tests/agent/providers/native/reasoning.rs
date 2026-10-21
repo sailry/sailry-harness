@@ -1,6 +1,94 @@
 use super::*;
 
 #[tokio::test]
+async fn requests_only_advertised_encrypted_reasoning() {
+    for remote in [false, true] {
+        for (known, catalog, effort, include) in [
+            (Some(false), false, Effort::Default, false),
+            (None, false, Effort::Default, false),
+            (None, false, Effort::High, true),
+            (Some(true), true, Effort::Disabled, true),
+            (None, true, Effort::Disabled, true),
+        ] {
+            let server = Server::start(ModelApi::Responses, Reply::Text).await;
+            let mut current = Fixture::empty(remote, ModelApi::Responses, &server.endpoint).await;
+            let mut provider = current.provider.clone();
+            let model = if include {
+                "reasoning-fixture"
+            } else {
+                "gpt-4o"
+            }
+            .to_owned();
+            provider.models[0].id = model.clone();
+            provider.default_model = model.clone();
+            provider.models[0].reasoning = catalog;
+            provider.models[0].capabilities = known.map(|reasoning| {
+                serde_json::from_value(serde_json::json!({"reasoning":reasoning})).unwrap()
+            });
+            provider.models[0].efforts = vec![effort];
+            provider.models[0].default_effort = effort;
+            if known.is_none() && !catalog {
+                // An automatically selected model has no advertised metadata.
+                provider.models.clear();
+            }
+            let Output::Provider(_) = execute(
+                &current.client,
+                Command::PutProvider {
+                    expected_revision: provider.revision,
+                    provider,
+                },
+            )
+            .await
+            else {
+                panic!("provider expected")
+            };
+            let mut config = current.session.config.clone();
+            config.model = model;
+            config.effort = effort;
+            let Output::Session(session) = execute(
+                &current.client,
+                Command::SetSessionConfig {
+                    session: current.session.id,
+                    expected_revision: current.session.revision,
+                    config,
+                },
+            )
+            .await
+            else {
+                panic!("session expected")
+            };
+            current.session = session;
+            let turn = current.submit("Use the model capabilities").await;
+            let page = finished(&current.client, current.session.id, turn).await;
+            assert_eq!(
+                page.runs.last().unwrap().status,
+                Status::Completed,
+                "remote={remote}, known={known:?}, effort={effort:?}: {:?}",
+                page.runs
+            );
+            {
+                let requests = server.requests.lock().unwrap();
+                assert_eq!(requests.len(), 1);
+                let body = &requests[0].body;
+                assert_eq!(
+                    body["include"]
+                        .as_array()
+                        .is_some_and(|items| items
+                            .contains(&serde_json::json!("reasoning.encrypted_content"))),
+                    include,
+                    "{body}"
+                );
+                if effort == Effort::Disabled || !include {
+                    assert!(body["reasoning"].get("summary").is_none());
+                }
+            }
+            current.controller.close().await.unwrap();
+            current.node.shutdown().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn attempts_explicit_unknown_effort() {
     for api in [ModelApi::ChatCompletions, ModelApi::Responses] {
         for remote in [false, true] {

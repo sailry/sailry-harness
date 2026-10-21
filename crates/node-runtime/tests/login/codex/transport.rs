@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
     reason = "The shared native provider fixture includes other protocol response modes"
 )]
 #[path = "../../agent/providers/native/server.rs"]
-mod native;
+pub(super) mod native;
 
-fn expire(fixture: &Fixture, provider: &Provider) {
+pub(super) fn expire(fixture: &Fixture, provider: &Provider) {
     let db =
         rusqlite::Connection::open(fixture.node.profile().join("storage/node.sqlite3")).unwrap();
     let bytes: Vec<u8> = db
@@ -37,7 +37,7 @@ fn expire(fixture: &Fixture, provider: &Provider) {
     );
 }
 
-async fn credential(fixture: &Fixture, provider: &Provider) -> Credential {
+pub(super) async fn credential(fixture: &Fixture, provider: &Provider) -> Credential {
     let Output::Credentials(values) = fixture
         .client
         .execute(fixture.client.prepare(Command::ListCredentials))

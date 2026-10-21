@@ -232,7 +232,6 @@ impl Llm for Model {
         mut request: LlmRequest,
         stream: bool,
     ) -> adk_core::Result<LlmResponseStream> {
-        model::history::coalesce(&mut request.contents);
         self.hydrate(&mut request).await.map_err(|fault| {
             adk_core::AdkError::model("attachment input failed").with_source(fault)
         })?;

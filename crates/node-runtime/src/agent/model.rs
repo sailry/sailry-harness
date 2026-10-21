@@ -213,9 +213,18 @@ async fn configure(
                 let _ = client.preconnect().await;
             });
         }
-        errors::wrap(
-            entry.clone(),
-            credential.into_iter().map(|(_, secret)| secret).collect(),
+        let origin = history::origin(
+            provider,
+            &config.model,
+            credential.as_ref().map(|(credential, _)| credential),
+            None,
+        );
+        history::wrap(
+            errors::wrap(
+                entry.clone(),
+                credential.into_iter().map(|(_, secret)| secret).collect(),
+            ),
+            origin,
         )
     } else {
         crate::providers::login::validate(provider)?;
