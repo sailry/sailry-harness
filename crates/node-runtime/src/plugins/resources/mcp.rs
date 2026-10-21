@@ -127,6 +127,7 @@ impl Resources {
             endpoint: url.clone(),
             id: connector.id,
             revision: connector.revision,
+            checking: false,
         };
         if ingress.mcp_credentials(target.clone()).await?.is_none() {
             return Err(unavailable());

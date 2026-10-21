@@ -354,6 +354,7 @@ impl Worker {
                 database.profile.as_deref(),
                 connection,
                 record.revision,
+                true,
             )
             .map(|target| (record, target))
         })();
@@ -373,21 +374,17 @@ impl Worker {
             let mut target = target;
             let result = async {
                 if target.method == connector::Kind::LocalCli {
-                    let identity = host
+                    let access = host
                         .connectors
-                        .inspect_cli(&target.declaration, &ingress.environment, &stop)
+                        .access(&target, &ingress, None, &stop)
                         .await?;
-                    if target
-                        .identity
-                        .as_ref()
-                        .is_none_or(|expected| expected.id != identity.id)
-                    {
-                        return Err(Fault::new(
-                            ErrorCode::NotConfigured,
-                            "local account changed; sign in again",
-                        ));
-                    }
-                    target.identity = Some(identity);
+                    target.grant = Some(crate::providers::login::plugin::Issued {
+                        account_label: None,
+                        access,
+                        refresh: None,
+                        expires_at_ms: None,
+                        extra: Default::default(),
+                    });
                 } else if matches!(
                     target.method,
                     connector::Kind::Application | connector::Kind::Oauth2
@@ -396,7 +393,7 @@ impl Worker {
                         .access(&target, &ingress, None, &stop)
                         .await?;
                     target.grant = ingress
-                        .connector_target(target.id, target.revision)
+                        .connector_target(target.id, target.revision, true)
                         .await?
                         .grant;
                 } else if target.method == connector::Kind::McpOauth {
@@ -421,17 +418,21 @@ impl Worker {
                                 endpoint,
                                 id: target.id,
                                 revision: target.revision,
+                                checking: true,
                             },
                             registered,
                         )
                         .await?;
                     client.get_access_token().await.map_err(|_| missing())?;
                     target.grant = ingress
-                        .connector_target(target.id, target.revision)
+                        .connector_target(target.id, target.revision, true)
                         .await?
                         .grant;
                 }
                 host.connectors.probe(&mut target, &stop).await?;
+                if target.method == connector::Kind::LocalCli {
+                    target.grant = None;
+                }
                 Ok(Box::new(target))
             }
             .await;
@@ -548,6 +549,9 @@ fn commit(
     replace: bool,
     events: &broadcast::Sender<EventEnvelope>,
 ) -> Result<connector::Connection, Fault> {
+    if !replace && let Err(error) = &result {
+        return Err(error.clone());
+    }
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let mut record = connections::read(&transaction, baseline.id)?;
     if record.revision != baseline.revision {

@@ -61,7 +61,7 @@ impl Authorization {
         }
         for (target, _) in &self.targets {
             self.ingress
-                .connector_target(target.id, target.revision)
+                .connector_target(target.id, target.revision, target.checking)
                 .await?;
         }
         let sealed = self.sealed.lock().map_err(|_| unavailable())?.clone();

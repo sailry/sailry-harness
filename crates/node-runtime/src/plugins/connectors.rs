@@ -30,6 +30,7 @@ pub(crate) struct Target {
     pub grant: Option<Issued>,
     pub mcp_endpoint: Option<String>,
     pub manual: bool,
+    pub checking: bool,
 }
 
 pub(super) fn validate(
@@ -181,7 +182,9 @@ impl Service {
     ) -> Result<Secret, Fault> {
         let lock = self.lock(target.id)?;
         let _guard = tokio::select! {biased;_=stop.cancelled()=>return Err(cancelled()),guard=lock.lock()=>guard};
-        let live = ingress.connector_target(target.id, target.revision).await?;
+        let live = ingress
+            .connector_target(target.id, target.revision, target.checking)
+            .await?;
         let mut target = target.clone();
         target.grant = live.grant;
         let auth = target
@@ -198,7 +201,9 @@ impl Service {
                 .ok_or_else(unavailable),
             Auth::LocalCli { timeout_ms, .. } => {
                 let expected = target.identity.as_ref().ok_or_else(unavailable)?;
-                if let Some(cached) = self.cli.lock().map_err(|_| unavailable())?.get(&target.id)
+                if !target.checking
+                    && let Some(cached) =
+                        self.cli.lock().map_err(|_| unavailable())?.get(&target.id)
                     && cached.revision == target.revision
                     && cached.auth == *auth
                     && cached.identity == *expected
@@ -510,9 +515,15 @@ impl Service {
                 }
             }
             Auth::LocalCli { .. } => {
-                let (identity, _) = cli::credentials(&auth, &environment, None, &stop).await?;
+                let (identity, access) = cli::credentials(&auth, &environment, None, &stop).await?;
                 target.identity = Some(identity);
-                target.grant = None;
+                target.grant = Some(Issued {
+                    account_label: None,
+                    access,
+                    refresh: None,
+                    expires_at_ms: None,
+                    extra: BTreeMap::new(),
+                });
             }
             Auth::McpOauth { server: _, client } => {
                 let endpoint = target.mcp_endpoint.as_deref().ok_or_else(unavailable)?;
@@ -630,6 +641,9 @@ impl Service {
         if target.declaration.identity.is_some() || target.declaration.health.is_some() {
             self.probe(&mut target, &stop).await?;
         }
+        if target.method == Kind::LocalCli {
+            target.grant = None;
+        }
         Ok(target)
     }
     pub(crate) async fn probe(
@@ -637,12 +651,13 @@ impl Service {
         target: &mut Target,
         stop: &CancellationToken,
     ) -> Result<(), Fault> {
+        let failed = || Fault::new(ErrorCode::Unavailable, "connector check failed");
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
             .timeout(Duration::from_secs(10))
             .build()
-            .map_err(|_| unavailable())?;
+            .map_err(|_| failed())?;
         for (url, identity, ok) in target
             .declaration
             .identity
@@ -696,7 +711,7 @@ impl Service {
                 protected.push(token.clone());
                 request = request.header(header, format!("{}{}", injection.prefix, token.expose()));
             }
-            let mut response = tokio::select! {biased;_=stop.cancelled()=>return Err(cancelled()),response=request.send()=>response.map_err(|_|unavailable())?};
+            let mut response = tokio::select! {biased;_=stop.cancelled()=>return Err(cancelled()),response=request.send()=>response.map_err(|_|failed())?};
             if response.status().as_u16() == 401 {
                 return Err(Fault::new(
                     ErrorCode::Expired,
@@ -704,18 +719,18 @@ impl Service {
                 ));
             }
             if !ok.contains(&response.status().as_u16()) {
-                return Err(unavailable());
+                return Err(failed());
             }
             let mut bytes = Vec::new();
-            while let Some(chunk) = response.chunk().await.map_err(|_| unavailable())? {
+            while let Some(chunk) = response.chunk().await.map_err(|_| failed())? {
                 if bytes.len().saturating_add(chunk.len()) > 65_536 {
-                    return Err(unavailable());
+                    return Err(failed());
                 }
                 bytes.extend_from_slice(&chunk);
             }
             if let Some(identity) = identity {
                 let value: serde_json::Value =
-                    serde_json::from_slice(&bytes).map_err(|_| unavailable())?;
+                    serde_json::from_slice(&bytes).map_err(|_| failed())?;
                 let identity = Identity {
                     name: value
                         .pointer(&identity.name)

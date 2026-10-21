@@ -11,6 +11,8 @@ use std::collections::BTreeMap;
 #[cfg(unix)]
 #[path = "service/cli.rs"]
 mod cli;
+#[path = "service/health.rs"]
+mod health;
 
 const ORIGIN: &str = "https://service.example.com";
 const TOKEN: &str = "connector-private-service-token";

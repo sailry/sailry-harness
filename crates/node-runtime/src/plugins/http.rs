@@ -213,7 +213,9 @@ pub(crate) async fn run(
         let mut secrets = target.secrets.values().cloned().collect::<Vec<_>>();
         let mut rotated = None;
         for attempt in 0..2 {
-            ingress.connector_target(target.id, target.revision).await?;
+            ingress
+                .connector_target(target.id, target.revision, target.checking)
+                .await?;
             let token = if let Some(field) = &injection.field {
                 target.secrets.get(field).cloned().ok_or_else(|| {
                     Fault::new(ErrorCode::NotConfigured, "connector secret is unavailable")
@@ -240,7 +242,9 @@ pub(crate) async fn run(
                 || (attempt != 0
                     && target.method == sailry_protocol::plugin::connector::Kind::LocalCli)
             {
-                let current = ingress.connector_target(target.id, target.revision).await?;
+                let current = ingress
+                    .connector_target(target.id, target.revision, target.checking)
+                    .await?;
                 ingress
                     .save_connector_grant(
                         target.id,

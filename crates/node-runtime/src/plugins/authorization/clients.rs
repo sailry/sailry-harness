@@ -19,6 +19,7 @@ pub(crate) struct Target {
     pub endpoint: String,
     pub id: Id,
     pub revision: u64,
+    pub checking: bool,
 }
 
 type Client = AuthClient<reqwest::Client>;

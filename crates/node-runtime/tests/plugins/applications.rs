@@ -159,6 +159,21 @@ async fn refreshes_application_http() {
         };
         assert_eq!(rows[0].state, plugin::connector::State::Expired);
         assert!(rows[0].configured.contains(&"app_secret".into()));
+        server.status.store(200, Ordering::SeqCst);
+        let tokens = server.tokens.load(Ordering::SeqCst);
+        let Output::Connection(recovered) =
+            execute(&client, Command::ProbeConnection { connection: row.id }).await
+        else {
+            panic!("connection expected")
+        };
+        assert_eq!(recovered.state, plugin::connector::State::Connected);
+        assert_eq!(server.tokens.load(Ordering::SeqCst), tokens + 1);
+        assert!(
+            client
+                .execute(request("https://service.example.com/probe"))
+                .await
+                .is_ok()
+        );
         let snapshot = execute(&client, Command::Snapshot).await;
         let public = serde_json::to_string(&(output, error, snapshot)).unwrap();
         assert!(!public.contains(issuer::SECRET));

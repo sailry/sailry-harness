@@ -690,7 +690,10 @@ pub(in crate::store) fn resolve(
         // projection still verifies that provenance against the authorized record.
         captured.origin = record.bound.as_ref().and_then(|bound| bound.origin.clone());
     }
-    if !record.enabled || live.state != State::Connected || record.bound != captured {
+    if !record.enabled
+        || !matches!(live.state, State::Connected | State::Failed)
+        || record.bound != captured
+    {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
             "connector is not connected",
@@ -741,6 +744,7 @@ pub(in crate::store) fn target(
             }),
         mcp_endpoint: None,
         manual: false,
+        checking: false,
     }
 }
 
@@ -749,18 +753,24 @@ pub(in crate::store) fn current_target(
     profile: Option<&std::path::Path>,
     id: Id,
     revision: u64,
+    checking: bool,
 ) -> Result<crate::plugins::connectors::Target, Fault> {
     let record = read(db, id)?;
     super::super::commands::check_revision(record.revision, revision)?;
     let info = required(db, &record.plugin)?;
     let (_, declaration) = declaration(db, &info.summary.reference(), &record.connector)?;
-    if !record.enabled || project(db, profile, &record)?.state != State::Connected {
+    let state = project(db, profile, &record)?.state;
+    if !record.enabled
+        || !(matches!(state, State::Connected | State::Failed)
+            || checking && state == State::Expired)
+    {
         return Err(Fault::new(
             ErrorCode::NotConfigured,
             "connector is not connected",
         ));
     }
     let mut target = target(&record, declaration, info.summary.reference());
+    target.checking = checking;
     target.manual = info.mcp_source.is_some();
     target.mcp_endpoint = record.bound.as_ref().and_then(|bound| {
         let server = match &bound.auth {

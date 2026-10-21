@@ -62,7 +62,7 @@ fn record(
     profile: Option<&std::path::Path>,
     target: &Target,
 ) -> Result<Record, Fault> {
-    let live = current_target(db, profile, target.id, target.revision)?;
+    let live = current_target(db, profile, target.id, target.revision, target.checking)?;
     if live.package.name != target.plugin
         || live.method != Kind::McpOauth
         || !live

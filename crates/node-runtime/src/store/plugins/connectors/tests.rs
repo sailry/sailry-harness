@@ -264,7 +264,8 @@ fn suspends_changed_mcp_paths_and_queries() {
                 &fixture.database.connection,
                 fixture.host.profile(),
                 row.id,
-                row.revision
+                row.revision,
+                false
             )
             .is_err()
         );
@@ -349,7 +350,8 @@ fn suspends_changed_oauth_permissions() {
                 &fixture.database.connection,
                 fixture.host.profile(),
                 row.id,
-                row.revision
+                row.revision,
+                false
             )
             .is_err()
         );
@@ -485,7 +487,7 @@ fn preserves_reduced_permissions_and_rejects_stale_captures() {
         )
         .is_err()
     );
-    assert!(current_target(db, fixture.host.profile(), row.id, row.revision).is_err());
+    assert!(current_target(db, fixture.host.profile(), row.id, row.revision, false).is_err());
 }
 
 #[test]

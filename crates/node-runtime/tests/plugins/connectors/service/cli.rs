@@ -34,6 +34,7 @@ async fn bounds_cache_and_preserves_temporary_failures() {
         let mut declared = declaration();
         declared["auth"] = json!([auth]);
         declared["fields"] = json!([]);
+        declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[201]});
         configure(&directory.path().join("source/package"), declared);
         let package = info(execute(&client, install(worktree, 0)).await)
             .summary
@@ -110,6 +111,36 @@ async fn bounds_cache_and_preserves_temporary_failures() {
             panic!("connections expected")
         };
         assert_eq!(rows[0].state, State::Expired);
+        fs::write(cli.home().join("gh-fail"), "").unwrap();
+        let before = stored(&node, row.id);
+        assert!(
+            client
+                .execute(client.prepare(Command::ProbeConnection { connection: row.id }))
+                .await
+                .is_err()
+        );
+        assert_eq!(stored(&node, row.id), before);
+        fs::remove_file(cli.home().join("gh-fail")).unwrap();
+        let count = cli.calls("token");
+        let Output::Connection(recovered) =
+            execute(&client, Command::ProbeConnection { connection: row.id }).await
+        else {
+            panic!("connection expected")
+        };
+        assert_eq!(recovered.state, State::Connected);
+        assert_eq!(cli.calls("token"), count + 1);
+        assert!(client.execute(call("/ok")).await.is_ok());
+        {
+            let checks = server.requests.lock().unwrap();
+            let checks = checks
+                .iter()
+                .filter(|(headers, _)| headers.starts_with("GET /health "))
+                .collect::<Vec<_>>();
+            assert_eq!(checks.len(), 2);
+            for (headers, _) in checks {
+                assert!(headers.contains(&format!("authorization: Bearer {}\r\n", source::TOKEN)));
+            }
+        }
         assert!(
             !serde_json::to_string(&rows)
                 .unwrap()

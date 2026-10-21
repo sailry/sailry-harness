@@ -154,6 +154,7 @@ enum Job {
     ConnectorTarget {
         id: sailry_protocol::plugin::connector::Id,
         revision: u64,
+        checking: bool,
         reply: oneshot::Sender<Result<crate::plugins::connectors::Target, Fault>>,
     },
     ConnectorGrant {
@@ -864,8 +865,8 @@ impl Store {
                         Job::ConnectorState { reply } => {
                             let _ = reply.send(plugins::connectors::watch::snapshot(&database.connection, database.profile.as_deref()));
                         }
-                        Job::ConnectorTarget { id, revision, reply } => {
-                            let _ = reply.send(plugins::connectors::current_target(&database.connection, database.profile.as_deref(), id, revision));
+                        Job::ConnectorTarget { id, revision, checking, reply } => {
+                            let _ = reply.send(plugins::connectors::current_target(&database.connection, database.profile.as_deref(), id, revision, checking));
                         }
                         Job::ConnectorGrant { id, revision, previous, grant, reply } => {
                             let _ = reply.send(plugins::connectors::renew(&mut database, id, revision, previous.as_ref(), grant, &events));
@@ -1666,12 +1667,14 @@ impl Ingress {
         &self,
         id: sailry_protocol::plugin::connector::Id,
         revision: u64,
+        checking: bool,
     ) -> Result<crate::plugins::connectors::Target, Fault> {
         let (reply, response) = oneshot::channel();
         self.sender
             .try_send(Job::ConnectorTarget {
                 id,
                 revision,
+                checking,
                 reply,
             })
             .map_err(|_| unavailable())?;
