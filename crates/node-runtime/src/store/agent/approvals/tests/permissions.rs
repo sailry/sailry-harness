@@ -81,6 +81,76 @@ mod storage {
     }
 
     #[test]
+    fn recognizes_only_private_storage_flows() {
+        use sailry_protocol::tool::Operation;
+        for operations in [
+            vec![Operation::StorageTransaction],
+            vec![Operation::SetValue, Operation::DeleteValue],
+            vec![Operation::GetValue, Operation::StorageTransaction],
+            vec![Operation::Http, Operation::StorageTransaction],
+            vec![Operation::RunCommand, Operation::StorageTransaction],
+            vec![],
+        ] {
+            let private = !operations.is_empty()
+                && operations.iter().all(|operation| {
+                    matches!(
+                        operation,
+                        Operation::SetValue
+                            | Operation::DeleteValue
+                            | Operation::StorageTransaction
+                    )
+                });
+            for mode in [WorkMode::Code, WorkMode::Plan] {
+                let fixture = fixture(Operation::StorageTransaction, mode);
+                let db = &fixture.database.connection;
+                let mut package = crate::store::plugins::get(db, "private-state")
+                    .unwrap()
+                    .unwrap();
+                package.extension.as_mut().unwrap().tools = vec![
+                    serde_json::from_value(json!({
+                        "name":"save","description":"Save private values","handler":{
+                            "name":"save","parameters":{"type":"object","properties":{}},
+                            "flow":{"operations":operations}
+                        }
+                    }))
+                    .unwrap(),
+                ];
+                db.execute(
+                    "UPDATE plugin_packages SET body=?1 WHERE digest=?2",
+                    params![encode(&package).unwrap(), package.summary.digest],
+                )
+                .unwrap();
+                db.execute(
+                    "UPDATE plugins SET body=?1 WHERE name=?2",
+                    params![encode(&package).unwrap(), package.summary.name],
+                )
+                .unwrap();
+                let mut request = fixture.request.clone();
+                request.tool_name = crate::plugins::tools::alias("private-state", "save");
+                let result = crate::store::agent::permissions::source(db, fixture.turn, &request);
+                if mode == WorkMode::Plan {
+                    assert_eq!(result.unwrap_err().code, ErrorCode::PermissionDenied);
+                } else {
+                    assert_eq!(
+                        result.unwrap(),
+                        if private {
+                            ApprovalSource::Storage
+                        } else {
+                            ApprovalSource::User
+                        }
+                    );
+                    request.tool_name = crate::plugins::tools::alias("other-state", "save");
+                    assert_eq!(
+                        crate::store::agent::permissions::source(db, fixture.turn, &request)
+                            .unwrap(),
+                        ApprovalSource::User
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn preserves_reads_and_revokes_writes() {
         use sailry_protocol::plugin::{storage::Index, transaction::Operation};
         let mut fixture = fixture(

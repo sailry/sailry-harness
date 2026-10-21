@@ -171,7 +171,6 @@ pub struct Extension {
 }
 
 /// Protected native account sources; never expose plaintext to package scripts.
-
 /// A service binding grants no command capabilities by itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]

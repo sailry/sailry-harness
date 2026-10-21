@@ -159,6 +159,14 @@ impl Host {
             .function("prepareRequest", move |args| {
                 prepare.prepare_public(values::command(decode(args.value(0)?)?)?)
             })
+            .function("isValueConflict", |args| {
+                let outcome = decode(args.value(0)?)?;
+                Ok(HostValue::from(
+                    outcome["isError"] == true
+                        && outcome["error"]["code"] == "revision_conflict"
+                        && outcome["error"]["details"]["kind"] == "plugin_value_conflict",
+                ))
+            })
             .async_function("completeRequest", move |args| {
                 let id = args.string(0)?.parse::<RequestId>().map_err(|error| HostError::new(error.to_string()))?;
                 type Completion = std::pin::Pin<Box<dyn Future<Output = Result<HostValue, HostError>> + Send>>;

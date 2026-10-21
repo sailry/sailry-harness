@@ -16,6 +16,7 @@ pub mod compaction;
 mod connection_results;
 mod delegation;
 mod goals;
+mod memory;
 pub mod phases;
 pub mod streaming;
 mod terminal;
@@ -84,6 +85,10 @@ enum Reply {
     ReasonedTools(Arc<Vec<(String, Value)>>),
     TurnTools(Arc<Vec<(String, Value)>>),
     ResultTools(Arc<Vec<(String, Value)>>),
+    MemoryTools {
+        calls: Arc<Calls>,
+        gate: Arc<tokio::sync::Notify>,
+    },
     ScriptedTools(Arc<Mutex<Calls>>),
     PromptTools {
         prompt: Arc<String>,
@@ -311,6 +316,14 @@ impl Server {
 
     pub async fn result_tools(calls: Vec<(String, Value)>) -> Self {
         Self::serve(Reply::ResultTools(Arc::new(calls))).await
+    }
+
+    pub async fn memory_tools(calls: Calls, gate: Arc<tokio::sync::Notify>) -> Self {
+        Self::serve(Reply::MemoryTools {
+            calls: Arc::new(calls),
+            gate,
+        })
+        .await
     }
 
     pub async fn scripted_tools(calls: Vec<(String, Value)>) -> Self {
@@ -648,6 +661,7 @@ async fn respond(
                 reply,
                 Reply::TurnTools(_)
                     | Reply::ResultTools(_)
+                    | Reply::MemoryTools { .. }
                     | Reply::ScriptedTools(_)
                     | Reply::PromptTools { .. }
                     | Reply::TurnParallel(_)
@@ -670,12 +684,14 @@ async fn respond(
         Reply::ScriptedTools(calls) => Some(calls.lock().unwrap().clone()),
         _ => None,
     };
-    let resolved = if let Reply::ResultTools(calls) = &reply {
-        calls
+    let resolved = match &reply {
+        Reply::ResultTools(calls) => calls
             .get(completed)
-            .map(|call| connection_results::resolve(&body, call))
-    } else {
-        None
+            .map(|call| connection_results::resolve(&body, call)),
+        Reply::MemoryTools { calls, .. } => calls
+            .get(completed)
+            .map(|call| memory::resolve(&body, call)),
+        _ => None,
     };
     let available = if let Reply::AvailableTools(calls) = &reply {
         calls
@@ -697,7 +713,7 @@ async fn respond(
             calls.get(completed)
         }
         Reply::ScriptedTools(_) => scripted.as_ref().unwrap().get(completed),
-        Reply::ResultTools(_) => resolved.as_ref(),
+        Reply::ResultTools(_) | Reply::MemoryTools { .. } => resolved.as_ref(),
         Reply::PromptTools { prompt, calls } => body["messages"]
             .as_array()
             .unwrap()
@@ -739,6 +755,11 @@ async fn respond(
         }
     };
     records.lock().unwrap().push(body);
+    if let Reply::MemoryTools { gate, .. } = &reply
+        && completed == 1
+    {
+        gate.notified().await;
+    }
     if let Reply::Markdown(_, delay, release) = &reply {
         tokio::time::sleep(*delay).await;
         if let Some(release) = release {

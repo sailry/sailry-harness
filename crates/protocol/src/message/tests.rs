@@ -18,6 +18,16 @@ mod faults {
     }
 
     #[test]
+    fn round_trips_value_conflict() {
+        let mut fault = Fault::new(ErrorCode::RevisionConflict, "plugin value changed");
+        fault.details = Some(FaultDetails::PluginValueConflict);
+        let value = serde_json::to_value(&fault).unwrap();
+        assert_eq!(value["details"], json!({"kind":"plugin_value_conflict"}));
+        assert_eq!(serde_json::from_value::<Fault>(value).unwrap(), fault);
+        assert_eq!(crate::VERSION, 1);
+    }
+
+    #[test]
     fn round_trips_removal_details() {
         let mut fault = Fault::new(ErrorCode::Busy, "fixture project has pending tasks");
         fault.details = Some(FaultDetails::ProjectRemoval {

@@ -78,7 +78,8 @@ pub(super) fn source(
                 | sailry_protocol::tool::Operation::DeleteValue
                 | sailry_protocol::tool::Operation::StorageTransaction
         )
-    ) {
+    ) || operation.is_none() && super::plugins::storage_flow(db, turn, &request.tool_name)?
+    {
         // The operation and grant belong to the admitted package. Admission still
         // checks its live availability, scope and exact private KV mutations.
         return Ok(ApprovalSource::Storage);

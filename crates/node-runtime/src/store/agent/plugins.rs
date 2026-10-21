@@ -78,6 +78,34 @@ pub(super) fn command_flow(db: &Connection, turn: TurnId, name: &str) -> Result<
     }))
 }
 
+pub(super) fn storage_flow(db: &Connection, turn: TurnId, name: &str) -> Result<bool, Fault> {
+    use sailry_protocol::tool::Operation;
+    let packages = packages(db, &read(db, turn)?)?;
+    Ok(packages.iter().any(|package| {
+        package.extension.as_ref().is_some_and(|extension| {
+            extension.tools.iter().any(|tool| {
+                tool.valid()
+                    && crate::plugins::tools::alias(&package.summary.name, &tool.name) == name
+                    && tool
+                        .handler
+                        .as_ref()
+                        .and_then(|handler| handler.flow.as_ref())
+                        .is_some_and(|flow| {
+                            !flow.operations.is_empty()
+                                && flow.operations.iter().all(|operation| {
+                                    matches!(
+                                        operation,
+                                        Operation::SetValue
+                                            | Operation::DeleteValue
+                                            | Operation::StorageTransaction
+                                    )
+                                })
+                        })
+            })
+        })
+    }))
+}
+
 pub(in crate::store) fn check_computer(
     db: &Connection,
     context: &plugin::Context,

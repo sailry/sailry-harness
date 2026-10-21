@@ -77,7 +77,7 @@ pub enum Auth {
         fields: ClientFields,
         token: Token,
         #[serde(default)]
-        registration: Option<Registration>,
+        registration: Option<Box<Registration>>,
     },
     Secret {
         fields: Vec<String>,
@@ -520,45 +520,42 @@ impl Declaration {
                     token,
                     timeout_ms,
                     max_output,
-                } => {
-                    if command.is_empty()
-                        || command.len() > 64
-                        || !command.bytes().all(|v| {
-                            v.is_ascii_lowercase() || v.is_ascii_digit() || b"._-".contains(&v)
-                        })
-                        || !command.as_bytes()[0].is_ascii_alphanumeric()
-                        || env.len() > 8
-                        || env.iter().any(|(name, value)| {
-                            !environment(name)
-                                || matches!(
-                                    name.as_str(),
-                                    "PATH" | "HOME" | "USERPROFILE" | "APPDATA" | "LOCALAPPDATA"
-                                )
-                                || value.len() > 2048
-                                || value.contains('\0')
-                        })
-                        || !argv(&status.argv, false)
-                        || !argv(&token.argv, true)
-                        || !pointer(&status.account)
-                        || status.condition.as_ref().is_some_and(|condition| {
-                            !pointer(&condition.pointer)
-                                || condition.values.is_empty()
-                                || condition.values.len() > 8
-                                || condition.values.iter().any(|value| {
-                                    !value.is_boolean()
-                                        && !value.is_i64()
-                                        && !value.as_str().is_some_and(|value| {
-                                            value.len() <= 256
-                                                && !value.chars().any(char::is_control)
-                                        })
-                                })
-                        })
-                        || !(1..=30_000).contains(timeout_ms)
-                        || !(1..=65_536).contains(max_output)
-                        || matches!(&token.parse, Parse::Json(value) if !pointer(value))
-                    {
-                        return Err(invalid());
-                    }
+                } if command.is_empty()
+                    || command.len() > 64
+                    || !command.bytes().all(|v| {
+                        v.is_ascii_lowercase() || v.is_ascii_digit() || b"._-".contains(&v)
+                    })
+                    || !command.as_bytes()[0].is_ascii_alphanumeric()
+                    || env.len() > 8
+                    || env.iter().any(|(name, value)| {
+                        !environment(name)
+                            || matches!(
+                                name.as_str(),
+                                "PATH" | "HOME" | "USERPROFILE" | "APPDATA" | "LOCALAPPDATA"
+                            )
+                            || value.len() > 2048
+                            || value.contains('\0')
+                    })
+                    || !argv(&status.argv, false)
+                    || !argv(&token.argv, true)
+                    || !pointer(&status.account)
+                    || status.condition.as_ref().is_some_and(|condition| {
+                        !pointer(&condition.pointer)
+                            || condition.values.is_empty()
+                            || condition.values.len() > 8
+                            || condition.values.iter().any(|value| {
+                                !value.is_boolean()
+                                    && !value.is_i64()
+                                    && !value.as_str().is_some_and(|value| {
+                                        value.len() <= 256 && !value.chars().any(char::is_control)
+                                    })
+                            })
+                    })
+                    || !(1..=30_000).contains(timeout_ms)
+                    || !(1..=65_536).contains(max_output)
+                    || matches!(&token.parse, Parse::Json(value) if !pointer(value)) =>
+                {
+                    return Err(invalid());
                 }
                 _ => {}
             }

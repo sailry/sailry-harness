@@ -39,6 +39,8 @@ pub struct Fault {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FaultDetails {
+    /// The plugin value owner rejected a key's expected revision before commit.
+    PluginValueConflict,
     VersionMismatch {
         controller: Option<String>,
         host: Option<String>,

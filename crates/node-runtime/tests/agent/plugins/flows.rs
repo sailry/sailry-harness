@@ -4,6 +4,10 @@ use sailry_protocol::{browser::Action, plugin};
 use serde_json::{Value, json};
 
 const PACKAGE: &str = "flow-fixture";
+#[path = "flows/conflicts.rs"]
+mod conflicts;
+#[path = "flows/context.rs"]
+mod context;
 #[path = "flows/sandbox.rs"]
 mod sandbox;
 
@@ -33,6 +37,12 @@ async fn install(
         .any(|(_, operations)| operations.contains(&"process.run"))
     {
         actions.push("process.control");
+    }
+    if tools
+        .iter()
+        .any(|(_, operations)| operations.contains(&"http.request"))
+    {
+        actions.push("http.request");
     }
     std::fs::write(
         root.join("plugin.json"),

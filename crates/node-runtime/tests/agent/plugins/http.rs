@@ -7,7 +7,7 @@ mod cancellation;
 #[path = "http/revisions.rs"]
 mod revisions;
 #[path = "../../plugins/http/server.rs"]
-mod server;
+pub(super) mod server;
 
 impl server::Server {
     async fn with_json(body: serde_json::Value, held_path: Option<String>) -> Self {

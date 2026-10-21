@@ -4,6 +4,8 @@ use serde_json::json;
 #[path = "../memory_support/mod.rs"]
 mod support;
 use support::{Entry, Kind, MemoryId, Summary};
+#[path = "memory/concurrency.rs"]
+mod concurrency;
 
 async fn fixture(remote: bool, server: &Server) -> Fixture {
     let directory = tempfile::tempdir().unwrap();

@@ -12,6 +12,7 @@ mod models;
 mod paging;
 mod planning;
 mod roles;
+mod storage;
 mod web;
 
 fn context() -> plugin::Context {

@@ -35,8 +35,36 @@ fn uncertain(value: &Value) -> bool {
             matches!(fault.code, ErrorCode::OutcomeUnknown | ErrorCode::Cancelled)
         })
 }
+fn storage_conflict(operation: tool::Operation, value: &Value) -> bool {
+    operation == tool::Operation::StorageTransaction
+        && value.get("isError").and_then(Value::as_bool) == Some(true)
+        && serde_json::from_value::<Fault>(value["error"].clone()).is_ok_and(|fault| {
+            fault.code == ErrorCode::RevisionConflict
+                && fault.details == Some(sailry_protocol::FaultDetails::PluginValueConflict)
+        })
+}
 fn invalid(message: &str) -> Value {
     json!({"isError":true,"error":Fault::invalid(message)})
+}
+fn failure(mut outcome: Value, result: &Value, conflict: bool) -> Value {
+    let original = outcome.clone();
+    if conflict && let Some(context) = result.get("context") {
+        outcome["context"] = context.clone();
+    }
+    if tool::ResultDisplay::from_value(result).is_some() {
+        outcome["sailry_result"] = result["sailry_result"].clone();
+    }
+    if let Some(content) = result.get("sailry_content") {
+        outcome["sailry_content"] = content.clone();
+    }
+    if conflict
+        && !serde_json::to_vec(&outcome)
+            .is_ok_and(|bytes| bytes.len() <= plugin::host::MAX_DATA_BYTES)
+    {
+        original
+    } else {
+        outcome
+    }
 }
 impl Script {
     pub(super) async fn execute_flow(
@@ -50,6 +78,7 @@ impl Script {
         let mut outputs: Vec<(Value, media::Media)> = Vec::new();
         let mut approved = false;
         let mut failed = false;
+        let mut conflict = false;
         let mut recovery: Option<usize> = None;
         for step in 0..=MAX_STEPS {
             let response=match self.evaluate(context.clone(),&self.handler.name,json!({
@@ -84,13 +113,7 @@ impl Script {
                         return Ok(outputs[index].1.restore(done.result));
                     }
                     if failed {
-                        if tool::ResultDisplay::from_value(&done.result).is_some() {
-                            outcome["sailry_result"] = done.result["sailry_result"].clone();
-                        }
-                        if let Some(content) = done.result.get("sailry_content") {
-                            outcome["sailry_content"] = content.clone();
-                        }
-                        return Ok(outcome);
+                        return Ok(failure(outcome, &done.result, conflict));
                     }
                     return Ok(match done.output {
                         Some(index) => match outputs.get(index) {
@@ -107,11 +130,18 @@ impl Script {
                     if let Some(index) = recovery {
                         return Ok(outputs[index].1.restore(outputs[index].0["data"].clone()));
                     }
-                    if failed {
+                    if failed
+                        && !(conflict && call.call.operation == tool::Operation::StorageTransaction)
+                    {
                         return Ok(outcome);
                     }
                     if step == MAX_STEPS {
                         return Ok(invalid("plugin flow exceeds operation limit"));
+                    }
+                    if failed {
+                        // Only a known, fully rolled-back storage CAS can reach
+                        // another declared storage step. Authority is rechecked below.
+                        tokio::task::yield_now().await;
                     }
                     let Some((_, operation)) = self
                         .flows
@@ -173,6 +203,18 @@ impl Script {
                                 .await?;
                             approved = true;
                         }
+                        #[cfg(any(test, feature = "test-support"))]
+                        {
+                            let wait = self.ingress.plugins.flow_wait.lock().unwrap().take();
+                            if let Some(wait) = wait {
+                                let _ = wait.entered.send(request.clone());
+                                tokio::select! {
+                                    biased;
+                                    _ = self.stop.cancelled() => return Err(Fault::new(ErrorCode::Cancelled, "plugin flow was cancelled")),
+                                    _ = wait.release.cancelled() => {},
+                                }
+                            }
+                        }
                         operation.dispatch(request).await
                     }
                     .await;
@@ -184,6 +226,7 @@ impl Script {
                         return Ok(outcome);
                     }
                     failed = outcome.get("isError").and_then(Value::as_bool) == Some(true);
+                    conflict = storage_conflict(call.call.operation, &outcome);
                     let media = media::Media::take(&mut outcome);
                     if call.call.operation == tool::Operation::ControlComputer && media.recovery() {
                         recovery = Some(outputs.len());
@@ -225,5 +268,55 @@ mod tests {
         assert!(!uncertain(
             &json!({"error":Fault::new(ErrorCode::Unavailable,"operation unavailable"),"isError":true})
         ));
+    }
+    #[test]
+    fn only_storage_cas_allows_another_storage_step() {
+        let mut fault = Fault::new(ErrorCode::RevisionConflict, "plugin value changed");
+        let outcome = |fault: &Fault| json!({"isError":true,"error":fault});
+        assert!(!storage_conflict(
+            tool::Operation::StorageTransaction,
+            &outcome(&fault)
+        ));
+        fault.details = Some(sailry_protocol::FaultDetails::PluginValueConflict);
+        assert!(storage_conflict(
+            tool::Operation::StorageTransaction,
+            &outcome(&fault)
+        ));
+        assert!(!storage_conflict(
+            tool::Operation::WriteFile,
+            &outcome(&fault)
+        ));
+        for code in [
+            ErrorCode::OutcomeUnknown,
+            ErrorCode::Cancelled,
+            ErrorCode::PermissionDenied,
+            ErrorCode::Unavailable,
+            ErrorCode::Internal,
+        ] {
+            fault.code = code;
+            assert!(!storage_conflict(
+                tool::Operation::StorageTransaction,
+                &outcome(&fault)
+            ));
+        }
+    }
+    #[test]
+    fn retains_faults_beside_bounded_context() {
+        let original = json!({"isError":true,"error":Fault::new(ErrorCode::RevisionConflict,"original failure")});
+        let formatted = json!({"isError":false,"error":null,"saved":true,"context":{"status":"changed","saved":false}});
+        assert_eq!(failure(original.clone(), &formatted, false), original);
+        let explained = failure(original.clone(), &formatted, true);
+        assert_eq!(explained["error"], original["error"]);
+        assert_eq!(explained["isError"], true);
+        assert_eq!(explained["context"], formatted["context"]);
+        assert!(explained.get("saved").is_none());
+        assert_eq!(
+            failure(
+                original.clone(),
+                &json!({"context":{"latest":"x".repeat(plugin::host::MAX_DATA_BYTES)}}),
+                true
+            ),
+            original
+        );
     }
 }

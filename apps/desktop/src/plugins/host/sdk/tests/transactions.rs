@@ -85,10 +85,23 @@ fn commits_scoped_values_and_notices_atomically() {
             result
         );
         let stale = call(&module, "prepareTransaction", json!([operations]));
+        let rejected = complete(&fixture, &module, "completeRequest", json!([stale]));
+        assert_eq!(rejected["Err"]["code"], "revision_conflict");
         assert_eq!(
-            complete(&fixture, &module, "completeRequest", json!([stale]))["Err"]["code"],
-            "revision_conflict"
+            call(
+                &module,
+                "isValueConflict",
+                json!([{"isError":true,"error":rejected["Err"]}])
+            ),
+            true
         );
+        for outcome in [
+            json!({"isError":false,"error":rejected["Err"]}),
+            json!({"isError":true,"error":{"code":"revision_conflict"}}),
+            json!({"isError":true,"error":{"code":"permission_denied","details":{"kind":"plugin_value_conflict"}}}),
+        ] {
+            assert_eq!(call(&module, "isValueConflict", json!([outcome])), false);
+        }
         let Output::Snapshot(snapshot) = fixture.execute(Command::Snapshot) else {
             panic!("snapshot expected")
         };

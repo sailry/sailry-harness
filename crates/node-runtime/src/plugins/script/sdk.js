@@ -26,6 +26,11 @@ export function prepareRequest(command) { return call("prepare", command); }
 export function prepareTransaction(operations) {
   return prepareRequest({kind: "plugin_transaction", data: {operations}});
 }
+/** Only the value owner's atomic key-CAS rejection is safe to replan. */
+export function isValueConflict(outcome) {
+  return outcome?.isError === true && outcome.error?.code === 'revision_conflict'
+    && outcome.error.details?.kind === 'plugin_value_conflict';
+}
 export async function completeRequest(id) { return call("complete", id); }
 export function forgetRequest(id) { call("forget", id); }
 async function read(kind, data) {

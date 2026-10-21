@@ -308,10 +308,9 @@ fn check_revision(actual: u64, expected: u64) -> Result<(), Fault> {
     if actual == expected {
         Ok(())
     } else {
-        Err(Fault::new(
-            ErrorCode::RevisionConflict,
-            "plugin value changed",
-        ))
+        let mut fault = Fault::new(ErrorCode::RevisionConflict, "plugin value changed");
+        fault.details = Some(sailry_protocol::FaultDetails::PluginValueConflict);
+        Err(fault)
     }
 }
 

@@ -130,6 +130,18 @@ durable SDK writes from multiple evaluations of the same flow call. SDK write
 ordinals belong to one evaluation. Keep a multi-batch capture and its cleanup in
 one ordinary handler evaluation so every prepared write retains its own identity.
 
+Flows and settings pages can use `isValueConflict(outcome)` to recognize an atomic private
+key-CAS rejection with no committed effects. Only this Node-tagged failure can
+continue with another declared `storage.transaction` step. Re-read current values
+and recompute the package's deterministic delta, retaining business identifiers
+in flow state. Each attempt has a separate durable request, within the existing
+eight-operation limit. Configuration, authorization, permission, cancellation
+and uncertain outcomes do not authorize continuation or automatic replay.
+After a key-CAS rejection, a final result may add `context` for the Agent to
+reconsider changed data. The original fault and `isError` remain authoritative;
+context must not claim an uncommitted write succeeded. Context uses the same
+bounded JSON callback and protected service results as other package output.
+
 `prepareRequest({kind: 'read_git_context', data: ...})` reads an `old` or `new`
 source side using the same worktree, snapshot, path, metadata revision and strong
 content revision returned by `read_git_change`. It requires `git.read` and the

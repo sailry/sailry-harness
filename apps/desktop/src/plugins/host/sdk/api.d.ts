@@ -35,6 +35,8 @@ export type NotificationDraft = {
 /** Requires notifications.publish; completeRequest submits the durable request. */
 export function prepareNotification(content: NotificationDraft): string;
 export function completeRequest(id: string): Promise<Json>;
+/** Recognizes the private value owner's known atomic key-CAS rejection. */
+export function isValueConflict(outcome: Json): boolean;
 export function forgetRequest(id: string): void;
 /** Coalesced Node and cached panel entry invalidation, without resource data.
  * Pass the returned opaque cursor to wait; one pending call per view. Reuses Client recovery.

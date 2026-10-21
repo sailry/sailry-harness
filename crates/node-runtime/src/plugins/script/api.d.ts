@@ -14,6 +14,8 @@ export function startSession(draft: {project: string | null; worktree: string | 
 export function prepareRequest(command: Json): string;
 /** Up to 64 private KV, dispatch, notification or scoped queue/turn operations, committed atomically. */
 export function prepareTransaction(operations: Json[]): string;
+/** A known zero-write key-CAS rejection, excluding caller/configuration fences and uncertainty. */
+export function isValueConflict(outcome: Json): boolean;
 export function completeRequest(id: string): Promise<Json>;
 export function forgetRequest(id: string): void;
 export function readSettings(): Promise<{ values: Record<string, Json>; ready: boolean }>;

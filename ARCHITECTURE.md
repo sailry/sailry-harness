@@ -220,8 +220,13 @@ controller never infers support from its own operating system.
 | --- | --- |
 | macOS x64 and ARM64 | macOS 13.3 or later; the application minimum remains 13.0 |
 | Linux x64 | glibc 2.34 or later |
-| Linux ARM64 | Unavailable; the pinned official runtime requires a newer glibc |
+| Linux ARM64 | glibc 2.38 or later; Host, OCR and embedding retain the 2.34 minimum |
 | Windows x64 and ARM64 | Packaged official CPU runtime |
+
+Native availability preflights the exact locked libraries and their dynamic
+dependencies once per process, retaining successful handles or the failure until
+restart. Cold checks run outside async workers. Models and contexts are still
+created only by the shared inference runtime.
 
 Unsupported decision targets retain OCR and embedding. Ordinary metadata remains
 readable, while decision registration, installation and execution report
@@ -332,8 +337,8 @@ unsupported capability may use an explicitly configured, session-captured fallba
 authentication, quota, timeout and uncertain outcomes never trigger fallback.
 
 Node reuses native model clients by session and captured configuration. Each
-generation freezes its authorization, credential revision, response observer and
-redaction material through stream completion. Main API-key Responses and ChatGPT
+generation refreshes the cache idle lifetime and freezes its authorization,
+credential revision, response observer and redaction material through stream completion. Main API-key Responses and ChatGPT
 OAuth generations prefer a session-owned WebSocket; helpers and compaction use
 pooled HTTP. Both transports share request adaptation and response projection.
 Stateless Responses requests replay provider reasoning only with its original
@@ -352,9 +357,13 @@ preconnections within 25 seconds. Idle sockets close after four minutes and expi
 after 55 minutes at a request boundary; credential rotation reconnects with the
 new capture. Session archive/removal and Node shutdown release registry resources.
 HTTP uses a 30-second connection deadline; WebSocket handshakes use 15 seconds.
-HTTP raw-byte and WebSocket frame reads have a 300-second idle deadline, including
-keepalives. Node owns one budget of five retries, including at most two timeout
-retries and one recovery after partial output. Recovery buffers the replacement
+Before the first provider event, WebSocket requests have a 15-second deadline
+that control frames do not extend. Any provider event ends SSE fallback eligibility,
+including an acceptance event before text arrives. HTTP raw-byte and subsequent
+WebSocket frame reads have a 300-second idle deadline, including keepalives. Node
+does not regenerate an accepted WebSocket request after a delivery failure.
+Other uncommitted failures share one budget of five retries, including at most two
+timeout retries and one HTTP recovery after partial output. Recovery buffers the replacement
 privately until completion; committed responses and executed tools are never
 replayed. A server-requested delay of at most 60 seconds is honored; a longer
 delay is reported without an automatic retry. Exhaustion preserves canonical
@@ -726,6 +735,12 @@ Headless JavaScript callbacks use a bounded Node-owned QuickJS runtime. Desktop
 entries use GPUI Kit script bindings and host-owned SDKs. Desktop and headless
 exports are distinct; see the [SDK contract](sdk/plugins.md). Sailry's SDK does not
 grant raw OS access. Desktop UI code is trusted code, not an OS sandbox.
+Finite tool flows may re-read and recompute a private storage transaction after
+the value owner confirms its key-CAS rejection committed no effects. Each attempt
+retains the captured invocation, rechecks authority and has its own durable
+request. Other failures and uncertain effects cannot authorize another step.
+Packages own reconciliation of changed business data; Node does not replay
+external tools or replace a failed operation with a success result.
 
 GPUI Kit owns standard controls, semantic themes, focus, keyboard behavior and
 overlays. Desktop owns product composition and small native adapters. Ghostty's
