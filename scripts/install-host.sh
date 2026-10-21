@@ -85,7 +85,7 @@ if test "$task_update" = 0; then test ! -e "$task_unit"; fi
 umask 077
 mkdir -p "$task_parent" "$(dirname "$task_command")"
 task_stage="$(mktemp -d "$task_parent/.sailry-install-XXXXXX")"
-task_backup=""
+task_backup="$task_parent/.sailry-previous"
 task_changing=0
 task_starting=0
 task_complete=0
@@ -132,6 +132,14 @@ task_cleanup() {
     fi
     echo 'Host update failed; the previous installation was restored' >&2
   fi
+  if test "$task_complete" = 0 && test -d "$task_stage/previous-backup"; then
+    if test -e "$task_backup" || test -L "$task_backup" \
+      || ! mv "$task_stage/previous-backup" "$task_backup"; then
+      printf 'Host backup recovery failed; files remain at %s\n' "$task_stage" >&2
+      exit 1
+    fi
+  fi
+  find "$task_stage" -type d -exec chmod u+w {} +
   rm -rf -- "$task_stage"
   exit "$task_status"
 }
@@ -180,8 +188,14 @@ Path(output).write_text(''.join(
 PY
 fi
 if test "$task_update" = 1; then
-  task_backup="$(mktemp -d "$task_parent/.sailry-previous-XXXXXX")"
-  rmdir "$task_backup"
+  if test -e "$task_backup" || test -L "$task_backup"; then
+    if test -L "$task_backup" || ! test -d "$task_backup" \
+      || ! test -x "$task_backup/sailry-host" || ! test -x "$task_backup/sailry"; then
+      echo 'Host backup path is not a managed program directory' >&2
+      exit 1
+    fi
+    mv "$task_backup" "$task_stage/previous-backup"
+  fi
   if "$task_existing/sailry" status >/dev/null 2>&1; then task_active=1; fi
   task_changing=1
   task_stop "$task_existing"

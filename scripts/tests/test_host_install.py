@@ -172,9 +172,8 @@ class HostInstall(Fixture, unittest.TestCase):
         self.assertEqual(self.command("version").stdout.strip(), f"Sailry Host {version}")
         self.assertIn("--user stop sailry-host.service", self.log.read_text())
         self.assertIn("--user start sailry-host.service", self.log.read_text())
-        backups = list((self.home / ".local/lib").glob(".sailry-previous-*"))
-        self.assertEqual(len(backups), 1)
-        self.assertTrue((backups[0] / "sailry-host").is_file())
+        backup = self.home / ".local/lib/.sailry-previous"
+        self.assertTrue((backup / "sailry-host").is_file())
 
     def test_invalid_version_does_not_download_or_mutate(self):
         result = subprocess.run(["bash", str(ROOT / "scripts/install-host.sh"), "--version", "../other"],
@@ -197,7 +196,7 @@ class HostInstall(Fixture, unittest.TestCase):
         self.assertEqual(self.command("version").stdout.strip(), f"Sailry Host {VERSION}")
         self.assertEqual(marker.read_bytes(), b"preserve")
         self.assertNotIn("--user stop", self.log.read_text())
-        self.assertFalse(list((self.home / ".local/lib").glob(".sailry-previous-*")))
+        self.assertFalse((self.home / ".local/lib/.sailry-previous").exists())
 
 
 if __name__ == "__main__":

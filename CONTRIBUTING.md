@@ -375,10 +375,11 @@ Run `sailry help` for available commands. Service controls are `start`, `stop`,
 cancel. `sailry update` installs the newest published release, including previews;
 use `--version 0.1.0-alpha.1` to select one. The installer does not replace
 `~/.sailry-host` and retains the previous program files in a reported backup
-directory. Failed updates restore the previous program files, managed command,
-service definition and activation state before reporting failure, so the current
-installer can be retried. If recovery itself fails, the installer reports the
-remaining recovery files instead of deleting them.
+directory. One fixed backup is kept beside the program directory; failed updates
+preserve the existing backup. Failed updates restore the previous program files,
+managed command, service definition and activation state before reporting failure,
+so the current installer can be retried. If recovery itself fails, the installer
+reports the remaining recovery files instead of deleting them.
 
 For an existing Linux root installation in `~/.local/lib/sailry`, use Desktop's
 Host update or the current release's verified installer from [Install](README.md#install):

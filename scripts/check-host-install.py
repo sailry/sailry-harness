@@ -40,7 +40,9 @@ def check(directory):
     if sys.platform != "linux" or os.geteuid() != 0 or not Path("/run/systemd/system").is_dir():
         raise ValueError("An isolated root-owned Linux systemd runner is required")
     existing = subprocess.run(["systemctl", "cat", "sailry-host.service"], capture_output=True)
+    backup = PROGRAM.parent / ".sailry-previous"
     if (UNIT.exists() or UNIT.is_symlink() or COMMAND.exists() or COMMAND.is_symlink()
+            or backup.exists() or backup.is_symlink()
             or PROGRAM.exists() or PROGRAM.is_symlink() or existing.returncode == 0):
         raise ValueError("Refusing to replace an existing Host service or command")
     metadata = json.loads((directory / "host/build.json").read_text())
@@ -60,7 +62,6 @@ def check(directory):
     for name in (archive, f"SHA256SUMS-{target}"):
         (assets / name).symlink_to(directory / name)
     environment = {**os.environ, "HOME": str(home), "PATH": f"{bin}:{os.environ['PATH']}"}
-    previous = set(PROGRAM.parent.glob(".sailry-previous-*"))
     try:
         run("bash", ROOT / "scripts/install-host.sh", "--version", version, environment=environment)
         if PROGRAM.stat().st_uid != 0 or (PROGRAM / "sailry-host").stat().st_uid != 0:
@@ -88,8 +89,7 @@ def check(directory):
         pid = ready(home, pid)
         if marker.read_bytes() != b"preserve":
             raise RuntimeError("Host update changed existing profile data")
-        backups = list(set(PROGRAM.parent.glob(".sailry-previous-*")) - previous)
-        if len(backups) != 1 or not (backups[0] / "sailry-host").is_file():
+        if not backup.is_dir() or not (backup / "sailry-host").is_file():
             raise RuntimeError("Host update did not preserve previous program files")
         print("Host installation, systemd controls and profile-preserving update verified")
     finally:
@@ -102,9 +102,8 @@ def check(directory):
             COMMAND.unlink()
         if PROGRAM.is_dir() and not PROGRAM.is_symlink():
             shutil.rmtree(PROGRAM)
-        for backup in set(PROGRAM.parent.glob(".sailry-previous-*")) - previous:
-            if backup.is_dir() and not backup.is_symlink():
-                shutil.rmtree(backup)
+        if backup.is_dir() and not backup.is_symlink():
+            shutil.rmtree(backup)
         shutil.rmtree(home)
 
 

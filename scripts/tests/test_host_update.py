@@ -66,6 +66,7 @@ phase = failure.read_text() if failure.exists() else ''
 previous = os.environ['SAILRY_FIXTURE_PREVIOUS']
 tools = json.loads(os.environ['SAILRY_FIXTURE_TOOLS'])
 matches = (
+    (name == 'mv' and phase == 'backup' and arguments[0] == os.environ['SAILRY_FIXTURE_BACKUP']) or
     (name == 'mv' and phase == 'move' and arguments[0] == previous) or
     (name == 'mv' and phase == 'publish' and arguments[0].endswith('/package')) or
     (name == 'restorecon' and phase == 'permissions') or
@@ -76,7 +77,7 @@ matches = (
 )
 if matches:
     failure.unlink()
-    if phase in ('move', 'link'):
+    if phase in ('backup', 'move', 'link'):
         result = subprocess.run([tools[name], *arguments])
         if result.returncode: raise SystemExit(result.returncode)
     if phase == 'unit': sys.stdout.write('incomplete unit\\n')
@@ -110,6 +111,16 @@ if name != 'restorecon': os.execv(tools[name], [name, *arguments])
         self.retained = self.program.parent / ".sailry-previous-retained"
         self.retained.mkdir(parents=True)
         (self.retained / "marker").write_bytes(b"previous backup")
+        self.backup = self.program.parent / ".sailry-previous"
+        self.environment["SAILRY_FIXTURE_BACKUP"] = str(self.backup)
+        shutil.copytree(self.previous, self.backup, symlinks=True)
+        (self.backup / "backup-only").write_bytes(b"older program")
+        readonly = self.backup / "readonly"
+        readonly.mkdir()
+        (readonly / "module.py").write_bytes(b"previous bundled runtime")
+        (readonly / "module.py").chmod(0o444)
+        readonly.chmod(0o555)
+        self.backup_before = self.tree(self.backup)
 
     def update(self):
         return subprocess.run(["bash", str(self.installer), "--update", "--version", VERSION],
@@ -144,10 +155,11 @@ if name != 'restorecon': os.execv(tools[name], [name, *arguments])
         if legacy:
             self.assertFalse(self.program.exists())
         self.assertEqual(self.tree(self.home / ".sailry-host"), profile)
+        self.assertEqual(self.tree(self.backup), self.backup_before)
         self.assertEqual(list(self.program.parent.glob(".sailry-previous-*")), [self.retained])
         self.assertFalse(list(self.program.parent.glob(".sailry-install-*")))
         self.assertEqual((self.retained / "marker").read_bytes(), b"previous backup")
-        if phase in ("unpack", "validate"):
+        if phase in ("unpack", "validate", "backup"):
             self.assertNotIn("systemctl stop", self.log.read_text())
         else:
             self.assertIn("the previous installation was restored", result.stderr)
@@ -158,10 +170,12 @@ if name != 'restorecon': os.execv(tools[name], [name, *arguments])
         self.assertEqual(self.tree(self.home / ".sailry-host"), profile)
         expected = unit.replace(str(self.previous).encode(), str(self.program).encode()) if legacy else unit
         self.assertEqual(self.unit.read_bytes(), expected)
-        backups = set(self.program.parent.glob(".sailry-previous-*")) - {self.retained}
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(self.tree(backups.pop()), before)
+        self.assertEqual(self.tree(self.backup), before)
+        self.assertEqual(list(self.program.parent.glob(".sailry-previous-*")), [self.retained])
         self.assertEqual((self.retained / "marker").read_bytes(), b"previous backup")
+
+    def test_restores_after_backup_move(self):
+        self.fails("backup")
 
     def test_restores_after_stop_failure(self):
         self.fails("stop")
@@ -202,6 +216,44 @@ if name != 'restorecon': os.execv(tools[name], [name, *arguments])
     def test_validation_precedes_service_stop(self):
         self.fails("validate")
 
+    def test_reuses_the_fixed_backup(self):
+        self.existing()
+        profile = self.tree(self.home / ".sailry-host")
+        for value in (b"first program", b"second program"):
+            (self.previous / "current-only").write_bytes(value)
+            before = self.tree(self.previous)
+            result = self.update()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(self.tree(self.backup), before)
+            self.assertEqual(list(self.program.parent.glob(".sailry-previous-*")), [self.retained])
+            self.assertFalse(list(self.program.parent.glob(".sailry-install-*")))
+            self.assertEqual((self.retained / "marker").read_bytes(), b"previous backup")
+            self.assertEqual(self.tree(self.home / ".sailry-host"), profile)
+            self.assertEqual(self.link.readlink(), self.program / "sailry")
+            self.assertEqual(self.active.read_text(), "active")
+            self.previous = self.program
+            self.environment["SAILRY_FIXTURE_PREVIOUS"] = str(self.previous)
+
+    def test_preserves_unmanaged_backup_paths(self):
+        self.existing()
+        (self.backup / "readonly").chmod(0o755)
+        shutil.rmtree(self.backup)
+        self.backup.write_bytes(b"unrelated file")
+        before = self.tree(self.previous)
+        profile = self.tree(self.home / ".sailry-host")
+        unit = self.unit.read_bytes()
+        result = self.update()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not a managed program directory", result.stderr)
+        self.assertNotIn("systemctl stop", self.log.read_text())
+        self.assertEqual(self.backup.read_bytes(), b"unrelated file")
+        self.assertEqual(self.tree(self.previous), before)
+        self.assertEqual(self.tree(self.home / ".sailry-host"), profile)
+        self.assertEqual(self.unit.read_bytes(), unit)
+        self.assertEqual(self.link.readlink(), self.previous / "sailry")
+        self.assertEqual(self.active.read_text(), "active")
+        self.assertFalse(self.program.exists())
+
     def test_refuses_unmanaged_service_paths(self):
         self.existing()
         self.unit.write_bytes(self.unit.read_bytes().replace(b'/sailry-host" ', b'/custom-host" '))
@@ -218,6 +270,7 @@ if name != 'restorecon': os.execv(tools[name], [name, *arguments])
         self.assertEqual(self.link.readlink(), self.previous / "sailry")
         self.assertEqual(self.active.read_text(), "active")
         self.assertFalse(self.program.exists())
+        self.assertEqual(self.tree(self.backup), self.backup_before)
         self.assertEqual(list(self.program.parent.glob(".sailry-previous-*")), [self.retained])
 
 
@@ -291,6 +344,10 @@ if action == 'bootstrap':
         self.retained = self.program.parent / ".sailry-previous-retained"
         self.retained.mkdir()
         (self.retained / "marker").write_bytes(b"previous backup")
+        self.backup = self.program.parent / ".sailry-previous"
+        shutil.copytree(self.program, self.backup, symlinks=True)
+        (self.backup / "backup-only").write_bytes(b"older program")
+        self.backup_before = HostUpdate.tree(self.backup)
 
     def update(self):
         return self.install("--update")
@@ -311,6 +368,7 @@ if action == 'bootstrap':
         self.assertEqual(stat.S_IMODE(self.unit.stat().st_mode), 0o600)
         self.assertEqual(HostUpdate.tree(self.home / ".sailry-host"), profile)
         self.assertEqual(self.active.read_text(), "active" if active else "inactive")
+        self.assertEqual(HostUpdate.tree(self.backup), self.backup_before)
         self.assertEqual(list(self.program.parent.glob(".sailry-previous-*")), [self.retained])
         self.assertFalse(list(self.program.parent.glob(".sailry-install-*")))
         retry = self.update()
@@ -318,9 +376,8 @@ if action == 'bootstrap':
         self.assertEqual(self.active.read_text(), "active")
         self.assertEqual(HostUpdate.tree(self.home / ".sailry-host"), profile)
         self.assertEqual(self.unit.read_bytes(), unit)
-        backups = set(self.program.parent.glob(".sailry-previous-*")) - {self.retained}
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(HostUpdate.tree(backups.pop()), before)
+        self.assertEqual(HostUpdate.tree(self.backup), before)
+        self.assertEqual(list(self.program.parent.glob(".sailry-previous-*")), [self.retained])
         self.assertEqual((self.retained / "marker").read_bytes(), b"previous backup")
         return result
 
@@ -350,11 +407,11 @@ if action == 'bootstrap':
         self.assertIn("Host recovery failed", result.stderr)
         self.assertIn("fixture launchctl permission failure", result.stderr)
         self.assertNotIn("the previous installation was restored", result.stderr)
-        backups = set(self.program.parent.glob(".sailry-previous-*")) - {self.retained}
-        self.assertEqual(len(backups), 1)
-        self.assertEqual(HostUpdate.tree(backups.pop()), before)
+        self.assertEqual(HostUpdate.tree(self.backup), before)
         self.assertEqual(HostUpdate.tree(self.home / ".sailry-host"), profile)
-        self.assertEqual(len(list(self.program.parent.glob(".sailry-install-*"))), 1)
+        stages = list(self.program.parent.glob(".sailry-install-*"))
+        self.assertEqual(len(stages), 1)
+        self.assertEqual(HostUpdate.tree(stages[0] / "previous-backup"), self.backup_before)
 
 
 if __name__ == "__main__":
