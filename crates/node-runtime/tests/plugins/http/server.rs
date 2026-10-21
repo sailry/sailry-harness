@@ -26,6 +26,14 @@ impl Server {
         body: Option<String>,
         held_path: Option<String>,
     ) -> Self {
+        Self::build(body, held_path, Vec::new()).await
+    }
+
+    pub(in crate::plugins) async fn build(
+        body: Option<String>,
+        held_path: Option<String>,
+        headers: Vec<(String, String)>,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -51,6 +59,7 @@ impl Server {
                 let (records, held, disconnected) =
                     (requests.clone(), held.clone(), disconnected.clone());
                 let (body, held_path) = (body.clone(), held_path.clone());
+                let headers = headers.clone();
                 let status = status.clone();
                 connections.spawn(async move {
                     let mut bytes = Vec::new();
@@ -72,7 +81,18 @@ impl Server {
                         bytes.extend_from_slice(&chunk[..count]);
                     }
                     let path = header.lines().next().unwrap().split_whitespace().nth(1).unwrap().to_string();
+                    let authorized = headers.iter().all(|(name, expected)| {
+                        header.lines().skip(1).any(|line| {
+                            line.split_once(':').is_some_and(|(key, value)| {
+                                key.eq_ignore_ascii_case(name) && value.trim() == expected
+                            })
+                        })
+                    });
                     records.lock().unwrap().push((header, String::from_utf8(bytes[offset..offset + length].to_vec()).unwrap()));
+                    if !authorized {
+                        let _ = stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+                        return;
+                    }
                     let status = status.load(Ordering::SeqCst);
                     if status != 0 {
                         let response = format!("HTTP/1.1 {status} Fixture\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");

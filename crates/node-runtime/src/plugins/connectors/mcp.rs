@@ -25,7 +25,7 @@ pub(crate) struct Authorization {
     pub oauth: Option<AuthClient<reqwest::Client>>,
     pub settings: Option<Arc<(sailry_protocol::plugin::Context, String)>>,
     redactions: Arc<Mutex<Vec<Secret>>>,
-    sealed: Arc<Mutex<Vec<(Id, Secret)>>>,
+    sealed: Arc<Mutex<Vec<(Id, Credential, Secret)>>>,
 }
 impl Authorization {
     pub(crate) fn new(
@@ -69,20 +69,25 @@ impl Authorization {
             revisions.insert(target.id, live.grant_revision);
         }
         let sealed = self.sealed.lock().map_err(|_| unavailable())?.clone();
-        for (id, expected) in sealed {
+        for (id, credential, expected) in sealed {
             let target = &self
                 .targets
                 .iter()
-                .find(|(target, _)| target.id == id)
+                .find(|(target, injection)| {
+                    target.id == id
+                        && target
+                            .credential(injection)
+                            .is_ok_and(|selected| selected == credential)
+                })
                 .ok_or_else(unavailable)?
                 .0;
             let current = self
                 .ingress
                 .plugins
                 .connectors
-                .access(target, &self.ingress, None, &self.stop)
+                .access_for(target, &credential, &self.ingress, None, &self.stop)
                 .await?;
-            if current.token != expected {
+            if current.is_none_or(|current| current.token != expected) {
                 return Err(Fault::new(
                     ErrorCode::NotConfigured,
                     "MCP credentials changed",
@@ -91,11 +96,11 @@ impl Authorization {
         }
         Ok(revisions)
     }
-    pub(crate) fn seal(&self, id: Id, token: Secret) -> Result<(), Fault> {
+    pub(crate) fn seal(&self, id: Id, credential: Credential, token: Secret) -> Result<(), Fault> {
         self.sealed
             .lock()
             .map_err(|_| unavailable())?
-            .push((id, token));
+            .push((id, credential, token));
         Ok(())
     }
     pub(crate) fn redact(&self, value: &mut serde_json::Value) {
@@ -153,49 +158,34 @@ struct Prepared {
     headers: Headers,
     token: Option<String>,
     revision: Option<u64>,
-    sent: Vec<(Target, Access)>,
+    sent: Vec<(Target, Credential, Access)>,
 }
 impl Client {
     async fn prepare(&self, uri: Arc<str>, mut headers: Headers) -> Result<Prepared, Error> {
-        let revisions = self.authorization.validate().await.map_err(failure)?;
+        self.authorization.validate().await.map_err(failure)?;
         let mut sent = Vec::new();
         for (target, injection) in &self.authorization.targets {
             if !target.endpoint(&uri) {
                 return Err(failure(unavailable()));
             }
-            if target.method == Kind::McpOauth {
+            let credential = target.credential(injection).map_err(failure)?;
+            if target.method == Kind::McpOauth && credential == Credential::Grant {
                 continue;
             }
-            let token = if let Some(field) = &injection.field {
-                let revision = *revisions
-                    .get(&target.id)
-                    .ok_or_else(|| failure(unavailable()))?;
-                target
-                    .secrets
-                    .get(field)
-                    .cloned()
-                    .map(|token| Access { token, revision })
-            } else if target.method == Kind::Secret
-                && target.secrets.is_empty()
-                && target.declaration.fields.iter().all(|field| field.optional)
-            {
-                None
-            } else {
-                Some(
-                    self.authorization
-                        .ingress
-                        .plugins
-                        .connectors
-                        .access(
-                            target,
-                            &self.authorization.ingress,
-                            None,
-                            &self.authorization.stop,
-                        )
-                        .await
-                        .map_err(failure)?,
+            let token = self
+                .authorization
+                .ingress
+                .plugins
+                .connectors
+                .access_for(
+                    target,
+                    &credential,
+                    &self.authorization.ingress,
+                    None,
+                    &self.authorization.stop,
                 )
-            };
+                .await
+                .map_err(failure)?;
             let Some(token) = token else {
                 continue;
             };
@@ -220,7 +210,7 @@ impl Client {
             self.authorization
                 .remember(token.token.clone())
                 .map_err(failure)?;
-            sent.push((target.clone(), token));
+            sent.push((target.clone(), credential, token));
         }
         let (token, revision) = if let Some(client) = &self.oauth {
             client
@@ -234,8 +224,10 @@ impl Client {
                 .connector_target(target.id, target.revision, target.checking)
                 .await
                 .map_err(failure)?;
-            let grant = live.grant.as_ref().ok_or_else(|| failure(unavailable()))?;
-            let token = crate::plugins::authorization::access(&grant.access).map_err(failure)?;
+            let token = Credential::Grant
+                .read(&live)
+                .map_err(failure)?
+                .ok_or_else(|| failure(unavailable()))?;
             self.authorization
                 .remember(token.clone())
                 .map_err(failure)?;
@@ -268,7 +260,7 @@ impl Client {
     }
     fn accepted(&self, prepared: &Prepared) -> Result<(), Fault> {
         let service = &self.authorization.ingress.plugins.connectors;
-        for (target, access) in &prepared.sent {
+        for (target, _, access) in &prepared.sent {
             service.accepted(target.id, access.revision)?;
         }
         if let Some(revision) = prepared.revision {
@@ -309,7 +301,7 @@ impl Client {
                 }
             }
         }
-        for (target, sent) in &prepared.sent {
+        for (target, credential, sent) in &prepared.sent {
             let force = match service
                 .reject(target, ingress, sent.revision, repeated)
                 .await
@@ -320,10 +312,12 @@ impl Client {
                 Rejection::Renew => Some(sent.revision),
             };
             let access = service
-                .access(target, ingress, force, &self.authorization.stop)
+                .access_for(target, credential, ingress, force, &self.authorization.stop)
                 .await
                 .map_err(failure)?;
-            self.authorization.remember(access.token).map_err(failure)?;
+            if let Some(access) = access {
+                self.authorization.remember(access.token).map_err(failure)?;
+            }
             changed = true;
         }
         Ok(changed)

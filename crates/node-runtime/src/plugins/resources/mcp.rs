@@ -70,14 +70,18 @@ impl Resources {
         if let Launch::Stdio { env, .. } = launch {
             for (target, injection) in &authorization.targets {
                 let name = injection.env.as_deref().ok_or_else(unavailable)?;
-                let secret = ingress
+                let credential = target.credential(injection)?;
+                let Some(access) = ingress
                     .plugins
                     .connectors
-                    .access(target, ingress, None, &self.stop)
+                    .access_for(target, &credential, ingress, None, &self.stop)
                     .await?
-                    .token;
+                else {
+                    continue;
+                };
+                let secret = access.token;
                 env.insert(name.into(), secret.expose().into());
-                authorization.seal(target.id, secret.clone())?;
+                authorization.seal(target.id, credential, secret.clone())?;
                 authorization.remember(secret)?;
             }
         }

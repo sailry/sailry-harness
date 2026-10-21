@@ -16,6 +16,106 @@ fn stored(node: &Node, id: connector::Id) -> Vec<u8> {
 }
 
 #[tokio::test]
+async fn sends_every_scoped_header() {
+    const FIRST: &str = "first-private-health-token";
+    const SECOND: &str = "second-private-health-token";
+    for remote in [false, true] {
+        let server = server::Server::build(
+            Some(json!({"name":"Fixture","id":"fixture-account"}).to_string()),
+            None,
+            vec![
+                ("Authorization".into(), format!("Bearer {SECOND}")),
+                ("X-Client-Key".into(), FIRST.into()),
+            ],
+        )
+        .await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        node.set_connector_fixture(ORIGIN, &server.origin);
+        let mut declared = declaration();
+        declared["origins"] = json!([ORIGIN, "https://other.example.com"]);
+        declared["auth"][0]["fields"] = json!(["alpha", "beta"]);
+        declared["fields"] = json!([
+            {"name":"alpha","title":"Alpha","secret":true},
+            {"name":"beta","title":"Beta","secret":true}
+        ]);
+        declared["inject"] = json!([
+            {"origin":ORIGIN,"header":"Authorization","prefix":"Bearer ","field":"beta"},
+            {"origin":ORIGIN,"header":"X-Client-Key","field":"alpha"},
+            {"origin":"https://other.example.com","header":"X-Other-Key","field":"alpha"}
+        ]);
+        declared["identity"] =
+            json!({"request":format!("{ORIGIN}/identity"),"name":"/name","id":"/id"});
+        declared["health"] = json!({"request":format!("{ORIGIN}/health"),"ok":[200]});
+        configure(&directory.path().join("source/package"), declared);
+        let package = info(execute(&client, install(worktree, 0)).await)
+            .summary
+            .reference();
+        let row = connected(
+            &client,
+            package,
+            None,
+            None,
+            Input {
+                secrets: BTreeMap::from([
+                    ("alpha".into(), Secret::new(FIRST.into())),
+                    ("beta".into(), Secret::new(SECOND.into())),
+                ]),
+                ..Default::default()
+            },
+        )
+        .await;
+        assert_eq!(row.state, State::Connected);
+        assert_eq!(row.identity.as_ref().unwrap().id, "fixture-account");
+        let before: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        let output = execute(&client, Command::ProbeConnection { connection: row.id }).await;
+        let Output::Connection(checked) = &output else {
+            panic!("connection expected")
+        };
+        assert_eq!(checked.state, State::Connected);
+        let after: Value = serde_json::from_slice(&stored(&node, row.id)).unwrap();
+        for field in ["auth_revision", "grant_revision", "secrets"] {
+            assert_eq!(before[field], after[field], "{remote}/{field}");
+        }
+        {
+            let requests = server.requests.lock().unwrap();
+            assert_eq!(requests.len(), 4);
+            for (header, _) in requests.iter() {
+                let header = header.to_ascii_lowercase();
+                assert!(header.contains(&format!("authorization: bearer {SECOND}")));
+                assert!(header.contains(&format!("x-client-key: {FIRST}")));
+                assert!(!header.contains("x-other-key:"));
+            }
+        }
+        for value in [&row, checked] {
+            let public = serde_json::to_string(value).unwrap();
+            assert!(!public.contains(FIRST) && !public.contains(SECOND));
+        }
+        let resource = server::Server::respond(Some("{}".into()), None).await;
+        node.set_connector_fixture(ORIGIN, &resource.origin);
+        let output = client
+            .execute(
+                client
+                    .prepare(request("/ok", row.id))
+                    .with_plugin(context(row.package.clone(), worktree)),
+            )
+            .await
+            .unwrap();
+        assert!(matches!(output, Output::PluginHttp(response) if response.status == 200));
+        {
+            let requests = resource.requests.lock().unwrap();
+            assert_eq!(requests.len(), 1);
+            assert!(
+                requests[0]
+                    .0
+                    .contains(&format!("authorization: Bearer {SECOND}"))
+            );
+        }
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
 async fn expires_rejected_credentials_and_allows_rechecking() {
     for remote in [false, true] {
         let server = server::Server::respond(Some("{}".into()), None).await;

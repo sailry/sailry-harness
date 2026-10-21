@@ -1,10 +1,12 @@
 //! Declaration-driven connection execution; secrets never enter package JavaScript.
 mod cli;
+mod credentials;
 pub(crate) mod mcp;
 use crate::providers::login::{
     self,
     plugin::{Issued, flow},
 };
+pub(crate) use credentials::Credential;
 use sailry_link::CancellationToken;
 use sailry_protocol::{
     ErrorCode, Fault, Secret,
@@ -213,17 +215,7 @@ impl Service {
             .find(|auth| auth.kind() == target.method)
             .ok_or_else(unavailable)?;
         let access = match auth {
-            Auth::Secret { fields } => {
-                return fields
-                    .first()
-                    .and_then(|field| target.secrets.get(field))
-                    .cloned()
-                    .map(|token| Access {
-                        token,
-                        revision: target.grant_revision,
-                    })
-                    .ok_or_else(unavailable);
-            }
+            Auth::Secret { .. } => return Err(unavailable()),
             Auth::LocalCli { timeout_ms, .. } => {
                 let expected = target.identity.as_ref().ok_or_else(unavailable)?;
                 if !target.checking
@@ -916,42 +908,23 @@ impl Service {
             )
         {
             let url = expanded(&target.declaration, url, &target.fields)?;
-            let injection = target.declaration.inject.iter().find(|item| {
-                item.origin.as_ref().is_some_and(|origin| {
-                    url::Url::parse(&url)
-                        .is_ok_and(|url| url.origin().ascii_serialization() == *origin)
-                })
-            });
+            let origin = url::Url::parse(&url)
+                .map_err(|_| unavailable())?
+                .origin()
+                .ascii_serialization();
             let mut request = client.get(self.resource(&url));
             let mut protected = Vec::new();
-            if let Some(injection) = injection
-                && let Some(header) = &injection.header
+            for injection in target
+                .declaration
+                .inject
+                .iter()
+                .filter(|injection| injection.origin.as_deref() == Some(origin.as_str()))
             {
-                let oauth = if target.method == Kind::McpOauth {
-                    target
-                        .grant
-                        .as_ref()
-                        .map(|grant| super::authorization::access(&grant.access))
-                        .transpose()?
-                } else {
-                    None
+                let header = injection.header.as_deref().ok_or_else(unavailable)?;
+                let credential = target.credential(injection)?;
+                let Some(token) = credential.read(target)? else {
+                    continue;
                 };
-                let token = oauth
-                    .as_ref()
-                    .or_else(|| {
-                        target
-                            .grant
-                            .as_ref()
-                            .map(|grant| &grant.access)
-                            .or_else(|| {
-                                injection
-                                    .field
-                                    .as_ref()
-                                    .and_then(|field| target.secrets.get(field))
-                            })
-                            .or_else(|| target.secrets.values().next())
-                    })
-                    .ok_or_else(unavailable)?;
                 protected.push(token.clone());
                 request = request.header(header, format!("{}{}", injection.prefix, token.expose()));
             }

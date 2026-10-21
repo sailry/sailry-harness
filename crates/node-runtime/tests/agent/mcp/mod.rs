@@ -4,10 +4,12 @@ use std::{fs, path::Path};
 mod admission;
 #[cfg(feature = "test-support")]
 mod applications;
-#[cfg(feature="test-support")]
+#[cfg(feature = "test-support")]
 mod authorization;
 mod connections;
 mod content;
+#[cfg(feature = "test-support")]
+mod credentials;
 mod elicitation;
 mod http;
 #[cfg(feature = "test-support")]

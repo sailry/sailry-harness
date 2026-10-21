@@ -210,24 +210,19 @@ pub(crate) async fn run(
             return Err(Fault::invalid("connector header cannot be overridden"));
         }
         let service = &ingress.plugins.connectors;
+        let credential = target.credential(&injection)?;
         let mut secrets = target.secrets.values().cloned().collect::<Vec<_>>();
         let mut rotated: Option<crate::plugins::connectors::Access> = None;
         for attempt in 0..2 {
-            let access = if let Some(field) = &injection.field {
-                // Field injection does not enter access(), so it keeps its one live fence check.
-                let current = ingress
-                    .connector_target(target.id, target.revision, target.checking)
-                    .await?;
-                crate::plugins::connectors::Access {
-                    token: target.secrets.get(field).cloned().ok_or_else(|| {
-                        Fault::new(ErrorCode::NotConfigured, "connector secret is unavailable")
-                    })?,
-                    revision: current.grant_revision,
-                }
-            } else if let Some(token) = rotated.take() {
-                token
+            let access = if let Some(token) = rotated.take() {
+                Some(token)
             } else {
-                service.access(&target, ingress, None, &stop).await?
+                service
+                    .access_for(&target, &credential, ingress, None, &stop)
+                    .await?
+            };
+            let Some(access) = access else {
+                return send(input, Some(secrets), stop).await;
             };
             secrets.push(access.token.clone());
             let mut value =
@@ -257,7 +252,9 @@ pub(crate) async fn run(
                 return Ok(response);
             }
             // Rotate a rejected token even when the side effect cannot be replayed.
-            rotated = Some(service.access(&target, ingress, force, &stop).await?);
+            rotated = service
+                .access_for(&target, &credential, ingress, force, &stop)
+                .await?;
             if !idempotent {
                 return Ok(response);
             }

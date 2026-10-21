@@ -192,6 +192,22 @@ fn stdio_peer() {
                     fs::write(data.join("holding"), "ready").unwrap();
                     continue;
                 }
+                if mode == "credentials" {
+                    let hashes = ["SAILRY_MCP_TOKEN", "SAILRY_MCP_SECOND"].map(|name| {
+                        blake3::hash(std::env::var(name).unwrap().as_bytes())
+                            .as_bytes()
+                            .to_vec()
+                    });
+                    println!(
+                        "{}",
+                        json!({"jsonrpc":"2.0","id":id,"result":{
+                            "content":[{"type":"text","text":"Protected MCP result"}],
+                            "structuredContent":{"hashes":hashes}
+                        }})
+                    );
+                    std::io::stdout().flush().unwrap();
+                    continue;
+                }
                 if mode == "settings" {
                     let path = std::env::var("SAILRY_PLUGIN_SETTINGS_FILE").unwrap();
                     let settings: Value =
