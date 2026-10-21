@@ -49,20 +49,25 @@ impl Fixture {
                 );
             }
         }
-        if name == "google-workspace" {
+        if matches!(name, "google-workspace" | "microsoft-365") {
             saved.oauth = Some(history::Authorized {
                 id: sailry_protocol::CredentialId::new(),
                 revision: 3,
                 grant: Some(history::Grant {
                     declaration: history::Declaration {
-                        provider: "google".into(),
+                        provider: if name == "microsoft-365" {
+                            "microsoft"
+                        } else {
+                            "google"
+                        }
+                        .into(),
                         scopes: vec!["read".into()],
                         credentials: vec!["token".into()],
                     },
                     configuration: history::Configuration {
                         client_id: "legacy-client".into(),
                         client_secret: Some(Secret::new("private-client-secret".into())),
-                        tenant: None,
+                        tenant: (name == "microsoft-365").then(|| "retained-tenant".into()),
                     },
                     access_token: Secret::new("private-access".into()),
                     refresh_token: Some(Secret::new("private-refresh".into())),
@@ -70,7 +75,7 @@ impl Fixture {
                 }),
             });
         }
-        if name == "notion" {
+        if matches!(name, "notion" | "slack") {
             let Auth::McpOauth { server, .. } = &declaration.auth[0] else {
                 panic!("MCP method expected")
             };
@@ -78,7 +83,12 @@ impl Fixture {
                 server.clone(),
                 history::McpGrant {
                     id: sailry_protocol::CredentialId::new(),
-                    endpoint: "https://mcp.notion.com/mcp".into(),
+                    endpoint: if name == "slack" {
+                        "https://mcp.slack.com/mcp"
+                    } else {
+                        "https://mcp.notion.com/mcp"
+                    }
+                    .into(),
                     revision: 3,
                     credentials: Some(Secret::new("private-mcp-grant".into())),
                 },
@@ -120,13 +130,22 @@ impl Fixture {
 fn imports_credentials_and_preserves_captures() {
     for cli in [false, true] {
         let mut fixture = Fixture::new();
-        let originals = ["figma", "dingtalk", "google-workspace", "notion", "github"]
-            .into_iter()
-            .map(|name| fixture.legacy(name, cli && name == "github"))
-            .collect::<Vec<_>>();
+        let originals = [
+            "figma",
+            "dingtalk",
+            "google-workspace",
+            "notion",
+            "github",
+            "microsoft-365",
+            "slack",
+            "feishu",
+        ]
+        .into_iter()
+        .map(|name| fixture.legacy(name, cli && name == "github"))
+        .collect::<Vec<_>>();
         fixture.upgrade().unwrap();
         let records = records(&fixture.database.connection).unwrap();
-        assert_eq!(records.len(), 5);
+        assert_eq!(records.len(), 8);
         for (original, bytes) in &originals {
             assert_eq!(fixture.history(original), *bytes);
             let current = required(&fixture.database.connection, &original.summary.name).unwrap();
@@ -148,6 +167,22 @@ fn imports_credentials_and_preserves_captures() {
             if row.method == Kind::LocalCli {
                 assert!(row.grant.is_none() && row.secrets.is_empty());
                 assert_eq!(row.identity.as_ref().unwrap().id, "legacy-user");
+            }
+            if row.plugin == "microsoft-365" {
+                assert_eq!(row.fields["tenant"], "retained-tenant");
+            }
+            if row.plugin == "slack" {
+                assert_eq!(row.method, Kind::McpOauth);
+                assert_eq!(row.fields["client_id"], "legacy-client");
+                assert_eq!(
+                    row.secrets["client_secret"].expose(),
+                    "private-client_secret"
+                );
+            }
+            if row.plugin == "feishu" {
+                assert_eq!(row.method, Kind::Application);
+                assert_eq!(row.fields["app_id"], "legacy-client");
+                assert_eq!(row.secrets["app_secret"].expose(), "private-app_secret");
             }
         }
         let backup = std::fs::read_dir(fixture.directory.path().join("backups"))
@@ -186,6 +221,68 @@ fn imports_credentials_and_preserves_captures() {
             1
         );
     }
+}
+
+#[test]
+fn skips_draft_defaults_without_saved_configuration() {
+    let fixture = Fixture::new();
+    for name in [
+        "notion",
+        "linear",
+        "figma",
+        "slack",
+        "feishu",
+        "tencent-docs",
+        "google-workspace",
+        "microsoft-365",
+        "wecom",
+        "dingtalk",
+        "yuque",
+        "github",
+        "context7",
+    ] {
+        let mut info = fixture.host.install_bundled(name).unwrap();
+        super::super::save(&fixture.database.connection, &info, true).unwrap();
+        assert!(!needs_migration(&fixture.database.connection, &info).unwrap());
+        assert!(
+            !migrate(
+                &fixture.database.connection,
+                fixture.host.profile(),
+                &mut info
+            )
+            .unwrap()
+        );
+        assert_eq!(info.summary.settings_revision, 0);
+    }
+    assert!(records(&fixture.database.connection).unwrap().is_empty());
+    let mut info = required(&fixture.database.connection, "microsoft-365").unwrap();
+    let mut saved = settings::stored(&fixture.database.connection, &info).unwrap();
+    saved.values.insert("unrelated".into(), json!("retained"));
+    settings::persist(&fixture.database.connection, &mut info, &saved).unwrap();
+    assert!(!needs_migration(&fixture.database.connection, &info).unwrap());
+    assert!(
+        !migrate(
+            &fixture.database.connection,
+            fixture.host.profile(),
+            &mut info
+        )
+        .unwrap()
+    );
+    assert!(records(&fixture.database.connection).unwrap().is_empty());
+    saved.values.insert("tenant".into(), json!("common"));
+    settings::persist(&fixture.database.connection, &mut info, &saved).unwrap();
+    assert!(needs_migration(&fixture.database.connection, &info).unwrap());
+    assert!(
+        migrate(
+            &fixture.database.connection,
+            fixture.host.profile(),
+            &mut info
+        )
+        .unwrap()
+    );
+    let rows = records(&fixture.database.connection).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].fields["tenant"], "common");
 }
 
 #[test]

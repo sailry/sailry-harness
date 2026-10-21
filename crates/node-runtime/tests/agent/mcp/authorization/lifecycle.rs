@@ -50,14 +50,14 @@ async fn finish(fixture: &process::Fixture, turn: TurnId) -> Page {
     .expect("MCP refresh deadline")
 }
 
-async fn call(fixture: &process::Fixture) -> Page {
+pub(super) async fn call(fixture: &process::Fixture) -> Page {
     let (_, turn) = submit(fixture, false).await;
     let page = finish(fixture, turn.id).await;
     assert_eq!(page.runs.last().unwrap().status, Status::Completed);
     page
 }
 
-async fn recover(fixture: &process::Fixture, peer: &input::Server, calls: usize) {
+pub(super) async fn recover(fixture: &process::Fixture, peer: &input::Server, calls: usize) {
     // A failed POST can refresh credentials without replaying initialization.
     // Each turn here is a separate explicit request using the persisted grant.
     for _ in 0..2 {

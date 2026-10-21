@@ -1,5 +1,7 @@
 //! Bundled packages expose declared connection types on both controller paths.
 use super::*;
+#[path = "connectors/migration.rs"]
+mod migration;
 #[path = "connectors/service.rs"]
 mod service;
 
@@ -61,6 +63,10 @@ async fn registers_every_bundled_connection() {
             panic!("connection types expected")
         };
         assert_eq!(types.len(), 13);
+        let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
+            panic!("connections expected")
+        };
+        assert!(rows.is_empty());
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }

@@ -80,6 +80,20 @@ async fn rotates_without_losing_refresh_credentials() {
             .summary
             .reference();
         let original = connect(&client, package.clone()).await;
+        {
+            let bodies = issuer.bodies.lock().unwrap();
+            let fields: BTreeMap<_, _> =
+                url::form_urlencoded::parse(bodies[0].as_bytes()).collect();
+            assert_eq!(fields["grant_type"], "authorization_code");
+            assert_eq!(fields["code"], "single-code");
+            assert_eq!(
+                fields["redirect_uri"],
+                "http://127.0.0.1:43191/auth/callback"
+            );
+            assert!(fields["code_verifier"].len() >= 43);
+            assert_eq!(fields["client_id"], "registered-client");
+            assert_eq!(fields["client_secret"], "private-client-marker");
+        }
         let before: serde_json::Value =
             serde_json::from_slice(&stored(&node, original.id)).unwrap();
         let Output::Connection(row) = execute(
@@ -143,6 +157,17 @@ async fn rotates_without_losing_refresh_credentials() {
         assert!(first.is_ok(), "{first:?}");
         assert!(second.is_ok(), "{second:?}");
         assert_eq!(issuer.bodies.lock().unwrap().len(), 2);
+        {
+            let bodies = issuer.bodies.lock().unwrap();
+            let fields: BTreeMap<_, _> =
+                url::form_urlencoded::parse(bodies[1].as_bytes()).collect();
+            assert_eq!(fields["grant_type"], "refresh_token");
+            assert_eq!(fields["refresh_token"], "private-refresh-marker");
+            assert_eq!(fields["client_id"], "registered-client");
+            assert_eq!(fields["client_secret"], "private-client-marker");
+            assert!(!fields.contains_key("code"));
+            assert!(!fields.contains_key("code_verifier"));
+        }
 
         let original = request("/unauthorized", "POST");
         let before = resource.requests.lock().unwrap().len();

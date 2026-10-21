@@ -97,6 +97,11 @@ impl Server {
                         "/unauthorized" => {
                             let _ = stream.write_all(b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
                         },
+                        "/public" => {
+                            let body = r#"{"id":"actual-record"}"#;
+                            let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                            let _ = stream.write_all(response.as_bytes()).await;
+                        },
                         _ => {
                             if let Some(body) = body {
                                 let response = format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());

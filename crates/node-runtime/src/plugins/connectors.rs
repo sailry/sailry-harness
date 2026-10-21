@@ -347,12 +347,7 @@ impl Service {
             } => {
                 client_fields(client, target, &mut fields)?;
                 let token_url = expanded(&target.declaration, token, &target.fields)?;
-                let mut token_endpoint = endpoint(token_url);
-                let mut body = BTreeMap::from([("client_id".into(), "{client_id}".into())]);
-                if fields.contains_key("client_secret") {
-                    body.insert("client_secret".into(), "{client_secret}".into());
-                }
-                token_endpoint.body = Some(model_auth::Body::Form { fields: body });
+                let token_endpoint = endpoint(token_url);
                 let mapping = model_auth::Mapping {
                     access: "/access_token".into(),
                     refresh: Some("/refresh_token".into()),

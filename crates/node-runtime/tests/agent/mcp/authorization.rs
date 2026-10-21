@@ -5,6 +5,7 @@ use sailry_protocol::plugin::connector::{Attempt, Input, Kind, LoginState};
 use std::{collections::BTreeMap, sync::atomic::Ordering};
 mod confidential;
 mod lifecycle;
+mod migration;
 const ORIGIN: &str = "https://mcp.example.com";
 fn configure(fixture: &process::Fixture, endpoint: &str, sse: bool, confidential: bool) {
     fixture.node.set_connector_fixture(ORIGIN, endpoint);
