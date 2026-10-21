@@ -41,7 +41,7 @@ fn mount(
     };
     let types = owner.read(cx).connectors.types.clone();
     let editing = connection.is_some();
-    let form = cx.new(|cx| {
+    let form = cx.new(|cx: &mut Context<Editor>| {
         let mut editor = Editor {
             owner,
             binding,
@@ -65,6 +65,8 @@ fn mount(
             reconnecting: reconnect,
         };
         cx.observe(&editor.query, |_, _, cx| cx.notify()).detach();
+        cx.observe(&editor.owner, |editor, _, cx| editor.reconcile(cx))
+            .detach();
         if let Some(connection) = &editor.connection
             && let Some(index) = editor.types.iter().position(|kind| {
                 kind.package.name == connection.package.name
@@ -136,6 +138,23 @@ impl Drop for Editor {
 }
 
 impl Editor {
+    fn reconcile(&mut self, cx: &mut Context<Self>) {
+        if self.pending || self.closed {
+            return;
+        }
+        let Some(request) = &self.request else { return };
+        let Some(current) =
+            super::commands::observed_edit(request, &self.owner.read(cx).connectors.rows)
+        else {
+            return;
+        };
+        self.connection = Some(current);
+        self.request = None;
+        self.callback = None;
+        self.flow = None;
+        cx.notify();
+    }
+
     fn kind(&self) -> Option<&Type> {
         self.selected.and_then(|index| self.types.get(index))
     }
@@ -325,7 +344,7 @@ impl Editor {
             .selected_index(selected)
             .children(kind.declaration.auth.iter().map(|auth| {
                 Tab::new()
-                    .label(tr(method_key(auth.kind())))
+                    .label(tr(filter::key(auth.kind())))
                     .disabled(self.editing)
             }))
             .on_click(cx.listener(|this, index, window, cx| {
@@ -543,13 +562,5 @@ impl Render for Editor {
         } else {
             self.normal(cx)
         }
-    }
-}
-fn method_key(kind: Kind) -> &'static str {
-    match kind {
-        Kind::Secret => "connector_token",
-        Kind::LocalCli => "connector_cli",
-        Kind::Oauth2 | Kind::McpOauth => "connector_oauth",
-        Kind::Application => "connector_application",
     }
 }

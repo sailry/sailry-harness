@@ -476,6 +476,8 @@ impl Render for Workspace {
             "settings",
             if self.section == Section::Plugin {
                 self.plugin_heading(cx).into()
+            } else if self.section == Section::Connectors {
+                self.connectors.heading()
             } else {
                 tr(self.section.key())
             },

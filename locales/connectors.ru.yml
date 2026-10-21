@@ -1,4 +1,7 @@
 settings_connectors: "Коннекторы"
+connector_title: "Коннекторы (%{count})"
+connector_filter: "Способ аутентификации"
+connector_all_methods: "Все способы"
 settings_connectors_description: "Управление подключениями к сервисам"
 connector_search: "Поиск коннекторов"
 connector_empty: "Нет подключений"

@@ -1,4 +1,7 @@
 settings_connectors: "連接器"
+connector_title: "連接器 (%{count})"
+connector_filter: "驗證方式"
+connector_all_methods: "所有方式"
 settings_connectors_description: "管理服務連線"
 connector_search: "搜尋連接器"
 connector_empty: "暫無連線"

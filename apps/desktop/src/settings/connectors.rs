@@ -1,6 +1,8 @@
 //! Connection presentation uses the same Client contracts for local and remote Nodes.
+mod commands;
 mod consent;
 mod editor;
+mod filter;
 mod menu;
 use super::{Workspace, providers::Binding};
 use crate::tr;
@@ -8,6 +10,7 @@ use gpui_kit::{
     component::{
         button::{Button, ButtonVariants as _},
         input::{Input, InputState},
+        select::{Select, SelectEvent, SelectState},
         skeleton::Skeleton,
         spinner::Spinner,
         switch::Switch,
@@ -26,6 +29,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(super) struct State {
     query: Entity<InputState>,
+    method: Entity<SelectState<Vec<filter::Method>>>,
+    focus: FocusHandle,
     types: Vec<Type>,
     rows: Vec<Connection>,
     binding: Option<Binding>,
@@ -34,15 +39,31 @@ pub(super) struct State {
     stop: CancellationToken,
     task: Option<Task<()>>,
     pending: BTreeSet<connector::Id>,
-    requests: BTreeMap<connector::Id, Request>,
+    requests: BTreeMap<connector::Id, commands::Submission>,
 }
 
 impl State {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Workspace>) -> Self {
         let query = cx.new(|cx| InputState::new(window, cx).placeholder(tr("connector_search")));
         cx.observe(&query, |_, _, cx| cx.notify()).detach();
+        let method = cx.new(|cx| {
+            SelectState::new(
+                filter::Method::ALL.to_vec(),
+                Some(IndexPath::new(0)),
+                window,
+                cx,
+            )
+        });
+        cx.subscribe(&method, |_, _, event, cx| {
+            if matches!(event, SelectEvent::Confirm(_)) {
+                cx.notify();
+            }
+        })
+        .detach();
         Self {
             query,
+            method,
+            focus: cx.focus_handle(),
             types: Vec::new(),
             rows: Vec::new(),
             binding: None,
@@ -58,6 +79,10 @@ impl State {
         self.stop.cancel();
         self.task = None;
         self.loading = false;
+    }
+
+    pub(super) fn heading(&self) -> SharedString {
+        rust_i18n::t!("connector_title", count = self.rows.len()).into()
     }
 }
 impl Drop for State {
@@ -126,6 +151,11 @@ impl Workspace {
                             Message::Rows(changes) => {
                                 this.connectors.rows = changes.connections;
                                 this.connectors.types = changes.types;
+                                commands::reconcile(
+                                    &mut this.connectors.requests,
+                                    &this.connectors.pending,
+                                    &this.connectors.rows,
+                                );
                                 this.connectors.loading = false;
                             }
                             Message::Failed(error) => {
@@ -146,10 +176,18 @@ impl Workspace {
     pub(super) fn connectors(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         self.warm_connectors(window, cx);
         let query = self.connectors.query.read(cx).value().to_lowercase();
+        let method = self
+            .connectors
+            .method
+            .read(cx)
+            .selected_value()
+            .copied()
+            .unwrap_or_default();
         let rows = self
             .connectors
             .rows
             .iter()
+            .filter(|row| method.matches(row.method))
             .filter(|row| {
                 let label = self
                     .connectors
@@ -179,7 +217,15 @@ impl Workspace {
         let toolbar = h_flex()
             .w_full()
             .gap_3()
-            .child(Input::new(&self.connectors.query).cleanable(true).flex_1())
+            .child(
+                Input::new(&self.connectors.query)
+                    .prefix(IconName::Search)
+                    .cleanable(true)
+                    .flex_1(),
+            )
+            .child(div().w_48().child(
+                Select::new(&self.connectors.method).accessibility_label(tr("connector_filter")),
+            ))
             .child(
                 crate::feedback::retry("connector-refresh")
                     .disabled(disabled || self.connectors.loading || self.connectors.refreshing)
@@ -199,6 +245,8 @@ impl Workspace {
             .empty(IconName::Network, "connector_empty")
             .children(rows.iter().map(|row| self.connector_row(row, cx)));
         v_flex()
+            .track_focus(&self.connectors.focus)
+            .on_action(cx.listener(Self::connector_action))
             .w_full()
             .gap_4()
             .child(toolbar)
@@ -252,10 +300,18 @@ impl Workspace {
             .gap_1()
             .child(
                 h_flex()
+                    .min_w_0()
+                    .items_center()
                     .gap_2()
-                    .child(label.clone())
+                    .child(div().truncate().child(label.clone()))
+                    .child(
+                        Tag::secondary()
+                            .child(tr(filter::key(row.method)))
+                            .xsmall()
+                            .flex_shrink_0(),
+                    )
                     .when_some(status, |element, key| {
-                        element.child(Tag::new().child(tr(key)).xsmall())
+                        element.child(Tag::new().child(tr(key)).xsmall().flex_shrink_0())
                     }),
             )
             .when(!account.is_empty(), |element| {
@@ -266,7 +322,7 @@ impl Workspace {
                         .child(account),
                 )
             });
-        super::entry::Entry::new(
+        let content = super::entry::Entry::new(
             row_id.clone(),
             h_flex()
                 .gap_3()
@@ -294,164 +350,20 @@ impl Workspace {
                         })),
                 )
                 .child(self.connector_menu(row, cx)),
-        )
-        .into_any_element()
-    }
-
-    fn refresh_connectors(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(binding) = self.connectors.binding.clone() else {
-            return;
-        };
-        if self.connectors.refreshing {
-            return;
-        }
-        let mut requests = Vec::new();
-        for row in &self.connectors.rows {
-            if !row.enabled
-                || matches!(
-                    row.state,
-                    connector::State::Connecting | connector::State::NeedsConfirmation
-                )
-                || self.connectors.pending.contains(&row.id)
-            {
-                continue;
-            }
-            if self
-                .connectors
-                .requests
-                .get(&row.id)
-                .is_some_and(|request| !matches!(&request.command, Command::ProbeConnection { .. }))
-            {
-                crate::feedback::error("", &tr("connector_unknown"), window, cx);
-                return;
-            }
-            let request = self
-                .connectors
-                .requests
-                .entry(row.id)
-                .or_insert_with(|| {
-                    binding
-                        .client
-                        .prepare(Command::ProbeConnection { connection: row.id })
-                })
-                .clone();
-            requests.push((row.id, request));
-        }
-        if requests.is_empty() {
-            self.connectors.close();
-            self.warm_connectors(window, cx);
-            return;
-        }
-        self.connectors.refreshing = true;
-        self.connectors
-            .pending
-            .extend(requests.iter().map(|(id, _)| *id));
-        let client = binding.client.clone();
-        let expected = client.target();
-        let pending = requests.iter().map(|(id, _)| *id).collect::<Vec<_>>();
-        let job = binding.runtime.spawn(async move {
-            let mut tasks = tokio::task::JoinSet::new();
-            for (id, request) in requests {
-                let client = client.clone();
-                tasks.spawn(async move { (id, client.execute(request).await) });
-            }
-            let mut results = Vec::new();
-            while let Some(result) = tasks.join_next().await {
-                results.push(result);
-            }
-            results
-        });
-        cx.spawn_in(window, async move |owner, cx| {
-            let result = job.await;
-            let _ = owner.update_in(cx, |this, window, cx| {
-                if this.connectors.binding.as_ref().is_none_or(|binding| binding.client.target() != expected) { return; }
-                this.connectors.refreshing = false;
-                for id in pending { this.connectors.pending.remove(&id); }
-                let mut fault = None;
-                match result {
-                    Ok(results) => for result in results {
-                        match result {
-                            Ok((id, result)) => {
-                                this.connectors.pending.remove(&id);
-                                if !matches!(&result, Err(error) if matches!(error.code, ErrorCode::OutcomeUnknown | ErrorCode::Unavailable)) {
-                                    this.connectors.requests.remove(&id);
-                                }
-                                if let Err(error) = result { fault.get_or_insert(error); }
-                            },
-                            Err(_) => { fault.get_or_insert_with(|| Fault::new(ErrorCode::OutcomeUnknown, "connector refresh interrupted")); },
-                        }
-                    },
-                    Err(_) => { fault = Some(Fault::new(ErrorCode::OutcomeUnknown, "connector refresh interrupted")); },
-                }
-                if let Some(error) = fault { failure(error, window, cx); }
-                else { crate::feedback::toast(window, tr("connector_saved"), notification::Notification::success(tr("connector_saved")), cx); }
-                cx.notify();
-            });
-        }).detach();
-        cx.notify();
-    }
-
-    pub(super) fn connector_command(
-        &mut self,
-        command: Command,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(binding) = self.connectors.binding.clone() else {
-            return;
-        };
-        let id = match &command {
-            Command::ProbeConnection { connection }
-            | Command::UpdateConnection { connection, .. }
-            | Command::SetConnectionEnabled { connection, .. }
-            | Command::DisconnectConnection { connection, .. }
-            | Command::RemoveConnection { connection, .. }
-            | Command::ConfirmConnectorConsent { connection, .. } => *connection,
-            _ => return,
-        };
-        if self.connectors.requests.get(&id).is_some_and(|request| {
-            serde_json::to_value(&request.command).ok() != serde_json::to_value(&command).ok()
-        }) {
-            crate::feedback::error("", &tr("connector_unknown"), window, cx);
-            return;
-        }
-        if !self.connectors.pending.insert(id) {
-            return;
-        }
-        let client = binding.client.clone();
-        let expected = client.target();
-        let request = self
-            .connectors
-            .requests
-            .entry(id)
-            .or_insert_with(|| client.prepare(command))
-            .clone();
-        let job = binding
-            .runtime
-            .spawn(async move { client.execute(request).await });
-        cx.notify();
-        cx.spawn_in(window, async move |owner, cx| {
-            let result = job.await;
-            let _ = owner.update_in(cx, |this, window, cx| {
-                if this.connectors.binding.as_ref().is_none_or(|binding| binding.client.target() != expected) { return; }
-                this.connectors.pending.remove(&id);
-                if !matches!(&result, Ok(Err(error)) if matches!(error.code, ErrorCode::OutcomeUnknown | ErrorCode::Unavailable)) {
-                    this.connectors.requests.remove(&id);
-                }
-                match result {
-                Ok(Ok(_)) => crate::feedback::toast(
-                    window,
-                    tr("connector_saved"),
-                    notification::Notification::success(tr("connector_saved")),
-                    cx,
-                ),
-                Ok(Err(error)) => failure(error, window, cx),
-                _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        );
+        let row = row.clone();
+        div()
+            .id(SharedString::from(format!("connector-context-{row_id}")))
+            .child(content)
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                    cx.stop_propagation();
+                    this.connectors.focus.focus(window, cx);
+                    this.connector_context(&row, event.position, window, cx);
+                }),
+            )
+            .into_any_element()
     }
 }
 

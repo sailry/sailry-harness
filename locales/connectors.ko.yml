@@ -1,4 +1,7 @@
 settings_connectors: "커넥터"
+connector_title: "커넥터 (%{count})"
+connector_filter: "인증 방식"
+connector_all_methods: "모든 방식"
 settings_connectors_description: "서비스 연결 관리"
 connector_search: "커넥터 검색"
 connector_empty: "연결 없음"

@@ -1,4 +1,7 @@
 settings_connectors: "Konnektoren"
+connector_title: "Konnektoren (%{count})"
+connector_filter: "Anmeldemethode"
+connector_all_methods: "Alle Methoden"
 settings_connectors_description: "Dienstverbindungen verwalten"
 connector_search: "Konnektoren suchen"
 connector_empty: "Keine Verbindungen"

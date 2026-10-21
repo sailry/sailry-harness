@@ -1,4 +1,7 @@
 settings_connectors: "Connecteurs"
+connector_title: "Connecteurs (%{count})"
+connector_filter: "Méthode d’authentification"
+connector_all_methods: "Toutes les méthodes"
 settings_connectors_description: "Gérer les connexions aux services"
 connector_search: "Rechercher des connecteurs"
 connector_empty: "Aucune connexion"

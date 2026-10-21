@@ -17,6 +17,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.reconcile(cx);
         if self.pending || self.closed || (!registration && !self.required(cx)) {
             return;
         }
@@ -265,6 +266,7 @@ impl Editor {
                             failure(error, window, cx);
                         }
                     }
+                    this.reconcile(cx);
                     cx.notify();
                 }).is_err() {
                     break;
