@@ -452,11 +452,18 @@ async fn confines_generation_credentials() {
                     crate::retry_fixture::budget(),
                 )
                 .await;
+                no_secrets(&page);
+                let public = serde_json::to_string(&page).unwrap();
+                for secret in [ROTATED, "renewed-access"] {
+                    assert!(!public.contains(secret));
+                }
                 if !redirect && api == ModelApi::Responses {
                     let error = page.runs.last().unwrap().error.as_ref().unwrap();
                     let (_, details) = error.message.split_once("\n\n").unwrap();
-                    let details: serde_json::Value = serde_json::from_str(details).unwrap();
-                    assert_eq!(details["message"], "[redacted]");
+                    assert_eq!(
+                        details,
+                        "OpenAI Responses API error: 429 Too Many Requests rate_limit_error: [redacted] (code: rate_limit_exceeded)"
+                    );
                 }
                 let retries: Vec<_> = page
                     .entries

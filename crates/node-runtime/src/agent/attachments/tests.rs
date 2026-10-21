@@ -232,11 +232,26 @@ fn preserves_local_errors() {
         fault
     );
     let unsafe_body = "untrusted upstream response body";
-    assert!(
-        !model::error(adk_core::AdkError::model(unsafe_body))
-            .message
-            .contains(unsafe_body)
+    let diagnostic = "OpenAI Responses API error: 400 Bad Request invalid_request_error: Attachment input is invalid";
+    let mut native = adk_core::AdkError::new(
+        adk_core::ErrorComponent::Model,
+        adk_core::ErrorCategory::InvalidInput,
+        "model.openai_responses.invalid_request",
+        diagnostic,
+    )
+    .with_upstream_status(400);
+    native
+        .details
+        .metadata
+        .insert("body".into(), serde_json::json!(unsafe_body));
+    let fault = model::error(native);
+    assert_eq!(
+        fault.message,
+        format!(
+            "Agent execution failed (model.openai_responses.invalid_request); HTTP 400; invalid_input\n\n{diagnostic}"
+        )
     );
+    assert!(!fault.message.contains(unsafe_body));
 }
 
 #[test]

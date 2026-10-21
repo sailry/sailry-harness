@@ -4,6 +4,8 @@ use std::sync::Mutex;
 
 mod timing;
 
+const DIAGNOSTIC: &str = "OpenAI Responses API error: 429 Too Many Requests rate_limit_error: Summary request was rejected (code: rate_limit_exceeded)";
+
 struct Model {
     responses: Vec<LlmResponse>,
     requests: Mutex<Vec<LlmRequest>>,
@@ -28,9 +30,18 @@ impl Llm for Model {
         }
         let mut responses: Vec<_> = self.responses.iter().cloned().map(Ok).collect();
         if self.error {
-            responses.push(Err(adk_core::AdkError::model(
-                "private provider diagnostic",
-            )));
+            let mut error = adk_core::AdkError::new(
+                adk_core::ErrorComponent::Model,
+                adk_core::ErrorCategory::RateLimited,
+                "model.openai_responses.rate_limited",
+                DIAGNOSTIC,
+            )
+            .with_upstream_status(429);
+            error
+                .details
+                .metadata
+                .insert("body".into(), json!("private provider diagnostic"));
+            responses.push(Err(error));
         }
         Ok(Box::pin(futures::stream::iter(responses)))
     }
@@ -220,7 +231,7 @@ async fn rejects_invalid_summaries() {
     truncated.finish_reason = Some(FinishReason::MaxTokens);
     let mut failed = complete("Summary");
     failed.error_message = Some("private diagnostic".into());
-    for (responses, error) in [
+    for (responses, rejected) in [
         (vec![complete("")], false),
         (vec![complete(&"x".repeat(16000))], false),
         (vec![complete(&"x".repeat(SUMMARY_BYTES + 1))], false),
@@ -237,12 +248,22 @@ async fn rejects_invalid_summaries() {
         (vec![truncated], false),
         (vec![failed], false),
     ] {
-        let (summarizer, model) = summarizer(responses, error);
+        let (summarizer, model) = summarizer(responses, rejected);
         let result = summarizer.summarize_events(&history).await;
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(!error.to_string().contains("private"));
-        assert!(!model::error(error).message.contains("private"));
+        let fault = model::error(error);
+        assert!(!fault.message.contains("private"));
+        if rejected {
+            assert!(fault.message.contains(DIAGNOSTIC));
+            assert!(
+                fault
+                    .message
+                    .contains("model.openai_responses.rate_limited")
+            );
+            assert!(fault.message.contains("HTTP 429"));
+        }
         assert_eq!(model.requests.lock().unwrap().len(), 1);
     }
 }
@@ -262,17 +283,26 @@ fn retains_summary_failure_reason() {
 
 #[test]
 fn retains_safe_request_diagnostics() {
-    let error = adk_core::AdkError::new(
+    let mut error = adk_core::AdkError::new(
         adk_core::ErrorComponent::Model,
         adk_core::ErrorCategory::RateLimited,
-        "model.openai_compat.api_error",
-        "private provider response and credential",
+        "model.openai_responses.rate_limited",
+        DIAGNOSTIC,
     )
     .with_upstream_status(429);
+    error.details.metadata.insert(
+        "body".into(),
+        json!("private provider response and credential"),
+    );
     let fault = model::error(request_error(error));
     assert!(fault.message.contains("context summary request failed"));
-    assert!(fault.message.contains("model.openai_compat.api_error"));
+    assert!(
+        fault
+            .message
+            .contains("model.openai_responses.rate_limited")
+    );
     assert!(fault.message.contains("HTTP 429"));
+    assert!(fault.message.contains(DIAGNOSTIC));
     assert!(!fault.message.contains("private"));
 }
 
