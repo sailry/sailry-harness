@@ -4,6 +4,8 @@ use sailry_protocol::{
     plugin::connector::{self, Connection},
 };
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(unix)]
+mod binding;
 
 fn row(id: connector::Id, revision: u64) -> Connection {
     Connection {
@@ -219,7 +221,16 @@ fn retains_only_unknown_durable_outcomes() {
 #[test]
 fn reports_the_completed_operation() {
     let connection = RequestId::new();
+    let binding = Command::StartConnectorLogin {
+        package: row(connection, 7).package,
+        connector: "account".into(),
+        connection: Some(connection),
+        expected_revision: Some(7),
+        method: connector::Kind::LocalCli,
+        input: connector::Input::default(),
+    };
     for (command, key) in [
+        (binding, "connector_bound"),
         (Command::ProbeConnection { connection }, "connector_checked"),
         (
             Command::DisconnectConnection {

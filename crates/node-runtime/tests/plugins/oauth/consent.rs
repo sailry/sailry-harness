@@ -81,7 +81,7 @@ async fn confirms_changed_permissions_before_reauthorization() {
         };
         assert_eq!(accepted.revision, row.revision + 1);
         assert_eq!(accepted.state, State::NotConnected);
-        assert!(!accepted.can_disconnect);
+        assert!(accepted.can_disconnect);
         let Output::ConnectorLogin(attempt) = execute(
             &client,
             Command::StartConnectorLogin {
@@ -135,6 +135,82 @@ async fn confirms_changed_permissions_before_reauthorization() {
             "private-client-marker",
         ] {
             assert!(!public.contains(marker));
+        }
+        controller.close().await.unwrap();
+        node.shutdown().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn disconnects_credentials_retained_after_configuration_changes() {
+    for remote in [false, true] {
+        let issuer = server::Server::start(false, false).await;
+        let (directory, node, controller, client, worktree) = support::empty(remote).await;
+        node.set_connector_fixture("https://issuer.example.com", &issuer.endpoint);
+        configure(&directory.path().join("source/package"));
+        let package = info(execute(&client, install(worktree, 0)).await);
+        let original = lifecycle::connect(&client, package.summary.reference()).await;
+        let before: serde_json::Value =
+            serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+        let Output::Connection(changed) = execute(
+            &client,
+            Command::UpdateConnection {
+                connection: original.id,
+                expected_revision: original.revision,
+                input: Input {
+                    fields: BTreeMap::from([("client_id".into(), "changed-client".into())]),
+                    secrets: BTreeMap::from([("client_secret".into(), Secret::new(String::new()))]),
+                    ..Default::default()
+                },
+            },
+        )
+        .await
+        else {
+            panic!("connection expected")
+        };
+        assert_eq!(changed.state, State::NotConnected);
+        assert!(changed.can_disconnect);
+        assert_eq!(changed.configured, ["client_secret"]);
+        assert_eq!(changed.fields["client_id"], "changed-client");
+        let saved: serde_json::Value =
+            serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+        assert!(saved["grant"].is_null());
+        assert_eq!(saved["secrets"], before["secrets"]);
+        let mut feed = client.subscribe_connections().await.unwrap();
+        let Update::ConnectionsChanged(snapshot) = feed.next().await.unwrap() else {
+            panic!("connections snapshot expected")
+        };
+        assert_eq!(
+            snapshot.connections.as_slice(),
+            std::slice::from_ref(&changed)
+        );
+        let Output::Connection(disconnected) = execute(
+            &client,
+            Command::DisconnectConnection {
+                connection: changed.id,
+                expected_revision: changed.revision,
+            },
+        )
+        .await
+        else {
+            panic!("connection expected")
+        };
+        assert_eq!(disconnected.state, State::NotConnected);
+        assert_eq!(disconnected.fields, changed.fields);
+        assert_eq!(disconnected.id, original.id);
+        assert!(disconnected.configured.is_empty());
+        assert!(!disconnected.can_disconnect);
+        let saved: serde_json::Value =
+            serde_json::from_slice(&lifecycle::stored(&node, original.id)).unwrap();
+        assert!(saved["grant"].is_null());
+        assert_eq!(saved["secrets"], json!({}));
+        let public = serde_json::to_string(&(changed, snapshot, disconnected)).unwrap();
+        for secret in [
+            "private-access-marker",
+            "private-refresh-marker",
+            "private-client-marker",
+        ] {
+            assert!(!public.contains(secret));
         }
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

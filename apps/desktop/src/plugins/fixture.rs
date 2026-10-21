@@ -147,6 +147,7 @@ impl Transport for Observed {
                         | Command::ResizeTerminal { .. }
                         | Command::SetTerminalAppearance { .. }
                         | Command::CreateProject(_)
+                        | Command::CancelConnectorLogin { .. }
                 )
             {
                 self.requests.lock().unwrap().push(request.clone());
@@ -316,7 +317,7 @@ impl Fixture {
         Self::with_setup(remote, initialized, |_| None)
     }
 
-    fn with_setup(
+    pub(crate) fn with_setup(
         remote: bool,
         initialized: bool,
         setup: impl FnOnce(&std::path::Path) -> Option<sailry_node_runtime::EnvironmentFixture>,

@@ -285,6 +285,9 @@ async fn clears_identity_after_changing_authentication() {
         declared["auth"].as_array_mut().unwrap().push(
             manifest["extensions"]["dev.sailry.platform"]["connectors"][0]["auth"][1].clone(),
         );
+        declared["fields"].as_array_mut().unwrap().push(json!({
+            "name":"label","title":"Label","default":"Retained configuration"
+        }));
         configure(&directory.path().join("source/package"), declared);
         let package = info(execute(&client, install(worktree, 0)).await)
             .summary
@@ -322,11 +325,46 @@ async fn clears_identity_after_changing_authentication() {
         assert_eq!(disconnected.state, State::NotConnected);
         assert!(!disconnected.can_disconnect);
 
+        fs::write(cli.home().join("gh-switched"), "").unwrap();
+        let statuses = cli.calls("status");
+        let tokens = cli.calls("token");
+        let Output::ConnectorLogin(attempt) = execute(
+            &client,
+            Command::StartConnectorLogin {
+                package: package.clone(),
+                connector: "service".into(),
+                connection: Some(original.id),
+                expected_revision: Some(disconnected.revision),
+                method: Kind::LocalCli,
+                input: Input::default(),
+            },
+        )
+        .await
+        else {
+            panic!("connector login expected")
+        };
+        let bound = ready(&client, &attempt).await;
+        assert_eq!(bound.id, original.id);
+        assert_eq!(bound.identity.as_ref().unwrap().id, "other-user");
+        assert_eq!(bound.fields, original.fields);
+        assert_eq!(bound.enabled, original.enabled);
+        assert!(bound.can_disconnect);
+        assert_eq!(cli.calls("status") - statuses, 2);
+        assert_eq!(cli.calls("token") - tokens, 1);
+        let calls = fs::read_to_string(cli.home().join("gh-calls")).unwrap();
+        assert!(
+            calls.lines().all(|call| {
+                call.starts_with("auth status ") || call.starts_with("auth token ")
+            })
+        );
+        assert!(calls.contains("auth token --hostname github.com --user other-user"));
+        assert!(!calls.contains("{account}"));
+
         let row = super::connected(
             &client,
             package.clone(),
             Some(original.id),
-            Some(disconnected.revision),
+            Some(bound.revision),
             secret(),
         )
         .await;

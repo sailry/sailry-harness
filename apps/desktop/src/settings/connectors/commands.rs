@@ -65,10 +65,69 @@ pub(super) fn observed_edit(request: &Request, rows: &[Connection]) -> Option<Co
 
 fn success_key(command: &Command) -> &'static str {
     match command {
+        Command::StartConnectorLogin {
+            method: connector::Kind::LocalCli,
+            ..
+        } => "connector_bound",
         Command::ProbeConnection { .. } => "connector_checked",
         Command::DisconnectConnection { .. } => "connector_disconnected",
         Command::RemoveConnection { .. } => "connector_removed",
         _ => "connector_saved",
+    }
+}
+
+async fn execute(
+    client: &sailry_client::Client,
+    request: Request,
+    stop: CancellationToken,
+) -> Result<Output, Fault> {
+    let output = client.execute(request).await?;
+    let Output::ConnectorLogin(attempt) = output else {
+        return Ok(output);
+    };
+    let observe = async {
+        let interrupted = |_| {
+            Fault::new(
+                ErrorCode::OutcomeUnknown,
+                "connector binding observation interrupted",
+            )
+        };
+        let mut subscription = client
+            .subscribe_connector_login(attempt.id)
+            .await
+            .map_err(interrupted)?;
+        loop {
+            let Update::ConnectorLogin(update) = subscription.next().await.map_err(interrupted)?
+            else {
+                return Err(Fault::invalid("connector login update expected"));
+            };
+            if update.attempt != attempt {
+                return Err(Fault::invalid("connector login attempt changed"));
+            }
+            match update.state {
+                connector::LoginState::Connected(connection) => {
+                    return Ok(Output::Connection(connection));
+                }
+                connector::LoginState::Failed(error) => return Err(error),
+                connector::LoginState::Cancelled => {
+                    return Err(Fault::new(
+                        ErrorCode::Cancelled,
+                        "connector binding cancelled",
+                    ));
+                }
+                _ => (),
+            }
+        }
+    };
+    tokio::select! {
+        biased;
+        _ = stop.cancelled() => {
+            client.execute(client.prepare(Command::CancelConnectorLogin {
+                attempt: attempt.id,
+            })).await?;
+            Err(Fault::new(ErrorCode::Cancelled, "connector binding cancelled"))
+        }
+        result = observe => result,
     }
 }
 
@@ -196,6 +255,12 @@ impl Workspace {
             return;
         };
         let id = match &command {
+            Command::StartConnectorLogin {
+                connection: Some(connection),
+                expected_revision: Some(_),
+                method: connector::Kind::LocalCli,
+                ..
+            } => *connection,
             Command::ProbeConnection { connection }
             | Command::UpdateConnection { connection, .. }
             | Command::SetConnectionEnabled { connection, .. }
@@ -221,6 +286,10 @@ impl Workspace {
         let client = binding.client.clone();
         let expected = client.target();
         let revision = match &command {
+            Command::StartConnectorLogin {
+                expected_revision: Some(expected_revision),
+                ..
+            } => *expected_revision,
             Command::UpdateConnection {
                 expected_revision, ..
             }
@@ -251,9 +320,10 @@ impl Workspace {
             client.prepare(command),
         );
         let request_id = request.id;
+        let stop = self.connectors.stop.child_token();
         let job = binding
             .runtime
-            .spawn(async move { client.execute(request).await });
+            .spawn(async move { execute(&client, request, stop).await });
         cx.notify();
         cx.spawn_in(window, async move |owner, cx| {
             let result = job.await;
@@ -284,6 +354,7 @@ impl Workspace {
                         notification::Notification::success(tr(success)),
                         cx,
                     ),
+                    Ok(Err(error)) if error.code == ErrorCode::Cancelled => (),
                     Ok(Err(error)) => failure(error, window, cx),
                     _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
                 }

@@ -294,15 +294,16 @@ pub(in crate::store) fn project(
         revision: record.revision,
         enabled: record.enabled,
         state,
-        can_disconnect: !matches!(record.state, State::Connecting | State::NotConnected)
-            && state != State::NotConnected
+        can_disconnect: record.state != State::Connecting
             && record.login.is_none()
             && (record.grant.is_some()
                 || record
                     .secrets
                     .values()
                     .any(|secret| !secret.expose().is_empty())
-                || record.method == Kind::LocalCli && record.identity.is_some()),
+                || record.method == Kind::LocalCli
+                    && record.state != State::NotConnected
+                    && record.identity.is_some()),
         identity: record.identity.clone(),
         expires_at_ms: record.grant.as_ref().and_then(|grant| grant.expires_at_ms),
         checked_at_ms: record.checked_at_ms,

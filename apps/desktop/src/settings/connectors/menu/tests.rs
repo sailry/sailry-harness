@@ -61,7 +61,11 @@ fn separates_configuration_from_authorization() {
             [
                 Item::Action(Operation::Edit, "connector_configure"),
                 Item::Action(
-                    Operation::Reconnect,
+                    if method == Kind::LocalCli {
+                        Operation::Bind
+                    } else {
+                        Operation::Reconnect
+                    },
                     if method == Kind::LocalCli {
                         "connector_bind"
                     } else {
@@ -78,7 +82,7 @@ fn separates_configuration_from_authorization() {
     let (row, kind) = fixture(Kind::LocalCli, false);
     assert_eq!(
         items(&row, Some(&kind))[0],
-        Item::Action(Operation::Reconnect, "connector_bind")
+        Item::Action(Operation::Bind, "connector_bind")
     );
     let (row, mut kind) = fixture(Kind::LocalCli, true);
     kind.declaration.fields[0].secret = true;
@@ -155,5 +159,20 @@ fn hides_unavailable_recovery_actions() {
     assert_eq!(
         items(&row, None),
         [Item::Action(Operation::Remove, "settings_delete")]
+    );
+}
+
+#[test]
+fn disconnects_retained_credentials_without_a_connection() {
+    let (mut row, kind) = fixture(Kind::Oauth2, true);
+    row.state = State::NotConnected;
+    assert!(
+        items(&row, Some(&kind))
+            .contains(&Item::Action(Operation::Disconnect, "connector_disconnect"))
+    );
+    row.can_disconnect = false;
+    assert!(
+        !items(&row, Some(&kind))
+            .contains(&Item::Action(Operation::Disconnect, "connector_disconnect"))
     );
 }

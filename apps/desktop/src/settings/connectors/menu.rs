@@ -9,6 +9,7 @@ use gpui_kit::component::{
 pub(super) enum Operation {
     Edit,
     Reconnect,
+    Bind,
     Probe,
     Confirm,
     Disconnect,
@@ -68,7 +69,7 @@ fn items(row: &Connection, kind: Option<&Type>) -> Vec<Item> {
                 items.push(Item::Action(Operation::Reconnect, "connector_authorize"));
             }
             connector::Auth::LocalCli { .. } => {
-                items.push(Item::Action(Operation::Reconnect, "connector_bind"));
+                items.push(Item::Action(Operation::Bind, "connector_bind"));
             }
             _ => (),
         }
@@ -234,6 +235,14 @@ impl Workspace {
                     editor::reconnect(owner, row, window, cx)
                 });
             }
+            Operation::Bind => Command::StartConnectorLogin {
+                package: row.package.clone(),
+                connector: row.connector.clone(),
+                connection: Some(row.id),
+                expected_revision: Some(row.revision),
+                method: connector::Kind::LocalCli,
+                input: connector::Input::default(),
+            },
             Operation::Probe => Command::ProbeConnection { connection: row.id },
             Operation::Confirm => Command::ConfirmConnectorConsent {
                 connection: row.id,

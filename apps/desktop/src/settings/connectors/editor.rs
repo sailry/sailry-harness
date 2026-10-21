@@ -76,12 +76,9 @@ fn mount(
             editor.choose(index, window, cx);
         }
         if reconnect
-            && editor.method().is_some_and(|auth| {
-                matches!(
-                    auth,
-                    Auth::Oauth2 { .. } | Auth::McpOauth { .. } | Auth::LocalCli { .. }
-                )
-            })
+            && editor
+                .method()
+                .is_some_and(|auth| matches!(auth, Auth::Oauth2 { .. } | Auth::McpOauth { .. }))
         {
             editor.submit(false, window, cx);
         }
@@ -314,9 +311,6 @@ impl Editor {
                 match result {
                     Ok(Ok(Output::ConnectorIdentity(identity))) => {
                         this.cli = Some(identity);
-                        if this.reconnecting && !this.closed {
-                            this.submit(false, window, cx);
-                        }
                     }
                     Ok(Err(error)) => failure(error, window, cx),
                     _ => crate::feedback::error("", &tr("connector_unknown"), window, cx),
@@ -414,7 +408,7 @@ impl Editor {
             self.field_form(kind)
         } else {
             match auth {
-                Auth::LocalCli { command, token, .. } => v_flex()
+                Auth::LocalCli { .. } => v_flex()
                     .gap_3()
                     .when(self.inspecting, |element| {
                         element.child(Skeleton::new().h_12().w_full())
@@ -438,12 +432,6 @@ impl Editor {
                                 ),
                         )
                     })
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(format!("{command} {}", token.argv.join(" "))),
-                    )
                     .into_any_element(),
                 Auth::McpOauth { client: None, .. }
                 | Auth::Oauth2 {
