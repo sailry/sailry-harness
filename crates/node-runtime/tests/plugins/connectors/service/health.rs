@@ -20,13 +20,14 @@ async fn sends_every_scoped_header() {
     const FIRST: &str = "first-private-health-token";
     const SECOND: &str = "second-private-health-token";
     for remote in [false, true] {
+        let headers = vec![
+            ("Authorization".into(), format!("Bearer {SECOND}")),
+            ("X-Client-Key".into(), FIRST.into()),
+        ];
         let server = server::Server::build(
             Some(json!({"name":"Fixture","id":"fixture-account"}).to_string()),
             None,
-            vec![
-                ("Authorization".into(), format!("Bearer {SECOND}")),
-                ("X-Client-Key".into(), FIRST.into()),
-            ],
+            headers.clone(),
         )
         .await;
         let (directory, node, controller, client, worktree) = support::empty(remote).await;
@@ -36,9 +37,11 @@ async fn sends_every_scoped_header() {
         declared["auth"][0]["fields"] = json!(["alpha", "beta"]);
         declared["fields"] = json!([
             {"name":"alpha","title":"Alpha","secret":true},
-            {"name":"beta","title":"Beta","secret":true}
+            {"name":"beta","title":"Beta","secret":true},
+            {"name":"unused","title":"Unused","secret":true,"optional":true}
         ]);
         declared["inject"] = json!([
+            {"origin":ORIGIN,"header":"X-Optional","field":"unused"},
             {"origin":ORIGIN,"header":"Authorization","prefix":"Bearer ","field":"beta"},
             {"origin":ORIGIN,"header":"X-Client-Key","field":"alpha"},
             {"origin":"https://other.example.com","header":"X-Other-Key","field":"alpha"}
@@ -84,13 +87,14 @@ async fn sends_every_scoped_header() {
                 assert!(header.contains(&format!("authorization: bearer {SECOND}")));
                 assert!(header.contains(&format!("x-client-key: {FIRST}")));
                 assert!(!header.contains("x-other-key:"));
+                assert!(!header.contains("x-optional:"));
             }
         }
         for value in [&row, checked] {
             let public = serde_json::to_string(value).unwrap();
             assert!(!public.contains(FIRST) && !public.contains(SECOND));
         }
-        let resource = server::Server::respond(Some("{}".into()), None).await;
+        let resource = server::Server::build(Some("{}".into()), None, headers.clone()).await;
         node.set_connector_fixture(ORIGIN, &resource.origin);
         let output = client
             .execute(
@@ -100,15 +104,53 @@ async fn sends_every_scoped_header() {
             )
             .await
             .unwrap();
-        assert!(matches!(output, Output::PluginHttp(response) if response.status == 200));
+        assert!(matches!(&output, Output::PluginHttp(response) if response.status == 200));
+        let public = serde_json::to_string(&output).unwrap();
+        assert!(!public.contains(FIRST) && !public.contains(SECOND));
         {
             let requests = resource.requests.lock().unwrap();
             assert_eq!(requests.len(), 1);
-            assert!(
-                requests[0]
-                    .0
-                    .contains(&format!("authorization: Bearer {SECOND}"))
-            );
+            let header = requests[0].0.to_ascii_lowercase();
+            assert!(header.contains(&format!("authorization: bearer {SECOND}")));
+            assert!(header.contains(&format!("x-client-key: {FIRST}")));
+            assert!(!header.contains("x-other-key:") && !header.contains("x-optional:"));
+        }
+        for name in ["Authorization", "X-Client-Key"] {
+            let mut override_header = request("/ok", row.id);
+            if let Command::RequestPluginHttp(request) = &mut override_header {
+                request.headers.insert(name.into(), "override".into());
+            }
+            let error = client
+                .execute(
+                    client
+                        .prepare(override_header)
+                        .with_plugin(context(row.package.clone(), worktree)),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::InvalidRequest);
+            assert_eq!(resource.requests.lock().unwrap().len(), 1);
+        }
+        for secret in [FIRST, SECOND] {
+            let leaked = server::Server::build(
+                Some(json!({"echo":secret}).to_string()),
+                None,
+                headers.clone(),
+            )
+            .await;
+            node.set_connector_fixture(ORIGIN, &leaked.origin);
+            let error = client
+                .execute(
+                    client
+                        .prepare(request("/ok", row.id))
+                        .with_plugin(context(row.package.clone(), worktree)),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error.code, ErrorCode::PermissionDenied);
+            let public = serde_json::to_string(&error).unwrap();
+            assert!(!public.contains(FIRST) && !public.contains(SECOND));
+            assert_eq!(leaked.requests.lock().unwrap().len(), 1);
         }
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();

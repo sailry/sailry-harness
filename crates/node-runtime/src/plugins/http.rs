@@ -24,7 +24,7 @@ pub(crate) struct Input {
     timeout: Duration,
     pub(crate) connector: Option<(
         super::connectors::Target,
-        sailry_protocol::plugin::connector::Injection,
+        Vec<sailry_protocol::plugin::connector::Injection>,
         bool,
     )>,
     provider: Option<Box<sailry_protocol::conversation::Provider>>,
@@ -199,62 +199,96 @@ pub(crate) async fn run(
     ingress: &crate::store::Ingress,
     stop: CancellationToken,
 ) -> Result<http::Response, Fault> {
-    if let Some((target, injection, idempotent)) = input.connector.take() {
-        let name = header(
-            injection
-                .header
-                .as_deref()
-                .ok_or_else(|| Fault::invalid("connector HTTP header is unavailable"))?,
-        )?;
-        if input.headers.contains_key(&name) {
-            return Err(Fault::invalid("connector header cannot be overridden"));
-        }
+    if let Some((target, injections, idempotent)) = input.connector.take() {
+        use super::connectors::Credential;
+        let selections =
+            injections
+                .iter()
+                .map(|injection| {
+                    let name =
+                        header(injection.header.as_deref().ok_or_else(|| {
+                            Fault::invalid("connector HTTP header is unavailable")
+                        })?)?;
+                    if input.headers.contains_key(&name) {
+                        return Err(Fault::invalid("connector header cannot be overridden"));
+                    }
+                    Ok((
+                        name,
+                        injection.prefix.as_str(),
+                        target.credential(injection)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, Fault>>()?;
         let service = &ingress.plugins.connectors;
-        let credential = target.credential(&injection)?;
+        let uses_grant = selections
+            .iter()
+            .any(|(_, _, credential)| *credential == Credential::Grant);
         let mut secrets = target.secrets.values().cloned().collect::<Vec<_>>();
         let mut rotated: Option<crate::plugins::connectors::Access> = None;
         for attempt in 0..2 {
-            let access = if let Some(token) = rotated.take() {
+            let grant = if let Some(token) = rotated.take() {
                 Some(token)
-            } else {
+            } else if uses_grant {
                 service
-                    .access_for(&target, &credential, ingress, None, &stop)
+                    .access_for(&target, &Credential::Grant, ingress, None, &stop)
                     .await?
+            } else {
+                None
             };
-            let Some(access) = access else {
-                return send(input, Some(secrets), stop).await;
-            };
-            secrets.push(access.token.clone());
-            let mut value =
-                HeaderValue::from_str(&format!("{}{}", injection.prefix, access.token.expose()))
+            let live = ingress
+                .connector_target(target.id, target.revision, target.checking)
+                .await?;
+            let revision = grant
+                .as_ref()
+                .map_or(live.grant_revision, |access| access.revision);
+            let mut sent = false;
+            for (name, prefix, credential) in &selections {
+                input.headers.remove(name);
+                let token = if *credential == Credential::Grant {
+                    grant.as_ref().map(|access| access.token.clone())
+                } else {
+                    credential.read(&live)?
+                };
+                let Some(token) = token else {
+                    continue;
+                };
+                secrets.push(token.clone());
+                let mut value = HeaderValue::from_str(&format!("{prefix}{}", token.expose()))
                     .map_err(|_| {
                         Fault::invalid("connector credential is not a valid header value")
                     })?;
-            value.set_sensitive(true);
-            insert(&mut input.headers, name.clone(), value)?;
+                value.set_sensitive(true);
+                insert(&mut input.headers, name.clone(), value)?;
+                sent = true;
+            }
             input.url = Url::parse(&service.resource(input.url.as_str()))
                 .map_err(|_| Fault::invalid("invalid connector HTTP URL"))?;
             let response = send(input.clone(), Some(secrets.clone()), stop.clone()).await?;
+            if !sent {
+                return Ok(response);
+            }
             if response.status != 401 {
-                service.accepted(target.id, access.revision)?;
+                service.accepted(target.id, revision)?;
                 return Ok(response);
             }
             use crate::plugins::connectors::Rejection;
             let rejected = service
-                .reject(&target, ingress, access.revision, attempt != 0)
+                .reject(&target, ingress, revision, attempt != 0)
                 .await?;
             let force = match rejected {
                 Rejection::Stop => return Ok(response),
                 Rejection::Current => None,
-                Rejection::Renew => Some(access.revision),
+                Rejection::Renew => Some(revision),
             };
             if attempt != 0 {
                 return Ok(response);
             }
             // Rotate a rejected token even when the side effect cannot be replayed.
-            rotated = service
-                .access_for(&target, &credential, ingress, force, &stop)
-                .await?;
+            if uses_grant {
+                rotated = service
+                    .access_for(&target, &Credential::Grant, ingress, force, &stop)
+                    .await?;
+            }
             if !idempotent {
                 return Ok(response);
             }

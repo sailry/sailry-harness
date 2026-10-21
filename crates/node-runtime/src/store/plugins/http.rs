@@ -20,11 +20,7 @@ pub(super) fn prepare(
         .as_ref()
         .map(|_| settings::resolve(&db.connection, &info))
         .transpose()?;
-    let mut input = crate::plugins::http::prepare(
-        http,
-        info.settings.as_ref(),
-        resolved.as_ref(),
-    )?;
+    let mut input = crate::plugins::http::prepare(http, info.settings.as_ref(), resolved.as_ref())?;
     if let Some(connector) = &http.connector {
         if http.credential.is_some() {
             return Err(Fault::invalid(
@@ -42,20 +38,21 @@ pub(super) fn prepare(
             .map_err(|_| Fault::invalid("invalid plugin HTTP URL"))?
             .origin()
             .ascii_serialization();
-        let injection = declaration
+        let injections = declaration
             .inject
             .iter()
-            .find(|injection| injection.origin.as_deref() == Some(&origin))
+            .filter(|injection| injection.origin.as_deref() == Some(&origin))
             .cloned()
-            .ok_or_else(|| {
-                Fault::new(
-                    ErrorCode::PermissionDenied,
-                    "connector does not authorize this HTTP origin",
-                )
-            })?;
+            .collect::<Vec<_>>();
+        if injections.is_empty() {
+            return Err(Fault::new(
+                ErrorCode::PermissionDenied,
+                "connector does not authorize this HTTP origin",
+            ));
+        }
         input.connector = Some((
             super::connectors::target(&record, declaration, info.summary.reference()),
-            injection,
+            injections,
             matches!(http.method.as_str(), "GET" | "HEAD") || http.idempotent,
         ));
     } else if http.connection.is_some() {

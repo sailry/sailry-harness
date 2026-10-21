@@ -53,20 +53,17 @@ impl Authorization {
             .map(|(target, _)| (target.id, target.revision))
             .collect()
     }
-    /// Confirms every target is still current and returns its live grant revision.
-    pub(crate) async fn validate(&self) -> Result<BTreeMap<Id, u64>, Fault> {
+    /// Confirms every target and sealed credential is still current.
+    pub(crate) async fn validate(&self) -> Result<(), Fault> {
         if let Some(settings) = &self.settings {
             self.ingress
                 .mcp_connectors(settings.0.clone(), settings.1.clone())
                 .await?;
         }
-        let mut revisions = BTreeMap::new();
         for (target, _) in &self.targets {
-            let live = self
-                .ingress
+            self.ingress
                 .connector_target(target.id, target.revision, target.checking)
                 .await?;
-            revisions.insert(target.id, live.grant_revision);
         }
         let sealed = self.sealed.lock().map_err(|_| unavailable())?.clone();
         for (id, credential, expected) in sealed {
@@ -94,7 +91,7 @@ impl Authorization {
                 ));
             }
         }
-        Ok(revisions)
+        Ok(())
     }
     pub(crate) fn seal(&self, id: Id, credential: Credential, token: Secret) -> Result<(), Fault> {
         self.sealed
