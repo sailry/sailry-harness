@@ -47,6 +47,7 @@ if test "$(uname -s)" = Linux && test "$(id -u)" = 0; then
 fi
 task_existing="$task_root"
 task_migrate=0
+task_had_command=0
 if test "$task_update" = 1 && test "$task_root" = /usr/local/libexec/sailry \
   && ! test -e "$task_root" && ! test -L "$task_root" \
   && test -L "$task_command" \
@@ -59,6 +60,7 @@ if test -e "$task_command" || test -L "$task_command"; then
     echo 'The sailry command path is already in use' >&2
     exit 1
   fi
+  task_had_command=1
 fi
 if test "$task_update" = 0; then
   if test -e "$task_root" || test -e "$task_data"; then
@@ -83,7 +85,52 @@ if test "$task_update" = 0; then test ! -e "$task_unit"; fi
 umask 077
 mkdir -p "$task_parent" "$(dirname "$task_command")"
 task_stage="$(mktemp -d "$task_parent/.sailry-install-XXXXXX")"
-trap 'rm -rf -- "$task_stage"' EXIT
+task_backup=""
+task_changing=0
+task_starting=0
+task_complete=0
+task_active=0
+task_rollback() {
+  if test "$task_starting" = 1; then
+    "$task_backup/sailry" stop || return
+  fi
+  if test -d "$task_backup"; then
+    if test -e "$task_root" || test -L "$task_root"; then
+      mv "$task_root" "$task_stage/failed" || return
+    fi
+    mv "$task_backup" "$task_existing" || return
+  fi
+  if test "$task_migrate" = 1; then
+    cp -p "$task_stage/previous-service" "$task_unit" || return
+    systemctl daemon-reload || return
+  fi
+  if test "$task_had_command" = 1; then
+    ln -sfn "$task_existing/sailry" "$task_command" || return
+  elif test -L "$task_command" && test "$(readlink "$task_command")" = "$task_root/sailry"; then
+    rm -- "$task_command" || return
+  fi
+  if test "$task_active" = 1; then
+    "$task_existing/sailry" start || return
+  fi
+}
+task_cleanup() {
+  task_status=$?
+  trap - EXIT HUP INT TERM
+  if test "$task_changing" = 1 && test "$task_complete" = 0; then
+    if ! task_rollback; then
+      printf 'Host recovery failed; inspect program files at %s and %s\n' "$task_existing" "$task_backup" >&2
+      printf 'Recovery files remain at %s\n' "$task_stage" >&2
+      exit 1
+    fi
+    echo 'Host update failed; the previous installation was restored' >&2
+  fi
+  rm -rf -- "$task_stage"
+  exit "$task_status"
+}
+trap task_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 task_archive="sailry-host-$task_target.tar.gz"
 task_release="$task_repository/releases/download/v$task_version"
 for task_asset in "$task_archive" "SHA256SUMS-$task_target"; do
@@ -110,6 +157,7 @@ test -f "$task_stage/package/service.sh"
 chmod 700 "$task_stage/package/sailry" "$task_stage/package/sailry-host"
 test "$("$task_stage/package/sailry-host" --version)" = "Sailry Host $task_version"
 if test "$task_migrate" = 1; then
+  cp -p "$task_unit" "$task_stage/previous-service"
   "$task_stage/package/python/bin/python3.12" -I - "$task_unit" "$task_existing" "$task_root" "$task_stage/service" <<'PY'
 from pathlib import Path
 import sys
@@ -124,9 +172,11 @@ Path(output).write_text(''.join(
 PY
 fi
 if test "$task_update" = 1; then
-  "$task_existing/sailry" stop
   task_backup="$(mktemp -d "$task_parent/.sailry-previous-XXXXXX")"
   rmdir "$task_backup"
+  if "$task_existing/sailry" status >/dev/null 2>&1; then task_active=1; fi
+  task_changing=1
+  "$task_existing/sailry" stop
   mv "$task_existing" "$task_backup"
 fi
 mv "$task_stage/package" "$task_root"
@@ -139,10 +189,9 @@ if test "$task_migrate" = 1; then
 fi
 ln -sfn "$task_root/sailry" "$task_command"
 if test "$task_update" = 1; then
-  if ! "$task_root/sailry" start; then
-    echo "Host update installed but startup failed; previous files remain at $task_backup" >&2
-    exit 1
-  fi
+  task_starting=1
+  "$task_root/sailry" start
+  task_complete=1
   printf 'Host updated; previous files: %s\n' "$task_backup"
 else
   if test -n "$task_network_mode"; then

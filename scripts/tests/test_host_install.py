@@ -15,7 +15,7 @@ TARGETS = {"x86_64":"x86_64-unknown-linux-gnu", "aarch64":"aarch64-unknown-linux
 VERSION = "0.1.0-alpha.1"
 
 
-class HostInstall(unittest.TestCase):
+class Fixture:
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="sailry-install-fixture-")
         self.addCleanup(temporary.cleanup)
@@ -81,6 +81,8 @@ shutil.copyfile(source, destination)
         return subprocess.run([str(self.home / ".local/bin/sailry"), *arguments], env=self.environment,
                               capture_output=True, text=True, timeout=20)
 
+
+class HostInstall(Fixture, unittest.TestCase):
     def test_installs_user_services_on_both_linux_architectures(self):
         for architecture, target in TARGETS.items():
             with self.subTest(architecture=architecture):
