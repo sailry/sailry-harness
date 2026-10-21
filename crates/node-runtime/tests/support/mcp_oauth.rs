@@ -49,7 +49,11 @@ impl Drop for Server {
 
 impl Server {
     pub async fn start(upstream: &str) -> Self {
-        Self::configured(upstream, None, false, None).await
+        Self::configured(upstream, None, false, None, true, None).await
+    }
+
+    pub async fn tokens(upstream: &str, refresh: bool, error: Option<&str>) -> Self {
+        Self::configured(upstream, None, false, None, refresh, error).await
     }
 
     pub async fn confidential(
@@ -62,6 +66,8 @@ impl Server {
             Some("client-private-marker".into()),
             registered,
             Some(authentication),
+            true,
+            None,
         )
         .await
     }
@@ -71,6 +77,8 @@ impl Server {
         secret: Option<String>,
         registered: bool,
         authentication: Option<Authentication>,
+        with_refresh: bool,
+        error: Option<&str>,
     ) -> Self {
         let secret = secret.map(|secret| Arc::new(Mutex::new(secret)));
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -97,6 +105,8 @@ impl Server {
             token: token.clone(),
             refresh: Mutex::new("refresh-initial".into()),
             callback: Mutex::new(None),
+            with_refresh,
+            error: error.map(str::to_owned),
         });
         tokio::spawn(async move {
             let mut work = tokio::task::JoinSet::<io::Result<()>>::new();
@@ -160,6 +170,8 @@ struct Issuer {
     token: Arc<Mutex<String>>,
     refresh: Mutex<String>,
     callback: Mutex<Option<String>>,
+    with_refresh: bool,
+    error: Option<String>,
 }
 
 pub async fn visit(value: &str) -> String {
@@ -332,12 +344,21 @@ impl Issuer {
                         return Ok(());
                     }
                     if status != 200 {
-                        return reply(&mut stream, status, "", json!({"error":if status == 401 {"invalid_client"} else {"invalid_grant"}})).await;
+                        let error = self.error.as_deref().unwrap_or(if status == 401 {
+                            "invalid_client"
+                        } else {
+                            "invalid_grant"
+                        });
+                        return reply(&mut stream, status, "", json!({"error":error})).await;
                     }
                     *self.token.lock().unwrap() = format!("access-{revision}");
                     *self.refresh.lock().unwrap() = format!("refresh-{revision}");
                 }
-                json!({"access_token":*self.token.lock().unwrap(),"token_type":"Bearer","refresh_token":*self.refresh.lock().unwrap(),"expires_in":3600,"scope":"tools"})
+                let mut response = json!({"access_token":*self.token.lock().unwrap(),"token_type":"Bearer","expires_in":3600,"scope":"tools"});
+                if self.with_refresh {
+                    response["refresh_token"] = json!(*self.refresh.lock().unwrap());
+                }
+                response
             }
             "/mcp" | "/messages" => {
                 let expected = format!("Bearer {}", self.token.lock().unwrap());

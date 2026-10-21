@@ -4,6 +4,7 @@ use crate::oauth_server as issuer;
 use sailry_protocol::plugin::connector::{Attempt, Input, Kind, LoginState};
 use std::{collections::BTreeMap, sync::atomic::Ordering};
 mod confidential;
+mod expiration;
 mod lifecycle;
 mod migration;
 const ORIGIN: &str = "https://mcp.example.com";

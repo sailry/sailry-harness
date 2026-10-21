@@ -1,7 +1,7 @@
 use super::*;
 use sailry_protocol::plugin::connector::State;
 
-fn stored(node: &Node, id: plugin::connector::Id) -> Vec<u8> {
+pub(super) fn stored(node: &Node, id: plugin::connector::Id) -> Vec<u8> {
     rusqlite::Connection::open_with_flags(
         node.profile().join("storage/node.sqlite3"),
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
