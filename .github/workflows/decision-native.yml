@@ -1,0 +1,65 @@
+name: Native decision inference
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Native test runner
+        type: choice
+        options:
+          - macos-15
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+        default: macos-15
+      measure:
+        description: Collect synthetic latency and RSS
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Pinned CPU models and ORT
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: '2'
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          persist-credentials: false
+      - name: Pinned Rust toolchain
+        run: |
+          rustup show active-toolchain
+          rustc -vV
+          uname -srm
+      - name: Linux native prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes build-essential pkg-config clang libgomp1
+      - name: Rust dependency caches
+        uses: ./.github/actions/rust-cache
+      - name: Real inference and initialization orders
+        env:
+          MEASURE: ${{ inputs.measure }}
+        run: |
+          mkdir -p .runtime
+          task_arguments=()
+          if test "$MEASURE" = true; then task_arguments+=(--measure); fi
+          bash scripts/check-decision-native.sh "${task_arguments[@]}" 2>&1 | tee .runtime/decision-native.log
+      - name: Native test output
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-decision-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            .runtime/decision-native.log
+            .runtime/local-model-host/qualification/native-report.json
+          if-no-files-found: ignore
+          retention-days: 7

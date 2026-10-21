@@ -369,6 +369,9 @@ impl Model {
                 special,
             )
         };
+        if count == 0 {
+            return Ok(Vec::new());
+        }
         let count = count
             .checked_neg()
             .filter(|count| *count > 0 && *count <= 1_048_576)

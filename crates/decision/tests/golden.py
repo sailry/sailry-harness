@@ -174,7 +174,20 @@ def prepare_models():
                 shutil.copyfile(source, output)
         if name != "synthetic-openjev" and digest(output) != model["sha256"]:
             raise ValueError("Prepared model does not match its original")
+        if name == "julia":
+            source = {"hub": "hugging_face", "repository": model["repository"], "revision": model["revision"]}
+            definition = {
+                "source": source, "name": "Julia measurement fixture", "license": model["license"],
+                "format": {"kind": "decision"},
+                "assets": [{"source": source, "path": model["file"], "name": "model.gguf",
+                            "bytes": model["size"], "sha256": model["sha256"]}],
+            }
+            output.with_name("definition.json").write_text(json.dumps(definition, indent=2) + "\n")
         paths[name] = output
+    for name, vocabulary in specification["vocabularies"].items():
+        url = f"https://raw.githubusercontent.com/{vocabulary['repository']}/{vocabulary['revision']}/{vocabulary['file']}"
+        output = CACHE / "models" / name / "model.gguf"
+        download(url, output, vocabulary["size"], vocabulary["sha256"])
     return paths
 
 

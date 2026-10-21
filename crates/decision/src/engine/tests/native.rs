@@ -33,6 +33,10 @@ pub(super) fn requests() -> Vec<Request> {
 }
 
 pub(super) fn path(name: &str, golden: &Golden) -> PathBuf {
+    cached(name, &golden.model_sha256)
+}
+
+fn cached(name: &str, expected: &str) -> PathBuf {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../.runtime/local-model-host/models")
         .join(name)
@@ -48,7 +52,7 @@ pub(super) fn path(name: &str, golden: &Golden) -> PathBuf {
         }
         hash.update(&buffer[..count]);
     }
-    assert_eq!(format!("{:x}", hash.finalize()), golden.model_sha256);
+    assert_eq!(format!("{:x}", hash.finalize()), expected);
     path
 }
 
@@ -309,6 +313,152 @@ fn keeps_user_control_tokens_literal() {
                 request.questions.keys().collect::<Vec<_>>()
             );
         }
+    }
+}
+
+#[test]
+#[ignore = "requires pinned GGUF fixtures and the packaged b11756 CPU runtime"]
+fn preserves_whitespace_between_literal_fields() {
+    for (name, golden) in models() {
+        let mut engine = Engine::open(&path(&name, &golden)).unwrap();
+        assert!(engine.model.tokenize("", true).unwrap().is_empty());
+        assert!(engine.model.tokenize("", false).unwrap().is_empty());
+        let (begin, separator, marker) = if engine.metadata.algorithm == Algorithm::Laya {
+            ("<bos>", "<eos>", "<mask>")
+        } else {
+            ("<|im_start|>", "<|im_end|>", "<|im_start|>")
+        };
+        engine.templates = Templates::new(&format!(
+            "{begin}{{{{ id }}}} \t\n{{{{ instructions }}}}{separator}{{% for o in options %}}{marker}{{{{ o.key }}}} \n{{{{ o.description or '' }}}}{{% endfor %}}{separator}{{{{ state }}}}{separator}"
+        )).unwrap();
+        for literal in [false, true] {
+            let text = |ordinary: &str| {
+                if literal {
+                    format!("{ordinary}[CLS][SEP]<mask><bos><eos>")
+                } else {
+                    ordinary.to_owned()
+                }
+            };
+            let id = text("question");
+            let instructions = text("Choose an option");
+            let state = text("Current state");
+            let question = Question::Choice {
+                instructions: instructions.clone(),
+                criteria: BTreeMap::from([
+                    (text("first"), Some(text("First option"))),
+                    ("second".into(), Some("Second option".into())),
+                ]),
+            };
+            let query = Query::new(&id, &question, engine.metadata.algorithm);
+            let mut expected = engine.model.tokenize(begin, true).unwrap();
+            expected.extend(
+                engine
+                    .model
+                    .tokenize(&format!("{id} \t\n{instructions}"), false)
+                    .unwrap(),
+            );
+            expected.extend(engine.model.tokenize(separator, true).unwrap());
+            for option in &query.options {
+                expected.extend(engine.model.tokenize(marker, true).unwrap());
+                expected.extend(
+                    engine
+                        .model
+                        .tokenize(
+                            &format!(
+                                "{} \n{}",
+                                option.key,
+                                option.description.as_deref().unwrap()
+                            ),
+                            false,
+                        )
+                        .unwrap(),
+                );
+            }
+            expected.extend(engine.model.tokenize(separator, true).unwrap());
+            expected.extend(engine.model.tokenize(&state, false).unwrap());
+            expected.extend(engine.model.tokenize(separator, true).unwrap());
+            let rendered = engine.templates.render(&state, &query).unwrap();
+            assert_eq!(
+                engine.model.prompt(&rendered).unwrap(),
+                expected,
+                "whitespace changed for {name}"
+            );
+            let prompt = engine.prompt(&state, &id, &question).unwrap();
+            assert_eq!(prompt.tokens, expected);
+            let input_tokens = prompt.tokens.len() as u64;
+            let response = engine
+                .decide(
+                    &Request {
+                        model: None,
+                        state,
+                        questions: BTreeMap::from([(id, question)]),
+                    },
+                    || false,
+                )
+                .unwrap();
+            assert_eq!(response.usage.input_tokens, input_tokens);
+        }
+        engine.templates = Templates::new("").unwrap();
+        let question = Question::Noul {
+            instructions: "Question".into(),
+            criteria: BTreeMap::new(),
+        };
+        assert!(engine.prompt("State", "question", &question).is_err());
+    }
+}
+
+#[test]
+#[ignore = "requires the pinned BERT vocabulary fixture and packaged b11756 runtime"]
+fn accepts_empty_bert_token_spans() {
+    let specification: Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/models.json")).unwrap();
+    let vocabulary = &specification["vocabularies"]["bert-vocab"];
+    let path = cached("bert-vocab", vocabulary["sha256"].as_str().unwrap());
+    let runtime = runtime::initialize().unwrap();
+    let path = CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+    // SAFETY: the function table and by-value layout use the same locked b11756 ABI.
+    let mut params = unsafe { runtime.api.llama_model_default_params() };
+    let mut devices = [std::ptr::null_mut()];
+    params.devices = devices.as_mut_ptr();
+    params.n_gpu_layers = 0;
+    params.vocab_only = true;
+    // SAFETY: the verified upstream GGUF and path outlive the synchronous load.
+    let handle = unsafe {
+        runtime
+            .api
+            .llama_model_load_from_file(path.as_ptr(), params)
+    };
+    let model = Model {
+        handle: NonNull::new(handle).expect("pinned BERT vocabulary must load"),
+        runtime,
+    };
+    for text in ["", " ", "\t\n", " \t\n"] {
+        for special in [false, true] {
+            assert!(model.tokenize(text, special).unwrap().is_empty());
+        }
+    }
+    let question = Question::Noul {
+        instructions: "literal [CLS] instruction".into(),
+        criteria: BTreeMap::new(),
+    };
+    let query = Query::new("literal [SEP] id", &question, Algorithm::Laya);
+    let templates = Templates::new("[CLS]{{ id }} \t\n{{ instructions }}[SEP]").unwrap();
+    let rendered = templates.render("State", &query).unwrap();
+    let begin = model.tokenize("[CLS]", true).unwrap();
+    let end = model.tokenize("[SEP]", true).unwrap();
+    assert_eq!(begin.len(), 1);
+    assert_eq!(end.len(), 1);
+    let mut expected = begin.clone();
+    expected.extend(
+        model
+            .tokenize("literal [SEP] id \t\nliteral [CLS] instruction", false)
+            .unwrap(),
+    );
+    expected.extend(&end);
+    let actual = model.prompt(&rendered).unwrap();
+    assert_eq!(actual, expected);
+    for control in [begin[0], end[0]] {
+        assert_eq!(actual.iter().filter(|token| **token == control).count(), 1);
     }
 }
 

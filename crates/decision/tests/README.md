@@ -40,34 +40,35 @@ to check state, question identity, instructions and option text. User-written
 control spellings remain unchanged text, tokenized with `parse_special=false`.
 Only trusted template controls split the ordinary text, preserving token merges
 across interpolation boundaries and the vocabulary's whitespace attributes.
+The separate BERT case loads the exact upstream vocabulary fixture in
+`vocab_only` mode. It verifies zero-token whitespace spans and literal control
+spellings without loading BERT weights or claiming BERT inference. Julia and
+SmolLM2 keep their own whitespace tokenization unchanged.
 
 These checks are manual opt-ins because they download real public model weights.
-Ordinary CI still runs pure logic and ABI layout tests; Host release jobs execute
+The **Native decision inference** Actions workflow runs them through
+`workflow_dispatch` on macOS ARM64, Linux x64 or Linux ARM64 standard runners.
+These execute the native architecture without QEMU. They are hosted virtual
+machines and do not provide physical-machine qualification. The workflow is
+separate from ordinary CI. Host release jobs execute
 `scripts/check-host.py` and `scripts/check-host-install.py` against the real
 packaged service and installer.
 
-From the repository root, build the test executable and stage the exact native
-libraries beside it. Use a native Rust target supported by the packaged runtime:
+From the repository root, run the same entry point locally. It builds the test
+executable, stages the locked native libraries, verifies the pinned GGUF files
+and runs real inference and each initialization order in separate processes:
 
 ```sh
-task_target="$(rustc -vV | awk '$1 == "host:" {print $2}')"
-task_libraries="${CARGO_TARGET_DIR:-target}/debug/deps"
-cargo test --locked -p sailry-decision --lib --no-run
-bash scripts/python.sh scripts/package/llama-runtime.py --target "$task_target" \
-  --output "$task_libraries" --cache target/llama-prebuilt
-bash scripts/python.sh scripts/package/onnx-runtime.py --target "$task_target" \
-  --output "$task_libraries" --cache target/sherpa-onnx-prebuilt
-case "$task_target" in
-  *-apple-darwin)
-    bash scripts/python.sh scripts/package/llama-runtime.py --target "$task_target" \
-      --output "$task_libraries" --sign -
-    codesign --force --sign - "$task_libraries/libonnxruntime.dylib"
-    bash scripts/python.sh scripts/package/onnx-runtime.py --target "$task_target" \
-      --output "$task_libraries" --finalize
-    ;;
-esac
-bash scripts/python.sh crates/decision/tests/golden.py
+bash scripts/check-decision-native.sh
 ```
+
+The optional workflow `measure` input, or the same local command with `--measure`,
+runs the existing 150-case synthetic corpus and writes
+`.runtime/local-model-host/qualification/native-report.json`. It records warm
+p50/p95 latency and whole-process peak RSS without performance thresholds. Labels
+are author-assigned, and `default_qualified` remains false. Run that command on
+the intended physical Linux machine for physical performance evidence; hosted
+runner results do not substitute for it.
 
 Run each coexistence check in a fresh process to cover both initialization orders.
 Do not use `--generate` during comparison: that option intentionally replaces the
