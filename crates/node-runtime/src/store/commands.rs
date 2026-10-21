@@ -9,6 +9,7 @@ pub(super) fn execute(
     caller: NodeId,
     profile: Option<&std::path::Path>,
     request: &Request,
+    waiting: &super::agent::approvals::Waiting,
 ) -> Result<(Output, Option<Event>), Fault> {
     match &request.command {
         Command::ListConnectorTypes
@@ -424,8 +425,15 @@ pub(super) fn execute(
             approval,
             decision,
         } => {
-            let approval =
-                super::agent::approvals::resolve(db, *session, *approval, decision.clone())?;
+            super::agent::approvals::check_waiter(waiting, *approval)?;
+            let approval = super::agent::approvals::resolve(
+                db,
+                waiting,
+                *session,
+                *approval,
+                decision.clone(),
+            )?;
+            super::agent::approvals::check_waiter(waiting, approval.id)?;
             Ok((
                 Output::Approval(approval),
                 Some(super::agent::activity::changed(db, *session)?),

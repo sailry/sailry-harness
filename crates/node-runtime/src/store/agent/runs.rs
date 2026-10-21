@@ -574,7 +574,7 @@ pub(super) fn finish_with(
         .map(|(start, end)| end.saturating_sub(start).max(0) as u64 * 1000);
     diagnostic.emit();
     let _ = events.send(envelope);
-    database.approvals.retain(|_, (owner, _)| *owner != turn);
+    database.approvals.retain(|_, (owner, _, _)| *owner != turn);
     database.questions.retain(|_, (owner, _)| *owner != turn);
     // Publish completion consent before the terminal run so observers cannot
     // conclude the turn without its pending review from the same transaction.

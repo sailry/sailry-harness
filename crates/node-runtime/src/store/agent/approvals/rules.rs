@@ -91,7 +91,12 @@ pub(super) fn insert(
     Ok(())
 }
 
-pub(super) fn apply_session(db: &Connection, source: &Run, binding: &Binding) -> Result<(), Fault> {
+pub(super) fn apply_session(
+    db: &Connection,
+    waiting: &Waiting,
+    source: &Run,
+    binding: &Binding,
+) -> Result<(), Fault> {
     let mut query = db.prepare("SELECT body FROM agent_approvals WHERE json_extract(body,'$.session')=?1 AND binding=?2 AND json_extract(body,'$.state')='pending' ORDER BY rowid").map_err(storage_error)?;
     let approvals = query
         .query_map(
@@ -126,6 +131,9 @@ pub(super) fn apply_session(db: &Connection, source: &Run, binding: &Binding) ->
         if matching(db, &run, binding, &request)?
             != Some((ApprovalSource::SessionRule, ApprovalChoice::Session))
         {
+            continue;
+        }
+        if super::check_waiter(waiting, approval.id).is_err() {
             continue;
         }
         approval.state = ApprovalState::Approved;

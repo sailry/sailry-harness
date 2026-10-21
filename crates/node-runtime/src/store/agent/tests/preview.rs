@@ -23,6 +23,7 @@ fn snapshot_does_not_read_preview_bodies() {
         node,
         None,
         &Request::new(node, Command::Snapshot),
+        &fixture.database.approvals,
     )
     .unwrap();
     assert!(matches!(output, Output::Snapshot(_)));

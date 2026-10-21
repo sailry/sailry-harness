@@ -180,12 +180,18 @@ pub(super) enum Operation {
     },
     Confirm {
         turn: TurnId,
+        owner: RequestId,
         request: adk_core::ToolConfirmationRequest,
         binding: Option<ApprovalBinding>,
         startup: Option<sailry_protocol::code::Startup>,
         ssh: Option<sailry_protocol::ssh::Trust>,
         prepared: Option<Command>,
         reply: oneshot::Sender<Result<Decision, Fault>>,
+    },
+    CancelApproval {
+        turn: TurnId,
+        call: String,
+        owner: RequestId,
     },
     Authorize {
         turn: TurnId,
@@ -787,34 +793,45 @@ pub(super) fn execute(
         }
         Operation::Confirm {
             turn,
+            owner,
             request,
             binding,
             startup,
             ssh,
             prepared,
             reply,
-        } => match approvals::begin_for(
-            database,
-            turn,
-            &request,
-            binding.as_ref(),
-            approvals::Capture {
-                startup: startup.as_ref(),
-                ssh: ssh.as_ref(),
-                prepared: prepared.as_ref(),
-            },
-            events,
-        ) {
-            Ok(approval) if approval.state == ApprovalState::Approved => {
-                let _ = reply.send(Ok(Decision::Approve));
+        } => {
+            if reply.is_closed() {
+                return;
             }
-            Ok(approval) => {
-                database.approvals.insert(approval.id, (turn, reply));
+            match approvals::begin_for(
+                database,
+                turn,
+                &request,
+                binding.as_ref(),
+                approvals::Capture {
+                    startup: startup.as_ref(),
+                    ssh: ssh.as_ref(),
+                    prepared: prepared.as_ref(),
+                },
+                events,
+            ) {
+                Ok(approval) if approval.state == ApprovalState::Approved => {
+                    let _ = reply.send(Ok(Decision::Approve));
+                }
+                Ok(approval) => {
+                    database.approvals.insert(approval.id, (turn, owner, reply));
+                }
+                Err(error) => {
+                    let _ = reply.send(Err(error));
+                }
             }
-            Err(error) => {
-                let _ = reply.send(Err(error));
+        }
+        Operation::CancelApproval { turn, call, owner } => {
+            if let Err(error) = approvals::cancel(database, turn, &call, owner, events) {
+                eprintln!("approval cancellation persistence failed: {error}");
             }
-        },
+        }
         Operation::Authorize {
             turn,
             request,

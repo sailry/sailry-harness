@@ -471,6 +471,10 @@ Delegated work uses the same ADK engine and history path with an explicit
 parent/child association. Closing a view stops observation, not admitted work;
 stopping a turn is an explicit command.
 
+ADK bounds a tool-confirmation handler to five minutes. When that wait times out
+or is cancelled, Node closes its matching pending approval; a late decision cannot
+approve the call or save a session rule. Timeout denial can continue the same turn.
+
 Partial text and reasoning use the Node's bounded, ordered in-memory conversation
 feed without entering the storage worker queue. Publication checks active turn
 ownership and cancellation. Canonical messages and tool results still commit

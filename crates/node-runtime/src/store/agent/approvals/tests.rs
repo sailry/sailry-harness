@@ -234,6 +234,7 @@ fn consumes_exact_arguments_once() {
     assert_eq!(
         resolve(
             &fixture.database.connection,
+            &fixture.database.approvals,
             fixture.session,
             approval.id,
             Decision::Deny
@@ -268,6 +269,7 @@ fn rejects_invalid_decisions() {
     assert_eq!(
         resolve(
             &fixture.database.connection,
+            &fixture.database.approvals,
             fixture.session,
             approval.id,
             Decision::Approve
@@ -318,6 +320,7 @@ fn closes_pending_on_restart() {
     assert_eq!(
         resolve(
             &database.connection,
+            &database.approvals,
             fixture.session,
             approval.id,
             Decision::Approve

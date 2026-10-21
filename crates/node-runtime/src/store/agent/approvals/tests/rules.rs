@@ -25,6 +25,215 @@ fn begin_owned(fixture: &mut Fixture, binding: &Binding) -> Approval {
     .unwrap()
 }
 
+#[test]
+fn rolls_back_rules_when_waiter_closes() {
+    use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+    let mut fixture = Fixture::new();
+    let owner = binding(&fixture);
+    let approval = begin_owned(&mut fixture, &owner);
+    let (reply, response) = oneshot::channel();
+    fixture
+        .database
+        .approvals
+        .insert(approval.id, (fixture.turn, RequestId::new(), reply));
+    let response = Arc::new(std::sync::Mutex::new(Some(response)));
+    let closing = response.clone();
+    fixture
+        .database
+        .connection
+        .authorizer(Some(move |context: AuthContext<'_>| {
+            if matches!(
+                context.action,
+                AuthAction::Insert {
+                    table_name: "agent_approval_rules",
+                    ..
+                }
+            ) {
+                closing.lock().unwrap().take();
+            }
+            Authorization::Allow
+        }))
+        .unwrap();
+    let (reply, result) = oneshot::channel();
+    let node = fixture.database.node;
+    assert!(
+        fixture
+            .database
+            .dispatch(
+                node,
+                Request::new(
+                    node,
+                    Command::ResolveApproval {
+                        session: fixture.session,
+                        approval: approval.id,
+                        decision: Decision::ApproveSession,
+                    }
+                ),
+                reply,
+                &fixture.events
+            )
+            .is_none()
+    );
+    let error = result
+        .blocking_recv()
+        .unwrap()
+        .unwrap()
+        .completion
+        .blocking_recv()
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.code, ErrorCode::Conflict);
+    assert_eq!(
+        fixture
+            .database
+            .connection
+            .query_row("SELECT count(*) FROM agent_approval_rules", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        get(&fixture.database.connection, approval.id)
+            .unwrap()
+            .state,
+        ApprovalState::Pending
+    );
+    prune(&mut fixture.database, &fixture.events).unwrap();
+    assert_eq!(
+        get(&fixture.database.connection, approval.id)
+            .unwrap()
+            .state,
+        ApprovalState::Cancelled
+    );
+}
+
+#[test]
+fn skips_closed_session_waiters() {
+    use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+    let mut fixture = Fixture::new();
+    let binding = binding(&fixture);
+    let first = begin_owned(&mut fixture, &binding);
+    append_call(&mut fixture, "second-write");
+    let second = begin_owned(&mut fixture, &binding);
+    let (reply, mut first_response) = oneshot::channel();
+    fixture
+        .database
+        .approvals
+        .insert(first.id, (fixture.turn, RequestId::new(), reply));
+    let (reply, second_response) = oneshot::channel();
+    let owner = RequestId::new();
+    fixture
+        .database
+        .approvals
+        .insert(second.id, (fixture.turn, owner, reply));
+    let closing = Arc::new(std::sync::Mutex::new(Some(second_response)));
+    fixture
+        .database
+        .connection
+        .authorizer(Some(move |context: AuthContext<'_>| {
+            if matches!(
+                context.action,
+                AuthAction::Insert {
+                    table_name: "agent_approval_rules",
+                    ..
+                }
+            ) {
+                closing.lock().unwrap().take();
+            }
+            Authorization::Allow
+        }))
+        .unwrap();
+    let output = command(
+        &mut fixture.database,
+        &fixture.events,
+        Command::ResolveApproval {
+            session: fixture.session,
+            approval: first.id,
+            decision: Decision::ApproveSession,
+        },
+    );
+    assert!(
+        matches!(output, Output::Approval(approval) if approval.id == first.id && approval.state == ApprovalState::Approved)
+    );
+    assert_eq!(
+        first_response.try_recv().unwrap().unwrap(),
+        Decision::Approve
+    );
+    assert_eq!(
+        fixture
+            .database
+            .connection
+            .query_row("SELECT count(*) FROM agent_approval_rules", [], |row| row
+                .get::<_, i64>(
+                0
+            ),)
+            .unwrap(),
+        1
+    );
+    let pending = get(&fixture.database.connection, second.id).unwrap();
+    assert_eq!(pending.state, ApprovalState::Pending);
+    assert_eq!(pending.source, ApprovalSource::User);
+    assert!(fixture.database.approvals.contains_key(&second.id));
+    cancel(
+        &mut fixture.database,
+        fixture.turn,
+        "second-write",
+        owner,
+        &fixture.events,
+    )
+    .unwrap();
+    assert_eq!(
+        get(&fixture.database.connection, second.id).unwrap().state,
+        ApprovalState::Cancelled
+    );
+    assert!(!fixture.database.approvals.contains_key(&second.id));
+}
+
+#[test]
+fn cleanup_matches_the_waiter_owner() {
+    let mut fixture = Fixture::new();
+    let approval = fixture.begin();
+    let (reply, response) = oneshot::channel();
+    let owner = RequestId::new();
+    fixture
+        .database
+        .approvals
+        .insert(approval.id, (fixture.turn, owner, reply));
+    let call = call_id(&fixture.request).unwrap().to_owned();
+    cancel(
+        &mut fixture.database,
+        fixture.turn,
+        &call,
+        RequestId::new(),
+        &fixture.events,
+    )
+    .unwrap();
+    assert_eq!(
+        get(&fixture.database.connection, approval.id)
+            .unwrap()
+            .state,
+        ApprovalState::Pending
+    );
+    drop(response);
+    cancel(
+        &mut fixture.database,
+        fixture.turn,
+        &call,
+        owner,
+        &fixture.events,
+    )
+    .unwrap();
+    assert_eq!(
+        get(&fixture.database.connection, approval.id)
+            .unwrap()
+            .state,
+        ApprovalState::Cancelled
+    );
+    assert!(!fixture.database.approvals.contains_key(&approval.id));
+}
+
 fn append_call(fixture: &mut Fixture, id: &str) {
     fixture.request.function_call_id = Some(id.into());
     let mut event = AdkEvent::new("fixture");
@@ -56,6 +265,7 @@ fn preserves_user_source_and_matches_owner() {
     assert!(approval.can_remember);
     let resolved = resolve(
         &fixture.database.connection,
+        &fixture.database.approvals,
         fixture.session,
         approval.id,
         Decision::ApproveSession,
@@ -66,6 +276,7 @@ fn preserves_user_source_and_matches_owner() {
     assert_eq!(
         resolve(
             &fixture.database.connection,
+            &fixture.database.approvals,
             fixture.session,
             approval.id,
             Decision::ApproveSession
@@ -76,6 +287,7 @@ fn preserves_user_source_and_matches_owner() {
     assert_eq!(
         resolve(
             &fixture.database.connection,
+            &fixture.database.approvals,
             fixture.session,
             approval.id,
             Decision::Approve
@@ -131,6 +343,7 @@ fn applies_session_choice_to_pending_matches() {
     assert_eq!(third.state, ApprovalState::Pending);
     resolve(
         &fixture.database.connection,
+        &fixture.database.approvals,
         fixture.session,
         first.id,
         Decision::ApproveSession,
@@ -172,7 +385,7 @@ fn releases_matching_waiters_and_updates() {
         fixture
             .database
             .approvals
-            .insert(approval.id, (approval.turn, reply));
+            .insert(approval.id, (approval.turn, RequestId::new(), reply));
         if [first.id, second.id, third.id].contains(&approval.id) {
             matching.push(response);
         } else {
@@ -256,6 +469,7 @@ fn requires_every_captured_dimension() {
     let approval = begin_owned(&mut fixture, &binding);
     resolve(
         &fixture.database.connection,
+        &fixture.database.approvals,
         fixture.session,
         approval.id,
         Decision::ApproveSession,
@@ -361,6 +575,7 @@ fn keeps_unowned_tools_once_only() {
         assert_eq!(
             resolve(
                 &fixture.database.connection,
+                &fixture.database.approvals,
                 fixture.session,
                 approval.id,
                 decision
@@ -378,6 +593,7 @@ fn keeps_unowned_tools_once_only() {
     );
     resolve(
         &fixture.database.connection,
+        &fixture.database.approvals,
         fixture.session,
         approval.id,
         Decision::Approve,
@@ -526,6 +742,7 @@ fn compares_closed_choices_without_history() {
     assert_eq!(
         resolve(
             db,
+            &fixture.database.approvals,
             fixture.session,
             approval.id,
             Decision::ApprovePrefix(" cargo\ttest ".into())
@@ -539,9 +756,15 @@ fn compares_closed_choices_without_history() {
         Decision::DenyWithReason("".into()),
     ] {
         assert_eq!(
-            resolve(db, fixture.session, approval.id, decision)
-                .unwrap_err()
-                .code,
+            resolve(
+                db,
+                &fixture.database.approvals,
+                fixture.session,
+                approval.id,
+                decision
+            )
+            .unwrap_err()
+            .code,
             ErrorCode::Conflict
         );
     }

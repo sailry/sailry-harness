@@ -48,6 +48,7 @@ mod approvals {
                 assert_eq!(
                     crate::store::agent::approvals::resolve(
                         &fixture.db,
+                        &Default::default(),
                         approval.session,
                         approval.id,
                         Decision::Approve

@@ -5,6 +5,8 @@ mod captures;
 #[cfg(feature = "test-support")]
 mod cli;
 mod configuration;
+#[cfg(feature = "test-support")]
+mod waiting;
 use sailry_link::CancellationToken;
 use std::{
     collections::BTreeMap,

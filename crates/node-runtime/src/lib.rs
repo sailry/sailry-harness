@@ -288,6 +288,12 @@ impl Node {
         *self.ingress.agents.child_observation.lock().unwrap() = Some(window);
     }
 
+    /// Shortens ADK's confirmation timeout in isolated approval lifecycle fixtures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_approval_timeout_fixture(&self, timeout: std::time::Duration) {
+        *self.ingress.agents.approval_timeout.lock().unwrap() = Some(timeout);
+    }
+
     /// Routes model generations independently from an authorization HTTP fixture.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_model_endpoint_fixture(&self, endpoint: &str) {

@@ -2,7 +2,6 @@
 use super::calls::{active, id as call_id, matches as matches_call};
 use super::*;
 use adk_core::ToolConfirmationRequest;
-use std::collections::BTreeMap;
 
 mod access;
 mod prefix;
@@ -11,6 +10,8 @@ pub(in crate::store) use prepared::Prepared;
 pub(crate) mod results;
 mod rules;
 pub(crate) use rules::Binding;
+mod waiting;
+pub(in crate::store) use waiting::{Waiting, cancel, check_waiter, prune};
 
 #[cfg(test)]
 mod tests;
@@ -21,9 +22,6 @@ pub(super) struct Capture<'a> {
     pub(super) ssh: Option<&'a sailry_protocol::ssh::Trust>,
     pub(super) prepared: Option<&'a Command>,
 }
-
-pub(in crate::store) type Waiting =
-    BTreeMap<ApprovalId, (TurnId, oneshot::Sender<Result<Decision, Fault>>)>;
 
 impl Ingress {
     pub(crate) async fn approved_command_access(
@@ -50,9 +48,11 @@ impl Ingress {
         binding: Option<Binding>,
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
+        let mut pending = waiting::Pending::new(self, turn, &request)?;
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
+                owner: pending.owner,
                 request,
                 binding,
                 startup: None,
@@ -62,7 +62,9 @@ impl Ingress {
             })))
             .await
             .map_err(|_| super::super::unavailable())?;
-        response.await.map_err(|_| super::super::unavailable())?
+        let decision = response.await.map_err(|_| super::super::unavailable())?;
+        pending.complete();
+        decision
     }
 
     pub(crate) async fn confirm_code(
@@ -75,9 +77,11 @@ impl Ingress {
         let root = self.worktree_root(startup.worktree).await?;
         self.code.validate(&startup, &root).await?;
         let (reply, response) = oneshot::channel();
+        let mut pending = waiting::Pending::new(self, turn, &request)?;
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
+                owner: pending.owner,
                 request,
                 binding: Some(binding),
                 startup: Some(startup),
@@ -87,7 +91,9 @@ impl Ingress {
             })))
             .await
             .map_err(|_| super::super::unavailable())?;
-        response.await.map_err(|_| super::super::unavailable())?
+        let decision = response.await.map_err(|_| super::super::unavailable())?;
+        pending.complete();
+        decision
     }
 
     pub(crate) async fn confirm_connection(
@@ -99,9 +105,11 @@ impl Ingress {
         ssh: Option<sailry_protocol::ssh::Trust>,
     ) -> Result<Decision, Fault> {
         let (reply, response) = oneshot::channel();
+        let mut pending = waiting::Pending::new(self, turn, &request)?;
         self.sender
             .send(Job::Agent(Box::new(Operation::Confirm {
                 turn,
+                owner: pending.owner,
                 request,
                 binding: Some(binding),
                 startup: None,
@@ -111,7 +119,9 @@ impl Ingress {
             })))
             .await
             .map_err(|_| super::super::unavailable())?;
-        response.await.map_err(|_| super::super::unavailable())?
+        let decision = response.await.map_err(|_| super::super::unavailable())?;
+        pending.complete();
+        decision
     }
 
     pub(crate) async fn authorize(
@@ -337,6 +347,7 @@ pub(super) fn begin_for(
 
 pub(in crate::store) fn resolve(
     db: &Connection,
+    waiting: &Waiting,
     session: SessionId,
     id: ApprovalId,
     decision: Decision,
@@ -389,7 +400,7 @@ pub(in crate::store) fn resolve(
         rules::validate(db, approval.turn, &request(db, &approval)?, &binding)?;
         rules::insert(db, &run, &binding, choice, id)?;
         if *choice == ApprovalChoice::Session {
-            rules::apply_session(db, &run, &binding)?;
+            rules::apply_session(db, waiting, &run, &binding)?;
         }
     }
     approval.state = state;

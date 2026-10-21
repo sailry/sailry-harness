@@ -770,6 +770,9 @@ impl Database {
         request: &Request,
         events: &broadcast::Sender<EventEnvelope>,
     ) -> Response {
+        if matches!(request.command, Command::ResolveApproval { .. }) {
+            super::agent::approvals::prune(self, events)?;
+        }
         let transaction = self.connection.transaction().map_err(storage_error)?;
         // Commands validate before mutation. A savepoint also rolls back partial business errors.
         transaction
@@ -784,6 +787,7 @@ impl Database {
                 caller,
                 self.profile.as_deref(),
                 request,
+                &self.approvals,
             )
         } else if matches!(
             request.command,
@@ -797,6 +801,7 @@ impl Database {
                 caller,
                 self.profile.as_deref(),
                 request,
+                &self.approvals,
             )
             .map(|(output, event)| (output, event.into_iter().collect()))
         };

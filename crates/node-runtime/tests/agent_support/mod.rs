@@ -81,6 +81,7 @@ enum Reply {
         slow: bool,
     },
     Tools(Arc<Vec<(String, Value)>>),
+    HeldTools(Arc<Calls>, Arc<tokio::sync::Notify>),
     AvailableTools(Arc<Vec<(String, Value)>>),
     ReasonedTools(Arc<Vec<(String, Value)>>),
     TurnTools(Arc<Vec<(String, Value)>>),
@@ -300,6 +301,11 @@ impl Server {
 
     pub async fn tools(calls: Vec<(String, Value)>) -> Self {
         Self::serve(Reply::Tools(Arc::new(calls))).await
+    }
+
+    /// Holds the next model response after a tool result, keeping its turn active.
+    pub async fn held_after_tool(calls: Calls, release: Arc<tokio::sync::Notify>) -> Self {
+        Self::serve(Reply::HeldTools(Arc::new(calls), release)).await
     }
 
     pub async fn available_tools(calls: Vec<(String, Value)>) -> Self {
@@ -709,9 +715,10 @@ async fn respond(
     };
     let call = match &reply {
         Reply::AvailableTools(_) => available.get(completed).copied(),
-        Reply::Tools(calls) | Reply::ReasonedTools(calls) | Reply::TurnTools(calls) => {
-            calls.get(completed)
-        }
+        Reply::Tools(calls)
+        | Reply::HeldTools(calls, _)
+        | Reply::ReasonedTools(calls)
+        | Reply::TurnTools(calls) => calls.get(completed),
         Reply::ScriptedTools(_) => scripted.as_ref().unwrap().get(completed),
         Reply::ResultTools(_) | Reply::MemoryTools { .. } => resolved.as_ref(),
         Reply::PromptTools { prompt, calls } => body["messages"]
@@ -755,6 +762,11 @@ async fn respond(
         }
     };
     records.lock().unwrap().push(body);
+    if let Reply::HeldTools(_, release) = &reply
+        && completed > 0
+    {
+        release.notified().await;
+    }
     if let Reply::MemoryTools { gate, .. } = &reply
         && completed == 1
     {

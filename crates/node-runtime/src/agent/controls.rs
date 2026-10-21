@@ -35,6 +35,8 @@ pub(crate) struct Controls {
     pub(super) changed: Notify,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) child_observation: Mutex<Option<std::time::Duration>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) approval_timeout: Mutex<Option<std::time::Duration>>,
 }
 
 impl Controls {
