@@ -77,6 +77,9 @@ impl Shell {
             .presentation
             .as_ref()
             .is_some_and(|presentation| presentation.persistent);
+        let use_title = matches!(notice.kind, Kind::Notification(_))
+            && notice.presentation.is_none()
+            && !notice.title.is_empty();
         let heading = notice
             .presentation
             .as_ref()
@@ -89,7 +92,13 @@ impl Shell {
                     .clone()
                     .into()
             })
-            .unwrap_or_else(|| tr(label));
+            .unwrap_or_else(|| {
+                if use_title {
+                    notice.title.clone().into()
+                } else {
+                    tr(label)
+                }
+            });
         let delivery = if preferences.notifications[0] && !window.is_window_active() {
             if persistent {
                 NotificationDelivery::InAppAndSystem
@@ -103,6 +112,8 @@ impl Shell {
         let key = format!("{id:?}");
         let message = if let Some(error) = &notice.error {
             tr(crate::conversation::live::failure_key(error))
+        } else if use_title {
+            notice.message.clone().into()
         } else if notice.title.is_empty() {
             match id.target {
                 Target::Notification(_) => tr("notifications"),
@@ -122,7 +133,9 @@ impl Shell {
                 .min_w(crate::feedback::minimum_width(window))
                 .max_w(px(520.).min(window.viewport_size().width - px(32.)))
                 .title(heading)
-                .message(message)
+                .when(!message.is_empty(), |notification| {
+                    notification.message(message)
+                })
                 .with_type(kind)
                 .delivery(delivery)
                 .autohide(false)
