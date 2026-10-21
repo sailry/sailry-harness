@@ -7,6 +7,12 @@ impl Llm for Fixture {
     fn name(&self) -> &str {
         "fixture"
     }
+    fn uses_interactions_api(&self) -> bool {
+        true
+    }
+    fn max_cost_micro_usd(&self, _: &LlmRequest) -> Option<u64> {
+        Some(7)
+    }
     async fn generate_content(
         &self,
         _: LlmRequest,
@@ -40,14 +46,16 @@ fn expires_and_bounds_entries() {
     registry
         .get(session, "one".into(), || Ok(Built::new(Arc::new(Fixture))))
         .unwrap();
-    registry
+    *registry
         .entries
         .lock()
         .unwrap()
-        .values_mut()
+        .values()
         .next()
         .unwrap()
-        .used -= IDLE;
+        .used
+        .lock()
+        .unwrap() -= IDLE;
     registry
         .get(session, "one".into(), || Ok(Built::new(Arc::new(Fixture))))
         .unwrap();
@@ -118,7 +126,6 @@ async fn reuses_http_connections() {
             })
             .unwrap();
         let mut stream = entry
-            .inner
             .generate_content(
                 LlmRequest::new("fixture", vec![Content::new("user").with_text("request")]),
                 false,
@@ -206,4 +213,43 @@ async fn owns_unused_preconnections() {
         assert!(!socket.is_connected());
         server.await.unwrap();
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn refreshes_each_generation() {
+    let registry = Registry::default();
+    let session = SessionId::new();
+    let entry = registry
+        .get(session, "active".into(), || {
+            Ok(Built::new(Arc::new(Fixture)))
+        })
+        .unwrap();
+    let first = *entry.used.lock().unwrap();
+    tokio::time::advance(IDLE - Duration::from_secs(1)).await;
+    drop(
+        entry
+            .generate_content(LlmRequest::new("fixture", vec![]), true)
+            .await
+            .unwrap(),
+    );
+    tokio::time::advance(Duration::from_secs(2)).await;
+    assert!(Instant::now().duration_since(first) > IDLE);
+    Registry::prune(&mut registry.entries.lock().unwrap(), Instant::now());
+    let reused = registry
+        .get(session, "active".into(), || {
+            panic!("active generation must retain its client")
+        })
+        .unwrap();
+    assert!(Arc::ptr_eq(&entry, &reused));
+    assert_eq!(entry.name(), "fixture");
+    assert!(entry.uses_interactions_api());
+    let request = LlmRequest::new("fixture", vec![]);
+    assert_eq!(entry.max_cost_micro_usd(&request), Some(7));
+    assert!(std::ptr::eq(
+        entry.schema_adapter(),
+        entry.inner.schema_adapter()
+    ));
+    tokio::time::advance(IDLE).await;
+    Registry::prune(&mut registry.entries.lock().unwrap(), Instant::now());
+    assert!(registry.entries.lock().unwrap().is_empty());
 }

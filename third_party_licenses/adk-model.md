@@ -2,7 +2,7 @@
 
 ADK dependencies use [dux-web/adk-rust](https://github.com/dux-web/adk-rust),
 a fork of [ADK-Rust](https://github.com/zavora-ai/adk-rust), at
-[`56800ec0c83ffaa57a7db566ea4c1d26c3051348`](https://github.com/dux-web/adk-rust/commit/56800ec0c83ffaa57a7db566ea4c1d26c3051348),
+[`af1c17a1d9e683fb5b49946d0ed094954539ebd2`](https://github.com/dux-web/adk-rust/commit/af1c17a1d9e683fb5b49946d0ed094954539ebd2),
 based on upstream
 [`8805e36fc51c90fa8da27b65c806899a8cf38b13`](https://github.com/zavora-ai/adk-rust/commit/8805e36fc51c90fa8da27b65c806899a8cf38b13).
 The root Cargo.toml and Cargo.lock retain that exact Git source for every ADK

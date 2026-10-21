@@ -211,7 +211,9 @@ impl Ingress {
                 .grant;
             let endpoint = grant.endpoint();
             #[cfg(any(test, feature = "test-support"))]
-            let endpoint = self.authorization_endpoint.as_deref().unwrap_or(endpoint);
+            let fixture_endpoint = self.authorization_endpoint.lock().unwrap().clone();
+            #[cfg(any(test, feature = "test-support"))]
+            let endpoint = fixture_endpoint.as_deref().unwrap_or(endpoint);
             let models = self
                 .discovery
                 .authorized(

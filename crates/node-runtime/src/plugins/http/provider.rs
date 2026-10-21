@@ -150,8 +150,10 @@ pub(super) async fn authorize(
     }
     // Reuse the existing native authorization fixture's private routing seam.
     #[cfg(any(test, feature = "test-support"))]
-    if let Some(endpoint) = &ingress.authorization_endpoint {
-        let mut routed = Url::parse(endpoint)
+    let endpoint = ingress.authorization_endpoint.lock().unwrap().clone();
+    #[cfg(any(test, feature = "test-support"))]
+    if let Some(endpoint) = endpoint {
+        let mut routed = Url::parse(&endpoint)
             .map_err(|_| Fault::invalid("provider resource fixture URL is invalid"))?;
         routed.set_path(input.url.path());
         routed.set_query(input.url.query());

@@ -40,6 +40,7 @@ pub(crate) struct Environment {
 pub(crate) struct Wait {
     pub entered: tokio::sync::oneshot::Sender<sailry_protocol::Request>,
     pub release: CancellationToken,
+    pub durable: bool,
 }
 
 struct Control {

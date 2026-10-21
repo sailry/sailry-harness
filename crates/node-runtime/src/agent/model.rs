@@ -30,6 +30,8 @@ use sailry_protocol::{
     Authentication, Effort, SessionConfig,
     conversation::{ModelApi, Provider},
 };
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) use transport::configure_fixture;
 pub(super) use transport::http;
 
 fn timeouts() -> adk_model::HttpTimeouts {
@@ -212,7 +214,7 @@ async fn configure(
             });
         }
         errors::wrap(
-            entry.inner.clone(),
+            entry.clone(),
             credential.into_iter().map(|(_, secret)| secret).collect(),
         )
     } else {

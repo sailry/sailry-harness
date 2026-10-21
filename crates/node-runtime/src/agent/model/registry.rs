@@ -1,19 +1,18 @@
 //! Node-owned native clients; turn wrappers and request credentials stay outside this cache.
 use super::*;
 use crate::store::login::Authorization;
+use adk_core::{LlmRequest, LlmResponseStream, SchemaAdapter};
+use async_trait::async_trait;
 use sailry_protocol::{Secret, SessionId};
-use std::{
-    collections::BTreeMap,
-    sync::Mutex,
-    time::{Duration, Instant},
-};
+use std::{collections::BTreeMap, sync::Mutex, time::Duration};
+use tokio::time::Instant;
 
 const IDLE: Duration = Duration::from_secs(15 * 60);
 const CAPACITY: usize = 128;
 
 #[derive(Default)]
 pub(crate) struct Registry {
-    entries: Mutex<BTreeMap<(SessionId, String), Cached>>,
+    entries: Mutex<BTreeMap<(SessionId, String), Arc<Entry>>>,
     pub(super) capabilities: Arc<transport::Capabilities>,
 }
 
@@ -31,17 +30,13 @@ impl Built {
     }
 }
 
-struct Cached {
-    entry: Arc<Entry>,
-    used: Instant,
-}
-
 pub(super) struct Entry {
     pub inner: Arc<dyn Llm>,
     pub responses: Option<Arc<OpenAIResponsesClient>>,
     authorization: Mutex<Option<Authorization>>,
     secrets: Mutex<Vec<Secret>>,
     pending: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    used: Mutex<Instant>,
 }
 
 impl Registry {
@@ -55,9 +50,9 @@ impl Registry {
         let mut entries = self.entries.lock().unwrap();
         Self::prune(&mut entries, now);
         let key = (session, fingerprint);
-        if let Some(cached) = entries.get_mut(&key) {
-            cached.used = now;
-            return Ok(cached.entry.clone());
+        if let Some(entry) = entries.get(&key) {
+            entry.touch();
+            return Ok(entry.clone());
         }
         let built = create()?;
         let entry = Arc::new(Entry {
@@ -66,30 +61,25 @@ impl Registry {
             authorization: Mutex::default(),
             secrets: Mutex::default(),
             pending: Mutex::default(),
+            used: Mutex::new(now),
         });
         if entries.len() >= CAPACITY
             && let Some(oldest) = entries
                 .iter()
-                .min_by_key(|(_, value)| value.used)
+                .min_by_key(|(_, value)| *value.used.lock().unwrap())
                 .map(|(key, _)| key.clone())
-            && let Some(cached) = entries.remove(&oldest)
+            && let Some(evicted) = entries.remove(&oldest)
         {
-            cached.entry.close();
+            evicted.close();
         }
-        entries.insert(
-            key,
-            Cached {
-                entry: entry.clone(),
-                used: now,
-            },
-        );
+        entries.insert(key, entry.clone());
         Ok(entry)
     }
 
     pub(crate) fn evict(&self, session: SessionId) {
-        self.entries.lock().unwrap().retain(|(owner, _), cached| {
+        self.entries.lock().unwrap().retain(|(owner, _), entry| {
             if *owner == session {
-                cached.entry.close();
+                entry.close();
                 false
             } else {
                 true
@@ -99,16 +89,16 @@ impl Registry {
 
     pub(crate) fn clear(&self) {
         let mut entries = self.entries.lock().unwrap();
-        for cached in entries.values() {
-            cached.entry.close();
+        for entry in entries.values() {
+            entry.close();
         }
         entries.clear();
     }
 
     pub(crate) fn abandon(&self, session: SessionId) {
-        for ((owner, _), cached) in self.entries.lock().unwrap().iter() {
+        for ((owner, _), entry) in self.entries.lock().unwrap().iter() {
             if *owner == session {
-                cached.entry.abandon();
+                entry.abandon();
             }
         }
     }
@@ -126,14 +116,13 @@ impl Registry {
         }
     }
 
-    fn prune(entries: &mut BTreeMap<(SessionId, String), Cached>, now: Instant) {
-        entries.retain(|_, cached| {
-            if now.duration_since(cached.used) >= IDLE {
-                cached.entry.close();
+    fn prune(entries: &mut BTreeMap<(SessionId, String), Arc<Entry>>, now: Instant) {
+        entries.retain(|_, entry| {
+            if now.duration_since(*entry.used.lock().unwrap()) >= IDLE {
+                entry.close();
                 false
             } else {
-                if let Some(socket) = cached
-                    .entry
+                if let Some(socket) = entry
                     .responses
                     .as_ref()
                     .and_then(|client| client.websocket())
@@ -147,6 +136,10 @@ impl Registry {
 }
 
 impl Entry {
+    fn touch(&self) {
+        *self.used.lock().unwrap() = Instant::now();
+    }
+
     pub(super) fn preconnect(
         &self,
         stop: &CancellationToken,
@@ -225,6 +218,30 @@ impl Entry {
         }
         *previous = current;
         secrets
+    }
+}
+
+#[async_trait]
+impl Llm for Entry {
+    fn name(&self) -> &str {
+        self.inner.name()
+    }
+    fn schema_adapter(&self) -> &dyn SchemaAdapter {
+        self.inner.schema_adapter()
+    }
+    fn uses_interactions_api(&self) -> bool {
+        self.inner.uses_interactions_api()
+    }
+    fn max_cost_micro_usd(&self, request: &LlmRequest) -> Option<u64> {
+        self.inner.max_cost_micro_usd(request)
+    }
+    async fn generate_content(
+        &self,
+        request: LlmRequest,
+        stream: bool,
+    ) -> adk_core::Result<LlmResponseStream> {
+        self.touch();
+        self.inner.generate_content(request, stream).await
     }
 }
 

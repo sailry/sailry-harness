@@ -19,8 +19,15 @@ impl Ingress {
         let completion = async {
             let admitted = self.dispatch(caller, request).await?;
             #[cfg(any(test, feature = "test-support"))]
-            if durable {
-                let wait = self.plugins.script_wait.lock().unwrap().take();
+            {
+                let wait = {
+                    let mut pending = self.plugins.script_wait.lock().unwrap();
+                    if pending.as_ref().is_some_and(|wait| wait.durable == durable) {
+                        pending.take()
+                    } else {
+                        None
+                    }
+                };
                 if let Some(wait) = wait {
                     let _ = wait.entered.send(original);
                     wait.release.cancelled().await;

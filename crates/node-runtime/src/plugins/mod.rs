@@ -64,6 +64,8 @@ pub(crate) struct Host {
     pub(crate) script_timeout: std::sync::Arc<std::sync::Mutex<Option<std::time::Duration>>>,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) script_wait: std::sync::Arc<std::sync::Mutex<Option<script::Wait>>>,
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) flow_wait: std::sync::Arc<std::sync::Mutex<Option<script::Wait>>>,
 }
 
 impl Host {
@@ -139,6 +141,8 @@ impl Host {
             script_timeout: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             script_wait: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            flow_wait: Default::default(),
         }
     }
 

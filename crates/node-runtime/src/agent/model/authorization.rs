@@ -76,7 +76,7 @@ impl Model {
         let mut provider = self.provider.clone();
         provider.endpoint = authorized.grant.endpoint().to_owned();
         #[cfg(any(test, feature = "test-support"))]
-        if let Some(endpoint) = &self.ingress.authorization_endpoint {
+        if let Some(endpoint) = self.ingress.authorization_endpoint.lock().unwrap().as_ref() {
             provider.endpoint = endpoint.clone();
         }
         let entry = pooled(
@@ -210,7 +210,7 @@ impl Llm for Model {
         stream: bool,
     ) -> Result<LlmResponseStream, AdkError> {
         let prepared = self.prepare(&request, stream).await?;
-        let model = super::errors::wrap(prepared.entry.inner.clone(), prepared.secrets);
+        let model = super::errors::wrap(prepared.entry.clone(), prepared.secrets);
         let responses = scoped(prepared.scope, model, request, prepared.stream).await?;
         Ok(match prepared.tools {
             Some(tools) => claude::restore(responses, tools),

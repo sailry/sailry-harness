@@ -12,6 +12,10 @@ pub enum Mode {
     Close(u16),
     Limit,
     Partial,
+    MissingContinuation,
+    AckTimeout,
+    FirstTimeout,
+    RefuseAfter { accepted: usize, status: u16 },
 }
 
 struct Closed(Arc<AtomicUsize>);
@@ -21,14 +25,19 @@ impl Drop for Closed {
     }
 }
 
-struct Capture(Arc<Mutex<Vec<Request>>>);
+struct Capture {
+    records: Arc<Mutex<Vec<Request>>>,
+    mode: Mode,
+}
 impl handshake::Callback for Capture {
     fn on_request(
         self,
         request: &handshake::Request,
         response: handshake::Response,
     ) -> Result<handshake::Response, handshake::ErrorResponse> {
-        self.0.lock().unwrap().push(Request {
+        let mut records = self.records.lock().unwrap();
+        let index = records.len();
+        records.push(Request {
             received: Instant::now(),
             received_at: SystemTime::now(),
             path: request.uri().path().to_owned(),
@@ -39,6 +48,13 @@ impl handshake::Callback for Capture {
                 .collect(),
             body: serde_json::Value::Null,
         });
+        if let Mode::RefuseAfter { accepted, status } = self.mode
+            && index >= accepted
+        {
+            let mut error = handshake::ErrorResponse::new(Some("fixture refusal".into()));
+            *error.status_mut() = status.try_into().unwrap();
+            return Err(error);
+        }
         Ok(response)
     }
 }
@@ -51,7 +67,14 @@ pub(super) async fn respond(
     reply: Reply,
     mode: Mode,
 ) {
-    let result = tokio_tungstenite::accept_hdr_async(stream, Capture(upgrades)).await;
+    let result = tokio_tungstenite::accept_hdr_async(
+        stream,
+        Capture {
+            records: upgrades,
+            mode,
+        },
+    )
+    .await;
     let Ok(mut socket) = result else {
         return;
     };
@@ -62,6 +85,7 @@ pub(super) async fn respond(
         };
         let body: serde_json::Value = serde_json::from_str(&text).unwrap();
         let tool = matches!(reply, Reply::Tool) && !body.to_string().contains("工具内容 🙂");
+        let missing = body.get("previous_response_id").is_some();
         let index = {
             let mut records = records.lock().unwrap();
             let index = records.len();
@@ -75,6 +99,36 @@ pub(super) async fn respond(
             index
         };
         match mode {
+            Mode::MissingContinuation if missing => {
+                let _ = socket
+                    .send(Message::Text(
+                        json!({"type":"error",
+                    "error":{"code":"previous_response_not_found"}})
+                        .to_string()
+                        .into(),
+                    ))
+                    .await;
+                continue;
+            }
+            Mode::FirstTimeout => {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                return;
+            }
+            Mode::AckTimeout => {
+                let mut response = response_events(false, false).pop().unwrap()["response"].clone();
+                response["status"] = json!("in_progress");
+                response["output"] = json!([]);
+                let _ = socket
+                    .send(Message::Text(
+                        json!({"type":"response.created",
+                    "sequence_number":0,"response":response})
+                        .to_string()
+                        .into(),
+                    ))
+                    .await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                return;
+            }
             Mode::Close(code) => {
                 let _ = socket
                     .close(Some(CloseFrame {

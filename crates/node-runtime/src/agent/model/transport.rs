@@ -40,9 +40,16 @@ impl Capability {
 #[derive(Default)]
 pub(super) struct Capabilities {
     states: Mutex<BTreeMap<String, Capability>>,
+    #[cfg(any(test, feature = "test-support"))]
+    fixture: Mutex<Option<WsOptions>>,
 }
 
 impl Capabilities {
+    #[cfg(any(test, feature = "test-support"))]
+    fn configure_fixture(&self, options: WsOptions) {
+        *self.fixture.lock().unwrap() = Some(options);
+    }
+
     pub(super) fn options(
         self: &Arc<Self>,
         provider: &Provider,
@@ -70,6 +77,10 @@ impl Capabilities {
             model: Some(model.to_owned()),
             ..Default::default()
         };
+        #[cfg(any(test, feature = "test-support"))]
+        let options = self.fixture.lock().unwrap().clone().unwrap_or_default();
+        #[cfg(not(any(test, feature = "test-support")))]
+        let options = WsOptions::default();
         Some(WsOptions {
             enabled: Arc::new(move || {
                 enabled.states.lock().unwrap().get(&permit) != Some(&Capability::Unsupported)
@@ -111,9 +122,14 @@ impl Capabilities {
                 entry.emit();
             }),
             credential_revision: Arc::new(authorization::revision),
-            ..Default::default()
+            ..options
         })
     }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn configure_fixture(registry: &registry::Registry, options: WsOptions) {
+    registry.capabilities.configure_fixture(options);
 }
 
 struct Http {

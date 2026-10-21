@@ -335,7 +335,7 @@ pub(crate) struct Ingress {
     pub(crate) presets: Arc<crate::providers::presets::Directory>,
     catalog: crate::providers::catalog::Catalog,
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) authorization_endpoint: Option<String>,
+    pub(crate) authorization_endpoint: Arc<std::sync::Mutex<Option<String>>>,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) model_catalog_fixtures: Arc<crate::models::Fixtures>,
     pub(crate) files: crate::files::Files,
@@ -473,7 +473,9 @@ impl Store {
             catalog,
             files: crate::files::Files::new().with_ocr(ocr.clone()),
             #[cfg(any(test, feature = "test-support"))]
-            authorization_endpoint: authorization.model_endpoint.clone(),
+            authorization_endpoint: Arc::new(std::sync::Mutex::new(
+                authorization.model_endpoint.clone(),
+            )),
             #[cfg(any(test, feature = "test-support"))]
             model_catalog_fixtures: Arc::default(),
             watches: Arc::new(crate::files::watch::Watches::default()),
