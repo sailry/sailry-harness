@@ -340,7 +340,6 @@ pub(crate) struct Ingress {
     transfers: Arc<crate::files::transfers::Transfers>,
     ports: Arc<crate::ports::Ports>,
     pub(crate) browsers: Arc<crate::browser::Browsers>,
-    pub(crate) computer: Arc<crate::computer::Desktop>,
     pub(crate) external_browser: Arc<crate::external_browser::Browsers>,
     pub(crate) git: crate::git::Git,
     pub(crate) code: Arc<crate::code::Pool>,
@@ -480,7 +479,6 @@ impl Store {
             ports: Arc::new(crate::ports::Ports::default()),
             browsers: Arc::default(),
             external_browser: Arc::new(crate::external_browser::Browsers::new(profile.clone())),
-            computer: Arc::new(crate::computer::Desktop::default()),
             git: crate::git::Git::new(),
             code_queries: Arc::new(crate::code::Queries::default()),
             web: Arc::default(),
@@ -536,7 +534,6 @@ impl Store {
         let backup_resources = ingress.backup_resources.clone();
         let process_runtime = tokio::runtime::Handle::current();
         let cleanup_runtime = tokio::runtime::Handle::current();
-        let computer = ingress.computer.clone();
         let attachment_profile = profile.clone();
         let terminal_profile = profile.clone();
         let mut network_work = network::Worker::new(
@@ -1200,7 +1197,7 @@ impl Store {
                         } => {
                             let (reply, artifact_cleanup) = if matches!(request.command, sailry_protocol::Command::RemoveSession { .. } | sailry_protocol::Command::RemoveSessions { .. }) {
                                 let (send, cleanup) = oneshot::channel();
-                                (admission::release_removed(computer.clone(), cleanup_commands.clone(), attachment_profile.clone(), backup_resources.clone(), &cleanup_runtime, reply, cleanup), Some(send))
+                                (admission::release_removed(cleanup_commands.clone(), attachment_profile.clone(), backup_resources.clone(), &cleanup_runtime, reply, cleanup), Some(send))
                             } else {
                                 (reply, None)
                             };
@@ -1462,7 +1459,6 @@ impl Store {
         self.ingress.closed.cancel();
         self.ingress.model_clients.clear();
         self.ingress.external_browser.stop.cancel();
-        self.ingress.computer.stop.cancel();
         self.ingress.watches.shutdown();
         self.ingress.transfers.shutdown();
         self.ingress.ports.stop();
@@ -1476,7 +1472,6 @@ impl Store {
         }
         self.ingress.local_models.shutdown().await;
         let browsers = self.ingress.external_browser.shutdown().await;
-        self.ingress.computer.shutdown().await;
         self.ingress.ports.join().await;
         self.ingress.commands.close().await;
         self.ingress.code.shutdown().await;

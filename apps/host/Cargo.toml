@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [dependencies]
-sailry-node-runtime = { workspace = true, features = ["computer-worker"] }
+sailry-node-runtime.workspace = true
 sailry-link.workspace = true
 sailry-protocol.workspace = true
 sailry-client.workspace = true

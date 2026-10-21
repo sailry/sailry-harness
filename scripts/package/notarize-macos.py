@@ -60,6 +60,15 @@ def notarize(app, host, credentials):
             archive = stage / f"{item.name}.zip"
             run("ditto", "-c", "-k", "--keepParent", item, archive)
             submit(archive, credentials)
+    for directory in (app, host):
+        if directory is None:
+            continue
+        for helper in sorted(directory.rglob("*.app"), key=lambda path: -len(path.parts)):
+            if helper.is_dir() and not helper.is_symlink():
+                run_stapler("staple", helper)
+                run_stapler("validate", helper)
+                run("codesign", "--verify", "--deep", "--strict", helper)
+                run("spctl", "--assess", "--type", "execute", "--verbose=2", helper)
     # Tickets cannot be stapled to a ZIP or standalone executable. The final
     # Desktop DMG is created by package-macos.sh only after stapling its app.
     if app is not None:

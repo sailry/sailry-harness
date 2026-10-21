@@ -70,3 +70,60 @@ async fn reports_cleanup_failure() {
     assert!(dropped.load(Ordering::SeqCst));
     assert!(transport.close().await.is_ok());
 }
+
+#[tokio::test]
+async fn retains_guards_through_cleanup() {
+    for confirmed in [false, true] {
+        for success in [false, true] {
+            let (transport, release, completion, dropped) = fixture();
+            let stop = CancellationToken::new();
+            let closing = CancellationToken::new();
+            let connection = Arc::new(tokio::sync::Mutex::new(Connection {
+                stop: stop.clone(),
+                closing: closing.clone(),
+                closed: Some(completion),
+                child: None,
+                tasks: None,
+                result: None,
+            }));
+            let service = Arc::new(tokio::sync::Mutex::new(()));
+            let poisoned = Arc::new(AtomicBool::new(false));
+            let mut call = Call::new(
+                connection.clone(),
+                closing.clone(),
+                service.clone().lock_owned().await,
+                poisoned.clone(),
+            );
+            if confirmed {
+                call.confirmed();
+                assert!(service.try_lock().is_ok());
+            }
+            drop(call);
+            assert_eq!(closing.is_cancelled(), !confirmed);
+            assert!(!stop.is_cancelled());
+            assert_eq!(poisoned.load(Ordering::Relaxed), !confirmed);
+            drop(transport);
+            tokio::task::yield_now().await;
+            if !confirmed {
+                assert!(service.try_lock().is_err());
+                assert!(!dropped.load(Ordering::SeqCst));
+            }
+            if success {
+                release.send(()).unwrap();
+            } else {
+                drop(release);
+            }
+            let mut owner = connection.lock().await;
+            let first = owner.close().await;
+            assert!(stop.is_cancelled());
+            assert_eq!(first.is_ok(), success);
+            assert_eq!(owner.close().await, first);
+            assert_eq!(owner.settle().await, first);
+            drop(owner);
+            let _released = tokio::time::timeout(Duration::from_secs(5), service.lock())
+                .await
+                .unwrap();
+            assert!(dropped.load(Ordering::SeqCst));
+        }
+    }
+}

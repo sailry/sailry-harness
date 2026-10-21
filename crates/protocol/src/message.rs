@@ -990,12 +990,6 @@ pub enum Command {
         worktree: WorktreeId,
         action: crate::media::Action,
     },
-    UseComputer {
-        session: SessionId,
-        worktree: WorktreeId,
-        name: String,
-        arguments: serde_json::Value,
-    },
     ReadComputerPermissions,
     RequestComputerPermission {
         permission: crate::computer::Permission,
@@ -1937,7 +1931,6 @@ pub enum Output {
     Snapshot(Snapshot),
     HostInfo(crate::HostInfo),
     HostMetrics(crate::host::metrics::Sample),
-    Computer(serde_json::Value),
     ComputerPermissions(crate::computer::Permissions),
     HostProcessSignalled {
         pid: u32,

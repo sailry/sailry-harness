@@ -9,7 +9,7 @@ param(
 )
 
 # Package existing builds and prepared resources into a fresh portable bundle.
-# This does not build, install, restart, publish, or execute packaged binaries.
+# Native helpers are built from locked sources; application binaries are not rebuilt or executed.
 # Collect licenses with scripts/package/licenses.sh on a supported packaging
 # host, then provide its complete output through -LicensesDirectory.
 Set-StrictMode -Version Latest
@@ -93,6 +93,10 @@ Copy-Item -LiteralPath $task_executable -Destination (Join-Path $task_app 'sailr
 & python (Join-Path $task_root 'scripts/package/python-runtime.py') --target $Target `
     --output $task_app --cache (Join-Path $task_root 'target/python-cache')
 if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the pinned Python runtime' }
+& python (Join-Path $task_root 'scripts/package/ocu-helper.py') --target $Target `
+    --output (Join-Path $task_app 'helpers') --cache (Join-Path $task_root 'target/ocu-helper-cache')
+if ($LASTEXITCODE -ne 0) { throw 'Cannot prepare the pinned computer-use helper' }
+Assert-PeTarget (Join-Path $task_app 'helpers/open-computer-use.exe')
 $task_libraries = @{}
 foreach ($task_directory in @($task_build) + $DependencyDirectories) {
     foreach ($task_library in Get-ChildItem -LiteralPath $task_directory -Filter '*.dll' -File -Force) {

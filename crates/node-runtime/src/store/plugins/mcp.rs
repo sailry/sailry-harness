@@ -198,6 +198,9 @@ mod tests {
                 servers: BTreeMap::from([(
                     "github".into(),
                     plugin::mcp::Server::Http {
+                        exclusive: false,
+                        keep_images: None,
+                        reuse: true,
                         url: if endpoint_changed {
                             "https://another.example.com/mcp"
                         } else {

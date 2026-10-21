@@ -1,470 +1,20 @@
-//! The same native tool request crosses local and authenticated IROH boundaries.
-#![cfg(unix)]
-use super::*;
-use serde_json::{Value, json};
-#[path = "../../support/computer.rs"]
-mod driver;
-#[cfg(target_os = "macos")]
-#[path = "computer/native.rs"]
-mod native;
-
-fn request(client: &Client, context: &Context, name: &str, arguments: Value) -> Request {
-    client
-        .prepare(Command::UseComputer {
-            session: context.session.unwrap(),
-            worktree: context.worktree.unwrap(),
-            name: name.into(),
-            arguments,
-        })
-        .with_plugin(context.clone())
-}
-
-struct Fixture {
-    directory: tempfile::TempDir,
-    node: Node,
-    controller: Link,
-    client: Client,
-    context: Context,
-    worker: driver::Worker,
-}
-
-impl Fixture {
-    async fn new(remote: bool, actions: &[Action], outcomes: Value) -> Self {
-        let directory = tempfile::tempdir().unwrap();
-        let worker = driver::Worker::new(directory.path(), outcomes);
-        let node = Node::start_empty_with_computer(
-            directory.path().join("node"),
-            NetworkScope::default(),
-            Some(worker.configuration.clone()),
-        )
-        .await
-        .unwrap();
-        let controller =
-            Link::controller(directory.path().join("controller"), NetworkScope::default())
-                .await
-                .unwrap();
-        let address = controller
-            .handle()
-            .pair(node.link().invite().unwrap().ticket())
-            .await
-            .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(address)
-        } else {
-            node.local()
-        });
-        let root = directory.path().join("source");
-        package(&root.join("package"), "1.0.0");
-        execute(
-            &client,
-            Command::RegisterProject {
-                name: "Computer fixture".into(),
-                path: root.to_str().unwrap().into(),
-            },
-        )
-        .await;
-        let Output::Snapshot(snapshot) = execute(&client, Command::Snapshot).await else {
-            panic!("snapshot expected")
-        };
-        let worktree = snapshot.worktrees[0].id;
-        let mut context =
-            install_actions(&client, &root.join("package"), worktree, 0, actions).await;
-        context.session = Some(scopes::session(&client, worktree).await.id);
-        Self {
-            directory,
-            node,
-            controller,
-            client,
-            context,
-            worker,
-        }
-    }
-
-    async fn shutdown(self) {
-        drop(self.client);
-        self.controller.close().await.unwrap();
-        self.node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn preserves_raw_dispatch_and_recovers_receipts() {
-    let arguments = json!({"target":{"kind":"window","pid":314,"window_id":271},"x":12,"y":34,"delivery_mode":"background"});
-    let mut outcome = driver::action();
-    outcome["_meta"] = json!({"extension":{"marker":7}});
-    for remote in [false, true] {
-        let fixture = Fixture::new(
-            remote,
-            &[Action::ReadComputer, Action::ControlComputer],
-            json!({"click":outcome}),
-        )
-        .await;
-        let original = request(
-            &fixture.client,
-            &fixture.context,
-            "click",
-            arguments.clone(),
-        );
-        let pending = fixture.client.dispatch(original.clone()).await.unwrap();
-        assert!(pending.receipt.durable);
-        drop(pending);
-        let result = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                if let RequestOutcome::Completed(result) =
-                    fixture.client.outcome(&original).await.unwrap()
-                {
-                    break result.unwrap();
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        assert_eq!(result, Output::Computer(outcome.clone()));
-        assert_eq!(fixture.worker.calls().len(), 1);
-        assert_eq!(fixture.worker.calls()[0]["arguments"], arguments);
-        let mut changed = original.clone();
-        let Command::UseComputer { arguments, .. } = &mut changed.command else {
-            unreachable!()
-        };
-        arguments["x"] = json!(99);
-        assert_eq!(
-            fixture.client.execute(changed).await.unwrap_err().code,
-            ErrorCode::Conflict
-        );
-        let disabled = info(
-            execute(
-                &fixture.client,
-                Command::SetPluginEnabled {
-                    name: "example".into(),
-                    expected_revision: 1,
-                    enabled: false,
-                },
-            )
-            .await,
-        );
-        assert_eq!(
-            fixture.client.execute(original.clone()).await.unwrap(),
-            result
-        );
-        assert_eq!(
-            fixture.worker.calls().len(),
-            1,
-            "receipt recovery must not repeat native input"
-        );
-        assert_eq!(
-            fixture
-                .client
-                .execute(request(
-                    &fixture.client,
-                    &fixture.context,
-                    "click",
-                    json!({"target":{"kind":"window","pid":314,"window_id":271},"delivery_mode":"background","x":12,"y":34})
-                ))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::NotConfigured
-        );
-        execute(
-            &fixture.client,
-            Command::RemovePlugin {
-                name: "example".into(),
-                expected_revision: disabled.summary.revision,
-            },
-        )
-        .await;
-        let Fixture {
-            directory,
-            node,
-            controller,
-            client,
-            context: _,
-            worker,
-        } = fixture;
-        drop(client);
-        node.shutdown().await.unwrap();
-        let calls = worker.calls().len();
-        let node = Node::start_empty_with_computer(
-            directory.path().join("node"),
-            NetworkScope::default(),
-            Some(worker.configuration.clone()),
-        )
-        .await
-        .unwrap();
-        let client = Client::new(if remote {
-            controller.handle().remote(node.link().address())
-        } else {
-            node.local()
-        });
-        assert_eq!(client.execute(original).await.unwrap(), result);
-        assert_eq!(
-            worker.calls().len(),
-            calls,
-            "restart recovery must not start another native call"
-        );
-        drop(client);
-        controller.close().await.unwrap();
-        node.shutdown().await.unwrap();
-    }
-}
-
-#[tokio::test]
-async fn isolates_bound_session_handles() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(remote, &[Action::ReadComputer], json!({})).await;
-        let second = scopes::session(&fixture.client, fixture.context.worktree.unwrap()).await;
-        let mut other = fixture.context.clone();
-        other.session = Some(second.id);
-        for context in [&fixture.context, &other, &fixture.context] {
-            fixture
-                .client
-                .execute(request(&fixture.client, context, "list_windows", json!({})))
-                .await
-                .unwrap();
-        }
-        let calls = fixture.worker.calls();
-        assert_eq!(calls.len(), 3);
-        assert!(calls[0]["session_handle"].is_string());
-        assert_ne!(calls[0]["session_handle"], calls[1]["session_handle"]);
-        assert_eq!(calls[0]["session_handle"], calls[2]["session_handle"]);
-        let bound: Vec<_> = fixture
-            .worker
-            .records()
-            .into_iter()
-            .filter(|record| record["operation"] == "bind_session")
-            .collect();
-        assert_eq!(bound.len(), 2);
-        for binding in &bound {
-            let label = binding["arguments"]["public_session"].as_str().unwrap();
-            assert!(uuid::Uuid::parse_str(label).is_ok());
-        }
-        assert_ne!(
-            bound[0]["arguments"]["public_session"],
-            bound[1]["arguments"]["public_session"]
-        );
-        fixture.shutdown().await;
-    }
-}
-
-#[tokio::test]
-async fn rejects_unpaired_native_input() {
-    let fixture = Fixture::new(true, &[Action::ControlComputer], json!({})).await;
-    let foreign = Link::controller(
-        fixture.directory.path().join("unpaired-controller"),
-        NetworkScope::default(),
-    )
-    .await
-    .unwrap();
-    let client = Client::new(foreign.handle().remote(fixture.node.link().address()));
-    let input = request(
-        &client,
-        &fixture.context,
-        "click",
-        json!({"target":{"kind":"window","pid":314,"window_id":271},"delivery_mode":"background","x":12,"y":34}),
-    );
-    assert_eq!(
-        client.execute(input.clone()).await.unwrap_err().code,
-        ErrorCode::PermissionDenied
-    );
-    foreign
-        .handle()
-        .set_trust(fixture.node.id(), true)
-        .await
-        .unwrap();
-    assert!(
-        client.execute(input).await.is_err(),
-        "outgoing trust must not authorize an unknown caller on the execution Node"
-    );
-    assert!(fixture.worker.records().is_empty());
-    drop(client);
-    foreign.close().await.unwrap();
-    fixture.shutdown().await;
-}
-
-#[tokio::test]
-async fn uses_catalog_authority_and_resource_binding() {
-    assert!(
-        driver::catalog()
-            .iter()
-            .any(|tool| tool["name"] == "list_windows"
-                && tool["annotations"]["readOnlyHint"] == true)
-    );
-    for remote in [false, true] {
-        let fixture = Fixture::new(
-            remote,
-            &[Action::ReadComputer],
-            json!({"list_windows":driver::result(json!({"windows":[]}))}),
-        )
-        .await;
-        assert_eq!(
-            fixture
-                .client
-                .execute(request(
-                    &fixture.client,
-                    &fixture.context,
-                    "click",
-                    json!({"target":{"kind":"window","pid":314,"window_id":271},"delivery_mode":"background","x":12,"y":34,"readOnlyHint":true})
-                ))
-                .await
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied,
-            "caller metadata must not grant input authority"
-        );
-        assert!(fixture.worker.calls().is_empty());
-        let result = fixture
-            .client
-            .execute(request(
-                &fixture.client,
-                &fixture.context,
-                "list_windows",
-                json!({"on_screen_only":false}),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(
-            result,
-            Output::Computer(driver::result(json!({"windows":[]})))
-        );
-        assert_eq!(fixture.worker.calls().len(), 1);
-        for field in ["session", "worktree"] {
-            let mut outside = request(&fixture.client, &fixture.context, "list_windows", json!({}));
-            let Command::UseComputer {
-                session, worktree, ..
-            } = &mut outside.command
-            else {
-                unreachable!()
-            };
-            if field == "session" {
-                *session = SessionId::new();
-            } else {
-                *worktree = WorktreeId::new();
-            }
-            assert_eq!(
-                fixture.client.execute(outside).await.unwrap_err().code,
-                ErrorCode::PermissionDenied
-            );
-        }
-        assert_eq!(
-            fixture.worker.calls().len(),
-            1,
-            "foreign resource scopes must be refused before SDK dispatch"
-        );
-        fixture.shutdown().await;
-    }
-}
-
-#[tokio::test]
-async fn validates_only_native_identity_and_object_input() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(
-            remote,
-            &[Action::ReadComputer, Action::ControlComputer],
-            json!({}),
-        )
-        .await;
-        for (name, arguments) in [
-            ("computer_batch", json!({"actions":[]})),
-            ("unknown_native_tool", json!({})),
-            ("click", Value::Null),
-        ] {
-            let malformed = request(&fixture.client, &fixture.context, name, arguments);
-            let fault = fixture.client.execute(malformed.clone()).await.unwrap_err();
-            assert_eq!(fault.code, ErrorCode::InvalidRequest, "{name}: {fault:?}");
-            assert_eq!(
-                fixture.client.outcome(&malformed).await.unwrap(),
-                RequestOutcome::Completed(Box::new(Err(fault)))
-            );
-        }
-        assert!(fixture.worker.calls().is_empty());
-        fixture.shutdown().await;
-    }
-}
-
-#[tokio::test]
-async fn preserves_sdk_errors_without_fallback_dispatch() {
-    let outcome = json!({"content":[{"type":"text","text":"Unsupported accessibility action"}],"isError":true,
-        "structuredContent":{"code":"ax_action_unsupported","message":"Unsupported accessibility action"}});
-    let arguments = json!({"target":{"kind":"window","pid":314,"window_id":271},"delivery_mode":"background","element_token":"sdk-snapshot:12"});
-    for remote in [false, true] {
-        let fixture =
-            Fixture::new(remote, &[Action::ControlComputer], json!({"click":outcome})).await;
-        let original = request(
-            &fixture.client,
-            &fixture.context,
-            "click",
-            arguments.clone(),
-        );
-        assert_eq!(
-            fixture.client.execute(original.clone()).await.unwrap(),
-            Output::Computer(outcome.clone())
-        );
-        assert_eq!(
-            fixture.client.execute(original).await.unwrap(),
-            Output::Computer(outcome.clone())
-        );
-        let calls = fixture.worker.calls();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0]["name"], "click");
-        assert_eq!(calls[0]["arguments"], arguments);
-        fixture.shutdown().await;
-    }
-}
-
-#[tokio::test]
-async fn keeps_software_actions_separate_from_agent_mode() {
-    for remote in [false, true] {
-        let fixture = Fixture::new(
-            remote,
-            &[Action::ReadComputer, Action::ControlComputer],
-            json!({}),
-        )
-        .await;
-        let session = scopes::session(&fixture.client, fixture.context.worktree.unwrap()).await;
-        let mut config = session.config;
-        config.mode = WorkMode::Plan;
-        execute(
-            &fixture.client,
-            Command::SetSessionConfig {
-                session: session.id,
-                expected_revision: session.revision,
-                config,
-            },
-        )
-        .await;
-        let mut context = fixture.context.clone();
-        context.session = Some(session.id);
-        // Work mode constrains admitted Agent turns. An explicitly declared
-        // software action keeps its own grant and captured resource scope.
-        fixture
-            .client
-            .execute(request(
-                &fixture.client,
-                &context,
-                "click",
-                json!({"target":{"kind":"window","pid":314,"window_id":271},"delivery_mode":"background","x":12,"y":34}),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(fixture.worker.calls().len(), 1);
-        fixture
-            .client
-            .execute(request(
-                &fixture.client,
-                &context,
-                "list_windows",
-                json!({}),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(fixture.worker.calls().len(), 2);
-        fixture.shutdown().await;
-    }
-}
+//! Permission access retains the captured package and execution Node authority.
+use crate::plugins::support::{execute, info};
+use sailry_protocol::{
+    Command, ErrorCode, Output,
+    plugin::{self, Context},
+};
 
 #[tokio::test]
 async fn reads_permissions_without_prompting() {
+    #[cfg(target_os = "macos")]
+    isolated().await;
+    #[cfg(not(target_os = "macos"))]
+    inspect().await;
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn inspect() {
     for remote in [false, true] {
         let (_directory, node, controller, client, _worktree) =
             crate::plugins::support::packages(remote, &["computer"]).await;
@@ -478,7 +28,7 @@ async fn reads_permissions_without_prompting() {
             .await,
         );
         assert!(!package.summary.enabled);
-        let mut context = Context {
+        let context = Context {
             invocation: None,
             turn: None,
             surface: plugin::desktop::Surface::Settings,
@@ -499,37 +49,216 @@ async fn reads_permissions_without_prompting() {
         };
         assert_eq!(permissions.node, node.id());
         assert_eq!(permissions.local, !remote);
-        if remote {
-            assert_eq!(
-                client
-                    .execute(
-                        client
-                            .prepare(Command::RequestComputerPermission {
-                                permission: sailry_protocol::computer::Permission::Accessibility,
-                            })
-                            .with_plugin(context.clone())
-                    )
-                    .await
-                    .unwrap_err()
-                    .code,
-                ErrorCode::PermissionDenied
-            );
-        }
-        context.surface = Default::default();
+        assert_eq!(permissions.platform, std::env::consts::OS);
+        assert_eq!(permissions.screen_capture, None);
+        assert_eq!(permissions.accessibility, None);
         assert_eq!(
             client
                 .execute(
                     client
-                        .prepare(Command::ReadComputerPermissions)
-                        .with_plugin(context)
+                        .prepare(Command::RequestComputerPermission {
+                            permission: sailry_protocol::computer::Permission::Accessibility
+                        })
+                        .with_plugin(context.clone())
                 )
                 .await
                 .unwrap_err()
                 .code,
-            ErrorCode::NotConfigured
+            if remote {
+                ErrorCode::PermissionDenied
+            } else {
+                ErrorCode::Unavailable
+            }
         );
+        denied_surface(&client, context).await;
         drop(client);
         controller.close().await.unwrap();
         node.shutdown().await.unwrap();
     }
+}
+
+async fn denied_surface(client: &sailry_client::Client, mut context: Context) {
+    context.surface = Default::default();
+    assert_eq!(
+        client
+            .execute(
+                client
+                    .prepare(Command::ReadComputerPermissions)
+                    .with_plugin(context)
+            )
+            .await
+            .unwrap_err()
+            .code,
+        ErrorCode::NotConfigured
+    );
+}
+
+#[cfg(target_os = "macos")]
+async fn isolated() {
+    use std::{os::unix::fs::PermissionsExt, time::Duration};
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().canonicalize().unwrap();
+    let helpers = root.join("helpers");
+    let executable = helpers.join("Sailry Computer Use.app/Contents/MacOS/OpenComputerUse");
+    std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
+    std::fs::write(&executable, r#"#!/bin/sh
+fixture="$(cd "$(dirname "$0")/../../../.." && pwd)"
+printf '%s|%s|%s\n' "$*" "$OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE" "$OPEN_COMPUTER_USE_CONFIG_FILE" >> "$fixture/calls"
+case "$*" in
+  'doctor') printf 'permission setup\n' ;;
+  'doctor --json')
+    case "$(cat "$fixture/mode")" in
+      missing) printf '{"screenCaptureGranted":false,"accessibilityTrusted":false}' ;;
+      granted) printf '{"screenCaptureGranted":true,"accessibilityTrusted":true}' ;;
+      malformed) printf 'private diagnostic content' ;;
+      failed) printf 'private diagnostic content' >&2; exit 17 ;;
+      *) exit 64 ;;
+    esac ;;
+  *) exit 64 ;;
+esac
+"#).unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let output = tokio::time::timeout(
+        Duration::from_secs(120),
+        tokio::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "plugins::actions::computer::diagnostics_peer",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("SAILRY_HELPERS_DIR", helpers)
+            .env("SAILRY_TEST_OCU_PERMISSIONS", root)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "permission subprocess failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "launched by the isolated permission service fixture"]
+fn diagnostics_peer() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("SAILRY_TEST_OCU_PERMISSIONS").expect("isolated permission fixture"),
+        );
+        for remote in [false, true] {
+            let (directory, node, controller, client, _worktree) =
+                crate::plugins::support::packages(remote, &["computer"]).await;
+            let package = info(
+                execute(
+                    &client,
+                    Command::ReadPlugin {
+                        name: "computer".into(),
+                    },
+                )
+                .await,
+            );
+            assert!(!package.summary.enabled);
+            assert!(package.issues.is_empty(), "{:?}", package.issues);
+            let context = Context {
+                invocation: None,
+                turn: None,
+                surface: plugin::desktop::Surface::Settings,
+                package: package.summary.reference(),
+                worktree: None,
+                session: None,
+            };
+            std::fs::write(root.join("calls"), "").unwrap();
+            for (mode, granted) in [("missing", false), ("granted", true)] {
+                std::fs::write(root.join("mode"), mode).unwrap();
+                let request = client
+                    .prepare(Command::ReadComputerPermissions)
+                    .with_plugin(context.clone());
+                assert!(!request.command.durable());
+                let Output::ComputerPermissions(permissions) =
+                    client.execute(request).await.unwrap()
+                else {
+                    panic!("permissions expected")
+                };
+                assert_eq!(permissions.node, node.id());
+                assert_eq!(permissions.local, !remote);
+                assert_eq!(permissions.platform, "macos");
+                assert_eq!(permissions.screen_capture, Some(granted));
+                assert_eq!(permissions.accessibility, Some(granted));
+            }
+            let calls = std::fs::read_to_string(root.join("calls")).unwrap();
+            assert_eq!(calls.lines().count(), 2);
+            let namespace = directory
+                .path()
+                .join("node/plugins/data/computer")
+                .canonicalize()
+                .unwrap();
+            let config = directory
+                .path()
+                .join("node/plugins/packages")
+                .join(&context.package.digest)
+                .join("ocu.json")
+                .canonicalize()
+                .unwrap();
+            for call in calls.lines() {
+                assert_eq!(
+                    call,
+                    format!("doctor --json|{}|{}", namespace.display(), config.display())
+                );
+            }
+            let request = client
+                .prepare(Command::RequestComputerPermission {
+                    permission: sailry_protocol::computer::Permission::Accessibility,
+                })
+                .with_plugin(context.clone());
+            assert!(!request.command.durable());
+            if remote {
+                assert_eq!(
+                    client.execute(request).await.unwrap_err().code,
+                    ErrorCode::PermissionDenied
+                );
+                assert_eq!(std::fs::read_to_string(root.join("calls")).unwrap(), calls);
+            } else {
+                let Output::ComputerPermissions(permissions) =
+                    client.execute(request).await.unwrap()
+                else {
+                    panic!("permissions expected")
+                };
+                assert_eq!(permissions.screen_capture, Some(true));
+                assert_eq!(permissions.accessibility, Some(true));
+                let current = std::fs::read_to_string(root.join("calls")).unwrap();
+                assert_eq!(current.lines().count(), 4);
+                assert!(current.lines().nth(2).unwrap().starts_with("doctor|"));
+                assert!(
+                    current
+                        .lines()
+                        .nth(3)
+                        .unwrap()
+                        .starts_with("doctor --json|")
+                );
+            }
+            for mode in ["malformed", "failed"] {
+                std::fs::write(root.join("mode"), mode).unwrap();
+                let error = client
+                    .execute(
+                        client
+                            .prepare(Command::ReadComputerPermissions)
+                            .with_plugin(context.clone()),
+                    )
+                    .await
+                    .unwrap_err();
+                assert_eq!(error.code, ErrorCode::Unavailable);
+                assert!(!error.message.contains("private diagnostic content"));
+            }
+            denied_surface(&client, context).await;
+            drop(client);
+            controller.close().await.unwrap();
+            node.shutdown().await.unwrap();
+        }
+    });
 }

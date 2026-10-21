@@ -7,16 +7,14 @@ mod backup;
 mod browser;
 mod code;
 mod computer;
-mod decision;
-mod hooks;
-#[cfg(all(target_os = "macos", feature = "computer-worker"))]
-pub use computer::worker_host as computer_worker;
 mod databases;
+mod decision;
 mod dispatch;
 mod error;
 mod external_browser;
 mod files;
 mod git;
+mod hooks;
 mod host;
 mod installation;
 mod knowledge;
@@ -46,9 +44,6 @@ use tokio::task::JoinHandle;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use code::fixtures::CodeServerFixture;
-pub use computer::Worker as ComputerWorker;
-#[cfg(any(test, feature = "test-support"))]
-pub use computer::{HIDDEN_PARAMETERS as COMPUTER_HIDDEN, TOOLS as COMPUTER_TOOLS};
 pub use error::Error;
 #[cfg(feature = "test-support")]
 pub use plugins::script::fixture as plugin_test;
@@ -114,7 +109,6 @@ struct Bootstrap {
     catalog: providers::catalog::Catalog,
     authorization: providers::login::Service,
     skills: crate::plugins::github::Github,
-    computer: Option<ComputerWorker>,
     environment: process::environment::Source,
     skip_bundled: bool,
     #[cfg(any(test, feature = "test-support"))]
@@ -138,23 +132,12 @@ impl Node {
         path: impl AsRef<Path>,
         network: NetworkScope,
     ) -> Result<Self, Error> {
-        Self::start_with_computer(path, network, None).await
-    }
-
-    /// Installs the execution host's optional graphical computer worker before
-    /// exposing the Node. Headless library consumers keep the direct backend.
-    pub async fn start_with_computer(
-        path: impl AsRef<Path>,
-        network: NetworkScope,
-        computer: Option<ComputerWorker>,
-    ) -> Result<Self, Error> {
         let path = path.as_ref().to_owned();
         // Startup owns cleanup even if its caller stops waiting midway through storage I/O.
         tokio::spawn(Self::start_owned(
             path,
             Bootstrap {
                 network,
-                computer,
                 ..Default::default()
             },
         ))
@@ -514,36 +497,23 @@ impl Node {
         .map_err(|error| Error::Worker(error.to_string()))?
     }
 
-    /// Preserves the injected computer worker without unrelated bundled packages.
-    #[cfg(any(test, feature = "test-support"))]
-    pub async fn start_empty_with_computer(
-        path: impl AsRef<Path>,
-        network: NetworkScope,
-        computer: Option<ComputerWorker>,
-    ) -> Result<Self, Error> {
-        let path = path.as_ref().to_owned();
-        // Startup owns cleanup even if its caller stops waiting midway through storage I/O.
-        tokio::spawn(Self::start_owned(
-            path,
-            Bootstrap {
-                catalog: providers::catalog::Catalog::empty(),
-                skip_bundled: true,
-                network,
-                computer,
-                ..Default::default()
-            },
-        ))
-        .await
-        .map_err(|error| Error::Worker(error.to_string()))?
-    }
-
     /// Keeps the isolated network scope while fixtures install their required packages.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn start_empty_with_network(
         path: impl AsRef<Path>,
         network: NetworkScope,
     ) -> Result<Self, Error> {
-        Self::start_empty_with_computer(path, network, None).await
+        tokio::spawn(Self::start_owned(
+            path.as_ref().to_owned(),
+            Bootstrap {
+                catalog: providers::catalog::Catalog::empty(),
+                skip_bundled: true,
+                network,
+                ..Default::default()
+            },
+        ))
+        .await
+        .map_err(|error| Error::Worker(error.to_string()))?
     }
 
     /// Adds private fixture trust roots to the same Node endpoint, never the OS store.
@@ -697,7 +667,6 @@ impl Node {
             catalog,
             authorization,
             skills,
-            computer,
             environment,
             skip_bundled,
             #[cfg(any(test, feature = "test-support"))]
@@ -730,7 +699,6 @@ impl Node {
             )
             .await?;
             let ingress = store.ingress.clone();
-            ingress.computer.configure_worker(computer).await;
             let network = match store.network_scope(network).await {
                 Ok(network) => network,
                 Err(error) => {

@@ -28,7 +28,7 @@ async fn recovers_standard_configuration() {
         let initial = read(&client, &installed.summary.reference()).await;
         let secret = "Bearer inline-private-${PLUGIN_ROOT}";
         let mut configuration = initial.configuration.clone();
-        let Server::Http { url, headers } = configuration.servers.get_mut("service").unwrap()
+        let Server::Http { url, headers, .. } = configuration.servers.get_mut("service").unwrap()
         else {
             unreachable!()
         };
@@ -244,7 +244,8 @@ async fn loads_bundled_documents() {
             assert_eq!(state.configuration.schema, plugin::mcp::SCHEMA);
             assert_eq!(state.configuration.servers.len(), 1);
             if name == "github" {
-                let Server::Http { url, headers } = &state.configuration.servers["github"] else {
+                let Server::Http { url, headers, .. } = &state.configuration.servers["github"]
+                else {
                     panic!("GitHub HTTP configuration expected")
                 };
                 assert_eq!(url, "https://api.githubcopilot.com/mcp/");
@@ -255,7 +256,7 @@ async fn loads_bundled_documents() {
                 );
             }
             if name == "context7" {
-                let Server::Http { url, headers } = &state.configuration.servers[name] else {
+                let Server::Http { url, headers, .. } = &state.configuration.servers[name] else {
                     panic!("Context7 HTTP configuration expected")
                 };
                 assert_eq!(url, "https://mcp.context7.com/mcp");

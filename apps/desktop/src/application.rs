@@ -1,9 +1,9 @@
 //! Application bootstrap; feature modules remain owned by the crate root.
+#[cfg(target_os = "macos")]
+use crate::macos;
 #[cfg(feature = "workload-tests")]
 use crate::workload;
 use crate::{assets, backend, locale, oauth, shell, startup, theme, tr, updater};
-#[cfg(target_os = "macos")]
-use crate::{computer_worker, macos};
 use gpui_kit::component::Root;
 use gpui_kit::{
     App, AppContext as _, Styled as _, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
@@ -13,10 +13,6 @@ use gpui_kit::{
 pub(crate) fn launch() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     if updater::run_helper() {
-        return;
-    }
-    #[cfg(target_os = "macos")]
-    if computer_worker::run_if_requested() {
         return;
     }
     #[cfg(feature = "workload-tests")]

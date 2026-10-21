@@ -487,7 +487,6 @@ impl Database {
                 | Command::UpdateCodeRules
                 | Command::UseExternalBrowser { .. }
                 | Command::UseBrowser { .. }
-                | Command::UseComputer { .. }
                 | Command::UseMedia { .. }
         ) {
             match super::resources::prepare(self, &request) {
@@ -725,7 +724,6 @@ impl Database {
                 | Command::QueryDatabase { .. }
                 | Command::UseExternalBrowser { .. }
                 | Command::UseBrowser { .. }
-                | Command::UseComputer { .. }
                 | Command::UseMedia { .. }
         ) {
             format!("command-v1:{}", blake3::hash(&encoded).to_hex()).into_bytes()

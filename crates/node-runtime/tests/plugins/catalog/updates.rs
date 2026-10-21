@@ -337,7 +337,7 @@ async fn offers_bundled_updates_on_catalog_failure() {
         else {
             panic!("MCP settings expected")
         };
-        let plugin::mcp::Server::Http { url, headers } =
+        let plugin::mcp::Server::Http { url, headers, .. } =
             configured.configuration.servers.get_mut("service").unwrap()
         else {
             unreachable!()

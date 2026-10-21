@@ -9,6 +9,7 @@ pub(crate) struct Configured {
     pub reference: sailry_protocol::plugin::Reference,
     pub name: String,
     pub launch: Result<Launch, Fault>,
+    pub options: sailry_protocol::plugin::mcp::Options,
 }
 
 pub(crate) enum Launch {
@@ -174,6 +175,15 @@ impl Resources {
     }
 
     pub(crate) async fn mcp(&self, environment: &crate::process::Environment) -> Vec<Configured> {
+        self.configured(environment, crate::computer::helper::executable)
+            .await
+    }
+
+    async fn configured(
+        &self,
+        environment: &crate::process::Environment,
+        helper: fn() -> Result<PathBuf, Fault>,
+    ) -> Vec<Configured> {
         let mut configured = Vec::new();
         for (index, package) in self.packages.iter().enumerate() {
             if package.mcp.is_empty() {
@@ -213,9 +223,11 @@ impl Resources {
                         servers
                             .into_iter()
                             .map(|(server, config)| {
-                                let launch =
-                                    prepare(&host, &directory, &info, &server, config, &settings);
-                                (server, launch)
+                                let options = config.options();
+                                let launch = prepare(
+                                    &host, &directory, &info, &server, config, &settings, helper,
+                                );
+                                (server, (options, launch))
                             })
                             .collect::<BTreeMap<_, _>>(),
                     )
@@ -229,9 +241,12 @@ impl Resources {
                 Err(error) => (BTreeMap::new(), Some(error)),
             };
             for server in &package.mcp {
-                let mut launch = servers
-                    .remove(&server.name)
-                    .unwrap_or_else(|| Err(failure.clone().unwrap_or_else(unavailable)));
+                let (options, mut launch) = servers.remove(&server.name).unwrap_or_else(|| {
+                    (
+                        Default::default(),
+                        Err(failure.clone().unwrap_or_else(unavailable)),
+                    )
+                });
                 if let Ok(Launch::Stdio {
                     command,
                     args,
@@ -284,6 +299,7 @@ impl Resources {
                     reference: package.summary.reference(),
                     name: server.name.clone(),
                     launch,
+                    options,
                 });
             }
         }
@@ -339,6 +355,50 @@ impl Host {
         })
     }
 
+    pub(crate) fn computer_launch(
+        &self,
+        info: &Info,
+        settings: &crate::plugins::settings::Resolved,
+        stop: CancellationToken,
+    ) -> Result<Launch, Fault> {
+        let directory = self.resolve(&info.summary.reference(), stop.clone())?;
+        let mut declared = servers(&directory)?;
+        let candidates: Vec<_> = declared.iter().filter_map(|(name, server)| {
+            matches!(server, Server::Stdio { command, .. } if command == crate::computer::helper::TOKEN)
+                .then_some(name.clone())
+        }).collect();
+        let [name] = candidates.as_slice() else {
+            return Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "computer helper declaration is unavailable",
+            ));
+        };
+        if let Some(configuration) = &settings.mcp {
+            mcp::validate_configuration(&declared, configuration)?;
+            declared = configuration.servers.clone();
+        }
+        let server = declared.remove(name).ok_or_else(unavailable)?;
+        if stop.is_cancelled() {
+            return Err(cancelled());
+        }
+        if !matches!(&server, Server::Stdio { command, .. } if command == crate::computer::helper::TOKEN)
+        {
+            return Err(Fault::new(
+                ErrorCode::NotConfigured,
+                "computer helper declaration changed",
+            ));
+        }
+        prepare(
+            self,
+            &directory,
+            info,
+            name,
+            server,
+            settings,
+            crate::computer::helper::executable,
+        )
+    }
+
     pub(crate) fn validate_mcp(
         &self,
         reference: &sailry_protocol::plugin::Reference,
@@ -356,12 +416,18 @@ fn prepare(
     server_name: &str,
     server: Server,
     settings: &crate::plugins::settings::Resolved,
+    helper: fn() -> Result<PathBuf, Fault>,
 ) -> Result<Launch, Fault> {
     let name = info.summary.name.as_str();
     let schema = info.settings.as_ref();
     let sse = matches!(&server, Server::Sse { .. });
     match server {
-        Server::Http { url, mut headers } | Server::Sse { url, mut headers } => {
+        Server::Http {
+            url, mut headers, ..
+        }
+        | Server::Sse {
+            url, mut headers, ..
+        } => {
             for (field, secret) in &settings.secrets {
                 let binding = schema
                     .and_then(|schema| schema.properties.get(field))
@@ -389,6 +455,7 @@ fn prepare(
             args,
             mut env,
             cwd,
+            ..
         } => {
             let profile = host.profile.as_ref().ok_or_else(unavailable)?;
             let data = directory(
@@ -425,7 +492,9 @@ fn prepare(
             let resolved = base.canonicalize(relative).map_err(io_error)?;
             let _cwd = base.open_dir(&resolved).map_err(io_error)?;
             let cwd = base_path.join(resolved);
-            let command = if let Some(relative) = command.strip_prefix("./") {
+            let command = if command == crate::computer::helper::TOKEN {
+                helper()?
+            } else if let Some(relative) = command.strip_prefix("./") {
                 let resolved = package.root.canonicalize(relative).map_err(io_error)?;
                 let parts = crate::files::path::components(
                     resolved.to_str().ok_or_else(unavailable)?,

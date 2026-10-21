@@ -1,7 +1,5 @@
 use super::*;
 
-mod computer;
-
 mod storage {
     use super::*;
     fn fixture(operation: sailry_protocol::tool::Operation, mode: WorkMode) -> Fixture {

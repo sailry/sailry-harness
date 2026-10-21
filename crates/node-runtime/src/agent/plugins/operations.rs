@@ -121,6 +121,7 @@ pub(super) fn bind(
 
 pub(super) fn available(ingress: &Ingress, invocation: &Invocation, operation: Operation) -> bool {
     match operation {
+        Operation::ReadComputer | Operation::ControlComputer => false,
         Operation::WriteArtifact => invocation.child.is_none(),
         operation if connections::handles(operation) => {
             connections::supports_mode(operation, invocation.turn.config.mode)

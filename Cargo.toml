@@ -23,10 +23,7 @@ html5gum = "=0.8.4"
 ropey = "=2.0.0-beta.1"
 percent-encoding = "=2.3.2"
 embed-resource = "=3.0.11"
-# Official Cua Driver 0.32.0; all driver packages use the unmodified release.
-cua-driver-sdk = { git = "https://github.com/trycua/cua.git", rev = "58aba84b5b83d77e7e2b0f006547699eb594e50d" }
-cua-driver-contract = { git = "https://github.com/trycua/cua.git", rev = "58aba84b5b83d77e7e2b0f006547699eb594e50d" }
-# The SDK host starts the official macOS overlay's main-thread loop.
+# Application permissions and selection shortcuts remain separate from computer use.
 cua-platform-macos = { package = "platform-macos", git = "https://github.com/trycua/cua.git", rev = "58aba84b5b83d77e7e2b0f006547699eb594e50d" }
 sherpa-onnx = { version = "=1.13.8", default-features = false }
 sailry-speech = { path = "crates/speech" }

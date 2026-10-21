@@ -56,7 +56,6 @@ path = "tests/suites/knowledge.rs"
 
 [features]
 test-support = ["sailry-link/test-support"]
-computer-worker = ["dep:cua-platform-macos"]
 
 [[example]]
 name = "plugin-test-host"
@@ -70,8 +69,6 @@ tracing-subscriber.workspace = true
 tracing-appender.workspace = true
 age.workspace = true
 opendal.workspace = true
-cua-driver-sdk.workspace = true
-cua-driver-contract.workspace = true
 russh.workspace = true
 russh-sftp.workspace = true
 sqlx.workspace = true
@@ -166,7 +163,6 @@ trash.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 oslog.workspace = true
 system-configuration.workspace = true
-cua-platform-macos = { workspace = true, optional = true }
 objc2-app-kit = { workspace = true, features = ["NSRunningApplication", "NSWorkspace", "libc"] }
 objc2-core-graphics.workspace = true
 objc2-application-services.workspace = true

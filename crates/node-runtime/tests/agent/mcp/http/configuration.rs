@@ -29,7 +29,7 @@ async fn executes_frozen_configuration() {
             let installed = install(&fixture, 0).await;
             let initial = read(&fixture.client, installed.summary.reference()).await;
             let mut configuration = initial.configuration;
-            let McpServer::Http { url, headers } = configuration.servers.get_mut(name).unwrap()
+            let McpServer::Http { url, headers, .. } = configuration.servers.get_mut(name).unwrap()
             else {
                 unreachable!()
             };
@@ -52,7 +52,7 @@ async fn executes_frozen_configuration() {
             assert!(original_peer.requests.lock().unwrap().is_empty());
             let (_, queued) = submit(&fixture, true).await;
             assert!(queued.plugins.contains(&first.summary.reference()));
-            let McpServer::Http { url, headers } = configuration.servers.get_mut(name).unwrap()
+            let McpServer::Http { url, headers, .. } = configuration.servers.get_mut(name).unwrap()
             else {
                 unreachable!()
             };

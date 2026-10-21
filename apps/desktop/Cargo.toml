@@ -36,7 +36,7 @@ gpui-shell.workspace = true
 gpui-component-shell.workspace = true
 rust-i18n.workspace = true
 sys-locale.workspace = true
-sailry-node-runtime = { workspace = true, features = ["computer-worker"] }
+sailry-node-runtime.workspace = true
 sailry-link.workspace = true
 sailry-client.workspace = true
 sailry-protocol.workspace = true
@@ -66,7 +66,6 @@ wry.workspace = true
 raw-window-handle.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cua-driver-sdk.workspace = true
 cua-platform-macos.workspace = true
 uuid.workspace = true
 aes.workspace = true

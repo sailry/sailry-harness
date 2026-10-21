@@ -290,8 +290,6 @@ async fn execute(
     if result.is_err() || stop.is_cancelled() {
         ingress.model_clients.abandon(session);
     }
-    // Computer observations belong to the conversation's trusted SDK handle,
-    // not this turn. Retain it with the history across completion and stopping.
     // ADK can drop a tool future on interruption before its async cleanup runs.
     // Retain browser cleanup at the same Node-owned boundary as MCP connections.
     let browsers = if stop.is_cancelled() {

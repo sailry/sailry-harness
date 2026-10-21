@@ -6,6 +6,8 @@ use sailry_protocol::{
 };
 use serde_json::{Value, json};
 mod error;
+mod screenshots;
+pub(super) use screenshots::callback as screenshots;
 mod generation;
 mod usage;
 mod vision;

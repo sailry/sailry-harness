@@ -168,8 +168,8 @@ fn targets(
                 .get(name)
                 .ok_or_else(|| Fault::invalid("connector MCP server is unavailable"))?;
             let target = match server {
-                plugin::mcp::Server::Http { url, headers }
-                | plugin::mcp::Server::Sse { url, headers } => {
+                plugin::mcp::Server::Http { url, headers, .. }
+                | plugin::mcp::Server::Sse { url, headers, .. } => {
                     let url = url::Url::parse(url)
                         .map_err(|_| Fault::invalid("invalid connector MCP URL"))?;
                     if !registry::endpoint(info, declaration, url.as_str()) {

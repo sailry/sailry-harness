@@ -1,18 +1,6 @@
 //! Read-only provider selection for explicit real-model acceptance.
 use sailry_protocol::{Secret, conversation::Provider};
 
-/// Explicit selection from an inactive profile, without creating WAL sidecars.
-pub(crate) fn load_selected(model: &str, id: sailry_protocol::ProviderId) -> (Provider, Secret) {
-    let (provider, stored) = selected(model, id);
-    assert_eq!(
-        provider.authentication,
-        sailry_protocol::Authentication::ApiKey,
-        "API key acceptance required"
-    );
-    let secret = key(&provider, &stored);
-    (provider, secret)
-}
-
 /// Seed only one selected provider into an already initialized, stopped test profile.
 pub(crate) fn seed(
     model: &str,

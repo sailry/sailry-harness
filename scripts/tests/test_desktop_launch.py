@@ -73,6 +73,7 @@ class NativeAssets(unittest.TestCase):
             destination = self.project / name
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text("resource fixture")
+        (self.project / "scripts/package/ocu-helper.py").write_text("# The dedicated helper suite verifies native staging and signing.\n")
         self.old_calls = self.root / "old-python-calls"
         self.calls = self.root / "native-python-calls"
         self.signatures = self.root / "signatures"
@@ -174,15 +175,18 @@ printf '%s' 'signature fixture' >> "$task_target"
         stages = [("python-runtime.py", debug), ("onnx-runtime.py", native), ("llama-runtime.py", native),
                   ("onnx-runtime.py", debug), ("llama-runtime.py", debug), ("python-runtime.py", app / "Contents/MacOS"),
                   ("python-runtime.py", app / "Contents/MacOS"), ("onnx-runtime.py", app / "Contents/MacOS"),
-                  ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS")]
+                  ("onnx-runtime.py", app / "Contents/MacOS"), ("llama-runtime.py", app / "Contents/MacOS"),
+                  ("ocu-helper.py", app / "Contents/Helpers")]
         self.assertEqual(self.old_calls.read_text().splitlines(), ["-c"] * len(stages))
         self.assertEqual(len(calls), len(stages))
         for arguments, (script, output) in zip(calls, stages):
             self.assertEqual(arguments[0], str(self.project / "scripts/package" / script))
             self.assertEqual(arguments[arguments.index("--output") + 1], str(output))
         self.assertEqual(calls[6][calls[6].index("--sign") + 1], "FIXTURE")
-        self.assertIn("--finalize", calls[-2])
-        self.assertEqual(calls[-1][calls[-1].index("--source") + 1], str(debug))
+        self.assertIn("--finalize", calls[-3])
+        self.assertEqual(calls[-2][calls[-2].index("--source") + 1], str(debug))
+        self.assertEqual(calls[-2][calls[-2].index("--sign") + 1], "FIXTURE")
+        self.assertIn("--development", calls[-1])
         self.assertEqual(calls[-1][calls[-1].index("--sign") + 1], "FIXTURE")
         self.assertEqual(json.loads(self.build.read_text()), {
             "args": ["build", "--locked", "-p", "sailry-desktop"], "native": str(native)})
@@ -246,6 +250,27 @@ printf '%s' 'signature fixture' >> "$task_target"
             self.assertEqual(file["sha256"], hashlib.sha256(content + b"signature fixture").hexdigest())
             self.assertNotEqual(file["sha256"], file["source_sha256"])
             self.assertEqual(file["size"], len(content + b"signature fixture"))
+
+    def test_stages_windows_helpers_before_execution(self):
+        target = "x86_64-pc-windows-msvc"
+        self.program("rustc", f"#!/bin/sh\nprintf '%s\\n' 'host: {target}'\n", python=False)
+        self.program("uname", "#!/bin/sh\nprintf '%s\\n' MINGW64_NT\n", python=False)
+        for name in ("onnx-runtime.py", "llama-runtime.py", "python-runtime.py"):
+            (self.project / "scripts/package" / name).write_text("# Runtime staging fixture\n")
+        (self.target / "debug").mkdir(parents=True)
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("SAILRY_")}
+        environment.update({"PATH": str(self.bin) + os.pathsep + "/usr/bin:/bin",
+                            "CARGO_TARGET_DIR": str(self.target)})
+        result = subprocess.run(["/bin/bash", str(self.project / "scripts/run-desktop.sh")],
+                                env=environment, capture_output=True, text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        helper = self.arguments(self.calls)[-1]
+        self.assertEqual(helper[0], str(self.project / "scripts/package/ocu-helper.py"))
+        self.assertEqual(helper[helper.index("--target") + 1], target)
+        self.assertEqual(helper[helper.index("--output") + 1], str(self.target / "debug/helpers"))
+        self.assertEqual(json.loads(self.build.read_text())["args"],
+                         ["run", "--locked", "-p", "sailry-desktop", "--"])
+        self.assertFalse(self.signatures.exists())
 
 
 if __name__ == "__main__":

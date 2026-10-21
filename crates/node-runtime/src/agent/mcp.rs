@@ -34,23 +34,25 @@ pub(super) struct Connections {
     active: Vec<Connected>,
     poisoned: Arc<AtomicBool>,
     failure: Option<Fault>,
+    images: Vec<(Vec<String>, usize)>,
 }
 
 struct Connected {
     reference: sailry_protocol::plugin::Reference,
     name: String,
-    transport: transport::Connection,
+    transport: transport::Shared,
     peer: rmcp::Peer<RoleClient>,
     toolset: adk_tool::McpToolset<Arc<input::Handler>>,
     handler: Arc<input::Handler>,
     connector: Option<crate::plugins::connectors::mcp::Authorization>,
     python: Option<crate::python::Ready>,
+    reuse: bool,
 }
 
 impl Connected {
-    async fn close(mut self) -> Result<(), Fault> {
+    async fn close(self) -> Result<(), Fault> {
         drop(self.toolset);
-        self.transport.close().await
+        self.transport.lock().await.close().await
     }
 }
 
@@ -66,6 +68,7 @@ impl Connections {
         stop: &CancellationToken,
         assistant: Option<(&Reference, &Declaration)>,
     ) -> (Vec<Registration>, String) {
+        self.images.clear();
         let mut tools: Vec<Registration> = Vec::new();
         let mut diagnostics = String::new();
         let mut previous = std::mem::take(&mut self.active);
@@ -86,6 +89,8 @@ impl Connections {
                 if index >= crate::plugins::mcp::MAX_SERVERS { return Err(unavailable()); }
                 let mut launch = config.launch?;
                 let context=sailry_protocol::plugin::Context{package:config.reference.clone(),worktree:Some(invocation.worktree),session:Some(invocation.turn.session),turn:Some(invocation.turn.id),invocation:None,surface:Default::default()};
+                let reuse = !matches!(&launch, crate::plugins::resources::mcp::Launch::Stdio { .. }) || config.options.reuse;
+                let exclusive = config.options.exclusive.then(|| ingress.agents.mcp.service(&config.plugin, &config.name));
                 let python = match &launch { crate::plugins::resources::mcp::Launch::Stdio {python,..} => python.clone(), _ => None };
                 let connector = tokio::select! {
                     _ = stop.cancelled() => return Err(unavailable()),
@@ -104,11 +109,12 @@ impl Connections {
                     connection
                 } else {
                     let handler = Arc::new(input::Handler::new());
-                    let (transport, service) = transport::Connection::open(launch, connector.clone(), stop, handler.clone(), &ingress.environment).await?;
+                    let (mut transport, service) = transport::Connection::open(launch, connector.clone(), stop, handler.clone(), !reuse, &ingress.environment).await?;
                     let peer = service.peer().clone();
                     let toolset = adk_tool::McpToolset::new(service)
                         .with_task_support(adk_tool::mcp::McpTaskConfig::enabled().no_timeout());
-                    Connected { reference: config.reference, name: config.name.clone(), transport, peer, toolset, handler, connector, python }
+                    transport.track_tasks(toolset.clone());
+                    Connected { reference: config.reference, name: config.name.clone(), transport: Arc::new(tokio::sync::Mutex::new(transport)), peer, toolset, handler, connector, python, reuse }
                 };
                 let listed = tokio::select! {
                     _ = stop.cancelled() => Err(unavailable()),
@@ -116,6 +122,10 @@ impl Connections {
                 };
                 match listed {
                     Ok(descriptors) if tools.len() + descriptors.len() <= MAX_TOOLS => {
+                        let closed = connection.transport.lock().await.stopped();
+                        if let Some(keep) = config.options.keep_images {
+                            self.images.push((descriptors.iter().map(|descriptor| alias(&config.plugin, &config.name, &descriptor.name)).collect(), keep));
+                        }
                         for descriptor in descriptors {
                             let presentation = resources.tool_presentation(&config.plugin, &config.name, &descriptor.name);
                             let grouping = resources.tool_grouping(&config.plugin, &config.name, &descriptor.name);
@@ -127,6 +137,9 @@ impl Connections {
                                 turn: invocation.turn.id, session: invocation.turn.session.to_string(), stop: stop.clone(),
                                 connector: connection.connector.clone(),
                                 python: connection.python.clone(),
+                                exclusive: exclusive.clone(),
+                                transport: connection.transport.clone(),
+                                closed: closed.clone(),
                             }), presentation);
                             registration.grouping = grouping;
                             registration.display = display.map(|display| (registration.tool.name().into(), display));
@@ -163,23 +176,24 @@ impl Connections {
         (tools, diagnostics)
     }
 
+    pub(super) fn screenshots(&self) -> Option<adk_core::BeforeModelCallback> {
+        (!self.images.is_empty()).then(|| media::screenshots(self.images.clone()))
+    }
+
     pub(super) async fn settle(&mut self) -> Result<(), Fault> {
         let mut failure = self.failure.take();
-        for connection in &self.active {
-            if !matches!(
-                tokio::time::timeout(
-                    Duration::from_secs(5),
-                    connection.toolset.cancel_pending_tasks()
-                )
-                .await,
-                Ok(Ok(()))
-            ) {
-                failure = Some(Fault::new(
-                    ErrorCode::OutcomeUnknown,
-                    "MCP task termination could not be confirmed",
-                ));
+        let mut retained = Vec::new();
+        for connection in std::mem::take(&mut self.active) {
+            if connection.reuse {
+                if let Err(error) = connection.transport.lock().await.settle().await {
+                    failure = Some(error);
+                }
+                retained.push(connection);
+            } else if let Err(error) = connection.close().await {
+                failure = Some(error);
             }
         }
+        self.active = retained;
         failure.map_or(Ok(()), Err)
     }
 
@@ -192,9 +206,9 @@ impl Connections {
     }
 
     pub(super) async fn close(&mut self) -> Result<(), Fault> {
-        let settled = self.settle().await;
+        let failure = self.failure.take();
         let released = self.release().await;
-        settled.and(released)
+        failure.map_or(released, Err)
     }
 }
 
@@ -269,6 +283,9 @@ struct Bound {
     poisoned: Arc<AtomicBool>,
     connector: Option<crate::plugins::connectors::mcp::Authorization>,
     python: Option<crate::python::Ready>,
+    exclusive: Option<Arc<tokio::sync::Mutex<()>>>,
+    transport: transport::Shared,
+    closed: CancellationToken,
 }
 
 #[async_trait]
@@ -354,6 +371,7 @@ impl Bound {
         if context.session_id() != self.session
             || context.is_cancelled()
             || self.stop.is_cancelled()
+            || self.closed.is_cancelled()
         {
             return Err(adk_core::AdkError::tool(
                 "MCP invocation is unavailable or cancelled",
@@ -390,12 +408,29 @@ impl Bound {
                 .await
                 .map_err(|_| adk_core::AdkError::tool("MCP authorization is unavailable"))?;
         }
+        // Installed names are unique in this Node/profile. Content and settings
+        // revisions deliberately do not split a service across admitted turns.
+        let service = if !self.is_read_only() {
+            if let Some(lock) = &self.exclusive {
+                Some(tokio::select! {
+                    biased;
+                    _ = self.stop.cancelled() => return Err(adk_core::AdkError::tool("MCP invocation was cancelled")),
+                    _ = self.closed.cancelled() => return Err(adk_core::AdkError::tool("MCP connection is closed")),
+                    guard = lock.clone().lock_owned() => guard,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         // Neither ADK tool-call retries nor HTTP session-expiry replay is enabled.
         let _serial = tokio::select! {
             _ = self.stop.cancelled() => return Err(adk_core::AdkError::tool("MCP invocation was cancelled")),
+            _ = self.closed.cancelled() => return Err(adk_core::AdkError::tool("MCP connection is closed")),
             guard = self.handler.serial.lock() => guard,
         };
-        if context.is_cancelled() || self.stop.is_cancelled() {
+        if context.is_cancelled() || self.stop.is_cancelled() || self.closed.is_cancelled() {
             return Err(adk_core::AdkError::tool("MCP invocation was cancelled"));
         }
         if let Some(connector) = &self.connector
@@ -419,11 +454,21 @@ impl Bound {
             },
             &self.stop,
         );
+        let mut call = service.map(|guard| {
+            transport::Call::new(
+                self.transport.clone(),
+                self.closed.clone(),
+                guard,
+                self.poisoned.clone(),
+            )
+        });
         tokio::select! {
             biased;
             _ = self.stop.cancelled() => Err(adk_core::AdkError::tool("MCP invocation was cancelled; remote effects may be uncertain")),
             result = active.run(self.toolset.call_tool_value(&self.descriptor.name, args.clone())) => {
-                if !matches!(&result, Ok(Ok(_))) { self.poisoned.store(true, Ordering::Relaxed); }
+                if matches!(&result, Ok(Ok(_))) {
+                    if let Some(call) = &mut call { call.confirmed(); }
+                } else { self.poisoned.store(true, Ordering::Relaxed); }
                 match result {
                     Ok(Ok(mut value)) => {if let Some(connector)=&self.connector {connector.redact(&mut value);}Ok(value)},
                     Ok(Err(error)) => {let mut value=json!({"error":{"code":"outcome_unknown","message":format!("MCP call failed and was not replayed; side effects may be uncertain: {error}")}});if let Some(connector)=&self.connector{connector.redact(&mut value);}Ok(value)},

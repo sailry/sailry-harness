@@ -20,8 +20,6 @@ mod code;
 #[cfg(unix)]
 #[path = "agent/compaction.rs"]
 mod compaction;
-#[path = "agent/computer.rs"]
-mod computer;
 #[path = "agent/configuration.rs"]
 mod configuration;
 #[path = "agent/connections.rs"]

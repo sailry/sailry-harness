@@ -48,7 +48,6 @@ impl Database {
             request.command,
             Command::UseBrowser { .. }
                 | Command::UseExternalBrowser { .. }
-                | Command::UseComputer { .. }
                 | Command::UseMedia { .. }
                 | Command::InstallCodeServer { .. }
                 | Command::UninstallCodeServer { .. }
@@ -210,24 +209,6 @@ impl Database {
                 {
                     (Some(Action::SaveMediaSettings), None, None)
                 }
-                Command::UseComputer {
-                    session,
-                    worktree,
-                    name,
-                    ..
-                } => (
-                    Some(
-                        if crate::computer::read_only(name)
-                            .ok_or_else(|| Fault::invalid("unknown computer tool"))?
-                        {
-                            Action::ReadComputer
-                        } else {
-                            Action::ControlComputer
-                        },
-                    ),
-                    Some(*worktree),
-                    Some(*session),
-                ),
                 Command::ReadComputerPermissions => (Some(Action::ReadComputer), None, None),
                 Command::RequestComputerPermission { .. } => {
                     (Some(Action::ControlComputer), None, None)
@@ -705,14 +686,6 @@ impl Database {
             }
         }
         let package = self.plugin_package(caller, request)?;
-        if let Command::UseComputer { name, .. } = &request.command {
-            crate::store::agent::plugins::check_computer(
-                &self.connection,
-                context,
-                &package,
-                name,
-            )?;
-        }
         if let Some(turn) = context.turn {
             crate::store::agent::plugins::check_action(
                 &self.connection,

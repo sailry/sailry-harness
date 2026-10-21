@@ -949,4 +949,5 @@ fn legacy_package(prepared: bool) -> Value {
     })
 }
 
+mod computer;
 mod connectors;

@@ -223,3 +223,64 @@ async fn rejects_unconfined_roots() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn isolates_missing_helpers() {
+    let (_directory, resources) = fixture(json!({
+        "desktop": {"type":"stdio", "command":"${SAILRY_COMPUTER_USE}", "exclusive":true,"keep_images":3,"reuse":false},
+        "other": {"type":"stdio", "command":"runtime"}
+    }));
+    fn missing() -> Result<PathBuf, Fault> {
+        Err(Fault::new(
+            ErrorCode::Unavailable,
+            "fixture helper is missing",
+        ))
+    }
+    let configured = resources
+        .configured(&crate::process::Environment::ambient(), missing)
+        .await;
+    assert_eq!(configured.len(), 2);
+    for server in configured {
+        if server.name == "desktop" {
+            assert_eq!(server.launch.err().unwrap().code, ErrorCode::Unavailable);
+            assert!(server.options.exclusive);
+            assert_eq!(server.options.keep_images, Some(3));
+            assert!(!server.options.reuse);
+        } else {
+            assert!(server.launch.is_ok());
+            assert_eq!(server.options, Default::default());
+        }
+    }
+}
+
+#[tokio::test]
+async fn expands_helper_inputs_once() {
+    let (_directory, resources) = fixture(json!({
+        "desktop": {"type":"stdio", "command":"${SAILRY_COMPUTER_USE}", "args":["mcp", "${SAILRY_COMPUTER_USE}"], "env":{
+            "OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE":"${PLUGIN_DATA}",
+            "OPEN_COMPUTER_USE_CONFIG_FILE":"${PLUGIN_ROOT}/ocu.json"
+        }}
+    }));
+    fn helper() -> Result<PathBuf, Fault> {
+        Ok(PathBuf::from("/packaged/helper"))
+    }
+    let mut configured = resources
+        .configured(&crate::process::Environment::ambient(), helper)
+        .await;
+    let Launch::Stdio {
+        command, args, env, ..
+    } = configured.remove(0).launch.unwrap()
+    else {
+        unreachable!()
+    };
+    assert_eq!(command, Path::new("/packaged/helper"));
+    assert_eq!(args, ["mcp", "${SAILRY_COMPUTER_USE}"]);
+    assert_eq!(
+        env["OPEN_COMPUTER_USE_AGENT_SOCKET_NAMESPACE"],
+        env["PLUGIN_DATA"]
+    );
+    assert_eq!(
+        env["OPEN_COMPUTER_USE_CONFIG_FILE"],
+        format!("{}/ocu.json", env["PLUGIN_ROOT"])
+    );
+}

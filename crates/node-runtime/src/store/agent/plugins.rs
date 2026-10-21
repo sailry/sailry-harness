@@ -40,19 +40,7 @@ pub(super) fn operation(
 ) -> Result<Option<sailry_protocol::tool::Operation>, Fault> {
     let references = read(db, turn)?;
     let packages = packages(db, &references)?;
-    if crate::computer::definition(name).is_some() {
-        let config = permissions::config(db, turn)?;
-        return Ok(packages.iter().find_map(|package| {
-            crate::plugins::tools::computer(package, name).filter(|_| {
-                crate::plugins::conversation::selects(
-                    config.assistant.as_ref(),
-                    &packages,
-                    package,
-                    name,
-                )
-            })
-        }));
-    }
+
     Ok(packages
         .iter()
         .find_map(|package| crate::plugins::tools::operation(package, name)))
@@ -104,30 +92,4 @@ pub(super) fn storage_flow(db: &Connection, turn: TurnId, name: &str) -> Result<
             })
         })
     }))
-}
-
-pub(in crate::store) fn check_computer(
-    db: &Connection,
-    context: &plugin::Context,
-    package: &plugin::Info,
-    name: &str,
-) -> Result<(), Fault> {
-    let Some(turn) = context.turn else {
-        return Ok(());
-    };
-    let config = permissions::config(db, turn)?;
-    if config.mode == WorkMode::Plan && crate::computer::read_only(name) != Some(true) {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "planning turns cannot control the computer",
-        ));
-    }
-    let packages = packages(db, &read(db, turn)?)?;
-    if !crate::plugins::conversation::selects(config.assistant.as_ref(), &packages, package, name) {
-        return Err(Fault::new(
-            ErrorCode::PermissionDenied,
-            "computer tool is outside the admitted assistant selection",
-        ));
-    }
-    Ok(())
 }

@@ -26,15 +26,13 @@ pub(in crate::store) fn assistant(
                 .filter(|info| info.summary.enabled)
                 .ok_or_else(unavailable)?
         };
-        if crate::plugins::tools::computer(&info, name).is_none()
-            && !info.extension.as_ref().is_some_and(|extension| {
-                extension.tools.iter().any(|tool| {
-                    tool.name == *name
-                        && tool.server.is_none()
-                        && (tool.operation.is_some() || tool.handler.is_some())
-                })
+        if !info.extension.as_ref().is_some_and(|extension| {
+            extension.tools.iter().any(|tool| {
+                tool.name == *name
+                    && tool.server.is_none()
+                    && (tool.operation.is_some() || tool.handler.is_some())
             })
-        {
+        }) {
             return Err(unavailable());
         }
         let reference = info.summary.reference();
@@ -65,7 +63,6 @@ pub(in crate::store) fn capture(db: &Connection) -> Result<Vec<plugin::Reference
         // a session must not capture unrelated pages or callback packages.
         if info.skills.is_empty()
             && info.mcp.is_empty()
-            && !crate::plugins::tools::owns_computer(&info)
             && info.extension.as_ref().is_none_or(|extension| {
                 extension.tools.is_empty() && extension.model_tools.is_empty()
             })

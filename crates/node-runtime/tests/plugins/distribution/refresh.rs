@@ -4,6 +4,9 @@ use sailry_protocol::{code, search};
 use serde_json::json;
 use std::collections::BTreeMap;
 
+#[path = "refresh/computer.rs"]
+mod computer;
+
 async fn version(client: &Client, name: &str) -> String {
     info(execute(client, Command::ReadPlugin { name: name.into() }).await)
         .summary
@@ -23,6 +26,7 @@ async fn previous(
         "code" => include_bytes!("../../../../../plugins/code/plugin.json").as_slice(),
         "web-search" => include_bytes!("../../../../../plugins/web-search/plugin.json").as_slice(),
         "browser" => include_bytes!("../../../../../plugins/browser/plugin.json").as_slice(),
+        "computer" => include_bytes!("../../../../../plugins/computer/plugin.json").as_slice(),
         _ => unreachable!(),
     };
     let mut manifest: serde_json::Value = serde_json::from_slice(bytes).unwrap();
@@ -33,10 +37,21 @@ async fn previous(
     extension.remove("settings_page");
     extension.remove("desktop");
     extension.remove("enabled_service");
+    if name == "computer" {
+        extension.remove("tools");
+    }
     let path = format!("previous-{name}");
     let source = directory.join("source").join(&path);
     fs::create_dir_all(&source).unwrap();
     fs::write(source.join("plugin.json"), manifest.to_string()).unwrap();
+    if name == "computer" {
+        fs::create_dir_all(source.join("skills/retained")).unwrap();
+        fs::write(
+            source.join("skills/retained/SKILL.md"),
+            "---\nname: retained\ndescription: Retained fixture resource\n---\nCaptured package resource\n",
+        )
+        .unwrap();
+    }
     let installed = info(
         execute(
             client,

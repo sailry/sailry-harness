@@ -89,6 +89,13 @@ pub(super) fn reconcile(db: &Connection) -> Result<bool, Error> {
 }
 
 pub(super) fn needed(db: &Connection) -> Result<bool, Error> {
+    let retired: bool = db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM requests WHERE CASE WHEN json_valid(result) THEN json_extract(result,'$.Ok.kind')='computer' ELSE 0 END)",
+        [], |row| row.get(0),
+    )?;
+    if retired {
+        return Ok(true);
+    }
     let mut query = db.prepare("SELECT body FROM plugin_connections WHERE json_type(body,'$.login') IS NULL OR json_type(body,'$.login')!='null'")?;
     for bytes in query.query_map([], |row| row.get::<_, Vec<u8>>(0))? {
         let Ok(mut value) = serde_json::from_slice::<Value>(&bytes?) else {
@@ -242,7 +249,8 @@ fn receipt(value: &mut Value) -> bool {
             | "mcp_authorization"
             | "mcp_login"
             | "plugin_authorization"
-            | "plugin_login"),
+            | "plugin_login"
+            | "computer"),
         ) => {
             let kind = kind.to_owned();
             retained(output, &kind)

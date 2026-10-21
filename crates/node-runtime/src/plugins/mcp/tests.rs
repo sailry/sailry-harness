@@ -92,7 +92,7 @@ fn validates_literal_endpoints() {
     let (servers, _) = parsed(
         json!({"service": {"type": "streamable-http", "url": "https://example.test/${PLUGIN_ROOT}", "headers": {"X-Test": "${PLUGIN_DATA}"}}}),
     );
-    let Server::Http { url, headers } = &servers["service"] else {
+    let Server::Http { url, headers, .. } = &servers["service"] else {
         panic!("HTTP expected")
     };
     assert!(url.ends_with("${PLUGIN_ROOT}"));
@@ -138,6 +138,9 @@ fn accepts_standard_configuration_edits() {
     invalid.servers.insert(
         "service".into(),
         Server::Sse {
+            exclusive: false,
+            keep_images: None,
+            reuse: true,
             url: "https://example.test/mcp".into(),
             headers: BTreeMap::new(),
         },
@@ -149,4 +152,20 @@ fn accepts_standard_configuration_edits() {
     };
     headers.insert("Mcp-Session-Id".into(), "not-controller-owned".into());
     assert!(validate_configuration(&declared, &invalid).is_err());
+}
+
+#[test]
+fn captures_server_policies() {
+    let (servers, issues) = parsed(json!({
+        "desktop":{"type":"stdio","command":"${SAILRY_COMPUTER_USE}","exclusive":true,"keep_images":3,"reuse":false},
+        "ordinary":{"type":"stdio","command":"runtime"},
+        "invalid":{"type":"stdio","command":"${SAILRY_COMPUTER_USE}/mcp"}
+    }));
+    assert_eq!(issues.len(), 1);
+    assert_eq!(servers.len(), 2);
+    assert_eq!(servers["ordinary"].options(), Default::default());
+    let options = servers["desktop"].options();
+    assert!(options.exclusive);
+    assert_eq!(options.keep_images, Some(3));
+    assert!(!options.reuse);
 }

@@ -62,10 +62,8 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
                 name,
                 server: Some(server),
             } => mcp::alias(&binding.package.name, server, name),
-            Tool::Plugin { name, server: None } => {
-                identity(invocation, &binding.package.name, name)
-            }
-            Tool::Package { package, name } => identity(invocation, package, name),
+            Tool::Plugin { name, server: None } => operations::alias(&binding.package.name, name),
+            Tool::Package { package, name } => operations::alias(package, name),
         };
         allowed.insert(name);
     }
@@ -88,15 +86,4 @@ pub(super) fn apply(invocation: &Invocation, contribution: &mut Contribution) ->
         contribution.instruction.push_str(&declaration.context);
     }
     Ok(())
-}
-
-fn identity(invocation: &Invocation, package: &str, name: &str) -> String {
-    if invocation.plugins.iter().any(|provider| {
-        provider.summary.name == package
-            && crate::plugins::tools::computer(provider, name).is_some()
-    }) {
-        name.into()
-    } else {
-        operations::alias(package, name)
-    }
 }

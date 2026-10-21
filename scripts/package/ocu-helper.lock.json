@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "repository": "https://github.com/ifuryst/open-computer-use",
+  "revision": "8fdda42639c94fa2ce22ea2d9d706b5919a83b42",
+  "source": {
+    "url": "https://codeload.github.com/ifuryst/open-computer-use/tar.gz/8fdda42639c94fa2ce22ea2d9d706b5919a83b42",
+    "size": 2236842,
+    "sha256": "77ae885b68ea33fc0d465b3d6cbf4788dc2d8daaa816dddfdfe160a60f017f44"
+  },
+  "patches": [
+    {
+      "path": "ocu/scoped-sessions.patch",
+      "sha256": "a2524f95ccbb004d62dab00945a3df3e376dd64e2332c15ef0623ff1f0d36c24"
+    }
+  ],
+  "targets": {
+    "aarch64-apple-darwin": {
+      "platform": "macos",
+      "arch": "arm64"
+    },
+    "x86_64-apple-darwin": {
+      "platform": "macos",
+      "arch": "x86_64"
+    },
+    "x86_64-pc-windows-msvc": {
+      "platform": "windows",
+      "arch": "amd64"
+    },
+    "aarch64-pc-windows-msvc": {
+      "platform": "windows",
+      "arch": "arm64"
+    }
+  }
+}

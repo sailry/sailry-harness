@@ -27,6 +27,10 @@ python_spec = importlib.util.spec_from_file_location("python_runtime", Path(__fi
 python_runtime = importlib.util.module_from_spec(python_spec)
 python_spec.loader.exec_module(python_runtime)
 
+ocu_spec = importlib.util.spec_from_file_location("ocu_helper", Path(__file__).with_name("ocu-helper.py"))
+ocu_helper = importlib.util.module_from_spec(ocu_spec)
+ocu_spec.loader.exec_module(ocu_helper)
+
 
 def run(*args):
     result = subprocess.run([str(arg) for arg in args], capture_output=True, text=True)
@@ -100,6 +104,13 @@ def verify(path, team, deep=False):
         raise RuntimeError(f"Missing hardened runtime or secure timestamp: {path.name}")
 
 
+def nested_apps(directory, options, team):
+    for app in sorted(directory.rglob("*.app"), key=lambda path: -len(path.parts)):
+        if app.is_dir() and not app.is_symlink():
+            run("codesign", *options, "--preserve-metadata=entitlements", app)
+            verify(app, team, deep=True)
+
+
 def sign(app, host, target, identity, team, keychain=None):
     if app is None and host is None:
         raise RuntimeError("Select an application or Host package")
@@ -117,8 +128,11 @@ def sign(app, host, target, identity, team, keychain=None):
             if not objects:
                 raise RuntimeError("The application contains no Mach-O code")
             for path in objects:
-                run("codesign", *options, *python_runtime.signing_options(path, app / "Contents/MacOS"), path)
+                metadata = ["--preserve-metadata=entitlements"] if path.is_relative_to(app / "Contents/Helpers") else []
+                run("codesign", *options, *metadata, *python_runtime.signing_options(path, app / "Contents/MacOS"), path)
                 verify(path, team)
+            nested_apps(app, options, team)
+            ocu_helper.finalize(app / "Contents/Helpers")
             llama_runtime.finalize(target, app / "Contents/MacOS")
             runtime.finalize(target, app / "Contents/MacOS", speech=True)
             python_runtime.finalize(target, app / "Contents/MacOS")
@@ -128,8 +142,11 @@ def sign(app, host, target, identity, team, keychain=None):
             # Host is a separate asset, never a deployment payload inside Desktop.
             python_runtime.unlock(host)
             for path in mach_objects(host):
-                run("codesign", *options, *python_runtime.signing_options(path, host), path)
+                metadata = ["--preserve-metadata=entitlements"] if path.is_relative_to(host / "helpers") else []
+                run("codesign", *options, *metadata, *python_runtime.signing_options(path, host), path)
                 verify(path, team)
+            nested_apps(host, options, team)
+            ocu_helper.finalize(host / "helpers")
             llama_runtime.finalize(target, host)
             runtime.finalize(target, host, speech=False)
             python_runtime.finalize(target, host)

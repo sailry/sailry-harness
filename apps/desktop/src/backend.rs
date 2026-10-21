@@ -84,16 +84,7 @@ impl Owner {
         } else {
             NetworkScope::CustomRelays(relays)
         };
-        let computer = if cfg!(target_os = "macos") {
-            Some(sailry_node_runtime::ComputerWorker {
-                executable: std::env::current_exe()?,
-                bundle_id: "ai.sailry.desktop".into(),
-            })
-        } else {
-            None
-        };
-        let node =
-            runtime.block_on(Node::start_with_computer(options.data_dir, scope, computer))?;
+        let node = runtime.block_on(Node::start_with_network(options.data_dir, scope))?;
         Ok(Self {
             services: Services {
                 profile: node.profile().to_path_buf(),

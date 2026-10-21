@@ -9,6 +9,9 @@ fn configuration(server: plugin::mcp::Server) -> plugin::mcp::Configuration {
 
 fn http(url: &str) -> plugin::mcp::Configuration {
     configuration(plugin::mcp::Server::Http {
+        exclusive: false,
+        keep_images: None,
+        reuse: true,
         url: url.into(),
         headers: BTreeMap::new(),
     })
@@ -192,10 +195,16 @@ fn requires_rebinding_after_real_server_changes() {
     for configuration in [
         http("https://other.test/mcp"),
         configuration(plugin::mcp::Server::Sse {
+            exclusive: false,
+            keep_images: None,
+            reuse: true,
             url: "https://original.test/mcp".into(),
             headers: Default::default(),
         }),
         configuration(plugin::mcp::Server::Stdio {
+            exclusive: false,
+            keep_images: None,
+            reuse: true,
             command: "other".into(),
             args: vec!["serve".into()],
             env: Default::default(),
@@ -249,6 +258,9 @@ fn requires_rebinding_after_real_server_changes() {
 fn hashes_stdio_command_arguments_environment_and_directory() {
     let (_directory, db, info, _saved) = fixture();
     let original = configuration(plugin::mcp::Server::Stdio {
+        exclusive: false,
+        keep_images: None,
+        reuse: true,
         command: "server".into(),
         args: vec!["--stdio".into()],
         env: BTreeMap::from([("MODE".into(), "read".into())]),
@@ -262,6 +274,7 @@ fn hashes_stdio_command_arguments_environment_and_directory() {
             args,
             env,
             cwd,
+            ..
         } = changed.servers.get_mut("service").unwrap()
         else {
             unreachable!()

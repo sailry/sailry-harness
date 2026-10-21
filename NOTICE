@@ -113,3 +113,13 @@ Pinned archive and member checksums are in scripts/package/llama-runtime.lock.js
 The original MIT license and provenance remain in third_party_licenses/llama-LICENSE
 and third_party_licenses/llama.md. The Windows OpenMP runtime retains its license
 in third_party_licenses/llvm-OpenMP-LICENSE.
+
+Open Computer Use
+-----------------
+Computer-use helper sources are pinned to ifuryst/open-computer-use commit
+8fdda42639c94fa2ce22ea2d9d706b5919a83b42 (MIT). Sailry applies the reviewed scoped
+session cleanup and bundle identity patch in scripts/package/ocu. Source and
+patch checksums are recorded in scripts/package/ocu-helper.lock.json.
+The retained upstream notices cover its Cua Driver and yabai derived components
+and static libwebp dependency; see third_party_licenses/open-computer-use-LICENSE
+and third_party_licenses/open-computer-use-NOTICE.

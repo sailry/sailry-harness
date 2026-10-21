@@ -675,7 +675,6 @@ pub(super) fn execute(
         | Command::CompleteBrowser { .. }
         | Command::UseExternalBrowser { .. }
         | Command::UseBrowser { .. }
-        | Command::UseComputer { .. }
         | Command::UseMedia { .. }
         | Command::OpenPort { .. }
         | Command::CancelPort { .. }

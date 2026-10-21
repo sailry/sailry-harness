@@ -54,6 +54,8 @@ while IFS=$'\t' read -r task_name task_version task_manifest task_declared; do
 done < <(jq -r '.[] | [.name,.version,.manifest_path,(.license_file // "")] | @tsv' "$task_scratch/packages.json")
 cp -R "$task_root/third_party_licenses" "$task_output/source-notices"
 cp "$task_root/scripts/package/llama-runtime.lock.json" "$task_output/source-notices/llama-runtime.lock.json"
+cp "$task_root/scripts/package/ocu-helper.lock.json" "$task_output/source-notices/ocu-helper.lock.json"
+cp -R "$task_root/scripts/package/ocu" "$task_output/source-notices/ocu"
 jq '[.[] | select(.license == null)] | map({name,version,source})' \
   "$task_output/dependencies.json" > "$task_output/undeclared.json"
 printf 'Collected %s dependency declarations for %s\n' \

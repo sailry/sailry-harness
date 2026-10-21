@@ -19,6 +19,7 @@ struct Child {
     settings: Option<crate::plugins::resources::mcp::Projection>,
     _python: Option<crate::python::Ready>,
     armed: bool,
+    graceful: bool,
 }
 
 impl Drop for Child {
@@ -31,7 +32,11 @@ impl Drop for Child {
 
 impl Child {
     async fn close(&mut self) -> io::Result<()> {
-        let process = self.close_process().await;
+        let process = if self.graceful {
+            self.finish().await
+        } else {
+            self.force().await
+        };
         let settings = if let Some(file) = self.settings.take() {
             tokio::task::spawn_blocking(move || file.close())
                 .await
@@ -40,6 +45,38 @@ impl Child {
             Ok(())
         };
         process.and(settings)
+    }
+
+    async fn finish(&mut self) -> io::Result<()> {
+        // The transport has closed stdin. A zero exit acknowledges service cleanup.
+        // SAFETY: this owner retains the exact native child throughout settlement.
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            unsafe { self.inner.try_inner_child_mut() }
+                .expect("MCP owns a native process")
+                .wait(),
+        )
+        .await;
+        if let Ok(Ok(status)) = result {
+            if status.success() {
+                self.armed = false;
+                return Ok(());
+            }
+            self.force().await?;
+            return Err(io::Error::other(format!(
+                "MCP process exited with {status}"
+            )));
+        }
+        self.force().await?;
+        Err(io::Error::other(
+            "MCP process did not confirm normal cleanup",
+        ))
+    }
+
+    async fn force(&mut self) -> io::Result<()> {
+        tokio::time::timeout(Duration::from_secs(2), self.close_process())
+            .await
+            .map_err(|_| io::Error::other("MCP process reaping timed out"))?
     }
 
     async fn close_process(&mut self) -> io::Result<()> {
@@ -85,24 +122,84 @@ impl Child {
     }
 }
 
+pub(super) type Shared = Arc<tokio::sync::Mutex<Connection>>;
+
+/// A dropped ADK future cannot release an in-flight exclusive service early.
+/// Cleanup uses the connection owner independently of the interrupted turn.
+pub(super) struct Call {
+    connection: Shared,
+    closing: CancellationToken,
+    guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+    poisoned: Arc<AtomicBool>,
+}
+
+impl Call {
+    pub(super) fn new(
+        connection: Shared,
+        closing: CancellationToken,
+        guard: tokio::sync::OwnedMutexGuard<()>,
+        poisoned: Arc<AtomicBool>,
+    ) -> Self {
+        Self {
+            connection,
+            closing,
+            guard: Some(guard),
+            poisoned,
+        }
+    }
+
+    pub(super) fn confirmed(&mut self) {
+        drop(self.guard.take());
+    }
+}
+
+impl Drop for Call {
+    fn drop(&mut self) {
+        let Some(guard) = self.guard.take() else {
+            return;
+        };
+        self.poisoned.store(true, Ordering::Relaxed);
+        // Reject new calls without closing the wire needed to cancel remote tasks.
+        self.closing.cancel();
+        let connection = self.connection.clone();
+        tokio::spawn(async move {
+            let _service = guard;
+            let _ = connection.lock().await.close().await;
+        });
+    }
+}
+
 pub(super) struct Connection {
     stop: CancellationToken,
+    closing: CancellationToken,
     closed: Option<oneshot::Receiver<bool>>,
     child: Option<Child>,
+    tasks: Option<adk_tool::McpToolset<Arc<input::Handler>>>,
+    result: Option<Result<(), Fault>>,
 }
 
 impl Drop for Connection {
     fn drop(&mut self) {
+        self.closing.cancel();
         self.stop.cancel();
     }
 }
 
 impl Connection {
+    pub(super) fn stopped(&self) -> CancellationToken {
+        self.closing.clone()
+    }
+
+    pub(super) fn track_tasks(&mut self, toolset: adk_tool::McpToolset<Arc<input::Handler>>) {
+        self.tasks = Some(toolset);
+    }
+
     pub(super) async fn open(
         launch: Launch,
         connector: Option<crate::plugins::connectors::mcp::Authorization>,
         turn_stop: &CancellationToken,
         handler: Arc<input::Handler>,
+        graceful: bool,
         environment: &crate::process::Environment,
     ) -> Result<(Self, Service), Fault> {
         // Include transport setup and the SDK's discover/legacy fallback in one bound.
@@ -141,6 +238,7 @@ impl Connection {
                     settings,
                     _python: python,
                     armed: true,
+                    graceful,
                 };
                 let input = child.inner.stdin().take().expect("MCP stdin was piped");
                 let output = child.inner.stdout().take().expect("MCP stdout was piped");
@@ -256,8 +354,11 @@ impl Connection {
         let stop = CancellationToken::new();
         let mut owner = Self {
             stop: stop.clone(),
+            closing: CancellationToken::new(),
             closed: Some(completion),
             child,
+            tasks: None,
+            result: None,
         };
         let result = tokio::select! {
             biased;
@@ -282,7 +383,41 @@ impl Connection {
     }
 
     pub(super) async fn close(&mut self) -> Result<(), Fault> {
+        self.closing.cancel();
+        self.settle().await
+    }
+
+    pub(super) async fn settle(&mut self) -> Result<(), Fault> {
+        if let Some(result) = &self.result {
+            return result.clone();
+        }
+        let tasks = self.cancel_tasks().await;
+        if tasks.is_ok() && !self.closing.is_cancelled() {
+            return tasks;
+        }
+        self.closing.cancel();
+        // Failed task confirmation must still close the transport and reap its child.
         self.stop.cancel();
+        let transport = self.finish().await;
+        let result = tasks.and(transport);
+        self.result = Some(result.clone());
+        result
+    }
+
+    async fn cancel_tasks(&self) -> Result<(), Fault> {
+        let Some(toolset) = &self.tasks else {
+            return Ok(());
+        };
+        match tokio::time::timeout(Duration::from_secs(5), toolset.cancel_pending_tasks()).await {
+            Ok(Ok(())) => Ok(()),
+            _ => Err(Fault::new(
+                ErrorCode::OutcomeUnknown,
+                "MCP task termination could not be confirmed",
+            )),
+        }
+    }
+
+    async fn finish(&mut self) -> Result<(), Fault> {
         let transport = match self.closed.take() {
             Some(closed) => matches!(
                 // Leave room for the SDK's five-second HTTP session cleanup bound.
@@ -292,7 +427,7 @@ impl Connection {
             None => true,
         };
         let child = if let Some(child) = &mut self.child {
-            tokio::time::timeout(Duration::from_secs(2), child.close()).await
+            tokio::time::timeout(Duration::from_secs(10), child.close()).await
         } else {
             Ok(Ok(()))
         };

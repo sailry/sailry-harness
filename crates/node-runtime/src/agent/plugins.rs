@@ -3,7 +3,6 @@ use super::catalog::Registration as ToolRegistration;
 use super::*;
 use std::{collections::BTreeSet, sync::atomic::AtomicBool};
 mod assistants;
-mod computer;
 mod management;
 mod model_tools;
 mod operations;
@@ -90,6 +89,10 @@ pub(super) async fn bind(
                 .bind(&resources, ingress, invocation, stop, assistant)
                 .await;
             bound.tools.extend(tools);
+            if let Some(callback) = connections.screenshots() {
+                // After compaction (0) and package observers (10).
+                bound.callbacks.push((20, callback));
+            }
             diagnostics
         } else {
             String::new()
@@ -97,15 +100,6 @@ pub(super) async fn bind(
         bound
             .tools
             .extend(operations::bind(ingress, tasks, invocation, stop));
-        let native = computer::bind(ingress, invocation, stop);
-        if !native.is_empty() {
-            let names = native.iter().map(|tool| tool.tool.name().to_owned());
-            // After compaction (0) and package observers (10).
-            bound
-                .callbacks
-                .push((20, computer::screenshots(names.collect())));
-        }
-        bound.tools.extend(native);
         let scripts = scripts::bind(ingress, tasks, invocation, stop).await?;
         bound.completion = scripts.completion;
         bound.tools.extend(scripts.tools);

@@ -87,7 +87,7 @@ pub(super) fn description(operation: Operation) -> &'static str {
         Operation::GenerateImage => "Generate a PNG with the model captured by this turn",
         Operation::GenerateVideo => "Generate an MP4 with the model captured by this turn",
         Operation::ReadComputer | Operation::ControlComputer => {
-            "Use native computer resources on the execution Node"
+            "Retired computer operation metadata"
         }
         Operation::ReadBrowser | Operation::ControlBrowser => {
             "Use this session's browser on the initiating controller"
@@ -400,32 +400,10 @@ pub(super) fn command(
             });
         }
         Operation::ReadComputer | Operation::ControlComputer => {
-            #[derive(serde::Deserialize)]
-            #[serde(deny_unknown_fields)]
-            struct Input {
-                name: String,
-                arguments: Value,
-            }
-            let input: Input = serde_json::from_value(arguments).map_err(invalid)?;
-            crate::computer::execute::validate(&input.name, &input.arguments)?;
-            if crate::computer::read_only(&input.name).expect("validated computer tool")
-                != operation.read_only()
-            {
-                return Err(Fault::new(
-                    ErrorCode::PermissionDenied,
-                    "computer tool does not match the declared operation",
-                ));
-            }
-            return Ok(Command::UseComputer {
-                session: context
-                    .session
-                    .ok_or_else(|| Fault::invalid("operation requires a session"))?,
-                worktree: context
-                    .worktree
-                    .ok_or_else(|| Fault::invalid("operation requires a worktree"))?,
-                name: input.name,
-                arguments: input.arguments,
-            });
+            return Err(Fault::new(
+                ErrorCode::Unavailable,
+                "Retired computer operations cannot be executed",
+            ));
         }
         Operation::ReadBrowser | Operation::ControlBrowser => {
             #[derive(serde::Deserialize)]
@@ -917,68 +895,20 @@ mod tests {
             ErrorCode::InvalidRequest
         );
     }
-    #[test]
-    fn computer_keeps_frozen_ownership() {
-        let scope = scope();
-        let arguments = json!({"name":"list_apps","arguments":{}});
-        assert!(
-            matches!(command(Operation::ReadComputer,arguments.clone(),&scope).unwrap(),Command::UseComputer {session,worktree,..} if Some(session)==scope.session && Some(worktree)==scope.worktree)
-        );
-        assert_eq!(
-            command(Operation::ControlComputer, arguments.clone(), &scope)
-                .unwrap_err()
-                .code,
-            ErrorCode::PermissionDenied
-        );
-        for field in ["session", "worktree", "turn"] {
-            let mut replaced = arguments.clone();
-            replaced[field] = json!(TurnId::new());
-            assert_eq!(
-                command(Operation::ReadComputer, replaced, &scope)
-                    .unwrap_err()
-                    .code,
-                ErrorCode::InvalidRequest
-            );
-        }
-    }
 
     #[test]
-    fn computer_preserves_native_arguments() {
-        let scope = scope();
-        let native = json!({"nested":[{"read_only":false,"name":"unchanged"}]});
-        let Command::UseComputer {
-            name, arguments, ..
-        } = command(
-            Operation::ReadComputer,
-            json!({"name":"list_apps","arguments":native}),
-            &scope,
-        )
-        .unwrap()
-        else {
-            unreachable!()
-        };
-        assert_eq!(name, "list_apps");
-        assert_eq!(arguments, native);
-        for arguments in [
-            json!({"name":"unknown_tool","arguments":{}}),
-            json!({"name":"list_apps","arguments":[]}),
-        ] {
+    fn rejects_retired_computer_calls() {
+        for operation in [Operation::ReadComputer, Operation::ControlComputer] {
             assert_eq!(
-                command(Operation::ReadComputer, arguments, &scope)
-                    .unwrap_err()
-                    .code,
-                ErrorCode::InvalidRequest,
+                command(
+                    operation,
+                    json!({"name":"list_apps","arguments":{}}),
+                    &scope()
+                )
+                .unwrap_err()
+                .code,
+                ErrorCode::Unavailable
             );
         }
-        assert_eq!(
-            command(
-                Operation::ReadComputer,
-                json!({"name":"click","arguments":{"read_only":true}}),
-                &scope,
-            )
-            .unwrap_err()
-            .code,
-            ErrorCode::PermissionDenied,
-        );
     }
 }

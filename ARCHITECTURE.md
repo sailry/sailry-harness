@@ -645,6 +645,46 @@ keeps Plan mode and does not itself admit another turn; subsequent user input or
 an already admitted queue supplies further work.
 Delegated planning answers do not create a separate user review.
 
+### Computer use
+
+The `computer` package declares an ordinary stdio MCP server and discovers its
+native tools on the execution Node. `${SAILRY_COMPUTER_USE}` resolves only to
+Sailry's bundled, pinned Open Computer Use helper. macOS uses a separately signed
+`Sailry Computer Use.app` inside Desktop's `Contents/Helpers` or Host's `helpers`
+directory. Windows uses `helpers/open-computer-use.exe`, including its PowerShell
+bridge. Both require a logged-in graphical session; Linux computer use is not
+integrated. Desktop and Host remain usable when the helper is missing. The macOS
+helper requires macOS 14, independently of the controller's minimum OS version.
+
+MCP server options belong to the frozen v1 configuration. `exclusive` serializes
+non-read-only calls by installed package name and server across sessions, after
+ordinary approval. Unconfirmed calls retain that lock through pending-task
+cancellation and connection cleanup. `keep_images` reduces only that server's
+model-request image projection in batches of five; canonical tool results,
+attachments and sent-turn captures remain unchanged. `reuse: false` closes that
+server at turn settlement
+instead of pooling it. Settlement confirms pending-task cancellation before
+closing the wire. Stdio closure sends EOF and waits up to five seconds
+for a successful child exit, then kills and reaps when needed. Failed or uncertain
+cleanup returns `OutcomeUnknown`; input is never replayed automatically.
+
+Each macOS helper socket connection owns its temporary window state, element
+indexes and cursor. Overlapping owners preserve the first original window state
+until its final owner releases it. Diagnostic connections do not acquire or clear
+another session's state. EOF requires a private session-cleanup acknowledgement;
+the app agent can remain alive between sessions. Process shutdown is the only
+all-owner restoration path, and failed live restoration remains retryable.
+
+The existing permission SDK reads the same captured helper, namespace and config
+as MCP using bounded `doctor --json` diagnostics. Explicit local requests open
+its overall permission onboarding and read both grants again. Windows reports its
+execution platform without macOS TCC controls. Historical successful computer
+command receipts are normalized through the central snapshot, private-backup and
+transactional validation path into retained records containing the complete old
+payload. Original request identities and fingerprints, approvals, canonical
+history, immutable package resources and enable choices are preserved; retired
+native computer commands are not executable.
+
 ### Pairing and reconnect
 
 The pairing service exchanges a six-digit, 60-second code for an opaque invitation

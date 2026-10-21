@@ -12,8 +12,6 @@ mod assets;
 mod backend;
 mod browser;
 mod command_picker;
-#[cfg(target_os = "macos")]
-use sailry_node_runtime::computer_worker;
 mod content;
 mod conversation;
 mod dictation;

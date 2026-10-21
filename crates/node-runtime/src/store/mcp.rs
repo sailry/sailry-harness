@@ -2,9 +2,22 @@
 use super::database::storage_error;
 use super::*;
 use crate::plugins::authorization::Target;
-use sailry_protocol::{Secret,EventEnvelope};
+use sailry_protocol::{EventEnvelope, Secret};
 
 pub(super) enum Operation {
+    ComputerPermissions {
+        caller: sailry_protocol::NodeId,
+        request: Box<Request>,
+        reply: oneshot::Sender<
+            Result<
+                (
+                    sailry_protocol::plugin::Info,
+                    crate::plugins::settings::Resolved,
+                ),
+                Fault,
+            >,
+        >,
+    },
     Resolve {
         context: sailry_protocol::plugin::Context,
         server: String,
@@ -40,6 +53,29 @@ pub(super) fn execute(
     events: &broadcast::Sender<EventEnvelope>,
 ) {
     match operation {
+        Operation::ComputerPermissions {
+            caller,
+            request,
+            reply,
+        } => {
+            let result = (|| {
+                database.check_plugin(caller, &request)?;
+                let info = database.plugin_package(caller, &request)?;
+                if request
+                    .plugin
+                    .as_ref()
+                    .is_none_or(|context| context.package != info.summary.reference())
+                {
+                    return Err(Fault::new(
+                        ErrorCode::RevisionConflict,
+                        "computer permission package changed",
+                    ));
+                }
+                let settings = plugins::settings::resolve(&database.connection, &info)?;
+                Ok((info, settings))
+            })();
+            let _ = reply.send(result);
+        }
         Operation::Resolve {
             context,
             server,
@@ -95,6 +131,28 @@ pub(super) fn execute(
 }
 
 impl Ingress {
+    pub(crate) async fn computer_inputs(
+        &self,
+        caller: sailry_protocol::NodeId,
+        request: Request,
+    ) -> Result<
+        (
+            sailry_protocol::plugin::Info,
+            crate::plugins::settings::Resolved,
+        ),
+        Fault,
+    > {
+        let (reply, response) = oneshot::channel();
+        self.sender
+            .try_send(Job::McpCredentials(Operation::ComputerPermissions {
+                caller,
+                request: Box::new(request),
+                reply,
+            }))
+            .map_err(|_| unavailable())?;
+        response.await.map_err(|_| unavailable())?
+    }
+
     pub(crate) async fn mcp_connectors(
         &self,
         context: sailry_protocol::plugin::Context,

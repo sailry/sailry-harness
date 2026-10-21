@@ -30,6 +30,32 @@ dmg = load("dmg", "dmg.py")
 
 
 class CodeSigning(unittest.TestCase):
+    def test_signs_nested_helpers_before_outer_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / "Sailry.app"
+            binary = app / "Contents/MacOS/sailry-desktop"
+            helper = app / "Contents/Helpers/Sailry Computer Use.app"
+            native = helper / "Contents/MacOS/OpenComputerUse"
+            for path in (binary, native):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"\xcf\xfa\xed\xfe" + b"fixture")
+            with patch.object(signing.python_runtime, "unlock"), \
+                    patch.object(signing.python_runtime, "signing_options", return_value=[]), \
+                    patch.object(signing.python_runtime, "finalize"), \
+                    patch.object(signing.runtime, "finalize"), \
+                    patch.object(signing.llama_runtime, "finalize"), \
+                    patch.object(signing, "run") as run, patch.object(signing, "verify") as verify:
+                signing.sign(app, None, "aarch64-apple-darwin", "Fixture identity", "FIXTURE")
+            targets = [call.args[-1] for call in run.call_args_list]
+            self.assertLess(targets.index(native), targets.index(helper))
+            self.assertLess(targets.index(helper), targets.index(app))
+            native_call = next(call for call in run.call_args_list if call.args[-1] == native)
+            self.assertIn("--preserve-metadata=entitlements", native_call.args)
+            helper_call = next(call for call in run.call_args_list if call.args[-1] == helper)
+            self.assertNotIn("--entitlements", helper_call.args)
+            self.assertIn("--preserve-metadata=entitlements", helper_call.args)
+            verify.assert_any_call(helper, "FIXTURE", deep=True)
+
     def test_selects_one_package_without_its_counterpart(self):
         for desktop in (True, False):
             with self.subTest(desktop=desktop), tempfile.TemporaryDirectory() as directory:
@@ -277,6 +303,19 @@ class CodeSigning(unittest.TestCase):
 
 
 class Notarization(unittest.TestCase):
+    def test_staples_host_helpers_after_acceptance(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            host = Path(temporary) / "host"
+            helper = host / "helpers/Sailry Computer Use.app"
+            helper.mkdir(parents=True)
+            with patch.object(notary, "run") as run, patch.object(notary, "submit") as submit:
+                notary.notarize(None, host, ["--key", "fixture.p8"])
+            submit.assert_called_once()
+            self.assertEqual(submit.call_args.args[0].name, "host.zip")
+            targets = [call.args[-1] for call in run.call_args_list]
+            self.assertEqual(targets.count(helper), 4)
+            self.assertIn(("xcrun", "stapler", "validate", helper), [call.args for call in run.call_args_list])
+
     def test_submits_only_the_selected_package(self):
         for desktop in (True, False):
             with self.subTest(desktop=desktop), patch.object(notary, "run") as run, \

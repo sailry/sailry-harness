@@ -70,9 +70,12 @@ async fn cancels_tasks_before_transport_closure() {
                 State::Cancelled | State::Interrupted
             ));
             let cancelled = peer.tasks.cancelled.load(Ordering::SeqCst);
-            // Dropping the call and confirming cleanup can each send one cancellation.
-            assert!((1..=2).contains(&cancelled));
             let trace = peer.tasks.trace();
+            // Dropping the call and confirming cleanup can each send one cancellation.
+            assert!(
+                (1..=2).contains(&cancelled),
+                "remote={remote}, ignore_cancel={ignore_cancel}, cancelled={cancelled}, trace={trace:?}"
+            );
             assert_eq!(trace.len(), 1);
             let requests = &trace["task-1"];
             assert_eq!(

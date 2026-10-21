@@ -69,15 +69,6 @@ pub(super) fn prepare(database: &Database, request: &Request) -> Result<(), Faul
             }
             (*session, *worktree)
         }
-        Command::UseComputer {
-            session,
-            worktree,
-            name,
-            arguments,
-        } => {
-            crate::computer::execute::validate(name, arguments)?;
-            (*session, *worktree)
-        }
         _ => unreachable!("scoped resource command expected"),
     };
     let session = super::commands::session(&database.connection, session)?;
@@ -192,15 +183,6 @@ impl Worker {
                     }
                     Command::UseMedia { .. } => {
                         crate::agent::media::run(
-                            &ingress,
-                            execution.caller,
-                            &execution.request,
-                            stop,
-                        )
-                        .await
-                    }
-                    Command::UseComputer { .. } => {
-                        crate::computer::execute::run(
                             &ingress,
                             execution.caller,
                             &execution.request,

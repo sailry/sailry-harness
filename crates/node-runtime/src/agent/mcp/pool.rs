@@ -1,8 +1,13 @@
 use super::*;
 use sailry_protocol::SessionId;
-use std::{collections::BTreeMap, sync::Mutex, time::Instant};
+use std::{
+    collections::BTreeMap,
+    sync::{Mutex, Weak},
+    time::Instant,
+};
 
 const MAX_IDLE: usize = 8;
+type Services = BTreeMap<(String, String), Weak<tokio::sync::Mutex<()>>>;
 
 struct Idle {
     since: Instant,
@@ -13,9 +18,22 @@ struct Idle {
 #[derive(Default)]
 pub(crate) struct Pool {
     idle: Mutex<BTreeMap<SessionId, Idle>>,
+    services: Mutex<Services>,
 }
 
 impl Pool {
+    pub(super) fn service(&self, package: &str, server: &str) -> Arc<tokio::sync::Mutex<()>> {
+        let mut services = self.services.lock().unwrap();
+        services.retain(|_, lock| lock.strong_count() > 0);
+        let key = (package.to_owned(), server.to_owned());
+        if let Some(lock) = services.get(&key).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        services.insert(key, Arc::downgrade(&lock));
+        lock
+    }
+
     pub(in crate::agent) fn take(&self, session: SessionId) -> Connections {
         self.idle
             .lock()

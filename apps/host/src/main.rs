@@ -1,13 +1,11 @@
-mod bootstrap;
-mod lifecycle;
-#[cfg(target_os = "macos")]
-use sailry_node_runtime::computer_worker;
 #[cfg(unix)]
 mod acp;
+mod bootstrap;
 #[cfg(unix)]
 mod control;
 #[cfg(all(test, unix))]
 mod history_fixture;
+mod lifecycle;
 #[cfg(all(test, unix))]
 #[path = "../../../crates/node-runtime/tests/agent_support/mod.rs"]
 #[allow(dead_code)]
@@ -18,10 +16,6 @@ mod pairing;
 use sailry_node_runtime::Node;
 
 fn main() -> std::process::ExitCode {
-    #[cfg(target_os = "macos")]
-    if computer_worker::run_if_requested() {
-        return std::process::ExitCode::SUCCESS;
-    }
     let result = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -85,16 +79,7 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     #[cfg(unix)]
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-    let computer = if cfg!(target_os = "macos") {
-        Some(sailry_node_runtime::ComputerWorker {
-            executable: std::env::current_exe()?,
-            bundle_id: "ai.sailry.host".into(),
-        })
-    } else {
-        None
-    };
-    let node =
-        Node::start_with_computer(&options.data_dir, options.network.clone(), computer).await?;
+    let node = Node::start_with_network(&options.data_dir, options.network.clone()).await?;
     let stopped = async move {
         #[cfg(unix)]
         tokio::select! {

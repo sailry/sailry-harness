@@ -33,6 +33,7 @@ pub(crate) fn validate_server(server: &Server) -> Result<(), Fault> {
             args,
             env,
             cwd,
+            ..
         } => {
             let relative = command.strip_prefix("./");
             if command.is_empty()
@@ -60,7 +61,9 @@ pub(crate) fn validate_server(server: &Server) -> Result<(), Fault> {
             // Paths are checked against retained package/data roots before launch.
             Ok(())
         }
-        Server::Http { url, headers } | Server::Sse { url, headers } => validate_http(url, headers),
+        Server::Http { url, headers, .. } | Server::Sse { url, headers, .. } => {
+            validate_http(url, headers)
+        }
     }
 }
 

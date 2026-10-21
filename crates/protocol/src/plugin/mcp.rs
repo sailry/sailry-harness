@@ -35,18 +35,36 @@ pub enum Server {
         env: BTreeMap<String, String>,
         #[serde(default = "default_cwd")]
         cwd: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        exclusive: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        keep_images: Option<usize>,
+        #[serde(default = "default_reuse", skip_serializing_if = "is_true")]
+        reuse: bool,
     },
     #[serde(rename = "streamable-http")]
     Http {
         url: String,
         #[serde(default)]
         headers: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        exclusive: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        keep_images: Option<usize>,
+        #[serde(default = "default_reuse", skip_serializing_if = "is_true")]
+        reuse: bool,
     },
     #[serde(rename = "sse")]
     Sse {
         url: String,
         #[serde(default)]
         headers: BTreeMap<String, String>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        exclusive: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        keep_images: Option<usize>,
+        #[serde(default = "default_reuse", skip_serializing_if = "is_true")]
+        reuse: bool,
     },
 }
 
@@ -54,7 +72,62 @@ fn default_cwd() -> String {
     "${PLUGIN_ROOT}".into()
 }
 
+fn is_false(value: &bool) -> bool {
+    !value
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+fn default_reuse() -> bool {
+    true
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Options {
+    pub exclusive: bool,
+    pub keep_images: Option<usize>,
+    pub reuse: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            exclusive: false,
+            keep_images: None,
+            reuse: true,
+        }
+    }
+}
+
 impl Server {
+    pub fn options(&self) -> Options {
+        let (Self::Stdio {
+            exclusive,
+            keep_images,
+            reuse,
+            ..
+        }
+        | Self::Http {
+            exclusive,
+            keep_images,
+            reuse,
+            ..
+        }
+        | Self::Sse {
+            exclusive,
+            keep_images,
+            reuse,
+            ..
+        }) = self;
+        Options {
+            exclusive: *exclusive,
+            keep_images: *keep_images,
+            reuse: *reuse,
+        }
+    }
+
     pub fn transport(&self) -> super::McpTransport {
         match self {
             Self::Stdio { .. } => super::McpTransport::Stdio,
@@ -116,6 +189,40 @@ impl Definition {
             Self::Stdio { .. } => super::McpTransport::Stdio,
             Self::StreamableHttp { .. } => super::McpTransport::StreamableHttp,
             Self::Sse { .. } => super::McpTransport::Sse,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn preserves_optional_policies() {
+        for mut value in [
+            json!({"type":"stdio","command":"${SAILRY_COMPUTER_USE}"}),
+            json!({"type":"streamable-http","url":"https://example.test/mcp"}),
+            json!({"type":"sse","url":"https://example.test/events"}),
+        ] {
+            let server: Server = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(server.options(), Options::default());
+            value["exclusive"] = true.into();
+            value["keep_images"] = 3.into();
+            value["reuse"] = false.into();
+            let server: Server = serde_json::from_value(value.clone()).unwrap();
+            assert_eq!(
+                server.options(),
+                Options {
+                    exclusive: true,
+                    keep_images: Some(3),
+                    reuse: false
+                }
+            );
+            let encoded = serde_json::to_value(&server).unwrap();
+            assert_eq!(serde_json::from_value::<Server>(encoded).unwrap(), server);
+            value["keep_images"] = (-1).into();
+            assert!(serde_json::from_value::<Server>(value).is_err());
         }
     }
 }

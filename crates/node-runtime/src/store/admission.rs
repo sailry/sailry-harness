@@ -6,7 +6,6 @@ use std::sync::{Arc, atomic::Ordering};
 use tokio::sync::{mpsc, oneshot};
 
 pub(super) fn release_removed(
-    computer: Arc<crate::computer::Desktop>,
     commands: Arc<crate::process::background::Commands>,
     profile: Option<std::path::PathBuf>,
     backup_resources: Arc<tokio::sync::RwLock<()>>,
@@ -37,7 +36,6 @@ pub(super) fn release_removed(
                             }
                         };
                         for session in sessions {
-                            computer.finish(*session).await;
                             commands.close_session(*session).await;
                         }
                         if let Some(profile) = &profile
@@ -455,25 +453,61 @@ impl Ingress {
                     ));
                 }
                 let output = match request.command {
-                    sailry_protocol::Command::ReadComputerPermissions => {
+                    sailry_protocol::Command::ReadComputerPermissions
+                    | sailry_protocol::Command::RequestComputerPermission { .. } => {
                         let node = self.node;
-                        sailry_protocol::Output::ComputerPermissions(
-                            tokio::task::spawn_blocking(move || {
-                                crate::computer::permissions::read(node, caller)
-                            })
-                            .await
-                            .map_err(|_| unavailable())?,
-                        )
-                    }
-                    sailry_protocol::Command::RequestComputerPermission { permission } => {
-                        let node = self.node;
-                        sailry_protocol::Output::ComputerPermissions(
-                            tokio::task::spawn_blocking(move || {
-                                crate::computer::permissions::request(node, caller, permission)
-                            })
-                            .await
-                            .map_err(|_| unavailable())??,
-                        )
+                        let permission = match &request.command {
+                            sailry_protocol::Command::RequestComputerPermission { permission } => {
+                                Some(*permission)
+                            }
+                            _ => None,
+                        };
+                        if permission.is_some() && node != caller {
+                            return Err(Fault::new(
+                                ErrorCode::PermissionDenied,
+                                "system permissions must be granted on the execution device",
+                            ));
+                        }
+                        #[cfg(target_os = "macos")]
+                        let launch = {
+                            if request.plugin.is_none() {
+                                return Err(crate::computer::permissions::unconfigured());
+                            }
+                            let (info, settings) =
+                                self.computer_inputs(caller, request.clone()).await?;
+                            let host = self.plugins.clone();
+                            let stop = self.closed.clone();
+                            Some(
+                                tokio::task::spawn_blocking(move || {
+                                    host.computer_launch(&info, &settings, stop)
+                                })
+                                .await
+                                .map_err(|_| unavailable())??,
+                            )
+                        };
+                        #[cfg(not(target_os = "macos"))]
+                        let launch = None;
+                        let permissions = if let Some(permission) = permission {
+                            crate::computer::permissions::request(
+                                node,
+                                caller,
+                                permission,
+                                launch,
+                                &self.environment,
+                                &self.closed,
+                            )
+                            .await?
+                        } else {
+                            crate::computer::permissions::read(
+                                node,
+                                caller,
+                                launch,
+                                &self.environment,
+                                &self.closed,
+                            )
+                            .await?
+                        };
+                        sailry_protocol::Output::ComputerPermissions(permissions)
                     }
                     sailry_protocol::Command::InspectHost => {
                         sailry_protocol::Output::HostInfo(self.host.inspect(self.node).await?)

@@ -1,0 +1,831 @@
+diff --git a/apps/OpenComputerUse/Sources/OpenComputerUse/MCPAppRuntime.swift b/apps/OpenComputerUse/Sources/OpenComputerUse/MCPAppRuntime.swift
+index f7b28bc..66bc7c6 100644
+--- a/apps/OpenComputerUse/Sources/OpenComputerUse/MCPAppRuntime.swift
++++ b/apps/OpenComputerUse/Sources/OpenComputerUse/MCPAppRuntime.swift
+@@ -5,7 +5,6 @@ import OpenComputerUseKit
+ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
+     private let server: StdioMCPServer
+     private var runtimeError: Error?
+-    private var turnEndedObserver: NSObjectProtocol?
+ 
+     private init(server: StdioMCPServer) {
+         self.server = server
+@@ -26,24 +25,12 @@ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
+     }
+ 
+     func applicationDidFinishLaunching(_ notification: Notification) {
+-        turnEndedObserver = DistributedNotificationCenter.default().addObserver(
+-            forName: openComputerUseTurnEndedNotificationName,
+-            object: nil,
+-            queue: .main
+-        ) { _ in
+-            Task { @MainActor in
+-                resetOpenComputerUseBackgroundWindowState()
+-                resetOpenComputerUseVisualCursor()
+-            }
+-        }
+         Thread.detachNewThreadSelector(#selector(processStandardIO), toTarget: self, with: nil)
+     }
+ 
+     func applicationWillTerminate(_ notification: Notification) {
+         resetOpenComputerUseBackgroundWindowState()
+-        if let turnEndedObserver {
+-            DistributedNotificationCenter.default().removeObserver(turnEndedObserver)
+-        }
++
+     }
+ 
+     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+diff --git a/apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift b/apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift
+index 6e6060b..7abe7a7 100644
+--- a/apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift
++++ b/apps/OpenComputerUse/Sources/OpenComputerUse/MacOSAppAgentProxy.swift
+@@ -112,20 +112,23 @@ enum MacOSAppAgentProxy {
+     }
+ 
+     private static func proxyMCP(client: AppAgentSocketClient) throws {
+-        while let line = readLine(strippingNewline: true) {
+-            guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+-                continue
+-            }
+-
+-            let response = try client.request([
+-                "kind": "mcp",
+-                "line": line,
+-                "environment": proxiedEnvironment(),
+-            ])
+-
+-            if let responseLine = response["response"] as? String {
+-                FileHandle.standardOutput.write(Data((responseLine + "\n").utf8))
++        do {
++            while let line = readLine(strippingNewline: true) {
++                guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
++                let response = try client.request([
++                    "kind": "mcp", "line": line, "environment": proxiedEnvironment(),
++                ])
++                if let responseLine = response["response"] as? String {
++                    FileHandle.standardOutput.write(Data((responseLine + "\n").utf8))
++                }
+             }
++        } catch {
++            _ = try? client.request(["kind": "endSession"])
++            throw error
++        }
++        let response = try client.request(["kind": "endSession"])
++        guard response["ok"] as? Bool == true else {
++            throw ComputerUseError.message("Session cleanup could not be confirmed")
+         }
+     }
+ 
+@@ -164,7 +167,6 @@ private struct CLIProxyResponse {
+ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
+     private let socketPath: String
+     private var listener: AppAgentSocketListener?
+-    private var turnEndedObserver: NSObjectProtocol?
+ 
+     private init(socketPath: String) {
+         self.socketPath = socketPath
+@@ -180,16 +182,6 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
+     }
+ 
+     func applicationDidFinishLaunching(_ notification: Notification) {
+-        turnEndedObserver = DistributedNotificationCenter.default().addObserver(
+-            forName: openComputerUseTurnEndedNotificationName,
+-            object: nil,
+-            queue: .main
+-        ) { _ in
+-            Task { @MainActor in
+-                resetOpenComputerUseBackgroundWindowState()
+-                resetOpenComputerUseVisualCursor()
+-            }
+-        }
+ 
+         do {
+             let listener = try AppAgentSocketListener(path: socketPath)
+@@ -203,9 +195,6 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
+ 
+     func applicationWillTerminate(_ notification: Notification) {
+         resetOpenComputerUseBackgroundWindowState()
+-        if let turnEndedObserver {
+-            DistributedNotificationCenter.default().removeObserver(turnEndedObserver)
+-        }
+         listener?.stop()
+     }
+ 
+@@ -314,7 +303,7 @@ private final class AppAgentConnection: @unchecked Sendable {
+             return
+         }
+         defer {
+-            server.endSession()
++            _ = AppAgentEnvironment.withOverrides([:]) { server.endSession() }
+             fclose(file)
+         }
+ 
+@@ -345,6 +334,8 @@ private final class AppAgentConnection: @unchecked Sendable {
+                     NSApp.terminate(nil)
+                 }
+                 return ["ok": true]
++            case "endSession":
++                return ["ok": AppAgentEnvironment.withOverrides([:]) { server.endSession() }]
+             case "mcp":
+                 let line = request["line"] as? String ?? ""
+                 let environment = request["environment"] as? [String: String] ?? [:]
+diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift
+index ae2213c..1b197ac 100644
+--- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift
++++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift
+@@ -282,6 +282,7 @@ enum SnapshotBuilder {
+         // Pin the window's visible state (WindowServer occlusion notifications
+         // off) so covering it or moving it to another Space later does not hide
+         // its content. Only possible while it is currently unoccluded.
++        AgentDisplay.shared.retain(windowID: windowCapture.windowID)
+         let pinned = WindowOcclusionKeepAlive.shared.keepVisible(windowID: windowCapture.windowID, bounds: windowBounds)
+ 
+         // Engines that accept AXManualAccessibility build their web tree lazily
+diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AgentDisplay.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AgentDisplay.swift
+index a5a5517..e74c42d 100644
+--- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AgentDisplay.swift
++++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AgentDisplay.swift
+@@ -66,7 +66,7 @@ final class AgentDisplay: @unchecked Sendable {
+     private var handle: UnsafeMutableRawPointer?
+     private(set) var displayID: CGDirectDisplayID = 0
+     private(set) var displaySpaceIDs: Set<UInt64> = []
+-    private var parked: [CGWindowID: ParkedWindow] = [:]
++    private var parked: [CGWindowID: OwnedState<ParkedWindow>] = [:]
+     private var exitHookInstalled = false
+ 
+     var isSupported: Bool {
+@@ -86,7 +86,14 @@ final class AgentDisplay: @unchecked Sendable {
+     func parkedWindowIDs(pid: pid_t) -> [CGWindowID] {
+         lock.lock()
+         defer { lock.unlock() }
+-        return parked.filter { $0.value.pid == pid }.map(\.key)
++        return parked.filter { $0.value.original.pid == pid }.map(\.key)
++    }
++
++    func retain(windowID: CGWindowID) {
++        guard let owner = SessionOwnership.current else { return }
++        lock.lock()
++        defer { lock.unlock() }
++        parked[windowID]?.acquire(owner)
+     }
+ 
+     /// Move `window` onto the agent display. Returns the display bounds.
+@@ -95,8 +102,12 @@ final class AgentDisplay: @unchecked Sendable {
+         lock.lock()
+         defer { lock.unlock() }
+ 
++        guard let owner = SessionOwnership.current else {
++            throw ComputerUseError.message("Window placement requires a tool session")
++        }
+         let bounds = try ensureDisplay()
+         if parked[windowID] != nil {
++            parked[windowID]?.acquire(owner)
+             return bounds
+         }
+ 
+@@ -107,7 +118,7 @@ final class AgentDisplay: @unchecked Sendable {
+         let target = agentDisplayPlacement(windowSize: size, displayBounds: bounds)
+         let start = TimingLog.now()
+         try setAXPosition(window, target)
+-        parked[windowID] = ParkedWindow(pid: pid, element: window, originalPosition: position)
++        parked[windowID] = OwnedState(ParkedWindow(pid: pid, element: window, originalPosition: position), owner: owner)
+         installExitHookIfNeeded()
+         waitForWindow(windowID, toLandOn: displaySpaceIDs, or: bounds)
+         TimingLog.log("agent_display.park", since: start)
+@@ -150,12 +161,20 @@ final class AgentDisplay: @unchecked Sendable {
+     }
+ 
+     /// Put a parked window back where it was.
+-    func restore(windowID: CGWindowID) throws {
++    func restore(windowID: CGWindowID, owner: UUID? = SessionOwnership.current, force: Bool = false, reportShared: Bool = true) throws {
+         lock.lock()
+         defer { lock.unlock() }
+-        guard let entry = parked[windowID] else {
+-            return
++        guard var state = parked[windowID] else { return }
++        if !force {
++            guard let owner, state.owners.contains(owner) else { return }
++            if state.owners.count > 1 {
++                _ = state.release(owner) { _ in }
++                parked[windowID] = state
++                if reportShared { throw ComputerUseError.message("Window is still in use by another session") }
++                return
++            }
+         }
++        let entry = state.original
+         let start = TimingLog.now()
+         do {
+             try setAXPosition(entry.element, entry.originalPosition)
+@@ -197,7 +216,7 @@ final class AgentDisplay: @unchecked Sendable {
+         let windowIDs = Array(parked.keys)
+         lock.unlock()
+         for windowID in windowIDs {
+-            try? restore(windowID: windowID)
++            try? restore(windowID: windowID, force: true)
+         }
+     }
+ 
+@@ -206,6 +225,9 @@ final class AgentDisplay: @unchecked Sendable {
+     /// attempting the remaining windows.
+     func restoreAll(pid: pid_t) throws {
+         let windowIDs = parkedWindowIDs(pid: pid)
++        guard let owner = SessionOwnership.current else {
++            throw ComputerUseError.message("Window restoration requires a tool session")
++        }
+         var firstError: Error?
+         for windowID in windowIDs {
+             do {
+@@ -219,6 +241,18 @@ final class AgentDisplay: @unchecked Sendable {
+         }
+     }
+ 
++    func release(owner: UUID) throws {
++        lock.lock()
++        let windowIDs = parked.filter { $0.value.owners.contains(owner) }.map(\.key)
++        lock.unlock()
++        var firstError: Error?
++        for windowID in windowIDs {
++            do { try restore(windowID: windowID, owner: owner, reportShared: false) }
++            catch { firstError = firstError ?? error }
++        }
++        if let firstError { throw firstError }
++    }
++
+     // MARK: - Display lifecycle (call with lock held)
+ 
+     private func ensureDisplay() throws -> CGRect {
+diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift
+index f6aca66..cde4018 100644
+--- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift
++++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift
+@@ -504,6 +504,11 @@ public final class ComputerUseService {
+ 
+     public func clearQueryIndexes() { targetedElements.clear() }
+ 
++    func clearSession() {
++        targetedElements.clear()
++        snapshotsByApp.removeAll()
++    }
++
+     public init() {}
+ 
+     /// An action's result reads the window back, so the app gets a beat to redraw
+@@ -976,6 +981,10 @@ public final class ComputerUseService {
+         }
+         let app = try AppDiscovery.resolveRunning(query)
+         let context = try SnapshotBuilder.resolveTargetWindow(for: app, windowID: windowID)
++        if let windowID = context.windowID {
++            AgentDisplay.shared.retain(windowID: windowID)
++            WindowOcclusionKeepAlive.shared.retain(windowID: windowID)
++        }
+         let criteria = TargetedAX.Criteria(text: text, exact: exact, role: role,
+                                           limit: min(100, max(1, limit)), maxNodes: min(5000, max(1, maxNodes)))
+         let result = try SnapshotBuilder.targetedSearch(criteria, in: context)
+@@ -1944,8 +1953,9 @@ public final class ComputerUseService {
+             return
+         }
+ 
++        let owner = SessionOwnership.current
+         VisualCursorSupport.performOnMain {
+-            SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window)
++            SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window, owner: owner)
+         }
+     }
+ 
+@@ -1954,8 +1964,9 @@ public final class ComputerUseService {
+             return
+         }
+ 
++        let owner = SessionOwnership.current
+         VisualCursorSupport.performOnMain {
+-            SoftwareCursorOverlay.settle(at: target.point, in: target.window)
++            SoftwareCursorOverlay.settle(at: target.point, in: target.window, owner: owner)
+         }
+     }
+ 
+@@ -1964,12 +1975,14 @@ public final class ComputerUseService {
+             return
+         }
+ 
++        let owner = SessionOwnership.current
+         VisualCursorSupport.performOnMain {
+             SoftwareCursorOverlay.pulseClick(
+                 at: target.point,
+                 clickCount: clickCount,
+                 mouseButton: mouseButton,
+-                in: target.window
++                in: target.window,
++                owner: owner
+             )
+         }
+     }
+diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift
+index e592e41..9b2ac18 100644
+--- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift
++++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/MCPServer.swift
+@@ -14,17 +14,19 @@ Computer Use tools allow you to use the user's apps in the background, so while
+ After each action, use the action result or fetch the latest state to verify the UI changed as expected.
+ Prefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Note that element indices are the sequential integers from the app state's accessibility tree.
+ Avoid falling back to AppleScript during a computer use session. Prefer Computer Use tools as much as possible to complete tasks.
+-Ask the user before taking destructive or externally visible actions such as sending, deleting, or purchasing. If helpful, you can ask follow-up questions before taking action to make sure you’re understanding the user’s request correctly.
++Follow the user's existing authorization and the host's ordinary approvals. Ask only when an action has not been authorized.
+ """
+ 
+ public final class StdioMCPServer {
+     private let service: ComputerUseService
+     private let dispatcher: ComputerUseToolDispatcher
+-    private let backgroundStateReset: () -> Void
++    private let backgroundStateReset: (() -> Void)?
++    private let owner = UUID()
++    private var ended = false
+ 
+     public init(
+         service: ComputerUseService = ComputerUseService(),
+-        backgroundStateReset: @escaping () -> Void = resetOpenComputerUseBackgroundWindowState
++        backgroundStateReset: (() -> Void)? = nil
+     ) {
+         self.service = service
+         self.dispatcher = ComputerUseToolDispatcher(service: service)
+@@ -32,7 +34,7 @@ public final class StdioMCPServer {
+     }
+ 
+     public func run() throws {
+-        defer { endSession() }
++        defer { _ = endSession() }
+         while let line = readLine(strippingNewline: true) {
+             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                 continue
+@@ -42,9 +44,14 @@ public final class StdioMCPServer {
+                 FileHandle.standardOutput.write((response + "\n").data(using: .utf8)!)
+             }
+         }
++        guard endSession() else { throw ComputerUseError.message("Session cleanup could not be confirmed") }
+     }
+ 
+     public func handle(line: String) -> String? {
++        SessionOwnership.withOwner(owner) { handleRequest(line: line) }
++    }
++
++    private func handleRequest(line: String) -> String? {
+         do {
+             guard let payload = try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else {
+                 return try encodeJSONRPCError(id: nil, code: -32700, message: "Invalid JSON-RPC payload")
+@@ -87,6 +94,7 @@ public final class StdioMCPServer {
+                     ]
+                 )
+             case "tools/call":
++                guard !ended else { throw ComputerUseError.message("Tool session has ended; start a new session") }
+                 let name = params["name"] as? String ?? ""
+                 let arguments = params["arguments"] as? [String: Any] ?? [:]
+                 let result = try dispatcher.callTool(name: name, arguments: arguments)
+@@ -128,12 +136,22 @@ public final class StdioMCPServer {
+     /// Release state that is scoped to one MCP client session. App-hosted MCP
+     /// connections call this explicitly because they use `handle(line:)`
+     /// instead of the stdio `run()` loop.
+-    public func endSession() {
+-        service.clearQueryIndexes()
+-        VisualCursorSupport.performOnMain {
+-            SoftwareCursorOverlay.reset()
++    @discardableResult
++    public func endSession() -> Bool {
++        let owner = self.owner
++        return SessionOwnership.withOwner(owner) {
++            if ended { return true }
++            service.clearSession()
++            VisualCursorSupport.performOnMain { SoftwareCursorOverlay.release(owner: owner) }
++            var success = true
++            do { try WindowOcclusionKeepAlive.shared.release(owner: owner) } catch { success = false }
++            do { try AgentDisplay.shared.release(owner: owner) } catch { success = false }
++            if success {
++                backgroundStateReset?()
++                ended = true
++            }
++            return success
+         }
+-        backgroundStateReset()
+     }
+ 
+     private func encodeJSONRPCResult(id: Any?, result: [String: Any]) throws -> String {
+diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/Permissions.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/Permissions.swift
+index 298bb9d..87c1087 100644
+--- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/Permissions.swift
++++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/Permissions.swift
+@@ -121,10 +121,10 @@ public struct PermissionDiagnostics: Sendable {
+ }
+ 
+ public enum PermissionSupport {
+-    public static let bundleDisplayName = "Open Computer Use"
+-    public static let bundleIdentifier = "com.ifuryst.opencomputeruse"
+-    public static let developmentBundleDisplayName = "Open Computer Use (Dev)"
+-    public static let developmentBundleIdentifier = "com.ifuryst.opencomputeruse.dev"
++    public static let bundleDisplayName = "Sailry Computer Use"
++    public static let bundleIdentifier = "dev.sailry.computer"
++    public static let developmentBundleDisplayName = "Sailry Computer Use (Dev)"
++    public static let developmentBundleIdentifier = "dev.sailry.computer.dev"
+     private static let releaseAppBundleName = "\(bundleDisplayName).app"
+     private static let developmentAppBundleName = "\(developmentBundleDisplayName).app"
+     private static let appVariantInfoKey = "OpenComputerUseAppVariant"
+diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SessionOwnership.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SessionOwnership.swift
+new file mode 100644
+index 0000000..6661cb3
+--- /dev/null
++++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SessionOwnership.swift
+@@ -0,0 +1,67 @@
++import Foundation
++
++/// All tool requests and releases use the same serialized boundary. The value
++/// remains visible to synchronous main-thread cursor work during a request.
++enum SessionOwnership {
++    private static let lock = NSRecursiveLock()
++    nonisolated(unsafe) static var current: UUID?
++
++    static func withOwner<T>(_ owner: UUID?, _ body: () throws -> T) rethrows -> T {
++        lock.lock()
++        let previous = current
++        current = owner
++        defer {
++            current = previous
++            lock.unlock()
++        }
++        return try body()
++    }
++}
++
++/// The first acquisition captures the original state; overlapping sessions
++/// share that capture until its final owner has restored it successfully.
++struct OwnedState<Value> {
++    let original: Value
++    private(set) var owners: Set<UUID>
++
++    init(_ original: Value, owner: UUID) {
++        self.original = original
++        owners = [owner]
++    }
++
++    mutating func acquire(_ owner: UUID) {
++        owners.insert(owner)
++    }
++
++    mutating func release(_ owner: UUID, restore: (Value) throws -> Void) rethrows -> Bool {
++        guard owners.contains(owner) else { return false }
++        if owners.count > 1 {
++            owners.remove(owner)
++            return false
++        }
++        try restore(original)
++        owners.remove(owner)
++        return true
++    }
++}
++
++struct CursorOwnership {
++    private(set) var owner: UUID?
++    private(set) var revision: UInt64 = 0
++
++    mutating func acquire(_ owner: UUID) {
++        self.owner = owner
++        revision &+= 1
++    }
++
++    mutating func release(_ owner: UUID) -> Bool {
++        guard self.owner == owner else { return false }
++        clear()
++        return true
++    }
++
++    mutating func clear() {
++        owner = nil
++        revision &+= 1
++    }
++}
+diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift
+index 2dfe3ad..9500218 100644
+--- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift
++++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/SoftwareCursorOverlay.swift
+@@ -197,12 +197,15 @@ enum SoftwareCursorOverlay {
+     private static var hideTimer: Timer?
+     private static var idlePhase: CGFloat = 0
+     private static var observationPhase = "hidden"
++    private static var ownership = CursorOwnership()
+ 
+-    static func moveCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
++    static func moveCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?, owner: UUID? = nil) {
+         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+             return
+         }
+ 
++        guard let owner else { return }
++        ownership.acquire(owner)
+         prepareWindowIfNeeded()
+         stopIdleAnimation()
+         cancelPendingHide()
+@@ -234,11 +237,13 @@ enum SoftwareCursorOverlay {
+         }
+     }
+ 
+-    static func pulseClick(at targetPoint: CGPoint, clickCount: Int, mouseButton: MouseButtonKind, in targetWindow: CursorTargetWindow?) {
++    static func pulseClick(at targetPoint: CGPoint, clickCount: Int, mouseButton: MouseButtonKind, in targetWindow: CursorTargetWindow?, owner: UUID? = nil) {
+         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+             return
+         }
+ 
++        guard let owner else { return }
++        ownership.acquire(owner)
+         configureOrdering(relativeTo: targetWindow)
+         let constrainedTarget = clampTipPosition(targetPoint)
+         let now = CACurrentMediaTime()
+@@ -250,11 +255,13 @@ enum SoftwareCursorOverlay {
+         scheduleHide(after: visualCursorPostInteractionIdleTimeout())
+     }
+ 
+-    static func settle(at targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
++    static func settle(at targetPoint: CGPoint, in targetWindow: CursorTargetWindow?, owner: UUID? = nil) {
+         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
+             return
+         }
+ 
++        guard let owner else { return }
++        ownership.acquire(owner)
+         configureOrdering(relativeTo: targetWindow)
+         let constrainedTarget = clampTipPosition(targetPoint)
+         restingTipPosition = constrainedTarget
+@@ -270,7 +277,13 @@ enum SoftwareCursorOverlay {
+         scheduleHide(after: visualCursorPostInteractionIdleTimeout())
+     }
+ 
++    static func release(owner: UUID) {
++        guard ownership.release(owner) else { return }
++        reset()
++    }
++
+     static func reset() {
++        ownership.clear()
+         stopIdleAnimation()
+         cancelPendingHide()
+         displayedTipPosition = nil
+@@ -637,8 +650,10 @@ enum SoftwareCursorOverlay {
+ 
+     private static func scheduleHide(after delay: TimeInterval) {
+         cancelPendingHide()
++        let scheduledRevision = ownership.revision
+         let timer = Timer(timeInterval: delay, repeats: false) { _ in
+             MainActor.assumeIsolated {
++                guard ownership.revision == scheduledRevision else { return }
+                 hideOverlay()
+             }
+         }
+@@ -652,29 +667,8 @@ enum SoftwareCursorOverlay {
+     }
+ 
+     private static func hideOverlay() {
+-        guard let panel else {
+-            return
+-        }
+-
+-        stopIdleAnimation()
+-        cancelPendingHide()
+-
+-        NSAnimationContext.runAnimationGroup { context in
+-            context.duration = 0.12
+-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+-            panel.animator().alphaValue = 0
+-        } completionHandler: {
+-            MainActor.assumeIsolated {
+-                panel.orderOut(nil)
+-                panel.alphaValue = 1
+-                displayedTipPosition = nil
+-                restingTipPosition = nil
+-                activeTargetWindow = nil
+-                visualDynamicsState = nil
+-                observationPhase = "hidden"
+-                writeObservationSnapshot(tipPosition: nil, rotation: nil)
+-            }
+-        }
++        // A delayed animation completion must never hide a newer owner's cursor.
++        reset()
+     }
+ 
+     private static func defaultInitialTipPosition() -> CGPoint {
+diff --git a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/WindowOcclusionKeepAlive.swift b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/WindowOcclusionKeepAlive.swift
+index 83df3c9..da28272 100644
+--- a/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/WindowOcclusionKeepAlive.swift
++++ b/packages/OpenComputerUseKit/Sources/OpenComputerUseKit/WindowOcclusionKeepAlive.swift
+@@ -59,7 +59,7 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
+     private let lock = NSLock()
+     /// Preserve the state reported by the SPI so cleanup does not enable
+     /// notifications that another owner had already disabled.
+-    private var frozenWindowPreviousStates: [CGWindowID: Bool] = [:]
++    private var frozenWindowPreviousStates: [CGWindowID: OwnedState<Bool>] = [:]
+     private var exitHookInstalled = false
+ 
+     /// Returns `true` when the window's visible state is pinned (now or already).
+@@ -69,7 +69,7 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
+         bounds: CGRect,
+         spi: any WindowOcclusionControlling = SkyLightSPI.shared
+     ) -> Bool {
+-        guard spi.occlusionCapability.isAvailable else {
++        guard let owner = SessionOwnership.current, spi.occlusionCapability.isAvailable else {
+             return false
+         }
+ 
+@@ -79,6 +79,7 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
+         }
+ 
+         if frozenWindowPreviousStates[windowID] != nil {
++            frozenWindowPreviousStates[windowID]?.acquire(owner)
+             return true
+         }
+         guard windowLooksUnoccluded(bounds: bounds, coveringBounds: coveringWindowBounds(above: windowID)) else {
+@@ -86,7 +87,7 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
+         }
+         do {
+             let previousState = try spi.setWindowOcclusionNotificationsEnabled(false, windowID: windowID)
+-            frozenWindowPreviousStates[windowID] = previousState
++            frozenWindowPreviousStates[windowID] = OwnedState(previousState, owner: owner)
+         } catch {
+             return false
+         }
+@@ -102,12 +103,34 @@ final class WindowOcclusionKeepAlive: @unchecked Sendable {
+         return frozenWindowPreviousStates[windowID] != nil
+     }
+ 
++    func retain(windowID: CGWindowID) {
++        guard let owner = SessionOwnership.current else { return }
++        lock.lock()
++        defer { lock.unlock() }
++        frozenWindowPreviousStates[windowID]?.acquire(owner)
++    }
++
++    func release(owner: UUID, spi: any WindowOcclusionControlling = SkyLightSPI.shared) throws {
++        lock.lock()
++        defer { lock.unlock() }
++        var firstError: Error?
++        for windowID in Array(frozenWindowPreviousStates.keys) {
++            do {
++                let restored = try frozenWindowPreviousStates[windowID]?.release(owner) { previous in
++                    try spi.setWindowOcclusionNotificationsEnabled(previous, windowID: windowID)
++                }
++                if restored == true { frozenWindowPreviousStates.removeValue(forKey: windowID) }
++            } catch { firstError = firstError ?? error }
++        }
++        if let firstError { throw firstError }
++    }
++
+     func releaseAll(spi: any WindowOcclusionControlling = SkyLightSPI.shared) {
+         lock.lock()
+         defer { lock.unlock() }
+-        for (windowID, previousState) in Array(frozenWindowPreviousStates) {
++        for (windowID, state) in Array(frozenWindowPreviousStates) {
+             do {
+-                try spi.setWindowOcclusionNotificationsEnabled(previousState, windowID: windowID)
++                try spi.setWindowOcclusionNotificationsEnabled(state.original, windowID: windowID)
+                 frozenWindowPreviousStates.removeValue(forKey: windowID)
+             } catch {
+                 // Retain failed entries so a later cleanup can retry.
+diff --git a/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift b/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift
+index 60cdfb7..7f2d35a 100644
+--- a/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift
++++ b/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift
+@@ -1915,8 +1915,10 @@ final class OpenComputerUseKitTests: XCTestCase {
+         let keepAlive = WindowOcclusionKeepAlive()
+         let spi = FakeOcclusionSPI()
+         let visibleBounds = CGRect(x: 10, y: 10, width: 100, height: 100)
+-        XCTAssertTrue(keepAlive.keepVisible(windowID: 101, bounds: visibleBounds, spi: spi))
+-        XCTAssertTrue(keepAlive.keepVisible(windowID: 102, bounds: visibleBounds, spi: spi))
++        SessionOwnership.withOwner(UUID()) {
++            XCTAssertTrue(keepAlive.keepVisible(windowID: 101, bounds: visibleBounds, spi: spi))
++            XCTAssertTrue(keepAlive.keepVisible(windowID: 102, bounds: visibleBounds, spi: spi))
++        }
+         XCTAssertEqual(spi.states[101], false)
+         XCTAssertEqual(spi.states[102], false)
+ 
+diff --git a/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionOwnershipTests.swift b/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionOwnershipTests.swift
+new file mode 100644
+index 0000000..48e6c5d
+--- /dev/null
++++ b/packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/SessionOwnershipTests.swift
+@@ -0,0 +1,78 @@
++import XCTest
++@testable import OpenComputerUseKit
++
++final class SessionOwnershipTests: XCTestCase {
++    func testSharedWindowPreservesFirstState() throws {
++        let first = UUID(), second = UUID()
++        var window = OwnedState("original position", owner: first)
++        window.acquire(second)
++        window.acquire(first)
++        var restored: [String] = []
++        XCTAssertFalse(window.release(first) { restored.append($0) })
++        XCTAssertTrue(restored.isEmpty)
++        XCTAssertEqual(window.owners, [second])
++        XCTAssertTrue(window.release(second) { restored.append($0) })
++        XCTAssertEqual(restored, ["original position"])
++        XCTAssertFalse(window.release(second) { restored.append($0) })
++        XCTAssertEqual(restored.count, 1)
++    }
++
++    func testSeparateWindowsStayIndependent() {
++        let first = UUID(), second = UUID()
++        var windows = [1: OwnedState("first", owner: first), 2: OwnedState("second", owner: second)]
++        var restored: [String] = []
++        for key in windows.keys {
++            _ = windows[key]?.release(first) { restored.append($0) }
++        }
++        XCTAssertEqual(restored, ["first"])
++        XCTAssertEqual(windows[2]?.owners, [second])
++        XCTAssertFalse(windows[2]!.release(UUID()) { restored.append($0) })
++        XCTAssertEqual(restored, ["first"])
++    }
++
++    func testFailedRestorationCanRetry() {
++        enum Failure: Error { case unavailable }
++        let owner = UUID()
++        var window = OwnedState("original", owner: owner)
++        XCTAssertThrowsError(try window.release(owner) { _ in throw Failure.unavailable })
++        XCTAssertEqual(window.owners, [owner])
++        var restored = ""
++        XCTAssertTrue(window.release(owner) { restored = $0 })
++        XCTAssertEqual(restored, "original")
++        XCTAssertTrue(window.owners.isEmpty)
++    }
++
++    func testCursorCannotReleaseAnotherOwner() {
++        let first = UUID(), second = UUID()
++        var cursor = CursorOwnership()
++        cursor.acquire(first)
++        let oldRevision = cursor.revision
++        cursor.acquire(second)
++        XCTAssertFalse(cursor.release(first))
++        XCTAssertEqual(cursor.owner, second)
++        XCTAssertNotEqual(cursor.revision, oldRevision)
++        XCTAssertTrue(cursor.release(second))
++        XCTAssertNil(cursor.owner)
++        XCTAssertFalse(cursor.release(second))
++    }
++
++    func testDiagnosticsCannotAcquireToolOwnership() {
++        let owner = UUID()
++        SessionOwnership.withOwner(owner) {
++            XCTAssertEqual(SessionOwnership.current, owner)
++            SessionOwnership.withOwner(nil) { XCTAssertNil(SessionOwnership.current) }
++            XCTAssertEqual(SessionOwnership.current, owner)
++        }
++        XCTAssertNil(SessionOwnership.current)
++    }
++
++    func testSessionEndIsIdempotent() {
++        var resets = 0
++        let server = StdioMCPServer(backgroundStateReset: { resets += 1 })
++        XCTAssertTrue(server.endSession())
++        XCTAssertTrue(server.endSession())
++        XCTAssertEqual(resets, 1)
++        let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_apps","arguments":{}}}"#)
++        XCTAssertTrue(response?.contains("Tool session has ended") == true)
++    }
++}
+diff --git a/scripts/build-open-computer-use-app.sh b/scripts/build-open-computer-use-app.sh
+index d596b51..04d9cbb 100755
+--- a/scripts/build-open-computer-use-app.sh
++++ b/scripts/build-open-computer-use-app.sh
+@@ -235,22 +235,22 @@ cd "${repo_root}"
+ 
+ package_version="$(read_package_version)"
+ bundle_version="${OPEN_COMPUTER_USE_BUNDLE_VERSION:-$(git -C "${repo_root}" rev-list --count HEAD 2>/dev/null || echo 1)}"
+-release_app_bundle_name="Open Computer Use.app"
+-development_app_bundle_name="Open Computer Use (Dev).app"
++release_app_bundle_name="Sailry Computer Use.app"
++development_app_bundle_name="Sailry Computer Use.app"
+ legacy_app_bundle_name="OpenComputerUse.app"
+ bundle_icon_name="OpenComputerUse.icns"
+ icon_master_png="${repo_root}/assets/app-icons/open-computer-use-1024.png"
+ iconset_build_script="${repo_root}/scripts/build-apple-iconset.sh"
+ cursor_reference_source="${repo_root}/docs/references/codex-computer-use-reverse-engineering/assets/extracted-2026-04-19/official-software-cursor-window-252.png"
+ 
+-bundle_display_name="Open Computer Use"
+-bundle_identifier="com.ifuryst.opencomputeruse"
++bundle_display_name="Sailry Computer Use"
++bundle_identifier="dev.sailry.computer"
+ app_variant="release"
+ app_bundle_name="${release_app_bundle_name}"
+ 
+ if [[ "${configuration}" != "release" ]]; then
+-  bundle_display_name="Open Computer Use (Dev)"
+-  bundle_identifier="com.ifuryst.opencomputeruse.dev"
++  bundle_display_name="Sailry Computer Use (Dev)"
++  bundle_identifier="dev.sailry.computer.dev"
+   app_variant="dev"
+   app_bundle_name="${development_app_bundle_name}"
+ fi
+@@ -265,9 +265,9 @@ resources_dir="${contents_dir}/Resources"
+ 
+ rm -rf "${app_root}" "${legacy_app_root}"
+ if [[ "${app_variant}" == "release" ]]; then
+-  rm -rf "${development_app_root}"
++  :
+ else
+-  rm -rf "${release_app_root}"
++  :
+ fi
+ mkdir -p "${macos_dir}" "${resources_dir}"
+ 

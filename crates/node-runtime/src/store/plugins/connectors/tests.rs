@@ -353,6 +353,9 @@ fn rejects_upgrade_without_writing() {
         servers: BTreeMap::from([(
             "notion".into(),
             plugin::mcp::Server::Http {
+                exclusive: false,
+                keep_images: None,
+                reuse: true,
                 url: "https://outside.example.com/mcp".into(),
                 headers: BTreeMap::new(),
             },
@@ -397,6 +400,9 @@ fn suspends_changed_mcp_paths_and_queries() {
             servers: BTreeMap::from([(
                 "notion".into(),
                 plugin::mcp::Server::Http {
+                    exclusive: false,
+                    keep_images: None,
+                    reuse: true,
                     url: url.into(),
                     headers: BTreeMap::new(),
                 },
