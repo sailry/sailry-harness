@@ -9,7 +9,6 @@ pub(super) struct Entry {
     callback: Option<oneshot::Sender<Secret>>,
     stop: CancellationToken,
     record: Record,
-    previous: Option<Record>,
     context: Option<sailry_protocol::plugin::Context>,
     finished: bool,
 }
@@ -159,13 +158,14 @@ impl Worker {
                         record.secrets.clear();
                         record.grant = None;
                     }
+                    connections::login::begin(&mut record, request.id, previous);
                     let info =
                         connections::declaration(&database.connection, package, connector)?.0;
                     let settings =
                         crate::store::plugins::settings::resolve(&database.connection, &info)?;
-                    Ok((record, declaration, info, settings, previous))
+                    Ok((record, declaration, info, settings))
                 })();
-                let (record, declaration, info, settings, previous) = match prepared {
+                let (record, declaration, info, settings) = match prepared {
                     Ok(prepared) => prepared,
                     Err(error) => {
                         return database.finish_external(caller, request, Err(error), events);
@@ -203,7 +203,6 @@ impl Worker {
                         callback: Some(callback),
                         stop: stop.clone(),
                         record: record.clone(),
-                        previous,
                         context: request.plugin.clone(),
                         finished: false,
                     },
@@ -302,7 +301,6 @@ impl Worker {
                     return database.finish_external(caller, request, Ok(output), events);
                 }
                 let baseline = entry.record.clone();
-                let previous = entry.previous.clone();
                 let result = database.finish_external_with(
                     caller,
                     request,
@@ -314,7 +312,7 @@ impl Worker {
                             Err(error) if error.code == ErrorCode::NotFound => return Ok(None),
                             Err(error) => return Err(error),
                         };
-                        if !restore(&mut record, &baseline, previous.as_ref()) {
+                        if !connections::login::restore(&mut record, *attempt) {
                             return Ok(None);
                         }
                         connections::save(db, &record)?;
@@ -503,14 +501,7 @@ impl Worker {
                 entry.finished = true;
                 entry.callback.take();
                 self.pending -= 1;
-                let result = commit(
-                    database,
-                    &entry.record,
-                    entry.previous.as_ref(),
-                    result,
-                    true,
-                    events,
-                );
+                let result = commit(database, &entry.record, result, true, events);
                 entry.set(match result {
                     Ok(connection) => LoginState::Connected(connection),
                     Err(error) if error.code == ErrorCode::Cancelled => LoginState::Cancelled,
@@ -525,8 +516,8 @@ impl Worker {
                 result,
             } => {
                 self.pending -= 1;
-                let result = commit(database, &baseline, None, result, false, events)
-                    .map(Output::Connection);
+                let result =
+                    commit(database, &baseline, result, false, events).map(Output::Connection);
                 let _ = reply.send(database.finish_external(caller, &request, result, events));
             }
         }
@@ -576,7 +567,6 @@ impl Subscription for Updates {
 fn commit(
     database: &mut Database,
     baseline: &Record,
-    previous: Option<&Record>,
     result: Result<Box<crate::plugins::connectors::Target>, Fault>,
     replace: bool,
     events: &broadcast::Sender<EventEnvelope>,
@@ -586,82 +576,120 @@ fn commit(
     }
     let transaction = database.connection.transaction().map_err(storage_error)?;
     let mut record = connections::read(&transaction, baseline.id)?;
-    if record.revision != baseline.revision {
-        return Err(Fault::new(
-            ErrorCode::RevisionConflict,
-            "connection changed",
-        ));
-    }
-    let info = connections::info(&transaction, &record.plugin)?;
-    let (_, declaration) =
-        connections::declaration(&transaction, &info.summary.reference(), &record.connector)?;
-    let current = connections::bound(
-        &transaction,
-        database.profile.as_deref(),
-        &info,
-        &declaration,
-        record.method,
-    )?;
-    if !connections::consent::same(&record.plugin, record.bound.as_ref(), current.as_ref()) {
-        return Err(Fault::new(
-            ErrorCode::RevisionConflict,
-            "connector authorization changed",
-        ));
-    }
+    let checked = (|| {
+        if record.revision != baseline.revision
+            || record.auth_revision != baseline.auth_revision
+            || replace
+                && (record.grant_revision != baseline.grant_revision
+                    || record.state != connector::State::Connecting
+                    || record.login.as_ref().map(|login| login.attempt)
+                        != baseline.login.as_ref().map(|login| login.attempt))
+        {
+            return Err(Fault::new(
+                ErrorCode::RevisionConflict,
+                "connection changed",
+            ));
+        }
+        let info = connections::info(&transaction, &record.plugin)?;
+        let (_, declaration) =
+            connections::declaration(&transaction, &info.summary.reference(), &record.connector)?;
+        let current = connections::bound(
+            &transaction,
+            database.profile.as_deref(),
+            &info,
+            &declaration,
+            record.method,
+        )?;
+        if !connections::consent::same(&record.plugin, record.bound.as_ref(), current.as_ref()) {
+            return Err(Fault::new(
+                ErrorCode::RevisionConflict,
+                "connector authorization changed",
+            ));
+        }
+        Ok(info)
+    })();
+    let info = match checked {
+        Ok(info) => info,
+        Err(error) => {
+            if replace
+                && let Some(login) = &baseline.login
+                && connections::login::restore(&mut record, login.attempt)
+            {
+                connections::save(&transaction, &record)?;
+                let changed = super::super::plugins::get(&transaction, &record.plugin)?
+                    .map(|info| Event::PluginChanged(info.summary))
+                    .into_iter()
+                    .collect();
+                let envelopes =
+                    super::super::database::record(&transaction, database.node, changed)?;
+                transaction.commit().map_err(storage_error)?;
+                for envelope in envelopes {
+                    let _ = events.send(envelope);
+                }
+            }
+            return Err(error);
+        }
+    };
     let cancelled = result
         .as_ref()
         .is_err_and(|error| error.code == ErrorCode::Cancelled);
-    let outcome = match result {
-        Ok(target) => {
-            let target = *target;
-            record.identity = target.identity;
-            if replace {
-                if baseline.revision > 1 {
-                    record.auth_revision = record.revision;
+    let outcome =
+        match result {
+            Ok(target) => {
+                let target = *target;
+                record.identity = target.identity;
+                if replace {
+                    if baseline.revision > 1 {
+                        record.auth_revision = record.revision;
+                    }
+                    record.fields = target.fields;
+                    record.secrets = target.secrets;
+                    record.grant_revision = record
+                        .grant_revision
+                        .checked_add(1)
+                        .filter(|revision| *revision <= i64::MAX as u64)
+                        .ok_or_else(missing)?;
+                    record.grant = target.grant.map(|grant| Grant {
+                        access: grant.access,
+                        refresh: grant.refresh,
+                        expires_at_ms: grant.expires_at_ms,
+                        extra: grant.extra,
+                    });
                 }
-                record.fields = target.fields;
-                record.secrets = target.secrets;
-                record.grant_revision = record
-                    .grant_revision
-                    .checked_add(1)
-                    .filter(|revision| *revision <= i64::MAX as u64)
-                    .ok_or_else(missing)?;
-                record.grant = target.grant.map(|grant| Grant {
-                    access: grant.access,
-                    refresh: grant.refresh,
-                    expires_at_ms: grant.expires_at_ms,
-                    extra: grant.extra,
-                });
+                record.state = connector::State::Connected;
+                Ok(())
             }
-            record.state = connector::State::Connected;
-            Ok(())
-        }
-        Err(error) => {
-            if cancelled {
-                if !restore(&mut record, baseline, previous) {
-                    return Err(error);
+            Err(error) => {
+                if cancelled {
+                    if baseline.login.as_ref().is_none_or(|login| {
+                        !connections::login::restore(&mut record, login.attempt)
+                    }) {
+                        return Err(error);
+                    }
+                } else {
+                    record.state =
+                        if matches!(error.code, ErrorCode::PermissionDenied | ErrorCode::Expired) {
+                            record.grant = None;
+                            record.grant_revision = record
+                                .grant_revision
+                                .checked_add(1)
+                                .filter(|revision| *revision <= i64::MAX as u64)
+                                .ok_or_else(missing)?;
+                            connector::State::Expired
+                        } else if record.method == connector::Kind::LocalCli {
+                            connector::State::NotConnected
+                        } else {
+                            connector::State::Failed
+                        };
                 }
-            } else {
-                record.state =
-                    if matches!(error.code, ErrorCode::PermissionDenied | ErrorCode::Expired) {
-                        record.grant = None;
-                        record.grant_revision = record
-                            .grant_revision
-                            .checked_add(1)
-                            .filter(|revision| *revision <= i64::MAX as u64)
-                            .ok_or_else(missing)?;
-                        connector::State::Expired
-                    } else if record.method == connector::Kind::LocalCli {
-                        connector::State::NotConnected
-                    } else {
-                        connector::State::Failed
-                    };
+                Err(error)
             }
-            Err(error)
-        }
-    };
+        };
     if !cancelled {
         record.checked_at_ms = Some(crate::plugins::connectors::now());
+        if replace {
+            record.login = None;
+        }
     }
     connections::save(&transaction, &record)?;
     let projected = connections::project(&transaction, database.profile.as_deref(), &record)?;
@@ -677,26 +705,6 @@ fn commit(
     outcome.map(|_| projected)
 }
 
-fn restore(record: &mut Record, baseline: &Record, previous: Option<&Record>) -> bool {
-    if record.revision != baseline.revision
-        || record.auth_revision != baseline.auth_revision
-        || record.grant_revision != baseline.grant_revision
-        || record.state != connector::State::Connecting
-    {
-        return false;
-    }
-    if let Some(previous) = previous {
-        let (revision, auth_revision, grant_revision) =
-            (record.revision, record.auth_revision, record.grant_revision);
-        *record = previous.clone();
-        record.revision = revision;
-        record.auth_revision = auth_revision;
-        record.grant_revision = grant_revision;
-    } else {
-        record.state = connector::State::NotConnected;
-    }
-    true
-}
 fn missing() -> Fault {
     Fault::new(
         ErrorCode::NotFound,

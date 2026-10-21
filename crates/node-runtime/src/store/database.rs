@@ -221,6 +221,8 @@ impl Database {
             )?;
         }
         schema.plugins(&transaction)?;
+        super::plugins::connectors::login::recover(&transaction)
+            .map_err(|error| Error::Worker(error.message))?;
         // An admission with no committed result is uncertain. Never replay it automatically.
         transaction.execute(
             "UPDATE requests SET status='unknown' WHERE status='admitted'",

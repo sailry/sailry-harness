@@ -11,6 +11,14 @@ static HOOKS: LazyLock<Vec<u8>> = LazyLock::new(|| {
     serde_json::to_vec(&Settings::default()).expect("default hook settings encode")
 });
 
+pub(super) fn needed(db: &Connection) -> Result<bool, Error> {
+    Ok(db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM plugin_connections WHERE json_type(body,'$.login') IS NULL)",
+        [],
+        |row| row.get(0),
+    )?)
+}
+
 pub(super) fn column(table: &str, name: &str) -> Option<&'static [u8]> {
     match (table, name) {
         ("turns", "instructions") => Some(b"[]"),
@@ -33,7 +41,11 @@ pub(super) fn matches(table: &str, name: &str, value: &[u8]) -> bool {
 }
 
 pub(super) fn retained(kind: &str, name: &str) -> bool {
-    kind == "table" && matches!(name, "session_delegations" | "ocr_settings" | "knowledge_settings" | "knowledge_models")
+    kind == "table"
+        && matches!(
+            name,
+            "session_delegations" | "ocr_settings" | "knowledge_settings" | "knowledge_models"
+        )
 }
 
 pub(super) fn reconcile(db: &Connection, retain_instructions: bool) -> Result<bool, Error> {

@@ -74,6 +74,7 @@ pub(super) fn prepare(
     identity(connection, path, node)?;
     if verify(connection, path, DDL).is_ok()
         && super::validation::startup(connection).is_ok()
+        && !upgrades::needed(connection)?
         && crate::store::plugins::storage::search::validate(connection).is_ok()
         && !plugins
             .map(|host| {

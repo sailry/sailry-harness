@@ -1,6 +1,7 @@
 use super::*;
 use crate::store::database::Database;
 
+mod connections;
 mod indexes;
 mod local_models;
 

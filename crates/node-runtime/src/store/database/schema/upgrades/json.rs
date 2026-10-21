@@ -92,14 +92,18 @@ fn connection(value: &mut Value) -> bool {
     let Some(object) = value.as_object_mut() else {
         return false;
     };
-    if object.contains_key("auth_revision") {
-        return false;
+    let mut changed = false;
+    if !object.contains_key("auth_revision")
+        && let Some(revision) = object.get("revision").cloned()
+    {
+        object.insert("auth_revision".into(), revision);
+        changed = true;
     }
-    let Some(revision) = object.get("revision").cloned() else {
-        return false;
-    };
-    object.insert("auth_revision".into(), revision);
-    true
+    if !object.contains_key("login") {
+        object.insert("login".into(), Value::Null);
+        changed = true;
+    }
+    changed
 }
 
 fn code(value: &mut Value) -> bool {

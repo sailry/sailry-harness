@@ -61,6 +61,7 @@ pub(in crate::store::plugins) fn migrate(
             bound: bound(db, profile, info, &declaration, method)?,
             state: State::NotConnected,
             checked_at_ms: None,
+            login: None,
         };
         for field in &declaration.fields {
             if field.secret {

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 pub(in crate::store) mod consent;
 mod editing;
+pub(in crate::store) mod login;
 mod migration;
 pub(super) use migration::migrate;
 pub(in crate::store) use migration::needed as needs_migration;
@@ -38,6 +39,8 @@ pub(in crate::store) struct Record {
     pub bound: Option<Bound>,
     pub state: State,
     pub checked_at_ms: Option<u64>,
+    #[serde(default)]
+    pub login: Option<login::Pending>,
 }
 fn initial_revision() -> u64 {
     1
@@ -244,6 +247,7 @@ pub(in crate::store) fn validate(record: &Record) -> Result<(), Fault> {
         || record.grant_revision > i64::MAX as u64
         || record.fields.len() > 8
         || record.secrets.len() > 8
+        || !login::valid(record)
         || (record.method == Kind::LocalCli
             && (record.grant.is_some() || !record.secrets.is_empty()))
     {
@@ -417,6 +421,7 @@ pub(in crate::store) fn create(
             bound: None,
             state: State::NotConnected,
             checked_at_ms: None,
+            login: None,
         }
     };
     let previous = record.clone();
@@ -457,6 +462,10 @@ fn revoke(record: &mut Record) -> Result<(), Fault> {
                 "connection authorization revision exhausted",
             )
         })?;
+    record.login = None;
+    if record.state == State::Connecting {
+        record.state = State::NotConnected;
+    }
     Ok(())
 }
 
