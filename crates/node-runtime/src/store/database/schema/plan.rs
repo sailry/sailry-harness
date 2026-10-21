@@ -17,7 +17,7 @@ impl Plan {
         let reference = Connection::open_in_memory()?;
         reference.execute_batch(DDL)?;
         let expected = objects(&reference)?;
-        let actual = objects(connection)?;
+        let mut actual = objects(connection)?;
         let instructions = actual
             .get(&("table".into(), "turns".into()))
             .map(|sql| Table::parse(sql).map(|table| !table.columns.contains_key("instructions")))
@@ -32,6 +32,23 @@ impl Plan {
                 statements.push(wanted.clone());
                 continue;
             };
+            if name == "turn_connections"
+                && normalize(stored) != normalize(wanted)
+                && normalize(stored)
+                    == normalize(&wanted.replace(
+                        "PRIMARY KEY(turn,connection)",
+                        "PRIMARY KEY(turn,plugin,connector)",
+                    ))
+            {
+                statements.extend([
+                    "ALTER TABLE turn_connections RENAME TO turn_connections_previous".into(),
+                    wanted.clone(),
+                    "INSERT INTO turn_connections(turn,plugin,connector,connection,revision) SELECT turn,plugin,connector,connection,revision FROM turn_connections_previous".into(),
+                    "DROP TABLE turn_connections_previous".into(),
+                ]);
+                actual.remove(&("index".into(), "turn_connections_owner".into()));
+                continue;
+            }
             let wanted = Table::parse(wanted)?;
             let stored = Table::parse(stored)?;
             if wanted.header != stored.header

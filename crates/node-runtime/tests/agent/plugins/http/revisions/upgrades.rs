@@ -1,7 +1,7 @@
 use super::*;
 use std::path::{Path, PathBuf};
 
-fn backups(profile: &Path) -> Vec<PathBuf> {
+pub(super) fn backups(profile: &Path) -> Vec<PathBuf> {
     let directory = profile.join("storage/backups");
     if !directory.exists() {
         return Vec::new();
@@ -16,7 +16,10 @@ fn backups(profile: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn capture(database: &rusqlite::Connection, turn: TurnId) -> (String, String, String, i64) {
+pub(super) fn capture(
+    database: &rusqlite::Connection,
+    turn: TurnId,
+) -> (String, String, String, i64) {
     database
         .query_row(
             "SELECT plugin,connector,connection,revision FROM turn_connections WHERE turn=?1",

@@ -1,5 +1,7 @@
 use super::*;
 use sailry_protocol::plugin::connector::{Connection, Input, Kind, LoginState, State};
+#[path = "revisions/accounts.rs"]
+mod accounts;
 #[path = "revisions/upgrades.rs"]
 mod upgrades;
 

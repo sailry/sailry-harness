@@ -152,8 +152,9 @@ CREATE TABLE turn_connections (
     connector TEXT NOT NULL,
     connection TEXT NOT NULL,
     revision INTEGER NOT NULL CHECK(revision>0),
-    PRIMARY KEY(turn,plugin,connector)
+    PRIMARY KEY(turn,connection)
 );
+CREATE INDEX turn_connections_owner ON turn_connections(turn,plugin,connector);
 CREATE TABLE plugin_values (
     name TEXT NOT NULL,
     key TEXT NOT NULL,
