@@ -26,16 +26,39 @@ impl Fixture {
         Self::setup(remote, server, Some(packages)).await
     }
 
+    #[cfg(feature = "test-support")]
+    pub(super) async fn environment(
+        remote: bool,
+        server: &Server,
+        environment: sailry_node_runtime::EnvironmentFixture,
+    ) -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let node = Node::start_empty_with_environment(directory.path().join("node"), environment)
+            .await
+            .unwrap();
+        Self::connect(remote, server, Some(&[]), directory, node).await
+    }
+
     async fn setup(remote: bool, server: &Server, packages: Option<&[&str]>) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("project");
-        std::fs::create_dir(&root).unwrap();
         let node = if packages.is_some() {
             Node::start_empty(directory.path().join("node")).await
         } else {
             Node::start(directory.path().join("node")).await
         }
         .unwrap();
+        Self::connect(remote, server, packages, directory, node).await
+    }
+
+    async fn connect(
+        remote: bool,
+        server: &Server,
+        packages: Option<&[&str]>,
+        directory: tempfile::TempDir,
+        node: Node,
+    ) -> Self {
+        let root = directory.path().join("project");
+        std::fs::create_dir(&root).unwrap();
         let controller =
             Link::controller(directory.path().join("controller"), NetworkScope::default())
                 .await

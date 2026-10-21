@@ -383,6 +383,56 @@ async fn distinguishes_an_undelivered_refresh() {
     assert!(!error.message.contains(&endpoint));
 }
 
+#[tokio::test]
+async fn classifies_token_rejections() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    for renewal in [false, true] {
+        for (status, body, rejected) in [
+            (401, "unauthorized", true),
+            (400, r#"{"error":"invalid_grant"}"#, true),
+            (400, r#"{"error":"temporarily_unavailable"}"#, false),
+            (403, r#"{"error":"temporarily_unavailable"}"#, false),
+            (503, r#"{"error":"temporarily_unavailable"}"#, false),
+            (503, r#"{"error":"invalid_grant"}"#, false),
+            (302, r#"{"error":"redirect"}"#, false),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut bytes = Vec::new();
+                while !bytes.ends_with(b"\r\n\r\n") {
+                    stream.read_buf(&mut bytes).await.unwrap();
+                }
+                stream.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nLocation: /next\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            });
+            let endpoint = model_auth::Endpoint {
+                cache_ttl_ms: None,
+                url: "https://issuer.example.com/token".into(),
+                method: model_auth::Method::Post,
+                headers: BTreeMap::new(),
+                query: BTreeMap::new(),
+                body: None,
+            };
+            let service = super::super::Service::fixture(&origin);
+            let stop = CancellationToken::new();
+            let error = if renewal {
+                refresh_request(&service, &endpoint, &BTreeMap::new(), &stop).await
+            } else {
+                request(&service, &endpoint, &BTreeMap::new(), &stop).await
+            }
+            .unwrap_err();
+            assert_eq!(
+                error.code == ErrorCode::PermissionDenied,
+                rejected,
+                "{renewal}: {status}"
+            );
+            server.await.unwrap();
+        }
+    }
+}
+
 #[test]
 fn maps_public_account_labels() {
     let mut mapping = mapping();

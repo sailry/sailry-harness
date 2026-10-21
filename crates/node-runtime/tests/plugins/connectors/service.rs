@@ -8,6 +8,9 @@ use plugin::{
 };
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+#[cfg(unix)]
+#[path = "service/cli.rs"]
+mod cli;
 
 const ORIGIN: &str = "https://service.example.com";
 const TOKEN: &str = "connector-private-service-token";

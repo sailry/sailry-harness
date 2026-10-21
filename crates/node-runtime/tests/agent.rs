@@ -31,6 +31,9 @@ mod delegation;
 #[cfg(unix)]
 #[path = "agent/environment.rs"]
 mod environment;
+#[cfg(unix)]
+#[path = "support/environment.rs"]
+mod environment_fixture;
 #[path = "agent/external_browser.rs"]
 mod external_browser;
 #[path = "agent/forks.rs"]

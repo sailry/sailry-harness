@@ -211,17 +211,17 @@ pub(crate) async fn run(
         }
         let service = &ingress.plugins.connectors;
         let mut secrets = target.secrets.values().cloned().collect::<Vec<_>>();
-        let mut rejected = None;
+        let mut rotated = None;
         for attempt in 0..2 {
             ingress.connector_target(target.id, target.revision).await?;
             let token = if let Some(field) = &injection.field {
                 target.secrets.get(field).cloned().ok_or_else(|| {
                     Fault::new(ErrorCode::NotConfigured, "connector secret is unavailable")
                 })?
+            } else if let Some(token) = rotated.take() {
+                token
             } else {
-                service
-                    .access(&target, ingress, rejected.as_ref(), &stop)
-                    .await?
+                service.access(&target, ingress, None, &stop).await?
             };
             secrets.push(token.clone());
             let mut value =
@@ -236,9 +236,9 @@ pub(crate) async fn run(
             if response.status != 401 {
                 return Ok(response);
             }
-            if attempt != 0
-                || !idempotent
-                || target.method == sailry_protocol::plugin::connector::Kind::Secret
+            if target.method == sailry_protocol::plugin::connector::Kind::Secret
+                || (attempt != 0
+                    && target.method == sailry_protocol::plugin::connector::Kind::LocalCli)
             {
                 let current = ingress.connector_target(target.id, target.revision).await?;
                 ingress
@@ -251,7 +251,18 @@ pub(crate) async fn run(
                     .await?;
                 return Ok(response);
             }
-            rejected = Some(token);
+            if attempt != 0 {
+                return Ok(response);
+            }
+            // Rotate a rejected token even when the side effect cannot be replayed.
+            rotated = Some(
+                service
+                    .access(&target, ingress, Some(&token), &stop)
+                    .await?,
+            );
+            if !idempotent {
+                return Ok(response);
+            }
         }
         unreachable!()
     }

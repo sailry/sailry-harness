@@ -6,6 +6,9 @@
 mod agent_support;
 #[path = "../discovery_support/mod.rs"]
 mod discovery_support;
+#[cfg(unix)]
+#[path = "../support/environment.rs"]
+mod environment_fixture;
 #[path = "../support/retry.rs"]
 mod retry_fixture;
 

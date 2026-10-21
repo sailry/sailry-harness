@@ -221,12 +221,13 @@ impl Service {
                             .await?;
                         return Err(unavailable());
                     }
-                    Err(error) => {
+                    Err(error) if error.code == ErrorCode::Expired => {
                         ingress
                             .save_connector_grant(target.id, target.revision, None, None)
                             .await?;
                         return Err(error);
                     }
+                    Err(error) => return Err(error),
                 };
                 self.cli.lock().map_err(|_| unavailable())?.insert(
                     target.id,
@@ -290,7 +291,7 @@ impl Service {
                             .await?;
                         Ok(issued.access)
                     }
-                    Err(error) => {
+                    Err(error) if error.code == ErrorCode::PermissionDenied => {
                         ingress
                             .save_connector_grant(
                                 target.id,
@@ -301,6 +302,7 @@ impl Service {
                             .await?;
                         Err(error)
                     }
+                    Err(error) => Err(error),
                 }
             }
             Auth::McpOauth { .. } => target

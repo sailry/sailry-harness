@@ -7,7 +7,7 @@ use std::{
     io,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicU16, AtomicUsize, Ordering},
     },
 };
 use tokio::{
@@ -22,7 +22,7 @@ pub struct Server {
     pub origin: String,
     pub tokens: Arc<AtomicUsize>,
     pub records: Records,
-    pub failed: Arc<AtomicBool>,
+    pub status: Arc<AtomicU16>,
     stop: CancellationToken,
 }
 
@@ -32,13 +32,13 @@ impl Server {
         let origin = format!("http://{}", listener.local_addr().unwrap());
         let tokens = Arc::new(AtomicUsize::new(0));
         let records: Records = Default::default();
-        let failed = Arc::new(AtomicBool::new(false));
+        let status = Arc::new(AtomicU16::new(200));
         let stop = CancellationToken::new();
         let server = Self {
             origin,
             tokens: tokens.clone(),
             records: records.clone(),
-            failed: failed.clone(),
+            status: status.clone(),
             stop: stop.clone(),
         };
         let upstream = upstream.map(|endpoint| {
@@ -53,14 +53,14 @@ impl Server {
                     accepted = listener.accept() => accepted.unwrap(),
                     Some(result) = tasks.join_next(), if !tasks.is_empty() => { result.unwrap().unwrap(); continue; },
                 };
-                let (tokens, records, failed, upstream) = (
+                let (tokens, records, status, upstream) = (
                     tokens.clone(),
                     records.clone(),
-                    failed.clone(),
+                    status.clone(),
                     upstream.clone(),
                 );
                 tasks
-                    .spawn(async move { respond(stream, tokens, records, failed, upstream).await });
+                    .spawn(async move { respond(stream, tokens, records, status, upstream).await });
             }
             tasks.shutdown().await;
         });
@@ -78,7 +78,7 @@ async fn respond(
     mut stream: TcpStream,
     tokens: Arc<AtomicUsize>,
     records: Records,
-    failed: Arc<AtomicBool>,
+    status: Arc<AtomicU16>,
     upstream: Option<String>,
 ) -> io::Result<()> {
     let mut bytes = Vec::new();
@@ -126,8 +126,9 @@ async fn respond(
     if path == "/token" {
         assert_eq!(body, json!({"app_id":"fixture-app","app_secret":SECRET}));
         let revision = tokens.fetch_add(1, Ordering::SeqCst) + 1;
-        let (status, body) = if failed.load(Ordering::SeqCst) {
-            (503, json!({"reason":SECRET}))
+        let status = status.load(Ordering::SeqCst);
+        let (status, body) = if status != 200 {
+            (status, json!({"reason":SECRET}))
         } else {
             (
                 200,
@@ -135,6 +136,9 @@ async fn respond(
             )
         };
         return reply(&mut stream, status, body).await;
+    }
+    if path == "/unauthorized" {
+        return reply(&mut stream, 401, json!({"error":"unauthorized"})).await;
     }
     let header = "x-access-token";
     assert_eq!(

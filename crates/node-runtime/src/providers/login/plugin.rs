@@ -257,8 +257,14 @@ pub(crate) async fn request(
     stop: &CancellationToken,
 ) -> Result<Value, Fault> {
     let (status, document) = response(service, endpoint, fields, stop).await?;
+    if rejected(status, &document) {
+        return Err(Fault::new(
+            ErrorCode::PermissionDenied,
+            "authorization was rejected; sign in again",
+        ));
+    }
     if !status.is_success() {
-        return Err(super::http_error(status));
+        return Err(super::unavailable());
     }
     Ok(document)
 }
@@ -270,9 +276,7 @@ async fn refresh_request(
     stop: &CancellationToken,
 ) -> Result<Value, Fault> {
     let (status, document) = response_with(service, endpoint, fields, stop, true, false).await?;
-    if matches!(status.as_u16(), 401 | 403)
-        || document.get("error").and_then(Value::as_str) == Some("invalid_grant")
-    {
+    if rejected(status, &document) {
         return Err(Fault::new(
             ErrorCode::PermissionDenied,
             "authorization refresh was rejected; sign in again",
@@ -282,6 +286,12 @@ async fn refresh_request(
         return Err(uncertain());
     }
     Ok(document)
+}
+
+fn rejected(status: reqwest::StatusCode, document: &Value) -> bool {
+    status.as_u16() == 401
+        || !status.is_server_error()
+            && document.get("error").and_then(Value::as_str) == Some("invalid_grant")
 }
 
 fn uncertain() -> Fault {
@@ -337,7 +347,15 @@ async fn response_with(
         biased;
         _ = stop.cancelled() => Err(Fault::new(ErrorCode::Cancelled, "model authorization cancelled")),
         result = async {
-            if !renewal {return super::response(request).await}
+            if !renewal {
+                return super::response(request).await.map_err(|error| {
+                    if error.code == ErrorCode::PermissionDenied {
+                        super::unavailable()
+                    } else {
+                        error
+                    }
+                });
+            }
             let mut response=request.send().await.map_err(|error| if error.is_connect() {
                 Fault::new(ErrorCode::Unavailable,"authorization endpoint could not be reached")
             } else {uncertain()})?;
@@ -350,7 +368,7 @@ async fn response_with(
             Ok((status,body))
         } => {
             let (status, body) = result?;
-            if renewal && matches!(status.as_u16(),401|403) {return Ok((status,Value::Null))}
+            if status.as_u16() == 401 {return Ok((status,Value::Null))}
             match serde_json::from_slice(&body) { Ok(document)=>Ok((status,document)), Err(_) if error_document && !status.is_success()=>Ok((status,Value::Null)), Err(_)=>Err(invalid()) }
         }
     }

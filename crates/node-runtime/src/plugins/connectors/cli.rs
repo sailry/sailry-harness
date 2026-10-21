@@ -4,6 +4,11 @@ use std::{path::Path, process::Stdio};
 use tokio::io::AsyncReadExt;
 use zeroize::Zeroizing;
 
+struct Output {
+    bytes: Zeroizing<Vec<u8>>,
+    success: bool,
+}
+
 pub(super) async fn identity(
     auth: &Auth,
     environment: &crate::process::Environment,
@@ -26,19 +31,20 @@ pub(super) async fn identity(
         environment.home().unwrap_or(Path::new(".")),
     )
     .map_err(|_| unavailable())?;
-    let account = account(
-        &run(
-            &path,
-            &status.argv,
-            env,
-            environment,
-            *timeout_ms,
-            *max_output,
-            stop,
-        )
-        .await?,
-        status,
-    )?;
+    let output = run(
+        &path,
+        &status.argv,
+        env,
+        environment,
+        *timeout_ms,
+        *max_output,
+        stop,
+    )
+    .await?;
+    let account = account(&output.bytes, status)?;
+    if !output.success {
+        return Err(unavailable());
+    }
     Ok(Identity {
         name: account.clone(),
         id: account,
@@ -54,10 +60,10 @@ pub(super) async fn credentials(
     let Auth::LocalCli {
         command,
         env,
-        status,
         token,
         timeout_ms,
         max_output,
+        ..
     } = auth
     else {
         return Err(unavailable());
@@ -68,31 +74,19 @@ pub(super) async fn credentials(
         environment.home().unwrap_or(Path::new(".")),
     )
     .map_err(|_| unavailable())?;
-    let before = account(
-        &run(
-            &path,
-            &status.argv,
-            env,
-            environment,
-            *timeout_ms,
-            *max_output,
-            stop,
-        )
-        .await?,
-        status,
-    )?;
-    if expected.is_some_and(|expected| expected != before) {
+    let before = identity(auth, environment, stop).await?;
+    if expected.is_some_and(|expected| expected != before.id) {
         return Err(Fault::new(
-            ErrorCode::NotConfigured,
+            ErrorCode::Expired,
             "local account changed; sign in again",
         ));
     }
     let argv = token
         .argv
         .iter()
-        .map(|value| value.replace("{account}", &before))
+        .map(|value| value.replace("{account}", &before.id))
         .collect::<Vec<_>>();
-    let bytes = run(
+    let output = run(
         &path,
         &argv,
         env,
@@ -102,6 +96,10 @@ pub(super) async fn credentials(
         stop,
     )
     .await?;
+    if !output.success {
+        return Err(unavailable());
+    }
+    let bytes = output.bytes;
     let value = match &token.parse {
         Parse::Line => std::str::from_utf8(&bytes)
             .ok()
@@ -118,32 +116,14 @@ pub(super) async fn credentials(
     }
     .filter(|value| !value.is_empty() && !value.chars().any(char::is_control))
     .ok_or_else(unavailable)?;
-    let after = account(
-        &run(
-            &path,
-            &status.argv,
-            env,
-            environment,
-            *timeout_ms,
-            *max_output,
-            stop,
-        )
-        .await?,
-        status,
-    )?;
-    if before != after {
+    let after = identity(auth, environment, stop).await?;
+    if before.id != after.id {
         return Err(Fault::new(
-            ErrorCode::NotConfigured,
+            ErrorCode::Expired,
             "local account changed; sign in again",
         ));
     }
-    Ok((
-        Identity {
-            name: before.clone(),
-            id: before,
-        },
-        Secret::new(value),
-    ))
+    Ok((before, Secret::new(value)))
 }
 
 fn account(bytes: &[u8], status: &CliStatus) -> Result<String, Fault> {
@@ -153,7 +133,10 @@ fn account(bytes: &[u8], status: &CliStatus) -> Result<String, Fault> {
             .pointer(&condition.pointer)
             .is_none_or(|actual| !condition.values.contains(actual))
     }) {
-        return Err(unavailable());
+        return Err(Fault::new(
+            ErrorCode::Expired,
+            "local account is signed out",
+        ));
     }
     value
         .pointer(&status.account)
@@ -177,7 +160,7 @@ async fn run(
     timeout: u64,
     limit: usize,
     stop: &CancellationToken,
-) -> Result<Zeroizing<Vec<u8>>, Fault> {
+) -> Result<Output, Fault> {
     let mut command = tokio::process::Command::new(path);
     command
         .env_clear()
@@ -217,10 +200,11 @@ async fn run(
             .read_to_end(&mut bytes)
             .await
             .map_err(|_| unavailable())?;
-        if bytes.len() > limit || !child.wait().await.map_err(|_| unavailable())?.success() {
+        if bytes.len() > limit {
             return Err(unavailable());
         }
-        Ok(bytes)
+        let success = child.wait().await.map_err(|_| unavailable())?.success();
+        Ok(Output { bytes, success })
     };
     tokio::select! {biased;_=stop.cancelled()=>Err(cancelled()),result=tokio::time::timeout(Duration::from_millis(timeout),operation)=>result.map_err(|_|unavailable())?}
 }

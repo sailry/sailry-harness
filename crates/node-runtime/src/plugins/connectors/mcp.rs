@@ -258,7 +258,7 @@ impl Client {
                         .map_err(|_| failure(unavailable()))?
                 }
             };
-            changed |= current != *sent;
+            changed = true;
             self.authorization
                 .remember(Secret::new(current))
                 .map_err(failure)?;
@@ -285,7 +285,8 @@ impl Client {
                 )
                 .await
                 .map_err(failure)?;
-            changed |= token != *sent;
+            changed = true;
+            self.authorization.remember(token).map_err(failure)?;
         }
         Ok(changed)
     }
@@ -401,7 +402,7 @@ impl StreamableHttpClient for Client {
             .await;
         if unauthorized(&result) && self.rejected(&prepared).await? {
             let fresh = self.prepare(uri, headers).await?;
-            return self
+            let result = self
                 .inner
                 .get_stream_with_max_sse_event_size(
                     fresh.uri,
@@ -411,8 +412,19 @@ impl StreamableHttpClient for Client {
                     fresh.headers,
                     max,
                 )
-                .await
-                .map_err(|_| failure(unavailable()));
+                .await;
+            if unauthorized(&result) {
+                for (target, _) in &fresh.sent {
+                    if target.method == Kind::LocalCli {
+                        self.authorization
+                            .ingress
+                            .save_connector_grant(target.id, target.revision, None, None)
+                            .await
+                            .map_err(failure)?;
+                    }
+                }
+            }
+            return result.map_err(|_| failure(unavailable()));
         }
         result.map_err(|_| failure(unavailable()))
     }

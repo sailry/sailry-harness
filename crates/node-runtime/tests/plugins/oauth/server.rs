@@ -1,10 +1,12 @@
 use sailry_link::CancellationToken;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 pub(super) struct Server {
     pub endpoint: String,
     pub bodies: Arc<Mutex<Vec<String>>>,
+    pub status: Arc<AtomicU16>,
     stop: CancellationToken,
 }
 
@@ -15,6 +17,8 @@ impl Server {
         let endpoint = format!("http://{}/token", listener.local_addr().unwrap());
         let bodies = Arc::new(Mutex::new(Vec::new()));
         let stop = CancellationToken::new();
+        let status = Arc::new(AtomicU16::new(200));
+        let responses = status.clone();
         let (requests, closed) = (bodies.clone(), stop.clone());
         tokio::spawn(async move {
             loop {
@@ -50,21 +54,34 @@ impl Server {
                     .unwrap()
                     .push(String::from_utf8(bytes).unwrap());
                 let count = requests.lock().unwrap().len();
-                let body = if dingtalk {
-                    r#"{"accessToken":"private-access-marker","refreshToken":"private-refresh-marker","expireIn":7200}"#
+                let status = responses.load(Ordering::SeqCst);
+                if status == 0 {
+                    let _ = socket.read(&mut byte).await;
+                    continue;
+                }
+                if status == 1 {
+                    continue;
+                }
+                let body = if status != 200 {
+                    serde_json::json!({"error": if status == 400 {"invalid_grant"} else {"temporarily_unavailable"}}).to_string()
+                } else if dingtalk {
+                    r#"{"accessToken":"private-access-marker","refreshToken":"private-refresh-marker","expireIn":7200}"#.into()
                 } else if expiring && count == 1 {
-                    r#"{"access_token":"private-access-marker","refresh_token":"private-refresh-marker","expires_in":1,"token_type":"Bearer"}"#
+                    r#"{"access_token":"private-access-marker","refresh_token":"private-refresh-marker","expires_in":1,"token_type":"Bearer"}"#.into()
                 } else if expiring {
-                    r#"{"access_token":"refreshed-access-marker","refresh_token":"rotated-refresh-marker","expires_in":3600,"token_type":"Bearer"}"#
+                    format!(
+                        r#"{{"access_token":"refreshed-access-marker-{count}","refresh_token":"rotated-refresh-marker-{count}","expires_in":3600,"token_type":"Bearer"}}"#
+                    )
                 } else {
-                    r#"{"access_token":"private-access-marker","refresh_token":"private-refresh-marker","expires_in":3600,"token_type":"Bearer"}"#
+                    r#"{"access_token":"private-access-marker","refresh_token":"private-refresh-marker","expires_in":3600,"token_type":"Bearer"}"#.into()
                 };
-                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+                let _ = socket.write_all(format!("HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
             }
         });
         Self {
             endpoint,
             bodies,
+            status,
             stop,
         }
     }

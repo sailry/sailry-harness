@@ -60,7 +60,7 @@ async fn refreshes_persistent_application_transport() {
         assert_eq!(peer.initializations.load(Ordering::SeqCst), 1);
         assert_eq!(peer.calls.load(Ordering::SeqCst), 2);
         assert_eq!(issuer.tokens.load(Ordering::SeqCst), 2);
-        assert!(!issuer.failed.load(Ordering::SeqCst));
+        assert_eq!(issuer.status.load(Ordering::SeqCst), 200);
         {
             let records = issuer.records.lock().unwrap();
             let calls = records

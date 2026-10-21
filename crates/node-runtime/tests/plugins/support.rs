@@ -43,6 +43,18 @@ pub(crate) async fn empty(remote: bool) -> (tempfile::TempDir, Node, Link, Clien
     start(remote, true).await
 }
 
+#[cfg(all(unix, feature = "test-support"))]
+pub(crate) async fn empty_with_environment(
+    remote: bool,
+    environment: sailry_node_runtime::EnvironmentFixture,
+) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
+    let directory = tempfile::tempdir().unwrap();
+    let node = Node::start_empty_with_environment(directory.path().join("node"), environment)
+        .await
+        .unwrap();
+    connect(remote, directory, node).await
+}
+
 pub(crate) async fn packages(
     remote: bool,
     packages: &[&str],
@@ -84,6 +96,14 @@ async fn start(remote: bool, empty: bool) -> (tempfile::TempDir, Node, Link, Cli
         Node::start_with_plugin_catalog(directory.path().join("node"), "http://127.0.0.1:9/").await
     }
     .unwrap();
+    connect(remote, directory, node).await
+}
+
+async fn connect(
+    remote: bool,
+    directory: tempfile::TempDir,
+    node: Node,
+) -> (tempfile::TempDir, Node, Link, Client, WorktreeId) {
     let controller = Link::controller(directory.path().join("controller"), NetworkScope::default())
         .await
         .unwrap();

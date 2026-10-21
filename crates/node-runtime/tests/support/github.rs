@@ -1,6 +1,5 @@
 //! An isolated CLI exercises login commands without reading a real account.
-#[path = "environment.rs"]
-mod environment;
+use crate::environment_fixture as environment;
 use sailry_node_runtime::EnvironmentFixture;
 use std::path::Path;
 

@@ -1,8 +1,7 @@
 #![cfg(unix)]
 use super::*;
+use crate::environment_fixture as fixture;
 use serde_json::json;
-#[path = "../support/environment.rs"]
-mod fixture;
 
 impl fixture::Login {
     fn captures(&self) -> usize {

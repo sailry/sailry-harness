@@ -806,11 +806,7 @@ pub(in crate::store) fn renew(
         extra: issued.extra,
     });
     if record.grant.is_none() {
-        record.state = if record.method == Kind::LocalCli {
-            State::NotConnected
-        } else {
-            State::Expired
-        };
+        record.state = State::Expired;
     }
     save(db, &record)?;
     let envelopes = crate::store::database::record(

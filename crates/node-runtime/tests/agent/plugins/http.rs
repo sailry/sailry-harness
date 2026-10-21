@@ -1,6 +1,9 @@
 use super::*;
 use serde_json::json;
 use std::collections::BTreeMap;
+#[cfg(feature = "test-support")]
+#[path = "http/cancellation.rs"]
+mod cancellation;
 #[path = "../../plugins/http/server.rs"]
 mod server;
 

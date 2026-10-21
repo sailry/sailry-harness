@@ -3,7 +3,7 @@ use rmcp::transport::auth::{
     AuthorizationManager, CredentialStore, InMemoryCredentialStore, StoredCredentials,
 };
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 struct Server {
@@ -12,6 +12,7 @@ struct Server {
     gets: Arc<AtomicUsize>,
     refreshes: Arc<AtomicUsize>,
     expected: Arc<Mutex<String>>,
+    reuse: Arc<AtomicBool>,
     stop: CancellationToken,
 }
 impl Server {
@@ -24,13 +25,15 @@ impl Server {
             gets: Arc::default(),
             refreshes: Arc::default(),
             expected: Arc::new(Mutex::new("rejected".into())),
+            reuse: Arc::default(),
             stop: CancellationToken::new(),
         };
-        let (posts, gets, refreshes, expected, stop) = (
+        let (posts, gets, refreshes, expected, reuse, stop) = (
             result.posts.clone(),
             result.gets.clone(),
             result.refreshes.clone(),
             result.expected.clone(),
+            result.reuse.clone(),
             result.stop.clone(),
         );
         tokio::spawn(async move {
@@ -78,7 +81,10 @@ impl Server {
                     json!({"issuer":origin,"authorization_endpoint":format!("{origin}/authorize"),"token_endpoint":format!("{origin}/token"),"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"token_endpoint_auth_methods_supported":["none"]}).to_string()
                 } else if path == "/token" {
                     let revision = refreshes.fetch_add(1, Ordering::SeqCst) + 1;
-                    let token = format!("rotated-{revision}");
+                    let token = format!(
+                        "rotated-{}",
+                        revision - usize::from(reuse.load(Ordering::SeqCst))
+                    );
                     *expected.lock().unwrap() = token.clone();
                     json!({"access_token":token,"refresh_token":format!("refresh-{revision}"),"expires_in":3600,"token_type":"Bearer"}).to_string()
                 } else if path == "/mcp" {
@@ -198,6 +204,23 @@ async fn refreshes_without_replaying_posts() {
     drop(stream);
     assert_eq!(server.gets.load(Ordering::SeqCst) - baseline, 2);
     assert_eq!(server.refreshes.load(Ordering::SeqCst), 2);
+    assert_eq!(server.posts.lock().unwrap().len(), 1);
+    server.reuse.store(true, Ordering::SeqCst);
+    *server.expected.lock().unwrap() = "rejected-again".into();
+    let baseline = server.gets.load(Ordering::SeqCst);
+    let stream = client
+        .get_stream(
+            server.endpoint.clone().into(),
+            None,
+            None,
+            None,
+            Headers::new(),
+        )
+        .await
+        .unwrap();
+    drop(stream);
+    assert_eq!(server.gets.load(Ordering::SeqCst) - baseline, 2);
+    assert_eq!(server.refreshes.load(Ordering::SeqCst), 3);
     assert_eq!(server.posts.lock().unwrap().len(), 1);
     node.shutdown().await.unwrap();
 }

@@ -46,7 +46,8 @@ mod process {
         )
         .await
         .unwrap();
-        assert_eq!(&**output, b"$(touch never); literal|public|unset");
+        assert!(output.success);
+        assert_eq!(&**output.bytes, b"$(touch never); literal|public|unset");
     }
     #[tokio::test]
     async fn bounds_output_and_execution() {

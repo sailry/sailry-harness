@@ -83,13 +83,82 @@ async fn refreshes_application_http() {
                 .code,
             ErrorCode::PermissionDenied
         );
-        server.failed.store(true, Ordering::SeqCst);
+        let stored = || -> Vec<u8> {
+            rusqlite::Connection::open_with_flags(
+                node.profile().join("storage/node.sqlite3"),
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )
+            .unwrap()
+            .query_row(
+                "SELECT body FROM plugin_connections WHERE id=?1",
+                [row.id.to_string()],
+                |row| row.get(0),
+            )
+            .unwrap()
+        };
+        let before = stored();
+        server.status.store(503, Ordering::SeqCst);
         tokio::time::sleep(Duration::from_millis(2100)).await;
         let failed = request("https://service.example.com/probe");
         let error = client.execute(failed.clone()).await.unwrap_err();
         assert!(!error.message.contains(issuer::SECRET));
         assert_eq!(client.execute(failed).await.unwrap_err(), error);
         assert_eq!(server.tokens.load(Ordering::SeqCst), 3);
+        assert_eq!(stored(), before);
+        server.status.store(200, Ordering::SeqCst);
+        assert!(
+            client
+                .execute(request("https://service.example.com/probe"))
+                .await
+                .is_ok()
+        );
+        assert_eq!(server.tokens.load(Ordering::SeqCst), 4);
+
+        let before = server
+            .records
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(path, _, _)| path == "/unauthorized")
+            .count();
+        let original = request("https://service.example.com/unauthorized");
+        let rejected = client.execute(original.clone()).await.unwrap();
+        assert!(matches!(&rejected, Output::PluginHttp(response) if response.status == 401));
+        assert_eq!(client.execute(original).await.unwrap(), rejected);
+        assert_eq!(
+            server
+                .records
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(path, _, _)| path == "/unauthorized")
+                .count()
+                - before,
+            1
+        );
+        assert_eq!(server.tokens.load(Ordering::SeqCst), 5);
+        assert!(
+            client
+                .execute(request("https://service.example.com/probe"))
+                .await
+                .is_ok()
+        );
+
+        server.status.store(401, Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        assert_eq!(
+            client
+                .execute(request("https://service.example.com/probe"))
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::PermissionDenied
+        );
+        let Output::Connections(rows) = execute(&client, Command::ListConnections).await else {
+            panic!("connections expected")
+        };
+        assert_eq!(rows[0].state, plugin::connector::State::Expired);
+        assert!(rows[0].configured.contains(&"app_secret".into()));
         let snapshot = execute(&client, Command::Snapshot).await;
         let public = serde_json::to_string(&(output, error, snapshot)).unwrap();
         assert!(!public.contains(issuer::SECRET));
