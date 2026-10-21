@@ -4,6 +4,15 @@ use sailry_protocol::{
     models::{Availability, Catalog, Kind, Model},
 };
 
+pub(crate) async fn check(kind: Kind) -> Result<(), Fault> {
+    if kind != Kind::Decision {
+        return ensure(kind);
+    }
+    tokio::task::spawn_blocking(move || ensure(kind))
+        .await
+        .map_err(|error| Fault::new(ErrorCode::Internal, error.to_string()))?
+}
+
 pub(crate) fn ensure(kind: Kind) -> Result<(), Fault> {
     match kind {
         Kind::Decision => sailry_decision::available()

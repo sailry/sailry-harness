@@ -106,10 +106,77 @@
       "archive": "llama-b11756-bin-ubuntu-arm64.tar.gz",
       "size": 18034586,
       "sha256": "42bb5ef275743e0183fa53e3c93b2b54796997d49a9d0d540d0a8cc945f1ed43",
-      "available": false,
-      "files": [],
+      "available": true,
+      "files": [
+        {
+          "name": "libggml-base.so.0",
+          "member": "llama-b11756/libggml-base.so.0.27.0",
+          "size": 802072,
+          "sha256": "3d22b2433ec94a431060597502483cf5d08654bc332ffa411b2471938c1d2d20"
+        },
+        {
+          "name": "libggml-cpu-armv8.0_1.so",
+          "member": "llama-b11756/libggml-cpu-armv8.0_1.so",
+          "size": 1002088,
+          "sha256": "a4ecf1c3ea713ecf3a8d17c759f52af3e1a12c786cc098d67e7e5dc459ff17b4"
+        },
+        {
+          "name": "libggml-cpu-armv8.2_1.so",
+          "member": "llama-b11756/libggml-cpu-armv8.2_1.so",
+          "size": 1069016,
+          "sha256": "5de55084a1bb151b954cc966459463b4666f8a95725a86c8261e6803b132ece0"
+        },
+        {
+          "name": "libggml-cpu-armv8.2_2.so",
+          "member": "llama-b11756/libggml-cpu-armv8.2_2.so",
+          "size": 1069016,
+          "sha256": "034f0d50c64fddd1793dac4bab3620eda662669687f8623189d0e8fe2a31f403"
+        },
+        {
+          "name": "libggml-cpu-armv8.2_3.so",
+          "member": "llama-b11756/libggml-cpu-armv8.2_3.so",
+          "size": 1003912,
+          "sha256": "440dd62d443e7fc96480569684cbfc196a7ed957710d599533dcb2801c0b6973"
+        },
+        {
+          "name": "libggml-cpu-armv8.6_1.so",
+          "member": "llama-b11756/libggml-cpu-armv8.6_1.so",
+          "size": 1069720,
+          "sha256": "fd18cda3fc1c79d9cb00c0b064b86efb4e6053662c9d37dc5cbea42646828d01"
+        },
+        {
+          "name": "libggml-cpu-armv8.6_2.so",
+          "member": "llama-b11756/libggml-cpu-armv8.6_2.so",
+          "size": 1069744,
+          "sha256": "1a1ff222b4edd9ff58db91a54f1c295f0c995c1de06fa4b65d8d24619452f31d"
+        },
+        {
+          "name": "libggml-cpu-armv9.2_1.so",
+          "member": "llama-b11756/libggml-cpu-armv9.2_1.so",
+          "size": 1069816,
+          "sha256": "92b053d5b1ea67bd961ea08ba662e3dda7297ca4e5a2d33bfe266d4eaff3a54a"
+        },
+        {
+          "name": "libggml-cpu-armv9.2_2.so",
+          "member": "llama-b11756/libggml-cpu-armv9.2_2.so",
+          "size": 1069816,
+          "sha256": "e6bccc227db448166a3204a367defd21be12cc6842f42e02fbb64efe59c307c0"
+        },
+        {
+          "name": "libggml.so.0",
+          "member": "llama-b11756/libggml.so.0.27.0",
+          "size": 77528,
+          "sha256": "6be1305cdda55f0001e87fae600f1148b2f0b9c8b3f98f60c33b4fdfe3cfaf64"
+        },
+        {
+          "name": "libllama.so.0",
+          "member": "llama-b11756/libllama.so.0.7.0",
+          "size": 4875480,
+          "sha256": "83a5c8edd1acf4a98d1704e480bf08efdc19757eab1c7b510f9553ba3923ef71"
+        }
+      ],
       "minimum_glibc": "2.38",
-      "reason": "Official ARM64 runtime requires glibc 2.38"
+      "entry": "libllama.so.0"
     },
     "x86_64-unknown-linux-gnu": {
       "archive": "llama-b11756-bin-ubuntu-x64.tar.gz",

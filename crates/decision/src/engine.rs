@@ -1,6 +1,6 @@
 use crate::{
     Algorithm, Error, Metadata, Result, ffi,
-    inference::{self, Query, Templates},
+    inference::{self, Query, Rendered, Templates},
     runtime::{self, Runtime},
 };
 use sailry_protocol::{
@@ -24,7 +24,6 @@ pub struct Engine {
     templates: Templates,
     marker: i32,
     separator: i32,
-    marker_text: String,
     labels: Vec<i32>,
 }
 
@@ -167,7 +166,6 @@ impl Engine {
             templates,
             marker: -1,
             separator: -1,
-            marker_text: String::new(),
             labels: Vec::new(),
         };
         match engine.metadata.algorithm {
@@ -180,7 +178,6 @@ impl Engine {
                 if engine.marker < 0 || engine.separator < 0 {
                     return Err(Error::Invalid("laya model has no mask or separator token"));
                 }
-                engine.marker_text = engine.model.piece(engine.marker)?;
                 // SAFETY: reads a scalar property of the owned model.
                 if unsafe {
                     engine
@@ -266,8 +263,8 @@ impl Engine {
 
     fn prompt<'a>(&self, state: &str, name: &'a str, question: &'a Question) -> Result<Prompt<'a>> {
         let query = Query::new(name, question, self.metadata.algorithm);
-        let text = self.templates.render(state, &query, &self.marker_text)?;
-        let mut tokens = self.model.tokenize(&text, true)?;
+        let text = self.templates.render(state, &query)?;
+        let mut tokens = self.model.prompt(&text)?;
         let markers = if self.metadata.algorithm == Algorithm::Laya {
             inference::laya(
                 &mut tokens,
@@ -304,6 +301,56 @@ impl Model {
         } else {
             Ok(vocab)
         }
+    }
+    fn prompt(&self, rendered: &Rendered) -> Result<Vec<i32>> {
+        let mut controls = Vec::new();
+        let vocab = self.vocab()?;
+        for trusted in rendered.trusted() {
+            let mut start = trusted.start;
+            for token in self.tokenize(&rendered.text[trusted.clone()], true)? {
+                // SAFETY: token comes from this live vocabulary's tokenizer.
+                let attributes = unsafe { self.api().llama_vocab_get_attr(vocab, token) };
+                if attributes
+                    & (ffi::llama_token_attr_LLAMA_TOKEN_ATTR_CONTROL
+                        | ffi::llama_token_attr_LLAMA_TOKEN_ATTR_UNKNOWN)
+                    == 0
+                {
+                    continue;
+                }
+                let piece = self.piece(token)?;
+                let Some(offset) = rendered.text[start..trusted.end].find(&piece) else {
+                    // Unknown text can produce the unknown ID without spelling
+                    // the vocabulary's special token in the template.
+                    if attributes & ffi::llama_token_attr_LLAMA_TOKEN_ATTR_UNKNOWN != 0 {
+                        continue;
+                    }
+                    return Err(Error::Invalid("decision control token is missing"));
+                };
+                let position = start + offset;
+                start = position + piece.len();
+                controls.push((position..start, token, attributes));
+            }
+        }
+        let mut tokens = Vec::new();
+        let mut start = 0;
+        // Merge ordinary template text and values across interpolation boundaries;
+        // only native controls split the tokenizer's BPE/whitespace context.
+        for (range, token, attributes) in controls {
+            let range = rendered.strip(
+                range,
+                attributes & ffi::llama_token_attr_LLAMA_TOKEN_ATTR_LSTRIP != 0,
+                attributes & ffi::llama_token_attr_LLAMA_TOKEN_ATTR_RSTRIP != 0,
+            );
+            if start < range.start {
+                tokens.extend(self.tokenize(&rendered.text[start..range.start], false)?);
+            }
+            tokens.push(token);
+            start = range.end;
+        }
+        if start < rendered.text.len() {
+            tokens.extend(self.tokenize(&rendered.text[start..], false)?);
+        }
+        Ok(tokens)
     }
     fn tokenize(&self, text: &str, special: bool) -> Result<Vec<i32>> {
         let length = i32::try_from(text.len())

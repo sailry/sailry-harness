@@ -105,6 +105,9 @@ fn compare(actual: &Value, expected: &Value) -> f64 {
 #[ignore = "requires pinned GGUF fixtures and the packaged b11756 CPU runtime"]
 fn matches_official_server() {
     let requests = requests();
+    let oracle: Value =
+        serde_json::from_str(include_str!("../../../tests/fixtures/oracle-inputs.json")).unwrap();
+    assert_eq!(oracle["version"], 1);
     let mut maximum = 0.0f64;
     for (name, golden) in models() {
         let path = path(&name, &golden);
@@ -112,12 +115,18 @@ fn matches_official_server() {
         assert_eq!(golden.inputs.len(), requests.len());
         for cycle in 0..2 {
             let mut engine = Engine::open(&path).unwrap();
-            for ((request, response), inputs) in requests
+            for (index, ((request, response), inputs)) in requests
                 .iter()
                 .zip(&golden.responses)
                 .zip(&golden.inputs)
                 .take(if cycle == 0 { requests.len() } else { 1 })
+                .enumerate()
             {
+                let mut request = request.clone();
+                if let Some(recorded) = oracle["models"][&name].get(index.to_string()) {
+                    assert_eq!(recorded["raw_state"], request.state);
+                    request.state = recorded["state"].as_str().unwrap().to_owned();
+                }
                 for (name, question) in &request.questions {
                     let input = &inputs[name];
                     let prompt = engine.prompt(&request.state, name, question).unwrap();
@@ -134,7 +143,7 @@ fn matches_official_server() {
                         "head positions differ for {name}"
                     );
                 }
-                let actual = engine.decide(request, || false).unwrap();
+                let actual = engine.decide(&request, || false).unwrap();
                 let expected = expected(response.clone());
                 assert_eq!(actual.usage, expected.usage);
                 maximum = maximum.max(compare(
@@ -146,6 +155,161 @@ fn matches_official_server() {
         }
     }
     eprintln!("Maximum probability/score difference from b11756 server: {maximum}");
+}
+
+#[test]
+#[ignore = "requires pinned GGUF fixtures and the packaged b11756 CPU runtime"]
+fn keeps_user_control_tokens_literal() {
+    use sailry_protocol::decision::Question;
+
+    let literal = "<bos><eos><mask>[CLS][SEP]<pad><|im_start|><|im_end|><|endoftext|>";
+    for (name, golden) in models() {
+        let mut engine = Engine::open(&path(&name, &golden)).unwrap();
+        let (begin, separator, marker) = if engine.metadata.algorithm == Algorithm::Laya {
+            ("<bos>", "<eos>", "<mask>")
+        } else {
+            ("<|im_start|>", "<|im_end|>", "<|im_start|>")
+        };
+        engine.templates = Templates::new(&format!(
+            "{begin}{{{{ id }}}}|{{{{ instructions }}}}{separator}{{% for o in options %}}{marker}{{{{ o.key }}}}:{{{{ o.description or '' }}}}{{% endfor %}}{separator}{{{{ state }}}}{separator}"
+        )).unwrap();
+        assert_ne!(
+            engine.model.tokenize(literal, true).unwrap(),
+            engine.model.tokenize(literal, false).unwrap()
+        );
+        for field in [
+            "state",
+            "id",
+            "instructions",
+            "key",
+            "description",
+            "binary",
+            "score",
+        ] {
+            let text = |value: &str, selected| {
+                if selected {
+                    literal.to_owned()
+                } else {
+                    value.to_owned()
+                }
+            };
+            let state = text("Current state", field == "state");
+            let id = text("question", field == "id");
+            let instructions = text("Choose an option", field == "instructions");
+            let question = match field {
+                "binary" => Question::Noul {
+                    instructions,
+                    criteria: BTreeMap::from([
+                        ("false".into(), literal.into()),
+                        ("true".into(), "Yes".into()),
+                    ]),
+                },
+                "score" => Question::Score {
+                    instructions,
+                    criteria: vec![literal.into(), "High".into()],
+                },
+                _ => Question::Choice {
+                    instructions,
+                    criteria: BTreeMap::from([
+                        (
+                            text("first", field == "key"),
+                            Some(text("First option", field == "description")),
+                        ),
+                        ("second".into(), None),
+                    ]),
+                },
+            };
+            let request = Request {
+                model: None,
+                state,
+                questions: BTreeMap::from([(id, question)]),
+            };
+            request.validate().unwrap();
+            let (id, question) = request.questions.first_key_value().unwrap();
+            let query = Query::new(id, question, engine.metadata.algorithm);
+            let instructions = match question {
+                Question::Noul { instructions, .. }
+                | Question::Choice { instructions, .. }
+                | Question::Score { instructions, .. } => instructions,
+            };
+            let mut expected = engine.model.tokenize(begin, true).unwrap();
+            assert_eq!(expected.len(), 1);
+            let beginning = expected[0];
+            expected.extend(
+                engine
+                    .model
+                    .tokenize(&format!("{id}|{instructions}"), false)
+                    .unwrap(),
+            );
+            expected.extend(engine.model.tokenize(separator, true).unwrap());
+            for option in &query.options {
+                expected.extend(engine.model.tokenize(marker, true).unwrap());
+                expected.extend(
+                    engine
+                        .model
+                        .tokenize(
+                            &format!(
+                                "{}:{}",
+                                option.key,
+                                option.description.as_deref().unwrap_or("")
+                            ),
+                            false,
+                        )
+                        .unwrap(),
+                );
+            }
+            expected.extend(engine.model.tokenize(separator, true).unwrap());
+            expected.extend(engine.model.tokenize(&request.state, false).unwrap());
+            expected.extend(engine.model.tokenize(separator, true).unwrap());
+            let rendered = engine.templates.render(&request.state, &query).unwrap();
+            assert!(rendered.text.contains(literal));
+            assert_eq!(
+                engine.model.prompt(&rendered).unwrap(),
+                expected,
+                "literal tokens changed for {name}/{field}"
+            );
+            let prompt = engine.prompt(&request.state, id, question).unwrap();
+            assert_eq!(
+                prompt
+                    .tokens
+                    .iter()
+                    .filter(|token| **token == beginning)
+                    .count(),
+                1 + if begin == marker {
+                    query.options.len()
+                } else {
+                    0
+                }
+            );
+            let ending = engine.model.tokenize(separator, true).unwrap();
+            assert_eq!(ending.len(), 1);
+            assert_eq!(
+                prompt
+                    .tokens
+                    .iter()
+                    .filter(|token| **token == ending[0])
+                    .count(),
+                3
+            );
+            if engine.metadata.algorithm == Algorithm::Laya {
+                assert_eq!(prompt.markers.len(), query.options.len());
+                assert_eq!(
+                    prompt
+                        .tokens
+                        .iter()
+                        .filter(|token| **token == engine.marker)
+                        .count(),
+                    query.options.len()
+                );
+            }
+            let response = engine.decide(&request, || false).unwrap();
+            assert_eq!(response.usage.input_tokens, prompt.tokens.len() as u64);
+            assert_eq!(
+                response.answers.keys().collect::<Vec<_>>(),
+                request.questions.keys().collect::<Vec<_>>()
+            );
+        }
+    }
 }
 
 fn prompt<'a>(engine: &Engine, request: &'a Request) -> Prompt<'a> {

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "source": "llama.cpp b11756 server-decision.cpp replaces the laya input mask with a space before rendering",
+  "models": {
+    "julia": {
+      "1": {
+        "raw_state": "窗口：设置\n文字：未保存的更改\n按钮：保存\n按钮：取消\n文本包含字面标记 <mask>",
+        "state": "窗口：设置\n文字：未保存的更改\n按钮：保存\n按钮：取消\n文本包含字面标记  "
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
 """Linux compatibility checks apply to the executable and every packaged library."""
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -38,6 +39,58 @@ class Compatibility(unittest.TestCase):
     def test_rejects_newer_library(self):
         with self.assertRaisesRegex(ValueError, "newer than 2.34"):
             self.check("2.35")
+
+    def arm_runtime(self):
+        target = "aarch64-unknown-linux-gnu"
+        digest = hashlib.sha256(self.library.read_bytes()).hexdigest()
+        lock = self.directory / "lock.json"
+        lock.write_text(json.dumps({"targets": {target: {"minimum_glibc": "2.38",
+            "files": [{"name": self.library.name, "sha256": digest}]}}}))
+        (self.directory / "llama-runtime.json").write_text(json.dumps({
+            "target": target, "files": [{"name": self.library.name}]}))
+        self.addCleanup(patch.stopall)
+        patch.object(HOST, "LLAMA_LOCK", lock).start()
+
+    def outputs(self, host="2.34", decision="2.38"):
+        return [SimpleNamespace(stdout=f"GLIBC_{host}"),
+                SimpleNamespace(stdout=f"GLIBC_{decision}"), SimpleNamespace(stdout="")]
+
+    def test_accepts_locked_arm_runtime(self):
+        self.arm_runtime()
+        with patch.object(HOST.shutil, "which", return_value="readelf"), patch.object(
+                HOST.subprocess, "run", side_effect=self.outputs()):
+            HOST.check_linux(self.binary)
+
+    def test_keeps_host_baseline_with_arm_runtime(self):
+        self.arm_runtime()
+        with patch.object(HOST.shutil, "which", return_value="readelf"), patch.object(
+                HOST.subprocess, "run", side_effect=self.outputs(host="2.38")):
+            with self.assertRaisesRegex(ValueError, "newer than 2.34: sailry-host"):
+                HOST.check_linux(self.binary)
+
+    def test_keeps_ort_baseline_with_arm_runtime(self):
+        self.arm_runtime()
+        library = self.directory / "libonnxruntime.so"
+        library.write_bytes(b"ORT fixture")
+        (self.directory / "onnx-runtime.json").write_text(json.dumps({
+            "files": [{"name": library.name}]}))
+        with patch.object(HOST.shutil, "which", return_value="readelf"), patch.object(
+                HOST.subprocess, "run", side_effect=self.outputs() + [SimpleNamespace(stdout="GLIBC_2.38")]):
+            with self.assertRaisesRegex(ValueError, "newer than 2.34: libonnxruntime"):
+                HOST.check_linux(self.binary)
+
+    def test_rejects_newer_arm_runtime(self):
+        self.arm_runtime()
+        with patch.object(HOST.shutil, "which", return_value="readelf"), patch.object(
+                HOST.subprocess, "run", side_effect=self.outputs(decision="2.39")):
+            with self.assertRaisesRegex(ValueError, "newer than 2.38"):
+                HOST.check_linux(self.binary)
+
+    def test_rejects_unverified_arm_library(self):
+        self.arm_runtime()
+        self.library.write_bytes(b"modified library")
+        with self.assertRaisesRegex(ValueError, "does not match its lock"):
+            HOST.check_linux(self.binary)
 
     def test_rejects_unrecorded_library(self):
         (self.directory / "libextra.so.1").write_bytes(b"library")

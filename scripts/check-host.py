@@ -2,6 +2,7 @@
 """Verify an existing Host binary using a fresh private profile and no external service."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import queue
@@ -12,21 +13,26 @@ import tempfile
 import threading
 
 
+LLAMA_LOCK = Path(__file__).parent / "package/llama-runtime.lock.json"
+
 def check_linux(binary):
     with binary.open("rb") as stream:
         if stream.read(4) != b"\x7fELF":
             return
     recorded = set()
     decision = set()
+    decision_target = None
     for name in ("onnx-runtime.json", "llama-runtime.json"):
         manifest = binary.parent / name
         if manifest.is_symlink():
             raise ValueError("Runtime manifest must be an ordinary file")
         if manifest.is_file():
-            files = {file["name"] for file in json.loads(manifest.read_text())["files"]}
+            content = json.loads(manifest.read_text())
+            files = {file["name"] for file in content["files"]}
             recorded.update(files)
             if name == "llama-runtime.json":
                 decision.update(files)
+                decision_target = content.get("target")
     libraries = sorted(binary.parent.glob("*.so*"))
     for library in libraries:
         if library.is_symlink() or not library.is_file():
@@ -41,13 +47,31 @@ def check_linux(binary):
         if not tool:
             raise RuntimeError("readelf or objdump is required to verify Linux compatibility")
         arguments = [tool, "-T"]
+    # A newer ABI ceiling belongs only to exact locked Decision images. The Host,
+    # ORT and every other library keep their existing 2.34 ceiling.
+    limits = {}
+    if decision_target is not None:
+        asset = json.loads(LLAMA_LOCK.read_text())["targets"].get(decision_target, {})
+        minimum = tuple(map(int, asset.get("minimum_glibc", "2.34").split(".")))
+        if minimum > (2, 34):
+            pinned = {file["name"]: file for file in asset["files"]}
+            for library in libraries:
+                if library.name not in decision:
+                    continue
+                file = pinned.get(library.name)
+                digest = hashlib.sha256(library.read_bytes()).hexdigest()
+                if file is None or digest != file["sha256"]:
+                    raise ValueError(f"Decision library does not match its lock: {library.name}")
+                limits[library.name] = minimum
     for path in [binary, *libraries]:
         output = subprocess.run([*arguments, str(path)], check=True, capture_output=True,
                                 text=True).stdout
         versions = [tuple(map(int, match.split(".")))
                     for match in re.findall(r"\bGLIBC_(\d+(?:\.\d+)+)\b", output)]
-        if any(version > (2, 34) for version in versions):
-            raise ValueError(f"Linux binary requires glibc newer than 2.34: {path.name}")
+        limit = limits.get(path.name, (2, 34)) if path != binary else (2, 34)
+        if any(version > limit for version in versions):
+            ceiling = ".".join(map(str, limit))
+            raise ValueError(f"Linux binary requires glibc newer than {ceiling}: {path.name}")
         if path.name in decision:
             dynamic = subprocess.run([tool, "-d" if arguments[1] == "--version-info" else "-p", str(path)],
                                      check=True, capture_output=True, text=True).stdout

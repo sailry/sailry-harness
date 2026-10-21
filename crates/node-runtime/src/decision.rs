@@ -18,7 +18,7 @@ pub(crate) async fn decide(
     cancel: &CancellationToken,
 ) -> Result<Response, Fault> {
     request.validate()?;
-    availability::ensure(Kind::Decision)?;
+    availability::check(Kind::Decision).await?;
     let resource = registry.resource(Kind::Decision, request.model.as_deref(), None)?;
     registry
         .execute(

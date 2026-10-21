@@ -20,6 +20,11 @@ Linux also needs the libX11 and libXi runtime libraries, including on headless
 servers. Before installing Host, install `libX11` and `libXi` on RHEL 9 compatible
 systems, or `libx11-6` and `libxi6` on Debian/Ubuntu.
 
+Local decisions also need OpenMP: `libgomp` on RHEL-compatible systems or
+`libgomp1` on Debian/Ubuntu. Decision inference requires glibc 2.34+ on x64 or
+2.38+ on ARM64; Host, OCR and embedding retain their 2.34 minimum. Restart Host
+after installing native dependencies so its cached availability is checked again.
+
 ## Install and pair
 
 1. Choose **Add host** and enter the SSH host, port, username and authentication.

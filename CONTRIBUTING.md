@@ -132,7 +132,7 @@ isolation and lifetime cleanup; they are not persistent build caches.
 
 ## Test conventions
 
-The conventions follow the [pinned ADK contributor guide](https://github.com/dux-web/adk-rust/blob/56800ec0c83ffaa57a7db566ea4c1d26c3051348/CONTRIBUTING.md),
+The conventions follow the [pinned ADK contributor guide](https://github.com/dux-web/adk-rust/blob/af1c17a1d9e683fb5b49946d0ed094954539ebd2/CONTRIBUTING.md),
 adapted to Sailry's ownership and local/remote boundaries.
 
 - Put small Rust unit tests in nearby `#[cfg(test)]` modules. Put cross-module
@@ -238,7 +238,9 @@ step selects the already-built database suite using the same backend package
 graph, avoiding a second compilation with different feature unification.
 
 CI does not supply model credentials, production profiles or OS permissions.
-Live-service and device tests stay opt-in. The ordinary Flutter suite skips its
+Live-service and device tests stay opt-in. Real GGUF goldens, cancellation and
+ORT coexistence have an explicit [manual native lane](crates/decision/tests/README.md);
+it uses public, hash-pinned fixtures without provider credentials. The ordinary Flutter suite skips its
 bootstrap-dependent native fixture, which the explicit remote-Node step runs.
 Database fixtures start isolated PostgreSQL/MySQL servers, including native
 backend and Dart FFI coverage. The FFI step excludes only the MCP subprocess
@@ -304,7 +306,9 @@ handoffs. Manual dispatch can retry those follow-ups for a published version tag
 Apple silicon and Intel runners build native Desktop DMGs, updater ZIPs and
 standalone macOS Host archives. Desktop contains its local Node, not remote Host
 binaries or a Python runtime. Independent Linux amd64 and arm64 runners each
-build one Host architecture with glibc 2.34 targeting.
+build one Host architecture with glibc 2.34 targeting. The locked ARM64 Decision
+libraries additionally require glibc 2.38; the compatibility check verifies their
+exact hashes before applying that ceiling, without changing Host or ORT limits.
 Linux link inputs are checksum-pinned in
 [`linux-sysroot.lock.json`](scripts/package/linux-sysroot.lock.json); the build
 does not install cross-compilation packages into the host system.
@@ -371,7 +375,10 @@ Run `sailry help` for available commands. Service controls are `start`, `stop`,
 cancel. `sailry update` installs the newest published release, including previews;
 use `--version 0.1.0-alpha.1` to select one. The installer does not replace
 `~/.sailry-host` and retains the previous program files in a reported backup
-directory.
+directory. Failed updates restore the previous program files, managed command,
+service definition and activation state before reporting failure, so the current
+installer can be retried. If recovery itself fails, the installer reports the
+remaining recovery files instead of deleting them.
 
 For an existing Linux root installation in `~/.local/lib/sailry`, use Desktop's
 Host update or the current release's verified installer from [Install](README.md#install):

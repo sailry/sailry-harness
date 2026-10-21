@@ -100,6 +100,18 @@ pub type llama_memory_t = *mut llama_memory_i;
 pub type llama_pos = i32;
 pub type llama_token = i32;
 pub type llama_seq_id = i32;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_UNDEFINED: llama_token_attr = 0;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_UNKNOWN: llama_token_attr = 1;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_UNUSED: llama_token_attr = 2;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_NORMAL: llama_token_attr = 4;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_CONTROL: llama_token_attr = 8;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_USER_DEFINED: llama_token_attr = 16;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_BYTE: llama_token_attr = 32;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_NORMALIZED: llama_token_attr = 64;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_LSTRIP: llama_token_attr = 128;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_RSTRIP: llama_token_attr = 256;
+pub const llama_token_attr_LLAMA_TOKEN_ATTR_SINGLE_WORD: llama_token_attr = 512;
+pub type llama_token_attr = ::std::os::raw::c_uint;
 pub const llama_rope_scaling_type_LLAMA_ROPE_SCALING_TYPE_UNSPECIFIED: llama_rope_scaling_type = -1;
 pub const llama_rope_scaling_type_LLAMA_ROPE_SCALING_TYPE_NONE: llama_rope_scaling_type = 0;
 pub const llama_rope_scaling_type_LLAMA_ROPE_SCALING_TYPE_LINEAR: llama_rope_scaling_type = 1;
@@ -453,6 +465,8 @@ pub struct Llama {
     pub llama_synchronize: unsafe extern "C" fn(ctx: *mut llama_context),
     pub llama_get_logits_ith: unsafe extern "C" fn(ctx: *mut llama_context, i: i32) -> *mut f32,
     pub llama_get_embeddings_ith: unsafe extern "C" fn(ctx: *mut llama_context, i: i32) -> *mut f32,
+    pub llama_vocab_get_attr:
+        unsafe extern "C" fn(vocab: *const llama_vocab, token: llama_token) -> llama_token_attr,
     pub llama_vocab_sep: unsafe extern "C" fn(vocab: *const llama_vocab) -> llama_token,
     pub llama_vocab_mask: unsafe extern "C" fn(vocab: *const llama_vocab) -> llama_token,
     pub llama_tokenize: unsafe extern "C" fn(
@@ -530,6 +544,7 @@ impl Llama {
         let llama_get_embeddings_ith = __library
             .get(b"llama_get_embeddings_ith\0")
             .map(|sym| *sym)?;
+        let llama_vocab_get_attr = __library.get(b"llama_vocab_get_attr\0").map(|sym| *sym)?;
         let llama_vocab_sep = __library.get(b"llama_vocab_sep\0").map(|sym| *sym)?;
         let llama_vocab_mask = __library.get(b"llama_vocab_mask\0").map(|sym| *sym)?;
         let llama_tokenize = __library.get(b"llama_tokenize\0").map(|sym| *sym)?;
@@ -563,6 +578,7 @@ impl Llama {
             llama_synchronize,
             llama_get_logits_ith,
             llama_get_embeddings_ith,
+            llama_vocab_get_attr,
             llama_vocab_sep,
             llama_vocab_mask,
             llama_tokenize,
@@ -660,6 +676,13 @@ impl Llama {
     }
     pub unsafe fn llama_get_embeddings_ith(&self, ctx: *mut llama_context, i: i32) -> *mut f32 {
         (self.llama_get_embeddings_ith)(ctx, i)
+    }
+    pub unsafe fn llama_vocab_get_attr(
+        &self,
+        vocab: *const llama_vocab,
+        token: llama_token,
+    ) -> llama_token_attr {
+        (self.llama_vocab_get_attr)(vocab, token)
     }
     pub unsafe fn llama_vocab_sep(&self, vocab: *const llama_vocab) -> llama_token {
         (self.llama_vocab_sep)(vocab)

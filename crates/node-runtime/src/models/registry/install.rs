@@ -47,7 +47,7 @@ impl Registry {
         }
         let definition = self.definition(id)?;
         let kind = definition.format.kind();
-        super::super::availability::ensure(kind)?;
+        super::super::availability::check(kind).await?;
         let _mutation = self
             .mutations
             .get(&kind)

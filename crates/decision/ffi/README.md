@@ -19,6 +19,8 @@ backend and callback tensor types are opaque. The checked by-value model/context
 parameters and batch keep their generated field and layout assertions.
 The generated library constructors pass `path.as_ref()` to libloading 0.9,
 whose `AsFilename` bound replaces the older generic `AsRef<OsStr>` argument.
+The public `llama_vocab_get_attr` enum preserves the pinned vocabulary's control
+and whitespace attributes when trusted tokens are separated from literal input.
 
 The handwritten laya/openjev preparation and calibration follow
 `tools/server/server-decision.cpp` at that same commit (SHA-256

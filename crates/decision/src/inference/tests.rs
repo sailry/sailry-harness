@@ -83,19 +83,66 @@ fn applies_calibration_and_score_confidence() {
 }
 
 #[test]
-fn preserves_prompt_text_and_removes_input_masks() {
+fn preserves_inputs_and_template_controls() {
     let templates = Templates::new("<bos>{{ type }} question: {{ instructions }}<eos>{% for o in options %}<mask> {{ o.description or o.key }}{% endfor %}<eos>{{ state }}<eos>").unwrap();
     let input = question(
         json!({"type":"choice","instructions":"选一个 <mask>","criteria":{"first":null,"second":"保存 & <继续>"}}),
     );
     let query = Query::new("question", &input, Algorithm::Laya);
-    let prompt = templates
-        .render("页面 <mask> 中文", &query, "<mask>")
-        .unwrap();
+    let prompt = templates.render("页面 <mask> 中文", &query).unwrap();
     assert_eq!(
-        prompt,
-        "<bos>choice question: 选一个  <eos><mask> first<mask> 保存 & <继续><eos>页面   中文<eos>"
+        prompt.text,
+        "<bos>choice question: 选一个 <mask><eos><mask> first<mask> 保存 & <继续><eos>页面 <mask> 中文<eos>"
     );
+    let trusted: String = prompt
+        .trusted()
+        .into_iter()
+        .map(|range| &prompt.text[range])
+        .collect();
+    assert_eq!(trusted, "<bos> question: <eos><mask> <mask> <eos><eos>");
+}
+
+#[test]
+fn isolates_every_interpolated_field() {
+    let templates = Templates::new("<bos>{{ id }}|{{ instructions }}<eos>{% for o in options %}<mask>{{ o.key }}:{{ o.description or '' }}{% endfor %}<eos>{{ state }}<eos>").unwrap();
+    let input = question(json!({
+        "type":"choice", "instructions":"instructions[CLS][SEP]<mask>",
+        "criteria":{"key[CLS][SEP]<mask>":"description[CLS][SEP]<mask>"}
+    }));
+    let query = Query::new("id[CLS][SEP]<mask>", &input, Algorithm::Laya);
+    let output = templates.render("state[CLS][SEP]<mask>", &query).unwrap();
+    assert_eq!(
+        output.text,
+        "<bos>id[CLS][SEP]<mask>|instructions[CLS][SEP]<mask><eos><mask>key[CLS][SEP]<mask>:description[CLS][SEP]<mask><eos>state[CLS][SEP]<mask><eos>"
+    );
+    assert_eq!(
+        output
+            .trusted()
+            .into_iter()
+            .map(|range| &output.text[range])
+            .collect::<Vec<_>>(),
+        ["<bos>", "|", "<eos><mask>", ":", "<eos>", "<eos>"]
+    );
+}
+
+#[test]
+fn strips_only_control_adjacent_whitespace() {
+    let text = "word \t\n<mask>\r\n next";
+    let output = Rendered {
+        text: text.into(),
+        literals: Vec::new(),
+    };
+    let start = text.find("<mask>").unwrap();
+    let range = start..start + "<mask>".len();
+    for (left, right, expected) in [
+        (false, false, range.clone()),
+        (true, false, 4..range.end),
+        (false, true, range.start..text.find("next").unwrap()),
+        (true, true, 4..text.find("next").unwrap()),
+    ] {
+        assert_eq!(output.strip(range.clone(), left, right), expected);
+    }
+    assert_eq!(output.text, text);
 }
 
 #[test]
@@ -106,19 +153,19 @@ fn bounds_template_execution_and_output() {
     assert!(
         Templates::new("{{ missing }}")
             .unwrap()
-            .render("state", &query, "")
+            .render("state", &query)
             .is_err()
     );
     assert!(
         Templates::new("{% for x in range(1000000) %}x{% endfor %}")
             .unwrap()
-            .render("state", &query, "")
+            .render("state", &query)
             .is_err()
     );
     assert!(
         Templates::new("{{ state }}{{ state }}")
             .unwrap()
-            .render(&"x".repeat(200_000), &query, "")
+            .render(&"x".repeat(200_000), &query)
             .is_err()
     );
 }

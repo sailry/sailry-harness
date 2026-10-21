@@ -1,11 +1,61 @@
 //! The laya/openjev subset of b11756 server-decision.cpp, with typed text inputs.
 use crate::{Algorithm, Error, Metadata, Result};
-use minijinja::{AutoEscape, Environment, UndefinedBehavior, value::Serde};
+use minijinja::{AutoEscape, Environment, UndefinedBehavior, escape_formatter, value::Serde};
 use sailry_protocol::decision::{Answer, Question};
 use serde::Serialize;
-use std::{collections::BTreeMap, io::Write};
+use std::{
+    collections::BTreeMap,
+    io::Write,
+    ops::Range,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 pub(crate) struct Templates(Environment<'static>);
+
+pub(crate) struct Rendered {
+    pub text: String,
+    literals: Vec<Range<usize>>,
+}
+
+impl Rendered {
+    pub fn strip(&self, mut range: Range<usize>, left: bool, right: bool) -> Range<usize> {
+        let bytes = self.text.as_bytes();
+        // Match b11756's byte-wise C isspace handling for LSTRIP/RSTRIP.
+        let whitespace = |byte: u8| unsafe {
+            // SAFETY: C isspace accepts any value representable as unsigned char.
+            libc::isspace(i32::from(byte)) != 0
+        };
+        if left {
+            while range.start > 0 && whitespace(bytes[range.start - 1]) {
+                range.start -= 1;
+            }
+        }
+        if right {
+            while range.end < bytes.len() && whitespace(bytes[range.end]) {
+                range.end += 1;
+            }
+        }
+        range
+    }
+
+    pub fn trusted(&self) -> Vec<Range<usize>> {
+        let mut ranges = Vec::new();
+        let mut start = 0;
+        for literal in &self.literals {
+            if start < literal.start {
+                ranges.push(start..literal.start);
+            }
+            start = literal.end;
+        }
+        if start < self.text.len() {
+            ranges.push(start..self.text.len());
+        }
+        ranges
+    }
+}
 
 #[derive(Serialize)]
 pub(crate) struct OptionText {
@@ -32,45 +82,62 @@ impl Templates {
         Ok(Self(environment))
     }
 
-    pub fn render(&self, state: &str, query: &Query<'_>, marker: &str) -> Result<String> {
-        let replace = |value: &str| {
-            if marker.is_empty() {
-                value.to_owned()
-            } else {
-                value.replace(marker, " ")
-            }
-        };
-        let options: Vec<_> = query
-            .options
-            .iter()
-            .map(|option| OptionText {
-                key: replace(&option.key),
-                description: option.description.as_deref().map(replace),
-            })
-            .collect();
+    pub fn render(&self, state: &str, query: &Query<'_>) -> Result<Rendered> {
         let context = serde_json::json!({
-            "id":replace(query.name), "type":query.kind(), "instructions":replace(query.instructions()),
-            "state":replace(state), "options":options, "images":[]
+            "id":query.name, "type":query.kind(), "instructions":query.instructions(),
+            "state":state, "options":query.options, "images":[]
         });
-        let template = self
-            .0
+        let literal = Arc::new(AtomicBool::new(false));
+        let mut environment = self.0.clone();
+        let formatting = literal.clone();
+        // Template literals bypass the formatter. Values retain their original
+        // Jinja semantics, while all emitted value bytes remain literal input.
+        environment.set_formatter(move |output, state, value| {
+            let previous = formatting.swap(true, Ordering::Relaxed);
+            let result = escape_formatter(output, state, value);
+            formatting.store(previous, Ordering::Relaxed);
+            result
+        });
+        let template = environment
             .get_template("systemone")
             .map_err(|_| Error::Invalid("systemone template is missing"))?;
-        let mut output = Output(Vec::new());
+        let mut output = Output {
+            bytes: Vec::new(),
+            literals: Vec::new(),
+            literal,
+        };
         template
             .render_captured_to(Serde(&context), &mut output)
             .map_err(|_| Error::Invalid("systemone template could not be rendered"))?;
-        String::from_utf8(output.0).map_err(|_| Error::Invalid("systemone prompt is not UTF-8"))
+        Ok(Rendered {
+            text: String::from_utf8(output.bytes)
+                .map_err(|_| Error::Invalid("systemone prompt is not UTF-8"))?,
+            literals: output.literals,
+        })
     }
 }
 
-struct Output(Vec<u8>);
+struct Output {
+    bytes: Vec<u8>,
+    literals: Vec<Range<usize>>,
+    literal: Arc<AtomicBool>,
+}
 impl Write for Output {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if bytes.len() > (256 * 1024usize).saturating_sub(self.0.len()) {
+        if bytes.len() > (256 * 1024usize).saturating_sub(self.bytes.len()) {
             return Err(std::io::Error::other("systemone prompt exceeds its limit"));
         }
-        self.0.extend_from_slice(bytes);
+        let start = self.bytes.len();
+        self.bytes.extend_from_slice(bytes);
+        if !bytes.is_empty() && self.literal.load(Ordering::Relaxed) {
+            if let Some(previous) = self.literals.last_mut()
+                && previous.end == start
+            {
+                previous.end = self.bytes.len();
+            } else {
+                self.literals.push(start..self.bytes.len());
+            }
+        }
         Ok(bytes.len())
     }
     fn flush(&mut self) -> std::io::Result<()> {

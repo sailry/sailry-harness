@@ -35,7 +35,9 @@ fn best(variants: &[String], mut score: impl FnMut(&str) -> Result<i32>) -> Resu
         }
     }
     selected.ok_or_else(|| {
-        failed.unwrap_or(Error::Unavailable("no compatible CPU backend is available"))
+        failed.unwrap_or(Error::Unavailable(
+            "no compatible CPU backend is available".into(),
+        ))
     })
 }
 
@@ -76,7 +78,7 @@ mod tests {
         assert_eq!(
             best(&variants, |name| match name {
                 "unsupported" => Ok(0),
-                "unloadable" => Err(Error::Unavailable("dependency is missing")),
+                "unloadable" => Err(Error::Unavailable("dependency is missing".into())),
                 _ => Ok(1),
             })
             .unwrap(),
@@ -84,13 +86,11 @@ mod tests {
         );
         assert!(matches!(
             best(&variants[..1], |_| Ok(0)),
-            Err(Error::Unavailable("no compatible CPU backend is available"))
+            Err(Error::Unavailable(message)) if message == "no compatible CPU backend is available"
         ));
         assert!(matches!(
-            best(&variants[1..2], |_| Err(Error::Unavailable(
-                "dependency is missing"
-            ))),
-            Err(Error::Unavailable("dependency is missing"))
+            best(&variants[1..2], |_| Err(Error::Unavailable("dependency is missing".into()))),
+            Err(Error::Unavailable(message)) if message == "dependency is missing"
         ));
     }
 }

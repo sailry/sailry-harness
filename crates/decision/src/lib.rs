@@ -13,7 +13,7 @@ pub enum Error {
     #[error("decision input is invalid: {0}")]
     Invalid(&'static str),
     #[error("decision runtime is unavailable: {0}")]
-    Unavailable(&'static str),
+    Unavailable(std::borrow::Cow<'static, str>),
     #[error("decision inference failed: {0}")]
     Native(&'static str),
     #[error("decision inference was cancelled")]

@@ -99,6 +99,18 @@ class Assets(unittest.TestCase):
         runtime.prepare(target, self.output, self.cache)
         self.assertEqual((self.output / "llama.dll").read_bytes(), self.content)
 
+    def test_records_arm_glibc_minimum(self):
+        target = "aarch64-unknown-linux-gnu"
+        fixture(self.root, self.cache, target)
+        definition = json.loads(self.lock.read_text())
+        definition["targets"][target]["minimum_glibc"] = "2.38"
+        self.lock.write_text(json.dumps(definition))
+        runtime.prepare(target, self.output, self.cache)
+        manifest = json.loads((self.output / runtime.MANIFEST).read_text())
+        self.assertTrue(manifest["available"])
+        self.assertEqual(manifest["minimum_glibc"], "2.38")
+        self.assertEqual((self.output / "libllama.0.dylib").read_bytes(), self.content)
+
     def test_records_unavailable_without_download(self):
         asset = self.definition["targets"][TARGET]
         asset.update(available=False, files=[], reason="Unsupported baseline")

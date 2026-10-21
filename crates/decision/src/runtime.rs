@@ -8,17 +8,22 @@ use std::{
     fs::File,
     io::Read,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Arc, OnceLock},
 };
 mod cpu;
 
 const LOCK: &str = include_str!("../../../scripts/package/llama-runtime.lock.json");
-static CURRENT: Mutex<Option<Arc<Runtime>>> = Mutex::new(None);
+type Prepared = std::result::Result<Arc<Runtime>, String>;
+// Packaged native images and this executable's compiled lock stay immutable until restart.
+static CURRENT: OnceLock<Prepared> = OnceLock::new();
 
 pub(crate) struct Runtime {
     pub api: ffi::Llama,
     _backend: ffi::backend::Backend,
     _base: ffi::base::Base,
+    _cpu: Option<libloading::Library>,
+    cpu: Option<CString>,
+    initialized: OnceLock<std::result::Result<(), String>>,
 }
 
 #[derive(Deserialize)]
@@ -35,6 +40,8 @@ struct Target {
     archive: String,
     sha256: String,
     entry: Option<String>,
+    minimum_macos: Option<String>,
+    minimum_glibc: Option<String>,
     files: Vec<Pinned>,
 }
 #[derive(Deserialize)]
@@ -73,25 +80,55 @@ struct Artifact {
 }
 
 pub(crate) fn initialize() -> Result<Arc<Runtime>> {
-    let mut current = CURRENT.lock().unwrap();
-    if let Some(runtime) = current.as_ref() {
-        return Ok(runtime.clone());
-    }
-    let executable = std::env::current_exe()?;
-    let directory = executable
-        .parent()
-        .ok_or(Error::Unavailable("executable directory is missing"))?;
-    let runtime = Arc::new(load(directory)?);
-    *current = Some(runtime.clone());
+    let runtime = prepared()?;
+    runtime
+        .initialized
+        .get_or_init(|| runtime.start().map_err(reason))
+        .as_ref()
+        .map_err(|message| Error::Unavailable(message.clone().into()))?;
     Ok(runtime)
 }
 
 pub(crate) fn available() -> Result<()> {
-    let executable = std::env::current_exe()?;
-    let directory = executable
-        .parent()
-        .ok_or(Error::Unavailable("executable directory is missing"))?;
-    verify(directory).map(|_| ())
+    prepared().map(|_| ())
+}
+
+fn prepared() -> Result<Arc<Runtime>> {
+    cached(&CURRENT, || {
+        let executable = std::env::current_exe()?;
+        let directory = executable
+            .parent()
+            .ok_or_else(|| Error::Unavailable("executable directory is missing".into()))?;
+        load(directory)
+    })
+}
+
+fn cached(
+    cache: &OnceLock<Prepared>,
+    load: impl FnOnce() -> Result<Runtime>,
+) -> Result<Arc<Runtime>> {
+    cache
+        .get_or_init(|| load().map(Arc::new).map_err(reason))
+        .as_ref()
+        .cloned()
+        .map_err(|message| Error::Unavailable(message.clone().into()))
+}
+
+fn reason(error: Error) -> String {
+    match error {
+        Error::Unavailable(message) => message.into_owned(),
+        Error::Library(error) => {
+            let mut message = error.to_string();
+            let mut source = std::error::Error::source(&error);
+            while let Some(error) = source {
+                message.push_str(": ");
+                message.push_str(&error.to_string());
+                source = error.source();
+            }
+            message
+        }
+        error => error.to_string(),
+    }
 }
 
 fn target() -> Result<&'static str> {
@@ -99,15 +136,26 @@ fn target() -> Result<&'static str> {
         ("macos", "aarch64") => Ok("aarch64-apple-darwin"),
         ("macos", "x86_64") => Ok("x86_64-apple-darwin"),
         ("linux", "x86_64") => Ok("x86_64-unknown-linux-gnu"),
+        ("linux", "aarch64") => Ok("aarch64-unknown-linux-gnu"),
         ("windows", "aarch64") => Ok("aarch64-pc-windows-msvc"),
         ("windows", "x86_64") => Ok("x86_64-pc-windows-msvc"),
         _ => Err(Error::Unavailable(
-            "platform has no supported prebuilt runtime",
+            "platform has no supported prebuilt runtime".into(),
         )),
     }
 }
 
-fn platform() -> Result<()> {
+fn platform(asset: &Target) -> Result<()> {
+    let _minimum = match std::env::consts::OS {
+        "macos" => asset.minimum_macos.as_deref(),
+        "linux" => asset.minimum_glibc.as_deref(),
+        _ => None,
+    }
+    .map(|value| {
+        version(value)
+            .ok_or_else(|| Error::Unavailable("native platform minimum is invalid".into()))
+    })
+    .transpose()?;
     #[cfg(target_os = "macos")]
     {
         let mut bytes = [0u8; 128];
@@ -123,42 +171,48 @@ fn platform() -> Result<()> {
             )
         };
         if status != 0 || length == 0 || length > bytes.len() {
-            return Err(Error::Unavailable("macOS version could not be read"));
+            return Err(Error::Unavailable("macOS version could not be read".into()));
         }
         let version = std::str::from_utf8(&bytes[..length])
-            .map_err(|_| Error::Unavailable("macOS version is invalid"))?;
-        if !at_least(version.trim_end_matches('\0'), (13, 3)) {
-            return Err(Error::Unavailable("macOS 13.3 or newer is required"));
+            .map_err(|_| Error::Unavailable("macOS version is invalid".into()))?;
+        let minimum =
+            _minimum.ok_or_else(|| Error::Unavailable("macOS minimum is missing".into()))?;
+        if !at_least(version.trim_end_matches('\0'), minimum) {
+            return Err(Error::Unavailable(
+                format!("macOS {}.{} or newer is required", minimum.0, minimum.1).into(),
+            ));
         }
     }
-    #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
         // SAFETY: glibc returns a static nul-terminated version string.
         let version = unsafe { std::ffi::CStr::from_ptr(libc::gnu_get_libc_version()) };
-        if !version.to_str().is_ok_and(|value| at_least(value, (2, 34))) {
-            return Err(Error::Unavailable("glibc 2.34 or newer is required"));
+        let minimum =
+            _minimum.ok_or_else(|| Error::Unavailable("glibc minimum is missing".into()))?;
+        if !version.to_str().is_ok_and(|value| at_least(value, minimum)) {
+            return Err(Error::Unavailable(
+                format!("glibc {}.{} or newer is required", minimum.0, minimum.1).into(),
+            ));
         }
     }
     #[cfg(all(target_os = "linux", not(target_env = "gnu")))]
-    return Err(Error::Unavailable("a glibc runtime is required"));
+    return Err(Error::Unavailable("a glibc runtime is required".into()));
     Ok(())
 }
 
-fn at_least(value: &str, minimum: (u32, u32)) -> bool {
+fn version(value: &str) -> Option<(u32, u32)> {
     let mut parts = value.split('.');
-    let version = parts.next().and_then(|major| {
-        Some((
-            major.parse::<u32>().ok()?,
-            parts.next()?.parse::<u32>().ok()?,
-        ))
-    });
-    version.is_some_and(|version| version >= minimum)
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+}
+
+fn at_least(value: &str, minimum: (u32, u32)) -> bool {
+    version(value).is_some_and(|value| value >= minimum)
 }
 
 fn ordinary(path: &Path) -> Result<PathBuf> {
     if !path.symlink_metadata()?.is_file() {
         return Err(Error::Unavailable(
-            "native runtime must contain ordinary files",
+            "native runtime must contain ordinary files".into(),
         ));
     }
     Ok(path.canonicalize()?)
@@ -177,26 +231,26 @@ fn manifest(directory: &Path) -> PathBuf {
 }
 
 fn verify(directory: &Path) -> Result<Artifact> {
-    platform()?;
     let identity = target()?;
     let lock: Lock = serde_json::from_str(LOCK)
-        .map_err(|_| Error::Unavailable("packaged runtime lock is invalid"))?;
+        .map_err(|_| Error::Unavailable("packaged runtime lock is invalid".into()))?;
     let target = lock
         .targets
         .get(identity)
         .filter(|target| target.available)
         .ok_or(Error::Unavailable(
-            "runtime is unavailable on this platform",
+            "runtime is unavailable on this platform".into(),
         ))?;
+    platform(target)?;
     let path = ordinary(&manifest(directory))?;
     let file = File::open(path)?;
     if file.metadata()?.len() > 128 * 1024 {
         return Err(Error::Unavailable(
-            "native runtime manifest exceeds its limit",
+            "native runtime manifest exceeds its limit".into(),
         ));
     }
     let installed: Manifest = serde_json::from_reader(file)
-        .map_err(|_| Error::Unavailable("native runtime manifest is invalid"))?;
+        .map_err(|_| Error::Unavailable("native runtime manifest is invalid".into()))?;
     if lock.version != 1
         || installed.version != 1
         || installed.target != identity
@@ -208,7 +262,9 @@ fn verify(directory: &Path) -> Result<Artifact> {
         || installed.source.url != format!("{}{}", lock.source, target.archive)
         || installed.source.sha256 != target.sha256
     {
-        return Err(Error::Unavailable("native runtime does not match its lock"));
+        return Err(Error::Unavailable(
+            "native runtime does not match its lock".into(),
+        ));
     }
     for (file, pinned) in installed.files.iter().zip(&target.files) {
         if file.name != pinned.name
@@ -216,13 +272,15 @@ fn verify(directory: &Path) -> Result<Artifact> {
             || (!cfg!(target_os = "macos")
                 && (file.size != pinned.size || file.sha256 != pinned.sha256))
         {
-            return Err(Error::Unavailable("native runtime provenance is invalid"));
+            return Err(Error::Unavailable(
+                "native runtime provenance is invalid".into(),
+            ));
         }
         let path = ordinary(&directory.join(&pinned.name))?;
         let mut input = File::open(path)?;
         if input.metadata()?.len() != file.size {
             return Err(Error::Unavailable(
-                "native runtime file size does not match",
+                "native runtime file size does not match".into(),
             ));
         }
         let mut hash = Sha256::new();
@@ -235,13 +293,15 @@ fn verify(directory: &Path) -> Result<Artifact> {
             hash.update(&buffer[..count]);
         }
         if format!("{:x}", hash.finalize()) != file.sha256 {
-            return Err(Error::Unavailable("native runtime checksum does not match"));
+            return Err(Error::Unavailable(
+                "native runtime checksum does not match".into(),
+            ));
         }
     }
     let entry = target
         .entry
         .clone()
-        .ok_or(Error::Unavailable("native runtime entry is missing"))?;
+        .ok_or(Error::Unavailable("native runtime entry is missing".into()))?;
     Ok(Artifact {
         entry,
         variants: target
@@ -260,10 +320,10 @@ fn names() -> Result<(&'static str, &'static str, Option<&'static str>)> {
             "libggml.0.dylib",
             Some("libggml-cpu.0.dylib"),
         )),
-        ("linux", "x86_64") => Ok(("libggml-base.so.0", "libggml.so.0", None)),
+        ("linux", "x86_64" | "aarch64") => Ok(("libggml-base.so.0", "libggml.so.0", None)),
         ("windows", "x86_64") => Ok(("ggml-base.dll", "ggml.dll", None)),
         ("windows", "aarch64") => Ok(("ggml-base.dll", "ggml.dll", Some("ggml-cpu.dll"))),
-        _ => Err(Error::Unavailable("CPU backend is unavailable")),
+        _ => Err(Error::Unavailable("CPU backend is unavailable".into())),
     }
 }
 
@@ -282,48 +342,60 @@ fn load(directory: &Path) -> Result<Runtime> {
         api.llama_log_set(Some(discard), std::ptr::null_mut());
         base.ggml_log_set(Some(discard), std::ptr::null_mut());
     }
-    // macOS links the CPU registry into ggml. Other packages ship dynamic variants.
-    // Query first; load only the exact CPU member if it is not already registered.
-    // SAFETY: the public API selects only a registered CPU device.
-    let mut device = unsafe {
+    // Preflight dynamic dependencies and select the immutable CPU image. Model
+    // loading and backend initialization stay on the existing inference worker.
+    // SAFETY: this query does not create a backend or model.
+    let device = unsafe {
         backend.ggml_backend_dev_by_type(
             ffi::backend::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_CPU,
         )
     };
-    if device.is_null() {
+    let (cpu, cpu_library) = if device.is_null() {
         let path = if artifact.variants.is_empty() {
-            ordinary(
-                &directory.join(cpu.ok_or(Error::Unavailable("CPU backend variants are missing"))?),
-            )?
+            ordinary(&directory.join(
+                cpu.ok_or_else(|| Error::Unavailable("CPU backend variants are missing".into()))?,
+            ))?
         } else {
             cpu::select(directory, &artifact.variants)?
         };
+        let cpu_library = library(&path)?;
         let path = CString::new(path.as_os_str().as_encoded_bytes())
-            .map_err(|_| Error::Unavailable("CPU backend path is invalid"))?;
-        // SAFETY: this is one exact, verified CPU library, never a directory scan.
-        if unsafe { backend.ggml_backend_load(path.as_ptr()) }.is_null() {
-            return Err(Error::Unavailable("CPU backend could not be loaded"));
-        }
-        // SAFETY: the explicit backend load just registered its devices.
-        device = unsafe {
-            backend.ggml_backend_dev_by_type(
-                ffi::backend::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_CPU,
-            )
-        };
-    }
-    if device.is_null() {
-        return Err(Error::Unavailable("CPU backend has no device"));
-    }
-    // SAFETY: the CPU is already registered, so b11756's initializer will not take
-    // its implicit load_all fallback. It initializes the shared floating-point tables.
-    unsafe {
-        api.llama_backend_init();
-    }
+            .map_err(|_| Error::Unavailable("CPU backend path is invalid".into()))?;
+        (Some(path), Some(cpu_library))
+    } else {
+        (None, None)
+    };
     Ok(Runtime {
         api,
         _backend: backend,
         _base: base,
+        _cpu: cpu_library,
+        cpu,
+        initialized: OnceLock::new(),
     })
+}
+
+impl Runtime {
+    fn start(&self) -> Result<()> {
+        if let Some(path) = &self.cpu {
+            // SAFETY: preflight retained this exact locked CPU image and dependencies.
+            if unsafe { self._backend.ggml_backend_load(path.as_ptr()) }.is_null() {
+                return Err(Error::Unavailable("CPU backend could not be loaded".into()));
+            }
+        }
+        // SAFETY: CPU registration is complete before initializing floating-point tables.
+        let device = unsafe {
+            self._backend.ggml_backend_dev_by_type(
+                ffi::backend::ggml_backend_dev_type_GGML_BACKEND_DEVICE_TYPE_CPU,
+            )
+        };
+        if device.is_null() {
+            return Err(Error::Unavailable("CPU backend has no device".into()));
+        }
+        // SAFETY: a registered CPU prevents the initializer's implicit directory scan.
+        unsafe { self.api.llama_backend_init() };
+        Ok(())
+    }
 }
 
 fn library(path: &Path) -> Result<libloading::Library> {
