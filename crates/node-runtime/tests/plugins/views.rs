@@ -51,6 +51,11 @@ async fn reads_declared_resources() {
         let root = directory.path().join("source/package");
         declare(&root, b"export default class Example {}\n");
         let first = info(execute(&client, install(worktree, 0)).await);
+        // Concurrent controllers wait for the bounded resource reader instead of failing busy.
+        let requests = (0..8).map(|_| client.execute(client.prepare(read(&first))));
+        for result in futures::future::join_all(requests).await {
+            assert_eq!(bundle(result.unwrap()).package, first.summary.reference());
+        }
         // The source directory is not the installed version.
         fs::write(
             root.join("dev.sailry.platform/ui/main.js"),

@@ -42,6 +42,7 @@ pub(crate) struct Panel {
     pub(super) target: Option<String>,
     pub(super) mounted: Option<Mounted>,
     pub(super) initialization: Initialization,
+    failures: lifecycle::Failures,
     prepared: Option<super::preload::Prepared>,
     pub(super) error: Option<&'static str>,
     pub(super) viewport: Option<Size<Pixels>>,
@@ -311,6 +312,7 @@ impl Panel {
             target: None,
             mounted: None,
             initialization: Initialization::Unloaded,
+            failures: Default::default(),
             prepared: None,
             error: None,
             viewport: None,
@@ -532,6 +534,7 @@ impl Panel {
             if self.available(&package) {
                 self.selected = Some(package);
                 self.initialization = Initialization::Published;
+                self.failures.clear();
             }
             return;
         }
@@ -567,7 +570,7 @@ impl Panel {
         self.initialization = Initialization::Unloaded;
     }
 
-    fn report_failure(&self, code: sailry_protocol::ErrorCode, stage: &'static str) {
+    fn report_failure(&mut self, code: sailry_protocol::ErrorCode, stage: &'static str) {
         use sailry_protocol::notification::{DiagnosticPlugin, SystemDiagnostic, SystemSource};
         let Some(package) = &self.selected else {
             return;
@@ -579,6 +582,9 @@ impl Panel {
         else {
             return;
         };
+        if !self.failures.record(package, code, stage) {
+            return;
+        }
         let mut report = SystemDiagnostic::new(
             sailry_protocol::RequestId::new(),
             SystemSource::PluginInitialization,
@@ -635,6 +641,7 @@ impl Panel {
         self.release();
         self.prepared = None;
         self.selected = None;
+        self.failures.clear();
         self.target = None;
         self.initialization = Initialization::Unloaded;
         self.connected = false;
@@ -943,6 +950,7 @@ impl Panel {
                                     Some(cx.observe(&mounted.header, |_, _, cx| cx.notify()));
                                 panel.mounted = Some(mounted);
                                 panel.initialization = Initialization::Published;
+                                panel.failures.clear();
                             }
                             Err(_) => {
                                 host.close();
