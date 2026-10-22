@@ -534,7 +534,8 @@ impl Registry {
             }
             let content_sized = bridge.declarations.iter().any(|entry| {
                 entry.kind == ui::Kind::Popover
-                    || entry.kind == ui::Kind::Indicator && entry.handler.is_some()
+                    || matches!(entry.kind, ui::Kind::Indicator | ui::Kind::Metric)
+                        && entry.handler.is_some()
             });
             let panel = cx.new(|cx| {
                 let mut panel = Panel::contributions(
@@ -656,6 +657,15 @@ impl Registry {
             ))
         });
         entries
+    }
+
+    pub(crate) fn metric_panel(&self, entry: &Entry, cx: &App) -> Option<Entity<Panel>> {
+        if entry.declaration.kind != ui::Kind::Metric || entry.declaration.handler.is_none() {
+            return None;
+        }
+        self.current(&entry.key)
+            .filter(|mounted| mounted.active(cx))
+            .map(|mounted| mounted.panel.clone())
     }
 
     pub(crate) fn commands(&self, cx: &App) -> Vec<Entry> {

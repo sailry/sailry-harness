@@ -46,7 +46,12 @@ impl View {
                 .or_default()
                 .push(entry);
         }
-        groups.extend(packages.into_values().map(super::super::usage::external));
+        groups.extend(packages.into_values().map(|entries| {
+            let panel = entries
+                .iter()
+                .find_map(|entry| self.contributions.read(cx).metric_panel(entry, cx));
+            super::super::usage::external(entries, panel)
+        }));
         groups.sort_by_key(|group| {
             group
                 .metrics
@@ -72,7 +77,7 @@ impl View {
         if entries.is_empty() {
             Vec::new()
         } else {
-            vec![super::super::usage::external(entries)]
+            vec![super::super::usage::external(entries, None)]
         }
     }
 

@@ -1,10 +1,5 @@
 use crate::{shell::Shell, tr};
-use gpui_kit::component::{
-    button::{Button, ButtonVariants},
-    separator::Separator,
-    tooltip::Tooltip,
-    *,
-};
+use gpui_kit::component::{separator::Separator, tooltip::Tooltip, *};
 use gpui_kit::*;
 
 mod preview;
@@ -73,27 +68,21 @@ pub(super) fn render_groups(groups: &[Group], selector: &'static str, cx: &App) 
         .children(metrics.into_iter().map(|metric| {
             let id = metric.id.clone();
             let details = metric.details.clone();
-            popover::Popover::new(SharedString::from(format!("metric-popover-{id}")))
+            hover_card::HoverCard::new(SharedString::from(format!("metric-popover-{id}")))
                 .anchor(Anchor::BottomRight)
                 .trigger(
-                    Button::new(SharedString::from(id.clone()))
-                        .ghost()
-                        .small()
-                        .text_color(cx.theme().muted_foreground)
-                        .px_1()
+                    h_flex()
+                        .id(SharedString::from(id.clone()))
                         .debug_selector(move || id.clone())
-                        .child(
-                            h_flex()
-                                .gap_1()
-                                .children(metric.icon.clone().map(|icon| icon.small()))
-                                .children(
-                                    metric
-                                        .prefix
-                                        .clone()
-                                        .map(|prefix| div().w_3p5().text_center().child(prefix)),
-                                )
-                                .child(metric.value.clone()),
-                        ),
+                        .gap_1()
+                        .children(metric.icon.clone().map(|icon| icon.small()))
+                        .children(
+                            metric
+                                .prefix
+                                .clone()
+                                .map(|prefix| div().w_3p5().text_center().child(prefix)),
+                        )
+                        .child(metric.value.clone()),
                 )
                 .content(move |_, _, cx| details(cx))
         }))

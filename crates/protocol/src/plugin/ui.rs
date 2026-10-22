@@ -275,7 +275,9 @@ impl Contribution {
             && (self.slot != Slot::ProjectMenu || matches!(self.kind, Kind::Button | Kind::Menu))
             && if self.kind == Kind::Metric {
                 matches!(self.slot, Slot::Statistics | Slot::Footer | Slot::Provider)
-                    && self.handler.is_none()
+                    && (self.handler.is_none()
+                        || self.slot == Slot::Statistics
+                            && self.handler.as_deref().is_some_and(identifier))
                     && self.choices.is_empty()
             } else if self.kind == Kind::Indicator {
                 self.slot == Slot::Composer
@@ -297,7 +299,8 @@ pub fn valid(entries: &[Contribution]) -> bool {
             .iter()
             .filter(|entry| {
                 entry.kind == Kind::Popover
-                    || entry.kind == Kind::Indicator && entry.handler.is_some()
+                    || matches!(entry.kind, Kind::Indicator | Kind::Metric)
+                        && entry.handler.is_some()
             })
             .count()
             <= 1

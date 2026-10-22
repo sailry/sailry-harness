@@ -548,7 +548,7 @@ Conversation components are available in workspace and resource panels, includin
 
 ## Contributions and operations
 
-Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `statistics`, `footer`, `provider`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics popover, available by click or keyboard.
+Declare `ui` entries in `extensions.dev.sailry.platform`: a slot (`composer`, `model`, `context`, `statistics`, `footer`, `provider`), kind, localized label, icon, order and named handler. An optional `desktop.ui_entry` runs the state/event module. Publish state through `publishContributions` and consume actions through `nextContributionEvent`; responses include the event sequence in `reply_to`. Actions stay disabled until their matching reply, while searches can supersede earlier searches. The host renders normal and compact controls from the same declarations. Controls with `overflow: "menu"` appear in composer settings, including context controls; embedded conversations also place their context controls there. Metric details join the shared statistics hover surface; the compact statistics menu remains accessible by keyboard. A `statistics` metric may declare a handler to render its package-owned details in that surface; passive metrics keep their flat declared details. A package declares at most one custom detail surface.
 Composer placement uses the same declarations for the toolbar and settings:
 below 680 logical pixels secondary composer controls move into settings; below
 440 context controls move there as well. Indicators remain beside the explicit
@@ -559,7 +559,7 @@ may be null for an unknown measurement; `open` defaults to false. With an option
 named `handler`, it uses a Kit button and controlled popover containing the
 package's `desktop.ui_entry` view. Consume boolean `change` events and acknowledge
 their sequence with `reply_to` while publishing `open`. A package may have only
-one panel-bearing contribution: a popover or an interactive indicator.
+one panel-bearing contribution: a popover, an interactive indicator or a metric with a handler.
 Passive indicators cannot publish `open: true`.
 
 With `conversation.read`, `readComposer().statistics` exposes Node-owned context

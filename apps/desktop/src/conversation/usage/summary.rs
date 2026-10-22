@@ -1,6 +1,6 @@
 use super::*;
 use gpui_kit::component::{
-    button::{Button, ButtonVariants},
+    button::{Button, ButtonCustomVariant, ButtonVariants},
     scroll::ScrollableElement,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -38,7 +38,7 @@ pub(in crate::conversation) fn render(groups: Vec<Group>, cx: &App) -> AnyElemen
         })
         .trigger(
             Button::new("composer-stats")
-                .custom(crate::theme::subtle_button(cx).foreground(cx.theme().muted_foreground))
+                .custom(ButtonCustomVariant::new(cx).foreground(cx.theme().muted_foreground))
                 .small()
                 .rounded_full()
                 .flex_shrink_0()

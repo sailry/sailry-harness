@@ -174,6 +174,19 @@ fn metrics_use_passive_footer_slots() {
 }
 
 #[test]
+fn statistics_allow_one_plugin_detail_surface() {
+    let entry = contribution(Slot::Statistics, Kind::Metric);
+    assert!(entry.valid());
+    assert!(super::valid(&[entry.clone()]));
+    let mut duplicate = entry.clone();
+    duplicate.id = "other".into();
+    assert!(!super::valid(&[entry, duplicate]));
+    for slot in [Slot::Footer, Slot::Provider] {
+        assert!(!contribution(slot, Kind::Metric).valid());
+    }
+}
+
+#[test]
 fn details_accept_bounded_optional_progress() {
     let mut entry = contribution(Slot::Footer, Kind::Metric);
     entry.handler = None;

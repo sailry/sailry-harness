@@ -6,18 +6,25 @@ use gpui_kit::prelude::FluentBuilder as _;
 use sailry_protocol::plugin::{desktop::Navigation, ui::Detail};
 use std::sync::Arc;
 
-pub(in crate::conversation) fn group(entries: Vec<Entry>) -> Group {
+pub(in crate::conversation) fn group(
+    entries: Vec<Entry>,
+    panel: Option<Entity<crate::plugins::Panel>>,
+) -> Group {
     let metrics = entries
         .iter()
         .map(|entry| {
             let snapshot = entry.clone();
+            let content = entry.declaration.handler.as_ref().and(panel.clone());
             Metric {
                 id: format!("plugin-stat-{}-{}", entry.key.package.name, entry.key.id),
                 order: entry.declaration.order,
                 value: entry.value(),
                 icon: entry.icon(),
                 prefix: None,
-                details: Rc::new(move |cx| details(&snapshot, cx)),
+                details: Rc::new(move |cx| match &content {
+                    Some(panel) => panel.clone().into_any_element(),
+                    None => details(&snapshot, cx),
+                }),
             }
         })
         .collect();
@@ -28,7 +35,14 @@ pub(in crate::conversation) fn group(entries: Vec<Entry>) -> Group {
                 .w_full()
                 .min_w_0()
                 .gap_3()
-                .children(entries.iter().map(|entry| body(entry, cx)))
+                .children(entries.iter().map(|entry| {
+                    if entry.declaration.handler.is_some() {
+                        if let Some(panel) = &panel {
+                            return panel.clone().into_any_element();
+                        }
+                    }
+                    body(entry, cx).into_any_element()
+                }))
                 .into_any_element()
         }),
     }

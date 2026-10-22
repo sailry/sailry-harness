@@ -446,13 +446,11 @@ async fn indicator_uses_controlled_boolean_interactions() {
 }
 
 #[test]
-fn distinguishes_pending_from_explicit_hidden() {
+fn hides_unpublished_controls() {
     let bridge = picker();
     let declaration = &bridge.declarations[0];
-    let pending = bridge.presentation(declaration, false, false).unwrap();
-    assert!(pending.visible && pending.loading && !pending.enabled);
-    let failed = bridge.presentation(declaration, false, true).unwrap();
-    assert!(failed.visible && !failed.loading && !failed.enabled);
+    assert!(bridge.presentation(declaration, false, false).is_none());
+    assert!(bridge.presentation(declaration, false, true).is_none());
     bridge
         .publish(vec![state(json!({"id":"resource", "visible":false}))])
         .unwrap();
@@ -472,7 +470,7 @@ fn publishes_each_declaration_independently() {
     assert!(bridge.presentation(&first, true, false).is_none());
     assert!(bridge.published(&first.id));
     assert!(!bridge.published(&second.id));
-    assert!(bridge.presentation(&second, false, false).unwrap().loading);
+    assert!(bridge.presentation(&second, false, false).is_none());
 }
 
 #[test]
@@ -509,8 +507,6 @@ fn retains_disabled_labels_until_replacement() {
     assert!(
         replacement
             .presentation(&replacement.declarations[0], false, false)
-            .unwrap()
-            .label
             .is_none()
     );
 }
@@ -532,4 +528,23 @@ fn rejects_actions_while_loading() {
             .invoke("resource", EventKind::Search, json!("query"))
             .is_err()
     );
+}
+
+#[test]
+fn retains_empty_indicators_without_placeholder_labels() {
+    let entry = serde_json::from_value(json!({
+        "id":"progress", "slot":"composer", "kind":"indicator",
+        "label":{"label":"Progress"}
+    }))
+    .unwrap();
+    let bridge = Bridge::new(vec![entry]);
+    for failed in [false, true] {
+        let state = bridge
+            .presentation(&bridge.declarations[0], false, failed)
+            .unwrap();
+        assert!(state.visible);
+        assert!(!state.enabled);
+        assert!(state.value.is_null());
+        assert!(state.label.is_none());
+    }
 }

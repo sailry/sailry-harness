@@ -8,7 +8,7 @@ impl Registry {
         let hint: SharedString = indicator
             .as_ref()
             .map(|value| value.hint.clone())
-            .unwrap_or_else(|| label(&entry.declaration.label).to_string())
+            .unwrap_or_else(|| "0".into())
             .into();
         let percent = indicator.as_ref().and_then(|value| value.percent);
         let color = match indicator.as_ref().map(|value| value.tone) {
@@ -16,26 +16,13 @@ impl Registry {
             Some(ui::Tone::Danger) => cx.theme().danger,
             _ => cx.theme().muted_foreground,
         };
-        let content = h_flex()
-            .gap_1()
-            .items_center()
-            .text_xs()
-            .child(
-                progress::ProgressCircle::new(SharedString::from(format!("indicator-{}", key.id)))
-                    .value(percent.unwrap_or(0.).min(100.) as f32)
-                    .loading(
-                        entry.state.loading
-                            || indicator.as_ref().is_some_and(|value| value.loading),
-                    )
-                    .with_size(px(20.))
-                    .color(color)
-                    .accessibility_label(hint.clone()),
-            )
-            .child(
-                percent
-                    .map(|value| format!("{value:.0}%").into())
-                    .unwrap_or_else(|| crate::tr("composer_metric_unknown")),
-            );
+        let content =
+            progress::ProgressCircle::new(SharedString::from(format!("indicator-{}", key.id)))
+                .value(percent.unwrap_or(0.).min(100.) as f32)
+                .loading(indicator.as_ref().is_some_and(|value| value.loading))
+                .with_size(px(20.))
+                .color(color)
+                .accessibility_label(hint.clone());
         if entry.declaration.handler.is_none() {
             return div()
                 .id(SharedString::from(id))
