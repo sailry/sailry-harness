@@ -583,7 +583,7 @@ impl Render for View {
         use gpui_kit::prelude::FluentBuilder as _;
 
         self.sync_question(window, cx);
-        self.contributions.update(cx, |registry, cx| {
+        self.contribution_metadata = self.contributions.update(cx, |registry, cx| {
             registry.sync(
                 &self.binding,
                 crate::plugins::contributions::ViewState {
@@ -595,7 +595,9 @@ impl Render for View {
                 },
                 window,
                 cx,
-            )
+            );
+            // Rebinding the session replaces the registry's metadata owner.
+            registry.metadata()
         });
         self.search.update(cx, |search, cx| {
             search.sync(
