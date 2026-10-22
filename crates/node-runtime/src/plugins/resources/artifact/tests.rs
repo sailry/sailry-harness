@@ -1,5 +1,5 @@
 use super::*;
-use std::{fs, time::Duration};
+use std::fs;
 
 fn fixture() -> (tempfile::TempDir, Host, Info) {
     let (directory, host, source) = crate::plugins::tests::fixture();
@@ -25,59 +25,27 @@ fn fixture() -> (tempfile::TempDir, Host, Info) {
 }
 
 #[tokio::test]
-async fn waits_for_resource_capacity() {
+async fn ignores_remote_read_capacity() {
     let (_directory, host, info) = fixture();
-    let permit = host.reads.clone().acquire_many_owned(2).await.unwrap();
-    let reader = host.clone();
-    let task = tokio::spawn(async move {
-        reader
-            .read_artifact_view(info, CancellationToken::new())
-            .await
-    });
-    tokio::task::yield_now().await;
-    assert!(!task.is_finished());
-    assert_eq!(host.reads.available_permits(), 0);
-    drop(permit);
-    let content = task.await.unwrap().unwrap().unwrap();
+    let _permit = host.reads.clone().acquire_many_owned(2).await.unwrap();
+    let content = host
+        .read_artifact_view(info, CancellationToken::new())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(content.template, "<main>{{body}}</main>");
     assert_eq!(content.styles, ["main { color: inherit; }"]);
     assert_eq!(content.scripts, ["export default class Example {}"]);
-    assert_eq!(host.reads.available_permits(), 2);
+    assert_eq!(host.reads.available_permits(), 0);
 }
 
 #[tokio::test]
-async fn cancels_while_waiting() {
+async fn cancels_before_reading() {
     let (_directory, host, info) = fixture();
-    let permit = host.reads.clone().acquire_many_owned(2).await.unwrap();
     let stop = CancellationToken::new();
-    let cancellation = stop.clone();
-    let reader = host.clone();
-    let task = tokio::spawn(async move { reader.read_artifact_view(info, stop).await });
-    tokio::task::yield_now().await;
-    cancellation.cancel();
-    let result = tokio::time::timeout(Duration::from_secs(1), task)
-        .await
-        .unwrap();
-    assert_eq!(result.unwrap().unwrap_err().code, ErrorCode::Cancelled);
-    assert_eq!(host.reads.available_permits(), 0);
-    drop(permit);
-    assert_eq!(host.reads.available_permits(), 2);
-}
-
-#[tokio::test(start_paused = true)]
-async fn bounds_capacity_wait() {
-    let (_directory, host, info) = fixture();
-    let permit = host.reads.clone().acquire_many_owned(2).await.unwrap();
-    let start = tokio::time::Instant::now();
+    stop.cancel();
     assert_eq!(
-        host.read_artifact_view(info, CancellationToken::new())
-            .await
-            .unwrap_err()
-            .code,
-        ErrorCode::Busy
+        host.read_artifact_view(info, stop).await.unwrap_err().code,
+        ErrorCode::Cancelled
     );
-    assert_eq!(start.elapsed(), Duration::from_secs(5));
-    assert_eq!(host.reads.available_permits(), 0);
-    drop(permit);
-    assert_eq!(host.reads.available_permits(), 2);
 }

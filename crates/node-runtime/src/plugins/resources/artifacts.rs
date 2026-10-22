@@ -22,12 +22,7 @@ impl Host {
         let _guard = stop.clone().drop_guard();
         let host = self.clone();
         let work = async move {
-            let permit =
-                host.reads.clone().acquire_owned().await.map_err(|_| {
-                    Fault::new(ErrorCode::Busy, "artifact resource capacity exhausted")
-                })?;
             tokio::task::spawn_blocking(move || {
-                let _permit = permit;
                 let directory = host.resolve(&info.summary.reference(), stop.clone())?;
                 let mut remaining = MAX_VIEW_BYTES;
                 let mut text = |path: &str| -> Result<String, Fault> {

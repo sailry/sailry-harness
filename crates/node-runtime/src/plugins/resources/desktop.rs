@@ -14,9 +14,7 @@ impl Host {
         let _guard = stop.clone().drop_guard();
         let host = self.clone();
         let work = async move {
-            let permit = host.read_permit(&stop).await?;
             tokio::task::spawn_blocking(move || {
-                let _permit = permit;
                 let package = info.summary.reference();
                 let settings_entry = info
                     .extension
@@ -110,6 +108,7 @@ impl Host {
             .map_err(|_| Fault::new(ErrorCode::Internal, "plugin resource worker failed"))?
         };
         tokio::select! {
+            biased;
             _ = closed.cancelled() => Err(cancelled()),
             result = tokio::time::timeout(Duration::from_secs(5), work) => result
                 .map_err(|_| Fault::new(ErrorCode::Busy, "plugin resource read deadline exceeded"))?,
@@ -141,36 +140,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn waits_for_read_capacity() {
+    async fn ignores_remote_read_capacity() {
         let (_directory, host, info) = fixture();
-        let permit = host.reads.clone().acquire_many_owned(2).await.unwrap();
-        let stop = CancellationToken::new();
-        let mut read = Box::pin(host.read_view(info, Default::default(), stop));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), &mut read)
-                .await
-                .is_err()
-        );
-        drop(permit);
-        assert!(read.await.unwrap().valid());
+        let _permit = host.reads.clone().acquire_many_owned(2).await.unwrap();
+        let reads = (0..8)
+            .map(|_| host.read_view(info.clone(), Default::default(), CancellationToken::new()));
+        for result in futures::future::join_all(reads).await {
+            assert!(result.unwrap().valid());
+        }
+        assert_eq!(host.reads.available_permits(), 0);
     }
 
     #[tokio::test]
-    async fn cancels_queued_reads() {
+    async fn cancels_before_reading() {
         let (_directory, host, info) = fixture();
-        let permit = host.reads.clone().acquire_many_owned(2).await.unwrap();
         let stop = CancellationToken::new();
-        let mut read = Box::pin(host.read_view(info, Default::default(), stop.clone()));
-        assert!(
-            tokio::time::timeout(Duration::from_millis(20), &mut read)
-                .await
-                .is_err()
-        );
         stop.cancel();
-        assert_eq!(read.await.unwrap_err().code, ErrorCode::Cancelled);
-        assert_eq!(host.reads.available_permits(), 0);
-        drop(permit);
-        assert_eq!(host.reads.available_permits(), 2);
+        assert_eq!(
+            host.read_view(info, Default::default(), stop)
+                .await
+                .unwrap_err()
+                .code,
+            ErrorCode::Cancelled
+        );
     }
 
     #[test]

@@ -322,19 +322,11 @@ impl Host {
         reference: sailry_protocol::plugin::Reference,
         stop: sailry_link::CancellationToken,
     ) -> Result<sailry_protocol::plugin::mcp::Configuration, Fault> {
-        let permit = self
-            .reads
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| Fault::new(ErrorCode::Busy, "plugin resource workers are busy"))?;
         let closed = stop;
         let stop = closed.child_token();
         let _guard = stop.clone().drop_guard();
         let host = self.clone();
-        let worker = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            host.mcp_configuration(&reference, stop)
-        });
+        let worker = tokio::task::spawn_blocking(move || host.mcp_configuration(&reference, stop));
         tokio::select! {
             _ = closed.cancelled() => Err(cancelled()),
             result = tokio::time::timeout(std::time::Duration::from_secs(5), worker) => result
