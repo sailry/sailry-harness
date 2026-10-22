@@ -31,7 +31,6 @@ impl Rows {
         let owner = self.owner.clone();
         div()
             .id(("directory-table-row", index.unwrap_or(usize::MAX)))
-            .bg(cx.theme().background)
             .when(
                 index.is_some_and(|index| self.selected.contains(&index)),
                 |row| row.bg(cx.theme().list_active),

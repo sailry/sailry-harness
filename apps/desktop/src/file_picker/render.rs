@@ -71,7 +71,7 @@ impl Render for Picker {
                                     .id("directory-content")
                                     .debug_selector(|| "directory-list".into())
                                     .relative()
-                                    .p_3()
+                                    .px_3()
                                     .track_focus(&self.focus)
                                     .flex_1()
                                     .min_h_0()
@@ -90,7 +90,7 @@ impl Render for Picker {
                                             } else {
                                                 DataTable::new(&self.table)
                                                     .bordered(false)
-                                                    .stripe(true)
+                                                    .stripe(false)
                                                     .with_size(gpui_kit::component::Size::Size(px(
                                                         28.,
                                                     )))
