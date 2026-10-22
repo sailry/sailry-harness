@@ -1,6 +1,7 @@
 use super::*;
 
 mod compaction;
+mod observations;
 pub(in crate::store) mod report;
 
 // Expressions match the covering index; summaries do not materialize message bodies.
@@ -40,6 +41,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
     let budget = compaction::budget(db, session)?;
     let last_compaction = compaction::latest(db, session)?;
     let first_token_us = observation.as_ref().and_then(|value| value.first_token_us);
+    let observations = observations::read(db, session)?;
     db.query_row(TOTALS, [session.to_string()], |row| {
         let responses = row.get::<_, i64>(0)? as u64;
         let usage = if responses > 0 {
@@ -53,6 +55,7 @@ pub(super) fn read(db: &Connection, session: SessionId) -> Result<Statistics, Fa
             None
         };
         Ok(Statistics {
+            observations: observations.clone(),
             turns: turns as u64,
             responses,
             usage,

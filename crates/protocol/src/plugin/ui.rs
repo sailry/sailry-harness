@@ -15,6 +15,7 @@ pub const METRIC_WIDTH: std::ops::RangeInclusive<u16> = 240..=480;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Slot {
+    Header,
     Composer,
     Model,
     Context,
@@ -112,6 +113,16 @@ pub struct Contribution {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(range(min = 240, max = 480))]
     pub width: Option<u16>,
+    /// Optional hover opening with click-to-hold, using the host Kit popover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hover: Option<Hover>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Hover {
+    pub open_ms: u16,
+    pub close_ms: u16,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -237,14 +248,26 @@ impl Contribution {
             && self.intent.as_deref().is_none_or(identifier)
             && (self.intent.is_none() || matches!(self.kind, Kind::Button | Kind::Popover))
             && (self.kind != Kind::Popover
-                || matches!(self.slot, Slot::Composer | Slot::Context | Slot::Status))
+                || matches!(
+                    self.slot,
+                    Slot::Composer | Slot::Context | Slot::Status | Slot::Header
+                ))
             && self.label.valid()
             && icon(&self.icon)
             && (self.slot != Slot::Status || matches!(self.kind, Kind::Button | Kind::Popover))
             && (self.slot != Slot::Commands || self.command.is_some())
-            && self
-                .width
-                .is_none_or(|width| self.kind == Kind::Metric && METRIC_WIDTH.contains(&width))
+            && self.width.is_none_or(|width| {
+                (self.kind == Kind::Metric
+                    || self.kind == Kind::Popover && self.slot == Slot::Header)
+                    && METRIC_WIDTH.contains(&width)
+            })
+            && self.hover.as_ref().is_none_or(|hover| {
+                self.kind == Kind::Popover
+                    && self.slot == Slot::Header
+                    && hover.open_ms <= 2000
+                    && hover.close_ms <= 2000
+            })
+            && (self.slot != Slot::Header || matches!(self.kind, Kind::Button | Kind::Popover))
             && self.command.as_ref().is_none_or(|command| {
                 command_name(&command.name)
                     && ![

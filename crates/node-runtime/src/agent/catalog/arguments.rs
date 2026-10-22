@@ -27,13 +27,24 @@ pub(super) struct Validated {
     fields: BTreeSet<String>,
     session: String,
     stop: CancellationToken,
+    timeline: Option<Arc<crate::agent::observation::Timeline>>,
 }
 
 impl Validated {
+    #[cfg(test)]
     pub(super) fn bind(
         tool: Arc<dyn Tool>,
         session: String,
         stop: CancellationToken,
+    ) -> Result<Arc<dyn Tool>, Fault> {
+        Self::observed(tool, session, stop, None)
+    }
+
+    pub(super) fn observed(
+        tool: Arc<dyn Tool>,
+        session: String,
+        stop: CancellationToken,
+        timeline: Option<Arc<crate::agent::observation::Timeline>>,
     ) -> Result<Arc<dyn Tool>, Fault> {
         let schema = tool.parameters_schema();
         let validator = schema
@@ -56,6 +67,7 @@ impl Validated {
             fields,
             session,
             stop,
+            timeline,
         }))
     }
 
@@ -225,6 +237,16 @@ impl Tool for Validated {
         if let Some(error) = self.invalid(&arguments) {
             return Ok(json!({"isError":true,"error":error}));
         }
-        self.tool.execute(context, arguments).await
+        match &self.timeline {
+            Some(timeline) => {
+                timeline
+                    .tool(
+                        self.tool.is_agent_delegation(),
+                        self.tool.execute(context, arguments),
+                    )
+                    .await
+            }
+            None => self.tool.execute(context, arguments).await,
+        }
     }
 }

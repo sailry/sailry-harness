@@ -235,11 +235,28 @@ pub(super) async fn send(
     let request = request.build().map_err(Failure::Network)?;
     for attempt in 0..=retries {
         let sent = request.try_clone().ok_or_else(invalid)?;
+        let observed = adk_core::model_observation::Attempt::start(
+            adk_core::model_observation::Transport::Http,
+            None,
+        );
+        observed.prepared(sent.body().and_then(reqwest::Body::as_bytes));
         let result = tokio::select! {
             biased;
-            _ = stop.cancelled() => return Err(cancelled().into()),
+            _ = stop.cancelled() => {
+                observed.finish(adk_core::model_observation::Outcome::Cancelled);
+                return Err(cancelled().into());
+            },
             response = client.execute(sent) => response,
         };
+        match &result {
+            Ok(response) => {
+                observed.headers(response.status().as_u16(), None);
+                if !response.status().is_success() {
+                    observed.finish(adk_core::model_observation::Outcome::Failed);
+                }
+            }
+            Err(_) => observed.finish(adk_core::model_observation::Outcome::Failed),
+        }
         let retry = match &result {
             Ok(response) => response.status().is_server_error(),
             Err(error) => !error.is_builder(),

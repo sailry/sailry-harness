@@ -305,3 +305,22 @@ fn provider_metrics_require_scoped_public_identity() {
     entry.handler = Some("run".into());
     assert!(!entry.valid());
 }
+
+#[test]
+fn header_supports_scoped_hover_panels() {
+    let mut entry = contribution(Slot::Header, Kind::Popover);
+    entry.width = Some(480);
+    entry.hover = Some(Hover {
+        open_ms: 120,
+        close_ms: 230,
+    });
+    assert!(entry.valid());
+    entry.slot = Slot::Composer;
+    assert!(!entry.valid());
+    entry.slot = Slot::Header;
+    entry.kind = Kind::Button;
+    assert!(!entry.valid());
+    entry.kind = Kind::Popover;
+    entry.hover.as_mut().unwrap().close_ms = 2001;
+    assert!(!entry.valid());
+}

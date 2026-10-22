@@ -7,6 +7,7 @@ mod features;
 pub(super) mod history;
 mod hosted;
 mod opencode;
+pub(super) mod observation;
 pub(super) mod plugin;
 mod reasoning;
 pub(crate) mod registry;

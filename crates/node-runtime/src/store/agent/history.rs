@@ -99,6 +99,32 @@ pub(super) fn insert(
         &mut event,
         previous.as_ref().map(|(_, body)| body.as_slice()),
     )?;
+    if let Some(value) = event.provider_metadata.get("sailry_model_observation") {
+        let mut request: sailry_protocol::conversation::observation::Request =
+            serde_json::from_str(value).map_err(storage_error)?;
+        let first: Option<String> = db.query_row(
+            "SELECT json_extract(e.body,'$.event_metadata.sailry_model_observation') FROM conversation_events h
+             JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1
+             AND json_extract(json_extract(e.body,'$.event_metadata.sailry_model_observation'),'$.id')=?2 ORDER BY h.sequence LIMIT 1",
+            params![session.to_string(), request.id], |row| row.get(0),
+        ).optional().map_err(storage_error)?;
+        request.boundary = if let Some(first) = first {
+            serde_json::from_str::<sailry_protocol::conversation::observation::Request>(&first)
+                .map_err(storage_error)?
+                .boundary
+        } else {
+            db.query_row(
+                "SELECT max(sequence) FROM conversation_events WHERE session=?1",
+                [session.to_string()],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?
+        };
+        event.provider_metadata.insert(
+            "sailry_model_observation".into(),
+            serde_json::to_string(&request).map_err(storage_error)?,
+        );
+    }
     let body = encode(&event)?;
     if body.len() > MAX_FRAME_BYTES {
         return Err(Fault::invalid("event exceeds the history frame limit"));

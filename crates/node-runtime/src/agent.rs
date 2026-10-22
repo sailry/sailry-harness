@@ -14,6 +14,7 @@ mod guidance;
 mod mcp;
 pub(crate) mod media;
 pub(crate) mod model;
+pub(crate) mod observation;
 pub(crate) use model::plugin::{
     discover as discover_plugin_models, discover_authorized as discover_authorized_models,
 };
@@ -106,6 +107,7 @@ async fn run(
 ) -> Result<(Status, Option<String>), Fault> {
     let controls = &ingress.agents;
     let turn = invocation.turn.id;
+    controls.start_timing(turn);
     let diagnostics = Diagnostics::new(turn);
     let _turn = diagnostics.span(Phase::Turn, None);
     let session = invocation.turn.session;
@@ -160,6 +162,28 @@ async fn run(
         let operations = diagnostics.enabled().then(|| controls.operations(turn));
         let _drain = diagnostics.span(Phase::OperationDrain, operations);
         controls.drain(turn).await;
+    }
+    // ADK can stop polling immediately after a terminal chunk or cancel a stream.
+    // Its scope guard has finalized observations before this existing cleanup owner runs.
+    for capture in controls.take_observations(turn) {
+        if let Err(error) = model::observation::Capture::persist(&capture, ingress, session).await {
+            merge_failure(&mut result, model::error(&error));
+        }
+    }
+    if let Some(timeline) = controls.timeline(turn) {
+        let mut event = adk_core::Event::new(turn.to_string());
+        event.author = "system".into();
+        event.provider_metadata.insert(
+            "sailry_execution_phases".into(),
+            serde_json::to_string(&timeline.summary()).expect("execution phases serialize"),
+        );
+        if let Err(error) = ingress
+            .sessions(turn)
+            .append_event(&session.to_string(), event)
+            .await
+        {
+            merge_failure(&mut result, model::error(&error));
+        }
     }
     let (status, error, output) = if controls.stopped.is_cancelled() {
         (
@@ -404,6 +428,11 @@ async fn execute_with(
     if !personal.is_empty() {
         instruction.push_str("\n\n");
         instruction.push_str(&personal);
+        ingress.agents.context_source(
+            invocation.turn.id,
+            sailry_protocol::conversation::observation::CategoryKind::Injected,
+            &personal,
+        );
     }
     if let Some(role) = invocation
         .child
@@ -414,6 +443,11 @@ async fn execute_with(
         instruction.push_str(&role.instructions);
         for skill in &role.skills {
             let text = resources.read(skill, "SKILL.md").await?;
+            ingress.agents.context_source(
+                invocation.turn.id,
+                sailry_protocol::conversation::observation::CategoryKind::Skills,
+                &text.content,
+            );
             instruction.push_str(&format!(
                 "\n\nSelected skill {skill}\nDirectory: {}\n{}",
                 text.directory, text.content
@@ -446,11 +480,21 @@ async fn execute_with(
         {
             instruction.push_str("\n\n");
             instruction.push_str(&captured.text);
+            ingress.agents.context_source(
+                invocation.turn.id,
+                sailry_protocol::conversation::observation::CategoryKind::Injected,
+                &captured.text,
+            );
         }
     }
     if !extensions.instruction.is_empty() {
         instruction.push_str("\n\n");
         instruction.push_str(&extensions.instruction);
+        ingress.agents.context_source(
+            invocation.turn.id,
+            sailry_protocol::conversation::observation::CategoryKind::Injected,
+            &extensions.instruction,
+        );
     }
     instruction.push_str(
         &references::capabilities::instruction(&invocation, &resources, &extensions.tools).await?,
@@ -481,7 +525,11 @@ async fn execute_with(
         &extensions.tools,
         stop.clone(),
     );
-    let mut catalog = catalog::Catalog::new(invocation.turn.session.to_string(), stop.clone());
+    let mut catalog = catalog::Catalog::new(
+        invocation.turn.session.to_string(),
+        stop.clone(),
+        ingress.agents.timeline(invocation.turn.id),
+    );
     let bindings = approval::bindings(&invocation, &extensions.tools)?;
     let mut agent = adk_agent::LlmAgentBuilder::new("assistant")
         .model(model.clone())

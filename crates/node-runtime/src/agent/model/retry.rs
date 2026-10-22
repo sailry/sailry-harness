@@ -56,19 +56,73 @@ impl Llm for Model {
         let limit = self.limit;
         let persistent = self.persistent;
         let (mut output, responses) = mpsc::channel(0);
+        let capture = turn.map(|turn| {
+            let capture = observation::Capture::new(
+                turn,
+                inner.name().into(),
+                ingress.agents.timeline(turn),
+                ingress.agents.sources(turn),
+            );
+            ingress.agents.observe_model(turn, capture.clone());
+            capture
+        });
         let producer = async move {
             let mut budget = budget::Budget::default();
             let committed = AtomicBool::new(false);
             let published = AtomicBool::new(false);
             let result = loop {
+                if capture.as_ref().is_some_and(|value| {
+                    value
+                        .lock()
+                        .unwrap_or_else(|poison| poison.into_inner())
+                        .empty()
+                }) {
+                    if let Some(capture) = &capture {
+                        if let Err(error) =
+                            observation::Capture::persist(capture, &ingress, session).await
+                        {
+                            break Err(error);
+                        }
+                    }
+                }
+                let observer = capture.as_ref().map(observation::Capture::observer);
+                let request_attempt = attempt(
+                    inner.as_ref(),
+                    request.clone(),
+                    stream,
+                    &committed,
+                    &published,
+                    output.clone(),
+                    capture.clone(),
+                );
+                let observed = async {
+                    match observer {
+                        Some(observer) => {
+                            adk_core::model_observation::scope(observer, request_attempt).await
+                        }
+                        None => request_attempt.await,
+                    }
+                };
                 let result = tokio::select! {
                     biased;
                     _ = stop.cancelled() => Err(cancelled()),
-                    result = attempt(inner.as_ref(), request.clone(), stream, &committed,
-                        &published, output.clone()) => result,
+                    result = observed => result,
                 };
-                let Err(error) = result else {
-                    break Ok(());
+                if let Some(capture) = &capture {
+                    if let Err(error) =
+                        observation::Capture::persist(capture, &ingress, session).await
+                    {
+                        break Err(error);
+                    }
+                }
+                let error = match result {
+                    Ok(terminal) => {
+                        if let Some(response) = terminal {
+                            let _ = output.send(Ok(response)).await;
+                        }
+                        break Ok(());
+                    }
+                    Err(error) => error,
                 };
                 if stop.is_cancelled() || committed.load(Ordering::Relaxed) {
                     break Err(error);
@@ -157,6 +211,9 @@ impl Llm for Model {
                 // Server advice keeps its original deadline. Codex starts local
                 // backoff after the recovery notification has been delivered.
                 let at = delay.map_or(at, |delay| tokio::time::Instant::now() + delay);
+                let _waiting = turn
+                    .and_then(|turn| ingress.agents.timeline(turn))
+                    .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
                 tokio::select! {
                     biased;
                     _ = stop.cancelled() => break Err(cancelled()),
@@ -182,12 +239,19 @@ async fn attempt(
     committed: &AtomicBool,
     published: &AtomicBool,
     mut output: mpsc::Sender<adk_core::Result<LlmResponse>>,
-) -> adk_core::Result<()> {
+    capture: Option<Arc<std::sync::Mutex<observation::Capture>>>,
+) -> adk_core::Result<Option<LlmResponse>> {
     let recovering = published.load(Ordering::Relaxed);
     let mut responses = model.generate_content(request, stream).await?;
     let mut content = None::<Content>;
     while let Some(response) = responses.next().await {
         let mut response = response?;
+        if let Some(capture) = &capture {
+            capture
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner())
+                .response(&response);
+        }
         if response.partial
             && response.content.is_none()
             && response.usage_metadata.is_none()
@@ -230,12 +294,12 @@ async fn attempt(
         if !response.partial {
             committed.store(true, Ordering::Relaxed);
         }
-        let complete = response.turn_complete;
+        // Finalize and durably record the scope before ADK can drop this stream.
+        if response.turn_complete {
+            return Ok(Some(response));
+        }
         output.send(Ok(response)).await.map_err(|_| cancelled())?;
         published.store(true, Ordering::Relaxed);
-        if complete {
-            return Ok(());
-        }
     }
     if stream && !committed.load(Ordering::Relaxed) {
         return Err(AdkError::new(
@@ -245,7 +309,7 @@ async fn attempt(
             "model response ended before a complete response was received",
         ));
     }
-    Ok(())
+    Ok(None)
 }
 
 fn interrupted(error: AdkError) -> AdkError {

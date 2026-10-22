@@ -84,6 +84,10 @@ fn counts_reported_usage_once() {
             turns: 1,
             responses: 0,
             usage: None,
+            observations: sailry_protocol::conversation::observation::Summary {
+                replies: 1,
+                ..Default::default()
+            },
             ..Default::default()
         }
     );
@@ -95,6 +99,12 @@ fn counts_reported_usage_once() {
         Statistics {
             turns: 3,
             responses: 3,
+            observations: sailry_protocol::conversation::observation::Summary {
+                replies: 3,
+                cache_read: Some(6),
+                reasoning: Some(3),
+                ..Default::default()
+            },
             usage: Some(Usage {
                 input: 2 * i32::MAX as u64,
                 output: 8,

@@ -26,6 +26,7 @@ struct Call {
     parent: ToolConfirmationRequest,
     stop: CancellationToken,
     waiting: watch::Sender<usize>,
+    timing_owner: Option<u64>,
 }
 
 pub(super) struct Active<'a> {
@@ -63,6 +64,7 @@ impl Handler {
             parent,
             stop: stop.child_token(),
             waiting,
+            timing_owner: crate::agent::observation::owner(),
         });
         *self.active.lock().unwrap() = Some(call.clone());
         Active {
@@ -237,7 +239,7 @@ impl ClientHandler for Handler {
             biased;
             _ = call.stop.cancelled() => Ok(ElicitResult::new(ElicitationAction::Cancel)),
             _ = context.ct.cancelled() => Ok(ElicitResult::new(ElicitationAction::Cancel)),
-            result = work => result,
+            result = crate::agent::observation::owned(call.timing_owner, work) => result,
         }
     }
 }

@@ -1080,6 +1080,17 @@
             "null"
           ]
         },
+        "hover": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hover"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional hover opening with click-to-hold, using the host Kit popover."
+        },
         "icon": {
           "type": [
             "string",
@@ -1985,6 +1996,28 @@
       "required": [
         "request",
         "ok"
+      ],
+      "type": "object"
+    },
+    "Hover": {
+      "additionalProperties": false,
+      "properties": {
+        "close_ms": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "open_ms": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "open_ms",
+        "close_ms"
       ],
       "type": "object"
     },
@@ -3335,6 +3368,7 @@
     },
     "Slot": {
       "enum": [
+        "header",
         "composer",
         "model",
         "context",

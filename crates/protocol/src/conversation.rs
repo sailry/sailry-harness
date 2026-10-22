@@ -9,6 +9,7 @@ pub mod discovery;
 pub mod features;
 pub mod login;
 pub mod oauth;
+pub mod observation;
 pub mod presets;
 pub mod progress;
 pub mod question;
@@ -409,6 +410,9 @@ pub struct Usage {
 /// Statistics for all visible canonical history, independent of loaded pages.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Statistics {
+    /// Safe request observations and canonical execution counters.
+    #[serde(default)]
+    pub observations: observation::Summary,
     /// Turns with at least one committed event; unsent queue items are excluded.
     pub turns: u64,
     /// Canonical responses that reported usage, not HTTP attempts or estimated billing.

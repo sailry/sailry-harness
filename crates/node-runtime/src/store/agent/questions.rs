@@ -17,6 +17,10 @@ impl Ingress {
         request: ToolConfirmationRequest,
     ) -> Result<Response, Fault> {
         let (reply, response) = oneshot::channel();
+        let _waiting = self
+            .agents
+            .timeline(turn)
+            .map(|timeline| timeline.span(crate::agent::observation::Phase::Excluded));
         self.sender
             .send(Job::Agent(Box::new(Operation::Ask {
                 turn,
