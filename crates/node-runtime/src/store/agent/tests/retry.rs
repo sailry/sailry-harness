@@ -89,3 +89,67 @@ fn retains_persistent_and_fallback_records() {
     assert_eq!(values, notices);
     assert_eq!(page.entries, fixture.read(None, 100).page.entries);
 }
+
+#[test]
+fn telemetry_preserves_visible_events() {
+    let fixture = fixture::Fixture::new();
+    let mut event = AdkEvent::new("telemetry-fixture");
+    event.author = "system".into();
+    event
+        .provider_metadata
+        .insert("sailry_model_observation".into(), "{}".into());
+    let pure = serde_json::to_value(event).unwrap();
+    let visible = |body: &serde_json::Value| -> bool {
+        fixture
+            .database
+            .connection
+            .query_row(
+                &format!(
+                    "SELECT {} FROM (SELECT ?1 AS body) e",
+                    history::VISIBLE_EVENT
+                ),
+                [serde_json::to_string(body).unwrap()],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert!(!visible(&pure));
+    for (field, value) in [
+        ("state_delta", serde_json::json!({"state":true})),
+        ("artifact_delta", serde_json::json!({"file":1})),
+        ("tool_confirmation", serde_json::json!({"id":"tool"})),
+        (
+            "tool_confirmation_decision",
+            serde_json::json!({"id":"tool"}),
+        ),
+        ("transfer_to_agent", serde_json::json!("child")),
+        ("escalate", serde_json::json!(true)),
+        ("route", serde_json::json!(["child"])),
+        ("workflow_positions", serde_json::json!({"step":1})),
+    ] {
+        let mut mixed = pure.clone();
+        mixed["actions"][field] = value;
+        assert!(visible(&mixed), "action {field} remains visible");
+    }
+    for (field, value) in [
+        (
+            "usage_metadata",
+            serde_json::json!({"prompt_token_count":1}),
+        ),
+        ("error_message", serde_json::json!("failure")),
+        ("content", serde_json::json!({"role":"model","parts":[]})),
+    ] {
+        let mut mixed = pure.clone();
+        mixed[field] = value;
+        assert!(visible(&mixed), "response {field} remains visible");
+    }
+    let mut retry = pure.clone();
+    retry["event_metadata"]["sailry_retry"] = "{}".into();
+    assert!(visible(&retry));
+    let mut missing = pure;
+    missing["actions"]
+        .as_object_mut()
+        .unwrap()
+        .remove("state_delta");
+    assert!(visible(&missing));
+}

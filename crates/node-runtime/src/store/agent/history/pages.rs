@@ -75,8 +75,8 @@ pub(in crate::store) fn read(
     let starts: BTreeMap<TurnId, u64> = {
         let mut query = db
             .prepare(
-                "SELECT e.turn,MIN(e.sequence) FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn
-             WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) GROUP BY e.turn",
+                &format!("SELECT e.turn,MIN(e.sequence) FROM agent_events e JOIN conversation_turns h ON h.turn=e.turn
+             WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND {VISIBLE_EVENT} GROUP BY e.turn"),
             )
             .map_err(storage_error)?;
         query
@@ -163,9 +163,9 @@ fn entries(
 ) -> Result<(Vec<Entry>, bool), Fault> {
     let mut query = db
         .prepare(
-            "SELECT e.sequence,e.turn,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
+            &format!("SELECT e.sequence,e.turn,e.body FROM conversation_events h JOIN agent_events e ON e.sequence=h.sequence
          WHERE h.session=?1 AND e.turn IN (SELECT value FROM json_each(?2)) AND h.sequence<?3
-         ORDER BY h.sequence DESC LIMIT ?4",
+         AND {VISIBLE_EVENT} ORDER BY h.sequence DESC LIMIT ?4"),
         )
         .map_err(storage_error)?;
     let rows = query

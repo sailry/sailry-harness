@@ -7,8 +7,10 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use std::collections::HashMap;
 
-pub(super) const HISTORY_QUERY: &str = "SELECT e.body FROM conversation_events h
-    JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 ORDER BY h.sequence DESC LIMIT ?2";
+pub(super) fn history_query() -> String {
+    format!("SELECT e.body FROM conversation_events h
+    JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND {} ORDER BY h.sequence DESC LIMIT ?2", history::VISIBLE_EVENT)
+}
 pub(crate) const INPUT_TURN: &str = "sailry.context.input_turn";
 pub(crate) const INPUT_SOURCE: &str = "sailry.context.input_source";
 pub(crate) const INPUT_PART: &str = "sailry.context.input_part";
@@ -363,15 +365,15 @@ pub(super) fn get(
     } else {
         None
     };
-    let context_query = "SELECT e.body FROM conversation_events h
+    let sql = if summary.is_some() {
+        format!("SELECT e.body FROM conversation_events h
         JOIN agent_events e ON e.sequence=h.sequence WHERE h.session=?1 AND h.sequence>?3
-        AND json_type(e.body,'$.actions.compaction') IS NULL ORDER BY h.sequence DESC LIMIT ?2";
+        AND json_type(e.body,'$.actions.compaction') IS NULL AND {} ORDER BY h.sequence DESC LIMIT ?2", history::VISIBLE_EVENT)
+    } else {
+        history_query()
+    };
     let mut query = db
-        .prepare(if summary.is_some() {
-            context_query
-        } else {
-            HISTORY_QUERY
-        })
+        .prepare(&sql)
         .map_err(|error| adk_error(storage_error(error)))?;
     let session_key = session.to_string();
     let boundary = summary.as_ref().map_or(0, |(sequence, _)| *sequence);

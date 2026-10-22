@@ -76,6 +76,7 @@ async fn finalizes_terminal_and_cancelled_streams() {
                     Status::Completed
                 }
             );
+            assert!(page.entries.iter().all(|entry| !entry.parts.is_empty()));
             let stats = statistics(&client, session.id).await;
             let observations = &stats.observations;
             assert_eq!(observations.calls, 1);
@@ -112,6 +113,13 @@ async fn finalizes_terminal_and_cancelled_streams() {
             loop {
                 projection.apply(0, updates.next().await.unwrap()).unwrap();
                 if let Some(snapshot) = projection.snapshot() {
+                    assert!(
+                        snapshot
+                            .page
+                            .entries
+                            .iter()
+                            .all(|entry| !entry.parts.is_empty())
+                    );
                     assert_eq!(snapshot.statistics.observations, *observations);
                     break;
                 }

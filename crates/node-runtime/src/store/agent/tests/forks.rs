@@ -287,8 +287,8 @@ fn paginates_inherited_turns() {
             .unwrap(),
         210
     );
-    for sql in [history::EVENTS_QUERY, sessions::HISTORY_QUERY] {
-        let mut query = fixture.database.connection.prepare(sql).unwrap();
+    for sql in [history::EVENTS_QUERY.to_owned(), sessions::history_query()] {
+        let mut query = fixture.database.connection.prepare(&sql).unwrap();
         let target = branch.id.to_string();
         let values: Vec<&dyn rusqlite::ToSql> = if query.parameter_count() == 3 {
             vec![&target, &i64::MAX, &20]

@@ -7,6 +7,28 @@ mod credentials;
 mod interrupted;
 pub(super) use interrupted::retain;
 pub(super) mod pages;
+// Canonical telemetry remains available to statistics without consuming chat or prompt pages.
+pub(super) const VISIBLE_EVENT: &str = "NOT coalesce((
+    json_extract(e.body,'$.author')='system'
+    AND json_extract(e.body,'$.content') IS NULL
+    AND json_extract(e.body,'$.usage_metadata') IS NULL
+    AND json_extract(e.body,'$.error_code') IS NULL
+    AND json_extract(e.body,'$.error_message') IS NULL
+    AND json_extract(e.body,'$.turn_complete')=0
+    AND json_extract(e.body,'$.interrupted')=0
+    AND json_extract(e.body,'$.long_running_tool_ids')='[]'
+    AND (json_type(e.body,'$.event_metadata.sailry_model_observation') IS 'text'
+         OR json_type(e.body,'$.event_metadata.sailry_execution_phases') IS 'text')
+    AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.event_metadata') metadata
+        WHERE metadata.key NOT IN ('sailry_model_observation','sailry_execution_phases'))
+    AND json_extract(e.body,'$.actions.state_delta')='{}'
+    AND json_extract(e.body,'$.actions.artifact_delta')='{}'
+    AND NOT EXISTS (SELECT 1 FROM json_each(e.body,'$.actions') action WHERE NOT (
+        action.type='null'
+        OR (action.key IN ('state_delta','artifact_delta','workflow_positions') AND action.value='{}')
+        OR (action.key IN ('skip_summarization','escalate','input_screened') AND action.value=0)
+    ))
+),0)";
 mod web_search;
 
 pub(super) fn append(
@@ -21,6 +43,13 @@ pub(super) fn append(
         let Some(entry) = insert(&transaction, session, turn, event)? else {
             return Ok(());
         };
+        let visible: bool = transaction
+            .query_row(
+                &format!("SELECT {VISIBLE_EVENT} FROM agent_events e WHERE e.sequence=?1"),
+                [i64::try_from(entry.sequence).map_err(storage_error)?],
+                |row| row.get(0),
+            )
+            .map_err(storage_error)?;
         let notice =
             super::super::notifications::system::compaction(&transaction, session, &entry)?;
         let background = super::background::list(&transaction, session)?;
@@ -42,9 +71,11 @@ pub(super) fn append(
         for notice in notices {
             let _ = events.send(notice);
         }
-        database
-            .feeds
-            .publish(database.node, session, Change::Entry(entry));
+        if visible {
+            database
+                .feeds
+                .publish(database.node, session, Change::Entry(entry));
+        }
         database
             .feeds
             .publish(database.node, session, Change::Statistics(statistics));
