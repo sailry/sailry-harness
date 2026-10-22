@@ -609,7 +609,12 @@ async fn summarize(
             return Err(invalid("context summary was not completed"));
         }
         if response.error_code.is_some() || response.error_message.is_some() {
-            return Err(invalid("context summary request failed"));
+            let message = match (response.error_code, response.error_message) {
+                (Some(code), Some(message)) => format!("{code}: {message}"),
+                (Some(message), None) | (None, Some(message)) => message,
+                (None, None) => unreachable!(),
+            };
+            return Err(request_error(adk_core::AdkError::model(message)));
         }
         if response.finish_reason == Some(FinishReason::MaxTokens) {
             return Err(invalid("context summary was truncated"));
@@ -682,12 +687,12 @@ fn request_error(error: adk_core::AdkError) -> adk_core::AdkError {
     let category = error.category;
     let code = error.code;
     let status = error.details.upstream_status_code;
-    let message = match status.filter(|status| (100..=599).contains(status)) {
-        Some(status) => format!("context summary request failed ({category}; HTTP {status})"),
-        None => format!("context summary request failed ({category})"),
-    };
+    // Model adapters have already removed captured credentials. Preserve their
+    // public diagnostic, not the provider metadata or source error chain.
+    let mut cause = model::error(&error);
+    cause.message = failure::diagnostic(&cause.message);
     let safe = adk_core::AdkError::new(component, category, code, "context summary request failed")
-        .with_source(Fault::new(ErrorCode::Unavailable, message));
+        .with_source(cause);
     match status {
         Some(status) => safe.with_upstream_status(status),
         None => safe,

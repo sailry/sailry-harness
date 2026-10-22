@@ -32,7 +32,7 @@ pub async fn respond_usage(
     let summary = is_summary(body);
     if summary && let Some(status) = failure_status {
         let body =
-            json!({"error":{"message":PRIVATE_SENTINEL,"type":"server_error","code":"fixture"}})
+            json!({"error":{"message":"Summary service unavailable","type":"server_error","code":"fixture"}, "request":PRIVATE_SENTINEL})
                 .to_string();
         stream.write_all(format!("HTTP/1.1 {status} Error\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await?;
         return stream.shutdown().await;

@@ -277,6 +277,7 @@ fn recovers_compaction_failures_without_duplicates() {
                 reason: Reason::RateLimited,
                 continued: source == Source::Automatic,
                 status: Some(429),
+                cause: Some("Rate limit reached".into()),
             }
             .resource(),
         )];
@@ -355,6 +356,7 @@ fn keeps_failures_visible_after_guidance() {
             reason: Reason::HistoryMismatch,
             continued: true,
             status: None,
+            cause: None,
         }
         .resource(),
     )];

@@ -189,6 +189,7 @@ mod tests {
             reason: Reason::RequestFailed,
             continued: true,
             status: None,
+            cause: None,
         };
         for (author, value, expected) in [
             ("system", "invalid".to_owned(), false),

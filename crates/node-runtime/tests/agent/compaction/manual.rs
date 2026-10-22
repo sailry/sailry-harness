@@ -243,6 +243,18 @@ async fn preserves_failed_context() {
         assert_eq!(value["failure"]["source"], "manual");
         assert_eq!(value["failure"]["stage"], "request");
         assert_eq!(value["failure"]["reason"], "service_rejected");
+        assert!(
+            value["failure"]["cause"]
+                .as_str()
+                .unwrap()
+                .contains("Summary service unavailable")
+        );
+        assert!(
+            !value["failure"]["cause"]
+                .as_str()
+                .unwrap()
+                .contains(agent_support::compaction::PRIVATE_SENTINEL)
+        );
         assert_eq!(value["failure"]["continued"], false);
         let snapshot = super::super::configuration::snapshot(&fixture.client).await;
         assert!(

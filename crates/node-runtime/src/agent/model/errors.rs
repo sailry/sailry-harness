@@ -46,7 +46,19 @@ impl Llm for Model {
 }
 
 fn protect(response: LlmResponseStream, secrets: Vec<Secret>) -> LlmResponseStream {
-    Box::pin(response.map(move |result| result.map_err(|error| redact(error, &secrets))))
+    Box::pin(response.map(move |result| {
+        result
+            .map(|mut response| {
+                if let Some(message) = &mut response.error_message {
+                    *message = safe(message, &secrets, 8192);
+                }
+                if let Some(code) = &mut response.error_code {
+                    *code = safe(code, &secrets, 256);
+                }
+                response
+            })
+            .map_err(|error| redact(error, &secrets))
+    }))
 }
 
 fn redact(mut error: AdkError, secrets: &[Secret]) -> AdkError {

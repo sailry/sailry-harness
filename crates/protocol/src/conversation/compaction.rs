@@ -39,7 +39,7 @@ pub enum Reason {
     PersistenceFailed,
 }
 
-/// Contains only stable classifications, never model input or upstream error bodies.
+/// Contains classifications and a bounded, credential-redacted diagnostic.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Failure {
@@ -48,6 +48,8 @@ pub struct Failure {
     pub reason: Reason,
     pub continued: bool,
     pub status: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cause: Option<String>,
 }
 
 impl Failure {
@@ -90,4 +92,23 @@ pub struct Record {
 pub enum Outcome {
     Succeeded,
     Failed(Failure),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preserves_optional_failure_cause() {
+        let mut value = serde_json::json!({
+            "type": "compaction_failure",
+            "failure": {"source":"manual", "stage":"request", "reason":"rate_limited",
+                "continued":false, "status":429}
+        });
+        assert_eq!(Failure::from_resource(&value).unwrap().cause, None);
+        value["failure"]["cause"] = "Request rate exceeded".into();
+        let failure = Failure::from_resource(&value).unwrap();
+        assert_eq!(failure.cause.as_deref(), Some("Request rate exceeded"));
+        assert_eq!(failure.resource(), value);
+    }
 }

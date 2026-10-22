@@ -164,3 +164,47 @@ fn preserves_provider_codes_without_business_policy() {
         assert_eq!(error.message, "Upstream generation failed");
     }
 }
+
+#[test]
+fn protects_persisted_compaction_cause() {
+    use sailry_protocol::conversation::compaction::{Failure, Reason, Source, Stage};
+    let mut error = upstream();
+    error.message = format!("Summary rejected; Bearer {KEY}");
+    error
+        .details
+        .metadata
+        .insert("body".into(), json!("private response and prompt"));
+    let error = redact(error, &[Secret::new(KEY.into())]);
+    let failure = Failure {
+        source: Source::Manual,
+        stage: Stage::Request,
+        reason: Reason::ServiceRejected,
+        continued: false,
+        status: Some(400),
+        cause: Some(super::super::error(error).message),
+    };
+    let value = failure.resource().to_string();
+    assert!(value.contains("Summary rejected; Bearer [redacted]"));
+    assert!(!value.contains(KEY));
+    assert!(!value.contains("private response and prompt"));
+}
+
+#[tokio::test]
+async fn protects_response_error_fields() {
+    let response = adk_core::LlmResponse {
+        error_code: Some(format!("failure_{KEY}")),
+        error_message: Some(format!("Summary rejected; Bearer {KEY}")),
+        ..Default::default()
+    };
+    let stream = Box::pin(futures::stream::iter([Ok(response)]));
+    let response = protect(stream, vec![Secret::new(KEY.into())])
+        .next()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.error_code.as_deref(), Some("failure_[redacted]"));
+    assert_eq!(
+        response.error_message.as_deref(),
+        Some("Summary rejected; Bearer [redacted]")
+    );
+}

@@ -110,6 +110,7 @@ fn locates_maintenance_beyond_loaded_history() {
         reason: Reason::TruncatedSummary,
         continued: true,
         status: None,
+        cause: None,
     };
     let mut event = AdkEvent::new("failure-fixture");
     event.author = "system".into();

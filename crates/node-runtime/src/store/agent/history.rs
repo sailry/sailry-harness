@@ -418,7 +418,7 @@ pub(crate) fn project(
                     return Err(sailry_protocol::Fault::invalid("invalid operation warning metadata"));
                 }
                 use sailry_protocol::conversation::compaction::{Failure, Reason, Source, Stage};
-                Ok(Part::Resource(Failure { source: Source::Automatic, stage: Stage::Unknown, reason: Reason::Unknown, continued: true, status: None }.resource()))
+                Ok(Part::Resource(Failure { source: Source::Automatic, stage: Stage::Unknown, reason: Reason::Unknown, continued: true, status: None, cause: None }.resource()))
             }))
             .chain(event.provider_metadata.get("sailry_retry").map(|value| {
                 let retry: sailry_protocol::conversation::recovery::Retry = serde_json::from_str(value).map_err(storage_error)?;

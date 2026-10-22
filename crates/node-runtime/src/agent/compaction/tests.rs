@@ -249,7 +249,7 @@ async fn rejects_invalid_summaries() {
     let mut truncated = complete("Summary");
     truncated.finish_reason = Some(FinishReason::MaxTokens);
     let mut failed = complete("Summary");
-    failed.error_message = Some("private diagnostic".into());
+    failed.error_message = Some("Summary rejected by the provider".into());
     for (responses, rejected) in [
         (vec![complete("")], false),
         (vec![complete(&"x".repeat(16000))], false),
@@ -275,7 +275,7 @@ async fn rejects_invalid_summaries() {
         let fault = model::error(error);
         assert!(!fault.message.contains("private"));
         if rejected {
-            assert!(!fault.message.contains(DIAGNOSTIC));
+            assert!(fault.message.contains(DIAGNOSTIC));
             assert!(fault.message.contains("rate_limited"));
             assert!(fault.message.contains("HTTP 429"));
         }
@@ -318,9 +318,13 @@ fn retains_safe_request_diagnostics() {
         )
     );
     let fault = model::error(error);
-    assert!(fault.message.contains("context summary request failed"));
+    assert!(
+        fault
+            .message
+            .contains("model.openai_responses.rate_limited")
+    );
     assert!(fault.message.contains("HTTP 429"));
-    assert!(!fault.message.contains(DIAGNOSTIC));
+    assert!(fault.message.contains(DIAGNOSTIC));
     assert!(!fault.message.contains("private"));
 }
 
@@ -839,4 +843,22 @@ mod commentary {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn preserves_response_error_details() {
+    let mut response = complete("Summary");
+    response.error_code = Some("content_policy".into());
+    response.error_message = Some("Summary rejected by the provider".into());
+    let (summarizer, _) = summarizer(vec![response], false);
+    let error = summarizer.summarize_events(&history()).await.unwrap_err();
+    assert_eq!(
+        failure::classify(&error).0,
+        sailry_protocol::conversation::compaction::Stage::Request
+    );
+    assert!(
+        model::error(error)
+            .message
+            .contains("content_policy: Summary rejected by the provider")
+    );
 }

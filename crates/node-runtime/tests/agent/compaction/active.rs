@@ -184,6 +184,18 @@ async fn preserves_context_on_failure() {
                                     assert_eq!(value["failure"]["source"], "automatic");
                                     assert_eq!(value["failure"]["stage"], "request");
                                     assert_eq!(value["failure"]["reason"], "service_rejected");
+                                    assert!(
+                                        value["failure"]["cause"]
+                                            .as_str()
+                                            .unwrap()
+                                            .contains("Summary service unavailable")
+                                    );
+                                    assert!(
+                                        !value["failure"]["cause"]
+                                            .as_str()
+                                            .unwrap()
+                                            .contains(agent_support::compaction::PRIVATE_SENTINEL)
+                                    );
                                     assert_eq!(value["failure"]["status"], 501);
 
                                     warnings.push(entry.id.clone());
